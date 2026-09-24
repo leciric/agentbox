@@ -1,0 +1,34 @@
+# Fails a pull request when any of its commits lacks a Signed-off-by trailer
+# matching that commit's author, as the DCO (DCO.md) requires.
+name: DCO
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Check Signed-off-by
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          status=0
+          for commit in $(git rev-list "$base..$head"); do
+            author="$(git show -s --format='%an <%ae>' "$commit")"
+            message="$(git show -s --format='%B' "$commit")"
+            if ! grep -qF "Signed-off-by: $author" <<<"$message"; then
+              echo "::error::commit $commit is missing 'Signed-off-by: $author' (see DCO.md)"
+              status=1
+            fi
+          done
+          exit "$status"

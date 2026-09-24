@@ -1,0 +1,114 @@
+# Maintainer: AgentBox
+#
+# Built from this checkout, not a release tarball: run makepkg from this
+# directory, after bumping pkgver to match desktop/package.json.
+#
+#   cd packaging/aur && makepkg -si
+#
+# The desktop app is electron-builder's unpacked output with its own Electron,
+# so the package is large but has no relationship to Arch's `electron`.
+
+pkgname=agentbox
+pkgver=0.9.0
+pkgrel=1
+pkgdesc='Isolated machines for AI coding agents'
+arch=('x86_64')
+url='https://github.com/leciric/agentbox'
+license=('LicenseRef-FSL-1.1-ALv2')
+depends=(
+  'alsa-lib'
+  'at-spi2-atk'
+  'at-spi2-core'
+  'cairo'
+  'dbus'
+  'expat'
+  'glib2'
+  'gtk3'
+  'libcups'
+  'libdrm'
+  'libx11'
+  'libxcb'
+  'libxcomposite'
+  'libxdamage'
+  'libxext'
+  'libxfixes'
+  'libxkbcommon'
+  'libxrandr'
+  'libxss'
+  'libxtst'
+  'mesa'
+  'nspr'
+  'nss'
+  'pango'
+  'systemd-libs'
+  'xdg-utils'
+)
+optdepends=(
+  'libnotify: desktop notifications'
+  'libsecret: an encrypted keyring for saved secrets'
+)
+makedepends=('mise')
+source=()
+sha256sums=()
+
+_repo="$(realpath "$(dirname "${BASH_SOURCE[0]}")/../..")"
+
+prepare() {
+  set -o pipefail
+  rm -rf "$srcdir/agentbox"
+  mkdir -p "$srcdir/agentbox"
+  # The working tree, less everything a build regenerates and less makepkg's
+  # own src/pkg when they sit here (which they do by default): copying a
+  # directory into itself is an error, and this is where that would happen.
+  bsdtar -C "$_repo" \
+    --exclude='./.git' \
+    --exclude='./node_modules' \
+    --exclude='./bin' \
+    --exclude='./desktop/out' \
+    --exclude='./desktop/dist' \
+    --exclude='./packaging/aur/src' \
+    --exclude='./packaging/aur/pkg' \
+    -cf - . | bsdtar -C "$srcdir/agentbox" -xf -
+}
+
+build() {
+  cd "$srcdir/agentbox"
+  export MISE_TRUSTED_CONFIG_PATHS="$srcdir/agentbox"
+  export MISE_YES=1
+  mise install go node
+
+  local have
+  have=$(mise exec -- node -p "require('./desktop/package.json').version")
+  [ "$have" = "$pkgver" ] || error "desktop/package.json is $have, but PKGBUILD says $pkgver"
+
+  local ldflags="-s -w -X agentbox/internal/cli.version=$pkgver -X agentbox/internal/daemon.Version=$pkgver"
+  mise exec -- go build -trimpath -ldflags "$ldflags" -o bin/agentbox ./cmd/agentbox
+
+  mise exec -- npm --prefix desktop ci
+  mise exec -- npm --prefix desktop run build
+  # The unpacked app, not the AppImage: it lands in /usr/lib/agentbox-desktop
+  # below, plus the command-line tool electron-builder puts in resources/bin
+  # that the app finds but the wrapper overrides.
+  ( cd desktop && mise exec -- npx electron-builder --linux dir --publish never )
+}
+
+package() {
+  cd "$srcdir/agentbox"
+
+  install -Dm755 bin/agentbox "$pkgdir/usr/bin/agentbox"
+  install -Dm755 packaging/aur/agentbox-desktop.sh "$pkgdir/usr/bin/agentbox-desktop"
+
+  install -d "$pkgdir/usr/lib"
+  cp -a desktop/dist/linux-unpacked "$pkgdir/usr/lib/agentbox-desktop"
+  # The setuid sandbox helper, for machines where unprivileged user namespaces
+  # are off. electron-builder leaves it 0755, and an AppImage can't carry the bit.
+  chmod 4755 "$pkgdir/usr/lib/agentbox-desktop/chrome-sandbox"
+
+  install -Dm644 packaging/aur/agentbox-desktop.desktop \
+    "$pkgdir/usr/share/applications/agentbox-desktop.desktop"
+  install -Dm644 desktop/build/icon.png \
+    "$pkgdir/usr/share/icons/hicolor/512x512/apps/agentbox-desktop.png"
+  install -Dm644 desktop/build/icon.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/agentbox-desktop.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "hello-stack",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "test": "mkdir -p test-results && node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=test-results/junit.xml 'test/*.test.mjs' && node scripts/test-report.mjs"
+  }
+}

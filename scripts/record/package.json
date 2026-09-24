@@ -1,0 +1,9 @@
+{
+  "name": "agentbox-record",
+  "private": true,
+  "type": "module",
+  "description": "Records terminal demos and UI screenshots/videos for the evidence docs",
+  "dependencies": {
+    "playwright": "latest"
+  }
+}

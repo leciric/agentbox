@@ -1,0 +1,186 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to release, such as v0.7.1. It has to match the version in desktop/package.json.
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # main, never the branch the workflow was started from: a release is a
+      # commit that landed. fetch-depth 0 brings the tags, to see whether this
+      # one already exists.
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check the tag
+        run: |
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::$TAG doesn't look like a release tag (v<major>.<minor>.<patch>)"; exit 1 ;;
+          esac
+          head=$(git rev-parse HEAD)
+          if at=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}"); then
+            if [ "$at" != "$head" ]; then
+              echo "::error::$TAG is already at $at, and main is at $head. A tag that was published doesn't move: land a new version and release that instead."
+              exit 1
+            fi
+            echo "$TAG already exists, at main's head."
+          fi
+          echo "Releasing $TAG from main at $head."
+
+      # Go and Node come from mise.toml, so a release is built on the versions
+      # the repository names.
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: go node
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: release-npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: release-npm-${{ runner.os }}-
+
+      # bsdtar, which electron-builder prefers for unpacking the Electron
+      # distribution and warns about when it's missing. It brings its own 7z and
+      # AppImage runtime, and nothing here launches the AppImage. Wine is for the
+      # Windows installer: electron-builder runs the 32-bit NSIS installer it
+      # makes to get the uninstaller out of it, so it needs wine32 too.
+      - name: Install what electron-builder wants
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libarchive-tools wine wine32:i386 wine64
+
+      - run: npm --prefix desktop ci
+
+      # The same checks and the same build as scripts/release.sh: the notes
+      # exist and have no TODO, the tag matches desktop/package.json, the
+      # version isn't released yet, and the built tool reports the version.
+      - name: Build and check the release
+        run: scripts/release-build.sh --tag "$TAG"
+
+      - name: Tag the commit that was built
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null; then
+            echo "$TAG is already there."
+            exit 0
+          fi
+          git tag "$TAG" "$(git rev-parse HEAD)"
+          git push origin "refs/tags/$TAG"
+
+      # Published by the publish job, once the Mac app is built too: a Mac build
+      # that fails leaves nothing published, and running the workflow again
+      # finds the tag on this commit and carries on.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: desktop/dist/release/${{ inputs.tag }}/
+          if-no-files-found: error
+
+  # The Mac app, built on a Mac (electron-builder makes .dmg files only there),
+  # for Apple silicon and Intel, from the tag the job above pushed. It's signed
+  # and notarized when the repository has Apple's credentials as secrets;
+  # without them it's built unsigned, and the README's "On a Mac" says how to
+  # open an unsigned app.
+  macos:
+    name: Mac app
+    needs: release
+    runs-on: macos-15
+    env:
+      TAG: ${{ inputs.tag }}
+      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: go node
+
+      - run: npm --prefix desktop ci
+
+      - name: Build the Mac app
+        run: |
+          if [ -z "$CSC_LINK" ]; then
+            echo "::warning::No signing certificate: building an unsigned app"
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
+          npm --prefix desktop run dist -- --mac --arm64 --x64
+
+      - name: Collect it
+        run: |
+          version=${TAG#v}
+          mkdir -p mac
+          cp desktop/dist/AgentBox-"$version"-mac-*.dmg desktop/dist/AgentBox-"$version"-mac-*.zip mac/
+          cd mac
+          shasum -a 256 * >SHA256SUMS-mac
+          cat SHA256SUMS-mac
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: mac/
+          if-no-files-found: error
+
+  # Everything at once, only when both builds made it.
+  publish:
+    name: Publish
+    needs: [release, macos]
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Publish the release
+        run: |
+          version=${TAG#v}
+          gh release create "$TAG" \
+            --title "AgentBox $version" \
+            --notes-file ".github/releases/$TAG.md" \
+            out/*
+          gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | "  \(.name)  \(.size) bytes")'

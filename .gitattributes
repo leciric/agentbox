@@ -1,0 +1,6 @@
+# AgentBox runs its scripts and templates in Linux (the WSL distro, the agents'
+# containers), and embeds most of them in the binary, so a Windows checkout
+# with core.autocrlf must not turn them into CRLF: sh reads `set -eu\r`.
+* text=auto eol=lf
+*.png binary
+*.ico binary

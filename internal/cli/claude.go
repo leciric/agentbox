@@ -1,0 +1,201 @@
+package cli
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"slices"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"agentbox/internal/api"
+)
+
+// newClaudeAccountCmd shows or picks the Claude Code account a project's agents
+// use. The accounts themselves are stored with `agentbox auth claude`.
+func newClaudeAccountCmd(a *app) *cobra.Command {
+	var clear, allowAll bool
+	var allow, allowAdd, allowRemove []string
+	cmd := &cobra.Command{
+		Use:   "claude-account <project | project/agent> [account]",
+		Short: "Show or pick the Claude Code account a project's agents use",
+		Long: `Without an account, shows which one is used, and where that comes from.
+
+With an account, a project's new agents use it instead of this machine's default;
+naming one agent writes that account's token into the running agent, and Claude
+Code picks it up the next time it starts. --clear goes back to inheriting.
+
+A project can also be limited to some of this machine's accounts: --allow sets
+the list, --allow-add and --allow-remove change it, and --allow-all goes back to
+every account. The project's own account has to stay in the list. Agents that
+already hold an account the list leaves out keep it; the list only refuses new
+choices.
+
+  agentbox claude-account myapp --allow work,client
+  agentbox claude-account myapp work --allow work,client
+
+Accounts are stored with agentbox auth claude.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target := args[0]
+			account := ""
+			if len(args) == 2 {
+				account = args[1]
+			}
+			if clear && account != "" {
+				return fmt.Errorf("--clear and the account %q ask for opposite things: pass one of them", account)
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			set := clear || account != ""
+			changesList := allowAll || cmd.Flags().Changed("allow") || len(allowAdd) > 0 || len(allowRemove) > 0
+			if strings.Contains(target, "/") {
+				if changesList {
+					return fmt.Errorf("the accounts allowed belong to a project, not to one agent: name %s", strings.SplitN(target, "/", 2)[0])
+				}
+				return claudeAccountForAgent(cmd, c, target, account, set)
+			}
+			if allowAll && (cmd.Flags().Changed("allow") || len(allowAdd) > 0 || len(allowRemove) > 0) {
+				return errors.New("--allow-all allows every account: don't combine it with --allow, --allow-add or --allow-remove")
+			}
+			var allowed *[]string
+			if changesList {
+				list, err := allowedAccounts(cmd, c, target, allowAll, cmd.Flags().Changed("allow"), allow, allowAdd, allowRemove)
+				if err != nil {
+					return err
+				}
+				allowed = &list
+			}
+			return claudeAccountForProject(cmd, c, target, account, set, allowed)
+		},
+	}
+	cmd.Flags().BoolVar(&clear, "clear", false, "go back to inheriting: a project falls back to the default account, an agent to its project's")
+	cmd.Flags().StringSliceVar(&allow, "allow", nil, "limit the project's agents to these accounts, comma-separated")
+	cmd.Flags().StringSliceVar(&allowAdd, "allow-add", nil, "add accounts to the project's list")
+	cmd.Flags().StringSliceVar(&allowRemove, "allow-remove", nil, "remove accounts from the project's list")
+	cmd.Flags().BoolVar(&allowAll, "allow-all", false, "let the project's agents use every account again")
+	return cmd
+}
+
+// allowedAccounts works out the project's new list from the --allow flags.
+func allowedAccounts(cmd *cobra.Command, c *api.Client, name string, all, replace bool, allow, add, remove []string) ([]string, error) {
+	if all {
+		return []string{}, nil
+	}
+	list := allow
+	if !replace {
+		p, err := c.Project(cmd.Context(), name)
+		if err != nil {
+			return nil, err
+		}
+		list = p.ClaudeAccounts
+		if len(list) == 0 && len(remove) > 0 {
+			// Every account is allowed, so removing one means listing the rest.
+			auth, err := c.Auth(cmd.Context())
+			if err != nil {
+				return nil, err
+			}
+			for _, acc := range auth.ClaudeAccounts {
+				list = append(list, acc.Name)
+			}
+		}
+	}
+	list = append(slices.Clone(list), add...)
+	list = slices.DeleteFunc(list, func(a string) bool { return slices.Contains(remove, a) })
+	if len(list) == 0 && (len(remove) > 0 || replace) {
+		return nil, errors.New("that leaves the project no Claude Code account at all: use --allow-all to allow every account")
+	}
+	return list, nil
+}
+
+func claudeAccountForProject(cmd *cobra.Command, c *api.Client, name, account string, set bool, allowed *[]string) error {
+	out := cmd.OutOrStdout()
+	p, err := c.Project(cmd.Context(), name)
+	if err != nil {
+		return err
+	}
+	if set || allowed != nil {
+		req := api.UpdateProjectRequest{ClaudeAccounts: allowed}
+		if set {
+			req.ClaudeAccount = &account
+		}
+		if p, err = c.UpdateProject(cmd.Context(), name, req); err != nil {
+			return err
+		}
+		if set {
+			if p.ClaudeAccount == "" {
+				fmt.Fprintf(out, "New agents of %s use this machine's default Claude Code account\n", p.Name)
+			} else {
+				fmt.Fprintf(out, "New agents of %s use the Claude Code account %q\n", p.Name, p.ClaudeAccount)
+			}
+		}
+		if allowed != nil {
+			printAllowed(out, p)
+		}
+		fmt.Fprintln(out, "Agents that already exist keep the account they were created with.")
+		return nil
+	}
+	defer printAllowed(out, p)
+	if p.ClaudeAccount != "" {
+		fmt.Fprintf(out, "%s: new agents use the Claude Code account %q\n", p.Name, p.ClaudeAccount)
+		return nil
+	}
+	def, err := defaultClaudeAccount(cmd, c)
+	if err != nil {
+		return err
+	}
+	if def == "" {
+		fmt.Fprintf(out, "%s: no Claude Code account picked, and none is stored (agentbox auth claude)\n", p.Name)
+		return nil
+	}
+	fmt.Fprintf(out, "%s: new agents use this machine's default Claude Code account, %q\n", p.Name, def)
+	return nil
+}
+
+func claudeAccountForAgent(cmd *cobra.Command, c *api.Client, ref, account string, set bool) error {
+	out := cmd.OutOrStdout()
+	if set {
+		ag, err := c.UpdateAgent(cmd.Context(), ref, api.UpdateAgentRequest{ClaudeAccount: &account})
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "%s now uses the Claude Code account %q\n", ag.Ref, ag.ClaudeAccount)
+		fmt.Fprintln(out, "Claude Code picks the new token up the next time it starts: /exit in its window, then start it again.")
+		return nil
+	}
+	ag, err := c.Agent(cmd.Context(), ref)
+	if err != nil {
+		return err
+	}
+	if ag.ClaudeAccount == "" {
+		fmt.Fprintf(out, "%s runs %s, so it has no Claude Code account\n", ag.Ref, ag.AI)
+		return nil
+	}
+	fmt.Fprintf(out, "%s uses the Claude Code account %q\n", ag.Ref, ag.ClaudeAccount)
+	return nil
+}
+
+func printAllowed(out io.Writer, p api.Project) {
+	if len(p.ClaudeAccounts) == 0 {
+		fmt.Fprintf(out, "%s may use every Claude Code account\n", p.Name)
+		return
+	}
+	fmt.Fprintf(out, "%s may use the Claude Code accounts %s\n", p.Name, strings.Join(p.ClaudeAccounts, ", "))
+}
+
+// defaultClaudeAccount is the account new agents get when nothing else names one.
+func defaultClaudeAccount(cmd *cobra.Command, c *api.Client) (string, error) {
+	auth, err := c.Auth(cmd.Context())
+	if err != nil {
+		return "", err
+	}
+	for _, acc := range auth.ClaudeAccounts {
+		if acc.Default {
+			return acc.Name, nil
+		}
+	}
+	return "", nil
+}

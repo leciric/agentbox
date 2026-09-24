@@ -1,0 +1,99 @@
+name: Bug report
+description: Something in AgentBox is broken, crashes, or doesn't do what its docs say.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One problem per issue, please. Search the existing issues first.
+        **Redact tokens, API keys, email addresses and private paths** from anything you paste.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and didn't find this one.
+          required: true
+        - label: I removed secrets and private details from what I pasted.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of AgentBox is affected?
+      options:
+        - Agents' machines (create, start, snapshots, base image)
+        - Chat (Claude Code, Codex, OpenCode)
+        - Project chat (the lead)
+        - Project memory
+        - Tokens and limits
+        - Browser, desktop or Android emulator
+        - Media
+        - Pull requests and GitHub accounts
+        - Desktop app
+        - Command-line tool or daemon
+        - Setup, host setup or packaging
+        - Remote environments (hub)
+        - Docs
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. agentbox create my-project --title "..."
+        2. Open the agent's Chat tab
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`agentbox --version`, the AppImage's name, or a commit."
+      placeholder: agentbox version 0.15.0
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Distribution, Incus version (`incus version`), and the AI tool involved.
+      placeholder: Debian 13, Incus 6.0, Claude Code
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: The relevant part of `~/.local/share/agentbox/daemon.log`, or the command's output.
+      render: shell
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: Screenshots or recordings
+    validations:
+      required: false

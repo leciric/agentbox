@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup guide
+    url: https://github.com/leciric/agentbox#set-up
+    about: Getting a new machine ready, and what each Settings step needs.

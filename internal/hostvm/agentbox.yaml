@@ -1,0 +1,62 @@
+# AgentBox's Linux machine on this Mac, made by `agentbox vm init`. The whole of
+# AgentBox runs in here: the daemon, Incus and every agent. The Mac runs only
+# the app and the agentbox command, which reach the daemon through the socket
+# Lima forwards below.
+#
+# Regenerated from internal/hostvm/agentbox.yaml when the VM is made; to change
+# the VM's CPUs and memory afterwards, `agentbox vm resize --cpus N --memory 16GiB`.
+minimumLimaVersion: 2.0.0
+base: template:debian-13
+[[- if .VMType]]
+vmType: [[.VMType]]
+[[- end]]
+cpus: [[.CPUs]]
+memory: [[.Memory]]
+disk: [[.Disk]]
+
+# Lima's own containerd (nerdctl) is on by default; AgentBox runs Incus, and
+# Docker inside each agent, and has no use for it.
+containerd:
+  system: false
+  user: false
+
+# The Mac's home directory, writable, at the same path: projects, their .git
+# and the agents' worktrees keep their paths, which AgentBox mounts into each
+# agent at those same paths.
+mountType: virtiofs
+mounts:
+  - location: [[printf "%q" .Home]]
+    writable: true
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eu -o pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      # agentbox host setup installs Incus; the daemon itself needs git, and
+      # the rule below needs nft.
+      if ! command -v git >/dev/null || ! command -v nft >/dev/null; then
+        apt-get update -q
+        apt-get install -y -q git ca-certificates nftables
+      fi
+      # Lima reaches the Mac's own 127.0.0.1 at host.lima.internal (192.168.5.2
+      # with the networking it sets up by default). The VM needs that; agents
+      # don't, and shouldn't see what the Mac serves only to itself. Every
+      # boot, so the rule is there before any agent starts.
+      mac=$(getent ahostsv4 host.lima.internal | awk 'NR == 1 { print $1 }' || true)
+      mac=${mac:-192.168.5.2}
+      nft delete table inet agentbox-host 2>/dev/null || true
+      nft -f - <<EOF
+      table inet agentbox-host {
+        chain forward {
+          type filter hook forward priority -10; policy accept;
+          iifname "incusbr0" ip daddr $mac drop
+        }
+      }
+      EOF
+
+# The daemon's socket, out to where the Mac's app and command look for it.
+portForwards:
+  - guestSocket: "{{.Home}}/.local/share/agentbox/run/agentbox.sock"
+    hostSocket: [[printf "%q" .Socket]]
