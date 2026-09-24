@@ -1,0 +1,103 @@
+# Maintainer: Leandro Ciric <leandro@linting.dev>
+#
+# Installs the released AgentBox desktop app and command-line tool from
+# github.com/leciric/agentbox's GitHub releases: no Go, Node or Electron
+# build here, unlike ../aur, which builds this checkout.
+#
+#   cd packaging/aur-bin && makepkg -si
+#
+# After a release, the two download sums below need updating: run
+# ./update-checksums.sh <version> from this directory, which fetches the
+# release's published SHA256SUMS and fills them in, then regenerates
+# .SRCINFO. `updpkgsums` (pacman-contrib) works too, but downloads and hashes
+# the files itself rather than checking them against what the release
+# published.
+
+pkgname=agentbox-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Isolated machines for AI coding agents (prebuilt binaries)'
+arch=('x86_64')
+url='https://github.com/leciric/agentbox'
+license=('LicenseRef-FSL-1.1-ALv2')
+provides=('agentbox')
+conflicts=('agentbox')
+depends=(
+  'alsa-lib'
+  'at-spi2-atk'
+  'at-spi2-core'
+  'cairo'
+  'dbus'
+  'expat'
+  'glib2'
+  'gtk3'
+  'hicolor-icon-theme'
+  'libcups'
+  'libdrm'
+  'libx11'
+  'libxcb'
+  'libxcomposite'
+  'libxdamage'
+  'libxext'
+  'libxfixes'
+  'libxkbcommon'
+  'libxrandr'
+  'libxss'
+  'libxtst'
+  'mesa'
+  'nspr'
+  'nss'
+  'pango'
+  'systemd-libs'
+  'xdg-utils'
+)
+optdepends=(
+  'libnotify: desktop notifications'
+  'libsecret: an encrypted keyring for saved secrets'
+)
+options=('!strip')
+source=(
+  "AgentBox-$pkgver-$CARCH.AppImage::https://github.com/leciric/agentbox/releases/download/v$pkgver/AgentBox-$pkgver-x86_64.AppImage"
+  "agentbox-$pkgver-linux-amd64::https://github.com/leciric/agentbox/releases/download/v$pkgver/agentbox-$pkgver-linux-amd64"
+  "LICENSE-$pkgver::https://raw.githubusercontent.com/leciric/agentbox/v$pkgver/LICENSE"
+  "agentbox-desktop.desktop"
+  "agentbox-desktop.sh"
+  "agentbox-desktop.png"
+  "agentbox-desktop.svg"
+)
+sha256sums=('SKIP'
+            'SKIP'
+            'SKIP'
+            '669d08f411cad08d0ede8792f834beca9a309a31aff8e0c8dca9207ba5d97cb1'
+            '2a130c5c02043323bad149d8bb5dca8e89aef72e98d908df07ae067feda74d9f'
+            '528add109e7874f10bd135e1fbfd44a80b25d2ccdbab89965503293790b74c9f'
+            'f9d9e8aeafb0ca36fa4ccd270dbab718470ff978d2aa6500bf0286021f4df80d')
+
+prepare() {
+  chmod +x "AgentBox-$pkgver-$CARCH.AppImage"
+  # --appimage-extract needs no FUSE, unlike running the AppImage directly.
+  "./AgentBox-$pkgver-$CARCH.AppImage" --appimage-extract >/dev/null
+}
+
+package() {
+  install -Dm755 "agentbox-$pkgver-linux-amd64" "$pkgdir/usr/bin/agentbox"
+  install -Dm755 agentbox-desktop.sh "$pkgdir/usr/bin/agentbox-desktop"
+
+  install -d "$pkgdir/usr/lib"
+  cp -a squashfs-root "$pkgdir/usr/lib/agentbox-desktop"
+  # AppImage-only scaffolding, not part of the installed app.
+  rm -f "$pkgdir/usr/lib/agentbox-desktop"/AppRun \
+        "$pkgdir/usr/lib/agentbox-desktop"/*.desktop \
+        "$pkgdir/usr/lib/agentbox-desktop"/.DirIcon
+  # The setuid sandbox helper, for machines where unprivileged user namespaces
+  # are off. electron-builder leaves it 0755, and an AppImage can't carry the bit.
+  chmod 4755 "$pkgdir/usr/lib/agentbox-desktop/chrome-sandbox"
+
+  install -Dm644 agentbox-desktop.desktop \
+    "$pkgdir/usr/share/applications/agentbox-desktop.desktop"
+  install -Dm644 agentbox-desktop.png \
+    "$pkgdir/usr/share/icons/hicolor/512x512/apps/agentbox-desktop.png"
+  install -Dm644 agentbox-desktop.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/agentbox-desktop.svg"
+  install -Dm644 "LICENSE-$pkgver" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
