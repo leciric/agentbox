@@ -590,6 +590,7 @@ export interface PullRequest {
   updatedAt?: string;
   baseBranch?: string;
   headBranch?: string;
+  headSha?: string;
   agent?: string;
 }
 

@@ -323,20 +323,14 @@ const MaxTaskGoalLine = 160
 // ptr is a pointer to a value, for the merge patches this package fills in.
 func ptr[T any](v T) *T { return &v }
 
-// agentOfBranch is the name of the project's agent whose branch this is, or
-// "" when nothing made it — a branch merged from outside AgentBox is still
-// worth an event, just not one attributed to an agent.
-func (s *Server) agentOfBranch(ctx context.Context, project, branch string) string {
-	if branch == "" {
-		return ""
-	}
-	agents, err := s.store.Agents(ctx, project)
-	if err != nil {
-		return ""
-	}
-	for _, a := range agents {
-		if a.Branch == branch {
-			return a.Name
+// agentOfCommit is the name of the project's agent whose own commit this is,
+// or "" when none made it — a pull request merged from outside AgentBox is
+// still worth an event, just not one attributed to an agent. A pull request's
+// branch name says nothing: an agent's work is pushed under any name.
+func agentOfCommit(heads []agentHead, sha string) string {
+	for _, h := range heads {
+		if h.owns(sha) {
+			return h.agent
 		}
 	}
 	return ""

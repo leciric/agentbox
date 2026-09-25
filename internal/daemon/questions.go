@@ -399,7 +399,7 @@ func (s *Server) leadWasWaiting(a state.Agent) bool {
 	return waiting
 }
 
-// prFor looks up the pull request of an agent's branch, if any. It answers
+// prFor looks up the agent's pull request, if it has one. It answers
 // quietly with nothing when GitHub isn't configured or the lookup fails: a
 // finish notice shouldn't fail over it.
 func (s *Server) prFor(ctx context.Context, a state.Agent) *api.PullRequest {
@@ -425,17 +425,19 @@ func (s *Server) prFor(ctx context.Context, a state.Agent) *api.PullRequest {
 	}
 	// Read fresh rather than from the pull request cache: an agent that has
 	// just finished may have opened its pull request seconds ago, and the
-	// cache remembers "this branch has none" for longer than that.
-	client := s.gitHub(token)
-	found, err := client.PullRequestFor(ctx, repo, a.Branch)
-	if err != nil {
+	// cache remembers "this agent has none" for longer than that. It is
+	// found by the agent's commits, whatever branch they were pushed to.
+	h := agentHeadOf(p.Root, a)
+	if h.tip == "" {
 		return nil
 	}
-	var out *api.PullRequest
-	if found != nil {
-		out = &api.PullRequest{Number: found.Number, Title: found.Title, State: found.State, URL: found.URL, Draft: found.Draft}
+	l := lookUp(ctx, s.gitHub(token), repo, h)
+	for _, pr := range l.prs {
+		if h.accepts(pr, l.via) {
+			return &api.PullRequest{Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.URL, Draft: pr.Draft}
+		}
 	}
-	return out
+	return nil
 }
 
 // agentFinished is what package chat calls when an agent's turn ends.

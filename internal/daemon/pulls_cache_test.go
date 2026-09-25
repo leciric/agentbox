@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +17,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
+	"agentbox/internal/testutil"
 )
 
 // slowGitHub is a stub GitHub that takes its time over the pull request list,
@@ -26,11 +29,14 @@ type slowGitHub struct {
 	calls map[string]int
 	list  string // the body of the pull request list
 	delay time.Duration
+	// byCommit is the body GitHub answers for the pull requests of a commit;
+	// a commit missing from it was never pushed.
+	byCommit map[string]string
 }
 
 func newSlowGitHub(t *testing.T, d testDaemon, list string, delay time.Duration) *slowGitHub {
 	t.Helper()
-	g := &slowGitHub{calls: map[string]int{}, list: list, delay: delay}
+	g := &slowGitHub{calls: map[string]int{}, list: list, delay: delay, byCommit: map[string]string{}}
 	stub := httptest.NewServer(http.HandlerFunc(g.serve))
 	t.Cleanup(stub.Close)
 	d.setGitHub(t, stub.URL)
@@ -40,24 +46,23 @@ func newSlowGitHub(t *testing.T, d testDaemon, list string, delay time.Duration)
 func (g *slowGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	what, delay, list := r.URL.Path, g.delay, g.list
-	if head := r.URL.Query().Get("head"); head != "" {
-		what += "?head=" + head
-	}
 	g.calls[what]++
+	commit, isCommit := strings.CutPrefix(r.URL.Path, "/repos/acme/hello-stack/commits/")
+	commit, _ = strings.CutSuffix(commit, "/pulls")
+	byCommit, known := g.byCommit[commit]
 	g.mu.Unlock()
 
 	switch {
+	case isCommit && known:
+		w.Write([]byte(byCommit))
+	case isCommit:
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		fmt.Fprintf(w, `{"message":"No commit found for SHA: %s"}`, commit)
 	case strings.HasSuffix(r.URL.Path, "/check-runs"):
 		w.Write([]byte(`{"total_count":0}`))
 	case strings.Contains(r.URL.Path, "/pulls/"):
 		w.Write([]byte(`{"additions":1,"deletions":0,"comments":0}`))
 	case strings.HasSuffix(r.URL.Path, "/pulls"):
-		if r.URL.Query().Get("head") != "" {
-			// The fallback for a branch the list page didn't carry: in these
-			// tests, a branch outside the list has no pull request at all.
-			w.Write([]byte(`[]`))
-			return
-		}
 		time.Sleep(delay)
 		w.Write([]byte(list))
 	default:
@@ -77,15 +82,51 @@ func (g *slowGitHub) setList(list string) {
 	g.list = list
 }
 
-// pullsList is a list page with one pull request per branch given.
+func (g *slowGitHub) setCommit(commit, body string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.byCommit[commit] = body
+}
+
+// pullsList is a list page with one pull request per branch given, whose
+// heads are commits no agent made.
 func pullsList(branches ...string) string {
-	var items []string
+	var heads []listedPR
 	for i, branch := range branches {
+		heads = append(heads, listedPR{10 + i, branch, fmt.Sprintf("sha-%d", i)})
+	}
+	return pullsPage(heads...)
+}
+
+// listedPR is a pull request on a stub list page: its number, the branch it
+// was pushed to, and the commit that branch is at.
+type listedPR struct {
+	number      int
+	branch, sha string
+}
+
+// pullsPage is a list page of these pull requests, most recently updated
+// first.
+func pullsPage(prs ...listedPR) string {
+	var items []string
+	for i, pr := range prs {
 		items = append(items, fmt.Sprintf(
-			`{"number":%d,"title":"Work on %s","state":"open","html_url":"https://github.com/acme/hello-stack/pull/%d","draft":false,"updated_at":"2026-09-1%dT10:00:00Z","base":{"ref":"main"},"head":{"ref":%q,"sha":"sha-%d"}}`,
-			10+i, branch, 10+i, i, branch, i))
+			`{"number":%d,"title":"Work on %s","state":"open","html_url":"https://github.com/acme/hello-stack/pull/%d","draft":false,"updated_at":"2026-09-%02dT10:00:00Z","base":{"ref":"main"},"head":{"ref":%q,"sha":%q}}`,
+			pr.number, pr.branch, pr.number, 28-i, pr.branch, pr.sha))
 	}
 	return "[" + strings.Join(items, ",") + "]"
+}
+
+// commitOn commits a change on an agent's branch, the way the agent would,
+// and returns the commit.
+func commitOn(t *testing.T, a state.Agent, file string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(a.Worktree, file), []byte(file+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, a.Worktree, "add", file)
+	testutil.Git(t, a.Worktree, "commit", "--quiet", "-m", "add "+file)
+	return testutil.Git(t, a.Worktree, "rev-parse", "HEAD")
 }
 
 // testClock makes the pull request cache's idea of now movable, so a test can
@@ -97,7 +138,7 @@ func testClock(d testDaemon) *atomic.Int64 {
 }
 
 // pullsProject sets up a project with a GitHub remote, a token, and agents.
-func pullsProject(t *testing.T, d testDaemon, names ...string) string {
+func pullsProject(t *testing.T, d testDaemon, names ...string) (string, map[string]state.Agent) {
 	t.Helper()
 	ctx := context.Background()
 	repo := d.fixtureRepo(t, "hello-stack")
@@ -105,10 +146,11 @@ func pullsProject(t *testing.T, d testDaemon, names ...string) string {
 		t.Fatal(err)
 	}
 	githubRepoStub(t, d, repo)
+	agents := map[string]state.Agent{}
 	for _, name := range names {
-		addAgent(t, d, repo, "hello-stack", name, "")
+		agents[name] = addAgent(t, d, repo, "hello-stack", name, "")
 	}
-	return repo
+	return repo, agents
 }
 
 // The tab and the fleet are answered from the cache, and GitHub is re-read
@@ -196,13 +238,29 @@ func TestPullRequestRefreshIsSingleFlight(t *testing.T) {
 }
 
 // The fleet used to ask GitHub once per agent branch. It now matches the
-// agents against the one list the cache already holds, and only asks about a
-// branch the list page doesn't carry — once, not on every poll.
+// agents against the one list the cache already holds, and only looks up an
+// agent the list page has nothing for — once, not on every poll. The match is
+// by the agent's commits, never by the branch name: an agent's work is pushed
+// under whatever name suits it (feat/…, fix/…), and an old pull request from
+// a branch whose name is being reused isn't the agent's.
 func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	gh := newSlowGitHub(t, d, pullsList("agentbox/agent-01", "agentbox/agent-02"), 0)
-	pullsProject(t, d, "agent-01", "agent-02", "agent-03")
+	gh := newSlowGitHub(t, d, "[]", 0)
+	_, agents := pullsProject(t, d, "agent-01", "agent-02", "agent-03", "agent-04")
+
+	one := commitOn(t, agents["agent-01"], "one.txt")
+	pushed := commitOn(t, agents["agent-02"], "two.txt")
+	commitOn(t, agents["agent-02"], "two-again.txt") // committed again after its work was pushed
+	three := commitOn(t, agents["agent-03"], "three.txt")
+	// agent-04 hasn't committed anything.
+	gh.setList(pullsPage(
+		listedPR{12, "feat/one-account-per-project", one},
+		listedPR{13, "fix/windows-setup-flicker", pushed},
+		// A pull request from long ago, on a branch of the same name as
+		// agent-03's, and nothing to do with it.
+		listedPR{3, agents["agent-03"].Branch, "0123456789abcdef0123456789abcdef01234567"},
+	))
 
 	pullsOf(t, d, "hello-stack") // wait out the first read
 	fleet, err := d.client.Fleet(context.Background(), "hello-stack")
@@ -213,30 +271,34 @@ func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
 	for _, a := range fleet.Agents {
 		byName[a.Name] = a.PR
 	}
-	if byName["agent-01"] == nil || byName["agent-01"].Number != 10 {
-		t.Errorf("agent-01's pull request = %+v, want #10 from the list", byName["agent-01"])
+	if byName["agent-01"] == nil || byName["agent-01"].Number != 12 {
+		t.Errorf("agent-01's pull request = %+v, want #12, pushed to feat/one-account-per-project", byName["agent-01"])
 	}
-	if byName["agent-02"] == nil || byName["agent-02"].Number != 11 {
-		t.Errorf("agent-02's pull request = %+v, want #11 from the list", byName["agent-02"])
+	if byName["agent-02"] == nil || byName["agent-02"].Number != 13 {
+		t.Errorf("agent-02's pull request = %+v, want #13, which has all but its newest commit", byName["agent-02"])
 	}
 	if byName["agent-03"] != nil {
-		t.Errorf("agent-03 has no pull request, got %+v", byName["agent-03"])
+		t.Errorf("agent-03 has no pull request, got %+v from a branch of the same name", byName["agent-03"])
+	}
+	if byName["agent-04"] != nil {
+		t.Errorf("agent-04 has no commits, so no pull request, got %+v", byName["agent-04"])
 	}
 	if n := gh.count("/repos/acme/hello-stack/pulls"); n != 1 {
-		t.Errorf("the list was read %d times for three agents, want 1", n)
+		t.Errorf("the list was read %d times for four agents, want 1", n)
 	}
-	// Only the branch the list didn't carry was asked about by name.
-	for _, branch := range []string{"agentbox/agent-01", "agentbox/agent-02"} {
-		if n := gh.count("/repos/acme/hello-stack/pulls?head=acme:" + branch); n != 0 {
-			t.Errorf("%s is in the list, but was asked about by name %d times", branch, n)
+	// Only the agent the list had nothing for was looked up, by its commit;
+	// the one without commits has nothing to look up.
+	for _, commit := range []string{one, pushed} {
+		if n := gh.count("/repos/acme/hello-stack/commits/" + commit + "/pulls"); n != 0 {
+			t.Errorf("%s is in the list, but was looked up %d times", commit, n)
 		}
 	}
-	asked := "/repos/acme/hello-stack/pulls?head=acme:agentbox/agent-03"
+	asked := "/repos/acme/hello-stack/commits/" + three + "/pulls"
 	if n := gh.count(asked); n != 1 {
-		t.Errorf("agent-03's branch was asked about %d times, want 1", n)
+		t.Errorf("agent-03's commit was looked up %d times, want 1", n)
 	}
 
-	// Polling again doesn't ask again: "this branch has no pull request" is
+	// Polling again doesn't ask again: "this agent has no pull request" is
 	// remembered, and one opened later arrives in the list itself.
 	for range 3 {
 		if _, err := d.client.Fleet(context.Background(), "hello-stack"); err != nil {
@@ -244,7 +306,96 @@ func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
 		}
 	}
 	if n := gh.count(asked); n != 1 {
-		t.Errorf("three more polls asked about agent-03's branch %d times in total, want 1", n)
+		t.Errorf("three more polls looked agent-03's commit up %d times in total, want 1", n)
+	}
+
+	// A new commit is a new question.
+	four := commitOn(t, agents["agent-03"], "four.txt")
+	d.client.Fleet(context.Background(), "hello-stack")
+	waitFor(t, "a lookup of the new commit", func() bool {
+		return gh.count("/repos/acme/hello-stack/commits/"+four+"/pulls") == 1
+	})
+}
+
+// A pull request the list page doesn't carry — older than the whole page, or
+// one whose branch has moved past the agent's commits because somebody pushed
+// a fix to it from elsewhere — is still found, by asking GitHub which pull
+// requests carry the agent's commits.
+func TestFleetLooksUpAPullRequestByTheAgentsCommits(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	gh := newSlowGitHub(t, d, "[]", 0)
+	_, agents := pullsProject(t, d, "agent-01", "agent-02")
+
+	old := commitOn(t, agents["agent-01"], "old.txt")
+	gh.setCommit(old, `[{"number":4,"title":"Old work","state":"closed","merged_at":"2026-09-02T10:00:00Z","html_url":"https://github.com/acme/hello-stack/pull/4","updated_at":"2026-09-02T10:00:00Z","head":{"ref":"feat/old","sha":"`+old+`"}}]`)
+	// agent-02's newest commit was never pushed, and the branch it went to
+	// has a commit on top that isn't the agent's at all.
+	fixed := commitOn(t, agents["agent-02"], "fixed.txt")
+	commitOn(t, agents["agent-02"], "unpushed.txt")
+	gh.setCommit(fixed, `[{"number":8,"title":"Fixed","state":"open","html_url":"https://github.com/acme/hello-stack/pull/8","updated_at":"2026-09-20T10:00:00Z","head":{"ref":"fix/conflicts","sha":"fedcba9876543210fedcba9876543210fedcba98"}}]`)
+
+	pullsOf(t, d, "hello-stack")
+	var byName map[string]*api.PullRequest
+	waitFor(t, "both agents' pull requests", func() bool {
+		fleet, err := d.client.Fleet(context.Background(), "hello-stack")
+		if err != nil {
+			t.Fatal(err)
+		}
+		byName = map[string]*api.PullRequest{}
+		for _, a := range fleet.Agents {
+			byName[a.Name] = a.PR
+		}
+		return byName["agent-01"] != nil && byName["agent-02"] != nil
+	})
+	if pr := byName["agent-01"]; pr.Number != 4 || pr.State != "merged" {
+		t.Errorf("agent-01's pull request = %+v, want #4, merged", pr)
+	}
+	if pr := byName["agent-02"]; pr.Number != 8 {
+		t.Errorf("agent-02's pull request = %+v, want #8", pr)
+	}
+}
+
+// An agent whose work was merged into its base branch with a merge commit
+// has no commits of its own any more, as far as the base branch goes — but
+// the pull request whose head is exactly where its branch is, is still its.
+// One that merely carries that commit, because the agent only caught up with
+// main, is not.
+func TestAgentHeadsAfterAMerge(t *testing.T) {
+	t.Parallel()
+	testutil.GitEnv(t)
+	repo := testutil.FixtureRepo(t, "hello-stack")
+	base := testutil.Git(t, repo, "rev-parse", "HEAD")
+	testutil.Git(t, repo, "branch", "agentbox/merged", base)
+	testutil.Git(t, repo, "branch", "agentbox/caught-up", base)
+
+	worktree := filepath.Join(t.TempDir(), "merged")
+	testutil.Git(t, repo, "worktree", "add", "--quiet", worktree, "agentbox/merged")
+	merged := commitOn(t, state.Agent{Worktree: worktree}, "merged.txt")
+	testutil.Git(t, repo, "merge", "--quiet", "--no-ff", "-m", "Merge #5", "agentbox/merged")
+	testutil.Git(t, repo, "branch", "-f", "agentbox/caught-up", "main")
+
+	heads := agentHeads(repo, []state.Agent{
+		{Name: "merged", Branch: "agentbox/merged", BaseRef: "main", BaseCommit: base},
+		{Name: "caught-up", Branch: "agentbox/caught-up", BaseRef: "main", BaseCommit: base},
+		{Name: "lead", Role: state.RoleLead, Branch: "main"},
+	})
+	if len(heads) != 2 {
+		t.Fatalf("agentHeads() = %+v, want the two workers", heads)
+	}
+	if h := heads[0]; h.tip != merged || len(h.own) != 0 {
+		t.Errorf("merged agent's head = %+v, want tip %s and nothing of its own", h, merged)
+	}
+	pr5 := api.PullRequest{Number: 5, HeadSHA: merged}
+	if !heads[0].accepts(pr5, merged) {
+		t.Error("the merged agent's own pull request wasn't accepted")
+	}
+	caughtUp := heads[1]
+	if caughtUp.tip == merged || caughtUp.owns(merged) {
+		t.Errorf("caught-up agent's head = %+v: it doesn't own what it caught up with", caughtUp)
+	}
+	if caughtUp.accepts(pr5, caughtUp.tip) {
+		t.Error("an agent that only caught up with main was given a pull request merged into it")
 	}
 }
 
@@ -363,19 +514,22 @@ func TestPullsCacheDropsARefreshAMergeOvertook(t *testing.T) {
 
 // A new agent shouldn't wait out the TTL to find out it has a pull request:
 // a branch the cached answer says nothing about is reason enough to re-read.
-func TestPullsCacheRefreshesForABranchItDoesntKnow(t *testing.T) {
+func TestPullsCacheRefreshesForAnAgentItDoesntKnow(t *testing.T) {
 	t.Parallel()
 	c := newPullsCache()
-	gen, _ := c.claim("acme/x", []string{"agentbox/agent-01"})
+	one := agentHead{agent: "agent-01", tip: "b1", own: []string{"b1", "a1"}}
+	two := agentHead{agent: "agent-02", tip: "b2", own: []string{"b2"}}
+	idle := agentHead{agent: "agent-03"} // no commits: nothing to find
+	gen, _ := c.claim("acme/x", []agentHead{one})
 	c.finish("acme/x", gen, pullsEntry{
-		prs:      []api.PullRequest{{Number: 1, HeadBranch: "agentbox/agent-01"}},
-		branches: map[string]branchPR{},
+		prs:     []api.PullRequest{{Number: 1, HeadBranch: "feat/anything", HeadSHA: "a1"}},
+		lookups: map[string]lookedUp{},
 	})
-	if _, ok := c.claim("acme/x", []string{"agentbox/agent-01"}); ok {
-		t.Error("a branch the list carries was treated as unknown")
+	if _, ok := c.claim("acme/x", []agentHead{one, idle}); ok {
+		t.Error("an agent the list carries was treated as unknown")
 	}
-	if _, ok := c.claim("acme/x", []string{"agentbox/agent-01", "agentbox/agent-02"}); !ok {
-		t.Error("a branch nothing has been read about didn't start a refresh")
+	if _, ok := c.claim("acme/x", []agentHead{one, two}); !ok {
+		t.Error("an agent nothing has been read about didn't start a refresh")
 	}
 }
 
@@ -384,9 +538,10 @@ func TestPullsCacheRefreshesForABranchItDoesntKnow(t *testing.T) {
 func TestPullsCacheDoesNotRetryAFailedListPerRequest(t *testing.T) {
 	t.Parallel()
 	c := newPullsCache()
-	gen, _ := c.claim("acme/x", []string{"agentbox/agent-01"})
+	one := []agentHead{{agent: "agent-01", tip: "b1", own: []string{"b1"}}}
+	gen, _ := c.claim("acme/x", one)
 	c.finish("acme/x", gen, pullsEntry{listErr: newPullsErr(errors.New("GitHub 502"))})
-	if _, ok := c.claim("acme/x", []string{"agentbox/agent-01"}); ok {
+	if _, ok := c.claim("acme/x", one); ok {
 		t.Error("a failed read was retried straight away, once per request")
 	}
 }
