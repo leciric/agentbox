@@ -729,11 +729,20 @@ const (
 
 // Question is an agent asking its project's chat for a decision it can't make
 // alone. The lead answers it, or passes it to the user when it can't.
+//
+// A question can also be a credential request (request_credential, D95):
+// Kind github or secret, which only the user answers, from the app, and whose
+// Answer is what happened ("pushing works now"), never the credential.
 type Question struct {
-	ID       string `json:"id"`
-	Project  string `json:"project"`
-	Agent    string `json:"agent"`
-	Ref      string `json:"ref"`
+	ID      string `json:"id"`
+	Project string `json:"project"`
+	Agent   string `json:"agent"`
+	Ref     string `json:"ref"`
+	// Kind is empty for a decision, or github or secret for a credential.
+	Kind string `json:"kind,omitempty"`
+	// SecretName is the variable a secret request's value goes into.
+	SecretName string `json:"secretName,omitempty"`
+	// Question is what is asked; on a credential request, the agent's reason.
 	Question string `json:"question"`
 	Context  string `json:"context,omitempty"` // what the agent was doing
 	// Status is pending (waiting for the chat), escalated (waiting for you),
@@ -754,6 +763,32 @@ type AskRequest struct {
 
 type AnswerQuestionRequest struct {
 	Answer string `json:"answer"`
+}
+
+// The kinds of credential an agent can ask the user for.
+const (
+	CredentialGitHub = "github"
+	CredentialSecret = "secret"
+)
+
+// CredentialRequest is an agent asking the user for a credential it lacks.
+// The call waits for the answer, which says what happened and never carries
+// the credential.
+type CredentialRequest struct {
+	Kind   string `json:"kind"`           // github or secret
+	Name   string `json:"name,omitempty"` // the variable a secret goes into
+	Reason string `json:"reason"`         // what failed, and what it is for
+}
+
+// AnswerCredentialRequest is the user's answer to a credential request, from
+// the app: a GitHub account (already stored — a new one is saved first, with
+// the same route as agentbox auth github), a secret's value, or a refusal.
+// Exactly one of them.
+type AnswerCredentialRequest struct {
+	GitHubAccount string `json:"githubAccount,omitempty"`
+	Value         string `json:"value,omitempty"`
+	Refuse        bool   `json:"refuse,omitempty"`
+	Reason        string `json:"reason,omitempty"` // why it was refused, for the agent
 }
 
 // EscalateQuestionRequest passes a question to the user.

@@ -14,8 +14,8 @@ import (
 // the command and its arguments as one argv array.
 func TestOpenCodeConfig(t *testing.T) {
 	servers := []mcpServer{
-		{"playwright", "/home/dev/.local/share/mise/shims/playwright-mcp", []string{"--cdp-endpoint", BrowserDevTools}},
-		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}},
+		{"playwright", "/home/dev/.local/share/mise/shims/playwright-mcp", []string{"--cdp-endpoint", BrowserDevTools}, false},
+		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
 	}
 	parse := func(t *testing.T, autonomous bool) map[string]any {
 		t.Helper()

@@ -1,10 +1,13 @@
 package mcp_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/mcp"
 )
@@ -128,5 +131,55 @@ func TestUnknownMethodsAndToolsAreRefusedWithoutEndingTheSession(t *testing.T) {
 	// The session survived all of it.
 	if answers[3]["result"] == nil {
 		t.Errorf("the session ended early: %+v", answers[3])
+	}
+}
+
+// A tool that waits doesn't hold the session up, and hears when its call is
+// given up on: cancelled by the client, or its session over.
+func TestAWaitingCallEndsWhenCancelled(t *testing.T) {
+	ended := make(chan string, 2)
+	s := &mcp.Server{Name: "agentbox", Version: "test", Tools: []mcp.Tool{{
+		Name: "wait",
+		Wait: func(ctx context.Context, args json.RawMessage) (string, error) {
+			<-ctx.Done()
+			ended <- string(args)
+			return "", errors.New("gone")
+		},
+	}}}
+	in, feed := io.Pipe()
+	var out strings.Builder
+	served := make(chan error, 1)
+	go func() { served <- s.Serve(in, &out) }()
+	send := func(line string) {
+		if _, err := io.WriteString(feed, line+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wait","arguments":{"n":1}}}`)
+	send(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"wait","arguments":{"n":2}}}`)
+	send(`{"jsonrpc":"2.0","id":3,"method":"ping"}`) // read while both wait
+	send(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}`)
+	select {
+	case got := <-ended:
+		if got != `{"n":1}` {
+			t.Fatalf("cancelling call 1 ended %s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancelled call went on waiting")
+	}
+	feed.Close()
+	if err := <-served; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-ended:
+		if got != `{"n":2}` {
+			t.Fatalf("the session ending ended %s", got)
+		}
+	default:
+		t.Fatal("a call outlived its session")
+	}
+	if n := strings.Count(out.String(), "\n"); n != 3 {
+		t.Errorf("%d answers, want one for each request:\n%s", n, out.String())
 	}
 }

@@ -9,6 +9,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -22,13 +23,18 @@ const ProtocolVersion = "2024-11-05"
 // Tool is one thing the model can call. Schema is the JSON Schema of its
 // arguments, and Run returns the text the model sees. A tool that answers with
 // something other than text — a screenshot, say — sets RunContent instead, and
-// one of the two must be set.
+// one of the three must be set.
+//
+// A tool that waits — on the user, say — sets Wait instead. Its call runs
+// alongside the others, and its context ends when the client cancels the call
+// or the session ends, so whatever it waits on hears that the call is gone.
 type Tool struct {
 	Name        string
 	Description string
 	Schema      map[string]any
 	Run         func(args json.RawMessage) (string, error)
 	RunContent  func(args json.RawMessage) ([]Content, error)
+	Wait        func(ctx context.Context, args json.RawMessage) (string, error)
 }
 
 // Content is one part of a tool's answer. Text carries text; Image carries a
@@ -56,6 +62,11 @@ type Server struct {
 
 	mu  sync.Mutex
 	out *bufio.Writer
+
+	// calls are the waiting tools' calls still running, by request ID, to be
+	// cancelled when the client says so.
+	calls   map[string]context.CancelFunc
+	pending sync.WaitGroup
 }
 
 type message struct {
@@ -84,6 +95,14 @@ const (
 // tries something else.
 func (s *Server) Serve(in io.Reader, out io.Writer) error {
 	s.out = bufio.NewWriter(out)
+	s.calls = map[string]context.CancelFunc{}
+	// The session is over when the input ends: every call still waiting goes
+	// with it.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() {
+		cancel()
+		s.pending.Wait()
+	}()
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8<<20)
 	for scanner.Scan() {
@@ -98,6 +117,13 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 		}
 		// A notification has no id and takes no answer.
 		if len(msg.ID) == 0 {
+			if msg.Method == "notifications/cancelled" {
+				s.cancelCall(msg.Params)
+			}
+			continue
+		}
+		if t, args, ok := s.waitingTool(msg); ok {
+			s.startCall(ctx, msg.ID, t, args)
 			continue
 		}
 		result, rpcErr := s.handle(msg)
@@ -153,10 +179,80 @@ func (s *Server) handle(msg message) (any, *rpcError) {
 	return nil, &rpcError{Code: codeMethodNotFound, Message: fmt.Sprintf("no method %q", msg.Method)}
 }
 
+// waitingTool is the tool a request calls, if it is one that waits.
+func (s *Server) waitingTool(msg message) (Tool, json.RawMessage, bool) {
+	if msg.Method != "tools/call" {
+		return Tool{}, nil, false
+	}
+	var call struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal(msg.Params, &call) != nil {
+		return Tool{}, nil, false
+	}
+	for _, t := range s.Tools {
+		if t.Name == call.Name && t.Wait != nil {
+			return t, call.Arguments, true
+		}
+	}
+	return Tool{}, nil, false
+}
+
+// startCall runs a waiting tool's call alongside the session, and answers it
+// when it ends.
+func (s *Server) startCall(parent context.Context, id json.RawMessage, t Tool, args json.RawMessage) {
+	ctx, cancel := context.WithCancel(parent)
+	key := string(id)
+	s.mu.Lock()
+	s.calls[key] = cancel
+	s.mu.Unlock()
+	s.pending.Add(1)
+	go func() {
+		defer s.pending.Done()
+		defer func() {
+			s.mu.Lock()
+			delete(s.calls, key)
+			s.mu.Unlock()
+			cancel()
+		}()
+		text, err := t.Wait(ctx, args)
+		if err != nil {
+			s.reply(id, result([]Content{Text(err.Error())}, true), nil)
+			return
+		}
+		s.reply(id, result([]Content{Text(text)}, false), nil)
+	}()
+}
+
+// cancelCall ends a waiting call the client has given up on. The client
+// expects no answer to it, but one that arrives anyway is ignored.
+func (s *Server) cancelCall(params json.RawMessage) {
+	var p struct {
+		RequestID json.RawMessage `json:"requestId"`
+	}
+	if json.Unmarshal(params, &p) != nil || len(p.RequestID) == 0 {
+		return
+	}
+	s.mu.Lock()
+	cancel := s.calls[string(p.RequestID)]
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // run calls whichever of the two shapes the tool was given.
 func (t Tool) run(args json.RawMessage) ([]Content, error) {
 	if t.RunContent != nil {
 		return t.RunContent(args)
+	}
+	if t.Wait != nil {
+		text, err := t.Wait(context.Background(), args)
+		if err != nil {
+			return nil, err
+		}
+		return []Content{Text(text)}, nil
 	}
 	text, err := t.Run(args)
 	if err != nil {

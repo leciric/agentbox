@@ -193,6 +193,9 @@ func (s *Server) leadAnswerQuestion(w http.ResponseWriter, r *http.Request) erro
 	if q.Project != r.PathValue("project") {
 		return fmt.Errorf("question %s: %w", q.ID, state.ErrNotFound)
 	}
+	if q.Credential() {
+		return errOnlyTheUser(q)
+	}
 	answered, err := s.answerQuestion(r.Context(), q.ID, req.Answer, "lead")
 	if err != nil {
 		return err
@@ -212,6 +215,9 @@ func (s *Server) leadEscalateQuestion(w http.ResponseWriter, r *http.Request) er
 	}
 	if q.Project != r.PathValue("project") {
 		return fmt.Errorf("question %s: %w", q.ID, state.ErrNotFound)
+	}
+	if q.Credential() {
+		return errOnlyTheUser(q)
 	}
 	escalated, err := s.store.EscalateQuestion(r.Context(), q.ID, req.Why)
 	if err != nil {
@@ -239,17 +245,35 @@ func (s *Server) answerAsUser(w http.ResponseWriter, r *http.Request) error {
 	if req.Answer == "" {
 		return errors.New("no answer: say what the agent should do")
 	}
-	q, err := s.answerQuestion(r.Context(), r.PathValue("id"), req.Answer, "user")
+	q, err := s.store.Question(r.Context(), r.PathValue("id"))
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, toAPIQuestion(q))
+	if q.Project != r.PathValue("project") {
+		return fmt.Errorf("question %s: %w", q.ID, state.ErrNotFound)
+	}
+	// A credential request is answered with the credential, which a written
+	// answer can't carry: it would be told to the agent as text.
+	if q.Credential() {
+		return fmt.Errorf("%s asks for %s: answer it from its card in the app", q.Ref(), credentialWanted(q))
+	}
+	answered, err := s.answerQuestion(r.Context(), q.ID, req.Answer, "user")
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, toAPIQuestion(answered))
+}
+
+// errOnlyTheUser refuses the lead a credential request: the user answers it,
+// in the app, so that the value never passes through a chat (D95).
+func errOnlyTheUser(q state.Question) error {
+	return fmt.Errorf("%s asked the user for %s, which only the user can answer, in the app: don't ask for the value in chat", q.Ref(), credentialWanted(q))
 }
 
 func toAPIQuestion(q state.Question) api.Question {
 	out := api.Question{
 		ID: q.ID, Project: q.Project, Agent: q.Agent, Ref: q.Ref(),
-		Question: q.Text, Context: q.Context, Status: q.Status,
+		Kind: q.Kind, SecretName: q.SecretName, Question: q.Text, Context: q.Context, Status: q.Status,
 		Answer: q.Answer, AnsweredBy: q.AnsweredBy, Escalation: q.Escalation,
 		CreatedAt: q.CreatedAt,
 	}

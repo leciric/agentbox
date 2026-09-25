@@ -6,6 +6,7 @@ import { api, isProjectChat } from '../../lib/api';
 import { chatKey, fetchThread, isSilent } from '../../lib/chat';
 import { cn, errorMessage } from '../../lib/utils';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { ProjectCredentialCards } from '../CredentialCard';
 import { AIIcon, aiLabel } from '../state';
 import { Button } from '../ui/button';
 import { Notice } from '../ui/card';
@@ -105,6 +106,9 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
           ) : (
             <Timeline agent={agent} thread={thread.data} />
           )}
+          {/* What the project's agents are waiting on you for, at the end of
+              the project's chat where you are: cards, not messages the lead reads. */}
+          {isProjectChat(agent.ref) && !thread.isPending && <ProjectCredentialCards project={agent.ref.split('/')[0]} />}
         </div>
       </div>
 

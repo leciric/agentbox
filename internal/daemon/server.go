@@ -229,6 +229,9 @@ func (s *Server) reconcile(ctx context.Context) {
 	} else if n > 0 {
 		s.logf("marked %d interrupted job(s) as failed", n)
 	}
+	// A credential request waits on its agent's call, and no call outlives
+	// the daemon it was made to (D95).
+	s.cancelCredentialRequests(ctx, "", "", "AgentBox restarted while it waited, which ended the agent's call. The agent asks again if it still needs it.")
 	if projects, err := s.store.Projects(ctx); err == nil {
 		for _, p := range projects {
 			if err := s.serveLeadAPI(p.Name); err != nil {
@@ -340,6 +343,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/agent-events", s.projectAgentEvents)
 	h("GET /v1/projects/{project}/questions", s.projectQuestions)
 	h("POST /v1/projects/{project}/questions/{id}/answer", s.answerAsUser)
+	h("POST /v1/projects/{project}/questions/{id}/credential", s.answerCredential)
 	h("POST /v1/projects/{project}/retire", s.retire)
 	h("GET /v1/projects/{project}/media", s.projectMedia)
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)

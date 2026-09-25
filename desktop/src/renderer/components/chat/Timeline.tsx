@@ -4,6 +4,7 @@ import type * as T from '../../../shared/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { cn } from '../../lib/utils';
 import { aiLabel } from '../state';
+import { ChatCredentialCard } from '../CredentialCard';
 import { Tip } from '../ui/tooltip';
 import { ChangedFiles } from './ChangedFiles';
 import { SentImages } from './Images';
@@ -59,6 +60,8 @@ const TimelineRow = memo(
         return <WorkGroup items={row.items} live={row.live} root={root} />;
       case 'subagent':
         return <SubagentCard item={row.item} children={row.children} root={root} />;
+      case 'credential':
+        return <ChatCredentialCard agentRef={chatRef} />;
       case 'fold':
         return (
           <div className="mb-3 border-b border-line pb-2 pt-1">
@@ -119,6 +122,7 @@ function sameRow(a: Row, b: Row): boolean {
   switch (a.type) {
     case 'user':
     case 'note':
+    case 'credential':
       return a.item === (b as typeof a).item;
     case 'assistant':
       return a.item === (b as typeof a).item && a.final === (b as typeof a).final;

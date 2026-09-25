@@ -11,6 +11,10 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?folded=1               the rail folded to 56px (default: open)
 //   ?open=agent-99          the named agent's thread open (ref suffix only)
+//   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
+//                           credential request
+//   ?chat=lead              the project's chat, with the credential requests
+//                           its agents are waiting on at its end
 //   ?vm=create|lima         a Mac's first screen in the middle: the VM to set up,
 //                           or Lima to install first
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
@@ -24,6 +28,7 @@ import '../styles.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
+import type * as T from '../../shared/api';
 import { Toaster } from 'sonner';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
@@ -32,7 +37,10 @@ import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { VMSize } from '../components/VMSize';
-import { buildFixtures, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
+import { ChatTab } from '../components/chat/ChatTab';
+import { Timeline } from '../components/chat/Timeline';
+import { leadAgentFrom } from '../components/ProjectChatPanel';
+import { agent12Chat, buildFixtures, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -43,8 +51,12 @@ const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's da
 const vm = params.get('vm');
 const accounts = params.get('accounts') === '1';
 
+const chat = params.get('chat');
+const fixtures = buildFixtures();
+const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
+
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
-seedQueryClient(queryClient, buildFixtures());
+seedQueryClient(queryClient, fixtures);
 
 const view: View = { kind: 'project', project: PROJECT };
 
@@ -76,7 +88,20 @@ function Preview() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)', color: 'var(--color-zinc-600)', padding: 24, font: '13px var(--font-sans)' }}>
-        {vm === 'resize' ? (
+        {chat === 'lead' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <ChatTab
+              agent={leadAgentFrom(fixtures.projects.find((p) => p.name === PROJECT)!, { ref: `${PROJECT}/lead`, started: true } as T.ProjectChat)}
+              starting={false}
+              autoStart={false}
+              onStart={() => {}}
+            />
+          </div>
+        ) : chatAgent ? (
+          <div className="mx-auto max-w-3xl px-2 pt-2">
+            <Timeline agent={chatAgent} thread={agent12Chat()} />
+          </div>
+        ) : vm === 'resize' ? (
           <div style={{ maxWidth: 720 }}>
             <VMSize
               busy={false}
