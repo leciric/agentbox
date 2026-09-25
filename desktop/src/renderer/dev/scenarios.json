@@ -1,29 +1,15 @@
 [
   {
     "id": "pr-agent-dark",
-    "description": "Stack trace in a code block, long PR title, PR badge \u2014 dark, xl width (312px rail)",
+    "description": "agent-99 open, its row active: a long title, a long branch and a PR badge \u2014 dark, xl width (312px rail)",
     "query": "open=agent-99&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
-    "id": "question-agent-dark",
-    "description": "Compressed JSON payload, escalation URL and a long context path in a question \u2014 dark, xl width",
-    "query": "open=agent-98&theme=dark",
-    "width": 1280,
-    "height": 900
-  },
-  {
-    "id": "longpath-agent-dark",
-    "description": "Code block, inline code, a markdown link and a long path in a summary \u2014 dark, xl width",
-    "query": "open=agent-97&theme=dark",
-    "width": 1280,
-    "height": 900
-  },
-  {
-    "id": "longpath-agent-below-xl-dark",
-    "description": "Same as longpath-agent-dark, below the xl breakpoint (268px rail)",
-    "query": "open=agent-97&theme=dark",
+    "id": "pr-agent-below-xl-dark",
+    "description": "Same as pr-agent-dark, below the xl breakpoint (268px rail), where the branch still shows",
+    "query": "open=agent-99&theme=dark",
     "width": 1100,
     "height": 900
   },
@@ -82,34 +68,6 @@
     "query": "vm=resize&theme=light",
     "width": 1280,
     "height": 900
-  },
-  {
-    "id": "credential-github-dark",
-    "description": "A GitHub credential request: pick an account, log in another, or refuse \u2014 dark, xl width",
-    "query": "open=agent-94&theme=dark",
-    "width": 1280,
-    "height": 900
-  },
-  {
-    "id": "credential-secret-dark",
-    "description": "A secret credential request with a long variable name \u2014 dark, xl width",
-    "query": "open=agent-95&theme=dark",
-    "width": 1280,
-    "height": 900
-  },
-  {
-    "id": "credential-github-below-xl-light",
-    "description": "The GitHub credential request below the xl breakpoint (268px rail), light",
-    "query": "open=agent-94&theme=light",
-    "width": 1100,
-    "height": 900
-  },
-  {
-    "id": "credential-agent-12-dark",
-    "description": "agent-12 as it really stood: a GitHub request after a task and two long finishes, thread opened \u2014 dark, 1280x800",
-    "query": "open=agent-12&theme=dark",
-    "width": 1280,
-    "height": 800
   },
   {
     "id": "credential-agent-12-chat-dark",

@@ -151,12 +151,11 @@ export const api = {
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
 
-  // What a project's agents reported, newest first, and the questions behind
-  // the asked ones — the two halves of the project chat's agent threads.
+  // What a project's agents reported, newest first, which the rail reads for
+  // when each last did; and the questions they asked, which the avatars and
+  // the credential cards read.
   agentEvents: (name: string) => call<T.AgentEvent[]>('GET', `${project(name)}/agent-events`),
   questions: (name: string) => call<T.Question[]>('GET', `${project(name)}/questions?all=1`),
-  answerQuestion: (name: string, id: string, answer: string) =>
-    call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/answer`, { answer } satisfies T.AnswerQuestionRequest),
   // An agent's credential request: the value goes to the daemon, which puts it
   // into the agent, and the agent is told only what happened (D95).
   answerCredential: (name: string, id: string, req: T.AnswerCredentialRequest) =>

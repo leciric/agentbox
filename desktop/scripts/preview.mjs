@@ -113,7 +113,6 @@ async function capture(baseUrl, outDir) {
     for (const s of scenarios) {
       const page = await browser.newPage({ viewport: { width: s.width, height: s.height }, reducedMotion: s.reducedMotion ?? 'no-preference' });
       await page.goto(`${baseUrl}/dev/preview.html?${s.query}`, { waitUntil: 'networkidle' });
-      if (s.query.includes('open=')) await page.waitForSelector('[data-thread]', { timeout: 3_000 }).catch(() => {});
       // A scenario can hover an element, to show its tooltip.
       if (s.hover) {
         await page.hover(s.hover, { timeout: 3_000 }).catch(() => {});

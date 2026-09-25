@@ -10,7 +10,7 @@
 // person and scripts/preview.mjs can go straight to:
 //   ?theme=light            the light appearance (default: dark)
 //   ?folded=1               the rail folded to 56px (default: open)
-//   ?open=agent-99          the named agent's thread open (ref suffix only)
+//   ?open=agent-99          the named agent open, its row active (ref suffix only)
 //   ?finished=1             the rail's Finished section open (default: closed,
 //                           unless ?open names an agent in it)
 //   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
@@ -87,7 +87,7 @@ const params = new URLSearchParams(location.search);
 document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
-const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's data-rail-thread
+const openAgent = params.get('open'); // e.g. "agent-99"
 const vm = params.get('vm');
 const wsl = params.get('wsl');
 const accounts = params.get('accounts') === '1';
@@ -170,7 +170,7 @@ if (usage) {
   ] satisfies T.ClaudeLimit[]);
 }
 
-const view: View = { kind: 'project', project: PROJECT };
+const view: View = openAgent ? { kind: 'agent', ref: `${PROJECT}/${openAgent}` } : { kind: 'project', project: PROJECT };
 
 // UsagePreview stands the top bar up once per kind of view, so each one's
 // meter can be compared, and hovered for its tooltip.
@@ -237,15 +237,7 @@ function AvatarTransition() {
 }
 
 function Preview() {
-  // Opening a thread is state AgentRail keeps to itself (there's no prop for
-  // it, on purpose — nothing outside a click needs it), so the URL drives it
-  // by clicking the same chevron a person would, once the row exists.
-  useEffect(() => {
-    if (!openAgent) return;
-    document.querySelector<HTMLButtonElement>(`[data-rail-thread="${PROJECT}/${openAgent}"]`)?.click();
-  }, []);
-
-  // The limits editor opens on a click, like the rail's threads.
+  // The limits editor opens on a click.
   useEffect(() => {
     if (!resources) return;
     document.querySelector<HTMLButtonElement>('[data-preview-limits] button')?.click();

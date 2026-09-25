@@ -72,7 +72,7 @@ export function connectEvents(queryClient: QueryClient): void {
       }
       case T.EventAgentEvent: {
         // One of a project's agents reported something. It goes at the head of
-        // that project's list, which is what the chat's agent threads read.
+        // that project's list, which the rail reads for when each last did.
         const agentEvent = event.data as T.AgentEvent;
         queryClient.setQueryData<T.AgentEvent[]>(['agentEvents', agentEvent.project], (events) =>
           events ? [agentEvent, ...events.filter((e) => e.id !== agentEvent.id)] : events,
@@ -80,8 +80,8 @@ export function connectEvents(queryClient: QueryClient): void {
         break;
       }
       case T.EventQuestion: {
-        // A question was asked, escalated or answered. The thread that shows it
-        // reads the question itself, so it can offer to answer one still waiting.
+        // A question was asked, escalated or answered: the avatars wave while
+        // one waits on you, and the credential cards show what it came to.
         const question = event.data as T.Question;
         void queryClient.invalidateQueries({ queryKey: ['questions', question.project] });
         break;
