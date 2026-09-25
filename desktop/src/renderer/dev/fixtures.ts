@@ -44,9 +44,9 @@ const agent12Task = `In desktop/src/renderer/components/Sidebar.tsx, add a "+" b
 
 const agent12Done = `The code change is done: a Plus "New project" button in the Sidebar's Projects header calls onAddProject, next to "New section", whose icon is now FolderTree so the two don't both read as "add". Checked with \`npx tsc --noEmit\` and the preview harness, before and after screenshots in /tmp/pr-shots/.
 
-Pushing failed: origin is git@github.com:leciric/agentbox-private.git, SSH host key verification fails for github.com from this machine, and the GH_TOKEN here (luisflorido-stf) can't see the repository over HTTPS ("Repository not found"), so there's no branch on GitHub and no pull request yet.`;
+Pushing failed: origin is git@github.com:leciric/agentbox-hub.git, SSH host key verification fails for github.com from this machine, and the GH_TOKEN here (leciric-work) can't see the repository over HTTPS ("Repository not found"), so there's no branch on GitHub and no pull request yet.`;
 
-const agent12Stuck = `I don't have a request_credential tool: the memory server here lists search_memory, report, my_task and update_my_task only, so I can't ask for a GitHub account the way the brief says. The branch is committed and unchanged; it still needs a push from an account that can reach leciric/agentbox-private, and the pull request after it.`;
+const agent12Stuck = `I don't have a request_credential tool: the memory server here lists search_memory, report, my_task and update_my_task only, so I can't ask for a GitHub account the way the brief says. The branch is committed and unchanged; it still needs a push from an account that can reach leciric/agentbox-hub, and the pull request after it.`;
 
 function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
   return {
@@ -197,7 +197,7 @@ export function buildFixtures(): FixtureData {
       ref: `${PROJECT}/agent-12`,
       kind: 'github',
       question:
-        '`git push -u origin agentbox/agent-12` to git@github.com:leciric/agentbox-private.git fails with "Host key verification failed" over SSH, and the current GH_TOKEN (account luisflorido-stf) can\'t resolve this repo over HTTPS either ("Repository not found"). I need a GitHub account that can push to leciric/agentbox-private so I can push this branch and open a PR.',
+        '`git push -u origin agentbox/agent-12` to git@github.com:leciric/agentbox-hub.git fails with "Host key verification failed" over SSH, and the current GH_TOKEN (account leciric-work) can\'t resolve this repo over HTTPS either ("Repository not found"). I need a GitHub account that can push to leciric/agentbox-hub so I can push this branch and open a PR.',
       status: 'escalated',
       createdAt: new Date(Date.now() - 60_000).toISOString(),
     },
@@ -207,7 +207,7 @@ export function buildFixtures(): FixtureData {
       agent: 'agent-94',
       ref: `${PROJECT}/agent-94`,
       kind: 'github',
-      question: `git push origin agentbox/agent-94 failed: "ERROR: Repository not found." The token here logs in as luisflorido-stf, which can't see ${WIDE.longUrl}`,
+      question: `git push origin agentbox/agent-94 failed: "ERROR: Repository not found." The token here logs in as leciric-work, which can't see ${WIDE.longUrl}`,
       status: 'escalated',
       createdAt: new Date().toISOString(),
     },
@@ -327,13 +327,13 @@ export function agent12Chat(): T.ChatThread {
       tool('t2', 75_000, {
         callId: 't2',
         name: 'Bash',
-        title: 'gh repo view leciric/agentbox-private',
+        title: 'gh repo view leciric/agentbox-hub',
         kind: 'execute',
         status: 'failed',
-        command: 'gh repo view leciric/agentbox-private',
-        output: 'GraphQL: Could not resolve to a Repository with the name \'leciric/agentbox-private\'.',
+        command: 'gh repo view leciric/agentbox-hub',
+        output: 'GraphQL: Could not resolve to a Repository with the name \'leciric/agentbox-hub\'.',
       }),
-      { id: 'a1', turn: 'u1', kind: 'assistant', text: "Both routes fail on auth, so I'm asking for a GitHub account that can push to leciric/agentbox-private.", createdAt: at(65_000), updatedAt: at(65_000) },
+      { id: 'a1', turn: 'u1', kind: 'assistant', text: "Both routes fail on auth, so I'm asking for a GitHub account that can push to leciric/agentbox-hub.", createdAt: at(65_000), updatedAt: at(65_000) },
       tool('t3', 60_000, { callId: 't3', name: 'mcp__memory__request_credential', title: 'mcp__memory__request_credential', kind: 'other', status: 'in_progress' }),
     ],
   };
@@ -393,7 +393,7 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
     claudeAccounts: [],
     github: true,
     githubAccounts: [
-      { name: 'default', default: true, savedAt: new Date().toISOString(), login: 'luisflorido-stf' },
+      { name: 'default', default: true, savedAt: new Date().toISOString(), login: 'leciric-work' },
       { name: 'personal-account-with-a-long-name', default: false, savedAt: new Date().toISOString(), login: 'a-github-login-that-is-long-too' },
     ],
   } satisfies T.AuthStatus);
