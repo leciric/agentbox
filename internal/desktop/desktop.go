@@ -13,6 +13,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"io"
 	"math"
 	"os"
 	"os/exec"
@@ -35,7 +38,9 @@ const (
 	// maxWidth is how wide a screenshot may be before it is scaled down. A
 	// 1440×900 display is a large image to put in a model's context every
 	// time it looks at the screen, and it doesn't need the pixels.
-	maxWidth = 1280
+	// 1024 wide is about 900 tokens an image rather than 1,400 at 1280, and
+	// still reads a UI's smallest text.
+	maxWidth = 1024
 	// typeDelay is the gap between keystrokes, in milliseconds. xdotool's own
 	// default is 12 ms, which some toolkits drop characters at.
 	typeDelay = 25
@@ -407,38 +412,151 @@ func scaledTo(s Size) Size {
 	return Size{maxWidth, s.Height * maxWidth / s.Width}
 }
 
-// Screenshot grabs the whole display as a PNG, scaled down to at most maxWidth
-// so it doesn't fill the model's context, and reports the display's real size
-// with it. It grabs the screen the way media.go's display screenshot does,
-// with ffmpeg's x11grab.
-func Screenshot(ctx context.Context) (png []byte, real, shown Size, err error) {
+// Scale converts between the pixels of the screenshots the model is shown and
+// the display's real ones. Every tool takes and reports coordinates in the
+// screenshot's pixels and converts them here: told to give the display's own,
+// models gave the image's anyway, and every click on a scaled-down screen
+// landed short and to the left of what they aimed at.
+type Scale struct{ Real, Shown Size }
+
+// DisplayScale is the display's size and the size its screenshots are shown at.
+func DisplayScale(ctx context.Context) (Scale, error) {
+	real, err := DisplaySize(ctx)
+	if err != nil {
+		return Scale{}, err
+	}
+	return Scale{real, scaledTo(real)}, nil
+}
+
+// ToReal turns a point in a screenshot into the display's pixels, refusing one
+// outside the screenshot.
+func (s Scale) ToReal(x, y int) (int, int, error) {
+	if err := point(x, y); err != nil {
+		return 0, 0, err
+	}
+	if s.Shown.Width > 0 && (x >= s.Shown.Width || y >= s.Shown.Height) {
+		return 0, 0, fmt.Errorf("(%d, %d) is off the screen: the screenshot is %s, so x is below %d and y below %d",
+			x, y, s.Shown, s.Shown.Width, s.Shown.Height)
+	}
+	return s.convert(x, s.Real.Width, s.Shown.Width), s.convert(y, s.Real.Height, s.Shown.Height), nil
+}
+
+// ToShown turns a point on the display into the screenshot's pixels.
+func (s Scale) ToShown(x, y int) (int, int) {
+	return s.convert(x, s.Shown.Width, s.Real.Width), s.convert(y, s.Shown.Height, s.Real.Height)
+}
+
+func (s Scale) convert(v, to, from int) int {
+	if from == 0 || to == from {
+		return v
+	}
+	return int(math.Round(float64(v) * float64(to) / float64(from)))
+}
+
+const (
+	// grabRate is how often a capture looks at the screen. x11grab holds the
+	// first frame back about one interval, so a slower rate makes even a
+	// single screenshot slower: 230 ms at 10 a second against 100 at 30.
+	grabRate = 30
+	// settledFrames is how many frames in a row must be the same for the
+	// screen to count as settled: five at grabRate is about 130 ms without a
+	// change, long enough to see a click's repaint begin.
+	settledFrames = 5
+	// maxSettle is the longest a capture waits for the screen to stop
+	// changing. A spinner or a video never does, and gets the frame it
+	// reached by then.
+	maxSettle = 1500 * time.Millisecond
+	// jpegQuality keeps text crisp. JPEG rather than PNG because a model is
+	// charged by pixels, not bytes, and a photo, a canvas or a gradient makes
+	// a PNG many times bigger for no gain; saved media stays PNG (media.go).
+	jpegQuality = 85
+)
+
+// Screenshot grabs the whole display as a JPEG, scaled down to at most
+// maxWidth so it doesn't fill the model's context, and reports the display's
+// real size with it. It grabs the screen the way media.go's display screenshot
+// does, with ffmpeg's x11grab.
+func Screenshot(ctx context.Context) (jpg []byte, sc Scale, err error) {
+	return capture(ctx, false)
+}
+
+// SettledScreenshot is Screenshot once the screen has stopped changing: what a
+// click, a key or a scroll led to, without a fixed sleep that is too long for
+// most and too short for some. The screen has settled when settledFrames in a
+// row are the same, or after maxSettle.
+func SettledScreenshot(ctx context.Context) (jpg []byte, sc Scale, err error) {
+	return capture(ctx, true)
+}
+
+// capture runs one ffmpeg, which grabs the display, scales it and streams raw
+// RGBA frames; the first frame, or the first of the screen settled, is encoded
+// here. One process for however many frames settling takes, and no
+// temporary file.
+func capture(ctx context.Context, settle bool) ([]byte, Scale, error) {
 	if err := requireDisplay(); err != nil {
-		return nil, Size{}, Size{}, err
+		return nil, Scale{}, err
 	}
-	real, err = DisplaySize(ctx)
+	sc, err := DisplayScale(ctx)
 	if err != nil {
-		return nil, Size{}, Size{}, err
+		return nil, Scale{}, err
 	}
-	shown = scaledTo(real)
-
-	file, err := os.CreateTemp("", "agentbox-desktop-*.png")
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	args := []string{"-loglevel", "error", "-f", "x11grab", "-framerate", strconv.Itoa(grabRate), "-i", Display}
+	if sc.Shown != sc.Real {
+		args = append(args, "-vf", fmt.Sprintf("scale=%d:%d", sc.Shown.Width, sc.Shown.Height))
+	}
+	if !settle {
+		args = append(args, "-frames:v", "1")
+	}
+	args = append(args, "-pix_fmt", "rgba", "-f", "rawvideo", "-")
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	cmd.Env = append(os.Environ(), "DISPLAY="+Display)
+	var errOut bytes.Buffer
+	cmd.Stderr = &errOut
+	out, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, real, shown, err
+		return nil, sc, err
 	}
-	path := file.Name()
-	file.Close()
-	defer os.Remove(path)
+	if err := cmd.Start(); err != nil {
+		return nil, sc, fmt.Errorf("taking the screenshot: %w", err)
+	}
+	defer func() {
+		cmd.Process.Kill()
+		cmd.Wait()
+	}()
 
-	args := []string{"-loglevel", "error", "-f", "x11grab", "-i", Display, "-frames:v", "1"}
-	if shown != real {
-		args = append(args, "-vf", fmt.Sprintf("scale=%d:%d", shown.Width, shown.Height))
+	size := sc.Shown.Width * sc.Shown.Height * 4
+	frame, prev := make([]byte, size), make([]byte, size)
+	deadline := time.Now().Add(maxSettle)
+	same := 1
+	for n := 0; ; n++ {
+		if _, err := io.ReadFull(out, frame); err != nil {
+			if n > 0 {
+				frame = prev // the stream ended: keep the last whole frame
+				break
+			}
+			if msg := strings.TrimSpace(errOut.String()); msg != "" {
+				return nil, sc, fmt.Errorf("taking the screenshot: ffmpeg: %s", msg)
+			}
+			return nil, sc, fmt.Errorf("taking the screenshot: %w", err)
+		}
+		if n > 0 && bytes.Equal(frame, prev) {
+			same++
+		} else {
+			same = 1
+		}
+		if !settle || same >= settledFrames || time.Now().After(deadline) {
+			break
+		}
+		frame, prev = prev, frame
 	}
-	args = append(args, "-y", path)
-	if _, err := run(ctx, "ffmpeg", args...); err != nil {
-		return nil, real, shown, fmt.Errorf("taking the screenshot: %w", err)
+	img := &image.RGBA{Pix: frame, Stride: sc.Shown.Width * 4, Rect: image.Rect(0, 0, sc.Shown.Width, sc.Shown.Height)}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: jpegQuality}); err != nil {
+		return nil, sc, err
 	}
-	png, err = os.ReadFile(path)
-	return png, real, shown, err
+	return buf.Bytes(), sc, nil
 }
 
 // Window is one window on the display.

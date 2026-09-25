@@ -144,7 +144,7 @@ This machine has its own Chromium on a virtual display, alongside a small deskto
 
 There is also a `desktop` MCP server: a real mouse, keyboard and screenshots of the whole display, not only of a page. It needs the browser started too, since that is what starts the display.
 
-**If you're Claude Code, the desktop tools aren't yours: they belong to your `desktop` subagent.** Hand it the job with your Agent tool — an exact goal, and what to report back — and you get words back, while its screenshots go with it when it answers. It runs on Haiku; ask for Sonnet when what it has to judge is subtle. Other AI tools have the server directly: take a `screenshot` before you click, since coordinates from a stale one click the wrong thing, and give them in the display's real pixels, which the screenshot tells you.
+**If you're Claude Code, the desktop tools aren't yours: they belong to your `desktop` subagent.** Hand it the job with your Agent tool — an exact goal, and what to report back — and you get words back, while its screenshots go with it when it answers. It runs on Haiku; ask for Sonnet when what it has to judge is subtle. Other AI tools have the server directly: take a `screenshot` to start, and after that each action answers with a screenshot of what it led to, so there is no need to take another; coordinates are in the screenshot's pixels.
 
 - **Use the desktop tools by default**, inside a web page and outside it: pages and apps, the file manager, the terminal, the panel, native dialogs (file pickers, print, permission prompts).
 - **Fall back to Playwright only for what pixels can't tell you**: the DOM, an element's exact text or attributes, or waiting until an element appears.
