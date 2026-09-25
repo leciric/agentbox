@@ -54,8 +54,8 @@ type Project struct {
 	// every agent of this project gets unless one is named for it, and "auto"
 	// asks the project's chat to choose per task.
 	AgentModel string `json:"agentModel"`
-	// BranchPrefix comes before an agent's name in the branch it is created
-	// on: "agentbox/" (the default) makes agentbox/agent-01. It may be empty,
+	// BranchPrefix comes before the slug in the branch an agent is created
+	// on: "agentbox/" (the default) makes agentbox/fix-login. It may be empty,
 	// or nested like "thiago/agentbox/". Existing agents keep their branches.
 	BranchPrefix string `json:"branchPrefix"`
 	// MediaRetentionDays is how long media whose agent is gone survives
@@ -388,10 +388,15 @@ type WorktreeFiles struct {
 type CreateAgentRequest struct {
 	// Task, when set, is sent to the agent as its first message once it is
 	// ready. A project's chat uses it to hand work over in one step.
-	Task      string `json:"task,omitempty"`
-	Project   string `json:"project"`
-	Name      string `json:"name,omitempty"`
-	Title     string `json:"title,omitempty"`
+	Task    string `json:"task,omitempty"`
+	Project string `json:"project"`
+	Name    string `json:"name,omitempty"`
+	Title   string `json:"title,omitempty"`
+	// Branch is the slug the agent's branch is named with, after the
+	// project's prefix: lowercase kebab-case, like "fix-login-redirect".
+	// Empty makes one from Title, then Task, then the agent's name; a
+	// branch already taken gets -2, -3… appended.
+	Branch    string `json:"branch,omitempty"`
 	AI        string `json:"ai"`
 	Interface string `json:"interface,omitempty"` // chat (the default) or cli
 	// Autonomous starts the AI tool without permission prompts, the agent's
@@ -724,11 +729,20 @@ const (
 
 // Question is an agent asking its project's chat for a decision it can't make
 // alone. The lead answers it, or passes it to the user when it can't.
+//
+// A question can also be a credential request (request_credential, D95):
+// Kind github or secret, which only the user answers, from the app, and whose
+// Answer is what happened ("pushing works now"), never the credential.
 type Question struct {
-	ID       string `json:"id"`
-	Project  string `json:"project"`
-	Agent    string `json:"agent"`
-	Ref      string `json:"ref"`
+	ID      string `json:"id"`
+	Project string `json:"project"`
+	Agent   string `json:"agent"`
+	Ref     string `json:"ref"`
+	// Kind is empty for a decision, or github or secret for a credential.
+	Kind string `json:"kind,omitempty"`
+	// SecretName is the variable a secret request's value goes into.
+	SecretName string `json:"secretName,omitempty"`
+	// Question is what is asked; on a credential request, the agent's reason.
 	Question string `json:"question"`
 	Context  string `json:"context,omitempty"` // what the agent was doing
 	// Status is pending (waiting for the chat), escalated (waiting for you),
@@ -749,6 +763,32 @@ type AskRequest struct {
 
 type AnswerQuestionRequest struct {
 	Answer string `json:"answer"`
+}
+
+// The kinds of credential an agent can ask the user for.
+const (
+	CredentialGitHub = "github"
+	CredentialSecret = "secret"
+)
+
+// CredentialRequest is an agent asking the user for a credential it lacks.
+// The call waits for the answer, which says what happened and never carries
+// the credential.
+type CredentialRequest struct {
+	Kind   string `json:"kind"`           // github or secret
+	Name   string `json:"name,omitempty"` // the variable a secret goes into
+	Reason string `json:"reason"`         // what failed, and what it is for
+}
+
+// AnswerCredentialRequest is the user's answer to a credential request, from
+// the app: a GitHub account (already stored — a new one is saved first, with
+// the same route as agentbox auth github), a secret's value, or a refusal.
+// Exactly one of them.
+type AnswerCredentialRequest struct {
+	GitHubAccount string `json:"githubAccount,omitempty"`
+	Value         string `json:"value,omitempty"`
+	Refuse        bool   `json:"refuse,omitempty"`
+	Reason        string `json:"reason,omitempty"` // why it was refused, for the agent
 }
 
 // EscalateQuestionRequest passes a question to the user.
@@ -1267,6 +1307,23 @@ type ClaudeTokenRequest struct {
 	Token string `json:"token"`
 	// Account names the login; empty means the account called "default".
 	Account string `json:"account,omitempty"`
+}
+
+// RenameClaudeAccountRequest gives a stored Claude Code account another name.
+type RenameClaudeAccountRequest struct {
+	Name string `json:"name"`
+}
+
+// RenamedClaudeAccount is what a rename carried over to the new name. The
+// token is the same, so the agents on it keep running: nothing needs a restart.
+type RenamedClaudeAccount struct {
+	Old  string `json:"old"`
+	Name string `json:"name"`
+	// Projects are the projects whose own account or allow-list named it.
+	Projects []string `json:"projects"`
+	// Agents are the agents on it, by project/name, the projects' chats
+	// included.
+	Agents []string `json:"agents"`
 }
 
 // ClaudeLoginRequest starts an in-app Claude Code login: AgentBox runs

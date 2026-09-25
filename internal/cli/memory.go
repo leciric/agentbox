@@ -203,6 +203,40 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "request_credential",
+			Description: "Ask the user for a credential you lack, and wait for their answer. Use it when something fails " +
+				"on auth: a push or gh answering \"Repository not found\", 403 or \"permission denied\" (kind github), or " +
+				"a key the task needs that isn't in your environment (kind secret, with the variable's name). The user " +
+				"answers in the app, where they pick a GitHub account or type the value, and AgentBox puts it into your " +
+				"environment itself: the value never passes through you or any chat. What you get back is only what " +
+				"happened — which account you have now, the variable it is in, or that they refused and why. Never ask " +
+				"for a credential in chat or with agentbox ask, and never ask the user to paste one: a value written in " +
+				"a conversation is kept as text. Ask once, for what you actually need.",
+			Schema: object([]string{"kind", "reason"}, map[string]any{
+				"kind": choiceOf("what you need. \"github\" is a GitHub account that can reach this repository, which "+
+					"becomes this project's account and replaces GH_TOKEN and GITHUB_TOKEN here. \"secret\" is a value "+
+					"in an environment variable, like an API key.", "github", "secret"),
+				"name": str("for a secret, the environment variable it should be in, in capitals: STRIPE_SECRET_KEY. " +
+					"Leave it out for github"),
+				"reason": str("what failed and what you need it for, in a sentence or two, so the user can decide: " +
+					"the command and its error, and what you were doing"),
+			}),
+			// It waits, and the daemon has to hear when the call is given up on
+			// — interrupted, or its session gone — so the request doesn't stay
+			// waiting on the user for a call nobody is waiting on.
+			Wait: func(ctx context.Context, args json.RawMessage) (string, error) {
+				var in struct{ Kind, Name, Reason string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				q, err := c.RequestCredential(ctx, api.CredentialRequest{Kind: in.Kind, Name: in.Name, Reason: in.Reason})
+				if err != nil {
+					return "", err
+				}
+				return q.Answer, nil
+			},
+		},
+		{
 			Name: "record_artifact",
 			Description: "Record where something you produced lives, so it can be found again: a file you wrote, " +
 				"a branch, a pull request, a recording. It is a reference and nothing more — the contents stay " +

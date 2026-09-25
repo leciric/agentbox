@@ -2,12 +2,14 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/state"
@@ -20,7 +22,15 @@ func addAgent(t *testing.T, d testDaemon, repo, project, name, title string) sta
 	t.Helper()
 	ctx := context.Background()
 	worktree := d.paths.Worktree(project, name)
+	// Named after the work, as Create names it, so nothing here gets to
+	// assume an agent's branch is the prefix and its name.
 	branch := "agentbox/" + name
+	if slug := agent.SlugForBranch(title); slug != "" {
+		branch = "agentbox/" + slug
+		for i := 2; testutil.Git(t, repo, "branch", "--list", branch) != ""; i++ {
+			branch = fmt.Sprintf("agentbox/%s-%d", slug, i)
+		}
+	}
 	commit := testutil.Git(t, repo, "rev-parse", "HEAD")
 	testutil.Git(t, repo, "worktree", "add", "--quiet", "-b", branch, worktree, commit)
 	a := state.Agent{
@@ -208,8 +218,9 @@ func TestRetireFreesFinishedAgentsAndKeepsTheirBranches(t *testing.T) {
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
-	done := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page").Worktree
-	busy := addAgent(t, d, repo, "hello-stack", "agent-02", "Still going").Worktree
+	doneAgent := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
+	busyAgent := addAgent(t, d, repo, "hello-stack", "agent-02", "Still going")
+	done, busy := doneAgent.Worktree, busyAgent.Worktree
 
 	// agent-01 committed its work; agent-02 has changes it hasn't committed.
 	if err := os.WriteFile(filepath.Join(done, "server.mjs"), []byte("// done\n"), 0o644); err != nil {
@@ -241,7 +252,7 @@ func TestRetireFreesFinishedAgentsAndKeepsTheirBranches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Retired) != 1 || out.Retired[0].Branch != "agentbox/agent-01" {
+	if len(out.Retired) != 1 || out.Retired[0].Branch != "agentbox/reminders-page" {
 		t.Errorf("Retire() = %+v, want agent-01 with its branch named", out.Retired)
 	}
 	if _, err := d.srv.store.Agent(ctx, "hello-stack", "agent-01"); err == nil {
@@ -250,14 +261,14 @@ func TestRetireFreesFinishedAgentsAndKeepsTheirBranches(t *testing.T) {
 	if _, err := d.srv.store.Agent(ctx, "hello-stack", "agent-02"); err != nil {
 		t.Errorf("agent-02 was retired despite its uncommitted work: %v", err)
 	}
-	for _, branch := range []string{"agentbox/agent-01", "agentbox/agent-02"} {
+	for _, branch := range []string{doneAgent.Branch, busyAgent.Branch} {
 		if out := testutil.Git(t, repo, "branch", "--list", branch); out == "" {
 			t.Errorf("branch %s was deleted: the work is gone", branch)
 		}
 	}
 	// The committed work is still on the branch, though the agent has gone.
-	if body := testutil.Git(t, repo, "show", "agentbox/agent-01:server.mjs"); !strings.Contains(body, "done") {
-		t.Errorf("agentbox/agent-01 lost its commit: %q", body)
+	if body := testutil.Git(t, repo, "show", doneAgent.Branch+":server.mjs"); !strings.Contains(body, "done") {
+		t.Errorf("%s lost its commit: %q", doneAgent.Branch, body)
 	}
 }
 
@@ -270,7 +281,8 @@ func TestRetireNamedAgentStillProtectsUncommittedWork(t *testing.T) {
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
-	worktree := addAgent(t, d, repo, "hello-stack", "agent-01", "Halfway").Worktree
+	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Halfway")
+	worktree := a.Worktree
 	if err := os.WriteFile(filepath.Join(worktree, "server.mjs"), []byte("// halfway\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +301,7 @@ func TestRetireNamedAgentStillProtectsUncommittedWork(t *testing.T) {
 	if len(out.Retired) != 1 {
 		t.Errorf("Retire(--force) = %+v, want agent-01 retired", out)
 	}
-	if testutil.Git(t, repo, "branch", "--list", "agentbox/agent-01") == "" {
+	if testutil.Git(t, repo, "branch", "--list", a.Branch) == "" {
 		t.Error("--force deleted the branch; it should only discard the uncommitted worktree")
 	}
 }

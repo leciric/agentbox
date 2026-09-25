@@ -1,11 +1,12 @@
 import { useMutation } from '@tanstack/react-query';
 import { CornerUpLeft, GitPullRequest, LoaderCircle, Send } from 'lucide-react';
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api } from '../lib/api';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
+import { CredentialCard } from './CredentialCard';
 import { Button } from './ui/button';
 import { Textarea } from './ui/input';
 
@@ -46,6 +47,12 @@ export function latestLine(events: T.AgentEvent[], questions: Map<string, T.Ques
   switch (ev.kind) {
     case A.AgentAsked: {
       const q = questions.get(ev.question ?? '');
+      if (q?.kind) {
+        const what = q.kind === A.CredentialSecret ? `$${q.secretName}` : 'a GitHub account';
+        if (q.status === 'answered') return { text: `asked you for ${what}`, urgent: false };
+        if (q.status === 'cancelled') return { text: `gave up waiting for ${what}`, urgent: false };
+        return { text: `needs ${what} from you`, urgent: true };
+      }
       if (!q || q.status === 'answered') return { text: 'asked a question', urgent: false };
       if (q.status === 'cancelled') return { text: 'gave up waiting for an answer', urgent: false };
       return { text: q.status === 'escalated' ? 'asking you something' : 'asking the chat something', urgent: true };
@@ -82,16 +89,39 @@ export function AgentThread({
   events: T.AgentEvent[];
   questions: Map<string, T.Question>;
 }) {
+  // What is still waiting on you goes first, above the history, and is
+  // scrolled to when the thread opens: at the end of a thread that opens on a
+  // task and a couple of long summaries, it was below the fold with nothing
+  // pointing at it, and an agent blocked on it looked like it had asked for
+  // nothing.
+  const waiting = events.filter((ev) => ev.kind === A.AgentAsked && isWaiting(ev.question ? questions.get(ev.question) : undefined));
+  const history = events.filter((ev) => !waiting.includes(ev));
+  const first = useRef<HTMLDivElement>(null);
+  const hasWaiting = waiting.length > 0;
+  useEffect(() => {
+    if (hasWaiting) first.current?.scrollIntoView({ block: 'nearest' });
+  }, [hasWaiting]);
   return (
     <div className="ml-4 border-l border-line pb-2 pl-2.5 pr-1 pt-0.5" data-thread={agent}>
+      {hasWaiting && (
+        <div ref={first} className="mb-1.5 grid gap-1.5" data-thread-waiting>
+          {waiting.map((ev) => (
+            <EventCard key={ev.id} event={ev} question={ev.question ? questions.get(ev.question) : undefined} />
+          ))}
+        </div>
+      )}
       <div className="grid gap-1.5">
-        {events.map((ev) => (
+        {history.map((ev) => (
           <EventCard key={ev.id} event={ev} question={ev.question ? questions.get(ev.question) : undefined} />
         ))}
       </div>
       <ReplyBox agent={agent} name={name} running={running} />
     </div>
   );
+}
+
+function isWaiting(q: T.Question | undefined): boolean {
+  return q?.status === 'pending' || q?.status === 'escalated';
 }
 
 const kindLabels: Record<string, string> = {
@@ -105,7 +135,9 @@ function EventCard({ event, question }: { event: T.AgentEvent; question?: T.Ques
   return (
     <div className="min-w-0 rounded-lg border border-line-faint bg-rail p-2" data-thread-event={event.kind}>
       <div className="flex items-baseline gap-1.5 text-[10px] uppercase tracking-[0.07em]">
-        <span className={cn('font-semibold', event.kind === A.AgentAsked ? 'text-amber-300/90' : 'text-subtle')}>{kindLabels[event.kind] ?? event.kind}</span>
+        <span className={cn('font-semibold', event.kind === A.AgentAsked ? 'text-amber-300/90' : 'text-subtle')}>
+          {event.kind === A.AgentAsked && question?.kind ? 'Credential' : (kindLabels[event.kind] ?? event.kind)}
+        </span>
         <span className="ml-auto shrink-0 normal-case tracking-normal text-faint">{timeAgo(event.at)}</span>
       </div>
 
@@ -118,7 +150,14 @@ function EventCard({ event, question }: { event: T.AgentEvent; question?: T.Ques
 
       {event.changes && <ChangesLine changes={event.changes} />}
       {event.pr && <PullRequestLink pr={event.pr} />}
-      {question && (event.kind === A.AgentAnswered ? <AnswerBlock question={question} /> : <QuestionBlock question={question} />)}
+      {question &&
+        (event.kind === A.AgentAnswered ? (
+          <AnswerBlock question={question} />
+        ) : question.kind ? (
+          <CredentialCard question={question} />
+        ) : (
+          <QuestionBlock question={question} />
+        ))}
     </div>
   );
 }

@@ -20,6 +20,7 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
+import zlib from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import { startXvfb } from '../record/xvfb.mjs';
 
@@ -400,6 +401,7 @@ function seed() {
     JSON.stringify(['The list API already took limit and offset; only the page asked for everything.']),
     JSON.stringify(['Twenty a page, in the URL, so links and the back button keep working.']),
   );
+  seedMedia(db);
   db.close();
 }
 
@@ -427,7 +429,7 @@ function servePage() {
     const titles = ['Renew the passport', 'Water the plants', 'Call the dentist', 'Pay the electricity bill', 'Book the car service', 'Return the library books', 'Back up the laptop', 'Buy a birthday card'];
     return `<li><input type="checkbox"${i % 5 === 1 ? ' checked' : ''}><span>${titles[i % titles.length]}</span><time>${['Today', 'Tomorrow', 'Fri', 'Mon', 'Next week'][i % 5]}</time><em>#${n}</em></li>`;
   }).join('');
-  const html = `<!doctype html><title>Reminders · page 3</title><style>
+  const html = `<!doctype html><meta charset="utf-8"><title>Reminders · page 3</title><style>
 body{font:15px system-ui,sans-serif;background:#f6f7f9;margin:0;color:#1d2330}
 header{background:#1d2330;color:#fff;padding:14px 28px;font-weight:600;display:flex;gap:16px;align-items:center}
 header small{opacity:.6;font-weight:400}main{max-width:760px;margin:24px auto;padding:0 20px}
@@ -440,6 +442,85 @@ nav a.on{background:#4f6bed;color:#fff}</style>
 <nav><a href="?page=2">‹</a><a href="?page=1">1</a><a href="?page=2">2</a><a class="on">3</a><a href="?page=4">4</a><a>…</a><a href="?page=12">12</a><a href="?page=4">›</a></nav></main>`;
   const server = http.createServer((_, res) => res.end(html)).listen(3000, '127.0.0.1');
   process.once('exit', () => server.close());
+}
+
+// A minimal RGB PNG encoder, so the Media shot has real image files to show
+// without needing a browser or an image library: draw(x, y) returns [r, g, b].
+function makePng(width, height, draw) {
+  const raw = Buffer.alloc(height * (1 + width * 3));
+  let p = 0;
+  for (let y = 0; y < height; y++) {
+    raw[p++] = 0; // no filter
+    for (let x = 0; x < width; x++) {
+      const [r, g, b] = draw(x, y);
+      raw[p++] = r;
+      raw[p++] = g;
+      raw[p++] = b;
+    }
+  }
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(body) >>> 0);
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // color type: RGB
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+// agent-01's Media tab: the recording it says it kept, and two screenshots of
+// the paginated list, drawn synthetically in the same style as servePage().
+function seedMedia(db) {
+  const banner = (accent) => (_x, y) => (y < 56 ? accent : Math.floor(y / 22) % 2 === 0 ? [255, 255, 255] : [241, 243, 246]);
+  const addMedia = db.prepare(
+    `INSERT INTO media (id, project, agent, kind, name, file, mime, size, sha256, source, text, meta, created_at, orphaned_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+  );
+  const write = (id, filename, buf) => {
+    const dir = join(data, 'media', P, 'agent-01', id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, filename), buf);
+    return { file: join(id, filename), sha256: createHash('sha256').update(buf).digest('hex') };
+  };
+  const items = [
+    {
+      id: 'media-list-1',
+      kind: 'screenshot',
+      name: 'list-page-1.png',
+      buf: makePng(480, 300, banner([29, 35, 48])),
+      mime: 'image/png',
+      meta: { target: 'browser', width: 480, height: 300 },
+      at: ago(93),
+    },
+    {
+      id: 'media-list-3',
+      kind: 'screenshot',
+      name: 'list-page-3.png',
+      buf: makePng(480, 300, banner([79, 107, 237])),
+      mime: 'image/png',
+      meta: { target: 'browser', width: 480, height: 300 },
+      at: ago(21),
+    },
+    {
+      id: 'media-paging',
+      kind: 'recording',
+      name: 'paging-through-240.webm',
+      buf: Buffer.alloc(4096),
+      mime: 'video/webm',
+      meta: { target: 'browser', duration: 38 },
+      at: ago(20),
+    },
+  ];
+  for (const it of items) {
+    const { file, sha256 } = write(it.id, it.name, it.buf);
+    addMedia.run(it.id, P, 'agent-01', it.kind, it.name, file, it.mime, it.buf.length, sha256, 'agent', '', JSON.stringify(it.meta), it.at);
+  }
 }
 
 async function main() {
@@ -505,6 +586,12 @@ async function main() {
     await page.getByText('Pull request: #58').first().waitFor({ timeout: 15_000 });
     await page.locator('[data-chat-fold]').first().click().catch(() => {});
     await shot('agent-chat');
+  });
+  await attempt('agent-media', async () => {
+    await openAgent(agents[0].title);
+    await tab(/Media/);
+    await page.locator('[data-media]').first().waitFor({ timeout: 15_000 });
+    await shot('agent-media');
   });
   if (desktopUp)
     await attempt('agent-desktop', async () => {

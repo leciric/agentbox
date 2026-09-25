@@ -160,6 +160,20 @@ func (c *Client) AgentEvents(ctx context.Context, project string) ([]AgentEvent,
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/agent-events", nil, &out)
 }
 
+// RequestCredential asks the user for a credential this agent lacks, from
+// inside it, and waits for the answer.
+func (c *Client) RequestCredential(ctx context.Context, req CredentialRequest) (Question, error) {
+	var out Question
+	return out, c.do(ctx, http.MethodPost, "/v1/self/credential", req, &out)
+}
+
+// AnswerCredential answers an agent's credential request.
+func (c *Client) AnswerCredential(ctx context.Context, project, id string, req AnswerCredentialRequest) (Question, error) {
+	var out Question
+	path := "/v1/projects/" + url.PathEscape(project) + "/questions/" + url.PathEscape(id) + "/credential"
+	return out, c.do(ctx, http.MethodPost, path, req, &out)
+}
+
 // Questions are a project's, waiting ones unless all.
 func (c *Client) Questions(ctx context.Context, project string, all bool) ([]Question, error) {
 	path := "/v1/projects/" + url.PathEscape(project) + "/questions"
@@ -379,6 +393,13 @@ func (c *Client) ClaudeLoginCode(ctx context.Context, job, code string) error {
 
 func (c *Client) RemoveClaudeAccount(ctx context.Context, account string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/auth/claude/"+url.PathEscape(account), nil, nil)
+}
+
+// RenameClaudeAccount gives a stored Claude Code account another name, and
+// carries every project and agent on it over to that name.
+func (c *Client) RenameClaudeAccount(ctx context.Context, account, name string) (RenamedClaudeAccount, error) {
+	var out RenamedClaudeAccount
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/claude/"+url.PathEscape(account)+"/rename", RenameClaudeAccountRequest{Name: name}, &out)
 }
 
 func (c *Client) SetDefaultClaudeAccount(ctx context.Context, account string) error {

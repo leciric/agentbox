@@ -22,14 +22,27 @@ const (
 	QuestionCancelled = "cancelled"
 )
 
+// Question kinds. A decision is the question above; the other two are an
+// agent asking the user for a credential it lacks (request_credential), which
+// only the user can answer, from the app, and which never carries the value:
+// the answer is what happened ("pushing works now"), not the credential.
+const (
+	QuestionDecision = ""
+	QuestionGitHub   = "github"
+	QuestionSecret   = "secret"
+)
+
 type Question struct {
 	ID      string
 	Project string
 	Agent   string
-	Text    string
-	Context string // what the agent was doing, for whoever answers
-	Status  string
-	Answer  string
+	Kind    string
+	// SecretName is the variable a secret request's value goes into.
+	SecretName string
+	Text       string
+	Context    string // what the agent was doing, for whoever answers
+	Status     string
+	Answer     string
 	// AnsweredBy is "lead" or "user"; Escalation is why the lead passed it on.
 	AnsweredBy string
 	Escalation string
@@ -39,15 +52,19 @@ type Question struct {
 
 func (q Question) Ref() string { return q.Project + "/" + q.Agent }
 
+// Credential reports whether the question asks for a credential rather than a
+// decision.
+func (q Question) Credential() bool { return q.Kind != QuestionDecision }
+
 // Waiting reports whether somebody still has to answer.
 func (q Question) Waiting() bool { return q.Status == QuestionPending || q.Status == QuestionEscalated }
 
-const questionColumns = `id, project, agent, text, context, status, answer, answered_by, escalation, created_at, answered_at`
+const questionColumns = `id, project, agent, kind, secret_name, text, context, status, answer, answered_by, escalation, created_at, answered_at`
 
 func (s *Store) AddQuestion(ctx context.Context, q Question) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO questions (`+questionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		q.ID, q.Project, q.Agent, q.Text, q.Context, q.Status, q.Answer, q.AnsweredBy, q.Escalation,
+		`INSERT INTO questions (`+questionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		q.ID, q.Project, q.Agent, q.Kind, q.SecretName, q.Text, q.Context, q.Status, q.Answer, q.AnsweredBy, q.Escalation,
 		q.CreatedAt.UnixMilli(), unixMilli(q.AnsweredAt))
 	return err
 }
@@ -121,6 +138,37 @@ func (s *Store) CancelQuestions(ctx context.Context, project, agent string) erro
 	return err
 }
 
+// CancelQuestion gives up on one question that is still waiting, with why in
+// its answer, since nobody else will write one.
+func (s *Store) CancelQuestion(ctx context.Context, id, why string) (Question, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE questions SET status = ?, answer = ?, answered_at = ? WHERE id = ? AND status IN (?, ?)`,
+		QuestionCancelled, why, time.Now().UnixMilli(), id, QuestionPending, QuestionEscalated)
+	if err != nil {
+		return Question{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		q, err := s.Question(ctx, id)
+		if err != nil {
+			return Question{}, err
+		}
+		return q, fmt.Errorf("question %s was already %s", id, q.Status)
+	}
+	return s.Question(ctx, id)
+}
+
+// WaitingCredentialRequests lists the credential requests still waiting, of
+// one agent, or of every agent when agent is empty and project too.
+func (s *Store) WaitingCredentialRequests(ctx context.Context, project, agent string) ([]Question, error) {
+	where := `WHERE kind != ? AND status IN (?, ?)`
+	args := []any{QuestionDecision, QuestionPending, QuestionEscalated}
+	if project != "" {
+		where += ` AND project = ? AND agent = ?`
+		args = append(args, project, agent)
+	}
+	return s.queryQuestions(ctx, where+` ORDER BY created_at, rowid`, args...)
+}
+
 func (s *Store) queryQuestions(ctx context.Context, clause string, args ...any) ([]Question, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+questionColumns+` FROM questions `+clause, args...)
 	if err != nil {
@@ -131,7 +179,7 @@ func (s *Store) queryQuestions(ctx context.Context, clause string, args ...any) 
 	for rows.Next() {
 		var q Question
 		var created, answered int64
-		if err := rows.Scan(&q.ID, &q.Project, &q.Agent, &q.Text, &q.Context, &q.Status,
+		if err := rows.Scan(&q.ID, &q.Project, &q.Agent, &q.Kind, &q.SecretName, &q.Text, &q.Context, &q.Status,
 			&q.Answer, &q.AnsweredBy, &q.Escalation, &created, &answered); err != nil {
 			return nil, err
 		}

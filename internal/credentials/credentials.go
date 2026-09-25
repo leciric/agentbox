@@ -278,6 +278,52 @@ func (s Store) RemoveClaudeAccount(name string) error {
 	return nil
 }
 
+// RenameClaudeAccount gives a stored account another name: its token, its
+// date and last check, and the default marker when it is the default, so the
+// machine's default stays the same account. A name already taken is refused.
+// The token itself doesn't change, so agents that hold it keep working.
+func (s Store) RenameClaudeAccount(old, name string) error {
+	if err := ValidateAccount(name); err != nil {
+		return err
+	}
+	ok, err := s.HasClaudeAccount(old)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("no Claude Code account named %q: see agentbox auth claude list", old)
+	}
+	if old == name {
+		return fmt.Errorf("the Claude Code account is already called %q", name)
+	}
+	if taken, err := s.HasClaudeAccount(name); err != nil {
+		return err
+	} else if taken {
+		return fmt.Errorf("there is already a Claude Code account named %q: remove it first, or pick another name", name)
+	}
+	// Read before anything moves: an implicit default ("default", or the only
+	// account) would otherwise pass to whichever name sorts first.
+	def, err := s.DefaultClaudeAccount()
+	if err != nil {
+		return err
+	}
+	// Behind the lock a check takes, so an answer in flight isn't written
+	// under the old name after the sidecar has moved.
+	lock := checkLock(s.claudeMetaPath(old))
+	lock.Lock()
+	defer lock.Unlock()
+	if err := os.Rename(s.ClaudeTokenPath(old), s.ClaudeTokenPath(name)); err != nil {
+		return err
+	}
+	if err := os.Rename(s.claudeMetaPath(old), s.claudeMetaPath(name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if def == old {
+		return s.writeDefault(name)
+	}
+	return nil
+}
+
 func (s Store) writeDefault(name string) error {
 	return writeDefaultMarker(s.claudeDefaultPath(), name)
 }
