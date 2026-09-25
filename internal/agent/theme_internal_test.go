@@ -104,14 +104,19 @@ func TestBrowserScriptPaintsTheDesktopInTheThemesColours(t *testing.T) {
 
 	tint2 := read(t, filepath.Join(home, ".config", "tint2", "tint2rc"))
 	for _, want := range []string{
-		"background_color = #24283b 82", // the dock
-		"border_color = #7aa2f7 28",     // its edge
-		"background_color = #7aa2f7 45", // the active window's button
-		"task_font_color = #a9b1d6 100",
-		"clock_font_color = #a9b1d6 100",
+		"background_color = #24283b 90", // the dock
+		"border_color = #a9b1d6 12",     // its edge
+		"border_color = #7aa2f7 100",    // the line under the active window
+		"clock_font_color = #a9b1d6 72",
 	} {
 		if !strings.Contains(tint2, want) {
 			t.Errorf("the dock's config doesn't have %q:\n%s", want, tint2)
+		}
+	}
+	// The launchers' tiles are drawn in the accent too.
+	for _, app := range []string{"browser", "files", "terminal"} {
+		if icon := read(t, filepath.Join(home, ".config", "agentbox", "dock", app+".svg")); !strings.Contains(icon, `fill="#7aa2f7"`) {
+			t.Errorf("the dock's %s tile isn't in the accent:\n%s", app, icon)
 		}
 	}
 	for _, brand := range []string{"#16161f", "#a78bfa", "#7c3aed", "#e9e7f5"} {
@@ -155,7 +160,7 @@ func TestBrowserScriptFallsBackToAgentBoxsColours(t *testing.T) {
 	home := t.TempDir()
 	runBrowserTheme(t, home, nil)
 	tint2 := read(t, filepath.Join(home, ".config", "tint2", "tint2rc"))
-	for _, want := range []string{"background_color = #16161f 82", "border_color = #8b5cf6 28"} {
+	for _, want := range []string{"background_color = #16161f 90", "border_color = #8b5cf6 100"} {
 		if !strings.Contains(tint2, want) {
 			t.Errorf("the dock's config doesn't have %q:\n%s", want, tint2)
 		}

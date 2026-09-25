@@ -3,8 +3,8 @@
 # - a display with a VNC server built in (TigerVNC's Xvnc, on 127.0.0.1:5900),
 #   which resizes when the viewer asks, and shares the clipboard;
 # - a small desktop on it: the AgentBox wallpaper, a big mouse cursor, openbox
-#   (window manager), tint2 as a centred dock (launchers, the window list and a
-#   clock) and pcmanfm and a terminal for the agent to browse files or run
+#   (window manager), tint2 as a centred dock (launchers, the open windows and
+#   a clock) and pcmanfm and a terminal for the agent to browse files or run
 #   commands from the display itself;
 # - Chromium, maximized, with the DevTools protocol on 127.0.0.1:9222.
 # Runs as the agent's user. AgentBox reaches both ports through Incus proxy
@@ -232,71 +232,157 @@ write_openbox_config() {
 EOF
 }
 
+# The dock's launchers: a tile per app, drawn here in the palette's accent so
+# the three read as one set whatever icon theme the apps ship with, and a
+# launcher that brings the app's window forward when it is already open rather
+# than starting another. That matters most for Chromium: a second `chromium`
+# would open a window of the default profile, not the one AgentBox drives.
+# Not under ~/.local/share/agentbox, which Incus mounts worktrees under as root.
+dock="$config/agentbox/dock"
+
+# dock_icon and dock_entry note in dock_changed when they change a file, since
+# write_dock writes several.
+#
+# dock_icon writes $1's tile, with $2 as the glyph: white strokes on a 64 px
+# grid, over the accent with a light-to-dark sheen.
+dock_icon() {
+  write_config "$dock/$1.svg" <<EOF
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.22"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="$theme_accent"/>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#sheen)"/>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="15.5" fill="none" stroke="#ffffff" stroke-opacity="0.18"/>
+  <g fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">$2</g>
+</svg>
+EOF
+  [ "$wrote_config" = 0 ] || dock_changed=1
+}
+
+# dock_entry writes the launcher for $1: its name $2, and the command $3 that
+# starts it when no window of X class $4 is open.
+dock_entry() {
+  write_config "$dock/$1.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=$2
+Icon=$dock/$1.svg
+Exec=$dock/open $4 $3
+EOF
+  [ "$wrote_config" = 0 ] || dock_changed=1
+}
+
+# write_dock writes all of it, and leaves wrote_config at 1 if any file of it
+# changed, the way a single write_config would.
+write_dock() {
+  dock_changed=0
+  write_config "$dock/open" <<'EOF'
+#!/bin/sh
+# Brings the newest window of X class $1 forward, or runs the rest.
+class=$1
+shift
+window=$(xdotool search --onlyvisible --class "$class" 2>/dev/null | tail -n 1)
+if [ -n "$window" ]; then
+  exec xdotool windowactivate "$window"
+fi
+exec "$@"
+EOF
+  chmod +x "$dock/open"
+  dock_changed=$wrote_config
+  dock_icon browser '<circle cx="32" cy="32" r="16"/><ellipse cx="32" cy="32" rx="7" ry="16"/><path d="M16 32h32"/>'
+  dock_icon files '<path d="M15 22.5a3.5 3.5 0 0 1 3.5-3.5h8.5l4.5 4.5h14a3.5 3.5 0 0 1 3.5 3.5v14.5a3.5 3.5 0 0 1-3.5 3.5h-27a3.5 3.5 0 0 1-3.5-3.5z"/><path d="M15 29h34"/>'
+  dock_icon terminal '<path d="M18 23l9 9-9 9"/><path d="M31 42h15"/>'
+  dock_entry browser Browser /usr/local/bin/agentbox-browser\ start chromium
+  dock_entry files Files pcmanfm pcmanfm
+  dock_entry terminal Terminal xfce4-terminal xfce4-terminal
+  wrote_config=$dock_changed
+}
+
 # A dock rather than a bar: panel_shrink makes tint2 only as wide as what it
-# holds, and bottom center floats it over the wallpaper. Its height and
-# bottom margin add up to panelHeight in media.go, which places the recording's
-# key overlay just above it — change them together.
+# holds, and bottom center floats it over the wallpaper, always shown. The
+# launchers come first, then the open windows as their icons alone, then the
+# clock. Its height and bottom margin add up to dockHeight and dockMargin in
+# media.go, which centre the recording's key captions on it — change them
+# together.
 write_tint2_config() {
   write_config "$config/tint2/tint2rc" <<EOF
-panel_items = LTSC
-panel_size = 100% 44
+panel_items = L:T:C
+panel_size = 100% 56
 panel_shrink = 1
-panel_margin = 0 8
-panel_padding = 8 4 8
+panel_margin = 0 10
+panel_padding = 10 8 6
 panel_background_id = 1
 panel_dock = 0
 panel_position = bottom center horizontal
 panel_layer = normal
 panel_monitor = all
+autohide = 0
+mouse_effects = 1
+mouse_hover_icon_asb = 100 0 12
+mouse_pressed_icon_asb = 100 0 -12
 
-# 1: the dock itself. 2: what the pointer is over. 3: the active window.
-rounded = 16
+# 1: the dock itself. 2: what the pointer is over. 3: the active window, with
+# the accent under it.
+rounded = 18
 border_width = 1
 border_sides = TBLR
-background_color = $theme_surface 82
-border_color = $theme_accent 28
+background_color = $theme_surface 90
+border_color = $theme_foreground 12
 
 rounded = 10
 border_width = 0
-background_color = $theme_foreground 12
+background_color = $theme_foreground 10
 border_color = $theme_foreground 0
 
 rounded = 10
-border_width = 1
-border_sides = TBLR
-background_color = $theme_accent 45
-border_color = $theme_accent 90
+border_width = 2
+border_sides = B
+background_color = $theme_foreground 14
+border_color = $theme_accent 100
 
-launcher_padding = 2 0 8
-launcher_icon_size = 32
-launcher_icon_theme = Adwaita
+launcher_padding = 0 0 8
+launcher_background_id = 0
+launcher_icon_background_id = 0
+launcher_icon_size = 40
 launcher_tooltip = 1
-launcher_item_app = chromium.desktop
-launcher_item_app = pcmanfm.desktop
-launcher_item_app = xfce4-terminal.desktop
+launcher_item_app = $dock/browser.desktop
+launcher_item_app = $dock/files.desktop
+launcher_item_app = $dock/terminal.desktop
+
+separator = new
+separator_style = line
+separator_size = 1
+separator_color = $theme_foreground 16
+separator_padding = 8 12
+
+separator = new
+separator_style = line
+separator_size = 1
+separator_color = $theme_foreground 16
+separator_padding = 8 12
 
 taskbar_mode = single_desktop
-taskbar_padding = 4 0 6
+taskbar_padding = 0 0 6
 taskbar_background_id = 0
-task_text = 1
+task_text = 0
 task_icon = 1
+task_tooltip = 1
 task_centered = 1
-task_padding = 6 2 6
-task_maximum_size = 150 32
-task_font = sans 9
-task_font_color = $theme_foreground 100
+task_padding = 6 6 0
+task_maximum_size = 40 40
 task_background_id = 0
 task_active_background_id = 3
 task_mouse_over_background_id = 2
 
 time1_format = %H:%M
-time1_font = sans bold 10
-clock_font_color = $theme_foreground 100
-clock_padding = 8 0
+time1_font = sans 10
+clock_font_color = $theme_foreground 72
+clock_padding = 4 0
 clock_background_id = 0
-
-systray_padding = 4 0 4
-systray_background_id = 0
 
 mouse_middle = none
 mouse_right = close
@@ -308,7 +394,7 @@ EOF
 # change on the host, and after a browser.sh that writes them differently.
 apply_theme() {
   theme_changed=0
-  for writer in write_openbox_theme write_openbox_config write_tint2_config; do
+  for writer in write_openbox_theme write_openbox_config write_dock write_tint2_config; do
     "$writer"
     [ "$wrote_config" = 0 ] || theme_changed=1
   done

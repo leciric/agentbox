@@ -298,16 +298,21 @@ func startRecordingScript(st recordingState) (string, error) {
 	var recorder string
 	switch st.Target {
 	case "display":
-		overlay := ""
+		// A recording of desktop input logs the keys and clicks beside the
+		// video, which stopping draws onto it (desktop.Overlay). The first
+		// pass is quick and near lossless, since it is encoded again then,
+		// and ffmpeg logs at info for the line that says when its first frame
+		// was taken, which places every logged event on the video.
+		overlay, level, quality := "", "error", "-preset veryfast -crf 28"
 		if st.Input == RecordInputDesktop {
-			overlay = screenkeyStart(st.Limit) + "\n"
+			overlay, level, quality = inputLogStart(st.Limit)+"\n", "info -nostats", "-preset ultrafast -crf 16"
 		}
 		// draw_mouse is x11grab's default, and Xvnc serves the pointer through
 		// XFIXES, so the cursor lands in the frames; it is spelled out here
 		// because the whole point of desktop input is seeing it.
 		recorder = fmt.Sprintf(`[ -e /tmp/.X11-unix/X99 ] || { echo "the display isn't running: start the browser first" >&2; exit 1; }
-%[2]ssetsid ffmpeg -loglevel error -f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' \
-  -c:v libx264 -preset veryfast -crf 28 -pix_fmt yuv420p -movflags +faststart "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`, st.Limit, overlay)
+%[2]ssetsid ffmpeg -hide_banner -loglevel %[3]s -f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' \
+  -c:v libx264 %[4]s -pix_fmt yuv420p -movflags +faststart "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`, st.Limit, overlay, level, quality)
 		started = `i=0
 while [ ! -e "$dir/recording.mp4" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 0.05; i=$((i + 1)); done`
 	case "android":
@@ -333,7 +338,7 @@ echo $! >"$dir/recording.pid"
 printf '%%s' %[3]s >"$dir/recording.json"
 %[5]s
 kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null || { echo "the recording didn't start:" >&2; cat "$dir/recording.log" >&2; stop_overlay; rm -f "$dir"/recording.*; exit 1; }`,
-		agentStateDir, recorder, shellQuote(string(encoded)), screenkeyStop, started), nil
+		agentStateDir, recorder, shellQuote(string(encoded)), overlayScript, started), nil
 }
 
 // Recording inputs: how the flow being recorded is driven, which decides
@@ -343,48 +348,56 @@ const (
 	// itself over the DevTools protocol, so X sees neither key nor pointer.
 	RecordInputPlaywright = "playwright"
 	// RecordInputDesktop is for a flow driven through X, with xdotool: the
-	// cursor really moves, and screenkey narrates the keys and buttons.
+	// cursor really moves, and the keys and clicks are drawn onto the video.
 	RecordInputDesktop = "desktop"
 )
 
-// panelHeight is what tint2's dock takes along the bottom, from the config
-// browser.sh writes: its panel_size height plus the panel_margin under it. The
-// overlay sits just above the dock rather than on top of it, and
-// TestPanelHeightMatchesTheDock keeps this in step with the script.
-const panelHeight = 44 + 8
+// dockHeight and dockMargin are the dock's height and the gap under it, from
+// the tint2 config browser.sh writes: its panel_size height and panel_margin.
+// The key captions of a desktop recording are centred on the dock, over
+// nothing but the dock itself, and TestDockSizeMatchesBrowserScript keeps
+// these in step with the script.
+const (
+	dockHeight = 56
+	dockMargin = 10
+)
 
-// screenkeyStart runs screenkey over the display for the recording's duration.
-// It writes its own pid, because setsid may fork; timeout is the backstop for
-// a recording that ends at its limit rather than at StopRecording, with a
-// couple of seconds of slack so the overlay outlives the last frame.
-func screenkeyStart(limit int) string {
-	return fmt.Sprintf(`command -v screenkey >/dev/null || { echo "screenkey isn't installed: record without --input desktop" >&2; exit 1; }
-where="--position bottom"
-eval "$(DISPLAY=:99 xdotool getdisplaygeometry --shell 2>/dev/null || true)"
-if [ -n "${HEIGHT:-}" ] && [ -n "${WIDTH:-}" ]; then
-  band=$((HEIGHT / 14))
-  where="--position fixed -g ${WIDTH}x${band}+0+$((HEIGHT - %d - band))"
-fi
-DISPLAY=:99 setsid sh -c 'echo $$ >"$1/screenkey.pid"; shift; exec timeout %d screenkey --no-systray --timeout 2 \
-  --font-size small --opacity 0.7 --bg-color "#101010" --mouse --mouse-fade 0.5 "$@"' sh "$dir" $where >"$dir/screenkey.log" 2>&1 </dev/null &`,
-		panelHeight, limit+2)
+// inputLogStart logs the keys and clicks on the display for the recording's
+// duration, for stopRecordingScript to draw onto it. It writes its own pid,
+// because setsid may fork; timeout is the backstop for a recording that ends
+// at its limit rather than at StopRecording, with a couple of seconds of slack
+// so the log outlives the last frame. The agentbox binary it runs is the one
+// AgentBox pushes into every agent.
+func inputLogStart(limit int) string {
+	return fmt.Sprintf(`command -v agentbox >/dev/null || { echo "agentbox isn't installed in this machine: record without --input desktop" >&2; exit 1; }
+DISPLAY=:99 setsid sh -c 'echo $$ >"$1/input.pid"; exec timeout %d agentbox desktop input-log "$1/recording.events"' sh "$dir" >"$dir/input.log" 2>&1 </dev/null &`,
+		limit+2)
 }
 
-// screenkeyStop defines stop_overlay, which ends the overlay if this recording
-// had one and waits for it to go, so nothing is left drawing over the display
-// once the recording is over. Both scripts define it and call it: a recording
-// started without the overlay still cleans up after one that crashed.
-const screenkeyStop = `stop_overlay() {
-  [ -f "$dir/screenkey.pid" ] || return 0
-  # The pid is screenkey's own session leader, so the whole group goes: the
-  # timeout wrapper forwards TERM and then exits, and screenkey itself takes a
-  # moment longer.
-  overlay=$(cat "$dir/screenkey.pid")
+// overlayScript defines stop_overlay, which ends the input log if this
+// recording had one and waits for it to go, and burn_overlay, which draws what
+// it logged onto the finished video. Both scripts define them: a recording
+// started without the log still cleans up after one that crashed.
+var overlayScript = fmt.Sprintf(`stop_overlay() {
+  [ -f "$dir/input.pid" ] || return 0
+  # The pid is the log's own session leader, so the whole group goes: the
+  # timeout wrapper forwards TERM and then exits.
+  overlay=$(cat "$dir/input.pid")
   kill -TERM "-$overlay" 2>/dev/null || kill -TERM "$overlay" 2>/dev/null || true
   i=0
   while kill -0 "-$overlay" 2>/dev/null && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
-  rm -f "$dir"/screenkey.*
-}`
+  rm -f "$dir"/input.*
+}
+burn_overlay() {
+  start=$(sed -n 's/.*, start: \([0-9.]*\),.*/\1/p' "$dir/recording.log" | head -n 1)
+  size=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$dir/recording.mp4")
+  [ -n "$start" ] && [ -n "$size" ] || { echo "ffmpeg didn't say when the recording started" >"$dir/recording.overlay.log"; return 1; }
+  agentbox desktop overlay --events "$dir/recording.events" --start "$start" --width "${size%%%%x*}" --height "${size##*x}" \
+    --bottom %d >"$dir/recording.ass" 2>"$dir/recording.overlay.log" || return 1
+  (cd "$dir" && ffmpeg -hide_banner -loglevel error -y -i recording.mp4 -vf ass=recording.ass -c:v libx264 -preset veryfast -crf 28 \
+    -pix_fmt yuv420p -movflags +faststart recording.overlay.mp4) >>"$dir/recording.overlay.log" 2>&1 || return 1
+  mv "$dir/recording.overlay.mp4" "$dir/recording.mp4"
+}`, dockMargin+dockHeight/2)
 
 func (m *Manager) Recording(ctx context.Context, a state.Agent) (RecordingStatus, error) {
 	if m.requireRunning(ctx, a) != nil {
@@ -419,9 +432,14 @@ if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
   while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
 fi
 [ -s "$dir/recording.mp4" ] || { echo "the recording is empty:" >&2; tail -n 5 "$dir/recording.log" >&2; rm -f "$dir"/recording.*; exit 1; }
+if [ -s "$dir/recording.events" ] && ! burn_overlay; then
+  echo "the keys and clicks couldn't be drawn onto the recording, which is kept without them:" >&2
+  tail -n 5 "$dir/recording.overlay.log" >&2
+  rm -f "$dir/recording.overlay.mp4"
+fi
 cat "$dir/recording.json"
 echo
-ffprobe -v error -show_entries stream=width,height:format=duration -of csv=p=0 "$dir/recording.mp4" || true`, agentStateDir, screenkeyStop)
+ffprobe -v error -show_entries stream=width,height:format=duration -of csv=p=0 "$dir/recording.mp4" || true`, agentStateDir, overlayScript)
 }
 
 // StopRecording finishes the recording and keeps it as a media item.
@@ -457,7 +475,7 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	p.item.CreatedAt = st.StartedAt
 	file := filepath.Join(p.dir, fileName(st.Name, "recording", ".mp4"))
 	remote := a.Instance + home + "/" + agentStateDir
-	defer m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "sh", "-c", "rm -f "+home+"/"+agentStateDir+"/recording.* "+home+"/"+agentStateDir+"/screenkey.*")
+	defer m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "sh", "-c", "rm -f "+home+"/"+agentStateDir+"/recording.* "+home+"/"+agentStateDir+"/input.*")
 	if _, err := m.Incus.Run(ctx, "file", "pull", remote+"/recording.mp4", file); err != nil {
 		p.discard()
 		return state.Media{}, err
