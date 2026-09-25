@@ -289,10 +289,11 @@ func (c *Client) SetBranchPrefix(ctx context.Context, project, prefix string) (P
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{BranchPrefix: &prefix}, &out)
 }
 
-// SetMediaRetention sets how long a project keeps media whose agent is gone.
-func (c *Client) SetMediaRetention(ctx context.Context, project string, days int) (Project, error) {
-	var out Project
-	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{MediaRetentionDays: &days}, &out)
+// SetMediaRetention sets how long a removed agent's media is kept: one of
+// the MediaRetention values.
+func (c *Client) SetMediaRetention(ctx context.Context, retention string) (Settings, error) {
+	var out Settings
+	return out, c.do(ctx, http.MethodPatch, "/v1/settings", UpdateSettingsRequest{MediaRetention: &retention}, &out)
 }
 
 // Retire frees what a project's finished agents are holding. It never deletes

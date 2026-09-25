@@ -16,8 +16,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Release
+  # Checks run once, then the tag is pushed once, before any build starts: the
+  # linux, windows and macos jobs below all build from that tag, in parallel,
+  # instead of one after another. A rerun finds the tag already on this commit
+  # and carries on from it, the way the old single job did.
+  checks:
+    name: Checks
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ inputs.tag }}
@@ -26,7 +30,7 @@ jobs:
       # main, never the branch the workflow was started from: a release is a
       # commit that landed. fetch-depth 0 brings the tags, to see whether this
       # one already exists.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -48,12 +52,43 @@ jobs:
           echo "Releasing $TAG from main at $head."
 
       # Go and Node come from mise.toml, so a release is built on the versions
-      # the repository names.
-      - uses: jdx/mise-action@v2
+      # the repository names. Node alone would do for the checks, but the
+      # cache key below is shared with the build jobs.
+      - uses: jdx/mise-action@v4
         with:
           install_args: go node
 
-      - uses: actions/cache@v4
+      - name: Check the release
+        run: scripts/release-build.sh --tag "$TAG" --check
+
+      - name: Tag the commit to release
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null; then
+            echo "$TAG is already there."
+            exit 0
+          fi
+          git tag "$TAG" "$(git rev-parse HEAD)"
+          git push origin "refs/tags/$TAG"
+
+  # The AppImage, the .deb, the .pacman and the command-line tool for Linux
+  # (amd64, arm64) and macOS (arm64, amd64) — all plain cross-compiles, so they
+  # don't need to wait on the Mac job.
+  linux:
+    name: Linux build
+    needs: checks
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go node
+
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/go-build
@@ -61,7 +96,60 @@ jobs:
           key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
           restore-keys: go-${{ runner.os }}-
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: release-npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: release-npm-${{ runner.os }}-
+
+      # bsdtar: electron-builder prefers it for unpacking the Electron
+      # distribution, and fpm needs it to make the .pacman.
+      - name: Install what electron-builder wants
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libarchive-tools
+
+      - run: npm --prefix desktop ci
+
+      - name: Build the Linux release
+        run: scripts/release-build.sh --tag "$TAG" --linux
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux
+          path: desktop/dist/release/${{ inputs.tag }}/
+          if-no-files-found: error
+
+  # The Windows installer and portable .exe. electron-builder makes these on
+  # Linux, through wine, so this doesn't need a Windows runner — only wine,
+  # which the Linux job above no longer has to install.
+  windows:
+    name: Windows build
+    needs: checks
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go node
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.npm
@@ -71,10 +159,10 @@ jobs:
           restore-keys: release-npm-${{ runner.os }}-
 
       # bsdtar, which electron-builder prefers for unpacking the Electron
-      # distribution and warns about when it's missing. It brings its own 7z and
-      # AppImage runtime, and nothing here launches the AppImage. Wine is for the
-      # Windows installer: electron-builder runs the 32-bit NSIS installer it
-      # makes to get the uninstaller out of it, so it needs wine32 too.
+      # distribution and warns about when it's missing. It brings its own 7z
+      # and AppImage runtime, unused here. Wine runs the 32-bit NSIS installer
+      # electron-builder makes to get the uninstaller out of it, so it needs
+      # wine32 too.
       - name: Install what electron-builder wants
         run: |
           sudo dpkg --add-architecture i386
@@ -83,39 +171,24 @@ jobs:
 
       - run: npm --prefix desktop ci
 
-      # The same checks and the same build as scripts/release.sh: the notes
-      # exist and have no TODO, the tag matches desktop/package.json, the
-      # version isn't released yet, and the built tool reports the version.
-      - name: Build and check the release
-        run: scripts/release-build.sh --tag "$TAG"
+      - name: Build the Windows release
+        run: scripts/release-build.sh --tag "$TAG" --windows
 
-      - name: Tag the commit that was built
-        run: |
-          if git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null; then
-            echo "$TAG is already there."
-            exit 0
-          fi
-          git tag "$TAG" "$(git rev-parse HEAD)"
-          git push origin "refs/tags/$TAG"
-
-      # Published by the publish job, once the Mac app is built too: a Mac build
-      # that fails leaves nothing published, and running the workflow again
-      # finds the tag on this commit and carries on.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: linux
+          name: windows
           path: desktop/dist/release/${{ inputs.tag }}/
           if-no-files-found: error
 
   # The Mac app, built on a Mac (electron-builder makes .dmg files only there),
-  # for Apple silicon and Intel, from the tag the release job above pushed.
+  # for Apple silicon and Intel, from the tag the checks job above pushed.
   # It's signed and notarized when the repository has Apple's credentials as
   # secrets; without them, it's ad hoc signed instead of left unsigned (see
   # desktop/scripts/dist.mjs) and shipped anyway, since an unsigned Mac app
   # doesn't even launch on Apple silicon.
   macos:
     name: Mac app
-    needs: release
+    needs: checks
     runs-on: macos-15
     env:
       TAG: ${{ inputs.tag }}
@@ -125,11 +198,11 @@ jobs:
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
 
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           install_args: go node
 
@@ -152,31 +225,52 @@ jobs:
           shasum -a 256 * >SHA256SUMS-mac
           cat SHA256SUMS-mac
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac
           path: mac/
           if-no-files-found: error
 
-  # Everything at once: once release and macos have both succeeded. `skipped`
-  # is only there for when release itself fails, which skips macos too; that
-  # case is already excluded by needs.release.result == 'success'. Needs
-  # `always()`, since a skipped macos would otherwise skip this job too.
+  # Everything at once: once linux, windows and macos have all succeeded.
+  # `skipped` is only there for when checks itself fails, which skips all
+  # three builds too; that case is already excluded by the two `== 'success'`
+  # checks below. Needs `always()`, since a skipped macos would otherwise skip
+  # this job too.
   publish:
     name: Publish
-    needs: [release, macos]
-    if: always() && needs.release.result == 'success' && (needs.macos.result == 'success' || needs.macos.result == 'skipped')
+    needs: [linux, windows, macos]
+    if: >-
+      always() &&
+      needs.linux.result == 'success' &&
+      needs.windows.result == 'success' &&
+      (needs.macos.result == 'success' || needs.macos.result == 'skipped')
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
+          pattern: linux
+          path: out
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: windows
+          path: out
+          merge-multiple: true
+
+      - name: Sum the Linux and Windows assets
+        run: (cd out && sha256sum AgentBox-* agentbox-* >SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mac
           path: out
           merge-multiple: true
 

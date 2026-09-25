@@ -46,7 +46,7 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 func projectInfo(p state.Project) api.Project {
 	info := api.Project{Name: p.Name, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
-		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, MediaRetentionDays: p.MediaRetentionDays, FinishNotices: p.FinishNotices,
+		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
 		Section: p.Section, Position: p.Position, CreatedAt: p.CreatedAt}
@@ -254,12 +254,6 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		// here. Dropped the same way as when an account is saved or removed.
 		s.pulls.reset()
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
-	}
-	if req.MediaRetentionDays != nil {
-		if err := s.store.SetProjectMediaRetentionDays(r.Context(), p.Name, *req.MediaRetentionDays); err != nil {
-			return err
-		}
-		p.MediaRetentionDays = *req.MediaRetentionDays
 	}
 	if req.FinishNotices != nil {
 		notices := strings.TrimSpace(*req.FinishNotices)
@@ -917,14 +911,11 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	force, _ := strconv.ParseBool(q.Get("force"))
 	deleteBranch, _ := strconv.ParseBool(q.Get("deleteBranch"))
 	deleteMedia, _ := strconv.ParseBool(q.Get("deleteMedia"))
-	if err := s.manager(s.cfg.Log).Destroy(r.Context(), a, agent.DestroyOptions{Force: force, DeleteBranch: deleteBranch, DeleteMedia: deleteMedia}); err != nil {
+	opts := agent.DestroyOptions{Force: force, DeleteBranch: deleteBranch, DeleteMedia: deleteMedia}
+	if err := s.destroyAgentNow(r.Context(), s.manager(s.cfg.Log), a, opts); err != nil {
 		return err
 	}
 	s.captureEvent(r.Context(), a.Project, a.Name, "agent_retired", map[string]any{"how": "destroy", "branch": a.Branch}, "")
-	s.removeActiveAgent(r.Context(), a.Project, a.Name)
-	s.chat.Forget(a.Ref())
-	s.stopAgentAPI(a.Instance)
-	s.removeBrowserSockets(a.Instance)
 	s.refreshAgents(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil

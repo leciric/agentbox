@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -60,43 +59,33 @@ It appears in the app's Media tab. Inside an agent, leave out the agent: the com
 	return cmd
 }
 
-// newMediaRetentionCmd sets how long a project keeps media whose agent is
-// gone, mirroring newAutonomyCmd's show-or-set shape.
+// newMediaRetentionCmd shows or sets how long a removed agent's media is
+// kept, for the whole installation, mirroring newAutonomyCmd's show-or-set
+// shape.
 func newMediaRetentionCmd(a *app) *cobra.Command {
 	return &cobra.Command{
-		Use:   "retention <project> [days]",
-		Short: "How long kept media survives its agent, in days (30 by default)",
-		Long: `Shows or sets how long a project keeps media whose agent has been destroyed
-before the daemon sweeps it away. Media of an agent that still exists never
-expires, however old.`,
-		Args: cobra.RangeArgs(1, 2),
+		Use:   "retention [immediately|1d|7d|30d|forever]",
+		Short: "How long a removed agent's media is kept (1d by default)",
+		Long: `Shows or sets how long media is kept once its agent has been destroyed,
+before the daemon purges it. It applies to every project. "immediately"
+deletes an agent's media with it, and "forever" never purges it. Media of an
+agent that still exists never expires, however old.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
-			if len(args) == 1 {
-				projects, err := c.Projects(cmd.Context())
-				if err != nil {
-					return err
-				}
-				for _, p := range projects {
-					if p.Name == args[0] {
-						fmt.Fprintf(cmd.OutOrStdout(), "%s: %d day(s)\n", p.Name, p.MediaRetentionDays)
-						return nil
-					}
-				}
-				return fmt.Errorf("no project named %q", args[0])
+			var settings api.Settings
+			if len(args) == 0 {
+				settings, err = c.Settings(cmd.Context())
+			} else {
+				settings, err = c.SetMediaRetention(cmd.Context(), args[0])
 			}
-			days, err := strconv.Atoi(args[1])
-			if err != nil || days < 1 {
-				return fmt.Errorf("invalid number of days %q: use a positive integer", args[1])
-			}
-			p, err := c.SetMediaRetention(cmd.Context(), args[0], days)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %d day(s)\n", p.Name, p.MediaRetentionDays)
+			fmt.Fprintln(cmd.OutOrStdout(), settings.MediaRetention)
 			return nil
 		},
 	}

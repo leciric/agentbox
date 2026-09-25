@@ -40,7 +40,7 @@ func TestExpiredMediaCountsFromWhenItWasOrphaned(t *testing.T) {
 		t.Fatal(err)
 	}
 	if expired, err := st.ExpiredMedia(ctx, now); err != nil || len(expired) != 0 {
-		t.Fatalf("ExpiredMedia() right after orphaning = %+v, %v; want none yet (30 day default)", expired, err)
+		t.Fatalf("ExpiredMedia() right after orphaning = %+v, %v; want none yet (1 day default)", expired, err)
 	}
 	// agent-02's media is never orphaned: it must never show up, however old.
 	stillLive, err := st.ExpiredMedia(ctx, now.Add(365*24*time.Hour))
@@ -53,45 +53,27 @@ func TestExpiredMediaCountsFromWhenItWasOrphaned(t *testing.T) {
 		}
 	}
 
-	justBefore, err := st.ExpiredMedia(ctx, now.Add(30*24*time.Hour-time.Minute))
+	justBefore, err := st.ExpiredMedia(ctx, now.Add(24*time.Hour-time.Minute))
 	if err != nil || len(justBefore) != 0 {
-		t.Fatalf("ExpiredMedia() just before 30 days = %+v, %v; want none", justBefore, err)
+		t.Fatalf("ExpiredMedia() just before a day = %+v, %v; want none", justBefore, err)
 	}
-	afterward, err := st.ExpiredMedia(ctx, now.Add(30*24*time.Hour+time.Minute))
+	afterward, err := st.ExpiredMedia(ctx, now.Add(24*time.Hour+time.Minute))
 	if err != nil || len(afterward) != 1 || afterward[0].ID != "old-item" {
-		t.Fatalf("ExpiredMedia() just after 30 days = %+v, %v; want [old-item]", afterward, err)
+		t.Fatalf("ExpiredMedia() just after a day = %+v, %v; want [old-item]", afterward, err)
 	}
 }
 
-// A project's own retention period overrides the 30-day default.
-func TestExpiredMediaUsesProjectRetention(t *testing.T) {
+// The installation's retention decides, whatever the project once said:
+// seven days keeps an item past the default's one, "immediately" makes it due
+// at once, and "forever" never does. Media that outlived its project follows
+// the same rule.
+func TestExpiredMediaFollowsTheInstallationsRetention(t *testing.T) {
 	ctx := context.Background()
 	st := open(t, filepath.Join(t.TempDir(), "state.db"))
 	if err := st.AddProject(ctx, state.Project{Name: "pawly", Root: "/src/pawly", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetProjectMediaRetentionDays(ctx, "pawly", 5); err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now()
-	addMedia(t, st, "item", "pawly", "agent-01", now)
-	if err := st.OrphanAgentMedia(ctx, "pawly", "agent-01", now); err != nil {
-		t.Fatal(err)
-	}
-	if expired, err := st.ExpiredMedia(ctx, now.Add(4*24*time.Hour)); err != nil || len(expired) != 0 {
-		t.Fatalf("ExpiredMedia() before the project's 5-day period = %+v, %v; want none", expired, err)
-	}
-	if expired, err := st.ExpiredMedia(ctx, now.Add(6*24*time.Hour)); err != nil || len(expired) != 1 {
-		t.Fatalf("ExpiredMedia() after the project's 5-day period = %+v, %v; want one item", expired, err)
-	}
-}
-
-// Media can outlive its project too (the project was removed once its agents
-// were all gone). It still isn't immortal: it falls back to the default period.
-func TestExpiredMediaFallsBackWhenProjectIsGone(t *testing.T) {
-	ctx := context.Background()
-	st := open(t, filepath.Join(t.TempDir(), "state.db"))
-	if err := st.AddProject(ctx, state.Project{Name: "pawly", Root: "/src/pawly", CreatedAt: time.Now()}); err != nil {
+	if err := st.SetProjectMediaRetentionDays(ctx, "pawly", 90); err != nil { // no longer read
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -102,8 +84,25 @@ func TestExpiredMediaFallsBackWhenProjectIsGone(t *testing.T) {
 	if err := st.RemoveProject(ctx, "pawly"); err != nil {
 		t.Fatal(err)
 	}
-	if expired, err := st.ExpiredMedia(ctx, now.Add(state.DefaultMediaRetentionDays*24*time.Hour+time.Minute)); err != nil || len(expired) != 1 {
-		t.Fatalf("ExpiredMedia() past the default period, project gone = %+v, %v; want one item", expired, err)
+	for _, tc := range []struct {
+		retention string
+		after     time.Duration
+		want      int
+	}{
+		{"", 2 * 24 * time.Hour, 1},         // the default, a day
+		{"nonsense", 2 * 24 * time.Hour, 1}, // reads as the default
+		{"7d", 2 * 24 * time.Hour, 0},
+		{"7d", 8 * 24 * time.Hour, 1},
+		{"30d", 29 * 24 * time.Hour, 0},
+		{"immediately", 0, 1},
+		{"forever", 10 * 365 * 24 * time.Hour, 0},
+	} {
+		if err := st.SetSetting(ctx, state.SettingMediaRetention, tc.retention); err != nil {
+			t.Fatal(err)
+		}
+		if expired, err := st.ExpiredMedia(ctx, now.Add(tc.after)); err != nil || len(expired) != tc.want {
+			t.Errorf("ExpiredMedia() with %q, %s after = %d item(s), %v; want %d", tc.retention, tc.after, len(expired), err, tc.want)
+		}
 	}
 }
 

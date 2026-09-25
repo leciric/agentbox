@@ -200,20 +200,18 @@ func ParseBytes(size string) (int64, error) {
 // DefaultLimits is what an installation that has never chosen caps new agents
 // at, given the host's core count.
 //
-// Cores, and only cores. An agent gets every core but two, and never fewer
-// than two: two left over is enough for a desktop, a browser and the daemon to
-// stay responsive while an agent builds, and two for the agent is the least
-// that doesn't make an ordinary `npm ci` painful. The share and the memory
-// limit start empty because a wrong guess at either is worse than none — a
-// share below 100% slows an agent down on an *idle* host for no one's benefit,
-// and a memory limit the kernel enforces by killing processes turns "this
-// build needs more RAM than I thought" into a dead test run rather than a slow
-// one. The core count alone already stops the failure this exists for: a
-// `make -j` that takes every core and freezes the host.
+// Cores, and only cores: two of them, the least that doesn't make an ordinary
+// `npm ci` painful, and never more than the host actually has. The share and
+// the memory limit start empty because a wrong guess at either is worse than
+// none — a share below 100% slows an agent down on an *idle* host for no
+// one's benefit, and a memory limit the kernel enforces by killing processes
+// turns "this build needs more RAM than I thought" into a dead test run
+// rather than a slow one. The core count alone already stops the failure this
+// exists for: a `make -j` that takes every core and freezes the host.
 func DefaultLimits(hostCores int) Limits {
-	cores := max(2, hostCores-2)
+	cores := 2
 	if hostCores > 0 {
-		cores = min(cores, hostCores) // a one- or two-core host keeps what it has
+		cores = min(cores, hostCores) // a one-core host keeps what it has
 	}
 	return Limits{CPU: strconv.Itoa(cores)}
 }

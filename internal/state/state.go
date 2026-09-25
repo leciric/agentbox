@@ -489,10 +489,23 @@ var migrations = []string{
 	// secret goes into. The value itself is never stored here.
 	`ALTER TABLE questions ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE questions ADD COLUMN secret_name TEXT NOT NULL DEFAULT ''`,
+
+	// The model windows a session reported used to be kept even when they
+	// were only its compact window, which Claude Code caps the size it
+	// reports at: an account whose opus compacted at 200k remembered opus as
+	// a 200k model, and offered no 1M window for it anywhere. Any window
+	// under 1M might be one of those, so they are forgotten, and the guess
+	// from the model's name answers until a session reports one that can't
+	// be a cap (RememberClaudeModelWindow).
+	`UPDATE settings SET value = (
+		SELECT COALESCE(json_group_object(w.key, w.value), '{}') FROM json_each(settings.value) AS w
+		WHERE w.type = 'integer' AND w.value >= 1000000
+	) WHERE key = 'claude_model_windows' AND json_valid(value) AND json_type(value) = 'object'`,
 }
 
-// DefaultMediaRetentionDays is how long kept media survives its agent when a
-// project hasn't set its own period.
+// DefaultMediaRetentionDays is what projects.media_retention_days reads as
+// when it is zero. Nothing reads that column any more: how long media is kept
+// is SettingMediaRetention, the installation's.
 const DefaultMediaRetentionDays = 30
 
 type Store struct {
@@ -595,9 +608,9 @@ type Project struct {
 	// components, like thiago/agentbox/. Agents keep the branch they were
 	// created on when it changes.
 	BranchPrefix string
-	// MediaRetentionDays is how long media whose agent is gone survives
-	// before the daemon sweeps it away. Media of an agent that still exists
-	// never expires, however old.
+	// MediaRetentionDays is what the project once said about how long media
+	// whose agent is gone survives. It is no longer read: SettingMediaRetention
+	// replaced it, for the whole installation.
 	MediaRetentionDays int
 	// FinishNotices is what happens when one of this project's agents
 	// finishes: FinishNoticesChat (tell the chat, and let it decide),

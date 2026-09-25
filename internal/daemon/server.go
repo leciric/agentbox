@@ -194,6 +194,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.firstSweeps.Add(2)
 	loops.Go(func() { s.watch(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
+	loops.Go(func() { s.sweepFinishedAgents(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
 	s.runCtx = ctx

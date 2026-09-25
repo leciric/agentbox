@@ -12,7 +12,6 @@ export interface Project {
   autonomy: string;
   agentModel: string;
   branchPrefix: string;
-  mediaRetentionDays: number;
   finishNotices: string;
   rolloverThreshold: number;
   contextBudget: number;
@@ -38,7 +37,6 @@ export interface UpdateProjectRequest {
   autonomy?: string;
   agentModel?: string;
   branchPrefix?: string;
-  mediaRetentionDays?: number;
   finishNotices?: string;
   rolloverThreshold?: number;
   contextBudget?: number;
@@ -102,6 +100,7 @@ export interface Settings {
   resumeAfterLimit: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
+  mediaRetention: string;
   defaultClaudeCompactWindow: number;
 }
 
@@ -117,6 +116,7 @@ export interface UpdateSettingsRequest {
   resumeAfterLimit?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
+  mediaRetention?: string;
 }
 
 export interface Limits {

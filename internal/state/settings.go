@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"time"
 
 	"agentbox/internal/api"
 )
@@ -63,8 +64,8 @@ const (
 	// count like "4". Unlike the settings above, "" is not "AgentBox's own
 	// default" but a real choice — every core, no limit — so this key is read
 	// with SettingValue, which says whether it was ever set at all. An
-	// installation that has never chosen is seeded from the host's core count
-	// when the daemon starts (see agent.DefaultLimits).
+	// installation that has never chosen is seeded with 2 cores, or fewer on a
+	// one-core host, when the daemon starts (see agent.DefaultLimits).
 	SettingDefaultCPU = "default_cpu"
 	// SettingDefaultCPUAllowance is the share of the CPUs a new agent gets
 	// (Incus limits.cpu.allowance): "50%", or "25ms/100ms". "" is all of it.
@@ -125,12 +126,58 @@ const (
 	// SettingUpdateCheck says whether the daemon asks once a day whether a
 	// newer AgentBox is out. On until somebody turns it off (FlagOn).
 	SettingUpdateCheck = "update_check"
+	// SettingMediaRetention is how long a removed agent's media is kept: one
+	// of the api.MediaRetention values, empty meaning
+	// DefaultMediaRetention. It belongs to the installation rather than to a
+	// project, and it replaced projects.media_retention_days, which is no
+	// longer read.
+	SettingMediaRetention = "media_retention"
 	// SettingInstallID is the random UUID the update check sends, so the
 	// server can count installations without anything that identifies the
 	// machine. Made on the first check, so an installation that never checks
 	// never has one.
 	SettingInstallID = "install_id"
 )
+
+// DefaultMediaRetention is how long a removed agent's media is kept when
+// nobody chose: long enough to look at what it did the day after, short
+// enough that a busy installation doesn't pile up recordings.
+const DefaultMediaRetention = api.MediaRetentionDay
+
+// MediaRetention reads SettingMediaRetention. Anything that isn't one of the
+// choices — never written, or written by a build with other ones — is the
+// default.
+func (s *Store) MediaRetention(ctx context.Context) (string, error) {
+	value, err := s.Setting(ctx, SettingMediaRetention)
+	if err != nil {
+		return DefaultMediaRetention, err
+	}
+	if _, _, ok := MediaRetentionPeriod(value); !ok {
+		return DefaultMediaRetention, nil
+	}
+	return value, nil
+}
+
+// MediaRetentionPeriod is how long a retention choice keeps media after its
+// agent is gone, and whether it keeps it forever. ok is false for anything
+// that isn't a choice. Immediately is a zero period: the media goes with the
+// agent.
+func MediaRetentionPeriod(value string) (period time.Duration, forever, ok bool) {
+	const day = 24 * time.Hour
+	switch value {
+	case api.MediaRetentionImmediately:
+		return 0, false, true
+	case api.MediaRetentionDay:
+		return day, false, true
+	case api.MediaRetentionWeek:
+		return 7 * day, false, true
+	case api.MediaRetentionMonth:
+		return 30 * day, false, true
+	case api.MediaRetentionForever:
+		return 0, true, true
+	}
+	return 0, false, false
+}
 
 // DefaultClaudeCompactWindow is the context a Claude Code or Codex chat
 // compacts at when nobody chose (D83): the window the models had before their

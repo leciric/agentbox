@@ -11,6 +11,8 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?folded=1               the rail folded to 56px (default: open)
 //   ?open=agent-99          the named agent's thread open (ref suffix only)
+//   ?finished=1             the rail's Finished section open (default: closed,
+//                           unless ?open names an agent in it)
 //   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
 //                           credential request
 //   ?chat=lead              the project's chat, with the credential requests
@@ -79,6 +81,7 @@ installDevBridge();
 const params = new URLSearchParams(location.search);
 document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
+localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's data-rail-thread
 const vm = params.get('vm');
 const wsl = params.get('wsl');

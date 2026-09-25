@@ -333,7 +333,7 @@ export function NewAgentResources() {
           id="default-cpu"
           label="CPU cores"
           placeholder="every core"
-          hint={`How many cores the agent sees and can use, even when the host is idle.${cores ? ` This host has ${cores}.` : ''}`}
+          hint={`How many cores the agent sees and can use, even when the host is idle. A new installation starts at 2; empty is every core.${cores ? ` This host has ${cores}.` : ''}`}
           value={settings.data?.defaultCPU ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultCPU) => save.mutate({ defaultCPU })}
@@ -500,6 +500,57 @@ export function CompactWindow() {
             never shows another one as though you had picked it. */}
         {value !== 0 && !compactWindows.includes(value) && <SelectOption value={String(value)}>{formatTokens(value)} tokens</SelectOption>}
         <SelectOption value="0">The model's whole window</SelectOption>
+      </Select>
+    </Panel>
+  );
+}
+
+// mediaRetentions are how long a removed agent's media can be kept, in the
+// order they are offered. The values are api.MediaRetention's.
+const mediaRetentions = [
+  { value: 'immediately', label: 'Delete it with the agent' },
+  { value: '1d', label: '1 day' },
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
+  { value: 'forever', label: 'Forever' },
+];
+
+// MediaRetention is how long an agent's screenshots, recordings and reports
+// outlive it. It belongs to the installation rather than to a project: it is
+// about this machine's disk, and every project's removed agents fill it the
+// same way — more so now that finished agents are removed on their own.
+export function MediaRetention() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (mediaRetention: string) => api.updateSettings({ mediaRetention }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <Panel className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-medium text-primary">Keep a removed agent's media for</div>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
+          Screenshots, recordings and reports stay in the project's media view after their agent is destroyed — by you, or on its own once its pull
+          request is merged or closed — and are purged when this runs out. An agent that still exists keeps all of its media.
+        </p>
+      </div>
+      <Select
+        data-media-retention
+        aria-label="Keep a removed agent's media for"
+        disabled={save.isPending || settings.data === undefined}
+        className="w-[13rem] flex-none rounded-xl"
+        value={settings.data?.mediaRetention ?? '1d'}
+        onChange={(next) => save.mutate(next)}
+      >
+        {mediaRetentions.map((r) => (
+          <SelectOption key={r.value} value={r.value}>
+            {r.label}
+            {r.value === '1d' ? ' (default)' : ''}
+          </SelectOption>
+        ))}
       </Select>
     </Panel>
   );

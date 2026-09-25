@@ -84,15 +84,14 @@ const createScript = `case "$1" in
 esac
 exit 0`
 
-// TestDefaultLimitsLeaveTheHostTwoCores checks the rule a fresh installation
-// is seeded with: every core but two, never fewer than two, and never more
-// than the host actually has.
-func TestDefaultLimitsLeaveTheHostTwoCores(t *testing.T) {
+// TestDefaultLimitsIsTwoCores checks the rule a fresh installation is seeded
+// with: two cores, never more than the host actually has.
+func TestDefaultLimitsIsTwoCores(t *testing.T) {
 	for _, c := range []struct {
 		host int
 		want string
 	}{
-		{32, "30"}, {16, "14"}, {8, "6"}, {4, "2"}, {3, "2"}, {2, "2"}, {1, "1"},
+		{32, "2"}, {16, "2"}, {8, "2"}, {4, "2"}, {3, "2"}, {2, "2"}, {1, "1"}, {0, "2"},
 	} {
 		got := agent.DefaultLimits(c.host)
 		if got.CPU != c.want {

@@ -37,6 +37,7 @@ import {
   CompactWindow,
   DefaultContextWindow,
   DefaultModel,
+  MediaRetention,
   NewAgentEffort,
   NewAgentResources,
   OpenCodeInImage,
@@ -833,6 +834,7 @@ function SettingsTabs({
               <div className="mt-3">
                 <ResumeAfterLimit />
                 <CompactWindow />
+                <MediaRetention />
               </div>
             </Panel>
           </TabsContent>
