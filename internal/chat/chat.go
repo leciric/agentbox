@@ -1847,9 +1847,9 @@ func (h handler) Notify(method string, params json.RawMessage) {
 			// The account's own answer to how long this model's window is,
 			// which is what the context window offers next time (D91).
 			h.ad.sizeOf = model + "=" + strconv.FormatInt(u.Size, 10)
-			ref, size := c.agent.Ref(), u.Size
+			ref, size, compact := c.agent.Ref(), u.Size, h.ad.window
 			go func() {
-				if err := c.m.Store.RememberClaudeModelWindow(context.Background(), model, size); err != nil {
+				if err := c.m.Store.RememberClaudeModelWindow(context.Background(), model, size, compact); err != nil {
 					c.m.logf("chat %s: remembering %s's window: %v", ref, model, err)
 				}
 			}()

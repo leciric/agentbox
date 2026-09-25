@@ -32,10 +32,11 @@ func TestContextWindowsFollowTheModel(t *testing.T) {
 func TestWhatASessionReportedOverridesTheGuess(t *testing.T) {
 	ctx := context.Background()
 	store := openStore(t)
-	if err := store.RememberClaudeModelWindow(ctx, "something-new", 1_000_000); err != nil {
+	if err := store.RememberClaudeModelWindow(ctx, "something-new", 1_000_000, 200_000); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RememberClaudeModelWindow(ctx, "opus", 200_000); err != nil {
+	// Reported by a session with no compact window, so it is opus's own.
+	if err := store.RememberClaudeModelWindow(ctx, "opus", 200_000, 0); err != nil {
 		t.Fatal(err)
 	}
 	w, err := store.ClaudeWindows(ctx)
@@ -52,6 +53,52 @@ func TestWhatASessionReportedOverridesTheGuess(t *testing.T) {
 	// the only way there to a long window.
 	if got := w.NormalizeClaudeModel("opus[1m]"); got != "opus[1m]" {
 		t.Errorf("NormalizeClaudeModel(opus[1m]) = %q where opus is short, want it kept", got)
+	}
+}
+
+// A session compacting at 200k reports 200000 as its size whatever its
+// model's window is. Remembering that made opus a 200k model for good, and
+// Settings and create_agent offered it no 1M window.
+func TestACompactCappedSizeIsNotTheModelsWindow(t *testing.T) {
+	ctx := context.Background()
+	store := openStore(t)
+	for _, model := range []string{"opus", "default"} {
+		if err := store.RememberClaudeModelWindow(ctx, model, 200_000, 200_000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w, err := store.ClaudeWindows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Seen) != 0 {
+		t.Errorf("remembered %v from sizes capped at the compact window, want nothing", w.Seen)
+	}
+	for _, model := range []string{"opus", "default"} {
+		if got, want := w.ContextWindows(model, 200_000), []int64{200_000, 1_000_000}; !slices.Equal(got, want) {
+			t.Errorf("ContextWindows(%q) = %v, want %v", model, got, want)
+		}
+		if _, err := w.ContextWindowChoice(model, "1m", 200_000); err != nil {
+			t.Errorf("1m for %s: %v", model, err)
+		}
+		if got, err := w.DefaultContextWindow(model, "1m", 200_000); err != nil || got != "1000000" {
+			t.Errorf("DefaultContextWindow(%q, 1m) = %q, %v; want 1000000", model, got, err)
+		}
+	}
+
+	// A size under the cap is the model's own, shorter than the cap; one
+	// over it can only be the model's own.
+	if err := store.RememberClaudeModelWindow(ctx, "short-one", 200_000, 1_000_000); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RememberClaudeModelWindow(ctx, "long-one", 1_000_000, 200_000); err != nil {
+		t.Fatal(err)
+	}
+	if w, err = store.ClaudeWindows(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if w.Seen["short-one"] != 200_000 || w.Seen["long-one"] != 1_000_000 {
+		t.Errorf("Seen = %v, want short-one 200000 and long-one 1000000", w.Seen)
 	}
 }
 
