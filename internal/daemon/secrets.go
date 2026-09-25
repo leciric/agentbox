@@ -149,6 +149,7 @@ func (s *Server) setSecret(w http.ResponseWriter, r *http.Request, project, agen
 	if err != nil {
 		return err
 	}
+	s.countFeature(api.FeatureSecretSet)
 	return writeJSON(w, http.StatusOK, info)
 }
 

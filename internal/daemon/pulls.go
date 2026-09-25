@@ -671,6 +671,7 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
 	}, "")
 
+	s.countFeature(api.FeaturePullMerge)
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	return writeJSON(w, http.StatusOK, out)
 }

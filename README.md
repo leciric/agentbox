@@ -142,7 +142,25 @@ repositories or accounts, and any other ID or hardware detail. Like any web requ
 your IP address. If the request fails or takes longer than 5 seconds, AgentBox ignores it and
 tells nobody.
 
-**To turn it off**, switch off **Check for updates** in the app under **Settings → Environment**,
+**Anonymous usage stats** go with the check, so we can see which features are used and which
+aren't. AgentBox counts uses of a fixed list of features (the `Feature…` keys in
+[`internal/api/types.go`](internal/api/types.go), such as `agent.create.claude`, `lead.turn.codex`,
+`pr.list` or `menu.agent.destroy`) in `state.db`, per UTC day, and once a day is over it sends the
+counts in one more request, with the same four fields as the check:
+
+```
+POST https://agentbox.linting.dev/api/v1/usage
+{"install":"<uuid>","version":"0.1.0","os":"linux","arch":"amd64",
+ "days":[{"day":"2026-09-24","features":{"agent.create.claude":3,"pr.list":1}}]}
+```
+
+A key names a feature and nothing about what it was used on: no names, paths, repositories,
+models, prompts or anything you typed. Counts the server has are deleted from `state.db`, and
+counts it never got are dropped after 31 days. Switch off **Share anonymous usage stats** under
+**Settings → Environment** to stop them and delete what wasn't sent yet; they are also off whenever
+the update check is.
+
+**To turn the check off**, and the usage stats with it, switch off **Check for updates** in the app under **Settings → Environment**,
 or set `AGENTBOX_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` in the daemon's environment (restart it with
 `agentbox daemon stop` afterwards). Builds from source, which report version `dev`, never check.
 

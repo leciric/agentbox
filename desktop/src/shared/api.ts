@@ -100,6 +100,7 @@ export interface Settings {
   resumeAfterLimit: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
+  usageStats: boolean;
   mediaRetention: string;
   defaultClaudeCompactWindow: number;
 }
@@ -116,6 +117,7 @@ export interface UpdateSettingsRequest {
   resumeAfterLimit?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
+  usageStats?: boolean;
   mediaRetention?: string;
 }
 
@@ -1472,3 +1474,22 @@ export const TokensTurn = "turn";
 export const TokensBackground = "background";
 export const TokensCompaction = "compaction";
 export const TokensConsolidation = "consolidation";
+export const FeatureDesktopOpen = "desktop.open";
+export const FeatureTerminalOpen = "terminal.open";
+export const FeatureAndroidOpen = "android.open";
+export const FeatureAgentMediaView = "media.view.agent";
+export const FeatureProjectMediaView = "media.view.project";
+export const FeaturePullList = "pr.list";
+export const FeatureMemoryView = "memory.view";
+export const FeatureTokensView = "tokens.view";
+export const FeatureSettingsEnvironment = "settings.view.environment";
+export const FeatureSettingsAccounts = "settings.view.accounts";
+export const FeatureSettingsLead = "settings.view.lead";
+export const FeatureSettingsAgents = "settings.view.agents";
+export const FeatureMenuOpenChat = "menu.agent.open_chat";
+export const FeatureMenuOpenTerminal = "menu.agent.open_terminal";
+export const FeatureMenuLifecycle = "menu.agent.lifecycle";
+export const FeatureMenuRetire = "menu.agent.retire";
+export const FeatureMenuCopyBranch = "menu.agent.copy_branch";
+export const FeatureMenuOpenPullRequest = "menu.agent.open_pr";
+export const FeatureMenuDestroy = "menu.agent.destroy";

@@ -49,6 +49,8 @@ func (s *Server) checkForUpdate(ctx context.Context) {
 		return
 	}
 	latest, err := update.Check(ctx, s.cfg.UpdateURL, update.NewRequest(install, Version))
+	// The usage stats go with the check, whatever it found (usagestats.go).
+	s.sendUsage(ctx, install)
 	if err != nil {
 		return
 	}
@@ -101,7 +103,8 @@ func (s *Server) installID(ctx context.Context) (string, error) {
 }
 
 // setUpdateCheck is the setting changing. Turning it off forgets what the last
-// check found, since nothing will keep it true; turning it on checks at once.
+// check found, since nothing will keep it true, and the usage stats not sent
+// yet, which went with it; turning it on checks at once.
 func (s *Server) setUpdateCheck(ctx context.Context, on bool) error {
 	if err := s.store.SetFlag(ctx, state.SettingUpdateCheck, on); err != nil {
 		return err
@@ -112,6 +115,9 @@ func (s *Server) setUpdateCheck(ctx context.Context, on bool) error {
 		default:
 		}
 	} else {
+		if err := s.store.ForgetFeatureUsage(ctx, ""); err != nil {
+			return err
+		}
 		s.updates.mu.Lock()
 		s.updates.available, s.updates.checkedAt = nil, nil
 		s.updates.mu.Unlock()

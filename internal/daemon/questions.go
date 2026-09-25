@@ -264,6 +264,7 @@ func (s *Server) answerAsUser(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	s.countFeature(api.FeatureQuestionAnswer)
 	return writeJSON(w, http.StatusOK, toAPIQuestion(answered))
 }
 
