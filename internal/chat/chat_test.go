@@ -9,7 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -25,14 +27,19 @@ import (
 // of a test's time is spent waiting on a channel or a poll loop, not the CPU
 // — so -test.parallel's default of GOMAXPROCS (a small number on an agent
 // machine) caps how many are ever in flight and leaves the machine idle
-// between wake-ups. This has to happen here, in TestMain, rather than in an
+// between wake-ups. Four per core is enough to keep the machine busy without
+// running so many at once that another process on the same machine (another
+// package's own tests, say) starves waiting for a share of it — a flat 32
+// measured on a 3-core machine, alongside a concurrent `go test
+// ./internal/daemon/... -race`, made the whole run minutes slower rather
+// than faster. This has to happen here, in TestMain, rather than in an
 // init(): the "test.parallel" flag doesn't exist yet when init() functions
 // run, only once the generated main has called testing.Init(). A -parallel
 // given on the command line still wins, since flag.Parse (inside m.Run)
 // only touches flags it was actually given.
 func TestMain(m *testing.M) {
 	if f := flag.Lookup("test.parallel"); f != nil {
-		flag.Set("test.parallel", "32")
+		flag.Set("test.parallel", strconv.Itoa(runtime.GOMAXPROCS(0)*4))
 	}
 	os.Exit(m.Run())
 }
