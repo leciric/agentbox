@@ -19,14 +19,12 @@ version bump, takes a few minutes of building.
 **Changing `provision.sh` means bumping `image.Version`**: that's what tells an existing
 machine's Setup page the installed image is outdated, and asks for a rebuild.
 
-The agent tools mise installs are the exception: they are pinned in
-[`tools.txt`](../internal/image/tools.txt), and have a version of their own, recorded on the image
-next to `image.Version`. When a new AgentBox pins other tools, its daemon updates them in place on
-start, in the background: it starts a copy of the base, installs only the tools that changed,
-checks every tool, and swaps the copy in as the base. Setup says "Updating agent tools…" while it
-runs, and agents go on being made from the current base until the new one is in place. If the
-update fails, the daemon rebuilds the image in the background instead; the current base stays
-until the rebuild is done, and Setup asks you for a rebuild only if that fails too.
+A new AgentBox that only moves the agent tools on (Claude Code, Codex, OpenCode, the GitHub CLI
+and the like) doesn't ask for a rebuild: on start, the daemon updates them in the base image in
+place, in the background, installing only the tools that changed and checking every one. Setup
+says "Updating agent tools…" while it runs, and new agents are made from the current image until
+the updated one is in place. If the update fails, the image stays as it was and keeps working, and
+Setup says why and offers **Rebuild base image**.
 
 ## What `provision.sh` sets up
 

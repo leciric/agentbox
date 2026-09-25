@@ -133,8 +133,9 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 
 	ready := true
 	for _, c := range checks {
-		// An image whose tools are being updated is still the one agents use.
-		if c.Required && c.Status != api.SetupOK && c.Status != api.SetupUpdating {
+		// An image whose tools are being updated, or failed to be, is still
+		// the one agents use: a caveat, not a reason to hold anything up.
+		if c.Required && c.Status != api.SetupOK && c.Status != api.SetupUpdating && c.Status != api.SetupWarn {
 			ready = false
 		}
 	}

@@ -583,7 +583,15 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 
 	m.logf("Creating instance %s from %s", a.Instance, pl.source)
-	if err := incusStep("copy", pl.source, a.Instance); err != nil {
+	// The base image can't be swapped for a new one while it is copied, and
+	// a copy started during a swap waits for the new one.
+	release := func() {}
+	if pl.source == image.SnapshotRef() {
+		release = image.UseBase()
+	}
+	err := incusStep("copy", pl.source, a.Instance)
+	release()
+	if err != nil {
 		return fail("instance", err)
 	}
 	undo = append(undo, func() { m.Incus.Run(cleanup, "delete", "--force", a.Instance) })

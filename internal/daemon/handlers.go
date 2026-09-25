@@ -1138,7 +1138,7 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) error {
 	}
 	opts := image.Options{Components: components}
 	// One job at a time makes the next image: the daemon may be updating the
-	// agent tools, or rebuilding after that failed.
+	// agent tools, or another build be under way.
 	if !s.claimImage() {
 		return fmt.Errorf("the base image is being updated in the background: follow it in Setup, and build again once it's done")
 	}
@@ -1147,7 +1147,8 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) error {
 		if err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log); err != nil {
 			return nil, err
 		}
-		// A build you made settles an update of the daemon's that failed.
+		// A build you made settles an update of the daemon's that failed or
+		// was cancelled.
 		s.setImagePhase(func(w *imageWork) { *w = imageWork{busy: w.busy} })
 		return map[string]string{"snapshot": image.SnapshotRef()}, nil
 	})

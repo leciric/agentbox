@@ -61,8 +61,10 @@ type Status =
   | "checking";
 
 // usable is done, as far as the wizard goes: a base image whose agent tools
-// the daemon is updating in the background is still the one agents use.
-const usable = (status: Status) => status === "ok" || status === "updating";
+// the daemon is updating in the background, or failed to, is still the one
+// agents use, and a warning is a caveat, never a reason to stop.
+const usable = (status: Status) =>
+  status === "ok" || status === "updating" || status === "warn";
 
 // A step is one thing to get right, whether the daemon checks it (Incus, the
 // base image) or the app does (its own command-line tool, GitHub).
@@ -285,8 +287,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
             }
           />
         )}
-        {/* The daemon's own work on the image: updating the agent tools, or
-            the rebuild after that failed. */}
+        {/* The daemon's own work on the image: updating the agent tools. */}
         {!imageJob && check("image")?.job && (
           <JobProgress
             key={check("image")?.job}

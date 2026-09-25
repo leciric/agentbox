@@ -168,8 +168,8 @@ func TestToolsScript(t *testing.T) {
 	script := filepath.Join(dir, "tools.sh")
 	for name, content := range map[string]string{
 		// runuser -l <user> -c <command>
-		"runuser": "#!/bin/sh\necho \"as $2: $4\" >>" + log + "\nexec sh -c \"$4\"\n",
-		"mise":    "#!/bin/sh\necho \"mise $*\" >>" + log + "\n",
+		"runuser":  "#!/bin/sh\necho \"as $2: $4\" >>" + log + "\nexec sh -c \"$4\"\n",
+		"mise":     "#!/bin/sh\necho \"mise $*\" >>" + log + "\n",
 		"tools.sh": string(toolsScript),
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o755); err != nil {

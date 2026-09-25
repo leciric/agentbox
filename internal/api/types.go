@@ -1386,7 +1386,9 @@ const (
 	SetupOutdated = "outdated"
 	SetupOptional = "optional"
 	// SetupWarn is something present and usable, but with a caveat worth
-	// reading — unlike missing, it never blocks the setup wizard.
+	// reading — unlike missing, it never blocks the setup wizard: a Claude
+	// Code token Anthropic rejected, or a base image whose agent tools failed
+	// to update in place.
 	SetupWarn = "warn"
 	// SetupUpdating is something usable that the daemon is bringing up to date
 	// by itself, in the background (SetupCheck.Job): the base image while its

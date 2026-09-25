@@ -13,10 +13,13 @@ import (
 // The daemon moves the base image's agent tools on by itself: when the image
 // was provisioned by this AgentBox's image version, with the components the
 // installation wants, and only its tools differ from tools.txt, it updates
-// them in place in the background (image.UpdateTools). If that fails it builds
-// the image again, in the background too. Either way the current base stays
-// in use until the new one replaces it. A different image version or other
-// components still ask you for a rebuild, as Setup always has.
+// them in place in the background (image.UpdateTools). The current base stays
+// in use until the updated one replaces it. If the update fails, the base is
+// left as it was and Setup says why and offers the rebuild: a rebuild
+// downloads gigabytes, and what failed the update (the network, a pin whose
+// check fails) would usually fail it too, so it is yours to start. A
+// different image version or other components ask you for a rebuild, as
+// Setup always has.
 
 // imageWork is what the daemon is doing to the base image, under Server.mu.
 type imageWork struct {
@@ -24,10 +27,10 @@ type imageWork struct {
 	// included: they all make agentbox-base-next, so only one may run.
 	busy bool
 	// phase is where the daemon's own update has got to, job the job doing
-	// it, and toolsErr and buildErr why each step of it failed.
-	phase              imagePhase
-	job                string
-	toolsErr, buildErr error
+	// it, and err why it failed.
+	phase imagePhase
+	job   string
+	err   error
 }
 
 type imagePhase int
@@ -35,8 +38,8 @@ type imagePhase int
 const (
 	imageIdle          imagePhase = iota
 	imageUpdatingTools            // updating the tools in place
-	imageRebuilding               // building again, after the in-place update failed
-	imageUpdateFailed             // both failed: it's yours to rebuild, and Setup says so
+	imageUpdateFailed             // it failed: the old base stays, and rebuilding is yours
+	imageUpdateCancelled          // it was cancelled: the old base stays until you rebuild or AgentBox starts again
 )
 
 // claimImage reserves the base image for one job; false means another has it.
@@ -91,24 +94,24 @@ func (s *Server) basePlan(ctx context.Context) (image.Plan, image.Installed, err
 // needs. Run calls it at start, which is also when an upgraded AgentBox first
 // runs.
 func (s *Server) updateBaseTools(ctx context.Context) {
-	plan, installed, err := s.basePlan(ctx)
+	plan, _, err := s.basePlan(ctx)
 	if err != nil {
 		return
 	}
-	s.startToolsUpdate(plan, installed)
+	s.startToolsUpdate(plan)
 }
 
 // startToolsUpdate starts updating the base image's tools, when plan says that
 // is all it needs and nothing else is working on it. It is safe to call again
-// and again, and Setup does whenever it finds the tools behind. After both the
-// update and the rebuild failed, it leaves the image to you until the daemon
-// starts again.
-func (s *Server) startToolsUpdate(plan image.Plan, installed image.Installed) {
+// and again, and Setup does whenever it finds the tools behind. After an
+// update failed or was cancelled it leaves the image to you, until a build
+// you start succeeds or the daemon starts again.
+func (s *Server) startToolsUpdate(plan image.Plan) {
 	if plan.Action != image.NeedsTools || s.jobs == nil {
 		return
 	}
 	s.mu.Lock()
-	if s.image.busy || s.image.phase == imageUpdateFailed {
+	if s.image.busy || s.image.phase == imageUpdateFailed || s.image.phase == imageUpdateCancelled {
 		s.mu.Unlock()
 		return
 	}
@@ -117,20 +120,25 @@ func (s *Server) startToolsUpdate(plan image.Plan, installed image.Installed) {
 
 	j, err := s.jobs.start("image-tools", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
 		s.logf("job image-tools started")
-		err := image.UpdateTools(ctx, s.cfg.Incus, s.cfg.User, plan, log)
-		if err == nil {
+		// The plan that started this may be stale by now: another job may have
+		// changed the image since. Now that the image is ours, look again.
+		plan, _, err := s.basePlan(ctx)
+		if err == nil && plan.Action == image.NeedsTools {
+			err = image.UpdateTools(ctx, s.cfg.Incus, s.cfg.User, plan, log)
+		}
+		switch {
+		case err == nil:
 			s.setImagePhase(func(w *imageWork) { *w = imageWork{} })
 			return map[string]string{"snapshot": image.SnapshotRef(), "toolsVersion": plan.ToolsVersion}, nil
+		case ctx.Err() != nil:
+			// Cancelled, from Setup or because the daemon is stopping: not
+			// again until the next start, or a cancel would only restart it.
+			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateCancelled} })
+		default:
+			s.logf("job image-tools failed: %v", err)
+			fmt.Fprintf(log, "==> %v\n==> Agents keep using the current image. Rebuild it from Setup to get the new tools\n", err)
+			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateFailed, err: err} })
 		}
-		s.logf("job image-tools failed: %v", err)
-		if ctx.Err() != nil {
-			// Cancelled, or the daemon is stopping: the next start tries again.
-			s.setImagePhase(func(w *imageWork) { *w = imageWork{} })
-			return nil, err
-		}
-		fmt.Fprintf(log, "==> %v\n==> Building the image again instead, in a job of its own; agents keep using the current one meanwhile\n", err)
-		// The image stays claimed: the rebuild takes it over.
-		s.rebuildBase(installed.Components, err)
 		return nil, err
 	})
 	if err != nil {
@@ -140,33 +148,6 @@ func (s *Server) startToolsUpdate(plan image.Plan, installed image.Installed) {
 	}
 	s.setImagePhase(func(w *imageWork) {
 		if w.phase == imageUpdatingTools && w.job == "" {
-			w.job = j.info.ID
-		}
-	})
-}
-
-// rebuildBase builds the base image again after updating its tools in place
-// failed, with the components it has. image.Build keeps the current base
-// until the new one is ready, and keeps it for good if the build fails too.
-func (s *Server) rebuildBase(components image.Components, toolsErr error) {
-	s.setImagePhase(func(w *imageWork) { *w = imageWork{busy: true, phase: imageRebuilding, toolsErr: toolsErr} })
-	j, err := s.jobs.start("image-build", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
-		s.logf("job image-build started, after updating the agent tools in place failed")
-		err := image.Build(ctx, s.cfg.Incus, s.cfg.User, image.Options{Components: components}, log)
-		if err != nil {
-			s.logf("job image-build failed: %v", err)
-			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateFailed, toolsErr: toolsErr, buildErr: err} })
-			return nil, err
-		}
-		s.setImagePhase(func(w *imageWork) { *w = imageWork{} })
-		return map[string]string{"snapshot": image.SnapshotRef()}, nil
-	})
-	if err != nil {
-		s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateFailed, toolsErr: toolsErr, buildErr: err} })
-		return
-	}
-	s.setImagePhase(func(w *imageWork) {
-		if w.phase == imageRebuilding && w.job == "" {
 			w.job = j.info.ID
 		}
 	})
@@ -189,20 +170,23 @@ func (s *Server) baseImageCheck(plan image.Plan, installed image.Installed, want
 			base.Detail = fmt.Sprintf("built with %s, and you now want %s: rebuild it", installed.Components.Summary(), wanted.Summary())
 		}
 	case image.NeedsTools:
-		s.startToolsUpdate(plan, installed)
+		s.startToolsUpdate(plan)
 		work := s.imageState()
+		// The image agents use still works, so neither of these holds anything
+		// up: they say why its tools are behind, and offer the rebuild.
 		switch work.phase {
 		case imageUpdateFailed:
-			base.Status = api.SetupOutdated
-			base.Detail = fmt.Sprintf("its agent tools are out of date, and updating them failed: %s; rebuilding it failed too: %s. Rebuild it", firstLine(work.toolsErr), firstLine(work.buildErr))
-		case imageRebuilding:
-			base.Status, base.Job = api.SetupUpdating, work.job
-			base.Detail = fmt.Sprintf("Rebuilding it in the background, since updating the agent tools in place failed (%s). Agents keep using the current image until the new one is ready", firstLine(work.toolsErr))
-		default:
-			// Updating, or about to: another job may hold the image for now.
-			base.Status, base.Job = api.SetupUpdating, work.job
-			base.Detail = "Updating agent tools… " + describeTools(plan) + ". Agents keep using the current image until it's done"
+			base.Status = api.SetupWarn
+			base.Detail = fmt.Sprintf("updating its agent tools failed: %s. Agents keep using it as it is; rebuild it for the new tools", firstLine(work.err))
+			return base
+		case imageUpdateCancelled:
+			base.Status = api.SetupWarn
+			base.Detail = "updating its agent tools was cancelled. Agents keep using it as it is; rebuild it for the new tools, or restart AgentBox to update them in place"
+			return base
 		}
+		// Updating, or about to: another job may hold the image for now.
+		base.Status, base.Job = api.SetupUpdating, work.job
+		base.Detail = "Updating agent tools… " + describeTools(plan) + ". Agents keep using the current image until it's done"
 	default:
 		base.Status = api.SetupOK
 		base.Detail = "ready, version " + installed.Version + ", agent tools " + installed.ToolsVersion

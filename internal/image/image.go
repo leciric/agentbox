@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"agentbox/internal/incus"
@@ -146,8 +147,28 @@ func InstalledBuild(ctx context.Context, inc incus.Client) (Installed, error) {
 }
 
 // Ready reports whether the base snapshot exists.
+//
+// It waits while a new base image is being swapped in, when for a moment
+// there is none.
 func Ready(ctx context.Context, inc incus.Client) (bool, error) {
+	defer UseBase()()
 	return inc.HasSnapshot(ctx, Base, Snapshot)
+}
+
+// baseLock keeps Base where it is while it's being read: agents copied from
+// it hold it for reading (UseBase), and swapIn, which renames it away and the
+// new one in, holds it for writing. So a create never finds no base halfway
+// through a swap, and a swap never renames a base Incus is still copying.
+// Every create and every swap runs in the daemon, so a lock in the process
+// is enough.
+var baseLock sync.RWMutex
+
+// UseBase keeps the base image from being swapped until release is called:
+// hold it around copying an instance from SnapshotRef. It waits for a swap
+// under way to finish.
+func UseBase() (release func()) {
+	baseLock.RLock()
+	return baseLock.RUnlock
 }
 
 var kernelModules = []string{
@@ -312,6 +333,10 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 // the one between the two renames.
 func swapIn(ctx context.Context, inc incus.Client, next string, log io.Writer) error {
 	stepper(log)("Replacing the previous %s", Base)
+	// Agents being copied from the base finish first, and new ones wait for
+	// the swap: the base is only missing inside it.
+	baseLock.Lock()
+	defer baseLock.Unlock()
 	old := Base + "-old"
 	inc.Run(ctx, "delete", "--force", old)
 	// A new machine has no previous image, so there's nothing to delete after the swap.

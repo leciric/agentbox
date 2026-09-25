@@ -133,9 +133,9 @@ func TestDaemonUpdatesTheBaseImageToolsInPlace(t *testing.T) {
 	}
 }
 
-// When updating in place fails, the daemon builds the image again; when that
-// fails too, Setup says both, and the base the machine had is still there.
-func TestDaemonRebuildsWhenTheToolsUpdateFails(t *testing.T) {
+// When updating in place fails, the base is left as it was, and Setup says
+// why and offers the rebuild without starting one: that is yours to start.
+func TestDaemonLeavesTheBaseWhenTheToolsUpdateFails(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	toolsVersion, tools := olderTools()
@@ -143,10 +143,10 @@ func TestDaemonRebuildsWhenTheToolsUpdateFails(t *testing.T) {
 `
 	d := startTestDaemon(t, root, toolsIncus(image.Version, image.Components{}, toolsVersion, tools, extra, ""))
 
-	failed := waitForImage(t, d, func(c api.SetupCheck) bool { return c.Status == api.SetupOutdated })
-	if !strings.Contains(failed.Detail, "updating them failed") || !strings.Contains(failed.Detail, "rebuilding it failed too") ||
+	failed := waitForImage(t, d, func(c api.SetupCheck) bool { return c.Status == api.SetupWarn })
+	if !strings.Contains(failed.Detail, "updating its agent tools failed") || !strings.Contains(failed.Detail, "rebuild it") ||
 		failed.Fix != "agentbox image build" || failed.Job != "" {
-		t.Errorf("after both failed: %+v", failed)
+		t.Errorf("after the update failed: %+v", failed)
 	}
 	d.srv.jobs.wait()
 	jobs, err := d.srv.jobs.list(context.Background(), 10)
@@ -157,22 +157,72 @@ func TestDaemonRebuildsWhenTheToolsUpdateFails(t *testing.T) {
 	for _, j := range jobs {
 		kinds[j.Kind] = j.Status
 	}
-	if kinds["image-tools"] != api.JobFailed || kinds["image-build"] != api.JobFailed {
-		t.Errorf("jobs = %+v, want a failed image-tools and a failed image-build", kinds)
+	if kinds["image-tools"] != api.JobFailed || kinds["image-build"] != "" {
+		t.Errorf("jobs = %+v, want a failed image-tools and no build", kinds)
 	}
 	log := incusLog(t, root)
-	if !ranLine(log, "init images:debian/13 agentbox-base-next") {
-		t.Errorf("no rebuild after the failed update:\n%s", strings.Join(log, "\n"))
+	if ranLine(log, "init ") {
+		t.Errorf("the image was built again without asking:\n%s", strings.Join(log, "\n"))
 	}
 	for _, l := range log {
 		if l == "delete --force agentbox-base" || strings.HasPrefix(l, "rename agentbox-base ") {
 			t.Errorf("the base image went: incus %s", l)
 		}
 	}
-	// And it isn't tried again and again: that waits for the next start.
+	// The image still works, so it holds nothing up.
+	status, err := d.client.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	othersOK := true
+	for _, c := range status.Checks {
+		if c.Required && c.ID != "image" && c.Status != api.SetupOK {
+			othersOK = false
+		}
+	}
+	if othersOK && !status.Ready {
+		t.Error("Setup isn't ready after a failed update, though the image works")
+	}
+	// It isn't tried again and again: that waits for the next start, and the
+	// rebuild it offers can have the image.
 	before := len(incusLog(t, root))
 	setupCheck(t, d, "image")
 	if after := incusLog(t, root); ranLine(after[before:], "copy ") {
-		t.Error("Setup started another update after both failed")
+		t.Error("Setup started another update after it failed")
+	}
+	if !d.srv.claimImage() {
+		t.Error("a rebuild can't have the image after the update failed")
+	}
+}
+
+// Cancelling the update stops it, leaves the base as it was, and doesn't
+// start it again on Setup's next look.
+func TestDaemonToolsUpdateCancelled(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	toolsVersion, tools := olderTools()
+	extra := withNext + `  exec) exec sleep 30 ;;
+`
+	d := startTestDaemon(t, root, toolsIncus(image.Version, image.Components{}, toolsVersion, tools, extra, ""))
+
+	running := waitForImage(t, d, func(c api.SetupCheck) bool { return c.Job != "" })
+	j, ok := d.srv.jobs.get(running.Job)
+	if !ok {
+		t.Fatalf("no job %s", running.Job)
+	}
+	j.cancel()
+	cancelled := waitForImage(t, d, func(c api.SetupCheck) bool { return c.Status == api.SetupWarn })
+	if !strings.Contains(cancelled.Detail, "cancelled") || cancelled.Fix != "agentbox image build" {
+		t.Errorf("after the cancel: %+v", cancelled)
+	}
+	d.srv.jobs.wait()
+	log := incusLog(t, root)
+	if !ranLine(log, "delete --force agentbox-base-next") || ranLine(log, "rename ") {
+		t.Errorf("the cancelled update should delete its copy and swap nothing:\n%s", strings.Join(log, "\n"))
+	}
+	before := len(log)
+	setupCheck(t, d, "image")
+	if after := incusLog(t, root); ranLine(after[before:], "copy ") {
+		t.Error("Setup started the update again after it was cancelled")
 	}
 }

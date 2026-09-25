@@ -220,6 +220,10 @@ func UpdateTools(ctx context.Context, inc incus.Client, u User, plan Plan, log i
 		return fmt.Errorf("the base image needs no tool update")
 	}
 	step := stepper(log)
+	// The copy starts with the profile as this AgentBox makes it, as a build would.
+	if err := EnsureProfile(ctx, inc); err != nil {
+		return err
+	}
 	next := Base + "-next"
 	if err := remove(ctx, inc, next); err != nil {
 		return err
