@@ -42,6 +42,12 @@ type Config struct {
 	// UpdateURL is where the daily update check asks; empty is
 	// update.DefaultURL.
 	UpdateURL string
+	// PreviewAddr is where the preview proxy listens: empty is
+	// defaultPreviewAddr, and "off" turns the proxy off.
+	PreviewAddr string
+	// GitHubAPI is the GitHub API root; empty is github.Client's own, which
+	// AGENTBOX_GITHUB_API can move.
+	GitHubAPI string
 }
 
 type Server struct {
@@ -71,6 +77,11 @@ type Server struct {
 	askAside func(ctx context.Context, a state.Agent, model, ask string) (answer, ranOn string, err error)
 
 	waiting *waiters // agents waiting for an answer to a question
+
+	// firstSweeps is done once the sweeps Run starts have each made their
+	// first pass, the one at startup: what a test waits for, so that pass
+	// can't land in the middle of what it is checking.
+	firstSweeps sync.WaitGroup
 
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
@@ -166,10 +177,20 @@ func (s *Server) Run(ctx context.Context) error {
 	s.reconcile(ctx)
 	s.servePreview(ctx)
 	s.watchTheme(ctx)
-	go s.watch(ctx)
-	go s.sweepMedia(ctx)
-	go s.sweepMemories(ctx)
-	go s.watchUpdates(ctx)
+	// Run's own loops end with it, and it waits for them: deferred after the
+	// store's Close, this runs before it, so none of them outlives the
+	// database or the daemon it reports on. stop first, for a Serve that
+	// failed rather than being stopped.
+	var loops sync.WaitGroup
+	defer func() {
+		stop()
+		loops.Wait()
+	}()
+	s.firstSweeps.Add(2)
+	loops.Go(func() { s.watch(ctx) })
+	loops.Go(func() { s.sweepMedia(ctx) })
+	loops.Go(func() { s.sweepMemories(ctx) })
+	loops.Go(func() { s.watchUpdates(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 

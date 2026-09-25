@@ -36,6 +36,7 @@ exit 0
 // machine's Claude Code accounts when it creates an agent, and the agent
 // keeps it (D88).
 func TestLeadCreateAgentPicksAccount(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), readyOneAgentIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
@@ -44,7 +45,7 @@ func TestLeadCreateAgentPicksAccount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
@@ -74,6 +75,7 @@ func TestLeadCreateAgentPicksAccount(t *testing.T) {
 // learns otherwise (see TestLeadCreateAgentAccountFailureNotifiesLead for a
 // failure that can only be found once the job is already running).
 func TestLeadCreateAgentUnknownAccount(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
@@ -82,7 +84,7 @@ func TestLeadCreateAgentUnknownAccount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
@@ -102,13 +104,14 @@ func TestLeadCreateAgentUnknownAccount(t *testing.T) {
 // agent that won't run Claude Code is refused — Codex and OpenCode have a
 // single login each, not named accounts — and again before any job starts.
 func TestLeadCreateAgentAccountRefusedForNonClaude(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
 	if err := creds.SaveClaudeToken("default", "sk-ant-oat01-default"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
@@ -123,9 +126,9 @@ func TestLeadCreateAgentAccountRefusedForNonClaude(t *testing.T) {
 // machine's default, which is this project's own, how many of its running
 // agents hold each one, and the latest usage reading — never a token.
 func TestLeadAccountsRoute(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
-	t.Setenv("INCUS_INSTANCES", `[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]`)
-	d := startTestDaemon(t, root, recordingIncus)
+	d := startTestDaemon(t, root, recordingIncus, testConfig{instances: runningAgent01})
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
 	for _, name := range []string{"default", "work", "spare"} {
@@ -133,7 +136,7 @@ func TestLeadAccountsRoute(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -216,6 +219,7 @@ func TestLeadAccountsRoute(t *testing.T) {
 // create_agent outside it naming the ones it may use, and list_accounts shows
 // the lead only those.
 func TestProjectClaudeAccountsAllowList(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
@@ -224,7 +228,7 @@ func TestProjectClaudeAccountsAllowList(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")})
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,6 +291,7 @@ func TestProjectClaudeAccountsAllowList(t *testing.T) {
 // changes: the chat runs on the account its project resolves to, and the
 // Tokens tab reads its limits under the account on its row.
 func TestProjectAccountMovesItsChat(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
@@ -295,7 +300,7 @@ func TestProjectAccountMovesItsChat(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	m := d.srv.manager(nil)
@@ -320,6 +325,7 @@ func TestProjectAccountMovesItsChat(t *testing.T) {
 // project over, keeps the machine default on the same account, and refuses a
 // name that is taken or invalid without touching anything.
 func TestRenameClaudeAccount(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
@@ -328,7 +334,7 @@ func TestRenameClaudeAccount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack"), ClaudeAccount: "work"}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack"), ClaudeAccount: "work"}); err != nil {
 		t.Fatal(err)
 	}
 
