@@ -37,6 +37,7 @@ func withImages(t *testing.T, m *Manager) string {
 // beside the text, is kept out of the conversation's row in a file of its own,
 // and is still there for a daemon that starts afresh.
 func TestAnImageReachesTheToolAndOutlivesTheDaemon(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	f.images = true
@@ -105,6 +106,7 @@ func TestAnImageReachesTheToolAndOutlivesTheDaemon(t *testing.T) {
 
 // A message may be pictures alone.
 func TestAMessageOfOnlyImages(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	f.images = true
@@ -125,6 +127,7 @@ func TestAMessageOfOnlyImages(t *testing.T) {
 // What isn't an image AgentBox can pass on is refused before anything of the
 // message is taken.
 func TestImagesThatAreRefused(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	f.images = true
@@ -137,7 +140,7 @@ func TestImagesThatAreRefused(t *testing.T) {
 		images []api.ChatImageUpload
 		want   string
 	}{
-		"a type the model can't read": {[]api.ChatImageUpload{{MimeType: "image/bmp", Data: good.Data}}, "PNG, JPEG, GIF or WebP"},
+		"a type the model can't read":     {[]api.ChatImageUpload{{MimeType: "image/bmp", Data: good.Data}}, "PNG, JPEG, GIF or WebP"},
 		"a type that isn't what it holds": {[]api.ChatImageUpload{{MimeType: "image/jpeg", Data: good.Data}}, "holds image/png"},
 		"not base64":                      {[]api.ChatImageUpload{{MimeType: "image/png", Data: "%%%"}}, "base64"},
 		"too big":                         {[]api.ChatImageUpload{{MimeType: "image/png", Data: base64.StdEncoding.EncodeToString(big)}}, "over the 3.8 MiB"},
@@ -156,6 +159,7 @@ func TestImagesThatAreRefused(t *testing.T) {
 // session says so, for the composer, from then on — a later daemon included
 // — and a message carrying one is refused rather than quietly stripped.
 func TestAnAdapterWithoutImagesRefusesThem(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -182,6 +186,7 @@ func TestAnAdapterWithoutImagesRefusesThem(t *testing.T) {
 
 // An image sent while a turn runs joins it, with the message it came with.
 func TestAnImageSentDuringATurn(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	release := make(chan struct{})
 	f := newSteeringTool(func(f *fakeTool, s, _ string) acp.PromptResponse {

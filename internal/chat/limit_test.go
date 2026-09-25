@@ -107,6 +107,7 @@ var noon = time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
 // assistant message (it only keeps it back from clients that take its typed
 // session failures, which AgentBox doesn't).
 func TestUsageLimitIsRecognisedAndItsResetRead(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		failure string
@@ -141,6 +142,7 @@ func TestUsageLimitIsRecognisedAndItsResetRead(t *testing.T) {
 		failure: "Internal error: You're out of usage credits",
 	}} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			until, limited := UsageLimit(tc.failure, tc.said, noon)
 			if !limited {
 				t.Fatalf("a usage limit went unnoticed: %q / %q", tc.failure, tc.said)
@@ -155,6 +157,7 @@ func TestUsageLimitIsRecognisedAndItsResetRead(t *testing.T) {
 // Every other way a turn fails is one that waiting doesn't fix, and resuming
 // on its own would have AgentBox carrying on with work the tool never refused.
 func TestOtherFailuresAreNotUsageLimits(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ failure, said string }{
 		{failure: `Internal error: API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}`},
 		{failure: `Internal error: API Error: 529 {"type":"overloaded_error"}`},
@@ -172,6 +175,7 @@ func TestOtherFailuresAreNotUsageLimits(t *testing.T) {
 // A reset time the message names in the past — the limit ran out while the
 // turn was still failing — means wait a moment, not until tomorrow.
 func TestAResetTimeJustGoneMeansNow(t *testing.T) {
+	t.Parallel()
 	until, limited := UsageLimit("Internal error: You've hit your session limit · resets 11:45am", "", noon)
 	if !limited || !until.Equal(noon) {
 		t.Errorf("resets at %v (limited %v), want %v", until, limited, noon)
@@ -179,6 +183,7 @@ func TestAResetTimeJustGoneMeansNow(t *testing.T) {
 }
 
 func TestResumeDelay(t *testing.T) {
+	t.Parallel()
 	reset := noon.Add(2 * time.Hour)
 	for _, tc := range []struct {
 		name  string
@@ -204,6 +209,7 @@ func TestResumeDelay(t *testing.T) {
 // when it will carry on, and at that moment it nudges the same session — not a
 // new one — back into the work it was already doing.
 func TestATurnCutOffByAUsageLimitCarriesOnWhenTheLimitResets(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've hit your session limit · resets 3pm"})
 	m, clock := limitManager(t, f)
@@ -253,6 +259,7 @@ func TestATurnCutOffByAUsageLimitCarriesOnWhenTheLimitResets(t *testing.T) {
 // Without a reset time there is nothing to wait for but the fallback, and a
 // limit still refusing when that runs out is waited out for longer.
 func TestALimitWithNoResetTimeIsRetriedWithBackoff(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've reached your usage limit for this account"})
 	m, clock := limitManager(t, f)
@@ -276,6 +283,7 @@ func TestALimitWithNoResetTimeIsRetriedWithBackoff(t *testing.T) {
 // chat that carried itself on for ever would be a loop nobody asked for. This
 // is also what a resumed turn resetting its own count of tries would break.
 func TestAChatStopsWaitingAfterEnoughTries(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've reached your usage limit for this account"})
 	m, clock := limitManager(t, f)
@@ -316,6 +324,7 @@ func TestAChatStopsWaitingAfterEnoughTries(t *testing.T) {
 // waiting out a limit has no running turn to cancel: cancelling has to reach
 // the pending wake-up itself.
 func TestCancellingAChatCallsOffThePendingResume(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've hit your session limit · resets 3pm"})
 	m, clock := limitManager(t, f)
@@ -342,6 +351,7 @@ func TestCancellingAChatCallsOffThePendingResume(t *testing.T) {
 
 // Stopping the agent ends its session; nothing may wake it up hours later.
 func TestStoppingTheAgentCallsOffThePendingResume(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've hit your session limit · resets 3pm"})
 	m, clock := limitManager(t, f)
@@ -363,6 +373,7 @@ func TestStoppingTheAgentCallsOffThePendingResume(t *testing.T) {
 // With the setting off the limit is still shown — it is why the turn failed —
 // but nothing is scheduled, and the chat waits for you.
 func TestTheResumeCanBeTurnedOff(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	if err := store.SetFlag(context.Background(), state.SettingResumeAfterLimit, false); err != nil {
 		t.Fatal(err)
@@ -391,6 +402,7 @@ func TestTheResumeCanBeTurnedOff(t *testing.T) {
 // Codex and OpenCode word their own refusals their own way, and none of this
 // has been checked against them.
 func TestOnlyClaudeCodeIsCarriedOn(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've hit your session limit · resets 3pm"})
 	m, clock := limitManager(t, f)
@@ -412,6 +424,7 @@ func TestOnlyClaudeCodeIsCarriedOn(t *testing.T) {
 // A message of your own while the chat waits is the work moving again: the
 // wake-up goes, and the nudge never lands on top of what you asked for.
 func TestYourOwnMessageCallsOffThePendingResume(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've hit your session limit · resets 3pm"})
 	m, clock := limitManager(t, f)

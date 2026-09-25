@@ -61,6 +61,7 @@ func formatFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) 
 // split, which counts the subagent the usage field leaves out, and its cost is
 // how far the adapter's running total moved.
 func TestATurnIsBookedInTheLedger(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(quotaTurn(0.50))
 	m, _ := newManager(t, store, f)
@@ -114,6 +115,7 @@ func TestATurnIsBookedInTheLedger(t *testing.T) {
 // task finished — reports a cost with no turn running, and that goes in the
 // ledger at once, under its own kind.
 func TestWorkBetweenTurnsIsBooked(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(quotaTurn(0.50))
 	m, _ := newManager(t, store, f)
@@ -136,6 +138,7 @@ func TestWorkBetweenTurnsIsBooked(t *testing.T) {
 }
 
 func TestTokenRows(t *testing.T) {
+	t.Parallel()
 	base := state.TokenRow{Project: "p", Agent: "a", Kind: state.TokensTurn}
 	// A cost with no tokens is one row under the session's model.
 	rows := tokenRows(base, nil, "opus", 0.2)
@@ -149,6 +152,7 @@ func TestTokenRows(t *testing.T) {
 }
 
 func TestSpendTake(t *testing.T) {
+	t.Parallel()
 	var s spend
 	s.observe(&acp.Cost{Amount: 1})
 	if got := s.take(); !near(got, 1) {
@@ -173,6 +177,7 @@ func TestSpendTake(t *testing.T) {
 // TestLimitsReachTheDaemon: a usage_update that carries the account's limits
 // is handed on, parsed, with the agent it came from.
 func TestLimitsReachTheDaemon(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(func(f *fakeTool, sessionID, _ string) acp.PromptResponse {
 		f.update(sessionID, `{"sessionUpdate":"usage_update","used":20589,"size":200000,"_meta":{"_claude/rateLimit":{"status":"allowed_warning","unifiedWindows":{"five_hour":{"utilization":0.91,"resetsAt":1790092800}}}}}`)
@@ -208,6 +213,7 @@ func TestLimitsReachTheDaemon(t *testing.T) {
 // so what that session reports is that account's, not the new one's. Once it
 // restarts it is the new account's, and the conversation is still there.
 func TestLimitsStayWithTheSessionsAccount(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(func(f *fakeTool, sessionID, _ string) acp.PromptResponse {
 		f.update(sessionID, `{"sessionUpdate":"usage_update","used":20589,"size":200000,"_meta":{"_claude/rateLimit":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.1,"resetsAt":1790092800}}}}}`)

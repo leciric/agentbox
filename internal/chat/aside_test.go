@@ -44,6 +44,7 @@ func asideManager(t *testing.T, store *state.Store, live, aside *fakeTool) *Mana
 // chat it belongs to doesn't notice it happened: no items, no turn, and the
 // session the user is talking to is still the one they were talking to.
 func TestAskAsideRunsInItsOwnSessionOnItsOwnModel(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	live, aside := newFakeTool(answerHello), newFakeTool(answerJSON)
 	m := asideManager(t, store, live, aside)
@@ -107,6 +108,7 @@ func TestAskAsideRunsInItsOwnSessionOnItsOwnModel(t *testing.T) {
 // which is the point of not borrowing the chat's session. It is also how a
 // project whose chat is mid-turn still gets consolidated.
 func TestAskAsideNeedsNoChatSession(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	live, aside := newFakeTool(answerHello), newFakeTool(answerJSON)
 	m := asideManager(t, store, aside, live) // the first launch is the aside's
@@ -132,6 +134,7 @@ func TestAskAsideNeedsNoChatSession(t *testing.T) {
 // sent, not quietly swapped for something else. The caller falls back with
 // what it cost: nothing.
 func TestAskAsideRefusesAModelTheMenuDoesNotOffer(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	aside := newFakeTool(answerJSON)
 	m := asideManager(t, store, aside, aside)
@@ -151,6 +154,7 @@ func TestAskAsideRefusesAModelTheMenuDoesNotOffer(t *testing.T) {
 // there is nobody to say yes on the user's behalf — and a distillation has no
 // business running tools in the lead's worktree.
 func TestAskAsideCancelsPermissionRequests(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	var outcome string
 	aside := newFakeTool(func(f *fakeTool, sessionID, _ string) acp.PromptResponse {
@@ -170,6 +174,7 @@ func TestAskAsideCancelsPermissionRequests(t *testing.T) {
 // A session that says nothing is an error rather than an empty answer: the
 // caller must not read "" as "this stretch of history established nothing".
 func TestAskAsideSaysWhenTheSessionSaidNothing(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	aside := newFakeTool(func(*fakeTool, string, string) acp.PromptResponse {
 		return acp.PromptResponse{StopReason: "end_turn"}
@@ -183,6 +188,7 @@ func TestAskAsideSaysWhenTheSessionSaidNothing(t *testing.T) {
 // Model is what the chat is running on, for a pass that fell back to it: what
 // its tool last said, and the stored preference before a session has started.
 func TestModelIsWhatTheChatRunsOn(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)

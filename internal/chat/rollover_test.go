@@ -17,6 +17,7 @@ import (
 // changed — and the next turn starts a new session, because the stored id is
 // gone.
 func TestRolloverKeepsTheConversationAndStartsANewSession(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -70,6 +71,7 @@ func TestRolloverKeepsTheConversationAndStartsANewSession(t *testing.T) {
 // that is about to go, and what it says comes back to the caller instead of
 // into the conversation.
 func TestConsolidationSaysNothingInTheConversation(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -116,6 +118,7 @@ func TestConsolidationSaysNothingInTheConversation(t *testing.T) {
 // replacing, so the rollover happens anyway and the caller is told why it has
 // nothing to store.
 func TestAFailedConsolidationStillRollsOver(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -155,6 +158,7 @@ func TestAFailedConsolidationStillRollsOver(t *testing.T) {
 // way it waits for a running turn: delivering it mid-rollover would start a
 // turn on the session that is about to be thrown away.
 func TestANoticeWaitsForARollover(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -196,6 +200,7 @@ func TestANoticeWaitsForARollover(t *testing.T) {
 // A chat with a turn running is not one to replace underneath: Compact says so
 // rather than cutting the turn short.
 func TestCompactWaitsForARunningTurn(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	release := make(chan struct{})
 	f := newFakeTool(func(f *fakeTool, sessionID, text string) acp.PromptResponse {
