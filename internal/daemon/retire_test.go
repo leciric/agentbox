@@ -56,6 +56,7 @@ func TestSkipReason(t *testing.T) {
 			req: api.RetireRequest{How: api.RetireStop, IdleFor: "30m", Agents: []string{"agent-01"}}, st: running, adv: clean, last: &recent, idle: 30 * time.Minute},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if got := skipReason(tc.req, tc.st, tc.busy, tc.last, tc.adv, tc.idle); got != tc.want {
 				t.Errorf("skipReason() = %q, want %q", got, tc.want)
 			}
