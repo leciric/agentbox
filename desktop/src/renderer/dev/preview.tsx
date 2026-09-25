@@ -22,9 +22,8 @@
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
-//                           make, or WSL to install first. The connection keeps
-//                           failing underneath, as it does there, and the card
-//                           has to stay put through it (lib/setup.ts)
+//                           make, or WSL to install first. The whole App, with
+//                           no daemon to reach, as a first launch shows it
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
 // See scenarios.json for the set scripts/preview.mjs captures.
@@ -32,7 +31,7 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { ConnectionState, HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
@@ -44,8 +43,7 @@ import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { VMSize } from '../components/VMSize';
-import { WSLSetup } from '../components/WSLSetup';
-import { setupCard } from '../lib/setup';
+import { connectEvents } from '../lib/events';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
@@ -73,17 +71,23 @@ const windowsBeforeSetup: HostSetupStatus = {
       : { wsl: '2.4.13.0', name: 'AgentBox', user: '', exists: false, problem: "AgentBox's WSL distro isn't set up: run agentbox wsl init" },
 };
 
-// FailingConnection goes through what the app sees before the distro exists,
-// every attempt at the daemon failing, and shows the card App would.
-function FailingConnection() {
-  const [connection, setConnection] = useState<ConnectionState>({ state: 'connecting' });
-  useEffect(() => {
-    const error = "the AgentBox daemon isn't running";
-    const timer = setInterval(() => setConnection((c) => (c.state === 'connecting' ? { state: 'disconnected', error } : { state: 'connecting', error })), 400);
+// windowsBeforeSetup makes the dev bridge a Windows machine on first launch:
+// no distro, so no daemon, and every attempt at it failing the way the main
+// process reports it. The whole App renders against it, not only the card, so
+// the scenario shows the screen as it really is.
+function windowsBeforeSetupBridge(): void {
+  const bridge = (window as unknown as { agentbox: Record<string, unknown> }).agentbox;
+  const error = "the AgentBox daemon isn't running";
+  bridge.info = async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'win32' });
+  bridge.request = async () => {
+    throw new Error(error);
+  };
+  bridge.connection = async () => ({ state: 'disconnected', error }) satisfies ConnectionState;
+  bridge.onConnection = (fn: (state: ConnectionState) => void) => {
+    const timer = setInterval(() => fn({ state: 'disconnected', error }), 1_000);
     return () => clearInterval(timer);
-  }, []);
-  const card = setupCard(connection, windowsBeforeSetup);
-  return <div style={{ maxWidth: 720 }}>{card?.kind === 'wsl' && <WSLSetup wsl={card.wsl} />}</div>;
+  };
+  bridge.hostSetup = { status: async () => windowsBeforeSetup, run: async () => ({ restarted: false }), onOutput: () => () => {} };
 }
 
 const chat = params.get('chat');
@@ -140,8 +144,6 @@ function Preview() {
           <div className="mx-auto max-w-3xl px-2 pt-2">
             <Timeline agent={chatAgent} thread={agent12Chat()} />
           </div>
-        ) : wsl ? (
-          <FailingConnection />
         ) : vm === 'resize' ? (
           <div style={{ maxWidth: 720 }}>
             <VMSize
@@ -175,7 +177,20 @@ function Preview() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(
+if (wsl) {
+  windowsBeforeSetupBridge();
+  // After the bridge: some of what App imports reaches for it as it loads.
+  const { App } = await import('../App');
+  const appClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } } });
+  connectEvents(appClient);
+  createRoot(document.getElementById('root')!).render(
+    <QueryClientProvider client={appClient}>
+      <TooltipProvider delayDuration={250}>
+        <App />
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
+} else createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={queryClient}>
     <TooltipProvider delayDuration={250}>
       <Preview />

@@ -186,13 +186,18 @@ export function App() {
         />
         <div className="flex min-h-0 min-w-0 flex-1">
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {setup?.kind === "vm" ? (
-              <div className="px-4 pt-4 md:px-6">
-                <VMSetup vm={setup.vm} />
-              </div>
-            ) : setup?.kind === "wsl" ? (
-              <div className="px-4 pt-4 md:px-6">
-                <WSLSetup wsl={setup.wsl} />
+            {/* Until the VM or the distro exists there's no daemon behind
+                any page, so the setup is the page, not a card over an empty
+                dashboard whose buttons can't do anything yet. */}
+            {setup ? (
+              <div className="flex min-h-0 flex-1 justify-center overflow-y-auto px-4 py-10 md:px-6">
+                <div className="w-full max-w-2xl">
+                  {setup.kind === "vm" ? (
+                    <VMSetup vm={setup.vm} />
+                  ) : (
+                    <WSLSetup wsl={setup.wsl} />
+                  )}
+                </div>
               </div>
             ) : (
               connection.state === "disconnected" && (
@@ -204,34 +209,36 @@ export function App() {
                 </div>
               )
             )}
-            <div key={viewKey} className="min-h-0 flex-1 animate-fade-in">
-              {view.kind === "home" && (
-                <HomeView
-                  onSelect={select}
-                  onAddProject={() => setAddingProject(true)}
-                  onNewAgent={() => setNewAgentProject("")}
-                />
-              )}
-              {view.kind === "jobs" && <JobsView />}
-              {view.kind === "settings" && (
-                <SettingsView onHome={() => select({ kind: "home" })} />
-              )}
-              {view.kind === "project" && (
-                <ProjectView
-                  name={view.project}
-                  onSelect={select}
-                  onNewAgent={() => setNewAgentProject(view.project)}
-                />
-              )}
-              {view.kind === "agent" && (
-                <AgentView
-                  agentRef={view.ref}
-                  tab={tabs[view.ref]}
-                  onTab={(tab) => setTabs((t) => ({ ...t, [view.ref]: tab }))}
-                  onSelect={select}
-                />
-              )}
-            </div>
+            {!setup && (
+              <div key={viewKey} className="min-h-0 flex-1 animate-fade-in">
+                {view.kind === "home" && (
+                  <HomeView
+                    onSelect={select}
+                    onAddProject={() => setAddingProject(true)}
+                    onNewAgent={() => setNewAgentProject("")}
+                  />
+                )}
+                {view.kind === "jobs" && <JobsView />}
+                {view.kind === "settings" && (
+                  <SettingsView onHome={() => select({ kind: "home" })} />
+                )}
+                {view.kind === "project" && (
+                  <ProjectView
+                    name={view.project}
+                    onSelect={select}
+                    onNewAgent={() => setNewAgentProject(view.project)}
+                  />
+                )}
+                {view.kind === "agent" && (
+                  <AgentView
+                    agentRef={view.ref}
+                    tab={tabs[view.ref]}
+                    onTab={(tab) => setTabs((t) => ({ ...t, [view.ref]: tab }))}
+                    onSelect={select}
+                  />
+                )}
+              </div>
+            )}
           </main>
           {(view.kind === "project" || view.kind === "agent") && (
             <div className="hidden lg:flex">
