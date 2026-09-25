@@ -256,6 +256,7 @@ func TestConsolidationModelRoundTrips(t *testing.T) {
 // What "cheap" resolves to is per AI tool, and a tool with no entry resolves
 // to the chat's own model rather than to another vendor's.
 func TestConsolidationModelResolvesPerTool(t *testing.T) {
+	t.Parallel()
 	cheap := state.Project{ConsolidationModel: state.ConsolidationModelCheap}
 	if got := cheap.ConsolidationModelFor("claude"); got != "haiku" {
 		t.Errorf("cheap on Claude Code = %q, want haiku", got)

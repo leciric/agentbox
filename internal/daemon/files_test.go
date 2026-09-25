@@ -17,6 +17,7 @@ import (
 // that has passed — the unit the HTTP tests below don't exercise, since they
 // each only call it once.
 func TestFilesCacheRefreshesAfterTTL(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Git(t, root, "init", "-q", "-b", "main")
 	c := newFilesCache()

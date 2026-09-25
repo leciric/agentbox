@@ -308,6 +308,7 @@ func TestPullRequestRefreshAnnouncesWhatMoved(t *testing.T) {
 
 // One refresh at a time per repository, and a stale entry starts one.
 func TestPullsCacheClaimsOneRefreshAtATime(t *testing.T) {
+	t.Parallel()
 	c := newPullsCache()
 	var now atomic.Int64
 	c.now = func() time.Time { return time.Unix(now.Load(), 0) }
@@ -342,6 +343,7 @@ func TestPullsCacheClaimsOneRefreshAtATime(t *testing.T) {
 // A merge invalidates the repository. A refresh that was already in flight
 // must not put the pre-merge list back over it.
 func TestPullsCacheDropsARefreshAMergeOvertook(t *testing.T) {
+	t.Parallel()
 	c := newPullsCache()
 	gen, _ := c.claim("acme/x", nil)
 	c.invalidate("acme/x")
@@ -359,6 +361,7 @@ func TestPullsCacheDropsARefreshAMergeOvertook(t *testing.T) {
 // A new agent shouldn't wait out the TTL to find out it has a pull request:
 // a branch the cached answer says nothing about is reason enough to re-read.
 func TestPullsCacheRefreshesForABranchItDoesntKnow(t *testing.T) {
+	t.Parallel()
 	c := newPullsCache()
 	gen, _ := c.claim("acme/x", []string{"agentbox/agent-01"})
 	c.finish("acme/x", gen, pullsEntry{
@@ -376,6 +379,7 @@ func TestPullsCacheRefreshesForABranchItDoesntKnow(t *testing.T) {
 // A GitHub that refuses the list must not turn into a call per request: an
 // unknown branch is only worth re-reading for when the last read worked.
 func TestPullsCacheDoesNotRetryAFailedListPerRequest(t *testing.T) {
+	t.Parallel()
 	c := newPullsCache()
 	gen, _ := c.claim("acme/x", []string{"agentbox/agent-01"})
 	c.finish("acme/x", gen, pullsEntry{listErr: newPullsErr(errors.New("GitHub 502"))})
@@ -387,6 +391,7 @@ func TestPullsCacheDoesNotRetryAFailedListPerRequest(t *testing.T) {
 // Fifteen agents are fifteen git diffs, on a tab that polls. They run at the
 // same time rather than one after another: see the benchmark below.
 func TestAgentChangesMeasuresEveryAgent(t *testing.T) {
+	t.Parallel()
 	agents := make([]state.Agent, 15)
 	for i := range agents {
 		agents[i] = state.Agent{Name: fmt.Sprintf("agent-%02d", i)}

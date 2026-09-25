@@ -182,6 +182,7 @@ func TestQuestionsAreScopedToTheirProject(t *testing.T) {
 // FinishNoticesLead leaves it to the agent, defaulting to true when it chose
 // nothing.
 func TestResolveFinishStartsTurn(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		project, agent string
 		want           bool

@@ -88,6 +88,7 @@ func TestTokenReport(t *testing.T) {
 }
 
 func TestParseSince(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
 	for raw, want := range map[string]time.Time{
 		"5h":                   now.Add(-5 * time.Hour),

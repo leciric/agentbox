@@ -16,6 +16,7 @@ import (
 // it would compact at the wrong moment, and reading it as empty would compact
 // every fresh session the instant it started.
 func TestNeedsRollover(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		what      string
 		used      int64
@@ -142,6 +143,7 @@ func TestStoringAConsolidationWritesMemories(t *testing.T) {
 // A model asked for JSON answers with JSON, eventually. What it wraps that in
 // is not worth losing a whole conversation's summary over.
 func TestParseConsolidation(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		what   string
 		answer string

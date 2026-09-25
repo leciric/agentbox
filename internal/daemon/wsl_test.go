@@ -6,6 +6,7 @@ import (
 )
 
 func TestCheckProjectDisk(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		root   string
 		wsl    bool

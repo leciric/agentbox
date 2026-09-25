@@ -20,6 +20,7 @@ import (
 // finishedTask is the line between "the agent is genuinely done" and "the
 // turn just ended", which happens for other reasons too.
 func TestFinishedTask(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		result api.ChatTurnResult
@@ -35,6 +36,7 @@ func TestFinishedTask(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			if got := finishedTask(c.result); got != c.want {
 				t.Errorf("finishedTask(%+v) = %v, want %v", c.result, got, c.want)
 			}

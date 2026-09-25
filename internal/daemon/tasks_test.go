@@ -172,6 +172,7 @@ func TestAgentFinishedClosesItsTaskFromItsReport(t *testing.T) {
 // A worker may say how its own task is going, and may not write work down for
 // anybody else or move the plan about: curating it needs every agent in view.
 func TestAgentMayOnlyUpdateItsOwnTask(t *testing.T) {
+	t.Parallel()
 	mine := memory.Task{ID: "task_mine", Agent: "agent-01", Goal: "Paginate the reminders list"}
 	yours := memory.Task{ID: "task_yours", Agent: "agent-02", Goal: "Index the count query"}
 
@@ -289,6 +290,7 @@ func TestTaskGraphOnAllThreeSurfaces(t *testing.T) {
 // The trust split is also a routing fact: the routes that restructure the plan
 // are not served inside an agent at all.
 func TestTaskRoutesAnAgentGets(t *testing.T) {
+	t.Parallel()
 	inAgent := map[string]bool{}
 	for _, route := range memoryRoutes {
 		inAgent[route.action] = route.inAgent
