@@ -12,15 +12,17 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
-	"agentbox/internal/testutil"
 )
+
+// runningAgent01 is `incus list` with agent-01's machine running.
+const runningAgent01 = `[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]`
 
 // recordingIncus is fakeIncus plus the files AgentBox writes into agents, kept
 // under $INCUS_FILES so a test can read what really arrived in a machine.
 // incus.WriteFile runs `incus exec <instance> -T -- sh -c <script> sh <path>
 // <uid:gid> <mode>` with the content on stdin.
 const recordingIncus = `case "$1" in
-  list) echo "${INCUS_INSTANCES:-[]}" ;;
+  list) cat "$INCUS_INSTANCES_FILE" ;;
   query)
     case "$2" in
       */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
@@ -45,11 +47,12 @@ func secretsDaemon(t *testing.T) (testDaemon, string) {
 	t.Helper()
 	root := t.TempDir()
 	files := filepath.Join(root, "files")
-	t.Setenv("INCUS_FILES", files)
-	t.Setenv("INCUS_INSTANCES", `[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]`)
-	d := startTestDaemon(t, root, recordingIncus)
+	d := startTestDaemon(t, root, recordingIncus, testConfig{
+		env:       map[string]string{"INCUS_FILES": files},
+		instances: runningAgent01,
+	})
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -74,6 +77,7 @@ func agentFile(t *testing.T, files, path string) string {
 // project's secrets, an agent's own, what a list says, and what a list must
 // never say.
 func TestSecretsAPI(t *testing.T) {
+	t.Parallel()
 	d, files := secretsDaemon(t)
 	ctx := context.Background()
 
@@ -158,6 +162,7 @@ func TestSecretsAPI(t *testing.T) {
 // TestSecretNamesAreChecked keeps the API from storing what no agent could
 // read, and from replacing what AgentBox writes itself.
 func TestSecretNamesAreChecked(t *testing.T) {
+	t.Parallel()
 	d, _ := secretsDaemon(t)
 	ctx := context.Background()
 	for _, bad := range []string{"lower_case", "1DIGIT", "HAS-HYPHEN", "CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN"} {
@@ -181,6 +186,7 @@ func TestSecretNamesAreChecked(t *testing.T) {
 // file is written when an agent is created, so a secret set before it existed
 // is already there.
 func TestProjectSecretsReachAgentsMadeLater(t *testing.T) {
+	t.Parallel()
 	d, files := secretsDaemon(t)
 	ctx := context.Background()
 	if _, err := d.client.SetSecret(ctx, "hello-stack", "SHARED_KEY", "shared-value"); err != nil {
@@ -188,7 +194,7 @@ func TestProjectSecretsReachAgentsMadeLater(t *testing.T) {
 	}
 	// agent-01 is the one the harness made; a second agent stands in for "made
 	// later", built by the daemon's own create path.
-	t.Setenv("INCUS_INSTANCES", `[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},`+
+	d.setInstances(t, `[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},`+
 		`{"name":"ab-hello-stack-agent-02","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.6"}]}}}}]`)
 	job, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", Name: "agent-02", AI: "none"})
 	if err != nil {
@@ -219,6 +225,7 @@ func TestProjectSecretsReachAgentsMadeLater(t *testing.T) {
 // TestLeadSecretsAreNamesOnly checks what a project's chat can see: the names
 // of its agents' secrets, and no route to a value.
 func TestLeadSecretsAreNamesOnly(t *testing.T) {
+	t.Parallel()
 	d, _ := secretsDaemon(t)
 	ctx := context.Background()
 	if _, err := d.client.SetSecret(ctx, "hello-stack", "OPENAI_API_KEY", "sk-project-value"); err != nil {
@@ -255,6 +262,7 @@ func TestLeadSecretsAreNamesOnly(t *testing.T) {
 // TestSecretsForTheLeadAreRefused: the project's chat runs on this machine, not
 // in an agent, so a secret for it would land in the user's own environment.
 func TestSecretsForTheLeadAreRefused(t *testing.T) {
+	t.Parallel()
 	d, _ := secretsDaemon(t)
 	ctx := context.Background()
 	// Give the project a lead, the way the chat does.

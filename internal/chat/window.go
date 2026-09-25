@@ -31,12 +31,38 @@ func (c *conversation) windows() (state.ClaudeWindows, int64) {
 	return w, installation
 }
 
+// leadDefaults are the Settings keys a lead's Claude Code chat falls back to
+// for an option its composer never chose. They are read each time rather than
+// copied into the chat, the way an agent's are at creation: a lead is made
+// once and lives as long as its project, so a default changed in Settings
+// reaches it the next time its adapter starts.
+var leadDefaults = map[string]string{
+	"model":                       state.SettingDefaultLeadModel,
+	state.ChatOptionContextWindow: state.SettingDefaultLeadContextWindow,
+}
+
+// storedOption is the value this chat keeps for an option — the model or the
+// context window — or, for a lead's Claude Code chat that chose none, the
+// lead's default in Settings. Caller holds c.mu.
+func (c *conversation) storedOption(id string) string {
+	value := c.stored.Options[id]
+	key, ok := leadDefaults[id]
+	if value != "" || !ok || !c.agent.IsLead() || c.agent.AI != "claude" {
+		return value
+	}
+	value, err := c.m.Store.Setting(context.Background(), key)
+	if err != nil {
+		c.m.logf("chat %s: reading the lead's default %s: %v", c.agent.Ref(), id, err)
+	}
+	return value
+}
+
 // windowModel is the model the context window is chosen for: the session's,
 // once it has one, else the stored one. Caller holds c.mu.
 func (c *conversation) windowModel(w state.ClaudeWindows) string {
 	model := optionValueOf(c.session.Options, "model")
 	if model == "" {
-		model = w.NormalizeClaudeModel(c.stored.Options["model"])
+		model = w.NormalizeClaudeModel(c.storedOption("model"))
 	}
 	if model == "" {
 		model = "default"
@@ -51,7 +77,7 @@ func (c *conversation) compactWindow() int64 {
 	if c.agent.AI != "claude" {
 		return installation
 	}
-	return w.CompactWindow(c.windowModel(w), c.stored.Options[state.ChatOptionContextWindow], installation)
+	return w.CompactWindow(c.windowModel(w), c.storedOption(state.ChatOptionContextWindow), installation)
 }
 
 // launchSettings are the model and compact window an adapter starts with.
@@ -59,7 +85,7 @@ func (c *conversation) compactWindow() int64 {
 // whose own window is short starts as its "[1m]" variant when the long window
 // was chosen. Caller holds c.mu.
 func (c *conversation) launchSettings() (model string, window int64) {
-	model = c.stored.Options["model"]
+	model = c.storedOption("model")
 	if c.agent.AI != "claude" {
 		_, installation := c.windows()
 		return model, installation
@@ -81,7 +107,7 @@ func (c *conversation) refreshWindowOption() {
 		return
 	}
 	w, installation := c.windows()
-	option, ok := state.ContextWindowOption(w.ContextWindows(c.windowModel(w), installation), c.stored.Options[state.ChatOptionContextWindow])
+	option, ok := state.ContextWindowOption(w.ContextWindows(c.windowModel(w), installation), c.storedOption(state.ChatOptionContextWindow))
 	if !ok {
 		return
 	}

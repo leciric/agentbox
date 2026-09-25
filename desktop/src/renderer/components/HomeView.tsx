@@ -67,8 +67,8 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
 
         <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat label="Agents running" value={String(running)} detail={`of ${all.length}`} />
-          <Stat label="Host CPU" value={host ? `${host.cpu.toFixed(0)}%` : '—'} detail={host ? `${host.cores} cores` : ''} fraction={host ? host.cpu / 100 : undefined} />
-          <Stat label="Memory" value={host ? humanBytes(host.memUsed) : '—'} detail={host ? `of ${humanBytes(host.memTotal)}` : ''} fraction={host ? host.memUsed / host.memTotal : undefined} />
+          <Stat label="Host CPU, whole machine" value={host ? `${host.cpu.toFixed(0)}%` : '—'} detail={host ? `of all ${host.cores} cores` : ''} fraction={host ? host.cpu / 100 : undefined} />
+          <Stat label="Host memory" value={host ? humanBytes(host.memUsed) : '—'} detail={host ? `of ${humanBytes(host.memTotal)}` : ''} fraction={host ? host.memUsed / host.memTotal : undefined} />
           <Stat
             label="Storage pool"
             value={host?.poolTotal ? humanBytes(host.poolUsed) : '—'}

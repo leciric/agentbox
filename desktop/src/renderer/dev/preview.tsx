@@ -26,11 +26,21 @@
 //                           no daemon to reach, as a first launch shows it
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
+//   ?defaults=1             Settings' Lead and Agents defaults, the model and
+//                           the context window of each, which the dev bridge
+//                           saves (fixtures.ts)
+//   ?github=1               a project's GitHub account picker, on a project
+//                           that limits its Claude Code accounts, beside
+//                           Settings' GitHub accounts with a rename the dev
+//                           bridge answers
+//   ?resources=1            the resource limits' copy: Home's host stats,
+//                           Settings' defaults for new agents, and an agent's
+//                           limits editor, open
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles.css';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { ConnectionState, HostSetupStatus } from '../../preload';
@@ -38,7 +48,12 @@ import type * as T from '../../shared/api';
 import { Toaster } from 'sonner';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
-import { ClaudeAccounts } from '../components/SettingsView';
+import { HomeView } from '../components/HomeView';
+import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../components/NewAgentDefaults';
+import { LimitsEditor } from '../components/OverviewTab';
+import { GitHubAccountPicker } from '../components/ProjectView';
+import { ClaudeAccounts, GitHubAccounts } from '../components/SettingsView';
+import { Panel } from '../components/ui/card';
 import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
@@ -47,7 +62,8 @@ import { connectEvents } from '../lib/events';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
+import { api } from '../lib/api';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, seedDefaults, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -58,6 +74,9 @@ const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's da
 const vm = params.get('vm');
 const wsl = params.get('wsl');
 const accounts = params.get('accounts') === '1';
+const defaults = params.get('defaults') === '1';
+const github = params.get('github') === '1';
+const resources = params.get('resources') === '1';
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -92,10 +111,23 @@ function windowsBeforeSetupBridge(): void {
 
 const chat = params.get('chat');
 const fixtures = buildFixtures();
+if (github) {
+  // Two GitHub accounts, and a project that picked the second one while it
+  // limits its Claude Code accounts to one called "work".
+  const p = fixtures.projects.find((p) => p.name === PROJECT)!;
+  p.claudeAccounts = ['work'];
+  p.githubAccount = 'personal-account-with-a-long-name';
+}
 const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
 seedQueryClient(queryClient, fixtures);
+if (defaults) seedDefaults(queryClient);
+if (resources) {
+  const GiB = 1024 ** 3;
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
+  queryClient.setQueryData(['settings'], { ...(queryClient.getQueryData(['settings']) ?? {}), hostCores: 8, hostMemory: 31 * GiB, defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
+}
 
 const view: View = { kind: 'project', project: PROJECT };
 
@@ -107,6 +139,53 @@ function Preview() {
     if (!openAgent) return;
     document.querySelector<HTMLButtonElement>(`[data-rail-thread="${PROJECT}/${openAgent}"]`)?.click();
   }, []);
+
+  // The limits editor opens on a click, like the rail's threads.
+  useEffect(() => {
+    if (!resources) return;
+    document.querySelector<HTMLButtonElement>('[data-preview-limits] button')?.click();
+    // Its input takes focus and scrolls itself into view; put Home's stats back on screen.
+    requestAnimationFrame(() => document.querySelector('[data-preview-resources]')?.scrollTo(0, 0));
+  }, []);
+
+  if (github) return <GitHubPreview />;
+
+  if (resources) {
+    return (
+      <div data-preview-resources style={{ height: '100vh', overflowY: 'auto', background: 'var(--color-ink)' }}>
+        <div style={{ height: 300 }}>
+          <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
+        </div>
+        <div className="mx-auto grid max-w-3xl gap-4 px-4 pb-10">
+          <NewAgentResources />
+          <Panel className="p-5" data-preview-limits>
+            <LimitsEditor agent={{ ...fixtures.agents[0], limits: { cpu: '4', allowance: '', memory: '8GiB' } }} />
+          </Panel>
+        </div>
+      </div>
+    );
+  }
+
+  if (defaults) {
+    return (
+      <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }} className="grid gap-3">
+        <Panel className="p-5">
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">Lead</h2>
+          <div className="mt-3">
+            <DefaultModel role="lead" />
+            <DefaultContextWindow role="lead" />
+          </div>
+        </Panel>
+        <Panel className="p-5">
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">New agents</h2>
+          <div className="mt-3">
+            <DefaultModel role="agents" />
+            <DefaultContextWindow role="agents" />
+          </div>
+        </Panel>
+      </div>
+    );
+  }
 
   if (accounts) {
     // Alone: a rename refetches projects and agents, which the dev bridge
@@ -173,6 +252,23 @@ function Preview() {
         )}
       </div>
       <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
+    </div>
+  );
+}
+
+// GitHubPreview reads the project and the accounts through their queries, so
+// a pick or a rename shows what the dev bridge answered once they refetch.
+function GitHubPreview() {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
+  const project = projects.data?.find((p) => p.name === PROJECT);
+  return (
+    <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)', display: 'grid', gap: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <span className="text-[13px] text-muted">GitHub account</span>
+        {project && <GitHubAccountPicker project={project} />}
+      </div>
+      <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
     </div>
   );
 }

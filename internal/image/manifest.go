@@ -8,9 +8,10 @@ import (
 // The optional components a download belongs to. A download with no option is
 // in every build.
 const (
-	OptionAndroid  = "android"
-	OptionCodex    = "codex"
-	OptionOpenCode = "opencode"
+	OptionAndroid   = "android"
+	OptionCodex     = "codex"
+	OptionOpenCode  = "opencode"
+	OptionDevCaches = "dev-caches"
 )
 
 // Download is one thing a base image build fetches over the network. The app's
@@ -28,7 +29,7 @@ type Download struct {
 	// you will get exactly.
 	MB int
 	// Option is the image option that fetches it: "" for always, otherwise
-	// OptionAndroid, OptionCodex or OptionOpenCode.
+	// OptionAndroid, OptionCodex, OptionOpenCode or OptionDevCaches.
 	Option string
 }
 
@@ -36,7 +37,7 @@ type Download struct {
 const DownloadsHint = "Debian's packages come from your closest mirror, so the time this takes depends on your connection"
 
 // Downloads is everything a base image build can fetch, in the order the build
-// fetches it: about 1.1 GB with no option, 1.5 GB with all of them. These are
+// fetches it: about 1.1 GB with no option, 1.7 GB with all of them. These are
 // compressed download sizes, and rather less than what ends up on disk.
 var Downloads = []Download{
 	{
@@ -118,6 +119,14 @@ var Downloads = []Download{
 		MB:      120,
 		Option:  OptionOpenCode,
 	},
+	{
+		// Measured on 2026-09-25: the modules as Go downloads them (44 MB), npm's
+		// cache after npm ci (74 MB) and Electron's zip (118 MB).
+		Name:    "AgentBox's development caches",
+		Purpose: "AgentBox's Go modules, npm packages and Electron, so agents working on AgentBox itself test without downloading them first.",
+		MB:      240,
+		Option:  OptionDevCaches,
+	},
 }
 
 // on reports whether opts asks for this option.
@@ -131,6 +140,8 @@ func (c Components) on(option string) bool {
 		return c.Codex
 	case OptionOpenCode:
 		return c.OpenCode
+	case OptionDevCaches:
+		return c.DevCaches
 	}
 	return false
 }
