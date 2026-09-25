@@ -105,6 +105,13 @@ jobs:
           key: release-npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
           restore-keys: release-npm-${{ runner.os }}-
 
+      # bsdtar: electron-builder prefers it for unpacking the Electron
+      # distribution, and fpm needs it to make the .pacman.
+      - name: Install what electron-builder wants
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libarchive-tools
+
       - run: npm --prefix desktop ci
 
       - name: Build the Linux release
