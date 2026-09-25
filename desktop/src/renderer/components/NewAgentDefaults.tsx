@@ -333,7 +333,7 @@ export function NewAgentResources() {
           id="default-cpu"
           label="CPU cores"
           placeholder="every core"
-          hint={`How many cores the agent sees and can use, even when the host is idle.${cores ? ` This host has ${cores}.` : ''}`}
+          hint={`How many cores the agent sees and can use, even when the host is idle. A new installation starts at 2; empty is every core.${cores ? ` This host has ${cores}.` : ''}`}
           value={settings.data?.defaultCPU ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultCPU) => save.mutate({ defaultCPU })}
