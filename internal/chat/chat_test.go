@@ -37,6 +37,10 @@ type fakeTool struct {
 	// promptErr fails every turn with it, the way an adapter passes the
 	// provider's own refusal back.
 	promptErr *acp.Error
+	// during, when set, runs as the tool gets a request and before it
+	// answers: the moment for a test to do something while a session is
+	// being set up.
+	during func(method, configID string)
 
 	mu       sync.Mutex
 	turn     func(f *fakeTool, sessionID, text string) acp.PromptResponse
@@ -99,8 +103,15 @@ func (f *fakeTool) launch(_ context.Context, _ state.Agent, status func(string))
 func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any, error)) {
 	f.mu.Lock()
 	f.calls = append(f.calls, call{method, params})
-	turn, promptErr := f.turn, f.promptErr
+	turn, promptErr, during := f.turn, f.promptErr, f.during
 	f.mu.Unlock()
+	if during != nil {
+		var req struct {
+			ConfigID string `json:"configId"`
+		}
+		json.Unmarshal(params, &req)
+		during(method, req.ConfigID)
+	}
 	switch method {
 	case acp.MethodInitialize:
 		sessionCaps := map[string]any{}
@@ -2079,5 +2090,90 @@ func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {
 	}
 	if stored.Options[state.ChatOptionContextWindow] != "200000" {
 		t.Errorf("the lead's own choice was stored as %+v", stored.Options)
+	}
+}
+
+// A project's chat is started when it's opened, so its settings are there
+// before the first message; on a fresh installation no menu has been
+// remembered yet. A model chosen while the tool is still starting is kept and
+// sent once the tool says what it offers, rather than refused or lost.
+func TestAModelChosenWhileTheSessionStartsIsApplied(t *testing.T) {
+	store := openStore(t)
+	ctx := context.Background()
+	lead := state.Agent{Project: "hello", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/hello"}
+	f := newFakeTool(answerHello)
+	m, _ := newManager(t, store, f)
+	chosen := make(chan error, 1)
+	f.during = func(method, _ string) {
+		if method == acp.MethodSessionNew {
+			_, err := m.SetOption(ctx, lead, "model", "haiku")
+			chosen <- err
+		}
+	}
+	if _, err := m.Start(lead); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, lead, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+	if err := <-chosen; err != nil {
+		t.Fatalf("choosing the model while the tool started = %v", err)
+	}
+	if got := optionValue(th.Session, "model"); got != "haiku" {
+		t.Errorf("the session reports model %q, want the one chosen while it started, haiku", got)
+	}
+	f.mu.Lock()
+	running := f.values["model"]
+	f.mu.Unlock()
+	if running != "haiku" {
+		t.Errorf("the tool runs %q, want haiku", running)
+	}
+	if n := len(f.called(acp.MethodSessionPrompt)); n != 0 {
+		t.Errorf("starting the chat ran %d turns, want none", n)
+	}
+	stored, err := store.Chat(ctx, lead.Project, lead.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Options["model"] != "haiku" {
+		t.Errorf("stored options = %+v, want the model kept for later sessions", stored.Options)
+	}
+}
+
+// The setup sends the chosen settings one at a time, and the session is only
+// ready after the last. A model chosen in between, once the model has already
+// been sent, used to be shown and stored but never reach the tool: SetOption
+// leaves a session that isn't ready to its setup, which had moved on.
+func TestAModelChosenLateInTheSetupStillReachesTheTool(t *testing.T) {
+	store := openStore(t)
+	ctx := context.Background()
+	a := testAgent
+	f := newFakeTool(answerHello)
+	f.effort = true
+	if err := store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: map[string]string{"effort": "high"}}); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := newManager(t, store, f)
+	chosen := make(chan error, 1)
+	f.during = func(method, configID string) {
+		// effort is the last setting the tool lists, so the model is behind it.
+		if method == acp.MethodSetConfigOption && configID == "effort" {
+			_, err := m.SetOption(ctx, a, "model", "haiku")
+			chosen <- err
+		}
+	}
+	if _, err := m.Start(a); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, a, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+	if err := <-chosen; err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	running, effort := f.values["model"], f.values["effort"]
+	f.mu.Unlock()
+	if running != "haiku" || effort != "high" {
+		t.Errorf("the tool runs model %q with effort %q, want haiku and high", running, effort)
+	}
+	if got := optionValue(th.Session, "model"); got != "haiku" {
+		t.Errorf("the session reports model %q, want haiku", got)
 	}
 }

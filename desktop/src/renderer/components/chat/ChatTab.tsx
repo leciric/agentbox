@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, LoaderCircle, MessageSquarePlus, Play } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
@@ -16,15 +16,25 @@ import { Timeline } from './Timeline';
 
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
 // composer floating over its end.
-// autoStart is false for a project's chat that has never been used: starting it
-// creates the lead and fetches its AI tool, so the first message does that.
+// autoStart is off only where nothing should start, like the dev preview.
 export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent: T.Agent; starting: boolean; onStart: () => void; autoStart?: boolean }) {
+  const queryClient = useQueryClient();
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(agent.ref) });
   const session = thread.data?.session;
   const running = agent.state === 'running';
-  const start = useMutation({ mutationFn: () => api.startChat(agent.ref) });
+  const start = useMutation({
+    mutationFn: () => api.startChat(agent.ref),
+    // Starting a project's chat for the first time makes its lead, with a
+    // worktree of its own: read the project's chat again to have it.
+    onSuccess: () => {
+      if (isProjectChat(agent.ref)) void queryClient.invalidateQueries({ queryKey: ['projectChat', agent.project] });
+    },
+  });
 
-  // Start the AI tool when the chat opens, so its settings are there before you type.
+  // Start the AI tool when the chat opens, so its settings — model, effort,
+  // mode — are there before you type. They are the tool's own menus, and only
+  // a running session has them. A project's chat starts here too, on its
+  // first opening: a project that's never opened still costs nothing.
   const sessionState = session?.state;
   useEffect(() => {
     if (autoStart && running && sessionState === 'off' && !start.isPending) start.mutate();
