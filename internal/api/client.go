@@ -355,6 +355,13 @@ func (c *Client) SetDefaultGitHubAccount(ctx context.Context, account string) er
 	return c.do(ctx, http.MethodPost, "/v1/auth/github/"+url.PathEscape(account)+"/default", nil, nil)
 }
 
+// RenameGitHubAccount gives a stored GitHub account another name, and carries
+// every project and agent on it over to that name.
+func (c *Client) RenameGitHubAccount(ctx context.Context, account, name string) (RenamedGitHubAccount, error) {
+	var out RenamedGitHubAccount
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/github/"+url.PathEscape(account)+"/rename", RenameGitHubAccountRequest{Name: name}, &out)
+}
+
 // Settings are the installation's own settings, with the model menus the AI
 // tools last advertised. The lead reads its own copy over the lead socket
 // (ProjectSettings); this is the whole-machine one.

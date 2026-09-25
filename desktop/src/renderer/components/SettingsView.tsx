@@ -1479,7 +1479,7 @@ function ClaudeTokenForm({
 // GitHubAccounts lists the stored GitHub logins and adds more. A project uses
 // the account it picked on its own page; agents of the other projects use the
 // default one.
-function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
+export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   const queryClient = useQueryClient();
   const [token, setToken] = useState("");
   const [account, setAccount] = useState("");
@@ -1508,6 +1508,39 @@ function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
       await refresh();
     },
   });
+  // The account being renamed, and the name it is getting.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const startRename = (name: string) => {
+    rename.reset();
+    setRenaming(name);
+    setNewName(name);
+  };
+  const rename = useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      api.renameGitHubAccount(from, to),
+    onSuccess: async (got) => {
+      setRenaming(null);
+      const carried = [
+        got.projects.length > 0 &&
+          `${got.projects.length} project${got.projects.length === 1 ? "" : "s"}`,
+        got.agents.length > 0 &&
+          `${got.agents.length} agent${got.agents.length === 1 ? "" : "s"}`,
+      ].filter(Boolean);
+      toast(`Renamed "${got.old}" to "${got.name}"`, {
+        description:
+          (carried.length > 0 ? `${carried.join(" and ")} moved with it. ` : "") +
+          "Agents that hold its token keep it, so nothing needs a restart.",
+      });
+      // The Pull requests tab and the fleet name the account they read with.
+      await Promise.all([
+        refresh(),
+        queryClient.invalidateQueries({ queryKey: ["agents"] }),
+        queryClient.invalidateQueries({ queryKey: ["pulls"] }),
+        queryClient.invalidateQueries({ queryKey: ["fleet"] }),
+      ]);
+    },
+  });
   const remove = useMutation({
     mutationFn: (name: string) => api.removeGitHubAccount(name),
     onSuccess: async (_, name) => {
@@ -1517,7 +1550,7 @@ function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
       await refresh();
     },
   });
-  const error = save.error ?? makeDefault.error ?? remove.error;
+  const error = save.error ?? makeDefault.error ?? remove.error ?? rename.error;
 
   return (
     <div className="grid gap-3">
@@ -1530,9 +1563,49 @@ function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
               className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-faint py-1.5 pl-3 pr-1.5"
             >
               <KeyRound className="size-3.5 shrink-0 text-subtle" />
-              <span className="truncate font-mono text-[12.5px] text-secondary">
-                {acc.name}
-              </span>
+              {renaming === acc.name ? (
+                <form
+                  className="flex min-w-0 items-center gap-1"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const to = newName.trim();
+                    if (to === acc.name) setRenaming(null);
+                    else rename.mutate({ from: acc.name, to });
+                  }}
+                >
+                  <Input
+                    aria-label={`New name for ${acc.name}`}
+                    value={newName}
+                    onChange={(event) => setNewName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setRenaming(null);
+                    }}
+                    disabled={rename.isPending}
+                    autoFocus
+                    className="h-7 w-32 font-mono text-[12.5px]"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={rename.isPending || newName.trim() === ""}
+                  >
+                    Rename
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={rename.isPending}
+                    onClick={() => setRenaming(null)}
+                  >
+                    Cancel
+                  </Button>
+                </form>
+              ) : (
+                <span className="truncate font-mono text-[12.5px] text-secondary">
+                  {acc.name}
+                </span>
+              )}
               {acc.login && (
                 <span className="truncate text-[12px] text-subtle">
                   {acc.login}
@@ -1550,6 +1623,15 @@ function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                     Make default
                   </Button>
                 )}
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Rename ${acc.name}`}
+                  disabled={rename.isPending}
+                  onClick={() => startRename(acc.name)}
+                >
+                  <Pencil />
+                </Button>
                 <Button
                   size="icon-sm"
                   variant="ghost"

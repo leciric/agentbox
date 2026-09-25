@@ -26,6 +26,10 @@
 //                           no daemon to reach, as a first launch shows it
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
+//   ?github=1               a project's GitHub account picker, on a project
+//                           that limits its Claude Code accounts, beside
+//                           Settings' GitHub accounts with a rename the dev
+//                           bridge answers
 //   ?resources=1            the resource limits' copy: Home's host stats,
 //                           Settings' defaults for new agents, and an agent's
 //                           limits editor, open
@@ -33,7 +37,7 @@
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles.css';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { ConnectionState, HostSetupStatus } from '../../preload';
@@ -44,7 +48,8 @@ import { AgentRail } from '../components/AgentRail';
 import { HomeView } from '../components/HomeView';
 import { NewAgentResources } from '../components/NewAgentDefaults';
 import { LimitsEditor } from '../components/OverviewTab';
-import { ClaudeAccounts } from '../components/SettingsView';
+import { GitHubAccountPicker } from '../components/ProjectView';
+import { ClaudeAccounts, GitHubAccounts } from '../components/SettingsView';
 import { Panel } from '../components/ui/card';
 import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
@@ -54,6 +59,7 @@ import { connectEvents } from '../lib/events';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
+import { api } from '../lib/api';
 import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
 
 installDevBridge();
@@ -65,6 +71,7 @@ const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's da
 const vm = params.get('vm');
 const wsl = params.get('wsl');
 const accounts = params.get('accounts') === '1';
+const github = params.get('github') === '1';
 const resources = params.get('resources') === '1';
 
 const windowsBeforeSetup: HostSetupStatus = {
@@ -100,6 +107,13 @@ function windowsBeforeSetupBridge(): void {
 
 const chat = params.get('chat');
 const fixtures = buildFixtures();
+if (github) {
+  // Two GitHub accounts, and a project that picked the second one while it
+  // limits its Claude Code accounts to one called "work".
+  const p = fixtures.projects.find((p) => p.name === PROJECT)!;
+  p.claudeAccounts = ['work'];
+  p.githubAccount = 'personal-account-with-a-long-name';
+}
 const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
@@ -128,6 +142,8 @@ function Preview() {
     // Its input takes focus and scrolls itself into view; put Home's stats back on screen.
     requestAnimationFrame(() => document.querySelector('[data-preview-resources]')?.scrollTo(0, 0));
   }, []);
+
+  if (github) return <GitHubPreview />;
 
   if (resources) {
     return (
@@ -210,6 +226,23 @@ function Preview() {
         )}
       </div>
       <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
+    </div>
+  );
+}
+
+// GitHubPreview reads the project and the accounts through their queries, so
+// a pick or a rename shows what the dev bridge answered once they refetch.
+function GitHubPreview() {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
+  const project = projects.data?.find((p) => p.name === PROJECT);
+  return (
+    <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)', display: 'grid', gap: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <span className="text-[13px] text-muted">GitHub account</span>
+        {project && <GitHubAccountPicker project={project} />}
+      </div>
+      <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
     </div>
   );
 }

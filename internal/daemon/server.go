@@ -449,6 +449,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/auth/github", s.saveGitHubToken)
 	h("DELETE /v1/auth/github/{account}", s.removeGitHubAccount)
 	h("POST /v1/auth/github/{account}/default", s.setDefaultGitHubAccount)
+	h("POST /v1/auth/github/{account}/rename", s.renameGitHubAccount)
 	h("GET /v1/setup", s.setup)
 	h("GET /v1/remote", s.getRemote)
 	h("PUT /v1/remote", s.connectRemote)
