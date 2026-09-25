@@ -739,7 +739,27 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
       {aiLabel(agent.ai)}
     </span>
   );
-  if (options.length === 0) return toolLabel;
+  // While the tool starts, its menus haven't arrived: at most the model menu
+  // remembered from an earlier chat is here. Say the rest is on its way,
+  // rather than leaving a composer that looks like it has nothing to set.
+  const loading = session?.state === 'starting' && !options.some((o) => o.category === 'thought_level' || o.category === 'mode');
+  const loadingMark = loading && (
+    <Tip label={`Loading ${aiLabel(agent.ai)}'s settings`} side="top">
+      <span role="status" aria-label="Loading settings" className="flex h-7 items-center gap-1.5 px-1.5 text-[12px] text-subtle">
+        <LoaderCircle className="size-3.5 animate-spin" />
+        Settings
+      </span>
+    </Tip>
+  );
+  if (options.length === 0)
+    return loading ? (
+      <div className="flex min-w-0 items-center gap-0.5">
+        {toolLabel}
+        {loadingMark}
+      </div>
+    ) : (
+      toolLabel
+    );
   const find = (category: string) => options.find((o) => o.category === category && o.type === 'select');
   const model = find('model');
   const contextWindow = find('context_window');
@@ -780,6 +800,7 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
       {contextWindow && <OptionMenu option={contextWindow} icon={<Gauge />} onPick={pick(contextWindow)} />}
       {effort && <OptionMenu option={effort} icon={<Brain />} label={effort.value === 'default' ? 'Effort' : undefined} onPick={pick(effort)} />}
       {mode && <OptionMenu option={mode} icon={(() => { const Icon = modeIcon(mode); return <Icon />; })()} onPick={pick(mode)} />}
+      {loadingMark}
       {others.length > 0 && (
         <Menu>
           <MenuTrigger asChild>

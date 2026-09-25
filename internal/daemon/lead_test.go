@@ -2,12 +2,15 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/chat"
 	"agentbox/internal/credentials"
 	"agentbox/internal/state"
 )
@@ -183,5 +186,54 @@ func TestReadingTheChatFirstDoesNotStaleTheWorktree(t *testing.T) {
 	}
 	if got := d.srv.chat.AgentFor("hello-stack/lead").Worktree; got != a.Worktree {
 		t.Errorf("the conversation holds worktree %q, want %q", got, a.Worktree)
+	}
+}
+
+// Opening a project's chat starts it, the way the app does, so the menus of
+// the lead's AI tool — model, effort, mode — are there before the first
+// message. That makes the lead and starts its tool with no turn: the cost of a
+// project's chat is paid when it's opened, never when the project is added.
+func TestOpeningTheProjectChatStartsItsToolWithoutATurn(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := (credentials.Store{Dir: d.paths.Credentials()}).SaveClaudeToken("", "test-token"); err != nil {
+		t.Fatal(err)
+	}
+	launched := make(chan state.Agent, 1)
+	d.srv.chat.Launch = func(_ context.Context, a state.Agent, _ func(string)) (*chat.Process, error) {
+		launched <- a
+		return nil, errors.New("this test starts no AI tool")
+	}
+
+	if _, err := d.client.StartChat(ctx, "hello-stack"); err != nil {
+		t.Fatalf("StartChat() = %v", err)
+	}
+	select {
+	case a := <-launched:
+		if !a.IsLead() || a.Worktree != d.paths.Worktree("hello-stack", state.LeadName) {
+			t.Errorf("launched %+v, want the project's lead in its own worktree", a)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("opening the chat started no AI tool")
+	}
+	info, err := d.client.ProjectChat(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Started {
+		t.Errorf("ProjectChat() = %+v, want the lead made", info)
+	}
+	thread, err := d.client.Chat(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range thread.Items {
+		if it.Kind == "user" {
+			t.Errorf("opening the chat sent a message: %+v", it)
+		}
 	}
 }

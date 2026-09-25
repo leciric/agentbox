@@ -40,8 +40,9 @@ export function leadAgentFrom(project: T.Project, info: T.ProjectChat): T.Agent 
 // What the project's agents reported is a thread per agent in the rail beside
 // the whole view (AgentRail), rather than notices in the middle of it.
 //
-// Nothing is created until you write. Opening this tab only reads, which is why
-// the session isn't started until the project's chat has been used once.
+// Opening it starts the lead's AI tool, with no turn, so its settings can be
+// chosen before the first message. A project whose chat is never opened
+// costs nothing: adding one makes no lead.
 export function ProjectChatPanel({ project }: { project: T.Project }) {
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name) });
   const info = chat.data;
@@ -50,5 +51,5 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
     return <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? 'The chat is unavailable.' : 'Loading…'}</div>;
   }
 
-  return <ChatTab agent={leadAgentFrom(project, info)} starting={false} autoStart={info.started} onStart={() => {}} />;
+  return <ChatTab agent={leadAgentFrom(project, info)} starting={false} onStart={() => {}} />;
 }

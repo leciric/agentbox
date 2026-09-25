@@ -716,6 +716,17 @@ func (m *Manager) SetOption(ctx context.Context, a state.Agent, id, value string
 		// it's the one AgentBox remembers a menu for. It's stored and applied
 		// when the session starts, like every other chosen setting.
 		option, ok := c.modelFromRememberedMenu(id)
+		if !ok && c.adapter != nil && !c.adapter.ready {
+			// The tool is starting and hasn't said what it offers yet. Keep
+			// the choice: the session's setup sends it once the menu arrives,
+			// if the menu has it (wanted), like any other stored setting.
+			c.stored.Options[id] = value
+			defer c.mu.Unlock()
+			if err := m.Store.SaveChat(context.Background(), a.Project, a.Name, c.stored); err != nil {
+				return api.ChatSession{}, err
+			}
+			return clone(c.session), nil
+		}
 		if !ok {
 			c.mu.Unlock()
 			return api.ChatSession{}, fmt.Errorf("%s has no setting %q (its settings are known once it has started)", ToolNames[a.AI], id)
@@ -1111,6 +1122,9 @@ type adapter struct {
 	// subagents are the subagent sessions it announced, by session id
 	// (subagents.go).
 	subagents map[string]*subagent
+	// tried is the value each setting was last sent while the session was
+	// being set up (applyChoices).
+	tried map[string]string
 }
 
 // sessionAgent is the agent as its running session knows it: with the Claude
@@ -1224,7 +1238,7 @@ func (c *conversation) startAdapter() *adapter {
 	if c.adapter != nil {
 		return c.adapter
 	}
-	ad := &adapter{started: make(chan struct{})}
+	ad := &adapter{started: make(chan struct{}), tried: map[string]string{}}
 	c.adapter = ad
 	c.session.Error = ""
 	c.session.Detail = "Starting " + ToolNames[c.agent.AI]
@@ -1273,6 +1287,21 @@ func (c *conversation) stateNow() string {
 func (c *conversation) run(ad *adapter) {
 	err := c.connect(ad)
 	c.mu.Lock()
+	// Until the session is ready, SetOption stores a choice and leaves sending
+	// it to the setup, which may already be past it: the choice would show on
+	// screen and never reach the tool. Whatever is still unsent goes now, and
+	// the check is made under the same lock that marks the session ready, so
+	// from then on SetOption sends it itself.
+	for err == nil && c.adapter == ad {
+		if _, _, ok := c.nextChoice(ad); !ok {
+			break
+		}
+		c.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), startTimeout)
+		c.applyChoices(ctx, ad)
+		cancel()
+		c.mu.Lock()
+	}
 	if err == nil && c.adapter != ad {
 		err = errStopped
 	}
@@ -1457,27 +1486,33 @@ func (c *conversation) connect(ad *adapter) error {
 		c.session.Adapter = strings.TrimSpace(cmp(info.Title, info.Name) + " " + info.Version)
 	}
 	c.setOptions(toOptions(resp.ConfigOptions))
-	ids := make([]string, 0, len(c.session.Options))
-	for _, o := range c.session.Options {
-		ids = append(ids, o.ID)
-	}
 	c.markSession()
 	c.mu.Unlock()
 	c.rememberChoices()
+	c.applyChoices(ctx, ad)
+	return nil
+}
 
-	// Apply the settings you chose, one at a time: changing the model can change
-	// the choices of another setting, like the effort.
-	for _, id := range ids {
+// applyChoices sends the settings you chose to a session being set up, one at
+// a time: changing the model can change the choices of another setting, like
+// the effort. It reads what is wanted afresh before each one, so a choice made
+// while it runs is sent too.
+func (c *conversation) applyChoices(ctx context.Context, ad *adapter) {
+	for {
 		c.mu.Lock()
-		option, value, ok := c.wanted(id)
+		option, value, ok := c.nextChoice(ad)
+		if ok {
+			ad.tried[option.ID] = value
+		}
+		a, sessionID := c.agent, ad.sessionID
 		c.mu.Unlock()
 		if !ok {
-			continue
+			return
 		}
 		var out acp.SetConfigOptionResponse
-		if err := ad.conn.Call(ctx, acp.MethodSetConfigOption, setRequest(resp.SessionID, option, value), &out); err != nil {
-			c.m.logf("chat %s: setting %s to %s: %v", a.Ref(), id, value, err)
-			if id == "model" {
+		if err := ad.conn.Call(ctx, acp.MethodSetConfigOption, setRequest(sessionID, option, value), &out); err != nil {
+			c.m.logf("chat %s: setting %s to %s: %v", a.Ref(), option.ID, value, err)
+			if option.ID == "model" {
 				// Say so, loudly. Every other setting may fall back to the
 				// tool's own default in silence, but a model that didn't
 				// apply means the agent is quietly answering on something
@@ -1486,7 +1521,7 @@ func (c *conversation) connect(ad *adapter) error {
 				c.mu.Lock()
 				c.add("notice", c.lastTurn()).Text = fmt.Sprintf(
 					"%s wouldn't set the model to %q, so this agent is running on %s instead. That model may not be one this account offers any more \u2014 pick another below.",
-					ToolNames[c.agent.AI], value, c.runningModelName())
+					ToolNames[a.AI], value, c.runningModelName())
 				c.mu.Unlock()
 			}
 			continue
@@ -1498,7 +1533,22 @@ func (c *conversation) connect(ad *adapter) error {
 		}
 		c.mu.Unlock()
 	}
-	return nil
+}
+
+// nextChoice is the first setting, in the tool's order, that a session being
+// set up should still be sent: one whose wanted value it hasn't been sent
+// already, so a value it refused isn't sent again. Caller holds c.mu.
+func (c *conversation) nextChoice(ad *adapter) (api.ChatOption, string, bool) {
+	if c.adapter != ad {
+		return api.ChatOption{}, "", false
+	}
+	for _, o := range c.session.Options {
+		option, value, ok := c.wanted(o.ID)
+		if sent, done := ad.tried[o.ID]; ok && !(done && sent == value) {
+			return option, value, true
+		}
+	}
+	return api.ChatOption{}, "", false
 }
 
 func (c *conversation) setReplaying(ad *adapter, replaying bool) {
