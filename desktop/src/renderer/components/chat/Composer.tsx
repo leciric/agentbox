@@ -24,7 +24,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import { api } from '../../lib/api';
+import { api, isProjectChat } from '../../lib/api';
 import { contextHint, currentPlan, formatTokens, pendingPermissions, toolOf } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { mentionAt, matchFiles, type MentionItem } from '../../lib/mentions';
@@ -55,6 +55,21 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
   const requests = thread ? pendingPermissions(thread) : [];
   const plan = thread ? currentPlan(thread) : undefined;
   const tool = aiLabel(agent.ai);
+
+  // A project chat idle long enough for its prompt cache to be about to
+  // expire asks before the next message re-sends it all. A message written
+  // while it asks is held here until you choose; a turn running, or the card
+  // going away without a choice, puts it back in the composer.
+  const projectChat = isProjectChat(agent.ref);
+  const cache = useQuery({ queryKey: ['chatCache', agent.project], queryFn: () => api.chatCache(agent.project), enabled: projectChat });
+  const cacheCard = projectChat && cache.data?.due && !busy && !disabled ? cache.data : undefined;
+  const [held, setHeld] = useState<{ text: string; images: PendingImage[] } | null>(null);
+  useEffect(() => {
+    if (!held || cacheCard) return;
+    setText((current) => current || held.text);
+    setImages((current) => (current.length ? current : held.images));
+    setHeld(null);
+  }, [held, cacheCard]);
 
   const send = useMutation({
     mutationFn: (message: { text: string; images: PendingImage[] }) =>
@@ -157,9 +172,16 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
 
   // Sending while the tool works is the point of the placeholder below: the
   // message joins the running turn and the model decides what it's worth.
-  const canSend = !disabled && (text.trim() !== '' || images.length > 0) && !send.isPending;
+  const canSend = !disabled && (text.trim() !== '' || images.length > 0) && !send.isPending && !held;
   const submit = () => {
-    if (canSend) send.mutate({ text: text.trim(), images });
+    if (!canSend) return;
+    if (cacheCard) {
+      setHeld({ text: text.trim(), images });
+      setText('');
+      setImages([]);
+      return;
+    }
+    send.mutate({ text: text.trim(), images });
   };
   const pick = (command: T.ChatCommand) => {
     setText(`/${command.name} `);
@@ -216,7 +238,9 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
 
   const placeholder = disabled
     ? `Start ${agent.name} to chat`
-    : requests.length > 0
+    : held
+      ? 'Sua mensagem espera: escolha acima como enviá-la'
+      : requests.length > 0
       ? 'Answer the request above to go on'
       : busy
         ? `${tool} is working. Write your next message…`
@@ -227,6 +251,31 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
       {plan && <TasksBadge plan={plan} />}
       {requests.length > 0 && thread ? (
         <PermissionBanner agent={agent} thread={thread} request={requests[0]} count={requests.length} />
+      ) : cacheCard ? (
+        <CacheCard
+          project={agent.project}
+          cache={cacheCard}
+          held={held}
+          draft={() => {
+            // With nothing held, what is in the composer is the message. It
+            // leaves both while the choice is made, and comes back if it fails.
+            if (held) {
+              setHeld(null);
+              return held;
+            }
+            if (text.trim() === '' && images.length === 0) return null;
+            const draft = { text: text.trim(), images };
+            setText('');
+            setImages([]);
+            return draft;
+          }}
+          onChosen={(message) => {
+            if (message) onSent();
+          }}
+          onFailed={(message) => {
+            if (message) setHeld(message);
+          }}
+        />
       ) : session?.limited && !busy ? (
         <Attached tone="amber">
           <div className="flex items-start gap-2 text-[12.5px]">
@@ -515,6 +564,109 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
       </div>
     </Attached>
   );
+}
+
+// CacheCard asks, once a project chat has sat idle to within a margin of its
+// prompt cache's TTL, whether to compact it before the next message re-sends
+// the whole context uncached. Compacting runs the same consolidation as the
+// chat's Compact action and then sends the held message, if any, in the fresh
+// session; sending as it is sends it the way it would have gone anyway.
+function CacheCard({
+  project,
+  cache,
+  held,
+  draft,
+  onChosen,
+  onFailed,
+}: {
+  project: string;
+  cache: T.ChatCache;
+  held: { text: string; images: PendingImage[] } | null;
+  draft: () => { text: string; images: PendingImage[] } | null;
+  onChosen: (message: { text: string; images: PendingImage[] } | null) => void;
+  onFailed: (message: { text: string; images: PendingImage[] } | null) => void;
+}) {
+  const now = useNow(1000);
+  const choose = useMutation({
+    mutationFn: ({ compact, message }: { compact: boolean; message: { text: string; images: PendingImage[] } | null }) =>
+      api.chooseChatCache(project, {
+        compact,
+        text: message?.text,
+        images: message?.images.map(({ mimeType, data, name }) => ({ mimeType, data, name })),
+      }),
+    onSuccess: (_, { message }) => onChosen(message),
+    onError: (err, { message }) => {
+      onFailed(message);
+      toast.error(errorMessage(err));
+    },
+  });
+  const pick = (compact: boolean) => choose.mutate({ compact, message: draft() });
+  const idle = cache.idleSince ? now - Date.parse(cache.idleSince) : 0;
+  const left = cache.expiresAt ? Date.parse(cache.expiresAt) - now : 0;
+  const expired = left <= 0;
+  const tokens = `~${formatTokens(cache.contextUsed ?? 0)} tokens`;
+  const compacting = choose.isPending && choose.variables?.compact;
+  const waiting = held ?? (choose.isPending ? choose.variables?.message : null);
+  return (
+    <Attached tone="amber">
+      <div data-chat-cache={expired ? 'expired' : 'expiring'}>
+        <div className="flex items-center gap-2 text-[12px]">
+          <Hourglass className="size-3.5 shrink-0 text-amber-300" />
+          <span className="font-medium text-amber-100">
+            {expired ? 'O cache do prompt expirou' : `O cache do prompt expira em ${formatSpan(left)}`}
+          </span>
+          <span className="ml-auto shrink-0 tabular-nums text-[11px] text-amber-200/60">ocioso há {formatSpan(idle)}</span>
+        </div>
+        <p className="mt-1 break-words text-[12.5px] leading-relaxed text-amber-100/85">
+          {expired
+            ? `A próxima mensagem reenvia ${tokens} de contexto sem cache.`
+            : `Depois disso, a próxima mensagem reenvia ${tokens} de contexto sem cache.`}{' '}
+          Compactar resume a conversa na memória do projeto e continua numa sessão nova.
+        </p>
+        {waiting && (
+          <p className="mt-1.5 line-clamp-2 break-words rounded-lg bg-black/10 px-2.5 py-1.5 text-[12.5px] text-primary" data-chat-cache-held>
+            {waiting.text || `${waiting.images.length} ${waiting.images.length === 1 ? 'imagem' : 'imagens'}`}
+          </p>
+        )}
+        <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
+          <button
+            disabled={choose.isPending}
+            onClick={() => pick(false)}
+            className="h-7 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
+          >
+            Enviar assim mesmo
+          </button>
+          <button
+            disabled={choose.isPending}
+            onClick={() => pick(true)}
+            className="flex h-7 items-center gap-1.5 rounded-lg bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60"
+          >
+            {compacting && <LoaderCircle className="size-3.5 animate-spin" />}
+            {compacting ? 'Compactando…' : 'Compactar e enviar'}
+          </button>
+        </div>
+      </div>
+    </Attached>
+  );
+}
+
+// useNow is the time, again every interval.
+function useNow(interval: number): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), interval);
+    return () => clearInterval(id);
+  }, [interval]);
+  return now;
+}
+
+// formatSpan is a duration as "4min 30s", "1h 5min" or "12s".
+function formatSpan(ms: number): string {
+  const s = Math.max(0, Math.round(Math.abs(ms) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}min ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}min`;
 }
 
 function TasksBadge({ plan }: { plan: T.ChatPlanEntry[] }) {

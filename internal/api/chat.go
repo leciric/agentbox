@@ -229,6 +229,43 @@ type ProjectChat struct {
 	Chat     string `json:"chat"` // its session's state, as in ChatSession.State
 }
 
+// ChatCache is how long a project's chat has been idle against its prompt
+// cache: Claude Code keeps the conversation's prefix cached for a TTL, and the
+// first message after it expires re-sends the whole context uncached. Due is
+// the card the app shows once the cache is about to expire, or has, offering
+// to compact the conversation first. Only a Claude Code lead has one.
+type ChatCache struct {
+	Project string `json:"project"`
+	// IdleSince is when the last turn ended, which is the last time the model
+	// was called; absent when no turn has ended since the daemon started, or
+	// while one runs.
+	IdleSince  *time.Time `json:"idleSince,omitempty"`
+	TTLSeconds int64      `json:"ttlSeconds,omitempty"` // how long the cache lasts
+	TTLSource  string     `json:"ttlSource,omitempty"`  // what said so: its settings, or what Claude Code picks
+	// DueAt is when the card shows, a margin before ExpiresAt: a tenth of the
+	// TTL, or five minutes, whichever is smaller.
+	DueAt     *time.Time `json:"dueAt,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	// ContextUsed is the context the chat last reported: roughly what its
+	// next message re-sends, uncached once the cache has expired.
+	ContextUsed int64 `json:"contextUsed,omitempty"`
+	// Due says the card is up: DueAt has passed with the chat still idle and
+	// ContextUsed worth compacting, and the user hasn't chosen yet.
+	Due bool `json:"due"`
+}
+
+// ChatCacheChoice is the user's answer to the card: compact first, or send
+// as it is. The message is the one they wrote while it was up, if any.
+// Compacting with no message only compacts.
+type ChatCacheChoice struct {
+	Compact bool              `json:"compact"`
+	Text    string            `json:"text,omitempty"`
+	Images  []ChatImageUpload `json:"images,omitempty"`
+}
+
+// EventChatCache carries a ChatCache whenever its card shows or goes.
+const EventChatCache = "chat.cache"
+
 const EventChat = "chat"
 
 // ChatEvent is one change to an agent's conversation. An agent's events are

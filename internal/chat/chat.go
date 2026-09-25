@@ -78,9 +78,9 @@ type Manager struct {
 	// short by a limit or a cancellation.
 	Finished func(a state.Agent, result api.ChatTurnResult)
 	// LeadIdle, when set, is called when a project's lead finishes a turn and
-	// has nothing else to run, so the daemon can compact it before its prompt
-	// cache expires (idlerollover.go in the daemon). Off the lock, in a
-	// goroutine of its own.
+	// has nothing else to run, so the daemon can offer to compact it before
+	// its prompt cache expires (cachecard.go in the daemon). Off the lock, in
+	// a goroutine of its own.
 	LeadIdle func(a state.Agent)
 	// AuthFailed, when set, is called when a turn failed because the agent's
 	// AI tool was refused by its provider: an expired or revoked login. The

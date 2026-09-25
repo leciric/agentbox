@@ -136,6 +136,10 @@ export const api = {
   setChatOption: (ref: string, option: string, value: string) =>
     call<T.ChatSession>('PUT', `${chatBase(ref)}/options/${encodeURIComponent(option)}`, { value } satisfies T.ChatOptionRequest),
   clearChat: (ref: string) => call<void>('DELETE', chatBase(ref)),
+  // A project chat's prompt cache, and the card that asks before a message
+  // re-sends a context whose cache is about to expire (or has).
+  chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
+  chooseChatCache: (name: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${project(name)}/chat/cache`, choice),
   files: (ref: string) => call<T.WorktreeFiles>('GET', filesBase(ref)),
 
   // Secrets: names in, names out. A value only ever goes in — no call here

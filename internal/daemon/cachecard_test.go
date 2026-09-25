@@ -9,18 +9,19 @@ import (
 	"time"
 
 	"agentbox/internal/acp"
+	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
 
-// The timer fires a margin before the cache expires: a tenth of it for a
+// The card shows a margin before the cache expires: a tenth of it for a
 // short cache, five minutes for a long one.
-func TestIdleRolloverDelay(t *testing.T) {
+func TestCacheCardDelay(t *testing.T) {
 	for ttl, want := range map[time.Duration]time.Duration{
 		5 * time.Minute: 4*time.Minute + 30*time.Second,
 		time.Hour:       55 * time.Minute,
 	} {
-		if got := idleRolloverDelay(ttl); got != want {
-			t.Errorf("idleRolloverDelay(%s) = %s, want %s", ttl, got, want)
+		if got := cacheCardDelay(ttl); got != want {
+			t.Errorf("cacheCardDelay(%s) = %s, want %s", ttl, got, want)
 		}
 	}
 }
@@ -123,18 +124,98 @@ func TestLeadIdleSchedulesBeforeTheCacheExpires(t *testing.T) {
 	// A stale timer firing leaves the current one in place.
 	timers[0].fire()
 	d.srv.mu.Lock()
-	pending := d.srv.idleTimers["p"].timer
+	pending := d.srv.leadCaches["p"].timer
 	d.srv.mu.Unlock()
 	if pending != last() {
 		t.Error("a replaced timer firing took the current one with it")
 	}
-	// The current one fires into a project that doesn't exist, and does nothing.
+	// The current one fires into a project that doesn't exist: no card.
 	last().fire()
+	if d.srv.leadCacheState("p").Due {
+		t.Error("a project that doesn't exist got a card")
+	}
 
 	// Codex and OpenCode have no cache TTL to plan around.
 	before := len(timers)
 	d.srv.leadIdle(state.Agent{Project: "p", Name: state.LeadName, AI: "codex", Role: state.RoleLead})
 	if len(timers) != before {
-		t.Error("a Codex lead was given an idle rollover")
+		t.Error("a Codex lead was given a cache card")
+	}
+}
+
+// The card is state the API shows and the events carry: it goes when a turn
+// ends and when the user has chosen, and a compaction forgets the cache.
+func TestCacheCardComesAndGoes(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	d.srv.idleAfter = func(time.Duration, func()) interface{ Stop() bool } { return &fakeTimer{} }
+	events, unsubscribe := d.srv.events.subscribe()
+	defer unsubscribe()
+	cards := func() []api.ChatCache {
+		t.Helper()
+		var out []api.ChatCache
+		for {
+			select {
+			case ev := <-events:
+				if ev.Type != api.EventChatCache {
+					continue
+				}
+				var c api.ChatCache
+				if err := json.Unmarshal(ev.Data, &c); err != nil {
+					t.Fatal(err)
+				}
+				out = append(out, c)
+			default:
+				return out
+			}
+		}
+	}
+	up := func() {
+		d.srv.mu.Lock()
+		d.srv.leadCaches["p"].due = true
+		d.srv.mu.Unlock()
+	}
+	lead := state.Agent{Project: "p", Name: state.LeadName, AI: "claude", Role: state.RoleLead}
+
+	if got := d.srv.leadCacheState("p"); got.IdleSince != nil || got.Due {
+		t.Errorf("before any turn, the cache is %+v", got)
+	}
+	start := time.Now()
+	d.srv.leadIdle(lead)
+	got := d.srv.leadCacheState("p")
+	if got.IdleSince == nil || got.IdleSince.Before(start) || got.TTLSeconds != 300 || got.TTLSource != "no subscription" || got.Due {
+		t.Fatalf("after a turn, the cache is %+v", got)
+	}
+	if want := got.IdleSince.Add(4*time.Minute + 30*time.Second); !got.DueAt.Equal(want) {
+		t.Errorf("the card is due at %s, want %s", got.DueAt, want)
+	}
+	if want := got.IdleSince.Add(5 * time.Minute); !got.ExpiresAt.Equal(want) {
+		t.Errorf("the cache expires at %s, want %s", got.ExpiresAt, want)
+	}
+	if c := cards(); len(c) != 0 {
+		t.Errorf("a turn ending with no card up published %d cards", len(c))
+	}
+
+	// A turn ending takes the card down, whoever started it.
+	up()
+	d.srv.leadIdle(lead)
+	if c := cards(); len(c) != 1 || c[0].Due {
+		t.Errorf("a turn ending with the card up published %+v", c)
+	}
+
+	// Sending as it is takes it down and keeps the cache.
+	up()
+	d.srv.settleLeadCache("p", false)
+	if c := cards(); len(c) != 1 || c[0].Due || c[0].IdleSince == nil {
+		t.Errorf("sending as it is published %+v", c)
+	}
+	// Compacting forgets the cache: the next session starts one.
+	up()
+	d.srv.settleLeadCache("p", true)
+	if c := cards(); len(c) != 1 || c[0].Due || c[0].IdleSince != nil {
+		t.Errorf("compacting published %+v", c)
+	}
+	d.srv.settleLeadCache("p", true)
+	if c := cards(); len(c) != 0 {
+		t.Errorf("settling a cache nobody tracks published %+v", c)
 	}
 }
