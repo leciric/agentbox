@@ -248,8 +248,12 @@ func (m *Manager) Get(ctx context.Context, ref string) (state.Agent, error) {
 }
 
 type CreateOptions struct {
-	Name       string // default: the next free agent-NN
-	Title      string // what the user calls the agent, shown next to its name
+	Name  string // default: the next free agent-NN
+	Title string // what the user calls the agent, shown next to its name
+	// Branch is the slug its branch is named with, after the project's
+	// prefix, like "fix-login-redirect". Empty makes one from Title, then
+	// Task, then the agent's name. Either way a taken branch gets -2, -3….
+	Branch     string
 	AI         string // claude, codex, opencode or none
 	Interface  string // chat (the default) or cli
 	Autonomous bool
@@ -303,6 +307,9 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		return state.Agent{}, err
 	}
 	if err := validateName(opts.Name); err != nil {
+		return state.Agent{}, err
+	}
+	if err := CheckBranchSlug(opts.Branch); err != nil {
 		return state.Agent{}, err
 	}
 	title, err := CleanTitle(opts.Title)
@@ -374,6 +381,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		project:       p,
 		repo:          repo,
 		name:          opts.Name,
+		branch:        opts.Branch,
 		title:         title,
 		ai:            opts.AI,
 		autonomous:    opts.Autonomous,
@@ -432,6 +440,7 @@ type plan struct {
 	project       state.Project
 	repo          gitrepo.Repo
 	name          string // empty picks the next free agent-NN
+	branch        string // the slug asked for; empty makes one, see branchFor
 	title         string
 	ai            string
 	autonomous    bool
@@ -456,8 +465,9 @@ type plan struct {
 func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	name := pl.name
 	if name == "" {
-		name = m.nextName(ctx, pl.project, pl.repo)
+		name = m.nextName(ctx, pl.project)
 	}
+	branch := m.branchFor(ctx, pl.project, pl.repo, pl.branch, pl.title, pl.task, name)
 	a := state.Agent{
 		Project:    pl.project.Name,
 		Name:       name,
@@ -465,7 +475,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		Instance:   InstanceName(pl.project.Name, name),
 		AI:         pl.ai,
 		Autonomous: pl.autonomous,
-		Branch:     pl.project.BranchPrefix + name,
+		Branch:     branch,
 		BaseRef:    pl.baseRef,
 		BaseCommit: pl.baseCommit,
 		Worktree:   m.Paths.Worktree(pl.project.Name, name),
@@ -477,9 +487,6 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		GitHubAccount: pl.githubAccount,
 		Interface:     pl.iface,
 		FinishNotice:  pl.finishNotice,
-	}
-	if pl.repo.BranchExists(a.Branch) {
-		return state.Agent{}, fmt.Errorf("branch %s already exists (left by an earlier agent?): choose another --name or delete the branch", a.Branch)
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
@@ -766,20 +773,14 @@ func (m *Manager) GitHubAccountFor(p state.Project, account string) (string, err
 	return m.Creds.DefaultGitHubAccount()
 }
 
-// nextName returns the first agent-NN not taken by an agent, a branch or a
-// worktree directory. The branches are the remotes' as well as the local ones:
-// in a repository shared with others, a name whose branch someone has pushed
-// would have this agent push onto theirs.
-func (m *Manager) nextName(ctx context.Context, p state.Project, repo gitrepo.Repo) string {
+// nextName returns the first agent-NN not taken by an agent or a worktree
+// directory. Branches don't come into it: an agent's branch is named after its
+// work (branchFor), and makes its own way around the ones that are taken.
+func (m *Manager) nextName(ctx context.Context, p state.Project) string {
 	taken := map[string]bool{}
 	if agents, err := m.Store.Agents(ctx, p.Name); err == nil {
 		for _, a := range agents {
 			taken[a.Name] = true
-		}
-	}
-	if branches, err := repo.BranchesStartingWith(p.BranchPrefix); err == nil {
-		for _, b := range branches {
-			taken[strings.TrimPrefix(b, p.BranchPrefix)] = true
 		}
 	}
 	for i := 1; ; i++ {

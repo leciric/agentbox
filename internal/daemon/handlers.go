@@ -823,6 +823,10 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	if err := s.manager(nil).ChatChoices(r.Context(), req.AI, req.Model, req.Effort); err != nil {
 		return err
 	}
+	// And for a branch that could never be one.
+	if err := agent.CheckBranchSlug(req.Branch); err != nil {
+		return err
+	}
 	// Same for the account: unknown, outside the project's allow-list, or
 	// named for a tool that isn't Claude Code are all mistakes this can see
 	// before anything starts. Caught here they come back as the tool's own
@@ -840,6 +844,7 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	return s.startJob(w, "create", req.Project, func(ctx context.Context, log io.Writer) (any, error) {
 		a, err := s.manager(log).Create(ctx, req.Project, agent.CreateOptions{
 			Name:          req.Name,
+			Branch:        req.Branch,
 			Title:         req.Title,
 			AI:            req.AI,
 			Interface:     req.Interface,

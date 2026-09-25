@@ -18,7 +18,7 @@ container of its own so they can't collide.
   `internal/api` and `TestTypeScriptTypesAreUpToDate` fails until you run
   `UPDATE_TS=1 go test ./internal/api` (D18).
 - **An agent is a machine, a worktree and a branch.** `agentbox create` gives it an Incus container,
-  a git worktree on `agentbox/<name>` (`agentbox/` is the project's branch prefix, and can be changed), its own network and a tmux terminal with its AI tool already
+  a git worktree on `agentbox/<slug>`, a branch named after its work — the slug given to create, or one made from its title or task (`agentbox/` is the project's branch prefix, and can be changed; `internal/agent/branch.go`) — its own network and a tmux terminal with its AI tool already
   running. A project also has a **lead** —
   its chat — which runs on the host with no machine of its own, so a project you have never chatted
   with costs nothing; it directs the project's agents over MCP and never does the work itself.

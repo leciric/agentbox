@@ -152,6 +152,7 @@ export interface CreateAgentRequest {
   project: string;
   name?: string;
   title?: string;
+  branch?: string;
   ai: string;
   interface?: string;
   autonomous?: boolean;

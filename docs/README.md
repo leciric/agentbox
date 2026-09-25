@@ -36,7 +36,7 @@ flowchart LR
   no AgentBox logic, no Incus, no git. The API types the renderer uses are generated from Go into
   [`desktop/src/shared/api.ts`](../desktop/src/shared/api.ts).
 - **An agent is a machine, a worktree and a branch.** `agentbox create` gives it an Incus
-  container, a git worktree on `agentbox/<name>` (the prefix is a project setting), its own network and a tmux terminal with its AI
+  container, a git worktree on a branch named after its work, like `agentbox/fix-login-redirect` (the prefix is a project setting), its own network and a tmux terminal with its AI
   tool already running.
 - **A project also has a lead** — its chat — which runs on the host with no machine of its own, so
   a project nobody has chatted with costs nothing. It directs the project's agents over MCP tools
