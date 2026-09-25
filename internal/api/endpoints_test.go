@@ -33,7 +33,7 @@ func runEndpointCases(t *testing.T, cases []endpointCase) {
 				gotPath = r.URL.RequestURI()
 				b, _ := io.ReadAll(r.Body)
 				gotBody = string(b)
-				w.Write([]byte(tc.resp))
+				_, _ = w.Write([]byte(tc.resp))
 			}))
 			defer srv.Close()
 			c := NewRemoteClient(srv.URL, "")
@@ -55,8 +55,6 @@ func runEndpointCases(t *testing.T, cases []endpointCase) {
 }
 
 var testTime = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-
-const testTimeJSON = `2026-01-02T03:04:05Z`
 
 // TestClientMethodsEncodeRequestsAndDecodeResponses walks most of Client's
 // one-line wrappers: each names the path (including any query it builds) and

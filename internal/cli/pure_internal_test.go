@@ -84,7 +84,7 @@ func TestRenderTokensAndTurns(t *testing.T) {
 	// An agent that's gone still shows, marked so.
 	buf.Reset()
 	report.Agents[0].Exists = false
-	renderTokens(&buf, report, false)
+	_ = renderTokens(&buf, report, false)
 	if !strings.Contains(buf.String(), "pawly/agent-01 (gone)") {
 		t.Errorf("a retired agent isn't marked gone:\n%s", buf.String())
 	}
@@ -108,7 +108,7 @@ func TestRenderTokensAndTurns(t *testing.T) {
 	}
 
 	buf.Reset()
-	renderTokenTurns(&buf, nil, true)
+	_ = renderTokenTurns(&buf, nil, true)
 	if !strings.Contains(buf.String(), "Nothing in the ledger yet.") {
 		t.Errorf("renderTokenTurns with nothing = %q", buf.String())
 	}
@@ -270,17 +270,17 @@ func TestLimitWords(t *testing.T) {
 
 func TestPrintBrowser(t *testing.T) {
 	cmd, buf := outCmd()
-	printBrowser(cmd, api.BrowserStatus{})
+	_ = printBrowser(cmd, api.BrowserStatus{})
 	if !strings.Contains(buf.String(), "The browser isn't running") {
 		t.Errorf("printBrowser(nothing) = %q", buf.String())
 	}
 	buf.Reset()
-	printBrowser(cmd, api.BrowserStatus{Display: true})
+	_ = printBrowser(cmd, api.BrowserStatus{Display: true})
 	if !strings.Contains(buf.String(), "the desktop is") {
 		t.Errorf("printBrowser(display only) = %q", buf.String())
 	}
 	buf.Reset()
-	printBrowser(cmd, api.BrowserStatus{Running: true, Version: "128.0", Pages: []api.BrowserPage{{URL: "http://localhost:3000", Title: "App"}}})
+	_ = printBrowser(cmd, api.BrowserStatus{Running: true, Version: "128.0", Pages: []api.BrowserPage{{URL: "http://localhost:3000", Title: "App"}}})
 	out := buf.String()
 	if !strings.Contains(out, "running (128.0)") || !strings.Contains(out, "http://localhost:3000") || !strings.Contains(out, "App") {
 		t.Errorf("printBrowser(running) = %q", out)

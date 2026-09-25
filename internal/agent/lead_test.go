@@ -23,9 +23,9 @@ import (
 func unsetenv(t *testing.T, name string) {
 	t.Helper()
 	if old, ok := os.LookupEnv(name); ok {
-		t.Cleanup(func() { os.Setenv(name, old) })
+		t.Cleanup(func() { _ = os.Setenv(name, old) })
 	} else {
-		t.Cleanup(func() { os.Unsetenv(name) })
+		t.Cleanup(func() { _ = os.Unsetenv(name) })
 	}
 	if err := os.Unsetenv(name); err != nil {
 		t.Fatal(err)

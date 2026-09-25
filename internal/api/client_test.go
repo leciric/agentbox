@@ -28,9 +28,9 @@ func TestDoDecodesASuccessfulResponse(t *testing.T) {
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/json":
-			w.Write([]byte(`{"user":"pawly"}`))
+			_, _ = w.Write([]byte(`{"user":"pawly"}`))
 		case "/string":
-			w.Write([]byte("plain text"))
+			_, _ = w.Write([]byte("plain text"))
 		case "/empty":
 			w.WriteHeader(http.StatusNoContent)
 		}
@@ -67,7 +67,7 @@ func TestDoSendsTheBodyItIsGiven(t *testing.T) {
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		gotContentType = r.Header.Get("Content-Type")
 		gotBody, _ = io.ReadAll(r.Body)
-		w.Write([]byte("{}"))
+		_, _ = w.Write([]byte("{}"))
 	})
 
 	type req struct {
@@ -101,13 +101,13 @@ func TestDoTurnsAnErrorStatusIntoAStatusError(t *testing.T) {
 		switch r.URL.Path {
 		case "/json-error":
 			w.WriteHeader(http.StatusConflict)
-			w.Write([]byte(`{"error":"agent-01 is busy"}`))
+			_, _ = w.Write([]byte(`{"error":"agent-01 is busy"}`))
 		case "/plain-error":
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("  panic: boom  \n"))
+			_, _ = w.Write([]byte("  panic: boom  \n"))
 		case "/not-found":
 			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte(`{"error":"no saved base"}`))
+			_, _ = w.Write([]byte(`{"error":"no saved base"}`))
 		}
 	})
 
@@ -142,7 +142,7 @@ func TestDoTurnsAnErrorStatusIntoAStatusError(t *testing.T) {
 // zeroed, silently wrong result.
 func TestDoFailsOnAnUnmarshallableBody(t *testing.T) {
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	})
 	var out struct {
 		Name string `json:"name"`
@@ -208,7 +208,7 @@ func TestNewRemoteClientSendsABearerToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		gotPath = r.URL.Path
-		w.Write([]byte("{}"))
+		_, _ = w.Write([]byte("{}"))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -240,12 +240,12 @@ func TestNewClientDialsTheGivenSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Listen() = %v", err)
 	}
-	t.Cleanup(func() { l.Close() })
+	t.Cleanup(func() { _ = l.Close() })
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"version":"dev"}`))
+		_, _ = w.Write([]byte(`{"version":"dev"}`))
 	})}
-	go srv.Serve(l)
-	t.Cleanup(func() { srv.Close() })
+	go func() { _ = srv.Serve(l) }()
+	t.Cleanup(func() { _ = srv.Close() })
 
 	c := NewClient(sock)
 	if c.Remote() {
@@ -354,7 +354,7 @@ func TestBaseTellsANoSavedBaseFromAnyOtherNotFound(t *testing.T) {
 	message := `{"error":"no saved base"}`
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(status)
-		w.Write([]byte(message))
+		_, _ = w.Write([]byte(message))
 	})
 
 	base, ok, err := c.Base(context.Background(), "pawly")
@@ -387,7 +387,7 @@ func TestEventsCallsFnForEachEventAndSkipsMalformedLines(t *testing.T) {
 		": a comment, not a data line\n" +
 		"data: {\"type\":\"agent\",\"data\":{}}\n"
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	})
 
 	var types []string
@@ -460,7 +460,7 @@ func TestSaveGitHubTokenReturnsWhoItBelongsTo(t *testing.T) {
 	var gotBody []byte
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		gotBody, _ = io.ReadAll(r.Body)
-		w.Write([]byte(`{"user":"octocat"}`))
+		_, _ = w.Write([]byte(`{"user":"octocat"}`))
 	})
 	user, err := c.SaveGitHubToken(context.Background(), "work", "ghp_abc")
 	if err != nil {

@@ -354,9 +354,9 @@ func TestHubClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 		srv := newHubTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			gotPath = r.URL.Path
 			b := make([]byte, r.ContentLength)
-			r.Body.Read(b)
+			_, _ = r.Body.Read(b)
 			gotBody = string(b)
-			w.Write([]byte(`{"token":"session-1"}`))
+			_, _ = w.Write([]byte(`{"token":"session-1"}`))
 		})
 		h := HubClient{URL: srv + "/", Token: ""}
 		sess, err := h.Login(context.Background(), HubLoginRequest{Email: "a@example.com", Password: "hunter2"})
@@ -380,9 +380,9 @@ func TestHubClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			gotAuth = r.Header.Get("Authorization")
 			switch r.URL.Path {
 			case "/v1/me":
-				w.Write([]byte(`{"email":"a@example.com"}`))
+				_, _ = w.Write([]byte(`{"email":"a@example.com"}`))
 			case "/v1/environments":
-				w.Write([]byte(`[{"id":"env-1"}]`))
+				_, _ = w.Write([]byte(`[{"id":"env-1"}]`))
 			}
 		})
 		h := HubClient{URL: srv, Token: "session-1"}
@@ -404,9 +404,9 @@ func TestHubClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 		srv := newHubTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 			gotMethod, gotPath = r.Method, r.URL.Path
 			b := make([]byte, r.ContentLength)
-			r.Body.Read(b)
+			_, _ = r.Body.Read(b)
 			gotBody = string(b)
-			w.Write([]byte(`{"environment":{"id":"env-2"},"token":"env-token"}`))
+			_, _ = w.Write([]byte(`{"environment":{"id":"env-2"},"token":"env-token"}`))
 		})
 		h := HubClient{URL: srv}
 		out, err := h.CreateEnvironment(context.Background(), "pawly")

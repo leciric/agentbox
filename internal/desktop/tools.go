@@ -459,3 +459,7 @@ func point2props(x, y string) map[string]any {
 		y: integer("how far down, in the screenshot's pixels, from the top"),
 	}
 }
+
+func point2(x, y string) map[string]any {
+	return object([]string{x, y}, point2props(x, y))
+}
