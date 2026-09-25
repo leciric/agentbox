@@ -180,6 +180,7 @@ func newCreateCmd(a *app) *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&req.Name, "name", "", "agent name (default: the next free agent-NN)")
 	f.StringVar(&req.Title, "title", "", `a title shown next to the agent's name, like "Medication reminders"`)
+	f.StringVar(&req.Branch, "branch", "", "its branch, after the project's prefix, in lowercase kebab-case like fix-login-redirect (default: made from --title, then the agent's name; a taken branch gets -2, -3…)")
 	f.StringVar(&req.AI, "ai", "claude", "AI tool to start: claude, codex, opencode or none")
 	f.StringVar(&req.Interface, "interface", "", "how you use the AI tool: chat (the default: the app's Chat tab, or agentbox chat) or cli (its command line, in the terminal)")
 	f.BoolVar(&autonomous, "autonomous", true, "start the AI tool without permission prompts (the agent's machine is the sandbox); --autonomous=false asks first")

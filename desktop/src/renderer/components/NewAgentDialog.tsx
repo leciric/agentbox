@@ -3,6 +3,7 @@ import { ChevronRight, LoaderCircle, MessageSquare, SquareTerminal } from 'lucid
 import { useCallback, useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { branchSlug, branchSlugPattern, maxBranchSlugLen } from '../lib/branch';
 import { formatTokens } from '../lib/chat';
 import { choiceName } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes } from '../lib/utils';
@@ -19,6 +20,10 @@ interface Form {
   project: string;
   title: string;
   name: string;
+  // The branch's slug, after the project's prefix. Made from the title until
+  // you edit it; after that it is yours.
+  branch: string;
+  branchTouched: boolean;
   ai: string;
   iface: 'chat' | 'cli'; // how you use the AI tool
   autonomous: boolean;
@@ -51,6 +56,8 @@ const emptyForm: Form = {
   project: '',
   title: '',
   name: '',
+  branch: '',
+  branchTouched: false,
   ai: 'claude',
   iface: 'chat',
   autonomous: true,
@@ -136,6 +143,7 @@ export function NewAgentDialog({
         project: form.project,
         title: form.title.trim() || undefined,
         name: form.name.trim() || undefined,
+        branch: form.branch.trim() || undefined,
         ai: form.ai,
         interface: form.ai === 'none' ? undefined : form.iface,
         // Sent either way: false is a choice, and leaving it out would mean
@@ -261,8 +269,31 @@ export function NewAgentDialog({
                 maxLength={80}
                 placeholder="Medication reminders"
                 value={form.title}
-                onChange={(event) => set('title', event.target.value)}
+                onChange={(event) => {
+                  const title = event.target.value;
+                  setForm((f) => ({ ...f, title, branch: f.branchTouched ? f.branch : branchSlug(title) }));
+                }}
               />
+            </Field>
+
+            <Field
+              label="Branch"
+              htmlFor="agent-branch"
+              hint="Named after the work, like fix-login-redirect. One that is taken gets -2."
+            >
+              <div className="flex min-w-0 items-center gap-1.5">
+                {selected?.branchPrefix && <span className="shrink-0 font-mono text-[13px] text-subtle">{selected.branchPrefix}</span>}
+                <Input
+                  id="agent-branch"
+                  className="min-w-0 font-mono text-[13px]"
+                  maxLength={maxBranchSlugLen}
+                  pattern={branchSlugPattern}
+                  title="Lowercase letters, digits and single hyphens"
+                  placeholder="agent-NN"
+                  value={form.branch}
+                  onChange={(event) => setForm((f) => ({ ...f, branch: event.target.value, branchTouched: true }))}
+                />
+              </div>
             </Field>
 
             <Field label="Project" htmlFor="agent-project">

@@ -73,6 +73,11 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 	}
 	githubRepoStub(t, d, repo)
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
+	// The link comes from the stored branch, named after the work, never from
+	// the agent's name.
+	if a.Branch != "agentbox/reminders-page" {
+		t.Fatalf("the agent's branch is %q, want agentbox/reminders-page", a.Branch)
+	}
 
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {

@@ -43,7 +43,7 @@ daemon on your machine.
 ### A machine, a worktree and a branch per agent
 
 `agentbox create` makes an [Incus](https://linuxcontainers.org/incus/) container, a git worktree on
-`agentbox/<name>`, a network of its own and a terminal with the AI tool already running. Every port
+a branch named after its work, like `agentbox/fix-login-redirect`, a network of its own and a terminal with the AI tool already running. Every port
 is free in every agent, so each can run the project's dev server on its usual port, and its own
 Postgres in Docker. Agents are capped at a share of the host's CPUs by default, so one agent's build
 can't freeze the machine. Snapshot an agent, restore it, fork a new agent from it, or pause it with
@@ -325,8 +325,8 @@ agentbox destroy my-app/agent-01                        # the branch stays
 ## How it works
 
 ```
- Desktop app ─┐                           ┌─ agent-01: Incus container ── worktree on agentbox/agent-01
-              ├── unix socket ── daemon ──┼─ agent-02: Incus container ── worktree on agentbox/agent-02
+ Desktop app ─┐                           ┌─ agent-01: Incus container ── worktree on agentbox/csv-export
+              ├── unix socket ── daemon ──┼─ agent-02: Incus container ── worktree on agentbox/fix-login
  agentbox CLI ┘      (HTTP)      state.db └─ lead: the project chat, on your machine, over MCP
 ```
 
@@ -335,7 +335,7 @@ agentbox destroy my-app/agent-01                        # the branch stays
   database. The CLI and the desktop app are both clients of that socket; the app's main process only
   relays it, and the renderer's API types are generated from the Go ones.
 - **An agent is a machine, a worktree and a branch:** an Incus container, a git worktree on
-  `agentbox/<name>` (the project's branch prefix, then its name), a network of its own and a tmux session with its AI tool. AgentBox doesn't set
+  `agentbox/<slug>` (the project's branch prefix, then a slug named after its work, like `fix-login-redirect`), a network of its own and a tmux session with its AI tool. AgentBox doesn't set
   projects up for agents: each gets a brief about its machine and works the project out the way a
   new developer would.
 - **Chats go through ACP** adapters, one per AI tool, running inside the agent's machine. The lead

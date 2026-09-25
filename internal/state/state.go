@@ -573,8 +573,8 @@ type Project struct {
 	// the project's chat choose per task. See DirectAgentModel and
 	// LeadPicksModel, which say what each of the three means where it is read.
 	AgentModel string
-	// BranchPrefix comes before an agent's name in the branch it is created
-	// on: agentbox/ makes agentbox/agent-01. It may be empty, or have several
+	// BranchPrefix comes before the slug in the branch an agent is created on
+	// (agent.branchFor): agentbox/ makes agentbox/fix-login. It may be empty, or have several
 	// components, like thiago/agentbox/. Agents keep the branch they were
 	// created on when it changes.
 	BranchPrefix string

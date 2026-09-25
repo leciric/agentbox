@@ -295,8 +295,11 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"that is asked to do everything. Write the task directly: what to do, what done looks like, " +
 				"what to leave alone, and nothing its brief or the project already says. " + startsOn,
 			Schema: object([]string{"title", "task"}, merge(map[string]any{
-				"title":    str("a short name the user will recognise in the sidebar, like \"Reminders page\""),
-				"task":     str("what to do, directly: usually a few lines"),
+				"title": str("a short name the user will recognise in the sidebar, like \"Reminders page\""),
+				"task":  str("what to do, directly: usually a few lines"),
+				"branch": str("its branch, after the project's prefix: short lowercase kebab-case naming the work, like " +
+					"\"fix-login-redirect\" or \"feat-csv-export\", at most 48 characters. Pass one every time; left out, it is made " +
+					"from the title. A branch that is already taken gets -2, -3… appended."),
 				"from":     str("the branch or agent branch to start from; the project's branch by default"),
 				"research": map[string]any{"type": "boolean", "description": "it only investigates, so it gets no branch of its own"},
 				"notify": choiceOf("what a genuine finish does to your chat: \"chat\" to be told and woken when this agent finishes, "+
@@ -311,9 +314,9 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			}, settings)),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
-					Title, Task, From, AI string
-					ClaudeAccount         string `json:"claude_account"`
-					Research              bool
+					Title, Task, From, AI, Branch string
+					ClaudeAccount                 string `json:"claude_account"`
+					Research                      bool
 					// Pointers: an agent given no model is not the same as one
 					// asked for the empty model, and only the first falls back
 					// to what new agents start on.
@@ -352,7 +355,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					}
 				}
 				job, err := c.CreateProjectAgent(ctx, api.CreateAgentRequest{
-					Title: in.Title, Task: in.Task, From: in.From, AI: ai,
+					Title: in.Title, Task: in.Task, From: in.From, AI: ai, Branch: in.Branch,
 					Autonomous: &autonomous, Model: in.Model, Effort: in.Effort,
 					ContextWindow: in.ContextWindow,
 					ClaudeAccount: in.ClaudeAccount,

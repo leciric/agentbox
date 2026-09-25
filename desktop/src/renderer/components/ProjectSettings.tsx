@@ -215,9 +215,9 @@ function describeAgentModel(project: T.Project): string {
 }
 
 // BranchPrefixField sets what this project's new agents' branches start with,
-// before the agent's name: agentbox/ unless you change it, which in a
+// before the slug named after its work: agentbox/ unless you change it, which in a
 // repository shared with others keeps your agents' branches out of theirs.
-// Empty is a real choice (the branch is the agent's name), so nothing here
+// Empty is a real choice (the branch is the slug alone), so nothing here
 // turns an empty field back into the default. The daemon checks it against
 // git's rules and says what's wrong (CheckBranchPrefix in internal/gitrepo).
 function BranchPrefixField({ project }: { project: T.Project }) {
@@ -226,7 +226,7 @@ function BranchPrefixField({ project }: { project: T.Project }) {
   const save = useMutation({
     mutationFn: (branchPrefix: string) => api.updateProject(project.name, { branchPrefix }),
     onSuccess: async (updated) => {
-      toast(`New agents of ${updated.name} branch as ${updated.branchPrefix}agent-01`);
+      toast(`New agents of ${updated.name} branch as ${updated.branchPrefix}<their work>`);
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
@@ -273,7 +273,7 @@ function BranchPrefixField({ project }: { project: T.Project }) {
         <p className="text-xs leading-relaxed text-rose-300">{errorMessage(save.error)}</p>
       ) : (
         <p className="min-w-0 break-words text-xs leading-relaxed text-subtle">
-          A new agent works on <code className="font-mono text-tertiary">{draft}agent-01</code>. Agents that already exist keep their branches.
+          A new agent works on a branch named after its work, like <code className="font-mono text-tertiary">{draft}fix-login-redirect</code>. Agents that already exist keep their branches.
         </p>
       )}
     </form>
