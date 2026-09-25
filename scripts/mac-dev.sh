@@ -86,9 +86,13 @@ if $pull; then
 fi
 
 # npm writes node_modules/.package-lock.json on every install, so a lock file
-# newer than it is one that changed since.
+# newer than it is one that changed since. node_modules can also be foreign:
+# an agent's worktree may have it installed on Linux, which leaves out
+# @rolldown/binding-darwin-$arch and breaks the build with "Cannot find
+# native binding" on a Mac.
 if [ ! -f "$root/desktop/node_modules/.package-lock.json" ] ||
-  [ "$root/desktop/package-lock.json" -nt "$root/desktop/node_modules/.package-lock.json" ]; then
+  [ "$root/desktop/package-lock.json" -nt "$root/desktop/node_modules/.package-lock.json" ] ||
+  [ ! -d "$root/desktop/node_modules/@rolldown/binding-darwin-$arch" ]; then
   step "Installing the desktop app's dependencies"
   npm --prefix "$root/desktop" ci
 fi
