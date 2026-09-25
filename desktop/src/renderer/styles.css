@@ -657,3 +657,209 @@
     color: var(--ab-muted);
   }
 }
+
+/* AgentCharacter: an AI tool's mark acting out its agent's mood. Every part is
+   a box of its own (see AgentCharacter.tsx), and only transform and opacity
+   move, so the compositor runs all of it. A pose is a plain declaration that
+   the parts ease into over ~300ms when the mood changes, and a gentle, sparse
+   loop plays on top. prefers-reduced-motion drops the loops and the moving
+   transitions: the poses still change (an agent asking has its arm up, a
+   stopped one its eyes shut), and only fades remain. */
+.ab-char {
+  --oc-frame: #e4dede;
+  --oc-inner: #5a5454;
+  --ab-eye-origin: 50% 39.8%;
+  --ab-arm-origin: 87.5% 52.1%;
+  --ab-arm-lift: -25%;
+  position: relative;
+  display: block;
+  contain: layout paint;
+}
+
+:root[data-appearance="light"] .ab-char {
+  --oc-frame: #3a3535;
+  --oc-inner: #d6d4d3;
+}
+
+.ab-char[data-ai="codex"] {
+  --ab-eye-origin: 36.3% 50.2%;
+  --ab-arm-origin: 81.3% 51.9%;
+  --ab-arm-lift: -17%;
+}
+
+.ab-char[data-ai="opencode"] {
+  --ab-eye-origin: 50% 55.6%;
+  --ab-arm-origin: 83.3% 56.3%;
+}
+
+.ab-char > *,
+.ab-char > span > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* The poses ease; the loops play on the <svg> inside a pose box (.ab-eyes,
+   .ab-arm), so a mood change never has to cut a loop and a pose at once. */
+.ab-char > * {
+  transition:
+    transform 320ms cubic-bezier(0.33, 1, 0.68, 1),
+    opacity 260ms ease-out;
+}
+
+.ab-char {
+  transition:
+    transform 320ms cubic-bezier(0.33, 1, 0.68, 1),
+    opacity 300ms ease-out,
+    filter 300ms ease-out;
+}
+
+.ab-char .ab-eyes,
+.ab-char .ab-eyes > svg {
+  transform-origin: var(--ab-eye-origin);
+}
+
+.ab-char .ab-arm,
+.ab-char .ab-arm > svg {
+  transform-origin: var(--ab-arm-origin);
+}
+
+.ab-char .ab-xeyes,
+.ab-char[data-mood="error"] .ab-eyes {
+  opacity: 0;
+}
+
+.ab-char[data-mood="error"] .ab-xeyes {
+  opacity: 1;
+}
+
+.ab-char[data-mood="sleeping"] .ab-eyes {
+  transform: scaleY(0.15);
+}
+
+.ab-char[data-mood="sleeping"] .ab-arm {
+  transform: rotate(12deg);
+}
+
+/* A hand up: the arm lifted to the shoulder and tilted up from the body's
+   edge (--ab-arm-origin), where the body can't hide it. */
+.ab-char[data-mood="asking"] .ab-arm {
+  transform: translateY(var(--ab-arm-lift)) rotate(-40deg);
+}
+
+/* The "z"s over a stopped agent's tile, laid out as a rising staircase. */
+.ab-zzz > span {
+  position: absolute;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ab-subtle);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ab-char[data-mood="working"] {
+    animation: ab-bob 3.4s ease-in-out infinite var(--ab-phase, 0ms);
+  }
+
+  .ab-char[data-mood="working"] .ab-eyes > svg {
+    animation: ab-blink 8s ease-in-out infinite var(--ab-phase, 0ms);
+  }
+
+  .ab-char[data-mood="working"] .ab-cursor {
+    animation: ab-cursor 2.4s steps(1) infinite;
+  }
+
+  .ab-char[data-mood="idle"] .ab-eyes > svg {
+    animation: ab-blink 12s ease-in-out infinite var(--ab-phase, 0ms);
+  }
+
+  /* Starts once the arm has risen. */
+  .ab-char[data-mood="asking"] .ab-arm > svg {
+    animation: ab-wave 3.6s ease-in-out 340ms infinite;
+  }
+
+  [data-mood="sleeping"] > .ab-zzz > span {
+    animation: ab-zzz 5s ease-in-out infinite;
+  }
+
+  [data-mood="sleeping"] > .ab-zzz > span:nth-child(2) {
+    animation-delay: -1.67s;
+  }
+
+  [data-mood="sleeping"] > .ab-zzz > span:nth-child(3) {
+    animation-delay: -3.33s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ab-char {
+    transition:
+      opacity 300ms ease-out,
+      filter 300ms ease-out;
+  }
+
+  .ab-char > * {
+    transition: opacity 260ms ease-out;
+  }
+}
+
+@keyframes ab-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2.5%);
+  }
+}
+
+@keyframes ab-blink {
+  0%,
+  95%,
+  100% {
+    transform: scaleY(1);
+  }
+  97.5% {
+    transform: scaleY(0.12);
+  }
+}
+
+@keyframes ab-cursor {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* A small wave about the raised pose, then a rest with the hand still up. */
+@keyframes ab-wave {
+  0%,
+  45%,
+  100% {
+    transform: rotate(0);
+  }
+  12% {
+    transform: rotate(12deg);
+  }
+  24% {
+    transform: rotate(-12deg);
+  }
+  35% {
+    transform: rotate(8deg);
+  }
+}
+
+@keyframes ab-zzz {
+  0% {
+    opacity: 0;
+    transform: translate(0, 1px);
+  }
+  35%,
+  60% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(2px, -3px);
+  }
+}

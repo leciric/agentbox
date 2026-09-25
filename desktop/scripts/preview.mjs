@@ -111,10 +111,12 @@ async function capture(baseUrl, outDir) {
   const browser = await chromium.launch(existsSync(systemChromium) ? { executablePath: systemChromium } : {});
   try {
     for (const s of scenarios) {
-      const page = await browser.newPage({ viewport: { width: s.width, height: s.height } });
+      const page = await browser.newPage({ viewport: { width: s.width, height: s.height }, reducedMotion: s.reducedMotion ?? 'no-preference' });
       await page.goto(`${baseUrl}/dev/preview.html?${s.query}`, { waitUntil: 'networkidle' });
       if (s.query.includes('open=')) await page.waitForSelector('[data-thread]', { timeout: 3_000 }).catch(() => {});
-      await page.screenshot({ path: join(outDir, `${s.id}.png`) });
+      // Animations (the avatars') are stopped at their start, so a shot is the
+      // same every time and a before/after diff shows changes, not timing.
+      await page.screenshot({ path: join(outDir, `${s.id}.png`), animations: 'disabled' });
       await page.close();
       console.log(`  ${s.id}.png — ${s.description}`);
     }

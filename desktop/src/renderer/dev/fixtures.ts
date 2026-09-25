@@ -121,10 +121,15 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12' }),
     agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account' }),
     agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret' }),
-    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text' }),
-    agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent' }),
-    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent' }),
-    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent' }),
+    // An agent in each of the avatars' moods (avatarMood), across the three
+    // AI tools: working, asking (the escalated questions below), idle,
+    // stopped and broken.
+    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'codex', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
+    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex' }),
+    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-93`, title: 'Stopped for the night', ai: 'opencode', state: 'stopped' }),
+    agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
   ];
 
   const events: T.AgentEvent[] = [
@@ -419,6 +424,7 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
   queryClient.setQueryData(['questions', PROJECT], data.questions);
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
+  queryClient.setQueryData(['projectChat', PROJECT], { project: PROJECT, ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);
   queryClient.setQueryData(['jobs'], []);

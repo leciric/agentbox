@@ -26,6 +26,13 @@
 //                           no daemon to reach, as a first launch shows it
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
+//   ?avatars=working        every AI tool's avatar in one mood (working, asking,
+//                           idle, sleeping, error), at the rail's 40px and
+//                           blown up; ?avatars=all for every mood at once. The
+//                           rail beside it has an agent in each mood too.
+//   ?avatars=transition     the avatars walking working → asking → idle →
+//                           sleeping → error, easing from one pose to the next;
+//                           window.avatarMood('idle') stops the walk and sets one
 //   ?defaults=1             Settings' Lead and Agents defaults, the model and
 //                           the context window of each, which the dev bridge
 //                           saves (fixtures.ts)
@@ -41,7 +48,7 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles.css';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { ConnectionState, HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
@@ -53,7 +60,9 @@ import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../compon
 import { LimitsEditor } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectView';
 import { ClaudeAccounts, GitHubAccounts } from '../components/SettingsView';
+import { AgentAvatar, aiLabel } from '../components/state';
 import { Panel } from '../components/ui/card';
+import type { Mood } from '../lib/agentStatus';
 import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
@@ -74,6 +83,9 @@ const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's da
 const vm = params.get('vm');
 const wsl = params.get('wsl');
 const accounts = params.get('accounts') === '1';
+const avatars = params.get('avatars');
+const moods: Mood[] = ['working', 'asking', 'idle', 'sleeping', 'error'];
+const moodState: Record<Mood, string> = { working: 'running', asking: 'running', idle: 'running', sleeping: 'stopped', error: 'incomplete' };
 const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const resources = params.get('resources') === '1';
@@ -130,6 +142,49 @@ if (resources) {
 }
 
 const view: View = { kind: 'project', project: PROJECT };
+
+// AvatarRow is one mood's row of avatars: each AI tool at the rail's 40px
+// and blown up.
+function AvatarRow({ mood, big = true }: { mood: Mood; big?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'end', gap: 28 }}>
+      {['claude', 'codex', 'opencode', 'none'].map((ai) => (
+        <figure key={ai} style={{ display: 'grid', justifyItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <AgentAvatar ai={ai} mood={mood} state={moodState[mood]} seed={`${ai}-${mood}`} />
+            {big && <AgentAvatar ai={ai} mood={mood} state={moodState[mood]} seed={`${ai}-${mood}`} className="size-28 rounded-3xl" />}
+          </div>
+          <figcaption style={{ fontSize: 11.5 }}>{aiLabel(ai)}</figcaption>
+        </figure>
+      ))}
+    </div>
+  );
+}
+
+// AvatarTransition walks the moods on a timer, to watch the poses ease from
+// one to the next. window.avatarMood(mood) takes over from the timer, so a
+// script can set a mood and step the transition it starts.
+function AvatarTransition() {
+  const [mood, setMood] = useState<Mood>('working');
+  const [walking, setWalking] = useState(true);
+  useEffect(() => {
+    (window as unknown as { avatarMood: (m: Mood) => void }).avatarMood = (m) => {
+      setWalking(false);
+      setMood(m);
+    };
+  }, []);
+  useEffect(() => {
+    if (!walking) return;
+    const timer = setTimeout(() => setMood(moods[(moods.indexOf(mood) + 1) % moods.length]), 2500);
+    return () => clearTimeout(timer);
+  }, [mood, walking]);
+  return (
+    <section data-avatars="transition">
+      <h3 style={{ marginBottom: 12, color: 'var(--ab-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 11 }}>{mood}</h3>
+      <AvatarRow mood={mood} />
+    </section>
+  );
+}
 
 function Preview() {
   // Opening a thread is state AgentRail keeps to itself (there's no prop for
@@ -206,7 +261,20 @@ function Preview() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)', color: 'var(--color-zinc-600)', padding: 24, font: '13px var(--font-sans)' }}>
-        {chat === 'compaction' ? (
+        {avatars === 'transition' ? (
+          <AvatarTransition />
+        ) : avatars ? (
+          <div style={{ display: 'grid', gap: 28 }}>
+            {moods
+              .filter((m) => avatars === 'all' || avatars === m)
+              .map((m) => (
+                <section key={m} data-avatars={m}>
+                  <h3 style={{ marginBottom: 12, color: 'var(--ab-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 11 }}>{m}</h3>
+                  <AvatarRow mood={m} big={avatars !== 'all'} />
+                </section>
+              ))}
+          </div>
+        ) : chat === 'compaction' ? (
           <div style={{ maxWidth: 720 }}>
             <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={compactionThread()} />
           </div>

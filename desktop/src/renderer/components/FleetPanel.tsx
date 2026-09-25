@@ -7,7 +7,7 @@ import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
-import { AgentAvatar, StateBadge } from './state';
+import { LiveAgentAvatar, StateBadge } from './state';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/card';
@@ -90,7 +90,7 @@ export function FleetPanel({ project, onSelect }: { project: string; onSelect: (
           data-fleet-agent={agent.name}
         >
           <div className="flex flex-wrap items-center gap-3">
-            <AgentAvatar ai={agent.ai} state={agent.state} />
+            <LiveAgentAvatar agent={agent} />
             <div className="min-w-0 flex-1">
               <p className="flex min-w-0 items-center gap-2">
                 <span className="truncate text-[14px] font-medium text-primary">{agent.title || agent.name}</span>

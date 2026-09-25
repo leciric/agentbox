@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, GitBranch, MessagesSquare, PanelRight, Plus } from 'lucide-react';
+import { ChevronRight, GitBranch, PanelRight, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { chatLabel, rank } from '../lib/agentStatus';
+import { avatarMood, chatLabel, isAsking, rank, type Mood } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AgentThread, eventsByAgent, latestLine, markSeen, unreadCount, useSeen } from './AgentThread';
@@ -43,6 +43,8 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   // is escalated and then answered after the event recording it was written.
   const events = useQuery({ queryKey: ['agentEvents', project], queryFn: () => api.agentEvents(project as string), enabled });
   const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project as string), enabled });
+  // The lead's own state, for its avatar: whether it's mid-turn or asking.
+  const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
   const history = useCpuHistory(usage.data);
   const seen = useSeen();
   const [folded, setFolded] = useFolded();
@@ -61,6 +63,8 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
   const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
   const onLead = view.kind === 'project';
+  const leadMood = avatarMood({ state: 'running', chat: lead.data?.chat });
+  const mood = (agent: T.Agent) => avatarMood(agent, isAsking(questions.data, agent.ref));
   const open = (ref: string) => {
     setFolded(false);
     setOpenRef(ref);
@@ -75,12 +79,8 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           </button>
         </Tip>
         <Tip label="Project chat">
-          <button
-            aria-label="Project chat"
-            className={cn('flex size-9 items-center justify-center rounded-xl border border-line-strong bg-gradient-to-br from-brand-500/25 via-indigo-500/10 to-transparent text-brand-200 transition', onLead && 'ring-1 ring-brand-400')}
-            onClick={() => onSelect({ kind: 'project', project })}
-          >
-            <MessagesSquare className="size-4" />
+          <button aria-label="Project chat" className="rounded-xl p-0.5 transition hover:bg-surface-strong" onClick={() => onSelect({ kind: 'project', project })}>
+            <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} className={cn(onLead && 'ring-1 ring-brand-400')} />
           </button>
         </Tip>
         {mine.map((agent) => {
@@ -88,7 +88,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           return (
             <Tip key={agent.ref} label={`${agent.title || agent.name}${unread > 0 ? ` — ${unread} new` : ''}`}>
               <button aria-label={agent.title || agent.name} data-rail-icon={agent.ref} className="relative rounded-xl p-0.5 transition hover:bg-surface-strong" onClick={() => open(agent.ref)}>
-                <AgentAvatar ai={agent.ai} state={agent.state} className="size-9" />
+                <AgentAvatar ai={agent.ai} mood={mood(agent)} state={agent.state} seed={agent.ref} />
                 {unread > 0 && <span className="absolute right-0 top-0 size-2 rounded-full bg-brand-400 ring-2 ring-ink" />}
               </button>
             </Tip>
@@ -133,9 +133,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', onLead ? 'bg-surface-strong' : 'hover:bg-surface')}
         >
           {onLead && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-strong bg-gradient-to-br from-brand-500/25 via-indigo-500/10 to-transparent text-brand-200">
-            <MessagesSquare className="size-4" />
-          </span>
+          <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} />
           <span className="min-w-0 flex-1">
             <span className={cn('block truncate text-[13px] font-medium', onLead ? 'text-title' : 'text-secondary')}>Project chat</span>
             <span className="block truncate text-[11px] text-subtle">The lead's conversation</span>
@@ -156,6 +154,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
             events={byAgent.get(agent.ref) ?? []}
             unread={unreadCount(byAgent.get(agent.ref) ?? [], seen[agent.ref])}
             questions={byId}
+            mood={mood(agent)}
             onSelect={() => onSelect({ kind: 'agent', ref: agent.ref })}
             onToggle={() => (openRef === agent.ref ? setOpenRef(null) : open(agent.ref))}
           />
@@ -185,6 +184,7 @@ function AgentRow({
   events,
   unread,
   questions,
+  mood,
   onSelect,
   onToggle,
 }: {
@@ -197,6 +197,7 @@ function AgentRow({
   events: T.AgentEvent[];
   unread: number;
   questions: Map<string, T.Question>;
+  mood: Mood;
   onSelect: () => void;
   onToggle: () => void;
 }) {
@@ -215,7 +216,7 @@ function AgentRow({
           className={cn('group relative flex w-full items-center gap-2.5 rounded-xl py-2 pl-2.5 pr-7 text-left transition-colors xl:py-2.5', active ? 'bg-surface-strong' : 'hover:bg-surface')}
         >
           {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
-          <AgentAvatar ai={agent.ai} state={agent.state} className="size-8" />
+          <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
           <span className={cn('min-w-0 flex-1', pr && 'pr-11')}>
             <span className={cn('block truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
             <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
