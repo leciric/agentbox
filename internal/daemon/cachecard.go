@@ -69,9 +69,9 @@ type leadCache struct {
 	due       bool // the card is up
 }
 
-// leadIdle is a lead that has just finished a turn: its cache starts running
-// out, and the card, if it was up, goes.
-func (s *Server) leadIdle(a state.Agent) {
+// leadCacheIdle is a lead that has just finished a turn: its cache starts
+// running out, and the card, if it was up, goes.
+func (s *Server) leadCacheIdle(a state.Agent) {
 	if a.Role != state.RoleLead || a.AI != "claude" {
 		return
 	}

@@ -82,7 +82,7 @@ type ChatItem struct {
 	ID string `json:"id"`
 	// Turn is the ID of the user message whose turn this item belongs to.
 	Turn string `json:"turn"`
-	Kind string `json:"kind"` // user, aside, assistant, thought, tool, plan, permission, subagent, notice or error
+	Kind string `json:"kind"` // user, aside, assistant, thought, tool, plan, permission, subagent, compaction, notice or error
 	Text string `json:"text,omitempty"`
 	// Images, on a user message or an aside, are the pictures sent with it.
 	Images []ChatImage `json:"images,omitempty"`
@@ -102,6 +102,9 @@ type ChatItem struct {
 	// Subagent is set on a subagent's card (D86): a subagent the AI tool
 	// started, running in a session of its own.
 	Subagent *ChatSubagent `json:"subagent,omitempty"`
+	// Compaction is set on a compaction's card (D73): the conversation being
+	// saved to the project's memory and carried on in a fresh session.
+	Compaction *ChatCompaction `json:"compaction,omitempty"`
 	// Parent, on a message, thought or tool call a subagent made, is that
 	// subagent's card. The app nests the item under the card instead of
 	// showing it in the conversation itself.
@@ -118,6 +121,27 @@ const (
 	ChatAsideSent     = "sent"     // the AI tool took it into the running turn
 	ChatAsideDeferred = "deferred" // it couldn't join that turn: it goes in as its own, after
 	ChatAsideLost     = "lost"     // the session ended before it could be delivered
+	ChatAsideHeld     = "held"     // sent while the chat compacted: it starts the fresh session's first turn
+)
+
+// ChatCompaction is a compaction's card (D73). While it runs, the chat is
+// consolidating the conversation into the project's memory and nothing reaches
+// the session: a message sent meanwhile is held, and counted here, so the card
+// can say why it hasn't been answered. Its item's Text says how it ended.
+type ChatCompaction struct {
+	State string `json:"state"` // running, done or failed
+	// Waiting is how many messages were held for the fresh session.
+	Waiting int `json:"waiting,omitempty"`
+	// Error, on a failed card, is what went wrong.
+	Error string `json:"error,omitempty"`
+}
+
+const (
+	ChatCompactionRunning = "running"
+	ChatCompactionDone    = "done"
+	// Failed is a compaction that couldn't save the conversation, or couldn't
+	// replace the session. The chat carries on either way.
+	ChatCompactionFailed = "failed"
 )
 
 // ChatSubagent is a subagent the AI tool started (D86). What it does — its

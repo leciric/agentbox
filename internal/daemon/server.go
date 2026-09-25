@@ -128,7 +128,8 @@ func New(cfg Config) (*Server, error) {
 			s.captureLeadTurn(ev)
 		},
 		Finished:   s.agentFinished,
-		LeadIdle:   s.leadIdle,
+		LeadIdle:   s.leadCacheIdle,
+		Idle:       s.leadIdle,
 		AuthFailed: s.claudeAuthFailed,
 		Limits:     s.claudeLimited,
 		Logf:       s.logf,

@@ -46,12 +46,12 @@ func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 	if err != nil {
 		return state.Agent{}, err
 	}
-	// A turn is about to start, which is the moment the session may be
-	// replaced (D73): past the project's threshold the conversation is
-	// consolidated into its memory first, so what starts next starts in a
-	// session with room in it. It is a rewrite of the brief and a summary of
-	// the conversation, not a change to the conversation itself, so it happens
-	// before the worktree is moved and before the message lands.
+	// A turn is about to start, which is a moment the session may be replaced
+	// (D73): past the project's threshold the conversation is consolidated
+	// into its memory, so what starts next starts in a session with room in
+	// it. This only starts that, before the message lands: the chat then holds
+	// the message until the fresh session is in place, and the request
+	// doesn't wait for it.
 	s.rolloverIfNeeded(r.Context(), a)
 	return m.SyncLead(r.Context(), a)
 }

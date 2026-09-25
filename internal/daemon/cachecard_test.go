@@ -88,7 +88,7 @@ func TestLeadIdleSchedulesBeforeTheCacheExpires(t *testing.T) {
 	last := func() *fakeTimer { return timers[len(timers)-1] }
 
 	// No login and no setting: Claude Code gives it five minutes.
-	d.srv.leadIdle(lead)
+	d.srv.leadCacheIdle(lead)
 	if got := last().delay; got != 4*time.Minute+30*time.Second {
 		t.Errorf("with no login, the timer is set for %s", got)
 	}
@@ -98,7 +98,7 @@ func TestLeadIdleSchedulesBeforeTheCacheExpires(t *testing.T) {
 	if err := creds.SaveClaudeToken("default", "sk-ant-oat01-test"); err != nil {
 		t.Fatal(err)
 	}
-	d.srv.leadIdle(lead)
+	d.srv.leadCacheIdle(lead)
 	if !timers[0].stopped {
 		t.Error("a new turn didn't call off the timer the last one set")
 	}
@@ -112,19 +112,19 @@ func TestLeadIdleSchedulesBeforeTheCacheExpires(t *testing.T) {
 	if err := d.srv.store.SetClaudeLimit(context.Background(), account, raw, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	d.srv.leadIdle(lead)
+	d.srv.leadCacheIdle(lead)
 	if got := last().delay; got != 4*time.Minute+30*time.Second {
 		t.Errorf("past the limits, the timer is set for %s", got)
 	}
 
 	// What the settings say wins, the variable over the key.
 	writeSettings(`{"promptCacheTtl": "1h"}`)
-	d.srv.leadIdle(lead)
+	d.srv.leadCacheIdle(lead)
 	if got := last().delay; got != 55*time.Minute {
 		t.Errorf("with promptCacheTtl 1h, the timer is set for %s", got)
 	}
 	writeSettings(`{"promptCacheTtl": "1h", "env": {"CLAUDE_CODE_PROMPT_CACHE_TTL": "5m"}}`)
-	d.srv.leadIdle(lead)
+	d.srv.leadCacheIdle(lead)
 	if got := last().delay; got != 4*time.Minute+30*time.Second {
 		t.Errorf("with the variable at 5m, the timer is set for %s", got)
 	}
@@ -145,7 +145,7 @@ func TestLeadIdleSchedulesBeforeTheCacheExpires(t *testing.T) {
 
 	// Codex and OpenCode have no cache TTL to plan around.
 	before := len(timers)
-	d.srv.leadIdle(state.Agent{Project: "p", Name: state.LeadName, AI: "codex", Role: state.RoleLead})
+	d.srv.leadCacheIdle(state.Agent{Project: "p", Name: state.LeadName, AI: "codex", Role: state.RoleLead})
 	if len(timers) != before {
 		t.Error("a Codex lead was given a cache card")
 	}
@@ -188,7 +188,7 @@ func TestCacheCardComesAndGoes(t *testing.T) {
 		t.Errorf("before any turn, the cache is %+v", got)
 	}
 	start := time.Now()
-	d.srv.leadIdle(lead)
+	d.srv.leadCacheIdle(lead)
 	got := d.srv.leadCacheState("p")
 	if got.IdleSince == nil || got.IdleSince.Before(start) || got.TTLSeconds != 300 || got.TTLSource != "no subscription" || got.Due {
 		t.Fatalf("after a turn, the cache is %+v", got)
@@ -205,7 +205,7 @@ func TestCacheCardComesAndGoes(t *testing.T) {
 
 	// A turn ending takes the card down, whoever started it.
 	up()
-	d.srv.leadIdle(lead)
+	d.srv.leadCacheIdle(lead)
 	if c := cards(); len(c) != 1 || c[0].Due {
 		t.Errorf("a turn ending with the card up published %+v", c)
 	}
