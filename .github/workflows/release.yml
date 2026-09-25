@@ -107,14 +107,32 @@ jobs:
           path: desktop/dist/release/${{ inputs.tag }}/
           if-no-files-found: error
 
+  # A job-level `if` can't read secrets.* directly, so this hands the macos job
+  # a plain output to gate on instead.
+  check-secrets:
+    name: Check for Apple's signing secret
+    runs-on: ubuntu-24.04
+    outputs:
+      mac-enabled: ${{ steps.check.outputs.mac-enabled }}
+    steps:
+      - name: Check whether Apple's signing secret is set
+        id: check
+        run: |
+          if [ -n "${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}" ]; then
+            echo "mac-enabled=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "mac-enabled=false" >>"$GITHUB_OUTPUT"
+          fi
+
   # The Mac app, built on a Mac (electron-builder makes .dmg files only there),
   # for Apple silicon and Intel, from the tag the job above pushed. It's signed
-  # and notarized when the repository has Apple's credentials as secrets;
-  # without them it's built unsigned, and the README's "On a Mac" says how to
-  # open an unsigned app.
+  # and notarized when the repository has Apple's credentials as secrets; without
+  # them, this job doesn't run at all — there's no unsigned Mac app in a release
+  # until the secret exists, and publish doesn't wait on it.
   macos:
     name: Mac app
-    needs: release
+    needs: [release, check-secrets]
+    if: needs.check-secrets.outputs.mac-enabled == 'true'
     runs-on: macos-15
     env:
       TAG: ${{ inputs.tag }}
@@ -158,10 +176,14 @@ jobs:
           path: mac/
           if-no-files-found: error
 
-  # Everything at once, only when both builds made it.
+  # Everything at once: once release has succeeded, and macos has either
+  # succeeded or didn't run (no signing secret) — but not if macos ran and
+  # failed. Needs `always()`, since a skipped macos would otherwise skip this
+  # job too.
   publish:
     name: Publish
     needs: [release, macos]
+    if: always() && needs.release.result == 'success' && (needs.macos.result == 'success' || needs.macos.result == 'skipped')
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ inputs.tag }}

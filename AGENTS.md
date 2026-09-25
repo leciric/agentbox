@@ -146,20 +146,23 @@ Conventional commits: `feat: ...`, `fix: ...`, `refactor: ...`, `docs: ...`, and
 
 ## Releasing
 
-Model a release on 0.3.2 (a fix) or 0.3.0 (features), not on 0.4.0: 0.4.0 was published by hand, with no notes in the repo and only the AppImage on GitHub.
+Model a release on [v0.1.0](https://github.com/leciric/agentbox/releases/tag/v0.1.0), the first
+public one: this repository's history starts from a single commit, so there are no earlier releases
+here to link to or to diff against — the old ones, back to 0.3.x, are only on
+[leciric/agentbox-private](https://github.com/leciric/agentbox-private), which nothing here should
+link to.
 
 1. Get the changes onto `main`, and run `go test ./...` there.
 2. Bump the version, a patch for fixes and a minor for features: `version` in `desktop/package.json`, and the two root `version` fields in `desktop/package-lock.json`.
-3. Write `.github/releases/v<version>.md` in the shape of [v0.3.2](https://github.com/leciric/agentbox/releases/tag/v0.3.2) for a fix, or [v0.3.0](https://github.com/leciric/agentbox/releases/tag/v0.3.0) for features:
+3. Write `.github/releases/v<version>.md` in the shape of
+   [v0.1.0](https://github.com/leciric/agentbox/releases/tag/v0.1.0):
    - It opens with what changed, in bold. A fix says which versions had the bug.
-   - `## Downloads` lists the three files a release carries.
+   - `## Downloads` lists the files a release carries.
    - A fix explains `## What went wrong`: the cause, and what changed.
    - `## Known limitations` lists new ones and links to the releases that list the rest.
    - It links to the README or to GitHub releases, never to `docs/`, which no longer exists.
-
-   The notes lived in `docs/releases/` until 0.15.0; those are on their [GitHub releases](https://github.com/leciric/agentbox/releases) now, and in git history.
 4. Commit as `chore(release): <version>`, and land that commit on `main`.
-5. Run the **Release** workflow from the [Actions tab](https://github.com/leciric/agentbox/actions/workflows/release.yml), with `v<version>` as the tag. It builds `main`, tags the commit it built, builds the Mac app on a Mac runner, and only once both builds succeed publishes the notes with `AgentBox-<version>-x86_64.AppImage`, `AgentBox-<version>-amd64.deb`, `AgentBox-<version>-x64.pacman`, the Windows `AgentBox-<version>-x64-setup.exe` and `AgentBox-<version>-x64-portable.exe`, the command-line tool for `linux-amd64`, `linux-arm64`, `darwin-arm64` and `darwin-amd64` (`agentbox-<version>-<os>-<arch>`), `SHA256SUMS`, and the Mac's `AgentBox-<version>-mac-{arm64,x64}.dmg` and `.zip` with `SHA256SUMS-mac` (D49, D92, D94). The Mac app is signed and notarized only when the repository has Apple's secrets. The build takes a few minutes; if the Mac job fails, nothing is published, and running the workflow again carries on from the tag it pushed.
+5. Run the **Release** workflow from the [Actions tab](https://github.com/leciric/agentbox/actions/workflows/release.yml), with `v<version>` as the tag. It builds `main`, tags the commit it built, and publishes the notes with `AgentBox-<version>-x86_64.AppImage`, `AgentBox-<version>-amd64.deb`, `AgentBox-<version>-x64.pacman`, the Windows `AgentBox-<version>-x64-setup.exe` and `AgentBox-<version>-x64-portable.exe`, the command-line tool for `linux-amd64`, `linux-arm64`, `darwin-arm64` and `darwin-amd64` (`agentbox-<version>-<os>-<arch>`), and `SHA256SUMS` (D49, D92, D94). A `check-secrets` job checks whether the repository has Apple's signing secret, since a job-level `if` can't read `secrets.*` directly; the Mac app only builds, on a Mac runner, when that secret is there, signed and notarized, and its `AgentBox-<version>-mac-{arm64,x64}.dmg`/`.zip` with `SHA256SUMS-mac` are only published then too. Without the secret, the Mac job is skipped and publishing goes ahead without it — add the secret later and the next release picks it up on its own. The build takes a few minutes; if the Mac job runs and fails, nothing is published, and running the workflow again carries on from the tag it pushed.
 
 The workflow and the local script check and build through the same script, `scripts/release-build.sh`, so a release means one thing wherever it is made: nothing uncommitted, notes that exist and have no `TODO`, a version that matches the tag asked for, a version that isn't released yet, and a built command-line tool that reports the version. The workflow also refuses to move a tag that already points at another commit — a published tag doesn't move.
 

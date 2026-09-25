@@ -48,4 +48,6 @@ run when they differ. On a release, bump both, set `pkgrel=1`, and rebuild.
 - **Arch, x86_64, only.** Like the released AppImage.
 - **Not reproducible in the AUR's sense.** It builds the working tree rather
   than a release tarball with checksums, so it is for local use, not for
-  publishing as-is.
+  publishing as-is. [`packaging/aur-bin/`](../aur-bin/) is the one that
+  downloads a release's assets and checksums them, and is what's actually
+  submitted to the AUR, as `agentbox-bin`.
