@@ -163,10 +163,11 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
   // simply navigated, so an Escape lookup (mentionDismissed) survives that.
   const mention = mentionAt(text, cursor);
   const mentionKey = mention && `${mention.start}:${mention.query}`;
+  const mentionQuery = mention?.query;
   const filesQuery = useQuery({ queryKey: ['files', agent.ref], queryFn: () => api.files(agent.ref), enabled: mention !== undefined, staleTime: 4000 });
   const mentionItems = useMemo(
-    () => (mention === undefined || mentionKey === mentionDismissed ? [] : matchFiles(filesQuery.data?.files ?? [], mention.query)),
-    [mentionKey, mentionDismissed, filesQuery.data],
+    () => (mentionQuery === undefined || mentionKey === mentionDismissed ? [] : matchFiles(filesQuery.data?.files ?? [], mentionQuery)),
+    [mentionQuery, mentionKey, mentionDismissed, filesQuery.data],
   );
   useEffect(() => setMentionHighlighted(0), [mentionKey]);
 

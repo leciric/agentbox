@@ -93,7 +93,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 		return nil, err
 	}
 	if resp.StatusCode >= 400 {
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		data, _ := io.ReadAll(resp.Body)
 		var e Error
 		if json.Unmarshal(data, &e) != nil || e.Error == "" {
@@ -109,7 +109,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch out := out.(type) {
 	case nil:
 		_, err = io.Copy(io.Discard, resp.Body)
@@ -791,7 +791,7 @@ func (c *Client) FollowJobLog(ctx context.Context, id string, w io.Writer) error
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, err = io.Copy(w, resp.Body)
 	if ctx.Err() != nil {
 		return ctx.Err()
@@ -805,7 +805,7 @@ func (c *Client) Events(ctx context.Context, fn func(Event) error) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 1<<20)
 	for scanner.Scan() {

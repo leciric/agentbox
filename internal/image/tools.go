@@ -229,7 +229,7 @@ func UpdateTools(ctx context.Context, inc incus.Client, u User, plan Plan, log i
 		return err
 	}
 	fail := func(err error) error {
-		inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+		_, _ = inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
 		return fmt.Errorf("updating the agent tools in place: %w", err)
 	}
 

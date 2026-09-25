@@ -99,10 +99,10 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) error {
 	w.WriteHeader(http.StatusOK)
 	send := func(ev api.Event) {
 		data, _ := json.Marshal(ev)
-		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data)
+		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data)
 		flusher.Flush()
 	}
-	fmt.Fprint(w, ": connected\n\n")
+	_, _ = fmt.Fprint(w, ": connected\n\n")
 	if err == nil {
 		for _, change := range s.agentStates() {
 			data, _ := json.Marshal(change)
@@ -118,7 +118,7 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) error {
 		case <-r.Context().Done():
 			return nil
 		case <-keepalive.C:
-			fmt.Fprint(w, ": keepalive\n\n")
+			_, _ = fmt.Fprint(w, ": keepalive\n\n")
 			flusher.Flush()
 		case ev := <-events:
 			send(ev)

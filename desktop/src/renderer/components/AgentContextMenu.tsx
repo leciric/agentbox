@@ -2,10 +2,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CircleX, GitBranch, GitPullRequest, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import type * as T from '../../shared/api';
+import * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
+import { countFeature, type AppFeature } from '../lib/usageStats';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
 
@@ -54,6 +55,12 @@ export function AgentContextMenu({
     onError: (err) => toast.error(String(err)),
   });
 
+  // Each item counts itself for the usage stats as it runs.
+  const counted = (feature: AppFeature, run: () => void) => () => {
+    countFeature(feature);
+    run();
+  };
+
   const actions = lifecycleActions(agent.state);
   const lifecycleIcon = { pause: Pause, resume: Play, start: Play, stop: Square };
   const lifecycleLabel = { pause: 'Pause', resume: 'Resume', start: 'Start', stop: 'Stop' };
@@ -64,34 +71,34 @@ export function AgentContextMenu({
         <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent>
           {usesChat(agent) && (
-            <ContextMenuItem icon={MessageSquare} onSelect={() => onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' })}>
+            <ContextMenuItem icon={MessageSquare} onSelect={counted(T.FeatureMenuOpenChat, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' }))}>
               Open chat
             </ContextMenuItem>
           )}
-          <ContextMenuItem icon={SquareTerminal} onSelect={() => onSelect({ kind: 'agent', ref: agent.ref, tab: 'terminal' })}>
+          <ContextMenuItem icon={SquareTerminal} onSelect={counted(T.FeatureMenuOpenTerminal, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'terminal' }))}>
             Open terminal
           </ContextMenuItem>
           <ContextMenuSeparator />
           {actions.map((name) => (
-            <ContextMenuItem key={name} icon={lifecycleIcon[name]} onSelect={() => action.mutate(name)}>
+            <ContextMenuItem key={name} icon={lifecycleIcon[name]} onSelect={counted(T.FeatureMenuLifecycle, () => action.mutate(name))}>
               {lifecycleLabel[name]}
             </ContextMenuItem>
           ))}
-          <ContextMenuItem icon={Moon} onSelect={() => retire.mutate()}>
+          <ContextMenuItem icon={Moon} onSelect={counted(T.FeatureMenuRetire, () => retire.mutate())}>
             Retire
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             icon={GitBranch}
-            onSelect={() => {
+            onSelect={counted(T.FeatureMenuCopyBranch, () => {
               window.agentbox.copyText(agent.branch);
               toast('Copied the branch name');
-            }}
+            })}
           >
             Copy branch name
           </ContextMenuItem>
           {pr && (
-            <ContextMenuItem icon={GitPullRequest} onSelect={() => void window.agentbox.openExternal(pr.url)}>
+            <ContextMenuItem icon={GitPullRequest} onSelect={counted(T.FeatureMenuOpenPullRequest, () => void window.agentbox.openExternal(pr.url))}>
               Open pull request #{pr.number}
             </ContextMenuItem>
           )}
@@ -99,7 +106,7 @@ export function AgentContextMenu({
           <ContextMenuItem
             icon={CircleX}
             destructive
-            onSelect={() => setDestroying(true)}
+            onSelect={counted(T.FeatureMenuDestroy, () => setDestroying(true))}
           >
             Destroy agent…
           </ContextMenuItem>

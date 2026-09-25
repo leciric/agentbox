@@ -1,14 +1,13 @@
 // Typed calls to the daemon's HTTP API, sent through the main process.
 import type { ApiResponse } from '../../preload';
-import * as T from '../../shared/api';
-import { errorMessage } from './utils';
+import * as T from '../../shared/api.ts';
+import { errorMessage } from './utils.ts';
 
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
+  readonly status: number;
+  constructor(message: string, status: number) {
     super(message);
+    this.status = status;
   }
 }
 
@@ -82,6 +81,7 @@ export const api = {
   settings: () => call<T.Settings>('GET', '/v1/settings'),
   update: () => call<T.UpdateStatus>('GET', '/v1/update'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
+  countFeature: (feature: string) => call<void>('POST', `/v1/usage-stats/${encodeURIComponent(feature)}`),
   tokens: (q: TokenQuery) => call<T.TokenReport>('GET', `/v1/tokens${tokenParams(q)}`),
   claudeLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits'),
   tokenTurns: (q: TokenQuery, limit = 100) => call<T.TokenTurn[]>('GET', `/v1/tokens/turns${tokenParams(q, { limit: String(limit) })}`),

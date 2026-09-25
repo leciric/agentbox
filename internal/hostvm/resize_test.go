@@ -86,7 +86,7 @@ const resizeList = `{"name":"agentbox","status":"%s","cpus":4,"memory":858993459
 
 func writeList(t *testing.T, dir, status string) {
 	t.Helper()
-	os.WriteFile(filepath.Join(dir, "list"), []byte(strings.Replace(resizeList, "%s", status, 1)), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "list"), []byte(strings.Replace(resizeList, "%s", status, 1)), 0o644)
 }
 
 // A running VM is stopped, edited, started, and its daemon restarted, in that
@@ -137,7 +137,7 @@ func TestResizeNothingToDo(t *testing.T) {
 	if got := calls(t, dir); !slices.Equal(got, []string{"list --format json"}) {
 		t.Errorf("a VM already that size was touched: %q", got)
 	}
-	os.Remove(filepath.Join(dir, "list"))
+	_ = os.Remove(filepath.Join(dir, "list"))
 	if err := vm.Resize(context.Background(), 4, 0); !errors.Is(err, ErrNotCreated) {
 		t.Errorf("no VM: got %v", err)
 	}

@@ -56,7 +56,7 @@ func (m *Manager) pushBinary(ctx context.Context, instance string) error {
 		return err
 	}
 	if _, err := m.Incus.Run(ctx, "exec", instance, "--", "mv", "-f", next, AgentBinaryPath); err != nil {
-		m.Incus.Run(context.WithoutCancel(ctx), "exec", instance, "--", "rm", "-f", next)
+		_, _ = m.Incus.Run(context.WithoutCancel(ctx), "exec", instance, "--", "rm", "-f", next)
 		return err
 	}
 	return nil

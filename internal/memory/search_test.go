@@ -25,7 +25,7 @@ func TestFTS5IsAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(`CREATE VIRTUAL TABLE probe USING fts5(title, content)`); err != nil {
 		t.Fatalf("modernc.org/sqlite has no FTS5: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestSearchIndexFollowsTheRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	s := memory.New(st.DB())
 
 	m, err := s.AddMemory(ctx, memory.Memory{Project: "pawly", Title: "Chromium needs a virtual display"})

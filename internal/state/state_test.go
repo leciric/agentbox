@@ -19,7 +19,7 @@ func open(t *testing.T, path string) *state.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 	return st
 }
 
@@ -135,7 +135,7 @@ func TestReopenKeepsData(t *testing.T) {
 	if err := st.AddProject(ctx, state.Project{Name: "a", Root: "/a", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	st.Close()
+	_ = st.Close()
 
 	projects, err := open(t, path).Projects(ctx)
 	if err != nil {

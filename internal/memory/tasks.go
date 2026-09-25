@@ -411,7 +411,7 @@ func (s *Store) TaskEdges(ctx context.Context, project string) ([]TaskEdge, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []TaskEdge
 	for rows.Next() {
 		var e TaskEdge
@@ -456,7 +456,7 @@ func (s *Store) checkParentCycle(ctx context.Context, project, task, parent stri
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	up := map[string]string{}
 	for rows.Next() {
 		var id, of string
@@ -545,7 +545,7 @@ func (s *Store) queryTasks(ctx context.Context, clause string, args ...any) ([]T
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Task
 	for rows.Next() {
 		var t Task

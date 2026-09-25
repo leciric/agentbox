@@ -119,7 +119,7 @@ func agentHeads(root string, agents []state.Agent) []agentHead {
 			return nil
 		})
 	}
-	g.Wait()
+	_ = g.Wait()
 	return out
 }
 
@@ -431,7 +431,7 @@ func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo gith
 		info, infoErr = client.Info(ctx, repo)
 		return nil
 	})
-	g.Wait()
+	_ = g.Wait()
 
 	var entry pullsEntry
 	if listErr != nil {
@@ -490,7 +490,7 @@ func (s *Server) lookupPulls(ctx context.Context, client github.Client, repo git
 			return nil
 		})
 	}
-	g.Wait()
+	_ = g.Wait()
 	return out
 }
 
@@ -671,6 +671,7 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
 	}, "")
 
+	s.countFeature(api.FeaturePullMerge)
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	return writeJSON(w, http.StatusOK, out)
 }

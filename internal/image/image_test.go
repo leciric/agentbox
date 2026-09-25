@@ -102,7 +102,7 @@ func TestBuildMakesTheImageHere(t *testing.T) {
 	generic := inc.ran(t, "snapshot|create|agentbox-base-next|generic")
 	personalised := inc.ran(t, "/root/personalise.sh|agent|dev|1000|1000")
 	ready := inc.ran(t, "snapshot|create|agentbox-base-next|ready")
-	if !(profile < created && created < provisioned && provisioned < generic && generic < personalised && personalised < ready) {
+	if profile >= created || created >= provisioned || provisioned >= generic || generic >= personalised || personalised >= ready {
 		t.Errorf("the build ran out of order:\n%s", strings.Join(inc.commands(t), "\n"))
 	}
 	inc.neverRan(t, "import|")
@@ -206,7 +206,7 @@ func TestUpdateToolsInPlace(t *testing.T) {
 	recorded := inc.ran(t, "user.agentbox.tools-version="+image.ToolsVersion(image.ToolsFor(image.Components{}))+"|")
 	ready := inc.ran(t, "snapshot|create|agentbox-base-next|ready")
 	swapped := inc.ran(t, "rename|agentbox-base-next|agentbox-base")
-	if !(copied < installed && installed < verified && verified < recorded && recorded < ready && ready < swapped) {
+	if copied >= installed || installed >= verified || verified >= recorded || recorded >= ready || ready >= swapped {
 		t.Errorf("the update ran out of order:\n%s", strings.Join(inc.commands(t), "\n"))
 	}
 	if !strings.Contains(log.String(), "Installing "+image.Pin("claude")+"\n") {
@@ -279,7 +279,7 @@ func TestUpdateToolsPutsTheBaseBackWhenTheSwapFails(t *testing.T) {
 	away := inc.ran(t, "rename|agentbox-base|agentbox-base-old|")
 	in := inc.ran(t, "rename|agentbox-base-next|agentbox-base|")
 	back := inc.ran(t, "rename|agentbox-base-old|agentbox-base|")
-	if !(away < in && in < back) {
+	if away >= in || in >= back {
 		t.Errorf("the previous base should be renamed away, then back once the swap failed:\n%s", strings.Join(commands, "\n"))
 	}
 	if at(commands[back:], "delete|--force|agentbox-base-old") >= 0 {

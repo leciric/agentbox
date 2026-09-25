@@ -339,13 +339,13 @@ func (s Store) key() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(tmp.Name())
+	defer func() { _ = os.Remove(tmp.Name()) }()
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return nil, err
 	}
 	if _, err := tmp.WriteString(base64.StdEncoding.EncodeToString(fresh) + "\n"); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return nil, err
 	}
 	if err := tmp.Close(); err != nil {

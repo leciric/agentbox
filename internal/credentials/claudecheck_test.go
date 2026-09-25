@@ -37,13 +37,13 @@ func anthropic(t *testing.T, accepts ...string) *fakeAnthropic {
 		for _, good := range accepts {
 			if token == good {
 				w.Header().Set("Content-Type", "application/json")
-				w.Write([]byte(`{"account":{"email_address":"someone@example.com"}}`))
+				_, _ = w.Write([]byte(`{"account":{"email_address":"someone@example.com"}}`))
 				return
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."}}`))
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."}}`))
 	}))
 	t.Cleanup(srv.Close)
 	fake.url = srv.URL
@@ -320,7 +320,7 @@ func TestASetupTokenIsValidThoughItCantReadTheProfile(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(c.status)
-			w.Write([]byte(c.body))
+			_, _ = w.Write([]byte(c.body))
 		}))
 		t.Setenv("ANTHROPIC_BASE_URL", srv.URL)
 		if got := credentials.CheckClaudeToken(context.Background(), "sk-ant-oat01-x"); got.State != c.want {

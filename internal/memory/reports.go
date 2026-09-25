@@ -105,7 +105,7 @@ func (s *Store) queryReports(ctx context.Context, clause string, args ...any) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Report
 	for rows.Next() {
 		r, err := scanReport(rows)

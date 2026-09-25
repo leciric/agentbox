@@ -94,7 +94,7 @@ func newInitCmd() *cobra.Command {
 			if err := d.Init(cmd.Context()); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), `AgentBox's distro, %s, is ready. Next:
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), `AgentBox's distro, %s, is ready. Next:
   agentbox image build          the machine every agent is copied from (the app's Setup page does this too)
   agentbox auth claude          a Claude Code login for your agents
   agentbox wsl shell            then git clone your project in there, and agentbox add it
@@ -154,13 +154,13 @@ func newStatusCmd() *cobra.Command {
 			}
 			w := cmd.OutOrStdout()
 			if st.WSL != "" {
-				fmt.Fprintf(w, "WSL %s\n", st.WSL)
+				_, _ = fmt.Fprintf(w, "WSL %s\n", st.WSL)
 			}
 			if st.Exists {
-				fmt.Fprintf(w, "%s: %s, WSL %d, user %s\n", st.Name, st.State.State, st.Version, st.User)
+				_, _ = fmt.Fprintf(w, "%s: %s, WSL %d, user %s\n", st.Name, st.State.State, st.Version, st.User)
 			}
 			if st.Problem != "" {
-				fmt.Fprintln(w, st.Problem)
+				_, _ = fmt.Fprintln(w, st.Problem)
 				return exitCode(1)
 			}
 			return nil
@@ -253,11 +253,11 @@ func RunRelay(ctx context.Context, d *Distro, in io.Reader, out io.Writer) error
 	if err != nil {
 		return err
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
-		io.Copy(io.Discard, in)
+		_, _ = io.Copy(io.Discard, in)
 		cancel()
 	}()
 	if _, err := fmt.Fprintf(out, "listening %s\n", path); err != nil {

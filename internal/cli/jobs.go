@@ -20,7 +20,7 @@ func waitJob(cmd *cobra.Command, c *api.Client, j api.Job) (api.Job, error) {
 	stderr := cmd.ErrOrStderr()
 	err := c.FollowJobLog(cmd.Context(), j.ID, stderr)
 	if cmd.Context().Err() != nil {
-		fmt.Fprintf(stderr, "\nDetached from job %s. It keeps running in the daemon:\n  follow it:  agentbox jobs %s\n  cancel it:  agentbox jobs cancel %s (rolls back)\n", j.ID, j.ID, j.ID)
+		_, _ = fmt.Fprintf(stderr, "\nDetached from job %s. It keeps running in the daemon:\n  follow it:  agentbox jobs %s\n  cancel it:  agentbox jobs cancel %s (rolls back)\n", j.ID, j.ID, j.ID)
 		return j, exitCodeError(130)
 	}
 	if err != nil {
@@ -53,13 +53,13 @@ func newJobsCmd(a *app) *cobra.Command {
 					return err
 				}
 				if len(jobs) == 0 {
-					fmt.Fprintln(out, "No jobs yet.")
+					_, _ = fmt.Fprintln(out, "No jobs yet.")
 					return nil
 				}
 				w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
-				fmt.Fprintln(w, "JOB\tKIND\tTARGET\tSTATUS\tSTARTED\tTOOK")
+				_, _ = fmt.Fprintln(w, "JOB\tKIND\tTARGET\tSTATUS\tSTARTED\tTOOK")
 				for _, j := range jobs {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, j.Kind, j.Target, j.Status, ago(j.CreatedAt), took(j))
+					_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", j.ID, j.Kind, j.Target, j.Status, ago(j.CreatedAt), took(j))
 				}
 				return w.Flush()
 			}
@@ -73,13 +73,13 @@ func newJobsCmd(a *app) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprint(cmd.ErrOrStderr(), log)
+				_, _ = fmt.Fprint(cmd.ErrOrStderr(), log)
 			} else if j, err = waitJob(cmd, c, j); err != nil && j.Status == api.JobRunning {
 				return err
 			}
-			fmt.Fprintf(out, "\nJob %s (%s %s): %s after %s\n", j.ID, j.Kind, j.Target, j.Status, took(j))
+			_, _ = fmt.Fprintf(out, "\nJob %s (%s %s): %s after %s\n", j.ID, j.Kind, j.Target, j.Status, took(j))
 			if j.Error != "" {
-				fmt.Fprintf(out, "  %s\n", j.Error)
+				_, _ = fmt.Fprintf(out, "  %s\n", j.Error)
 			}
 			return nil
 		},
@@ -97,7 +97,7 @@ func newJobsCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Job %s (%s %s): %s\n", j.ID, j.Kind, j.Target, j.Status)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Job %s (%s %s): %s\n", j.ID, j.Kind, j.Target, j.Status)
 			return nil
 		},
 	})
@@ -148,7 +148,7 @@ func formatEvent(ev api.Event) string {
 	switch ev.Type {
 	case api.EventJob:
 		var j api.Job
-		json.Unmarshal(ev.Data, &j)
+		_ = json.Unmarshal(ev.Data, &j)
 		line := fmt.Sprintf("%s  job    %s %s %s [%s]", ts, j.Kind, j.Target, j.Status, j.ID)
 		if j.Error != "" {
 			line += ": " + j.Error
@@ -156,18 +156,18 @@ func formatEvent(ev api.Event) string {
 		return line
 	case api.EventJobLog:
 		var l api.JobLogLine
-		json.Unmarshal(ev.Data, &l)
+		_ = json.Unmarshal(ev.Data, &l)
 		return fmt.Sprintf("%s  log    [%s] %s", ts, l.Job, l.Line)
 	case api.EventAgent:
 		var ch api.AgentChange
-		json.Unmarshal(ev.Data, &ch)
+		_ = json.Unmarshal(ev.Data, &ch)
 		if ch.Removed {
 			return fmt.Sprintf("%s  agent  %s removed", ts, ch.Ref)
 		}
 		return strings.TrimSpace(fmt.Sprintf("%s  agent  %s %s %s", ts, ch.Ref, ch.State, ch.IP))
 	case api.EventUsage:
 		var u api.Usage
-		json.Unmarshal(ev.Data, &u)
+		_ = json.Unmarshal(ev.Data, &u)
 		parts := []string{fmt.Sprintf("host cpu %.0f%% mem %s", u.Host.CPU, humanBytes(u.Host.MemUsed))}
 		for _, a := range u.Agents {
 			parts = append(parts, fmt.Sprintf("%s cpu %.0f%% mem %s", a.Ref, a.CPU, humanBytes(a.Memory)))

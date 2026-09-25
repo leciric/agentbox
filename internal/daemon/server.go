@@ -158,7 +158,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer stop()
 	s.stop = stop
 	s.jobs = newJobs(ctx, s.store, s.events)
-	defer s.store.Close()
+	defer func() { _ = s.store.Close() }()
 	defer s.chat.Close() // before the store closes: it stores what the sessions haven't
 
 	socket := s.cfg.Paths.Socket()
@@ -175,7 +175,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(socket)
+	defer func() { _ = os.Remove(socket) }()
 	if err := os.Chmod(socket, 0o600); err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func (s *Server) Run(ctx context.Context) error {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdown)
+		_ = srv.Shutdown(shutdown)
 		s.closeAgentAPIs()
 		s.closeLeadAPIs()
 	}()
@@ -244,7 +244,7 @@ func claimSocket(path string) error {
 		return nil
 	}
 	if conn, err := net.DialTimeout("unix", path, time.Second); err == nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("another AgentBox daemon is already listening on %s", path)
 	}
 	return os.Remove(path)
@@ -318,7 +318,7 @@ func (s *Server) secrets() secrets.Store {
 }
 
 func (s *Server) logf(format string, args ...any) {
-	fmt.Fprintf(s.cfg.Log, time.Now().Format(time.DateTime)+" "+format+"\n", args...)
+	_, _ = fmt.Fprintf(s.cfg.Log, time.Now().Format(time.DateTime)+" "+format+"\n", args...)
 }
 
 func (s *Server) routes() http.Handler {
@@ -442,6 +442,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/usage", s.usage)
 	h("GET /v1/usage/disk", s.diskUsage)
+	h("POST /v1/usage-stats/{feature}", s.countAppFeature)
 	h("GET /v1/image", s.imageStatus)
 	h("POST /v1/image/build", s.buildImage)
 	h("GET /v1/auth", s.authStatus)
@@ -483,7 +484,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, state.ErrExists):
 		status = http.StatusConflict
 	}
-	writeJSON(w, status, api.Error{Error: err.Error()})
+	_ = writeJSON(w, status, api.Error{Error: err.Error()})
 }
 
 func readJSON(r *http.Request, v any) error {

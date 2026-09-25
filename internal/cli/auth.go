@@ -70,15 +70,15 @@ account (agentbox claude-account), and otherwise the default one.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Saved the Claude Code account %q for agents in %s\n", account, creds.ClaudeTokenPath(account))
+			_, _ = fmt.Fprintf(out, "Saved the Claude Code account %q for agents in %s\n", account, creds.ClaudeTokenPath(account))
 			def, err := creds.DefaultClaudeAccount()
 			if err != nil {
 				return err
 			}
 			if def == account {
-				fmt.Fprintf(out, "Agents use it unless their project picks another one.\n")
+				_, _ = fmt.Fprintf(out, "Agents use it unless their project picks another one.\n")
 			} else {
-				fmt.Fprintf(out, "Agents still use %q by default: change that with agentbox auth claude default %s, or give it to one project with agentbox claude-account <project> %s\n", def, account, account)
+				_, _ = fmt.Fprintf(out, "Agents still use %q by default: change that with agentbox auth claude default %s, or give it to one project with agentbox claude-account <project> %s\n", def, account, account)
 			}
 			return nil
 		},
@@ -101,11 +101,11 @@ func newAuthClaudeListCmd(a *app) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if len(accounts) == 0 {
-				fmt.Fprintln(out, "No Claude Code accounts yet. Add one with: agentbox auth claude")
+				_, _ = fmt.Fprintln(out, "No Claude Code accounts yet. Add one with: agentbox auth claude")
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "ACCOUNT\tDEFAULT\tSAVED")
+			_, _ = fmt.Fprintln(w, "ACCOUNT\tDEFAULT\tSAVED")
 			for _, acc := range accounts {
 				def := ""
 				if acc.Default {
@@ -118,7 +118,7 @@ func newAuthClaudeListCmd(a *app) *cobra.Command {
 				if acc.SavedAtKnown {
 					saved = acc.SavedAt.Local().Format(time.DateTime)
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", acc.Name, orDash(def), saved)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", acc.Name, orDash(def), saved)
 			}
 			return w.Flush()
 		},
@@ -134,7 +134,7 @@ func newAuthClaudeDefaultCmd(a *app) *cobra.Command {
 			if err := a.credentials().SetDefaultClaudeAccount(args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "New agents use the Claude Code account %q unless their project picks another one\n", args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "New agents use the Claude Code account %q unless their project picks another one\n", args[0])
 			return nil
 		},
 	}
@@ -160,12 +160,12 @@ has is refused.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Renamed the Claude Code account %q to %q\n", got.Old, got.Name)
+			_, _ = fmt.Fprintf(out, "Renamed the Claude Code account %q to %q\n", got.Old, got.Name)
 			if len(got.Projects) > 0 {
-				fmt.Fprintf(out, "Projects carried over: %s\n", strings.Join(got.Projects, ", "))
+				_, _ = fmt.Fprintf(out, "Projects carried over: %s\n", strings.Join(got.Projects, ", "))
 			}
 			if len(got.Agents) > 0 {
-				fmt.Fprintf(out, "Agents carried over: %s. They keep the same token, so none needs a restart.\n", strings.Join(got.Agents, ", "))
+				_, _ = fmt.Fprintf(out, "Agents carried over: %s. They keep the same token, so none needs a restart.\n", strings.Join(got.Agents, ", "))
 			}
 			return nil
 		},
@@ -185,15 +185,15 @@ the token was written into them when they were created.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Removed the Claude Code account %q\n", args[0])
+			_, _ = fmt.Fprintf(out, "Removed the Claude Code account %q\n", args[0])
 			def, err := creds.DefaultClaudeAccount()
 			if err != nil {
 				return err
 			}
 			if def == "" {
-				fmt.Fprintln(out, "No accounts left: new Claude Code agents need one (agentbox auth claude)")
+				_, _ = fmt.Fprintln(out, "No accounts left: new Claude Code agents need one (agentbox auth claude)")
 			} else {
-				fmt.Fprintf(out, "New agents now use %q by default. Projects that picked the removed account need another one: agentbox claude-account <project> <account>\n", def)
+				_, _ = fmt.Fprintf(out, "New agents now use %q by default. Projects that picked the removed account need another one: agentbox claude-account <project> <account>\n", def)
 			}
 			return nil
 		},
@@ -226,7 +226,7 @@ from your host's ~/.codex. New agents get a copy of it.`,
 				}
 				return fmt.Errorf("codex %s: %w", strings.Join(args, " "), err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Stored the Codex login for agents in %s\n", creds.CodexHome())
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stored the Codex login for agents in %s\n", creds.CodexHome())
 			return nil
 		},
 	}
@@ -274,7 +274,7 @@ what an OpenCode agent can run, and AgentBox asks OpenCode itself for the list.`
 			if !creds.HasOpenCodeLogin() {
 				return fmt.Errorf("opencode stored no provider login in %s: run agentbox auth opencode again and finish the login", creds.OpenCodeHome())
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Stored the OpenCode login for agents in %s\n", creds.OpenCodeHome())
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Stored the OpenCode login for agents in %s\n", creds.OpenCodeHome())
 			return nil
 		},
 	}
@@ -334,13 +334,13 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 			// costs one round trip.
 			checked := checkClaudeAccounts(cmd.Context(), creds, accounts)
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-			fmt.Fprintf(w, "Claude Code\t%s\n", claude)
+			_, _ = fmt.Fprintf(w, "Claude Code\t%s\n", claude)
 			for _, acc := range accounts {
-				fmt.Fprintf(w, "  %s\t%s\n", acc.Name, claudeAccountStatus(acc, checked[acc.Name]))
+				_, _ = fmt.Fprintf(w, "  %s\t%s\n", acc.Name, claudeAccountStatus(acc, checked[acc.Name]))
 			}
-			fmt.Fprintf(w, "Codex\t%s\n", codex)
-			fmt.Fprintf(w, "OpenCode\t%s\n", oc)
-			fmt.Fprintf(w, "GitHub\t%s\n", gh)
+			_, _ = fmt.Fprintf(w, "Codex\t%s\n", codex)
+			_, _ = fmt.Fprintf(w, "OpenCode\t%s\n", oc)
+			_, _ = fmt.Fprintf(w, "GitHub\t%s\n", gh)
 			return w.Flush()
 		},
 	}
@@ -450,17 +450,17 @@ Agents are told to read pull requests, not to push or merge.`,
 				account = credentials.DefaultAccount
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Saved the GitHub account %q for agents, as %s\n", account, user)
+			_, _ = fmt.Fprintf(out, "Saved the GitHub account %q for agents, as %s\n", account, user)
 			def, err := defaultGitHubAccountName(cmd, c)
 			if err != nil {
 				return err
 			}
 			if def == account {
-				fmt.Fprintln(out, "Agents use it unless their project picks another one.")
+				_, _ = fmt.Fprintln(out, "Agents use it unless their project picks another one.")
 			} else {
-				fmt.Fprintf(out, "Agents still use %q by default: change that with agentbox auth github default %s, or give it to one project with agentbox github-account <project> %s\n", def, account, account)
+				_, _ = fmt.Fprintf(out, "Agents still use %q by default: change that with agentbox auth github default %s, or give it to one project with agentbox github-account <project> %s\n", def, account, account)
 			}
-			fmt.Fprintln(out, "They are told to read pull requests, not to push or merge.")
+			_, _ = fmt.Fprintln(out, "They are told to read pull requests, not to push or merge.")
 			return nil
 		},
 	}
@@ -482,17 +482,17 @@ func newAuthGitHubListCmd(a *app) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if len(accounts) == 0 {
-				fmt.Fprintln(out, "No GitHub accounts yet. Add one with: agentbox auth github")
+				_, _ = fmt.Fprintln(out, "No GitHub accounts yet. Add one with: agentbox auth github")
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "ACCOUNT\tDEFAULT\tSAVED")
+			_, _ = fmt.Fprintln(w, "ACCOUNT\tDEFAULT\tSAVED")
 			for _, acc := range accounts {
 				def := ""
 				if acc.Default {
 					def = "yes"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", acc.Name, orDash(def), acc.SavedAt.Local().Format(time.DateTime))
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", acc.Name, orDash(def), acc.SavedAt.Local().Format(time.DateTime))
 			}
 			return w.Flush()
 		},
@@ -512,7 +512,7 @@ func newAuthGitHubDefaultCmd(a *app) *cobra.Command {
 			if err := c.SetDefaultGitHubAccount(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "New agents use the GitHub account %q unless their project picks another one\n", args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "New agents use the GitHub account %q unless their project picks another one\n", args[0])
 			return nil
 		},
 	}
@@ -578,12 +578,12 @@ refused.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Renamed the GitHub account %q to %q\n", got.Old, got.Name)
+			_, _ = fmt.Fprintf(out, "Renamed the GitHub account %q to %q\n", got.Old, got.Name)
 			if len(got.Projects) > 0 {
-				fmt.Fprintf(out, "Projects carried over: %s\n", strings.Join(got.Projects, ", "))
+				_, _ = fmt.Fprintf(out, "Projects carried over: %s\n", strings.Join(got.Projects, ", "))
 			}
 			if len(got.Agents) > 0 {
-				fmt.Fprintf(out, "Agents carried over: %s. They keep the same token, so none needs a restart.\n", strings.Join(got.Agents, ", "))
+				_, _ = fmt.Fprintf(out, "Agents carried over: %s. They keep the same token, so none needs a restart.\n", strings.Join(got.Agents, ", "))
 			}
 			return nil
 		},
@@ -606,15 +606,15 @@ the token was written into them when they were created.`,
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Removed the GitHub account %q\n", args[0])
+			_, _ = fmt.Fprintf(out, "Removed the GitHub account %q\n", args[0])
 			def, err := defaultGitHubAccountName(cmd, c)
 			if err != nil {
 				return err
 			}
 			if def == "" {
-				fmt.Fprintln(out, "No GitHub accounts left for agents.")
+				_, _ = fmt.Fprintln(out, "No GitHub accounts left for agents.")
 			} else {
-				fmt.Fprintf(out, "New agents now use %q by default. Projects that picked the removed account need another one: agentbox github-account <project> <account>\n", def)
+				_, _ = fmt.Fprintf(out, "New agents now use %q by default. Projects that picked the removed account need another one: agentbox github-account <project> <account>\n", def)
 			}
 			return nil
 		},

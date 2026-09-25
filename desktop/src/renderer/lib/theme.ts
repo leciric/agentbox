@@ -11,7 +11,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api';
-import { api } from './api';
+import { api } from './api.ts';
 
 // The properties styles.css declares defaults for. Setting one here overrides
 // that default for the whole window; clearing it puts AgentBox's own back.

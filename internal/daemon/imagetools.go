@@ -36,10 +36,10 @@ type imageWork struct {
 type imagePhase int
 
 const (
-	imageIdle          imagePhase = iota
-	imageUpdatingTools            // updating the tools in place
-	imageUpdateFailed             // it failed: the old base stays, and rebuilding is yours
-	imageUpdateCancelled          // it was cancelled: the old base stays until you rebuild or AgentBox starts again
+	imageIdle            imagePhase = iota
+	imageUpdatingTools              // updating the tools in place
+	imageUpdateFailed               // it failed: the old base stays, and rebuilding is yours
+	imageUpdateCancelled            // it was cancelled: the old base stays until you rebuild or AgentBox starts again
 )
 
 // claimImage reserves the base image for one job; false means another has it.
@@ -136,7 +136,7 @@ func (s *Server) startToolsUpdate(plan image.Plan) {
 			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateCancelled} })
 		default:
 			s.logf("job image-tools failed: %v", err)
-			fmt.Fprintf(log, "==> %v\n==> Agents keep using the current image. Rebuild it from Setup to get the new tools\n", err)
+			_, _ = fmt.Fprintf(log, "==> %v\n==> Agents keep using the current image. Rebuild it from Setup to get the new tools\n", err)
 			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateFailed, err: err} })
 		}
 		return nil, err

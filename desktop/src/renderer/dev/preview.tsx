@@ -72,6 +72,7 @@ import { LimitsEditor } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectView';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
+import { SettingsGroup } from '../components/ui/settings';
 import { AgentAvatar, aiLabel } from '../components/state';
 import { Panel } from '../components/ui/card';
 import type { Mood } from '../lib/agentStatus';
@@ -162,7 +163,7 @@ if (imageUpdate) seedImageUpdate(queryClient);
 if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
-  queryClient.setQueryData(['settings'], { ...(queryClient.getQueryData(['settings']) ?? {}), hostCores: 8, hostMemory: 31 * GiB, seedMemory: '8GiB', defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
+  queryClient.setQueryData(['settings'], { ...queryClient.getQueryData(['settings']), hostCores: 8, hostMemory: 31 * GiB, seedMemory: '8GiB', defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
 }
 
 if (usage) {
@@ -273,7 +274,9 @@ function Preview() {
           <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
         </div>
         <div className="mx-auto grid max-w-3xl gap-4 px-4 pb-10">
-          <NewAgentResources />
+          <Panel>
+            <NewAgentResources />
+          </Panel>
           <Panel className="p-5" data-preview-limits>
             <LimitsEditor agent={{ ...fixtures.agents[0], limits: { cpu: '4', allowance: '', memory: '8GiB' } }} />
           </Panel>
@@ -293,20 +296,14 @@ function Preview() {
   if (defaults) {
     return (
       <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }} className="grid gap-3">
-        <Panel className="p-5">
-          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">Lead</h2>
-          <div className="mt-3">
-            <DefaultModel role="lead" />
-            <DefaultContextWindow role="lead" />
-          </div>
-        </Panel>
-        <Panel className="p-5">
-          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">New agents</h2>
-          <div className="mt-3">
-            <DefaultModel role="agents" />
-            <DefaultContextWindow role="agents" />
-          </div>
-        </Panel>
+        <SettingsGroup title="Lead">
+          <DefaultModel role="lead" />
+          <DefaultContextWindow role="lead" />
+        </SettingsGroup>
+        <SettingsGroup title="New agents">
+          <DefaultModel role="agents" />
+          <DefaultContextWindow role="agents" />
+        </SettingsGroup>
       </div>
     );
   }

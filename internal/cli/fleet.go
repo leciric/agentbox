@@ -46,7 +46,7 @@ Agents still being created are listed too, so you can watch them appear.`,
 					return nil
 				case <-time.After(3 * time.Second):
 				}
-				fmt.Fprintln(cmd.OutOrStdout())
+				_, _ = fmt.Fprintln(cmd.OutOrStdout())
 			}
 		},
 	}
@@ -78,21 +78,21 @@ func waitForPulls(ctx context.Context, c *api.Client, project string) (api.Fleet
 func printFleet(cmd *cobra.Command, fleet api.Fleet) {
 	out := cmd.OutOrStdout()
 	if len(fleet.Agents) == 0 && len(fleet.Creating) == 0 {
-		fmt.Fprintf(out, "%s has no agents yet. Create one with: agentbox create %s\n", fleet.Project, fleet.Project)
+		_, _ = fmt.Fprintf(out, "%s has no agents yet. Create one with: agentbox create %s\n", fleet.Project, fleet.Project)
 		return
 	}
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "AGENT\tTITLE\tSTATE\tDOING\tCHANGES\tMEDIA\tPULL REQUEST")
+	_, _ = fmt.Fprintln(w, "AGENT\tTITLE\tSTATE\tDOING\tCHANGES\tMEDIA\tPULL REQUEST")
 	for _, j := range fleet.Creating {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", "(creating)", j.Target, "creating", "being made", "-", "-", "-")
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", "(creating)", j.Target, "creating", "being made", "-", "-", "-")
 	}
 	for _, f := range fleet.Agents {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			f.Name, dash(f.Title), f.State, doingOrIdle(f), changes(f.Changes), mediaCount(f.Media), pullRequest(f.PR))
 	}
-	w.Flush()
+	_ = w.Flush()
 	if fleet.Idle > 0 {
-		fmt.Fprintf(out, "\n%d agent(s) finished and are holding a machine. Free them with: agentbox retire %s\n", fleet.Idle, fleet.Project)
+		_, _ = fmt.Fprintf(out, "\n%d agent(s) finished and are holding a machine. Free them with: agentbox retire %s\n", fleet.Idle, fleet.Project)
 	}
 	if fleet.GitHub != "" {
 		// Which account these were read with: the same repository is a 404 for
@@ -101,10 +101,10 @@ func printFleet(cmd *cobra.Command, fleet api.Fleet) {
 		if fleet.GitHubAccount != "" {
 			account = " as " + fleet.GitHubAccount
 		}
-		fmt.Fprintf(out, "\nGitHub: %s%s\n", fleet.GitHub, account)
+		_, _ = fmt.Fprintf(out, "\nGitHub: %s%s\n", fleet.GitHub, account)
 	}
 	if fleet.GitHubError != nil {
-		fmt.Fprintf(out, "GitHub: %s\n", githubErrorLine(fleet.GitHubError))
+		_, _ = fmt.Fprintf(out, "GitHub: %s\n", githubErrorLine(fleet.GitHubError))
 	}
 }
 
@@ -257,20 +257,20 @@ func printRetired(cmd *cobra.Command, r api.RetireResult) {
 		did = "Would " + map[string]string{api.RetirePause: "pause", api.RetireStop: "stop", api.RetireDestroy: "destroy"}[r.How]
 	}
 	if len(r.Retired) == 0 {
-		fmt.Fprintln(out, "Nothing to retire: no agent has finished and is holding a machine.")
+		_, _ = fmt.Fprintln(out, "Nothing to retire: no agent has finished and is holding a machine.")
 	}
 	for _, who := range r.Retired {
-		fmt.Fprintf(out, "%s %s%s", did, who.Name, titleSuffix(who.Title))
+		_, _ = fmt.Fprintf(out, "%s %s%s", did, who.Name, titleSuffix(who.Title))
 		if who.Branch != "" {
-			fmt.Fprintf(out, " — its work stays on %s", who.Branch)
+			_, _ = fmt.Fprintf(out, " — its work stays on %s", who.Branch)
 		}
-		fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out)
 	}
 	for _, who := range r.Skipped {
-		fmt.Fprintf(out, "Left %s%s: %s\n", who.Name, titleSuffix(who.Title), who.Reason)
+		_, _ = fmt.Fprintf(out, "Left %s%s: %s\n", who.Name, titleSuffix(who.Title), who.Reason)
 	}
 	if len(r.Retired) > 0 && r.How == api.RetireDestroy && !r.DryRun {
-		fmt.Fprintln(out, "\nTheir branches are still there. Start the next task with a new agent.")
+		_, _ = fmt.Fprintln(out, "\nTheir branches are still there. Start the next task with a new agent.")
 	}
 }
 

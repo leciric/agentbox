@@ -87,10 +87,10 @@ func (a *app) restartIfStale(cmd *cobra.Command, c *api.Client, info api.Version
 	}
 	stderr := cmd.ErrOrStderr()
 	if jobs, err := c.Jobs(cmd.Context()); err != nil || slices.ContainsFunc(jobs, func(j api.Job) bool { return !j.Done() }) {
-		fmt.Fprintf(stderr, "The AgentBox daemon started before %s. Restart it when its jobs finish: agentbox daemon stop\n", reason)
+		_, _ = fmt.Fprintf(stderr, "The AgentBox daemon started before %s. Restart it when its jobs finish: agentbox daemon stop\n", reason)
 		return
 	}
-	fmt.Fprintf(stderr, "Restarting the AgentBox daemon, which started before %s\n", reason)
+	_, _ = fmt.Fprintf(stderr, "Restarting the AgentBox daemon, which started before %s\n", reason)
 	if c.Shutdown(cmd.Context()) != nil {
 		return
 	}
@@ -98,7 +98,7 @@ func (a *app) restartIfStale(cmd *cobra.Command, c *api.Client, info api.Version
 		time.Sleep(100 * time.Millisecond)
 	}
 	if err := a.launchDaemon(cmd, c); err != nil {
-		fmt.Fprintln(stderr, "error:", err)
+		_, _ = fmt.Fprintln(stderr, "error:", err)
 	}
 }
 
@@ -144,7 +144,7 @@ func (a *app) launchDaemon(cmd *cobra.Command, c *api.Client) error {
 	}
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if c.Ping(cmd.Context()) == nil {
-			fmt.Fprintf(cmd.ErrOrStderr(), "Started the AgentBox daemon (log: %s)\n", a.paths.DaemonLog())
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Started the AgentBox daemon (log: %s)\n", a.paths.DaemonLog())
 			return nil
 		}
 	}
@@ -165,7 +165,7 @@ func (a *app) startDaemon() error {
 	if err != nil {
 		return err
 	}
-	defer log.Close()
+	defer func() { _ = log.Close() }()
 	cmd := exec.Command(exe, "daemon")
 	cmd.Stdout, cmd.Stderr = log, log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

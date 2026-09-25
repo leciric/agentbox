@@ -237,5 +237,5 @@ func (c *Conn) reply(id json.RawMessage, result any, err error) {
 		}
 		m.Result, m.Error = nil, rpcErr
 	}
-	c.write(m)
+	_ = c.write(m)
 }

@@ -63,7 +63,7 @@ func newDaemonStartCmd(a *app) *cobra.Command {
 					return err
 				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "The AgentBox daemon is running on %s\n", c.Socket())
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "The AgentBox daemon is running on %s\n", c.Socket())
 			return nil
 		},
 	}
@@ -81,7 +81,7 @@ func newDaemonStopCmd(a *app) *cobra.Command {
 			}
 			for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 				if c.Ping(cmd.Context()) != nil {
-					fmt.Fprintln(cmd.OutOrStdout(), "Stopped the AgentBox daemon")
+					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Stopped the AgentBox daemon")
 					return nil
 				}
 			}
@@ -120,7 +120,7 @@ Restart=on-failure
 WantedBy=default.target
 `, exe)
 			if print {
-				fmt.Fprint(cmd.OutOrStdout(), unit)
+				_, _ = fmt.Fprint(cmd.OutOrStdout(), unit)
 				return nil
 			}
 			path, err := unitPath()
@@ -138,7 +138,7 @@ WantedBy=default.target
 					return fmt.Errorf("systemctl %v: %w: %s", args, err, out)
 				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Installed %s and started agentbox.service\n", path)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Installed %s and started agentbox.service\n", path)
 			return nil
 		},
 	}
@@ -156,12 +156,12 @@ func newDaemonUninstallCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			exec.CommandContext(cmd.Context(), "systemctl", "--user", "disable", "--now", "agentbox.service").Run()
+			_ = exec.CommandContext(cmd.Context(), "systemctl", "--user", "disable", "--now", "agentbox.service").Run()
 			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			exec.CommandContext(cmd.Context(), "systemctl", "--user", "daemon-reload").Run()
-			fmt.Fprintln(cmd.OutOrStdout(), "Removed agentbox.service")
+			_ = exec.CommandContext(cmd.Context(), "systemctl", "--user", "daemon-reload").Run()
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Removed agentbox.service")
 			return nil
 		},
 	}
@@ -193,11 +193,11 @@ func newWhoamiCmd() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, self.Ref)
+			_, _ = fmt.Fprintln(out, self.Ref)
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintf(w, "  branch\t%s\n", self.Branch)
-			fmt.Fprintf(w, "  worktree\t%s\n", self.Worktree)
-			fmt.Fprintf(w, "  ip\t%s\n", self.IP)
+			_, _ = fmt.Fprintf(w, "  branch\t%s\n", self.Branch)
+			_, _ = fmt.Fprintf(w, "  worktree\t%s\n", self.Worktree)
+			_, _ = fmt.Fprintf(w, "  ip\t%s\n", self.IP)
 			return w.Flush()
 		},
 	}

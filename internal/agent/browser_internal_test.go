@@ -18,8 +18,8 @@ func TestDisplayUpReadsTheVNCGreeting(t *testing.T) {
 		serve func(net.Conn)
 		want  bool
 	}{
-		"a VNC server greets":            {func(c net.Conn) { c.Write([]byte("RFB 003.008\n")) }, true},
-		"something else answers":         {func(c net.Conn) { c.Write([]byte("HTTP/1.1 200 OK\r\n")) }, false},
+		"a VNC server greets":            {func(c net.Conn) { _, _ = c.Write([]byte("RFB 003.008\n")) }, true},
+		"something else answers":         {func(c net.Conn) { _, _ = c.Write([]byte("HTTP/1.1 200 OK\r\n")) }, false},
 		"the proxy accepts, then closes": {func(c net.Conn) {}, false},
 	}
 	for name, c := range cases {
@@ -34,13 +34,13 @@ func TestDisplayUpReadsTheVNCGreeting(t *testing.T) {
 				return
 			}
 			c.serve(conn)
-			conn.Close()
+			_ = conn.Close()
 		}()
 		m := &Manager{BrowserSocket: func(string, string) string { return socket }}
 		if got := m.displayUp(context.Background(), state.Agent{Instance: "ab-p-agent-01"}); got != c.want {
 			t.Errorf("%s: displayUp = %v, want %v", name, got, c.want)
 		}
-		listener.Close()
+		_ = listener.Close()
 	}
 
 	m := &Manager{BrowserSocket: func(string, string) string { return filepath.Join(t.TempDir(), "nothing") }}

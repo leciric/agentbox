@@ -81,16 +81,16 @@ they start.`,
 			}
 			out := cmd.OutOrStdout()
 			if secret.Scope == "project" {
-				fmt.Fprintf(out, "Stored %s for every agent of %s\n", secret.Name, secret.Project)
+				_, _ = fmt.Fprintf(out, "Stored %s for every agent of %s\n", secret.Name, secret.Project)
 			} else {
-				fmt.Fprintf(out, "Stored %s for %s/%s\n", secret.Name, secret.Project, secret.Agent)
+				_, _ = fmt.Fprintf(out, "Stored %s for %s/%s\n", secret.Name, secret.Project, secret.Agent)
 			}
 			if len(secret.Agents) == 0 {
-				fmt.Fprintln(out, "No agent has it yet: the ones you make next do.")
+				_, _ = fmt.Fprintln(out, "No agent has it yet: the ones you make next do.")
 			} else {
-				fmt.Fprintf(out, "Written into %s: %s\n", agentsWord(len(secret.Agents)), strings.Join(secret.Agents, ", "))
+				_, _ = fmt.Fprintf(out, "Written into %s: %s\n", agentsWord(len(secret.Agents)), strings.Join(secret.Agents, ", "))
 			}
-			fmt.Fprintf(out, "Agents read it as $%s; the value can't be read back, here or in the app.\n", secret.Name)
+			_, _ = fmt.Fprintf(out, "Agents read it as $%s; the value can't be read back, here or in the app.\n", secret.Name)
 			return nil
 		},
 	}
@@ -119,13 +119,13 @@ project's secrets and its own, with the scope of each.`,
 			}
 			out := cmd.OutOrStdout()
 			if len(secrets) == 0 {
-				fmt.Fprintf(out, "No secrets for %s yet. Add one with: agentbox secrets set %s NAME\n", args[0], args[0])
+				_, _ = fmt.Fprintf(out, "No secrets for %s yet. Add one with: agentbox secrets set %s NAME\n", args[0], args[0])
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "NAME\tSCOPE\tUPDATED\tIN")
+			_, _ = fmt.Fprintln(w, "NAME\tSCOPE\tUPDATED\tIN")
 			for _, s := range secrets {
-				fmt.Fprintf(w, "$%s\t%s\t%s\t%s\n", s.Name, s.Scope, ago(s.UpdatedAt), agentsIn(s))
+				_, _ = fmt.Fprintf(w, "$%s\t%s\t%s\t%s\n", s.Name, s.Scope, ago(s.UpdatedAt), agentsIn(s))
 			}
 			return w.Flush()
 		},
@@ -152,7 +152,7 @@ an agent's own leaves the project's, which the agent then gets instead.`,
 			if err := c.RemoveSecret(cmd.Context(), args[0], args[1]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed %s from %s\n", args[1], args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %s from %s\n", args[1], args[0])
 			return nil
 		},
 	}

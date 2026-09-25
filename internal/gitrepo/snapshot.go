@@ -21,7 +21,7 @@ func worktreeTree(worktree string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	env := []string{"GIT_INDEX_FILE=" + filepath.Join(tmp, "index")}
 	if _, err := output(worktree, env, "read-tree", "HEAD"); err != nil {
 		return "", err

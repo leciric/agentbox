@@ -45,7 +45,7 @@ New agents start at whatever the overview's "Resources for new agents" says.`,
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", ag.Ref, limitWords(ag.Limits))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", ag.Ref, limitWords(ag.Limits))
 				return nil
 			}
 			var req api.UpdateAgentRequest
@@ -63,9 +63,9 @@ New agents start at whatever the overview's "Resources for new agents" says.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", ag.Ref, limitWords(ag.Limits))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", ag.Ref, limitWords(ag.Limits))
 			if ag.State != "running" {
-				fmt.Fprintf(cmd.OutOrStdout(), "It is %s: the new limits apply when it starts.\n", ag.State)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "It is %s: the new limits apply when it starts.\n", ag.State)
 			}
 			return nil
 		},

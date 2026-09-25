@@ -79,7 +79,7 @@ func newInitCmd() *cobra.Command {
 			if err := vm.Setup(cmd.Context()); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), `AgentBox's VM is ready. Next:
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), `AgentBox's VM is ready. Next:
   agentbox image build          the machine every agent is copied from (the app's Setup page does this too)
   agentbox auth claude          a Claude Code login for your agents`)
 			return nil
@@ -159,9 +159,9 @@ func newStatusCmd() *cobra.Command {
 			}
 			switch {
 			case st.Problem != "":
-				fmt.Fprintln(cmd.OutOrStdout(), st.Problem)
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), st.Problem)
 			default:
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s, %d CPUs, %s of memory, %s disk (%s)\n",
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s, %d CPUs, %s of memory, %s disk (%s)\n",
 					st.Name, st.Status, st.CPUs, gib(st.Memory), gib(st.Disk), st.Dir)
 			}
 			return nil

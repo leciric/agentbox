@@ -30,6 +30,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type * as T from "../../shared/api";
 import { api } from "../lib/api";
+import { countFeature, settingsSectionFeatures } from "../lib/usageStats";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
@@ -46,6 +47,7 @@ import {
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
+import { SettingNote, SettingRow, SettingsGroup } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
@@ -717,6 +719,7 @@ function SettingsTabs({
 }) {
   type Section = "environment" | "accounts" | "lead" | "agents";
   const [section, setSection] = useState<Section>("environment");
+  useEffect(() => countFeature(settingsSectionFeatures[section]), [section]);
   const environmentSteps = steps.filter((s) => environmentIds.has(s.id));
   const accountSteps = steps.filter((s) => accountIds.has(s.id));
   // On a Mac, the VM everything runs in, whose size can be changed here.
@@ -730,8 +733,8 @@ function SettingsTabs({
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-3xl px-4 py-6 md:px-8 md:py-9">
-        <div className="flex flex-wrap items-end gap-4">
-          <div>
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <div className="min-w-0 flex-1 basis-80">
             <h1 className="text-2xl font-semibold tracking-tight text-title">
               Settings
             </h1>
@@ -740,7 +743,7 @@ function SettingsTabs({
               agent. This page checks again every few seconds.
             </p>
           </div>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex shrink-0 items-center gap-3">
             <Button variant="ghost" size="sm" onClick={onWizard}>
               <Wand />
               Run setup again
@@ -786,7 +789,7 @@ function SettingsTabs({
           </TabsList>
 
           <TabsContent value="environment" className="mt-4">
-            <ol className="grid gap-3">
+            <ol className="grid grid-cols-1 gap-3">
               {environmentSteps.map((step, i) => (
                 <ChecklistStep
                   key={step.id}
@@ -802,12 +805,15 @@ function SettingsTabs({
             {vm?.exists && (
               <VMSize vm={vm} busy={hostSetup.data?.resizing === true} />
             )}
-            <Appearance />
-            <UpdateCheck />
+            <SettingsGroup title="This app" className="mt-8">
+              <Appearance />
+              <UpdateCheck />
+              <UsageStats />
+            </SettingsGroup>
           </TabsContent>
 
           <TabsContent value="accounts" className="mt-4">
-            <ol className="grid gap-3">
+            <ol className="grid grid-cols-1 gap-3">
               {accountSteps.map((step, i) => (
                 <ChecklistStep
                   key={step.id}
@@ -819,54 +825,35 @@ function SettingsTabs({
             </ol>
           </TabsContent>
 
-          <TabsContent value="lead" className="mt-4">
-            <Panel className="p-5">
-              <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">
-                Lead
-              </h2>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-subtle">
-                Each project's chat, which plans the work and directs its
-                agents. Its composer can still pick another model or window
-                for one project, and what it picks there wins.
-              </p>
-              <div className="mt-3">
-                <DefaultModel role="lead" />
-                <DefaultContextWindow role="lead" />
-              </div>
-            </Panel>
+          <TabsContent value="lead" className="mt-6">
+            <SettingsGroup
+              title="Lead"
+              description="Each project's chat, which plans the work and directs its agents. Its composer can still pick another model or window for one project, and what it picks there wins."
+            >
+              <DefaultModel role="lead" />
+              <DefaultContextWindow role="lead" />
+            </SettingsGroup>
           </TabsContent>
 
-          <TabsContent value="agents" className="mt-4">
-            <Panel className="p-5">
-              <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">
-                New agents
-              </h2>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-subtle">
-                Each can be overridden for a single agent as you create it.
-              </p>
-              <div className="mt-3">
-                <DefaultModel role="agents" />
-                <DefaultContextWindow role="agents" />
-                <NewAgentEffort />
-                <div className="mt-3" />
-                <NewAgentResources />
-                <OpenCodeInImage />
-              </div>
-            </Panel>
-            <Panel className="mt-3 p-5">
-              <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">
-                Every agent
-              </h2>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-subtle">
-                These apply to the agents you already have, as well as the next
-                one.
-              </p>
-              <div className="mt-3">
-                <ResumeAfterLimit />
-                <CompactWindow />
-                <MediaRetention />
-              </div>
-            </Panel>
+          <TabsContent value="agents" className="mt-6 grid gap-8">
+            <SettingsGroup
+              title="New agents"
+              description="Each can be overridden for a single agent as you create it."
+            >
+              <DefaultModel role="agents" />
+              <DefaultContextWindow role="agents" />
+              <NewAgentEffort />
+              <NewAgentResources />
+              <OpenCodeInImage />
+            </SettingsGroup>
+            <SettingsGroup
+              title="Every agent"
+              description="These apply to the agents you already have, as well as the next one."
+            >
+              <ResumeAfterLimit />
+              <CompactWindow />
+              <MediaRetention />
+            </SettingsGroup>
           </TabsContent>
         </Tabs>
 
@@ -903,22 +890,20 @@ function UpdateCheck() {
   const available = update.data?.available;
   const blocked = update.data?.blocked;
   return (
-    <Panel className="mt-3 grid gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-primary">
-            Check for updates
-          </div>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-            Once a day, asks agentbox.linting.dev whether a newer AgentBox is
-            out, which is also how installations are counted. It sends exactly
-            four things: a random ID made for this purpose, this version of
-            AgentBox{update.data?.current ? ` (${update.data.current})` : ""},
-            the operating system and the processor architecture. Nothing about
-            you, your projects or your agents, and nothing else that identifies
-            this machine.
-          </p>
-        </div>
+    <SettingRow
+      label="Check for updates"
+      description={
+        <>
+          Once a day, asks agentbox.linting.dev whether a newer AgentBox is out,
+          which is also how installations are counted. It sends exactly four
+          things: a random ID made for this purpose, this version of AgentBox
+          {update.data?.current ? ` (${update.data.current})` : ""}, the
+          operating system and the processor architecture. Nothing about you,
+          your projects or your agents, and nothing else that identifies this
+          machine.
+        </>
+      }
+      control={
         <Switch
           data-update-check
           aria-label="Check for updates"
@@ -926,22 +911,73 @@ function UpdateCheck() {
           checked={!blocked && (settings.data?.updateCheck ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
-      </div>
-      {blocked && (
-        <p className="text-[12px] text-subtle">Off, because {blocked}.</p>
-      )}
+      }
+    >
+      {blocked && <SettingNote>Off, because {blocked}.</SettingNote>}
       {available && (
-        <p className="text-[12px] text-subtle">
+        <SettingNote>
           AgentBox {available.version} is out.{" "}
           <button
-            className="text-brand-300 hover:underline"
+            className="rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
             onClick={() => void window.agentbox.openExternal(available.url)}
           >
             See what's new
           </button>
-        </p>
+        </SettingNote>
       )}
-    </Panel>
+    </SettingRow>
+  );
+}
+
+// UsageStats rides on the update check: the same request's day, carrying how
+// many times each feature was used (internal/daemon/usagestats.go). Its one
+// line is the whole of what it sends; keep it in step with the README's
+// "Update check" section. It can't be on while the check is off or blocked,
+// and says which, rather than a switch that does nothing.
+function UsageStats() {
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const update = useQuery({
+    queryKey: ["update"],
+    queryFn: api.update,
+    staleTime: Infinity,
+  });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (usageStats: boolean) => api.updateSettings({ usageStats }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const blocked = update.data?.blocked;
+  const checkOff = settings.data?.updateCheck === false;
+  return (
+    <SettingRow
+      label="Share anonymous usage stats"
+      description={
+        <>
+          With the update check, sends how many times each feature was used
+          per day (like "agent.create.claude: 3") and nothing else: no names,
+          paths, repositories or anything you typed.
+        </>
+      }
+      control={
+        <Switch
+          data-usage-stats
+          aria-label="Share anonymous usage stats"
+          disabled={
+            save.isPending || settings.data === undefined || !!blocked || checkOff
+          }
+          checked={!blocked && !checkOff && (settings.data?.usageStats ?? true)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    >
+      {(blocked || checkOff) && (
+        <SettingNote>
+          Off, because {blocked ?? "Check for updates is off"}.
+        </SettingNote>
+      )}
+    </SettingRow>
   );
 }
 
@@ -983,46 +1019,35 @@ function Appearance() {
   const current = theme.data?.appearance;
   const found = theme.data?.available === true;
   return (
-    <Panel className="mt-3 grid gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-primary">Appearance</div>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-            Following takes the colours from the Omarchy theme this machine is
-            running — its accent and whether it is light or dark — for
-            AgentBox's own window and for every agent's desktop, its dock and
-            window decorations. Agents' browsers are left alone: a page an agent
-            looks at renders the way it would anywhere else. Light and dark are
-            AgentBox's own colours, one way round or the other, whatever the
-            desktop is doing.
-          </p>
-        </div>
-        <div
-          className="inline-flex rounded-xl border border-line bg-rail p-0.5"
-          role="radiogroup"
-          aria-label="Appearance"
-          data-appearance-choice
-        >
-          {appearances.map(({ value, label, icon: Icon }) => (
-            <button
-              key={value}
-              role="radio"
-              aria-checked={current === value}
-              data-appearance={value}
-              disabled={set.isPending || theme.data === undefined}
-              onClick={() => set.mutate(value)}
-              className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition disabled:opacity-50",
-                current === value
-                  ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
-                  : "text-muted hover:text-primary",
-              )}
-            >
-              <Icon className="size-[15px]" />
-              {label}
-            </button>
-          ))}
-        </div>
+    <SettingRow
+      label="Appearance"
+      description="Following takes the colours from the Omarchy theme this machine is running — its accent and whether it is light or dark — for AgentBox's own window and for every agent's desktop, its dock and window decorations. Agents' browsers are left alone: a page an agent looks at renders the way it would anywhere else. Light and dark are AgentBox's own colours, one way round or the other, whatever the desktop is doing."
+    >
+      <div
+        className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
+        role="radiogroup"
+        aria-label="Appearance"
+        data-appearance-choice
+      >
+        {appearances.map(({ value, label, icon: Icon }) => (
+          <button
+            key={value}
+            role="radio"
+            aria-checked={current === value}
+            data-appearance={value}
+            disabled={set.isPending || theme.data === undefined}
+            onClick={() => set.mutate(value)}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              current === value
+                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                : "text-muted hover:text-primary",
+            )}
+          >
+            <Icon className="size-[15px]" />
+            {label}
+          </button>
+        ))}
       </div>
       {theme.data !== undefined &&
         (found ? (
@@ -1044,12 +1069,12 @@ function Appearance() {
             </span>
           </div>
         ) : (
-          <p className="text-[12px] text-subtle">
+          <SettingNote>
             No Omarchy theme was found on this machine, so AgentBox is wearing
             its own colours.
-          </p>
+          </SettingNote>
         ))}
-    </Panel>
+    </SettingRow>
   );
 }
 
@@ -1962,7 +1987,7 @@ function ChecklistStep({
 }) {
   const ok = step.status === "ok";
   return (
-    <li data-setup-step={step.title} data-status={step.status}>
+    <li className="min-w-0" data-setup-step={step.title} data-status={step.status}>
       <Panel
         className={cn(
           "p-4 transition",

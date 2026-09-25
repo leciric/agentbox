@@ -308,7 +308,7 @@ func parseList(out, name string) State {
 			continue
 		}
 		st := State{Exists: true, State: fields[1]}
-		fmt.Sscan(fields[len(fields)-1], &st.Version)
+		_, _ = fmt.Sscan(fields[len(fields)-1], &st.Version)
 		return st
 	}
 	return State{}
@@ -377,7 +377,7 @@ func (d *Distro) EnsureBinary(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	want, err := digest(f)
 	if err != nil {
 		return false, err
@@ -414,7 +414,7 @@ func (d *Distro) Forward(ctx context.Context, args []string) (int, error) {
 	if installed, err := d.EnsureBinary(ctx); err != nil {
 		return 1, err
 	} else if installed {
-		fmt.Fprintf(d.Log, "Installed agentbox %s in %s\n", d.Binary, d.Name)
+		_, _ = fmt.Fprintf(d.Log, "Installed agentbox %s in %s\n", d.Binary, d.Name)
 	}
 	if needsDaemon(args) {
 		if err := d.StartDaemon(ctx); err != nil {
@@ -423,7 +423,7 @@ func (d *Distro) Forward(ctx context.Context, args []string) (int, error) {
 	}
 	dir, note := d.workdir()
 	if note != "" {
-		fmt.Fprintln(d.Log, note)
+		_, _ = fmt.Fprintln(d.Log, note)
 	}
 	command := append([]string{"agentbox"}, translateArgs(args)...)
 	if env := forwardEnv(); len(env) > 0 {
@@ -598,11 +598,11 @@ func (d *Distro) StartDaemon(ctx context.Context) error {
 		return fmt.Errorf("starting the daemon in %s: %w", d.Name, err)
 	}
 	// Reap it if this process outlives it; nothing waits on it otherwise.
-	go cmd.Wait()
+	go func() { _ = cmd.Wait() }()
 	if !d.daemonAnswers(ctx, 30*time.Second) {
 		return fmt.Errorf("the AgentBox daemon didn't start in %s: see %s there (agentbox wsl shell)", d.Name, "~/.local/share/agentbox/daemon.log")
 	}
-	fmt.Fprintf(d.Log, "Started the AgentBox daemon in %s\n", d.Name)
+	_, _ = fmt.Fprintf(d.Log, "Started the AgentBox daemon in %s\n", d.Name)
 	return nil
 }
 

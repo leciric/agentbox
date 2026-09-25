@@ -32,7 +32,7 @@ func TestFindSDKPicksACompleteSDKAndOrdersImages(t *testing.T) {
 	fakeImage(t, sdk, "android-36.1", "google_apis_playstore")
 	fakeImage(t, sdk, "android-36", "google_apis")
 	// Incomplete downloads and ARM images don't count.
-	os.MkdirAll(filepath.Join(sdk, "system-images", "android-37.0", "google_apis_playstore", "x86_64"), 0o755)
+	_ = os.MkdirAll(filepath.Join(sdk, "system-images", "android-37.0", "google_apis_playstore", "x86_64"), 0o755)
 	touch(t, filepath.Join(sdk, "system-images", "android-34", "google_apis", "arm64-v8a", "system.img"), "")
 
 	got, err := FindSDK([]string{filepath.Join(empty, "missing"), empty, sdk})

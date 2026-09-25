@@ -109,7 +109,7 @@ func (s *Store) querySecrets(ctx context.Context, clause string, args ...any) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var secrets []Secret
 	for rows.Next() {
 		var sec Secret

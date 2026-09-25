@@ -68,7 +68,7 @@ func (s *Store) queryJobs(ctx context.Context, clause string, args ...any) ([]Jo
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var jobs []Job
 	for rows.Next() {
 		var j Job

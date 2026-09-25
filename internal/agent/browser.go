@@ -134,7 +134,7 @@ func (m *Manager) addSocketProxy(ctx context.Context, a state.Agent, device, ser
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return err
 	}
-	os.Remove(socket) // left by an earlier device
+	_ = os.Remove(socket) // left by an earlier device
 	_, err := m.Incus.Run(ctx, "config", "device", "add", a.Instance, device, "proxy",
 		"listen=unix:"+socket,
 		fmt.Sprintf("connect=tcp:127.0.0.1:%d", port),
@@ -238,7 +238,7 @@ func (m *Manager) OpenInBrowser(ctx context.Context, a state.Agent, target strin
 	if err := m.navigate(ctx, a, page, target); err != nil {
 		return status, err
 	}
-	m.devtoolsRequest(ctx, a, http.MethodGet, "/json/activate/"+page.ID, nil)
+	_ = m.devtoolsRequest(ctx, a, http.MethodGet, "/json/activate/"+page.ID, nil)
 	return m.BrowserStatus(ctx, a)
 }
 
@@ -254,8 +254,8 @@ func (m *Manager) displayUp(ctx context.Context, a state.Agent) bool {
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 	greeting := make([]byte, 3)
 	_, err = io.ReadFull(conn, greeting)
 	return err == nil && string(greeting) == "RFB"
@@ -302,7 +302,7 @@ func (m *Manager) devtoolsRequest(ctx context.Context, a state.Agent, method, pa
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("DevTools %s: %s", path, resp.Status)
 	}
@@ -321,7 +321,7 @@ func (m *Manager) navigate(ctx context.Context, a state.Agent, page BrowserPage,
 	if err != nil {
 		return fmt.Errorf("connecting to the browser: %w", err)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(32 << 20)
 
 	session := devtoolsSession{conn: conn}

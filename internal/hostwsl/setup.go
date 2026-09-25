@@ -36,7 +36,7 @@ func (d *Distro) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(d.Log, "==> WSL %s\n", v)
+	_, _ = fmt.Fprintf(d.Log, "==> WSL %s\n", v)
 	st, err := d.State(ctx)
 	if err != nil {
 		return err
@@ -49,7 +49,7 @@ func (d *Distro) Init(ctx context.Context) error {
 		return d.ready(ctx)
 	}
 
-	fmt.Fprintf(d.Log, "==> Making %s's user, %s, and turning systemd on\n", d.Name, d.User)
+	_, _ = fmt.Fprintf(d.Log, "==> Making %s's user, %s, and turning systemd on\n", d.Name, d.User)
 	if _, err := d.exec(ctx, true, strings.NewReader(configureScript), "sh", "-s", d.User); err != nil {
 		return fmt.Errorf("configuring %s: %w", d.Name, err)
 	}
@@ -60,7 +60,7 @@ func (d *Distro) Init(ctx context.Context) error {
 	init, _ := d.exec(ctx, true, nil, "cat", "/proc/1/comm")
 	who, _ := d.exec(ctx, false, nil, "id", "-un")
 	if strings.TrimSpace(init) != "systemd" || strings.TrimSpace(who) != d.User {
-		fmt.Fprintf(d.Log, "==> Restarting %s with systemd, and %s as its user\n", d.Name, d.User)
+		_, _ = fmt.Fprintf(d.Log, "==> Restarting %s with systemd, and %s as its user\n", d.Name, d.User)
 		if err := d.Shutdown(ctx); err != nil {
 			return err
 		}
@@ -72,12 +72,12 @@ func (d *Distro) Init(ctx context.Context) error {
 	if _, err := d.EnsureBinary(ctx); err != nil {
 		return err
 	}
-	fmt.Fprintln(d.Log, "==> Host setup in the distro: Incus, its storage and network, and the user mapping")
+	_, _ = fmt.Fprintln(d.Log, "==> Host setup in the distro: Incus, its storage and network, and the user mapping")
 	if err := d.execLog(ctx, true, "agentbox", "host", "setup", "--user", d.User); err != nil {
 		return fmt.Errorf("host setup in %s: %w", d.Name, err)
 	}
 	d.copyGitIdentity(ctx)
-	fmt.Fprintln(d.Log, "==> Starting the daemon")
+	_, _ = fmt.Fprintln(d.Log, "==> Starting the daemon")
 	return d.StartDaemon(ctx)
 }
 
@@ -109,12 +109,12 @@ func (d *Distro) Import(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(d.Log, "==> Making the %s distro in %s\n", d.Name, d.Dir)
+	_, _ = fmt.Fprintf(d.Log, "==> Making the %s distro in %s\n", d.Name, d.Dir)
 	if _, err := d.run(ctx, nil, "--import", d.Name, d.Dir, tarball, "--version", "2"); err != nil {
 		return err
 	}
 	if tarball == filepath.Join(d.Dir, "rootfs.tar.gz") {
-		os.Remove(tarball)
+		_ = os.Remove(tarball)
 	}
 	return nil
 }
@@ -142,7 +142,7 @@ func (d *Distro) rootfs(ctx context.Context) (string, error) {
 		}
 	}
 	dst := filepath.Join(d.Dir, "rootfs.tar.gz")
-	fmt.Fprintf(d.Log, "==> Downloading %s\n", src)
+	_, _ = fmt.Fprintf(d.Log, "==> Downloading %s\n", src)
 	if err := download(ctx, src, dst); err != nil {
 		return "", err
 	}
@@ -152,12 +152,12 @@ func (d *Distro) rootfs(ctx context.Context) (string, error) {
 			return "", err
 		}
 		got, err := digest(f)
-		f.Close()
+		_ = f.Close()
 		if err != nil {
 			return "", err
 		}
 		if got != want {
-			os.Remove(dst)
+			_ = os.Remove(dst)
 			return "", fmt.Errorf("the Ubuntu image's checksum is %s, not the %s its SHA256SUMS says", got, want)
 		}
 	}
@@ -185,7 +185,7 @@ func get(ctx context.Context, url string) (*http.Response, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
 	return resp, nil
@@ -196,7 +196,7 @@ func fetch(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
@@ -205,7 +205,7 @@ func download(ctx context.Context, url, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	f, err := os.Create(dst + ".part")
 	if err != nil {
 		return err
@@ -215,7 +215,7 @@ func download(ctx context.Context, url, dst string) error {
 		err = cerr
 	}
 	if err != nil {
-		os.Remove(dst + ".part")
+		_ = os.Remove(dst + ".part")
 		return fmt.Errorf("downloading %s: %w", url, err)
 	}
 	return os.Rename(dst+".part", dst)
@@ -248,7 +248,7 @@ func (d *Distro) copyGitIdentity(ctx context.Context) {
 		if have, _ := d.exec(ctx, false, nil, "git", "config", "--global", key); strings.TrimSpace(have) != "" {
 			continue
 		}
-		d.exec(ctx, false, nil, "git", "config", "--global", key, value)
+		_, _ = d.exec(ctx, false, nil, "git", "config", "--global", key, value)
 	}
 }
 
@@ -263,9 +263,9 @@ func (d *Distro) Upgrade(ctx context.Context) error {
 		return err
 	}
 	if !installed {
-		fmt.Fprintf(d.Log, "%s's agentbox is up to date\n", d.Name)
+		_, _ = fmt.Fprintf(d.Log, "%s's agentbox is up to date\n", d.Name)
 	} else if d.daemonAnswers(ctx, 0) {
-		fmt.Fprintln(d.Log, "==> Restarting the daemon on the new agentbox")
+		_, _ = fmt.Fprintln(d.Log, "==> Restarting the daemon on the new agentbox")
 		if _, err := d.exec(ctx, false, nil, "agentbox", "daemon", "stop"); err != nil {
 			return err
 		}

@@ -70,7 +70,7 @@ type AndroidOptions struct {
 // AndroidHost checks that this machine can run emulators and finds its SDK.
 func (m *Manager) AndroidHost() (android.SDK, error) {
 	if m.AndroidSDK == nil {
-		return android.SDK{}, errors.New("Android emulators are managed by the AgentBox daemon")
+		return android.SDK{}, errors.New("only the AgentBox daemon manages Android emulators")
 	}
 	if err := AndroidUnsupported(); err != nil {
 		return android.SDK{}, err
@@ -87,10 +87,10 @@ func (m *Manager) AndroidHost() (android.SDK, error) {
 // no KVM to run them with: Android is off there.
 func AndroidUnsupported() error {
 	if hostos.InVM() {
-		return errors.New("Android emulators aren't available when AgentBox runs in a VM on a Mac")
+		return errors.New("this AgentBox runs in a VM on a Mac, which has no Android emulators")
 	}
 	if runtime.GOARCH != "amd64" {
-		return fmt.Errorf("Android emulators need an x86_64 machine, and this one is %s", runtime.GOARCH)
+		return fmt.Errorf("this machine is %s, and Android emulators need x86_64", runtime.GOARCH)
 	}
 	return nil
 }
@@ -163,7 +163,7 @@ func (m *Manager) StopAndroid(ctx context.Context, a state.Agent) error {
 // device, and installs the current android.sh.
 func (m *Manager) prepareAndroid(ctx context.Context, a state.Agent, sdk android.SDK) error {
 	if m.BrowserSocket == nil {
-		return errors.New("Android emulators are managed by the AgentBox daemon")
+		return errors.New("only the AgentBox daemon manages Android emulators")
 	}
 	if err := m.requireRunning(ctx, a); err != nil {
 		return err
@@ -311,7 +311,7 @@ func (m *Manager) androidScreenshot(ctx context.Context, a state.Agent, file, id
 	if _, err := m.androidRun(ctx, a, "screenshot "+tmp); err != nil {
 		return fmt.Errorf("taking the screenshot: %w", err)
 	}
-	defer m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "rm", "-f", tmp)
+	defer func() { _, _ = m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "rm", "-f", tmp) }()
 	_, err := m.Incus.Run(ctx, "file", "pull", a.Instance+tmp, file)
 	return err
 }

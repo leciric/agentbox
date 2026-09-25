@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "react"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "react/hooks": "error",
+    "react/exhaustive-deps": "error",
+    "react/refs": "off",
+    "react/set-state-in-effect": "off",
+    "react/static-components": "off",
+    "react/no-children-prop": "off",
+    "react/purity": "off"
+  },
+  "ignorePatterns": ["out/**", "dist/**", "node_modules/**"],
+  "env": {
+    "builtin": true
+  }
+}

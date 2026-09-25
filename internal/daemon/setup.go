@@ -304,7 +304,7 @@ func (s *Server) claimClaudeLogin(login *claudeLogin) (api.Job, error) {
 }
 
 func (s *Server) runClaudeLogin(ctx context.Context, log io.Writer, login *claudeLogin) (any, error) {
-	status := func(detail string) { fmt.Fprintf(log, "==> %s\n", detail) }
+	status := func(detail string) { _, _ = fmt.Fprintf(log, "==> %s\n", detail) }
 	status("Logging in to Claude Code as the account " + login.account)
 	token, err := s.manager(log).SetupToken(ctx, agent.SetupTokenEvents{
 		Status: status,

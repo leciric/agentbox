@@ -63,7 +63,7 @@ func newDesktopInputLogCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			return desktop.LogInput(ctx, f)
@@ -84,7 +84,7 @@ func newDesktopOverlayCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			evs, err := desktop.ReadInputLog(f)
 			if err != nil {
 				return err

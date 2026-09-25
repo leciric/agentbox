@@ -2,8 +2,10 @@
 // released. The same request is how active installations are counted, so it
 // carries exactly four things — a random ID made for the purpose, the version,
 // the OS and the architecture — and nothing else about the machine or its user.
-// The README's "Update check" section says the same to the user; keep the two
-// in step.
+// Alongside it, unless the user turned it off, SendUsage reports how many times
+// each feature was used (usage.go): the same four things, and counts keyed by
+// api.Feature names. The README's "Update check" section says the same to the
+// user; keep the two in step.
 package update
 
 import (
@@ -79,7 +81,7 @@ func Check(ctx context.Context, base string, req Request) (Latest, error) {
 	if err != nil {
 		return Latest{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return Latest{}, fmt.Errorf("update check: %s", resp.Status)
 	}

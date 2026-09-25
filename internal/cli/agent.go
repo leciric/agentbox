@@ -67,7 +67,7 @@ a later rebuild keeps it; turn one off again with --android=false,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "Making the base image here, with %s. It downloads:\n\n%s\n%s.\n\n",
+			_, _ = fmt.Fprintf(out, "Making the base image here, with %s. It downloads:\n\n%s\n%s.\n\n",
 				components.Summary(), image.DownloadTable(image.DownloadsFor(components)), image.DownloadsHint)
 			start := time.Now()
 			j, err := c.BuildImage(cmd.Context(), req)
@@ -77,7 +77,7 @@ a later rebuild keeps it; turn one off again with --android=false,
 			if _, err := waitJob(cmd, c, j); err != nil {
 				return err
 			}
-			fmt.Fprintf(out, "\nBase image %s ready in %s\n", image.SnapshotRef(), time.Since(start).Round(time.Second))
+			_, _ = fmt.Fprintf(out, "\nBase image %s ready in %s\n", image.SnapshotRef(), time.Since(start).Round(time.Second))
 			return nil
 		},
 	}
@@ -85,7 +85,7 @@ a later rebuild keeps it; turn one off again with --android=false,
 	// download instead. Every build is local now; the flag stays so scripts
 	// that pass it keep working.
 	build.Flags().BoolVar(&local, "local", false, "")
-	build.Flags().MarkDeprecated("local", "every build is local now")
+	_ = build.Flags().MarkDeprecated("local", "every build is local now")
 	build.Flags().BoolVar(&android, "android", false, "build in scrcpy, for watching an agent's Android emulator")
 	build.Flags().BoolVar(&codex, "codex", false, "build in the Codex CLI and its chat adapter")
 	build.Flags().BoolVar(&withOpenCode, "opencode", false, "build in the OpenCode CLI, which is its own chat adapter")
@@ -97,7 +97,7 @@ a later rebuild keeps it; turn one off again with --android=false,
 		Short: "Print the version of the base image this AgentBox builds",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), image.Version)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), image.Version)
 			return nil
 		},
 	}
@@ -225,31 +225,31 @@ func finishAgentJob(cmd *cobra.Command, c *api.Client, j api.Job, start time.Tim
 
 func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "\nAgent %s ready in %s\n\n", ag.Ref, took.Round(100*time.Millisecond))
+	_, _ = fmt.Fprintf(out, "\nAgent %s ready in %s\n\n", ag.Ref, took.Round(100*time.Millisecond))
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if ag.Title != "" {
-		fmt.Fprintf(w, "  title\t%s\n", ag.Title)
+		_, _ = fmt.Fprintf(w, "  title\t%s\n", ag.Title)
 	}
-	fmt.Fprintf(w, "  ai\t%s\n", describeAI(ag.AI, ag.Autonomous))
+	_, _ = fmt.Fprintf(w, "  ai\t%s\n", describeAI(ag.AI, ag.Autonomous))
 	if ag.AI != "none" {
-		fmt.Fprintf(w, "  interface\t%s\n", ag.Interface)
+		_, _ = fmt.Fprintf(w, "  interface\t%s\n", ag.Interface)
 	}
 	if ag.ClaudeAccount != "" {
-		fmt.Fprintf(w, "  account\t%s (Claude Code)\n", ag.ClaudeAccount)
+		_, _ = fmt.Fprintf(w, "  account\t%s (Claude Code)\n", ag.ClaudeAccount)
 	}
 	if ag.GitHubAccount != "" {
-		fmt.Fprintf(w, "  account\t%s (GitHub)\n", ag.GitHubAccount)
+		_, _ = fmt.Fprintf(w, "  account\t%s (GitHub)\n", ag.GitHubAccount)
 	}
-	fmt.Fprintf(w, "  machine\tcopy of %s\n", ag.Source)
-	fmt.Fprintf(w, "  limits\t%s\n", limitWords(ag.Limits))
-	fmt.Fprintf(w, "  branch\t%s (from %s)\n", ag.Branch, ag.BaseRef)
-	fmt.Fprintf(w, "  worktree\t%s\n", ag.Worktree)
-	fmt.Fprintf(w, "  ip\t%s\n", ag.IP)
-	w.Flush()
+	_, _ = fmt.Fprintf(w, "  machine\tcopy of %s\n", ag.Source)
+	_, _ = fmt.Fprintf(w, "  limits\t%s\n", limitWords(ag.Limits))
+	_, _ = fmt.Fprintf(w, "  branch\t%s (from %s)\n", ag.Branch, ag.BaseRef)
+	_, _ = fmt.Fprintf(w, "  worktree\t%s\n", ag.Worktree)
+	_, _ = fmt.Fprintf(w, "  ip\t%s\n", ag.IP)
+	_ = w.Flush()
 	if ag.Interface == "chat" {
-		fmt.Fprintf(out, "\nChat with it in the app, or: agentbox chat %s \"<message>\"", ag.Ref)
+		_, _ = fmt.Fprintf(out, "\nChat with it in the app, or: agentbox chat %s \"<message>\"", ag.Ref)
 	}
-	fmt.Fprintf(out, "\nAttach with: agentbox shell %s\n", ag.Ref)
+	_, _ = fmt.Fprintf(out, "\nAttach with: agentbox shell %s\n", ag.Ref)
 }
 
 func newListCmd(a *app) *cobra.Command {
@@ -273,14 +273,14 @@ func newListCmd(a *app) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if len(agents) == 0 {
-				fmt.Fprintln(out, "No agents. Create one with: agentbox create <project>")
+				_, _ = fmt.Fprintln(out, "No agents. Create one with: agentbox create <project>")
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 			// TITLE comes last: it can contain spaces, and scripts read the columns before it.
-			fmt.Fprintln(w, "AGENT\tAI\tSTATE\tBRANCH\tIP\tCREATED\tTITLE")
+			_, _ = fmt.Fprintln(w, "AGENT\tAI\tSTATE\tBRANCH\tIP\tCREATED\tTITLE")
 			for _, ag := range agents {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					ag.Ref, describeAI(ag.AI, ag.Autonomous), ag.State, ag.Branch, orDash(ag.IP), ago(ag.CreatedAt), orDash(ag.Title))
 			}
 			return w.Flush()
@@ -303,9 +303,9 @@ func newTitleCmd(a *app) *cobra.Command {
 				return err
 			}
 			if ag.Title == "" {
-				fmt.Fprintf(cmd.OutOrStdout(), "Cleared the title of %s\n", ag.Ref)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cleared the title of %s\n", ag.Ref)
 			} else {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s is titled %q\n", ag.Ref, ag.Title)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s is titled %q\n", ag.Ref, ag.Title)
 			}
 			return nil
 		},
@@ -416,7 +416,7 @@ func newActionCmd(a *app, action, short, done string) *cobra.Command {
 			if action == "start" {
 				msg += " (ip " + ag.IP + ")"
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), msg)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), msg)
 			return nil
 		},
 	}
@@ -452,7 +452,7 @@ func newDestroyCmd(a *app) *cobra.Command {
 			if len(kept) > 0 {
 				msg += fmt.Sprintf(" (%s kept)", strings.Join(kept, ", "))
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), msg)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), msg)
 			return nil
 		},
 	}
@@ -477,7 +477,7 @@ func newDiffCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), diff)
+			_, _ = fmt.Fprint(cmd.OutOrStdout(), diff)
 			return nil
 		},
 	}
@@ -499,7 +499,7 @@ func newPathCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), ag.Worktree)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), ag.Worktree)
 			return nil
 		},
 	}

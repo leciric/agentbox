@@ -553,6 +553,7 @@ let defaultsSettings = {
   resumeAfterLimit: true,
   claudeCompactWindow: 200_000,
   updateCheck: true,
+  usageStats: true,
   defaultClaudeCompactWindow: 200_000,
 } as T.Settings;
 

@@ -1,6 +1,8 @@
 package desktop
 
 import (
+	"context"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -110,6 +112,68 @@ func TestFirstLine(t *testing.T) {
 	}
 }
 
+func writeStub(t *testing.T, script string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := dir + "/stub"
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRunReturnsStdout(t *testing.T) {
+	stub := writeStub(t, `echo hello; echo warned >&2`)
+	out, err := run(context.Background(), stub)
+	if err != nil {
+		t.Fatalf("run() = %v", err)
+	}
+	if out != "hello\n" {
+		t.Errorf("run() stdout = %q, want %q", out, "hello\n")
+	}
+}
+
+func TestRunBothTrimsStderrOnFailure(t *testing.T) {
+	stub := writeStub(t, `echo out; echo "  went wrong  " >&2; exit 1`)
+	out, errOut, err := runBoth(context.Background(), stub)
+	if err == nil {
+		t.Fatal("runBoth() with a failing command: want an error")
+	}
+	if out != "" {
+		t.Errorf("runBoth() stdout on failure = %q, want empty", out)
+	}
+	if errOut != "went wrong" {
+		t.Errorf("runBoth() stderr = %q, want it trimmed", errOut)
+	}
+	if !strings.Contains(err.Error(), "went wrong") {
+		t.Errorf("runBoth() error = %v, want it to carry stderr", err)
+	}
+}
+
+func TestRunBothFallsBackToTheExecErrorWhenStderrIsEmpty(t *testing.T) {
+	stub := writeStub(t, `exit 3`)
+	_, _, err := runBoth(context.Background(), stub)
+	if err == nil {
+		t.Fatal("runBoth() with a failing command and no stderr: want an error")
+	}
+	if strings.Contains(err.Error(), ": : ") {
+		t.Errorf("runBoth() error = %v, want no empty stderr wedged in", err)
+	}
+}
+
+func TestRunBothReturnsStderrOnSuccessToo(t *testing.T) {
+	// xdotool warns on stderr and still exits 0 (see pressKeys); runBoth must
+	// surface that warning rather than discard it just because err is nil.
+	stub := writeStub(t, `echo out; echo "a warning" >&2`)
+	out, errOut, err := runBoth(context.Background(), stub)
+	if err != nil {
+		t.Fatalf("runBoth() = %v", err)
+	}
+	if out != "out\n" || errOut != "a warning" {
+		t.Errorf("runBoth() = (%q, %q), want (%q, %q)", out, errOut, "out\n", "a warning")
+	}
+}
+
 func TestClickArgs(t *testing.T) {
 	// The pointer is already at the target: no move, just the click.
 	got, err := clickArgs(100, 200, 100, 200, "", false)
@@ -193,6 +257,12 @@ func TestDragArgsMovesInSteps(t *testing.T) {
 	if _, err := dragArgs(0, 0, 0, 0, 10, -1, "left"); err == nil {
 		t.Error("dragging off the screen was accepted")
 	}
+	if _, err := dragArgs(0, 0, -1, 0, 10, 10, "left"); err == nil {
+		t.Error("dragging from off the screen was accepted")
+	}
+	if _, err := dragArgs(0, 0, 0, 0, 10, 10, "nonsense"); err == nil {
+		t.Error("dragging with a nonsense button was accepted")
+	}
 }
 
 func TestScrollArgs(t *testing.T) {
@@ -210,6 +280,12 @@ func TestScrollArgs(t *testing.T) {
 	}
 	if _, err := scrollArgs(1, 1, 1, 1, "down", 500); err == nil {
 		t.Error("scrolling 500 notches was accepted")
+	}
+	if _, err := scrollArgs(1, 1, -1, 1, "down", 1); err == nil {
+		t.Error("scrolling to a point off the screen was accepted")
+	}
+	if _, err := scrollArgs(1, 1, 1, 1, "sideways", 1); err == nil {
+		t.Error("scrolling in a nonsense direction was accepted")
 	}
 }
 
@@ -310,6 +386,9 @@ func TestTypeAndKeyArgs(t *testing.T) {
 	want = []string{"key", "--delay", "25", "--", "ctrl+l", "Return"}
 	if !slices.Equal(got, want) {
 		t.Errorf("keyArgs = %v, want %v", got, want)
+	}
+	if _, err := keyArgs(""); err == nil {
+		t.Error("pressing no key was accepted")
 	}
 }
 

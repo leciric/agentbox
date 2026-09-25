@@ -90,6 +90,27 @@ Every push to `main` and every pull request runs [CI](.github/workflows/ci.yml):
 takes minutes and belongs to a release, and it can't run the Incus tests — those are behind the
 `integration` build tag, and CI only vets them (D49).
 
+CI also runs, each as its own parallel job so the wall time stays about the same:
+
+- **golangci-lint**, against `.golangci.yml` (errcheck, govet, ineffassign, misspell, staticcheck,
+  unused): `golangci-lint run ./...`.
+- **govulncheck**, against the Go vulnerability database: `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`.
+- **`go mod tidy`**, checked for a clean diff: `go mod tidy && git diff --exit-code go.mod go.sum`.
+- **Go coverage**, with a per-package summary and a floor below which the build fails. The floor
+  lives in [`.github/coverage-floor.txt`](.github/coverage-floor.txt); bump it as coverage goes up,
+  never down: `scripts/check-coverage.sh`.
+- **oxlint** on the desktop app, configured in [`desktop/.oxlintrc.json`](desktop/.oxlintrc.json) —
+  it's used instead of ESLint/typescript-eslint because typescript-eslint doesn't yet support
+  TypeScript 7 (this repo's version); oxlint doesn't depend on the `typescript` package. Only
+  `react-hooks`'s two rules (`rules-of-hooks`, `exhaustive-deps`) are enabled from its `react`
+  plugin — the rest of that plugin's newer React best-practice rules are off, since type-aware
+  checking is already `tsc`'s job: `npm --prefix desktop run lint`.
+- **Desktop test coverage**, via Node's built-in test runner:
+  `npm --prefix desktop test` (now runs with `--experimental-test-coverage`).
+- **PR title**, checked against conventional commits (`feat|fix|refactor|docs|chore|test|perf|ci`)
+  since squash merges use the title as the commit message — nothing to run locally, it only checks
+  `github.event.pull_request.title`.
+
 ## Previewing the rail and the sidebar
 
 Both are narrow, fixed-width columns fed whatever agents and the daemon put in them, so both are

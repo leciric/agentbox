@@ -134,6 +134,10 @@ const (
 	// SettingUpdateCheck says whether the daemon asks once a day whether a
 	// newer AgentBox is out. On until somebody turns it off (FlagOn).
 	SettingUpdateCheck = "update_check"
+	// SettingUsageStats says whether the update check also sends the
+	// feature_usage counts. On until somebody turns it off (FlagOn), and
+	// never sent while SettingUpdateCheck is off.
+	SettingUsageStats = "usage_stats"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a
@@ -251,10 +255,10 @@ func (w ClaudeWindows) DefaultContextWindow(model, value string, installation in
 		return "", err
 	}
 	windows := w.ContextWindows(model, installation)
-	switch {
-	case n == 0 || n == windows[0] || n == ClaudeShortWindow:
+	switch n {
+	case 0, windows[0], ClaudeShortWindow:
 		return "", nil
-	case n == ClaudeFullWindow:
+	case ClaudeFullWindow:
 		if windows[len(windows)-1] < ClaudeFullWindow {
 			return "", fmt.Errorf("%s has no 1M context window: it only has %s", modelName(model), FormatContextWindow(windows[len(windows)-1]))
 		}

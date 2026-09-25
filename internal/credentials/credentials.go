@@ -335,7 +335,7 @@ func (s Store) accountNames() ([]string, error) {
 // writeTokenFile stores a token atomically, readable only by this user.
 func writeTokenFile(path, token string) error {
 	tmp := path + ".tmp"
-	os.Remove(tmp)
+	_ = os.Remove(tmp)
 	if err := os.WriteFile(tmp, []byte(token+"\n"), 0o600); err != nil {
 		return err
 	}

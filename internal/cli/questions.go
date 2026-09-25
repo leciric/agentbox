@@ -35,24 +35,24 @@ Answer one with: agentbox answer <project> <id> "<answer>"`,
 			}
 			out := cmd.OutOrStdout()
 			if len(questions) == 0 {
-				fmt.Fprintln(out, "No agent is waiting to be told anything.")
+				_, _ = fmt.Fprintln(out, "No agent is waiting to be told anything.")
 				return nil
 			}
 			for _, q := range questions {
-				fmt.Fprintf(out, "\n%s  from %s  (%s)\n", q.ID, q.Agent, waitingFor(q))
-				fmt.Fprintf(out, "  %s\n", q.Question)
+				_, _ = fmt.Fprintf(out, "\n%s  from %s  (%s)\n", q.ID, q.Agent, waitingFor(q))
+				_, _ = fmt.Fprintf(out, "  %s\n", q.Question)
 				if q.Context != "" {
-					fmt.Fprintf(out, "  while: %s\n", q.Context)
+					_, _ = fmt.Fprintf(out, "  while: %s\n", q.Context)
 				}
 				if q.Escalation != "" {
-					fmt.Fprintf(out, "  the chat says: %s\n", q.Escalation)
+					_, _ = fmt.Fprintf(out, "  the chat says: %s\n", q.Escalation)
 				}
 				if q.Answer != "" {
-					fmt.Fprintf(out, "  answered by the %s: %s\n", q.AnsweredBy, q.Answer)
+					_, _ = fmt.Fprintf(out, "  answered by the %s: %s\n", q.AnsweredBy, q.Answer)
 				}
 			}
 			if !all {
-				fmt.Fprintf(out, "\nAnswer one with: agentbox answer %s <id> \"<answer>\"\n", args[0])
+				_, _ = fmt.Fprintf(out, "\nAnswer one with: agentbox answer %s <id> \"<answer>\"\n", args[0])
 			}
 			return nil
 		},
@@ -91,7 +91,7 @@ func newAnswerCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Told %s. It was waiting on this and is carrying on.\n", q.Agent)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Told %s. It was waiting on this and is carrying on.\n", q.Agent)
 			return nil
 		},
 	}
@@ -125,7 +125,7 @@ either way Stop ends what it is doing.`,
 				}
 				for _, p := range projects {
 					if p.Name == args[0] {
-						fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, autonomyWords(p.Autonomy))
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, autonomyWords(p.Autonomy))
 						return nil
 					}
 				}
@@ -135,7 +135,7 @@ either way Stop ends what it is doing.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, autonomyWords(p.Autonomy))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, autonomyWords(p.Autonomy))
 			return nil
 		},
 	}

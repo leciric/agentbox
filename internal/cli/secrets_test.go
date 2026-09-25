@@ -186,7 +186,7 @@ func addAgentRow(t *testing.T, project, name string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	a := state.Agent{Project: project, Name: name, Instance: "ab-" + project + "-" + name, AI: "none",
 		Branch: "agentbox/" + name, Worktree: filepath.Join(t.TempDir(), name), Status: state.AgentReady, CreatedAt: time.Now()}
 	if err := st.AddAgent(context.Background(), a); err != nil {
