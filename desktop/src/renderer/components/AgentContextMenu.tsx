@@ -6,33 +6,29 @@ import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
-import { disposeTerminal } from '../lib/terminals';
-import { ConfirmDialog } from './ConfirmDialog';
+import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
-import { Code } from './ui/card';
-import { Label } from './ui/input';
-import { Switch } from './ui/switch';
 
 // The actions an agent already offers, wherever it's listed: the rail, the
 // all-agents list, and a project's fleet. One component, so an agent has the
 // same menu everywhere it appears, and every action goes through exactly the
-// API call its own view already uses (AgentView.tsx, FleetPanel.tsx).
+// API call its own view already uses (AgentView.tsx, FleetPanel.tsx). active
+// says the agent's own view is the one open, which destroying it has to leave.
 export function AgentContextMenu({
   agent,
   pr,
+  active,
   onSelect,
   children,
 }: {
   agent: T.Agent;
   pr?: T.PullRequest;
+  active?: boolean;
   onSelect: (view: View) => void;
   children: ReactNode;
 }) {
   const queryClient = useQueryClient();
   const [destroying, setDestroying] = useState(false);
-  const [force, setForce] = useState(false);
-  const [deleteBranch, setDeleteBranch] = useState(false);
-  const [deleteMedia, setDeleteMedia] = useState(false);
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['agents'] });
@@ -103,52 +99,19 @@ export function AgentContextMenu({
           <ContextMenuItem
             icon={CircleX}
             destructive
-            onSelect={() => {
-              setForce(agent.state === 'incomplete' || agent.state === 'missing');
-              setDeleteBranch(false);
-              setDeleteMedia(false);
-              setDestroying(true);
-            }}
+            onSelect={() => setDestroying(true)}
           >
             Destroy agent…
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
 
-      <ConfirmDialog
+      <DestroyAgentDialog
+        agent={agent}
         open={destroying}
         onOpenChange={setDestroying}
-        title={`Destroy ${agent.title || agent.ref}?`}
-        description="Deletes the machine, its snapshots and the worktree. Commits stay on the branch, and media stays in the project's media view, unless you delete them too."
-        confirmLabel="Destroy"
-        destructive
-        onConfirm={async () => {
-          await api.destroyAgent(agent.ref, force, deleteBranch, deleteMedia);
-          disposeTerminal(agent.ref);
-          await invalidate();
-        }}
-      >
-        <div className="grid gap-3 rounded-xl border border-line bg-surface-faint p-3.5">
-          <div className="flex items-center gap-3">
-            <Switch id={`destroy-force-${agent.ref}`} checked={force} onCheckedChange={setForce} />
-            <Label htmlFor={`destroy-force-${agent.ref}`} className="font-normal">
-              Discard uncommitted changes
-            </Label>
-          </div>
-          <div className="flex items-center gap-3">
-            <Switch id={`destroy-branch-${agent.ref}`} checked={deleteBranch} onCheckedChange={setDeleteBranch} />
-            <Label htmlFor={`destroy-branch-${agent.ref}`} className="font-normal">
-              Also delete the branch <Code>{agent.branch}</Code>
-            </Label>
-          </div>
-          <div className="flex items-center gap-3">
-            <Switch id={`destroy-media-${agent.ref}`} checked={deleteMedia} onCheckedChange={setDeleteMedia} />
-            <Label htmlFor={`destroy-media-${agent.ref}`} className="font-normal">
-              Also delete its media, instead of keeping it in the project's media view
-            </Label>
-          </div>
-        </div>
-      </ConfirmDialog>
+        onDestroyed={() => active && onSelect({ kind: 'project', project: agent.project })}
+      />
     </>
   );
 }

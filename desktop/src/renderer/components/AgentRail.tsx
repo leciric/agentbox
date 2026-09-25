@@ -237,7 +237,7 @@ function AgentRow({
   // The row is a button that opens the agent, with the pull request badge over
   // it: a link inside a button is neither valid HTML nor clickable on its own.
   return (
-    <AgentContextMenu agent={agent} pr={pr} onSelect={onOpen}>
+    <AgentContextMenu agent={agent} pr={pr} active={active} onSelect={onOpen}>
       <div className="relative">
         <button
           data-agent={agent.ref}

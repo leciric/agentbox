@@ -25,14 +25,13 @@ import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
-import { usesChat } from '../lib/agentActions';
+import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
-import { disposeTerminal } from '../lib/terminals';
 import { cn, errorMessage } from '../lib/utils';
 import { AndroidTab } from './AndroidTab';
 import { BrowserTab } from './BrowserTab';
 import { ChatHeaderControls, ChatTab } from './chat/ChatTab';
-import { ConfirmDialog } from './ConfirmDialog';
+import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { MediaTab } from './MediaTab';
 import { OverviewTab } from './OverviewTab';
 import { SecretsTab } from './SecretsTab';
@@ -40,10 +39,8 @@ import { SnapshotsTab } from './SnapshotsTab';
 import { AIIcon, aiLabel, LiveAgentAvatar, StateBadge } from './state';
 import { TerminalTab } from './TerminalTab';
 import { Button } from './ui/button';
-import { Code, Notice } from './ui/card';
-import { Label } from './ui/input';
+import { Notice } from './ui/card';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/menu';
-import { Switch } from './ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 
@@ -69,9 +66,6 @@ export function AgentView({
   // Only Android projects get the tab, unless an emulator was started anyway.
   const hasAndroid = projects.data?.some((p) => p.name === agent?.project && p.android) || android.data?.running === true;
   const [destroying, setDestroying] = useState(false);
-  const [force, setForce] = useState(false);
-  const [deleteBranch, setDeleteBranch] = useState(false);
-  const [deleteMedia, setDeleteMedia] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
 
   const replace = (updated: T.Agent) =>
@@ -136,30 +130,15 @@ export function AgentView({
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {busy && <LoaderCircle className="size-4 animate-spin text-subtle" />}
-          {agent.state === 'running' && (
-            <Button size="sm" disabled={busy} onClick={() => run('pause')}>
-              <Pause />
-              Pause
-            </Button>
-          )}
-          {agent.state === 'paused' && (
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => run('resume')}>
-              <Play />
-              Resume
-            </Button>
-          )}
-          {agent.state === 'stopped' && (
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => run('start')}>
-              <Play />
-              Start
-            </Button>
-          )}
-          {(agent.state === 'running' || agent.state === 'paused') && (
-            <Button size="sm" disabled={busy} onClick={() => run('stop')}>
-              <Square />
-              Stop
-            </Button>
-          )}
+          {lifecycleActions(agent.state).map((name) => {
+            const { icon: Icon, label, primary } = lifecycleButton[name];
+            return (
+              <Button key={name} size="sm" variant={primary ? 'primary' : undefined} disabled={busy} onClick={() => run(name)}>
+                <Icon />
+                {label}
+              </Button>
+            );
+          })}
           <Menu>
             <MenuTrigger asChild>
               <Button size="icon-sm" variant="ghost" aria-label="More actions">
@@ -195,12 +174,7 @@ export function AgentView({
               <MenuItem
                 icon={CircleX}
                 destructive
-                onSelect={() => {
-                  setForce(agent.state === 'incomplete' || agent.state === 'missing');
-                  setDeleteBranch(false);
-                  setDeleteMedia(false);
-                  setDestroying(true);
-                }}
+                onSelect={() => setDestroying(true)}
               >
                 Destroy agent…
               </MenuItem>
@@ -300,44 +274,24 @@ export function AgentView({
         </div>
       </Tabs>
 
-      <ConfirmDialog
+      <DestroyAgentDialog
+        agent={agent}
         open={destroying}
         onOpenChange={setDestroying}
-        title={`Destroy ${agent.title || agent.ref}?`}
-        description="Deletes the machine, its snapshots and the worktree. The branch is deleted too once it's merged or pushed; otherwise its commits stay on it. Media stays in the project's media view for as long as Settings keeps it, unless you delete it now."
-        confirmLabel="Destroy"
-        destructive
-        onConfirm={async () => {
-          await api.destroyAgent(agent.ref, force, deleteBranch, deleteMedia);
-          disposeTerminal(agent.ref);
-          await queryClient.invalidateQueries({ queryKey: ['agents'] });
-          onSelect({ kind: 'project', project: agent.project });
-        }}
-      >
-        <div className="grid gap-3 rounded-xl border border-line bg-surface-faint p-3.5">
-          <div className="flex items-center gap-3">
-            <Switch id="destroy-force" checked={force} onCheckedChange={setForce} />
-            <Label htmlFor="destroy-force" className="font-normal">
-              Discard uncommitted changes
-            </Label>
-          </div>
-          <div className="flex items-center gap-3">
-            <Switch id="destroy-branch" checked={deleteBranch} onCheckedChange={setDeleteBranch} />
-            <Label htmlFor="destroy-branch" className="font-normal">
-              Delete the branch <Code>{agent.branch}</Code> even if it isn't merged or pushed
-            </Label>
-          </div>
-          <div className="flex items-center gap-3">
-            <Switch id="destroy-media" checked={deleteMedia} onCheckedChange={setDeleteMedia} />
-            <Label htmlFor="destroy-media" className="font-normal">
-              Also delete its media, instead of keeping it in the project's media view
-            </Label>
-          </div>
-        </div>
-      </ConfirmDialog>
+        onDestroyed={() => onSelect({ kind: 'project', project: agent.project })}
+      />
     </div>
   );
 }
+
+// The header's button for each lifecycle action lifecycleActions allows; the
+// one that brings the agent back is the primary.
+const lifecycleButton: Record<LifecycleAction, { icon: ComponentType; label: string; primary?: boolean }> = {
+  pause: { icon: Pause, label: 'Pause' },
+  resume: { icon: Play, label: 'Resume', primary: true },
+  start: { icon: Play, label: 'Start', primary: true },
+  stop: { icon: Square, label: 'Stop' },
+};
 
 function AgentTitle({ agent, editing, onEditing, onSave }: { agent: T.Agent; editing: boolean; onEditing: (editing: boolean) => void; onSave: (title: string) => void }) {
   const [value, setValue] = useState(agent.title);
