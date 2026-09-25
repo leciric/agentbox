@@ -44,9 +44,14 @@ const byId = new Map<number, AgentTerminal>();
 const byRef = new Map<string, AgentTerminal>();
 const encoder = new TextEncoder();
 
-window.agentbox.stream.onData((id, data) => byId.get(id)?.term.write(data));
-window.agentbox.stream.onOpened((id) => byId.get(id)?.opened());
-window.agentbox.stream.onExited((id, reason) => byId.get(id)?.exited(reason));
+// A module-level subscription, not a component's: this module is now reached
+// from more than just the terminal tab (AgentContextMenu's destroy action
+// disposes a terminal too), including contexts like the preview harness that
+// import it before window.agentbox exists. Guarded rather than reordered,
+// since nothing here can control which of two sibling imports resolves first.
+window.agentbox?.stream.onData((id, data) => byId.get(id)?.term.write(data));
+window.agentbox?.stream.onOpened((id) => byId.get(id)?.opened());
+window.agentbox?.stream.onExited((id, reason) => byId.get(id)?.exited(reason));
 
 export class AgentTerminal {
   readonly term: Terminal;

@@ -25,6 +25,7 @@ import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
+import { usesChat } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
 import { disposeTerminal } from '../lib/terminals';
 import { cn, errorMessage } from '../lib/utils';
@@ -98,8 +99,8 @@ export function AgentView({
   const mediaCount = media.data?.length ?? 0;
   const error = action.error ?? rename.error;
   // An agent you use through the chat opens on it; one you use from the terminal has no Chat tab.
-  const usesChat = agent.ai !== 'none' && agent.interface === 'chat';
-  const active: AgentTab = !tab || (tab === 'chat' && !usesChat) ? (usesChat ? 'chat' : 'terminal') : tab;
+  const chatty = usesChat(agent);
+  const active: AgentTab = !tab || (tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : tab;
 
   return (
     <div className="flex h-full flex-col">
@@ -129,7 +130,7 @@ export function AgentView({
           )}
           <Chip icon={({ className }) => <AIIcon ai={agent.ai} className={className} />} label="AI tool">
             {aiLabel(agent.ai)}
-            {usesChat ? ' · chat' : ''}
+            {chatty ? ' · chat' : ''}
             {agent.autonomous ? ' · autonomous' : ''}
           </Chip>
         </div>
@@ -216,7 +217,7 @@ export function AgentView({
       <Tabs value={active} onValueChange={(value) => onTab(value as AgentTab)} className="flex min-h-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-3 border-t border-line-faint px-4 py-2 md:px-6">
           <TabsList className="min-w-0 flex-1 overflow-x-auto">
-            {usesChat && (
+            {chatty && (
               <TabsTrigger value="chat">
                 <MessageSquare />
                 Chat
@@ -261,14 +262,14 @@ export function AgentView({
               Snapshots
             </TabsTrigger>
           </TabsList>
-          {usesChat && active === 'chat' && (
+          {chatty && active === 'chat' && (
             <div className="flex shrink-0 items-center gap-2">
               <ChatHeaderControls agent={agent} />
             </div>
           )}
         </div>
         <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6">
-          {usesChat && (
+          {chatty && (
             <TabsContent value="chat" className="flex flex-col">
               <ChatTab agent={agent} starting={busy} onStart={() => run(agent.state === 'paused' ? 'resume' : 'start')} />
             </TabsContent>

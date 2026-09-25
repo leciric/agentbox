@@ -6,6 +6,7 @@ import type { View } from '../App';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { githubErrorSentence, timeAgo } from '../lib/utils';
+import { AgentContextMenu } from './AgentContextMenu';
 import { ConfirmDialog } from './ConfirmDialog';
 import { LiveAgentAvatar, StateBadge } from './state';
 import { Button } from './ui/button';
@@ -82,8 +83,8 @@ export function FleetPanel({ project, onSelect }: { project: string; onSelect: (
         </div>
       ))}
       {data.agents.map((agent) => (
+        <AgentContextMenu key={agent.ref} agent={agent} pr={agent.pr} onSelect={onSelect}>
         <button
-          key={agent.ref}
           type="button"
           onClick={() => onSelect({ kind: 'agent', ref: agent.ref })}
           className="panel w-full rounded-2xl px-4 py-3.5 text-left transition-colors hover:bg-surface"
@@ -119,6 +120,7 @@ export function FleetPanel({ project, onSelect }: { project: string; onSelect: (
             <span className="ml-auto text-faint">{timeAgo(agent.createdAt)}</span>
           </div>
         </button>
+        </AgentContextMenu>
       ))}
       <ConfirmDialog
         open={freeing}
