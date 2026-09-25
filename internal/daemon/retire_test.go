@@ -12,6 +12,7 @@ import (
 // Who may be retired, and why not. These are the rules that decide whether an
 // agent's machine is freed, so each one is worth pinning down.
 func TestSkipReason(t *testing.T) {
+	t.Parallel()
 	running := agent.Status{Agent: state.Agent{Name: "agent-01", Branch: "agentbox/agent-01"}, State: "running"}
 	stopped := agent.Status{Agent: state.Agent{Name: "agent-01", Branch: "agentbox/agent-01"}, State: "stopped"}
 	clean := api.RetireAdvice{Safe: true, Branch: "agentbox/agent-01"}

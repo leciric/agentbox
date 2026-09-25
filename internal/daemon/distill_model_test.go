@@ -54,6 +54,7 @@ func lastPass(t *testing.T, d testDaemon) memory.Pass {
 // like "haiku" to whatever the account really runs, and the pass log is only
 // worth reading if it says what was actually spent.
 func TestDistillationRunsOnTheProjectsCheapModel(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := dueProject(t)
 
@@ -89,6 +90,7 @@ func TestDistillationRunsOnTheProjectsCheapModel(t *testing.T) {
 // the pass falls back to the chat's own session, exactly as D76 did it, and
 // the pass log says it ran on something else than the project asked for.
 func TestDistillationFallsBackToTheChatsSession(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := dueProject(t)
 
@@ -125,6 +127,7 @@ func TestDistillationFallsBackToTheChatsSession(t *testing.T) {
 // A project that asks for the chat's own model never starts a second session:
 // that is D76's behaviour, kept as a choice.
 func TestDistillationOnTheChatsModelStartsNoSession(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := dueProject(t)
 	if _, err := d.client.SetConsolidationModel(ctx, "hello-stack", state.ConsolidationModelChat); err != nil {
@@ -149,6 +152,7 @@ func TestDistillationOnTheChatsModelStartsNoSession(t *testing.T) {
 // inventing a model id for a tool nobody has measured is how an account ends
 // up answering on something nobody chose.
 func TestCheapWithNoCheapModelKnownUsesTheChat(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := dueProject(t)
 	lead.AI = "codex"
@@ -168,6 +172,7 @@ func TestCheapWithNoCheapModelKnownUsesTheChat(t *testing.T) {
 
 // A named model is a model, and goes to the aside session as it was typed.
 func TestNamedConsolidationModelIsUsedAsItIs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := dueProject(t)
 	if _, err := d.client.SetConsolidationModel(ctx, "hello-stack", "claude-fable-5-1"); err != nil {
@@ -195,6 +200,7 @@ func TestNamedConsolidationModelIsUsedAsItIs(t *testing.T) {
 // only be asked one thing at once — and a session of its own can't, so the
 // window would be read twice and everything written twice.
 func TestOnlyOneDistillationPerProjectAtATime(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := dueProject(t)
 
@@ -230,6 +236,7 @@ func TestOnlyOneDistillationPerProjectAtATime(t *testing.T) {
 // rather than whatever the chat costs, a round trip through the API, and a
 // refusal for what is plainly not a model id.
 func TestConsolidationModelRoundTrips(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, _ := consolidationProject(t)
 	p, err := d.client.Project(ctx, "hello-stack")
@@ -256,6 +263,7 @@ func TestConsolidationModelRoundTrips(t *testing.T) {
 // What "cheap" resolves to is per AI tool, and a tool with no entry resolves
 // to the chat's own model rather than to another vendor's.
 func TestConsolidationModelResolvesPerTool(t *testing.T) {
+	t.Parallel()
 	cheap := state.Project{ConsolidationModel: state.ConsolidationModelCheap}
 	if got := cheap.ConsolidationModelFor("claude"); got != "haiku" {
 		t.Errorf("cheap on Claude Code = %q, want haiku", got)

@@ -109,6 +109,8 @@ type Manager struct {
 
 	mu    sync.Mutex
 	convs map[string]*conversation
+	// adapters are the goroutines that launch and then read each adapter.
+	adapters sync.WaitGroup
 }
 
 // Timer is a wake-up that can be called off before it fires: what
@@ -995,6 +997,13 @@ func (m *Manager) Close() {
 	wg.Wait()
 }
 
+// Wait waits for every adapter's goroutine to end. Close doesn't: an adapter
+// still launching when it is called has no process yet to stop, and finishes
+// its launch — which can write to the agent's worktree, its tools, its HOME —
+// before it finds it was stopped and goes. A test waits for that before its
+// directories are removed.
+func (m *Manager) Wait() { m.adapters.Wait() }
+
 // conversation is one agent's chat. Everything in it is guarded by mu.
 type conversation struct {
 	m     *Manager
@@ -1221,7 +1230,7 @@ func (c *conversation) startAdapter() *adapter {
 	c.session.Detail = "Starting " + ToolNames[c.agent.AI]
 	c.session.State = c.stateNow()
 	c.markSession()
-	go c.run(ad)
+	c.m.adapters.Go(func() { c.run(ad) })
 	return ad
 }
 

@@ -16,6 +16,7 @@ const mediaSweepInterval = time.Hour
 // never touched, however old.
 func (s *Server) sweepMedia(ctx context.Context) {
 	s.sweepExpiredMedia(ctx, time.Now())
+	s.firstSweeps.Done()
 	ticker := time.NewTicker(mediaSweepInterval)
 	defer ticker.Stop()
 	for {

@@ -68,6 +68,7 @@ func (s *fakeJobStore) Jobs(ctx context.Context, limit int) ([]state.Job, error)
 // daemon restart right after a job fails or succeeds could bring it back
 // looking like it's still running, forever.
 func TestJobFinishIsDurableBeforeVisible(t *testing.T) {
+	t.Parallel()
 	store := newFakeJobStore()
 	js := newJobs(context.Background(), store, newBroker())
 
