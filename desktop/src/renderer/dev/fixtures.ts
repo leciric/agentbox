@@ -486,6 +486,7 @@ let defaultsSettings = {
   defaultAgentContextWindow: '1000000',
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
+  mediaRetention: '1d',
   claudeModelChoices: [
     { value: 'default', name: 'Default (recommended)', description: 'Opus 5.5 with 1M context' },
     { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5 for everyday tasks' },

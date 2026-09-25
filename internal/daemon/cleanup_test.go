@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -109,5 +110,30 @@ esac`)
 	}
 	if !repo.BranchExists(worked.Branch) {
 		t.Error("the branch with an unpushed commit was deleted")
+	}
+}
+
+// An agent whose pull request was merged is removed, the pull request found
+// by the agent's commits rather than by its branch's name: the agent pushed
+// its work to a branch of its own choosing, and its local commit is still in
+// nothing but that pull request's head.
+func TestRemoveFinishedAgentsByAMergedPullRequest(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	gh := newSlowGitHub(t, d, "[]", 0)
+	_, agents := pullsProject(t, d, "agent-01")
+	a := agents["agent-01"]
+	tip := commitOn(t, a, "work.txt")
+	updated := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
+	gh.setList(fmt.Sprintf(`[{"number":31,"title":"Work","state":"closed","merged_at":%q,"html_url":"https://github.com/acme/hello-stack/pull/31","draft":false,"updated_at":%q,"base":{"ref":"main"},"head":{"ref":"feat/work","sha":%q}}]`, updated, updated, tip))
+	if out := pullsOf(t, d, "hello-stack"); len(out.PullRequests) != 1 {
+		t.Fatalf("pull requests = %+v, want the merged one", out.PullRequests)
+	}
+
+	ctx := context.Background()
+	d.srv.removeFinishedAgents(ctx, time.Now())
+
+	if _, err := d.srv.store.Agent(ctx, a.Project, a.Name); err == nil {
+		t.Error("the agent whose pull request was merged is still there")
 	}
 }
