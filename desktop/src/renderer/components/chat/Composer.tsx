@@ -239,7 +239,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
   const placeholder = disabled
     ? `Start ${agent.name} to chat`
     : held
-      ? 'Sua mensagem espera: escolha acima como enviá-la'
+      ? 'Your message is waiting: choose above how to send it'
       : requests.length > 0
       ? 'Answer the request above to go on'
       : busy
@@ -613,19 +613,19 @@ function CacheCard({
         <div className="flex items-center gap-2 text-[12px]">
           <Hourglass className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
-            {expired ? 'O cache do prompt expirou' : `O cache do prompt expira em ${formatSpan(left)}`}
+            {expired ? 'The prompt cache has expired' : `The prompt cache expires in ${formatSpan(left)}`}
           </span>
-          <span className="ml-auto shrink-0 tabular-nums text-[11px] text-amber-200/60">ocioso há {formatSpan(idle)}</span>
+          <span className="ml-auto shrink-0 tabular-nums text-[11px] text-amber-200/60">idle for {formatSpan(idle)}</span>
         </div>
         <p className="mt-1 break-words text-[12.5px] leading-relaxed text-amber-100/85">
           {expired
-            ? `A próxima mensagem reenvia ${tokens} de contexto sem cache.`
-            : `Depois disso, a próxima mensagem reenvia ${tokens} de contexto sem cache.`}{' '}
-          Compactar resume a conversa na memória do projeto e continua numa sessão nova.
+            ? `The next message re-sends ${tokens} of context uncached.`
+            : `After that, the next message re-sends ${tokens} of context uncached.`}{' '}
+          Compacting summarises the conversation into the project's memory and carries on in a fresh session.
         </p>
         {waiting && (
           <p className="mt-1.5 line-clamp-2 break-words rounded-lg bg-black/10 px-2.5 py-1.5 text-[12.5px] text-primary" data-chat-cache-held>
-            {waiting.text || `${waiting.images.length} ${waiting.images.length === 1 ? 'imagem' : 'imagens'}`}
+            {waiting.text || `${waiting.images.length} ${waiting.images.length === 1 ? 'image' : 'images'}`}
           </p>
         )}
         <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
@@ -634,7 +634,7 @@ function CacheCard({
             onClick={() => pick(false)}
             className="h-7 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
           >
-            Enviar assim mesmo
+            Send anyway
           </button>
           <button
             disabled={choose.isPending}
@@ -642,7 +642,7 @@ function CacheCard({
             className="flex h-7 items-center gap-1.5 rounded-lg bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60"
           >
             {compacting && <LoaderCircle className="size-3.5 animate-spin" />}
-            {compacting ? 'Compactando…' : 'Compactar e enviar'}
+            {compacting ? 'Compacting…' : 'Compact and send'}
           </button>
         </div>
       </div>

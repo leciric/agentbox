@@ -40,7 +40,11 @@ import (
 
 // cacheCardFloor is the context below which an idle chat gets no card: a cold
 // re-send of less than this costs less than consolidating it would.
-const cacheCardFloor = 40_000
+const cacheCardFloor = 60_000
+
+// worthACard reports whether a context of used tokens is big enough for the
+// card.
+func worthACard(used int64) bool { return used >= cacheCardFloor }
 
 // cacheCardMargin is how long before the cache expires the card shows, at
 // most: a tenth of the TTL, or five minutes, whichever is smaller. Enough for
@@ -118,7 +122,7 @@ func (s *Server) cacheDue(project string, gen uint64) {
 	// the turn ends and sets the timer again, and a stopped session has no
 	// cache left to save.
 	used, _, ready := s.chat.Context(agent.LeadRef(project))
-	if !ready || used < cacheCardFloor {
+	if !ready || !worthACard(used) {
 		return
 	}
 	s.mu.Lock()

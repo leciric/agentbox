@@ -26,6 +26,14 @@ func TestCacheCardDelay(t *testing.T) {
 	}
 }
 
+func TestWorthACard(t *testing.T) {
+	for used, want := range map[int64]bool{0: false, 42_000: false, 59_999: false, 60_000: true, 150_000: true} {
+		if got := worthACard(used); got != want {
+			t.Errorf("worthACard(%d) = %v, want %v", used, got, want)
+		}
+	}
+}
+
 func TestPastLimits(t *testing.T) {
 	now := time.Unix(1_790_000_000, 0)
 	later := now.Add(time.Hour).Unix()
