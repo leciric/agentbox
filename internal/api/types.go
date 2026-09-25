@@ -579,6 +579,31 @@ type Usage struct {
 	Agents []AgentUsage `json:"agents"`
 }
 
+// DiskUsageItem is one thing measured: an agent's machine, a project's saved
+// base, a project's media, and so on.
+type DiskUsageItem struct {
+	Label string `json:"label"`
+	Bytes int64  `json:"bytes"`
+}
+
+// DiskUsageCategory groups items of one kind, largest first, with its own
+// total.
+type DiskUsageCategory struct {
+	Label string          `json:"label"`
+	Bytes int64           `json:"bytes"`
+	Items []DiskUsageItem `json:"items,omitempty"`
+}
+
+// DiskUsage is what AgentBox uses on disk, broken down by kind, largest
+// first, with a total. The "Storage pool" indicator in the top bar opens it,
+// computed when the popover opens rather than kept warm on a poll: it walks
+// every worktree and media directory on the host, and queries Incus for every
+// machine and saved base.
+type DiskUsage struct {
+	Total      int64               `json:"total"`
+	Categories []DiskUsageCategory `json:"categories"`
+}
+
 // ClaudeAccount is one stored Claude Code login agents can be given.
 type ClaudeAccount struct {
 	Name    string `json:"name"`
