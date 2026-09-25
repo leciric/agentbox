@@ -10,16 +10,16 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/state"
-	"agentbox/internal/testutil"
 )
 
 // A project you have never written to has a chat, and that chat has made
 // nothing: no row, no worktree, no private HOME, and certainly no machine.
 func TestProjectChatCostsNothingUntilUsed(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,10 +63,11 @@ func TestProjectChatCostsNothingUntilUsed(t *testing.T) {
 // The lead is the project's chat, not one of its agents: it never appears in
 // the agent list, and none of the routes that assume a machine accept it.
 func TestLeadIsNotReachableAsAnAgent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -131,10 +132,11 @@ func TestLeadIsNotReachableAsAnAgent(t *testing.T) {
 // Sending to a project whose AgentBox has no Claude Code login fails before
 // anything is created, the same way creating an agent does.
 func TestProjectChatNeedsALoginBeforeItMakesAnything(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := d.client.SendChat(ctx, "hello-stack", "hello")
@@ -156,10 +158,11 @@ func TestProjectChatNeedsALoginBeforeItMakesAnything(t *testing.T) {
 // message creates the real one, and that is the record the AI tool is started
 // with. The real run caught this as "cwd must be an absolute path".
 func TestReadingTheChatFirstDoesNotStaleTheWorktree(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	creds := credentials.Store{Dir: d.paths.Credentials()}

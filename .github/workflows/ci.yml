@@ -92,6 +92,8 @@ jobs:
 
       - run: npm --prefix desktop run typecheck
 
+      - run: npm --prefix desktop test
+
       # The main process, the preload script and the renderer, into out/.
       # Packaging the AppImage takes minutes and belongs to the release.
       - run: npm --prefix desktop run build

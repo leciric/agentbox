@@ -532,29 +532,39 @@ func (s *Store) Close() error { return s.db.Close() }
 // Anything that holds this has already been migrated to the current version.
 func (s *Store) DB() *sql.DB { return s.db }
 
+// migrate brings the database up to the latest migration in one transaction:
+// one commit, so one fsync, rather than one per migration, which made opening
+// a fresh database take 100ms or more — every test that opens one paid that.
+// It is also what an upgrade should be: one that fails part of the way through
+// rolls back whole, leaving the database at the version it was, not between
+// two. SQLite's schema changes are transactional, user_version included.
 func (s *Store) migrate(ctx context.Context) error {
 	var version int
 	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
+	if version >= len(migrations) {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Read it again under the write lock: another process may have migrated
+	// the database between the read above and taking the lock.
+	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
 	for i := version; i < len(migrations); i++ {
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
 		if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
-			tx.Rollback()
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", len(migrations))); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type Project struct {

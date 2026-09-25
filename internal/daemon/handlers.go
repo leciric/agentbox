@@ -18,7 +18,6 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/brief"
 	"agentbox/internal/credentials"
-	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -126,6 +125,14 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	p := state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()}
+	// A new project may only use the account it was given, or the machine's
+	// default when it was given none, until the user allows more. The list is
+	// written out rather than left empty, which still allows every account.
+	if own, err := s.manager(nil).Creds.ClaudeAccountOf(claudeAccount); err != nil {
+		return err
+	} else if own != "" {
+		p.ClaudeAccounts = []string{own}
+	}
 	if err := s.store.AddProject(r.Context(), p); err != nil {
 		return err
 	}
@@ -1169,7 +1176,7 @@ func (s *Server) saveGitHubToken(w http.ResponseWriter, r *http.Request) error {
 	if token == "" {
 		return errors.New("no token: paste the one from gh auth token, or a personal access token")
 	}
-	login, err := github.Client{Token: token}.Login(r.Context())
+	login, err := s.gitHub(token).Login(r.Context())
 	if err != nil {
 		return err
 	}
@@ -1287,7 +1294,7 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		if token, err := creds.GitHubToken(""); err == nil && token != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if login, err := (github.Client{Token: token}).Login(ctx); err != nil {
+			if login, err := s.gitHub(token).Login(ctx); err != nil {
 				status.GitHubError = err.Error()
 			} else {
 				status.GitHubUser = login

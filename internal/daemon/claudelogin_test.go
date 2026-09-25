@@ -37,18 +37,20 @@ const browserURL = "https://claude.com/cai/oauth/authorize?code=true&redirect_ur
 // the page to approve, hand back the code from the fallback page, and find the
 // token stored under the account. Nothing here talks to Anthropic.
 func TestClaudeLoginAPI(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
 	out := t.TempDir()
-	t.Setenv("AGENTBOX_TEST_OUT", out)
-	t.Setenv("AGENTBOX_TEST_HOME", os.Getenv("HOME"))
 	// AgentBox's own copy of Claude Code, which the login prefers to the PATH.
 	claude := filepath.Join(d.paths.Tools(), ".local", "bin", "claude")
 	if err := os.MkdirAll(filepath.Dir(claude), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(claude, []byte(fakeClaude), 0o755); err != nil {
+	if err := os.WriteFile(claude, []byte(strings.NewReplacer(
+		"$AGENTBOX_TEST_OUT", out,
+		"$AGENTBOX_TEST_HOME", os.Getenv("HOME"),
+	).Replace(fakeClaude)), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,6 +132,7 @@ func TestClaudeLoginAPI(t *testing.T) {
 // TestClaudeLoginUnknownJob checks the two ways of asking about a login that
 // isn't there, so neither answers as though it were.
 func TestClaudeLoginUnknownJob(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	if _, err := d.client.ClaudeLogin(ctx, "nope"); err == nil {

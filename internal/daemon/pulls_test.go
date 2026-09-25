@@ -64,10 +64,11 @@ func pullsOf(t *testing.T, d testDaemon, project string) api.ProjectPullRequests
 // ones with an agent behind them, but marks the one that does — that link is
 // the thing AgentBox uniquely knows.
 func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +98,7 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 		}
 	}))
 	defer stub.Close()
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 
 	out := pullsOf(t, d, "hello-stack")
 	if out.GitHub != "acme/hello-stack" || len(out.PullRequests) != 2 {
@@ -122,10 +123,11 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 // A project whose repository isn't on GitHub has no pull requests to read,
 // and that is not an error: the tab still works, same as the fleet.
 func TestProjectPullRequestsWithoutAGitHubRemoteIsQuiet(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -142,10 +144,11 @@ func TestProjectPullRequestsWithoutAGitHubRemoteIsQuiet(t *testing.T) {
 // null: the app's TypeScript type for pullRequests isn't optional, and
 // null.length throws where [].length doesn't.
 func TestProjectPullRequestsEmptyListIsNotJSONNull(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +165,7 @@ func TestProjectPullRequestsEmptyListIsNotJSONNull(t *testing.T) {
 		}
 	}))
 	defer stub.Close()
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 
 	pullsOf(t, d, "hello-stack") // wait out the first read, so the list is really empty
 	res, err := d.client.HTTPClient().Get("http://agentbox/v1/projects/hello-stack/pulls")
@@ -182,10 +185,11 @@ func TestProjectPullRequestsEmptyListIsNotJSONNull(t *testing.T) {
 // Merging re-reads the pull request first, so a stale UI can't merge a draft
 // or one that has since been closed, then sends the chosen method.
 func TestMergePullRequestConfirmsThenMerges(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +217,7 @@ func TestMergePullRequestConfirmsThenMerges(t *testing.T) {
 		}
 	}))
 	defer stub.Close()
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 
 	pr, err := d.client.MergePullRequest(ctx, "hello-stack", 9, "squash")
 	if err != nil {
@@ -230,10 +234,11 @@ func TestMergePullRequestConfirmsThenMerges(t *testing.T) {
 // A draft pull request is never merged, even if the request asks: the UI
 // shouldn't offer it, but the daemon checks again before touching GitHub.
 func TestMergePullRequestRejectsADraft(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +257,7 @@ func TestMergePullRequestRejectsADraft(t *testing.T) {
 		}
 	}))
 	defer stub.Close()
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 
 	if _, err := d.client.MergePullRequest(ctx, "hello-stack", 9, "merge"); err == nil || !strings.Contains(err.Error(), "draft") {
 		t.Errorf("MergePullRequest() = %v, want a draft error", err)
@@ -261,10 +266,11 @@ func TestMergePullRequestRejectsADraft(t *testing.T) {
 
 // A pull request that has since closed, or already merged, is refused too.
 func TestMergePullRequestRejectsOneThatIsNotOpen(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +289,7 @@ func TestMergePullRequestRejectsOneThatIsNotOpen(t *testing.T) {
 		}
 	}))
 	defer stub.Close()
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 
 	if _, err := d.client.MergePullRequest(ctx, "hello-stack", 9, "merge"); err == nil || !strings.Contains(err.Error(), "merged") {
 		t.Errorf("MergePullRequest() = %v, want it to say it's already merged", err)
@@ -293,10 +299,11 @@ func TestMergePullRequestRejectsOneThatIsNotOpen(t *testing.T) {
 // When GitHub refuses a merge, the real reason reaches the user: a missing
 // review, a failing check, a protected branch — not just a status code.
 func TestMergePullRequestSurfacesGitHubsRefusal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +323,7 @@ func TestMergePullRequestSurfacesGitHubsRefusal(t *testing.T) {
 		}
 	}))
 	defer stub.Close()
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 
 	_, err := d.client.MergePullRequest(ctx, "hello-stack", 9, "merge")
 	if err == nil || !strings.Contains(err.Error(), "approving review") {
@@ -327,10 +334,11 @@ func TestMergePullRequestSurfacesGitHubsRefusal(t *testing.T) {
 // A merge method AgentBox doesn't recognize is refused before GitHub is ever
 // asked.
 func TestMergePullRequestRejectsAnInvalidMethod(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -342,10 +350,11 @@ func TestMergePullRequestRejectsAnInvalidMethod(t *testing.T) {
 // Without a shared GitHub token, merging says so plainly and names the fix,
 // rather than failing as though the pull request just wasn't found.
 func TestMergePullRequestWithoutTokenSaysSo(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -362,6 +371,7 @@ func TestMergePullRequestWithoutTokenSaysSo(t *testing.T) {
 // fails, what kind of failure it was decides the sentence the app can say, so
 // the daemon names it rather than passing GitHub's words through.
 func TestPullRequestsNameTheirAccountAndFailure(t *testing.T) {
+	t.Parallel()
 	// One short root for every case: a subtest's own t.TempDir() carries its
 	// name, and the daemon's socket has 107 bytes to fit in.
 	roots := t.TempDir()
@@ -372,7 +382,7 @@ func TestPullRequestsNameTheirAccountAndFailure(t *testing.T) {
 			t.Fatal(err)
 		}
 		d := startTestDaemon(t, root, fakeIncus)
-		repo := testutil.FixtureRepo(t, "hello-stack")
+		repo := d.fixtureRepo(t, "hello-stack")
 		if _, err := d.client.AddProject(context.Background(), api.AddProjectRequest{Path: repo}); err != nil {
 			t.Fatal(err)
 		}
@@ -398,14 +408,14 @@ func TestPullRequestsNameTheirAccountAndFailure(t *testing.T) {
 		return creds
 	}
 	// answering is a GitHub that refuses everything with one status.
-	answering := func(t *testing.T, status int, message string) {
+	answering := func(t *testing.T, d testDaemon, status int, message string) {
 		t.Helper()
 		stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(status)
 			fmt.Fprintf(w, `{"message":%q}`, message)
 		}))
 		t.Cleanup(stub.Close)
-		t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+		d.setGitHub(t, stub.URL)
 	}
 
 	t.Run("no account is stored at all", func(t *testing.T) {
@@ -422,7 +432,7 @@ func TestPullRequestsNameTheirAccountAndFailure(t *testing.T) {
 	t.Run("the account can't see the repository", func(t *testing.T) {
 		d := setup(t, "b")
 		accounts(t, d)
-		answering(t, http.StatusNotFound, "Not Found")
+		answering(t, d, http.StatusNotFound, "Not Found")
 		out := pullsOf(t, d, "hello-stack")
 		if out.GitHubAccount != "work" {
 			t.Errorf("GitHubAccount = %q, want the project's account", out.GitHubAccount)
@@ -439,7 +449,7 @@ func TestPullRequestsNameTheirAccountAndFailure(t *testing.T) {
 	t.Run("GitHub refused the token", func(t *testing.T) {
 		d := setup(t, "c")
 		accounts(t, d)
-		answering(t, http.StatusUnauthorized, "Bad credentials")
+		answering(t, d, http.StatusUnauthorized, "Bad credentials")
 		out := pullsOf(t, d, "hello-stack")
 		if out.GitHubError == nil || out.GitHubError.Kind != api.GitHubBadToken || out.GitHubError.Account != "work" {
 			t.Fatalf("GitHubError = %+v, want badToken for the account work", out.GitHubError)
@@ -449,7 +459,7 @@ func TestPullRequestsNameTheirAccountAndFailure(t *testing.T) {
 	t.Run("anything else is GitHub's own words", func(t *testing.T) {
 		d := setup(t, "d")
 		accounts(t, d)
-		answering(t, http.StatusInternalServerError, "Server Error")
+		answering(t, d, http.StatusInternalServerError, "Server Error")
 		out := pullsOf(t, d, "hello-stack")
 		if out.GitHubError == nil || out.GitHubError.Kind != api.GitHubOtherErr {
 			t.Fatalf("GitHubError = %+v, want other", out.GitHubError)
@@ -482,10 +492,11 @@ func TestPullRequestsNameTheirAccountAndFailure(t *testing.T) {
 // fault. A silent, wrong explanation here cost a user a long debugging
 // session.
 func TestPullRequestsWithNoOrigin(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -501,10 +512,11 @@ func TestPullRequestsWithNoOrigin(t *testing.T) {
 // it is rather than claiming there is none — with any password redacted, since
 // this string reaches a response and a log.
 func TestPullRequestsWithAnotherForge(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +542,7 @@ func TestPullRequestsThroughAnSSHHostAlias(t *testing.T) {
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +558,7 @@ func TestPullRequestsThroughAnSSHHostAlias(t *testing.T) {
 		w.Write([]byte(`{"default_branch":"main","permissions":{"push":true}}`))
 	}))
 	defer stub.Close()
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 
 	out := pullsOf(t, d, "hello-stack")
 	if out.GitHub != "acme/hello-stack" || out.NoOrigin || out.NonGitHubRemote != "" {

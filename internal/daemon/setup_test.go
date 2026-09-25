@@ -141,6 +141,7 @@ func flag01(on bool) string {
 // chose is ready; turning one on afterwards makes it outdated, the same as a
 // version bump does.
 func TestSetupImageComponents(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), imageIncus(image.Version, image.Components{}))
 	ctx := context.Background()
 
@@ -172,6 +173,7 @@ func TestSetupImageComponents(t *testing.T) {
 // Codex is optional in the image as well as in the credentials, and an image
 // without it says so rather than leaving an agent to fail later.
 func TestSetupCodexNotInImage(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), imageIncus(image.Version, image.Components{}))
 	codex := setupCheck(t, d, "codex")
 	if !strings.Contains(codex.Detail, image.CodexMissing) || codex.Fix != "agentbox image build --codex" {
@@ -188,6 +190,7 @@ func TestSetupCodexNotInImage(t *testing.T) {
 // OpenCode is optional in the image and in the credentials, and reads the same
 // way Codex does: the image first, then the login.
 func TestSetupOpenCodeNotInImage(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), imageIncus(image.Version, image.Components{}))
 	oc := setupCheck(t, d, "opencode")
 	if !strings.Contains(oc.Detail, image.OpenCodeMissing) || oc.Fix != "agentbox image build --opencode" {
@@ -213,6 +216,7 @@ func TestSetupOpenCodeNotInImage(t *testing.T) {
 // A build remembers the components it was given, and one that asks for nothing
 // keeps them: a rebuild after a version bump doesn't drop a component.
 func TestBuildImageRemembersComponents(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), imageIncus(image.Version, image.Components{}))
 	ctx := context.Background()
 	on, off := true, false
