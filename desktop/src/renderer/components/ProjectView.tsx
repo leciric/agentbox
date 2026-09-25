@@ -19,10 +19,11 @@ import { PullRequestsPanel } from './PullRequestsPanel';
 import { SecretsTab } from './SecretsTab';
 import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
-import { Card, Panel, Row } from './ui/card';
+import { Card, Row } from './ui/card';
 import { Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 import { Select, SelectOption } from './ui/select';
+import { SettingNote, SettingRow, SettingsGroup } from './ui/settings';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 // ClaudeAccountPicker chooses which stored Claude Code login this project's new
@@ -44,28 +45,31 @@ function ClaudeAccountPicker({ project }: { project: T.Project }) {
     },
   });
 
-  if (accounts.length === 0) {
-    return <span className="text-[13px] text-subtle">No account stored yet — add one in Settings.</span>;
-  }
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-2">
-      <Select
-        aria-label="Claude Code account"
-        className="h-8 max-w-52"
-        value={project.claudeAccount}
-        disabled={pick.isPending}
-        onChange={(value) => pick.mutate(value)}
-      >
-        <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
-        {accounts.filter((account) => allowed(project, account.name)).map((account) => (
-          <SelectOption key={account.name} value={account.name}>
-            {account.name}
-          </SelectOption>
-        ))}
-      </Select>
-      <span className="text-xs text-subtle">New agents only</span>
-      {pick.error && <span className="text-xs text-rose-300">{errorMessage(pick.error)}</span>}
-    </span>
+    <SettingRow
+      label="Claude Code account"
+      description={
+        auth.isPending
+          ? 'Loading…'
+          : accounts.length === 0
+            ? 'No account stored yet — add one in Settings.'
+            : 'The login new agents get. Agents that already exist keep the one they were made with.'
+      }
+      control={
+        accounts.length > 0 && (
+          <Select aria-label="Claude Code account" value={project.claudeAccount} disabled={pick.isPending} onChange={(value) => pick.mutate(value)}>
+            <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
+            {accounts.filter((account) => allowed(project, account.name)).map((account) => (
+              <SelectOption key={account.name} value={account.name}>
+                {account.name}
+              </SelectOption>
+            ))}
+          </Select>
+        )
+      }
+    >
+      {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
+    </SettingRow>
   );
 }
 
@@ -89,7 +93,12 @@ function ClaudeAccountsPicker({ project }: { project: T.Project }) {
   });
 
   if (accounts.length < 2) {
-    return <span className="text-[13px] text-subtle">Every account — there is only {accounts.length === 1 ? 'one' : 'none'} on this machine.</span>;
+    return (
+      <SettingRow
+        label="Allowed accounts"
+        description={auth.isPending ? 'Loading…' : `Every account — there is only ${accounts.length === 1 ? 'one' : 'none'} on this machine.`}
+      />
+    );
   }
   const toggle = (name: string) => {
     const current = accounts.map((a) => a.name).filter((n) => allowed(project, n));
@@ -99,8 +108,17 @@ function ClaudeAccountsPicker({ project }: { project: T.Project }) {
   };
   const effective = project.claudeAccount || fallback;
   return (
-    <span className="flex min-w-0 flex-col gap-1.5">
-      <span className="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label="Allowed Claude Code accounts">
+    <SettingRow
+      label="Allowed accounts"
+      description={
+        <>
+          Which of this machine's Claude Code accounts this project's agents may use.{' '}
+          {project.claudeAccounts.length === 0 ? 'Every account allowed.' : `${project.claudeAccounts.length} of ${accounts.length} allowed.`} Agents that
+          already have an account keep it.
+        </>
+      }
+    >
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label="Allowed Claude Code accounts">
         {accounts.map((account) => {
           const on = allowed(project, account.name);
           const locked = account.name === project.claudeAccount;
@@ -113,7 +131,7 @@ function ClaudeAccountsPicker({ project }: { project: T.Project }) {
               title={locked ? "The project's own account: pick another one above to leave it out" : undefined}
               onClick={() => toggle(account.name)}
               className={cn(
-                'flex h-7 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[12.5px] text-muted transition hover:bg-surface hover:text-primary disabled:cursor-default',
+                'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13px] text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:cursor-default',
                 on && 'border-transparent bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]',
               )}
             >
@@ -123,18 +141,12 @@ function ClaudeAccountsPicker({ project }: { project: T.Project }) {
             </button>
           );
         })}
-      </span>
-      <span className="text-xs text-subtle">
-        {project.claudeAccounts.length === 0 ? 'Every account allowed.' : `${project.claudeAccounts.length} of ${accounts.length} allowed.`} Agents that already
-        have an account keep it.
-      </span>
+      </div>
       {effective && !allowed(project, effective) && (
-        <span className="text-xs text-amber-300">
-          New agents default to {effective}, which isn't allowed: pick an allowed account above.
-        </span>
+        <SettingNote tone="warning">New agents default to {effective}, which isn't allowed: pick an allowed account above.</SettingNote>
       )}
-      {save.error && <span className="text-xs text-rose-300">{errorMessage(save.error)}</span>}
-    </span>
+      {save.error && <SettingNote tone="error">{errorMessage(save.error)}</SettingNote>}
+    </SettingRow>
   );
 }
 
@@ -163,88 +175,46 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
     },
   });
 
-  if (accounts.length === 0) {
-    return <span className="text-[13px] text-subtle">No account stored yet — add one in Settings.</span>;
-  }
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-2">
-      <Select
-        aria-label="GitHub account"
-        className="h-8 max-w-52"
-        value={project.githubAccount}
-        disabled={pick.isPending}
-        onChange={(value) => pick.mutate(value)}
-      >
-        <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
-        {/* Every stored account: the project's allow-list is for Claude Code
-            accounts, and filtering these by it left only Default (and the
-            picked account showing as "Select…") on a project that has one. */}
-        {accounts.map((account) => (
-          <SelectOption key={account.name} value={account.name}>
-            {account.name}
-          </SelectOption>
-        ))}
-        {/* An account the project picked and that was removed since: it is
-            still what the project names, so it shows rather than "Select…". */}
-        {project.githubAccount && !accounts.some((a) => a.name === project.githubAccount) && (
-          <SelectOption value={project.githubAccount} disabled>
-            {project.githubAccount} (removed)
-          </SelectOption>
-        )}
-      </Select>
-      <span className="text-xs text-subtle">New agents only</span>
-      {pick.error && <span className="text-xs text-rose-300">{errorMessage(pick.error)}</span>}
-    </span>
-  );
-}
-
-// FinishNoticesPicker chooses what a finishing agent does to this project's
-// chat. Telling the chat costs it a full turn every time, even when the agent
-// needed nothing decided, so a project can ask for the finish to be recorded
-// and nothing more — the chat still reads it the next time you write. "lead"
-// leaves the choice to the agent that finished, made when it was created (New
-// agent's "When it finishes"); one that chose nothing still wakes the chat.
-//
-// Questions are deliberately not part of this: an agent that asks is blocked
-// until somebody answers, so its question always wakes the chat.
-function FinishNoticesPicker({ project }: { project: T.Project }) {
-  const queryClient = useQueryClient();
-  const pick = useMutation({
-    mutationFn: (finishNotices: string) => api.updateProject(project.name, { finishNotices }),
-    onSuccess: async (updated) => {
-      toast(
-        {
-          off: `An agent of ${updated.name} that finishes is only recorded in its chat`,
-          lead: `An agent of ${updated.name} that finishes wakes its chat unless it was told not to when it was created`,
-        }[updated.finishNotices] ?? `An agent of ${updated.name} that finishes wakes its chat, which decides what happens next`,
-      );
-      await queryClient.invalidateQueries({ queryKey: ['projects'] });
-    },
-  });
-
-  return (
-    <Panel className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-primary">When an agent finishes</div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          Telling the chat costs it a turn, even when the agent left nothing to decide. Recorded finishes are still in its history, and it reads them the
-          next time you write. A question from an agent wakes it either way — the agent is blocked on the answer.
-        </p>
-        {pick.error && <p className="mt-1 text-xs text-rose-300">{errorMessage(pick.error)}</p>}
-      </div>
-      <Select
-        data-finish-notices
-        aria-label="When an agent finishes"
-        disabled={pick.isPending}
-        className="w-[22rem] flex-none rounded-xl"
-        value={project.finishNotices}
-        onChange={(value) => pick.mutate(value)}
-      >
-        <SelectOption value="lead">Let the agent that finished decide (the default)</SelectOption>
-        <SelectOption value="chat">Tell the project chat, and let it decide</SelectOption>
-        <SelectOption value="off">Only record it (no chat turn, no tokens)</SelectOption>
-      </Select>
-    </Panel>
+    <SettingRow
+      label="GitHub account"
+      description={
+        auth.isPending
+          ? 'Loading…'
+          : accounts.length === 0
+            ? 'No account stored yet — add one in Settings.'
+            : 'The login new agents push and open pull requests with. Agents that already exist keep the one they were made with.'
+      }
+      control={
+        accounts.length > 0 && (
+          <Select
+            aria-label="GitHub account"
+            value={project.githubAccount}
+            disabled={pick.isPending}
+            onChange={(value) => pick.mutate(value)}
+          >
+            <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
+            {/* Every stored account: the project's allow-list is for Claude Code
+                accounts, and filtering these by it left only Default (and the
+                picked account showing as "Select…") on a project that has one. */}
+            {accounts.map((account) => (
+              <SelectOption key={account.name} value={account.name}>
+                {account.name}
+              </SelectOption>
+            ))}
+            {/* An account the project picked and that was removed since: it is
+                still what the project names, so it shows rather than "Select…". */}
+            {project.githubAccount && !accounts.some((a) => a.name === project.githubAccount) && (
+              <SelectOption value={project.githubAccount} disabled>
+                {project.githubAccount} (removed)
+              </SelectOption>
+            )}
+          </Select>
+        )
+      }
+    >
+      {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
+    </SettingRow>
   );
 }
 
@@ -473,7 +443,7 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
             </TabsList>
 
             <TabsContent value="repository">
-              <div className="grid gap-4">
+              <div className="grid gap-6">
                 <Card title="Repository" icon={FolderGit2}>
                   <Row label="Folder" mono>
                     <span className="truncate" title={project.root}>
@@ -486,23 +456,18 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
                   <Row label="Env files" mono>
                     {project.envFiles.length > 0 ? project.envFiles.join(', ') : 'none'}
                   </Row>
-                  <Row label="Claude account">
-                    <ClaudeAccountPicker project={project} />
-                  </Row>
-                  <Row label="Allowed accounts">
-                    <ClaudeAccountsPicker project={project} />
-                  </Row>
-                  <Row label="GitHub account">
-                    <GitHubAccountPicker project={project} />
-                  </Row>
                 </Card>
+                <SettingsGroup title="Accounts" description="The logins this project's new agents get, from the ones stored in Settings.">
+                  <ClaudeAccountPicker project={project} />
+                  <ClaudeAccountsPicker project={project} />
+                  <GitHubAccountPicker project={project} />
+                </SettingsGroup>
                 <ProjectBasePanel project={project} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
               </div>
             </TabsContent>
 
             <TabsContent value="settings">
               <ProjectSettings project={project} />
-              <FinishNoticesPicker project={project} />
             </TabsContent>
 
             <TabsContent value="brief">

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, CircleAlert, Search, Sparkles } from 'lucide-react';
+import { Check, ChevronsUpDown, CircleAlert, Search, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -10,9 +10,9 @@ import { cn, errorMessage, humanBytes } from '../lib/utils';
 import { JobProgress } from './JobProgress';
 import { ModelByName } from './ModelByName';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
-import { Panel } from './ui/card';
 import { Field, Input } from './ui/input';
-import { Select, SelectOption } from './ui/select';
+import { Select, SelectOption, selectTrigger } from './ui/select';
+import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
 
 // Role is a section of Settings with defaults of its own: the agents a project
@@ -99,103 +99,101 @@ export function DefaultModel({ role }: { role: Role }) {
   const missing = unavailableValue(choices, value);
   const groups = groupChoices(choices.filter((c) => matchesQuery(c, query)));
   const searchable = choices.length >= searchThreshold;
-  const label = value === '' ? r.empty.name : (current && choiceName(current)) || value;
+  const label = !settings.data ? 'Loading…' : value === '' ? r.empty.name : (current && choiceName(current)) || value;
   const marker = role === 'agents' ? { 'data-default-model': true } : { 'data-lead-model': true };
 
   return (
-    <Panel className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-primary">{r.title}</div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">{r.about}</p>
-      </div>
-      <Menu onOpenChange={(open) => !open && setQuery('')}>
-        <MenuTrigger asChild>
-          <button
-            {...marker}
-            disabled={save.isPending}
-            aria-label={r.title}
-            className={cn(
-              'flex h-9 min-w-[13rem] items-center gap-2 rounded-xl border border-line-strong bg-surface-faint px-3 text-[13px] transition hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
-              missing ? 'text-amber-300' : 'text-primary',
+    <SettingRow
+      label={r.title}
+      description={r.about}
+      control={
+        <Menu onOpenChange={(open) => !open && setQuery('')}>
+          <MenuTrigger asChild>
+            <button
+              {...marker}
+              disabled={save.isPending || settings.data === undefined}
+              aria-label={r.title}
+              title={label}
+              className={cn(selectTrigger, missing && 'text-amber-300')}
+            >
+              {missing ? <CircleAlert className="size-4 shrink-0 text-amber-400" /> : <Sparkles className="size-4 shrink-0 text-brand-300" />}
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <ChevronsUpDown className="size-3.5 shrink-0 text-subtle" />
+            </button>
+          </MenuTrigger>
+          <MenuContent align="end" className="max-h-96 w-80 overflow-y-auto">
+            <MenuLabel>{r.title}</MenuLabel>
+            {searchable && (
+              <div className="mb-1 flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
+                <Search className="size-3.5 shrink-0 text-subtle" />
+                <input
+                  autoFocus
+                  aria-label="Search models"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.stopPropagation()}
+                  placeholder="Search"
+                  className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
+                />
+              </div>
             )}
-          >
-            {missing ? <CircleAlert className="text-amber-400" /> : <Sparkles className="text-brand-300" />}
-            <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-            <ChevronDown className="!size-3.5 text-faint" />
-          </button>
-        </MenuTrigger>
-        <MenuContent align="end" className="max-h-96 w-80 overflow-y-auto">
-          <MenuLabel>{r.title}</MenuLabel>
-          {searchable && (
-            <div className="mb-1 flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
-              <Search className="size-3.5 shrink-0 text-subtle" />
-              <input
-                autoFocus
-                aria-label="Search models"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                placeholder="Search"
-                className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
-              />
-            </div>
-          )}
-          {matchesQuery(r.empty, query) && (
-            <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
-              <span className="grid">
-                <span>{r.empty.name}</span>
-                <span className="text-[11px] text-subtle">{r.empty.description}</span>
-              </span>
-            </MenuItem>
-          )}
-          {/* A model this account has stopped offering keeps its place, named
-              and marked, instead of the menu quietly showing something else. */}
-          {missing && (
-            <>
-              <MenuSeparator />
-              <MenuItem disabled hint={<Check className="size-3.5 text-amber-300" />}>
+            {matchesQuery(r.empty, query) && (
+              <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
-                  <span className="flex items-center gap-1.5 text-amber-200">
-                    {missing}
-    <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">Off the menu</span>
-                  </span>
-                  <span className="text-[11px] text-subtle">Not on the menu Claude Code last advertised — either a model you named, or one this account has stopped offering.</span>
+                  <span>{r.empty.name}</span>
+                  <span className="text-[11px] text-subtle">{r.empty.description}</span>
                 </span>
               </MenuItem>
-            </>
-          )}
-          {groups.map((group, gi) => (
-            <div key={group.name || gi}>
-              {group.name && (
-                <>
-                  <MenuSeparator />
-                  <MenuLabel>{group.name}</MenuLabel>
-                </>
-              )}
-              {group.choices.map((choice) => (
-                <MenuItem key={choice.value} onSelect={() => save.mutate(choice.value)} hint={choice.value === value ? <Check className="size-3.5 text-brand-300" /> : undefined}>
+            )}
+            {/* A model this account has stopped offering keeps its place, named
+                and marked, instead of the menu quietly showing something else. */}
+            {missing && (
+              <>
+                <MenuSeparator />
+                <MenuItem disabled hint={<Check className="size-3.5 text-amber-300" />}>
                   <span className="grid">
-                    <span className="flex items-center gap-1.5">
-                      {choiceName(choice)}
-                      {isRecommended(choice) && (
-                        <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">Recommended</span>
-                      )}
+                    <span className="flex items-center gap-1.5 text-amber-200">
+                                      {missing}
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">Off the menu</span>
                     </span>
-                    {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                    <span className="text-[11px] text-subtle">Not on the menu Claude Code last advertised — either a model you named, or one this account has stopped offering.</span>
                   </span>
                 </MenuItem>
-              ))}
-            </div>
-          ))}
-          {settings.data && !settings.data.claudeMenuKnown && (
-            <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
-              Only AgentBox's own picks so far. Claude Code sends the models your account may use when a chat starts — open one, and they'll be here.
-            </div>
-          )}
-          <ModelByName onPick={(model) => save.mutate(model)} disabled={save.isPending} />
-        </MenuContent>
-      </Menu>
-    </Panel>
+              </>
+            )}
+            {groups.map((group, gi) => (
+              <div key={group.name || gi}>
+                {group.name && (
+                  <>
+                    <MenuSeparator />
+                    <MenuLabel>{group.name}</MenuLabel>
+                  </>
+                )}
+                {group.choices.map((choice) => (
+                  <MenuItem key={choice.value} onSelect={() => save.mutate(choice.value)} hint={choice.value === value ? <Check className="size-3.5 text-brand-300" /> : undefined}>
+                    <span className="grid">
+                      <span className="flex items-center gap-1.5">
+                        {choiceName(choice)}
+                        {isRecommended(choice) && (
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">Recommended</span>
+                        )}
+                      </span>
+                      {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
+                    </span>
+                  </MenuItem>
+                ))}
+              </div>
+            ))}
+            {settings.data && !settings.data.claudeMenuKnown && (
+              <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
+                Only AgentBox's own picks so far. Claude Code sends the models your account may use when a chat starts — open one, and they'll be here.
+              </div>
+            )}
+            <ModelByName onPick={(model) => save.mutate(model)} disabled={save.isPending} />
+          </MenuContent>
+        </Menu>
+      }
+    />
   );
 }
 
@@ -219,26 +217,28 @@ export function DefaultContextWindow({ role }: { role: Role }) {
   const value = (settings.data && r.window(settings.data)) || '';
 
   return (
-    <Panel className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-primary">{r.windowTitle}</div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
+    <SettingRow
+      label={r.windowTitle}
+      description={
+        <>
           {r.windowAbout} Past the compact window every step resends the whole conversation, so 1M costs up to five times as much per step late in a long task.
           {settings.data && !hasFull && ' This model has no 1M window.'}
-        </p>
-      </div>
-      <Select
-        data-default-window={role}
-        aria-label={r.windowTitle}
-        disabled={save.isPending || settings.data === undefined}
-        className="w-[13rem] flex-none rounded-xl"
-        value={value}
-        onChange={(next) => save.mutate(next)}
-      >
-        <SelectOption value="">{standard ? formatTokens(standard) : 'The model\'s whole window'} (default)</SelectOption>
-        {(hasFull || value === fullWindow) && <SelectOption value={fullWindow}>1M, the model's whole window</SelectOption>}
-      </Select>
-    </Panel>
+        </>
+      }
+      control={
+        <Select
+          data-default-window={role}
+          aria-label={r.windowTitle}
+          disabled={save.isPending || settings.data === undefined}
+          placeholder="Loading…"
+          value={value}
+          onChange={(next) => save.mutate(next)}
+        >
+          <SelectOption value="">{standard ? formatTokens(standard) : 'The model\'s whole window'} (default)</SelectOption>
+          {(hasFull || value === fullWindow) && <SelectOption value={fullWindow}>1M, the model's whole window</SelectOption>}
+        </Select>
+      }
+    />
   );
 }
 
@@ -264,33 +264,34 @@ export function NewAgentEffort() {
   const value = settings.data?.defaultClaudeEffort ?? '';
 
   return (
-    <Panel className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-primary">Effort for new agents</div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
+    <SettingRow
+      label="Effort for new agents"
+      description={
+        <>
           How hard a new Claude Code agent thinks. Not every model has effort levels, and one that doesn't simply ignores this.
           {settings.data && !settings.data.claudeMenuKnown && ' The levels are here once a Claude Code chat has started.'}
-        </p>
-      </div>
-      <Select
-        data-default-effort
-        aria-label="Effort for new agents"
-        disabled={save.isPending}
-        className="w-[13rem] flex-none rounded-xl"
-        value={value}
-        onChange={(next) => save.mutate(next)}
-      >
-        <SelectOption value="">AgentBox default (high)</SelectOption>
-        {choices.map((choice) => (
-          <SelectOption key={choice.value} value={choice.value}>
-            {choiceName(choice) || choice.value}
-          </SelectOption>
-        ))}
-        {/* A level this account has stopped offering keeps its place, so the
-            control never shows something else as though you had picked it. */}
-        {value !== '' && !choices.some((c) => c.value === value) && <SelectOption value={value}>{value} (unavailable)</SelectOption>}
-      </Select>
-    </Panel>
+        </>
+      }
+      control={
+        <Select
+          data-default-effort
+          aria-label="Effort for new agents"
+          disabled={save.isPending || settings.data === undefined}
+          value={value}
+          onChange={(next) => save.mutate(next)}
+        >
+          <SelectOption value="">AgentBox default (high)</SelectOption>
+          {choices.map((choice) => (
+            <SelectOption key={choice.value} value={choice.value}>
+              {choiceName(choice) || choice.value}
+            </SelectOption>
+          ))}
+          {/* A level this account has stopped offering keeps its place, so the
+              control never shows something else as though you had picked it. */}
+          {value !== '' && !choices.some((c) => c.value === value) && <SelectOption value={value}>{value} (unavailable)</SelectOption>}
+        </Select>
+      }
+    />
   );
 }
 
@@ -317,18 +318,19 @@ export function NewAgentResources() {
   const memory = settings.data?.hostMemory ?? 0;
 
   return (
-    <Panel className="p-4">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <div className="text-[13px] font-medium text-primary">Resources for new agents</div>
-        <div className="text-[12px] text-subtle">
-          This host has {cores || '—'} cores and {memory ? humanBytes(memory) : '—'} of memory.
-        </div>
-      </div>
-      <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-        Each limit is per agent, not a pool shared by all of them: three agents at 4 cores on an 8-core host each see 4, and share the host's 8. Empty means
-        no limit. Changes apply to new agents only — change an existing one on its Overview tab.
-      </p>
-      <div className="mt-3.5 grid gap-4 sm:grid-cols-3">
+    <SettingRow
+      label="Resources for new agents"
+      description={
+        <>
+          Each limit is per agent, not a pool shared by all of them: three agents at 4 cores on an 8-core host each see 4, and share the host's 8. Empty
+          means no limit. Changes apply to new agents only — change an existing one on its Overview tab.{' '}
+          <span className="text-tertiary">
+            This host has {cores || '—'} cores and {memory ? humanBytes(memory) : '—'} of memory.
+          </span>
+        </>
+      }
+    >
+      <div className="grid items-start gap-4 sm:grid-cols-3">
         <ResourceField
           id="default-cpu"
           label="CPU cores"
@@ -357,7 +359,7 @@ export function NewAgentResources() {
           onCommit={(defaultMemory) => save.mutate({ defaultMemory })}
         />
       </div>
-    </Panel>
+    </SettingRow>
   );
 }
 
@@ -428,23 +430,19 @@ export function ResumeAfterLimit() {
   });
 
   return (
-    <Panel className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-primary">Resume after a usage limit</div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          When Claude Code stops an agent mid-turn because the account's usage is spent, wait for the limit to reset and ask it to carry on where it
-          left off. Off, the turn stays failed until you send a message. Anything you do to the chat in the meantime — a message, stopping it, stopping
-          the agent — calls the wait off.
-        </p>
-      </div>
-      <Switch
-        data-resume-after-limit
-        aria-label="Resume after a usage limit"
-        disabled={save.isPending || settings.data === undefined}
-        checked={settings.data?.resumeAfterLimit ?? true}
-        onCheckedChange={(next) => save.mutate(next)}
-      />
-    </Panel>
+    <SettingRow
+      label="Resume after a usage limit"
+      description="When Claude Code stops an agent mid-turn because the account's usage is spent, wait for the limit to reset and ask it to carry on where it left off. Off, the turn stays failed until you send a message. Anything you do to the chat in the meantime — a message, stopping it, stopping the agent — calls the wait off."
+      control={
+        <Switch
+          data-resume-after-limit
+          aria-label="Resume after a usage limit"
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.resumeAfterLimit ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
   );
 }
 
@@ -474,34 +472,29 @@ export function CompactWindow() {
   const value = settings.data?.claudeCompactWindow ?? fallback;
 
   return (
-    <Panel className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-primary">Compact chats at</div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          How full a Claude Code or Codex chat's context gets before it is summarised and carried on (OpenCode has no such setting). Every step an
-          agent takes sends its whole conversation again, so this decides what long work costs per step — smaller spends less, larger forgets
-          less. Applies from each chat's next session.
-        </p>
-      </div>
-      <Select
-        data-compact-window
-        aria-label="Compact chats at"
-        disabled={save.isPending || settings.data === undefined}
-        className="w-[13rem] flex-none rounded-xl"
-        value={String(value)}
-        onChange={(next) => save.mutate(Number(next))}
-      >
-        {compactWindows.map((n) => (
-          <SelectOption key={n} value={String(n)}>
-            {formatTokens(n)} tokens{n === fallback ? ' (default)' : ''}
-          </SelectOption>
-        ))}
-        {/* A value set from the command line keeps its place, so the control
-            never shows another one as though you had picked it. */}
-        {value !== 0 && !compactWindows.includes(value) && <SelectOption value={String(value)}>{formatTokens(value)} tokens</SelectOption>}
-        <SelectOption value="0">The model's whole window</SelectOption>
-      </Select>
-    </Panel>
+    <SettingRow
+      label="Compact chats at"
+      description="How full a Claude Code or Codex chat's context gets before it is summarised and carried on (OpenCode has no such setting). Every step an agent takes sends its whole conversation again, so this decides what long work costs per step — smaller spends less, larger forgets less. Applies from each chat's next session."
+      control={
+        <Select
+          data-compact-window
+          aria-label="Compact chats at"
+          disabled={save.isPending || settings.data === undefined}
+          value={String(value)}
+          onChange={(next) => save.mutate(Number(next))}
+        >
+          {compactWindows.map((n) => (
+            <SelectOption key={n} value={String(n)}>
+              {formatTokens(n)} tokens{n === fallback ? ' (default)' : ''}
+            </SelectOption>
+          ))}
+          {/* A value set from the command line keeps its place, so the control
+              never shows another one as though you had picked it. */}
+          {value !== 0 && !compactWindows.includes(value) && <SelectOption value={String(value)}>{formatTokens(value)} tokens</SelectOption>}
+          <SelectOption value="0">The model's whole window</SelectOption>
+        </Select>
+      }
+    />
   );
 }
 
@@ -529,30 +522,26 @@ export function MediaRetention() {
   });
 
   return (
-    <Panel className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
-      <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-primary">Keep a removed agent's media for</div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          Screenshots, recordings and reports stay in the project's media view after their agent is destroyed — by you, or on its own once its pull
-          request is merged or closed — and are purged when this runs out. An agent that still exists keeps all of its media.
-        </p>
-      </div>
-      <Select
-        data-media-retention
-        aria-label="Keep a removed agent's media for"
-        disabled={save.isPending || settings.data === undefined}
-        className="w-[13rem] flex-none rounded-xl"
-        value={settings.data?.mediaRetention ?? '1d'}
-        onChange={(next) => save.mutate(next)}
-      >
-        {mediaRetentions.map((r) => (
-          <SelectOption key={r.value} value={r.value}>
-            {r.label}
-            {r.value === '1d' ? ' (default)' : ''}
-          </SelectOption>
-        ))}
-      </Select>
-    </Panel>
+    <SettingRow
+      label="Keep a removed agent's media for"
+      description="Screenshots, recordings and reports stay in the project's media view after their agent is destroyed — by you, or on its own once its pull request is merged or closed — and are purged when this runs out. An agent that still exists keeps all of its media."
+      control={
+        <Select
+          data-media-retention
+          aria-label="Keep a removed agent's media for"
+          disabled={save.isPending || settings.data === undefined}
+          value={settings.data?.mediaRetention ?? '1d'}
+          onChange={(next) => save.mutate(next)}
+        >
+          {mediaRetentions.map((r) => (
+            <SelectOption key={r.value} value={r.value}>
+              {r.label}
+              {r.value === '1d' ? ' (default)' : ''}
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
   );
 }
 
@@ -578,15 +567,10 @@ export function OpenCodeInImage() {
   const installed = setup.data?.image.installed.opencode === true;
 
   return (
-    <Panel className="mt-3 grid gap-3 p-4">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-primary">OpenCode in the base image</div>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-            Adds the OpenCode CLI, which is its own chat adapter, so agents can be created on it. About 120 MB, and turning it on rebuilds the image.
-            Agents that already exist are unaffected.
-          </p>
-        </div>
+    <SettingRow
+      label="OpenCode in the base image"
+      description="Adds the OpenCode CLI, which is its own chat adapter, so agents can be created on it. About 120 MB, and turning it on rebuilds the image. Agents that already exist are unaffected."
+      control={
         <Switch
           data-image-opencode
           aria-label="OpenCode in the base image"
@@ -594,11 +578,12 @@ export function OpenCodeInImage() {
           checked={wanted}
           onCheckedChange={(next) => build.mutate(next)}
         />
-      </div>
+      }
+    >
       {wanted && !installed && job === null && (
-        <p className="text-[12px] text-amber-300">The image doesn't have OpenCode yet: rebuild it in the Environment tab, or run agentbox image build.</p>
+        <SettingNote tone="warning">The image doesn't have OpenCode yet: rebuild it in the Environment tab, or run agentbox image build.</SettingNote>
       )}
       {job && <JobProgress jobId={job} onDone={() => void queryClient.invalidateQueries({ queryKey: ['setup'] })} />}
-    </Panel>
+    </SettingRow>
   );
 }

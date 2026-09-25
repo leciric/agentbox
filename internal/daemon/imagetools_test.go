@@ -210,6 +210,14 @@ func TestDaemonToolsUpdateCancelled(t *testing.T) {
 	if !ok {
 		t.Fatalf("no job %s", running.Job)
 	}
+	// Setup shows the job before it has made its copy: cancel once it is
+	// working in the copy, so there is a copy for the cancel to delete.
+	for deadline := time.Now().Add(10 * time.Second); !ranLine(incusLog(t, root), "exec agentbox-base-next"); {
+		if time.Now().After(deadline) {
+			t.Fatalf("the update never ran in its copy:\n%s", strings.Join(incusLog(t, root), "\n"))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	j.cancel()
 	cancelled := waitForImage(t, d, func(c api.SetupCheck) bool { return c.Status == api.SetupWarn })
 	if !strings.Contains(cancelled.Detail, "cancelled") || cancelled.Fix != "agentbox image build" {
