@@ -329,3 +329,54 @@ func TestOpenCodeLogin(t *testing.T) {
 		}
 	}
 }
+
+func TestRenameClaudeAccount(t *testing.T) {
+	s := store(t)
+	// "default" is the default without a marker saying so: renaming it must
+	// not hand the default to "alpha", which sorts first.
+	if err := s.SaveClaudeToken("", "sk-ant-oat01-first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveClaudeToken("alpha", "sk-ant-oat01-alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RenameClaudeAccount("default", "personal"); err != nil {
+		t.Fatal(err)
+	}
+	if def, _ := s.DefaultClaudeAccount(); def != "personal" {
+		t.Errorf("after the rename the default is %q, want personal", def)
+	}
+	if token, _ := s.ClaudeToken("personal"); token != "sk-ant-oat01-first" {
+		t.Errorf("personal's token = %q", token)
+	}
+	if ok, _ := s.HasClaudeAccount("default"); ok {
+		t.Error("the old name still holds a token")
+	}
+	accounts, _ := s.ClaudeAccounts()
+	if len(accounts) != 2 || accounts[1].Name != "personal" || !accounts[1].SavedAtKnown {
+		t.Errorf("ClaudeAccounts() = %+v: the saved date should move with the token", accounts)
+	}
+
+	// A renamed account that isn't the default leaves the default alone.
+	if err := s.RenameClaudeAccount("alpha", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if def, _ := s.DefaultClaudeAccount(); def != "personal" {
+		t.Errorf("renaming another account moved the default to %q", def)
+	}
+
+	for _, c := range []struct{ old, name, want string }{
+		{"work", "personal", "already"},
+		{"work", "work", "already called"},
+		{"nobody", "someone", "no Claude Code account"},
+		{"work", "Bad Name", "account"},
+	} {
+		err := s.RenameClaudeAccount(c.old, c.name)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("RenameClaudeAccount(%q, %q) = %v, want an error about %q", c.old, c.name, err, c.want)
+		}
+	}
+	if token, _ := s.ClaudeToken("work"); token != "sk-ant-oat01-alpha" {
+		t.Errorf("a refused rename touched work's token: %q", token)
+	}
+}

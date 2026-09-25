@@ -1269,6 +1269,23 @@ type ClaudeTokenRequest struct {
 	Account string `json:"account,omitempty"`
 }
 
+// RenameClaudeAccountRequest gives a stored Claude Code account another name.
+type RenameClaudeAccountRequest struct {
+	Name string `json:"name"`
+}
+
+// RenamedClaudeAccount is what a rename carried over to the new name. The
+// token is the same, so the agents on it keep running: nothing needs a restart.
+type RenamedClaudeAccount struct {
+	Old  string `json:"old"`
+	Name string `json:"name"`
+	// Projects are the projects whose own account or allow-list named it.
+	Projects []string `json:"projects"`
+	// Agents are the agents on it, by project/name, the projects' chats
+	// included.
+	Agents []string `json:"agents"`
+}
+
 // ClaudeLoginRequest starts an in-app Claude Code login: AgentBox runs
 // `claude setup-token` itself and stores what it mints (D59).
 type ClaudeLoginRequest struct {

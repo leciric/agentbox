@@ -315,3 +315,63 @@ func TestProjectAccountMovesItsChat(t *testing.T) {
 		t.Errorf("after the project moved to %q, its chat runs on %q", "personal", a.ClaudeAccount)
 	}
 }
+
+// TestRenameClaudeAccount: the route renames the token and carries the
+// project over, keeps the machine default on the same account, and refuses a
+// name that is taken or invalid without touching anything.
+func TestRenameClaudeAccount(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	creds := credentials.Store{Dir: d.paths.Credentials()}
+	for _, name := range []string{"default", "work"} {
+		if err := creds.SaveClaudeToken(name, "sk-ant-oat01-"+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack"), ClaudeAccount: "work"}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, bad := range []string{"default", "Not Valid", ""} {
+		if _, err := d.client.RenameClaudeAccount(ctx, "work", bad); err == nil {
+			t.Errorf("renaming work to %q was allowed", bad)
+		}
+	}
+	if _, err := d.client.RenameClaudeAccount(ctx, "nobody", "someone"); err == nil {
+		t.Error("renaming an account that doesn't exist was allowed")
+	}
+	if p, _ := d.client.Project(ctx, "hello-stack"); p.ClaudeAccount != "work" {
+		t.Fatalf("a refused rename moved the project to %q", p.ClaudeAccount)
+	}
+
+	got, err := d.client.RenameClaudeAccount(ctx, "work", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Old != "work" || got.Name != "client" || len(got.Projects) != 1 || got.Projects[0] != "hello-stack" || got.Agents == nil {
+		t.Errorf("RenameClaudeAccount() = %+v", got)
+	}
+	if p, _ := d.client.Project(ctx, "hello-stack"); p.ClaudeAccount != "client" {
+		t.Errorf("the project's account = %q, want client", p.ClaudeAccount)
+	}
+	if token, _ := creds.ClaudeToken("client"); token != "sk-ant-oat01-work" {
+		t.Errorf("client's token = %q", token)
+	}
+
+	if _, err := d.client.RenameClaudeAccount(ctx, "default", "personal"); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := d.client.Auth(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var def string
+	for _, acc := range auth.ClaudeAccounts {
+		if acc.Default {
+			def = acc.Name
+		}
+	}
+	if def != "personal" {
+		t.Errorf("the default after renaming it = %q, want personal", def)
+	}
+}

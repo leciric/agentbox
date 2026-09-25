@@ -406,6 +406,85 @@ func (s *Server) setDefaultClaudeAccount(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
+// renameClaudeAccount gives a stored account another name and carries every
+// reference to it over: the machine default, each project's account and
+// allow-list, each agent's account and the leads', and its usage-limit
+// reading. The token doesn't change, so agents on it keep running as they are.
+func (s *Server) renameClaudeAccount(w http.ResponseWriter, r *http.Request) error {
+	var req api.RenameClaudeAccountRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	old, name := r.PathValue("account"), strings.TrimSpace(req.Name)
+	creds := s.manager(nil).Creds
+	// The store's checks come first, so a refused name leaves the database
+	// alone; the move itself runs again inside the transaction.
+	if err := credentials.ValidateAccount(name); err != nil {
+		return err
+	}
+	if taken, err := creds.HasClaudeAccount(name); err != nil {
+		return err
+	} else if taken && name != old {
+		return fmt.Errorf("there is already a Claude Code account named %q: remove it first, or pick another name", name)
+	}
+	if err := s.claudeLoginFor(old, name); err != nil {
+		return err
+	}
+	moved := false
+	done, err := s.store.RenameClaudeAccount(r.Context(), old, name, func() error {
+		if err := creds.RenameClaudeAccount(old, name); err != nil {
+			return err
+		}
+		moved = true
+		return nil
+	})
+	if err != nil {
+		if moved {
+			// The transaction didn't commit, so the token goes back to the
+			// name the database still has.
+			if undo := creds.RenameClaudeAccount(name, old); undo != nil {
+				s.logf("renaming the Claude Code account %q back from %q: %v", old, name, undo)
+			}
+		}
+		return err
+	}
+	s.logf("Renamed the Claude Code account %q to %q", old, name)
+	s.chat.RenameClaudeAccount(old, name)
+	// Every project's chat brief may list the account by name, whether or not
+	// the project picked it, so each lead gets its brief written again.
+	if projects, err := s.store.Projects(r.Context()); err == nil {
+		for _, p := range projects {
+			if err := s.manager(nil).ReconfigureLead(r.Context(), p.Name); err != nil {
+				s.logf("reconfiguring the %s chat: %v", p.Name, err)
+			}
+		}
+	}
+	for _, p := range done.Projects {
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p})
+	}
+	out := api.RenamedClaudeAccount{Old: old, Name: name, Projects: done.Projects, Agents: done.Agents}
+	if out.Projects == nil {
+		out.Projects = []string{}
+	}
+	if out.Agents == nil {
+		out.Agents = []string{}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// claudeLoginFor refuses a rename while a login is running for either name:
+// it would store its token under a name that has just been freed or taken.
+func (s *Server) claudeLoginFor(names ...string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, login := range s.claudeLogins {
+		if j, ok := s.jobs.get(id); ok && !j.snapshot().Done() && slices.Contains(names, login.account) {
+			return fmt.Errorf("a Claude Code login for %q is running (job %s): finish it, or cancel it, before renaming", login.account, id)
+		}
+	}
+	return nil
+}
+
 // groupFile is where the machine's groups are listed. A variable so tests can
 // put a group this process isn't in somewhere harmless.
 var groupFile = "/etc/group"
