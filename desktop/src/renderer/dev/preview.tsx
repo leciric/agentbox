@@ -26,6 +26,10 @@
 //                           no daemon to reach, as a first launch shows it
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
+//   ?avatars=working        every AI tool's avatar in one mood (working, asking,
+//                           idle, sleeping, error), at the rail's 40px and
+//                           blown up; ?avatars=all for every mood at once. The
+//                           rail beside it has an agent in each mood too.
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -38,6 +42,8 @@ import type * as T from '../../shared/api';
 import { Toaster } from 'sonner';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
+import { AgentAvatar, aiLabel } from '../components/state';
+import type { Mood } from '../lib/agentStatus';
 import { ClaudeAccounts } from '../components/SettingsView';
 import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
@@ -58,6 +64,9 @@ const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's da
 const vm = params.get('vm');
 const wsl = params.get('wsl');
 const accounts = params.get('accounts') === '1';
+const avatars = params.get('avatars');
+const moods: Mood[] = ['working', 'asking', 'idle', 'sleeping', 'error'];
+const moodState: Record<Mood, string> = { working: 'running', asking: 'running', idle: 'running', sleeping: 'stopped', error: 'incomplete' };
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -127,7 +136,28 @@ function Preview() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)', color: 'var(--color-zinc-600)', padding: 24, font: '13px var(--font-sans)' }}>
-        {chat === 'compaction' ? (
+        {avatars ? (
+          <div style={{ display: 'grid', gap: 28 }}>
+            {moods
+              .filter((m) => avatars === 'all' || avatars === m)
+              .map((m) => (
+                <section key={m} data-avatars={m}>
+                  <h3 style={{ marginBottom: 12, color: 'var(--ab-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 11 }}>{m}</h3>
+                  <div style={{ display: 'flex', alignItems: 'end', gap: 28 }}>
+                    {['claude', 'codex', 'opencode', 'none'].map((ai) => (
+                      <figure key={ai} style={{ display: 'grid', justifyItems: 'center', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                          <AgentAvatar ai={ai} mood={m} state={moodState[m]} seed={`${ai}-${m}`} />
+                          {avatars !== 'all' && <AgentAvatar ai={ai} mood={m} state={moodState[m]} seed={`${ai}-${m}`} className="size-28 rounded-3xl" />}
+                        </div>
+                        <figcaption style={{ fontSize: 11.5 }}>{aiLabel(ai)}</figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                </section>
+              ))}
+          </div>
+        ) : chat === 'compaction' ? (
           <div style={{ maxWidth: 720 }}>
             <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={compactionThread()} />
           </div>

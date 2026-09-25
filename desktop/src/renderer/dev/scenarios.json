@@ -152,5 +152,62 @@
     "query": "chat=compaction&theme=light",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "avatars-working-dark",
+    "description": "Avatars, mid-turn: bobbing, blinking now and then (Codex's cursor blinks) \u2014 each AI tool at 40px and blown up, dark",
+    "query": "avatars=working&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "avatars-asking-dark",
+    "description": "Avatars, waiting on the user (a question, a permission, a credential request): waving, on an amber tile \u2014 each AI tool at 40px and blown up, dark",
+    "query": "avatars=asking&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "avatars-idle-dark",
+    "description": "Avatars, machine up, nothing to do: still, a slow blink \u2014 each AI tool at 40px and blown up, dark",
+    "query": "avatars=idle&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "avatars-sleeping-dark",
+    "description": "Avatars, machine stopped: eyes shut, \"zzz\", greyed \u2014 each AI tool at 40px and blown up, dark",
+    "query": "avatars=sleeping&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "avatars-error-dark",
+    "description": "Avatars, machine incomplete or missing, or the chat broke: X eyes, on a rose tile \u2014 each AI tool at 40px and blown up, dark",
+    "query": "avatars=error&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "avatars-all-dark",
+    "description": "Every avatar mood at the rail's 40px, beside a rail with an agent in each mood \u2014 dark",
+    "query": "avatars=all&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "avatars-all-light",
+    "description": "Every avatar mood at 40px \u2014 light (OpenCode's mark takes its light colours)",
+    "query": "avatars=all&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "avatars-all-reduced-motion-dark",
+    "description": "Every avatar mood with prefers-reduced-motion: poses only, nothing moves",
+    "query": "avatars=all&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "reducedMotion": "reduce"
   }
 ]
