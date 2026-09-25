@@ -38,6 +38,10 @@ const (
 	MaxNameLen   = 24
 	session      = "main"
 	readyTimeout = 2 * time.Minute
+	// cachesDevice mounts the shared Go and npm build caches (paths.Paths.Caches):
+	// same path in every agent, so unlike worktree and gitdir it's fine for a
+	// copy to keep it (build, above).
+	cachesDevice = "agentbox-caches"
 )
 
 // Tool is an AI command line an agent starts in tmux window 1.
@@ -589,6 +593,17 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		[]string{"config", "device", "add", a.Instance, "worktree", "disk", "source=" + a.Worktree, "path=" + a.Worktree},
 		[]string{"config", "device", "add", a.Instance, "gitdir", "disk", "source=" + pl.repo.GitDir, "path=" + pl.repo.GitDir},
 	)
+	// The build caches sit at the same path in every agent, so a copy already
+	// carries the device (unlike worktree and gitdir, which are this agent's
+	// own paths): only add it when it isn't there yet.
+	if _, ok := copied.Devices[cachesDevice]; !ok {
+		for _, dir := range []string{m.Paths.GoBuildCache(), m.Paths.GoModCache(), m.Paths.NpmCache()} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fail("instance", err)
+			}
+		}
+		steps = append(steps, []string{"config", "device", "add", a.Instance, cachesDevice, "disk", "source=" + m.Paths.Caches(), "path=" + m.Paths.Caches()})
+	}
 	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config)...)
 	steps = append(steps, []string{"start", a.Instance})
 	for _, args := range steps {
@@ -1157,6 +1172,11 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	// Every agent of a project uses the same Compose project name, so a fork or
 	// a project base finds the containers and volumes it was copied with.
 	env := "# Written by AgentBox.\nexport COMPOSE_PROJECT_NAME=" + shellQuote(a.Project) + "\n"
+	// Shared build caches (cachesDevice, above), on the installation's own
+	// disk rather than an empty one this agent's machine started with.
+	env += "export GOCACHE=" + shellQuote(m.Paths.GoBuildCache()) + "\n" +
+		"export GOMODCACHE=" + shellQuote(m.Paths.GoModCache()) + "\n" +
+		"export npm_config_cache=" + shellQuote(m.Paths.NpmCache()) + "\n"
 	// The GitHub token, when the agent has an account, so gh and the API work in it.
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
 	if err != nil {

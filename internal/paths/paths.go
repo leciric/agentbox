@@ -92,3 +92,16 @@ func (p Paths) Worktrees() string {
 func (p Paths) Worktree(project, agent string) string {
 	return filepath.Join(p.Worktrees(), project, agent)
 }
+
+// Caches is the Go and npm build caches every agent shares, always under
+// p.Data rather than Worktrees(): on a Mac that keeps it on the VM's own
+// disk even though worktrees live on the Mac's virtiofs-shared home, because
+// virtiofs is far slower for the many small files a build cache is made of.
+// Go's module and build caches tolerate several processes reading and
+// writing at once, so one directory for every agent of every project is
+// enough, and gets more reuse than one per project would.
+func (p Paths) Caches() string { return filepath.Join(p.Data, "caches") }
+
+func (p Paths) GoBuildCache() string { return filepath.Join(p.Caches(), "go-build") }
+func (p Paths) GoModCache() string   { return filepath.Join(p.Caches(), "go-mod") }
+func (p Paths) NpmCache() string     { return filepath.Join(p.Caches(), "npm") }

@@ -23,6 +23,7 @@ func recordingIncus(t *testing.T, instances string) (incus.Client, string) {
 	t.Helper()
 	files := t.TempDir()
 	t.Setenv("INCUS_FILES", files)
+	t.Setenv("INCUS_CONFIG_LOG", filepath.Join(files, "_config.log"))
 	return fakeIncus(t, `case "$1" in
   list) echo '`+instances+`' ;;
   query)
@@ -31,6 +32,7 @@ func recordingIncus(t *testing.T, instances string) (incus.Client, string) {
       */snapshots) echo '[]' ;;
       *) echo '{"config": {}, "devices": {}}' ;;
     esac ;;
+  config) echo "$*" >> "$INCUS_CONFIG_LOG" ;;
   exec)
     if [ "$5" = "sh" ] && [ "$6" = "-c" ] && [ $# -eq 11 ]; then
       dest="$INCUS_FILES/$2$9"
@@ -40,6 +42,16 @@ func recordingIncus(t *testing.T, instances string) (incus.Client, string) {
     fi ;;
 esac
 exit 0`), files
+}
+
+// configLog returns the "config ..." commands issued to a recordingIncus.
+func configLog(t *testing.T, files string) string {
+	t.Helper()
+	content, err := os.ReadFile(filepath.Join(files, "_config.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(content)
 }
 
 const oneRunningAgent = `[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]`

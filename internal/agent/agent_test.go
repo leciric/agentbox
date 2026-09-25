@@ -21,6 +21,7 @@ import (
 )
 
 func TestParseRef(t *testing.T) {
+	t.Parallel()
 	project, name, err := agent.ParseRef("pawly/agent-01")
 	if err != nil || project != "pawly" || name != "agent-01" {
 		t.Errorf("ParseRef(pawly/agent-01) = %q, %q, %v", project, name, err)
@@ -157,6 +158,44 @@ esac`))
 	}
 	if _, err := os.Stat(f.m.Paths.Worktree("hello-stack", "agent-01")); !os.IsNotExist(err) {
 		t.Errorf("worktree left after rollback (stat: %v)", err)
+	}
+}
+
+// TestCreateMountsSharedCaches checks that a new agent gets the Go and npm
+// build caches mounted at the same path as the host, and pointed to by
+// GOCACHE, GOMODCACHE and npm_config_cache in its env file — so a build
+// inside the agent reuses what another agent already built, rather than
+// starting from the empty cache its machine was copied with.
+func TestCreateMountsSharedCaches(t *testing.T) {
+	inc, files := recordingIncus(t, oneRunningAgent)
+	f := setup(t, inc)
+	ctx := context.Background()
+
+	a, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	caches := f.m.Paths.Caches()
+	log := configLog(t, files)
+	if !strings.Contains(log, "device add "+a.Instance+" agentbox-caches disk source="+caches+" path="+caches) {
+		t.Errorf("the caches device wasn't mounted:\n%s", log)
+	}
+	for _, dir := range []string{"go-build", "go-mod", "npm"} {
+		if fi, err := os.Stat(filepath.Join(caches, dir)); err != nil || !fi.IsDir() {
+			t.Errorf("Create() didn't make %s (stat: %v)", dir, err)
+		}
+	}
+
+	env := inAgent(t, files, a.Instance, "/home/dev/.config/agentbox/env")
+	for _, want := range []string{
+		"export GOCACHE='" + f.m.Paths.GoBuildCache() + "'",
+		"export GOMODCACHE='" + f.m.Paths.GoModCache() + "'",
+		"export npm_config_cache='" + f.m.Paths.NpmCache() + "'",
+	} {
+		if !strings.Contains(env, want) {
+			t.Errorf("the env file doesn't set %s:\n%s", want, env)
+		}
 	}
 }
 
