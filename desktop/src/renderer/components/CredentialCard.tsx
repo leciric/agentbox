@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, KeyRound, LoaderCircle, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { Ban, KeyRound, LoaderCircle, Plus, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api } from '../lib/api';
@@ -32,7 +32,11 @@ export function CredentialCard({ question }: { question: T.Question }) {
         </span>
       </p>
       <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-tertiary [overflow-wrap:anywhere]">{question.question}</p>
-      {question.status === 'cancelled' && <p className="text-[11px] text-faint">Nobody answered in time; the agent carried on without it.</p>}
+      {question.status === 'cancelled' && (
+        <p className="break-words text-[11px] text-faint" data-credential-cancelled>
+          Cancelled. {question.answer || 'Nobody answered in time; the agent carried on without it.'}
+        </p>
+      )}
       {waiting && <CredentialAnswer question={question} />}
     </div>
   );
@@ -62,6 +66,83 @@ export function ChatCredentialCard({ agentRef }: { agentRef: string }) {
       <CredentialCard question={question} />
     </div>
   );
+}
+
+// ProjectCredentialCards are the credential requests waiting in a project,
+// in its chat, where you are: the same card as the agent's thread and chat,
+// under the agent that asked, and answered through the same route, so an
+// answer or a cancellation anywhere settles all three.
+//
+// None of this is the lead's conversation. The cards are drawn from the
+// project's questions, never written into the chat, and what is typed in them
+// goes from here to the daemon: the lead reads neither the card nor the value.
+export function ProjectCredentialCards({ project }: { project: string }) {
+  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project) });
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  // One that settles while you look stays, saying how, until you close it:
+  // a card that vanished as you answered it would leave you guessing.
+  const [seen, setSeen] = useState<ReadonlySet<string>>(() => new Set());
+  const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
+  const requests = (questions.data ?? []).filter((q) => q.kind && (isOpen(q) || (seen.has(q.id) && !closed.has(q.id))));
+  const waitingIds = requests.filter(isOpen).map((q) => q.id).join(' ');
+  useEffect(() => {
+    if (!waitingIds) return;
+    setSeen((prev) => {
+      const ids = waitingIds.split(' ').filter((id) => !prev.has(id));
+      return ids.length ? new Set([...prev, ...ids]) : prev;
+    });
+  }, [waitingIds]);
+  if (requests.length === 0) return null;
+  const sorted = requests.toSorted((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  return (
+    <div className="grid gap-3 pb-4" data-project-credentials>
+      {sorted.map((q) => {
+        const asker = agents.data?.find((a) => a.project === q.project && a.name === q.agent);
+        return (
+          <div
+            key={q.id}
+            className={cn(
+              'max-w-xl rounded-xl border px-3.5 py-2.5',
+              isOpen(q) ? 'border-amber-400/25 bg-amber-400/[0.04]' : 'border-line bg-surface-faint',
+            )}
+            data-project-credential={q.id}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <p className={cn('shrink-0 text-[10px] font-semibold uppercase tracking-[0.07em]', isOpen(q) ? 'text-amber-300/90' : 'text-subtle')}>
+                {isOpen(q) ? 'Waiting on you' : q.status === 'answered' ? 'Answered' : 'Cancelled'}
+              </p>
+              <p className="min-w-0 flex-1 truncate text-[11.5px] text-subtle" data-credential-asker={q.agent}>
+                <span className="font-mono text-secondary">{q.agent}</span> asks
+                {asker?.title && <span className="text-faint"> · {asker.title}</span>}
+              </p>
+              {!isOpen(q) && (
+                <button
+                  className="shrink-0 rounded p-0.5 text-faint transition hover:text-primary"
+                  aria-label="Close"
+                  onClick={() => setClosed((prev) => new Set([...prev, q.id]))}
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+            <CredentialCard question={q} />
+            {q.status === 'answered' && <p className="mt-1.5 text-[11px] text-faint">{answeredLine(q)}</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function isOpen(q: T.Question): boolean {
+  return q.status === 'pending' || q.status === 'escalated';
+}
+
+// answeredLine says how a request was settled without repeating what the
+// agent was told, which is written for the agent.
+function answeredLine(q: T.Question): string {
+  if (q.answer?.startsWith('refused')) return 'You refused it.';
+  return q.kind === A.CredentialSecret ? `$${q.secretName} is saved for the project's agents.` : 'The agent has a GitHub account now.';
 }
 
 function CredentialAnswer({ question }: { question: T.Question }) {

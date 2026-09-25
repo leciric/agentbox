@@ -234,3 +234,106 @@ func leadAnswers(t *testing.T, d testDaemon, id string) (int, string) {
 	}
 	return w.Code, w.Body.String()
 }
+
+// A request waits only while the call behind it does: a call given up on —
+// interrupted, or its session gone — cancels it, so its card doesn't wait on
+// the user for nothing.
+func TestCredentialRequestCancelledWhenTheCallIsGone(t *testing.T) {
+	d, _ := secretsDaemon(t)
+	ctx := context.Background()
+	a, err := d.srv.store.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call, hangUp := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() {
+		_, err := d.srv.requestCredentialFor(call, a, api.CredentialRequest{Kind: "github", Reason: "git push: 403"})
+		done <- err
+	}()
+	id := waitForQuestion(t, d, "hello-stack")
+	hangUp()
+	if err := <-done; err == nil {
+		t.Fatal("a call that was given up on was answered")
+	}
+	q, err := d.srv.store.Question(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Status != state.QuestionCancelled || q.Answer == "" {
+		t.Errorf("the request is %s (%q), want it cancelled, with why", q.Status, q.Answer)
+	}
+	if _, err := d.client.AnswerCredential(ctx, "hello-stack", id, api.AnswerCredentialRequest{Refuse: true}); err == nil {
+		t.Error("a cancelled request was answered")
+	}
+}
+
+// An agent asking again replaces what it asked before: it waits on one call
+// at a time, so the earlier card would be answering nobody.
+func TestCredentialRequestReplacedWhenTheAgentAsksAgain(t *testing.T) {
+	d, _ := secretsDaemon(t)
+	ctx := context.Background()
+	a, err := d.srv.store.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := make(chan error, 1)
+	go func() {
+		_, err := d.srv.requestCredentialFor(ctx, a, api.CredentialRequest{Kind: "github", Reason: "git push: 403"})
+		first <- err
+	}()
+	firstID := waitForQuestion(t, d, "hello-stack")
+
+	told := make(chan state.Question, 1)
+	go func() {
+		q, err := d.srv.requestCredentialFor(ctx, a, api.CredentialRequest{Kind: "github", Reason: "git push: 403, again"})
+		if err != nil {
+			t.Errorf("the second request: %v", err)
+		}
+		told <- q
+	}()
+	select {
+	case err := <-first:
+		if err == nil || !strings.Contains(err.Error(), "asked again") {
+			t.Errorf("the first call was told %v, want that it was replaced", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first call still waits")
+	}
+	secondID := waitForQuestion(t, d, "hello-stack")
+	if secondID == firstID {
+		t.Fatal("the first request is still the one waiting")
+	}
+	if q, _ := d.srv.store.Question(ctx, firstID); q.Status != state.QuestionCancelled {
+		t.Errorf("the first request is %s, want cancelled", q.Status)
+	}
+	if _, err := d.client.AnswerCredential(ctx, "hello-stack", secondID, api.AnswerCredentialRequest{Refuse: true}); err != nil {
+		t.Fatal(err)
+	}
+	if q := toldAgent(t, told); q.ID != secondID || !strings.HasPrefix(q.Answer, "refused") {
+		t.Errorf("the second call was told %+v, want its refusal", q)
+	}
+}
+
+// No call outlives the daemon it was made to, so a daemon starting cancels
+// every request its predecessor left waiting — and leaves decisions alone.
+func TestCredentialRequestsCancelledOnRestart(t *testing.T) {
+	d, _ := secretsDaemon(t)
+	ctx := context.Background()
+	now := time.Now()
+	for _, q := range []state.Question{
+		{ID: "q-left", Project: "hello-stack", Agent: "agent-01", Kind: state.QuestionGitHub, Text: "push: 403", Status: state.QuestionEscalated, CreatedAt: now},
+		{ID: "q-decision", Project: "hello-stack", Agent: "agent-01", Text: "paginate?", Status: state.QuestionPending, CreatedAt: now},
+	} {
+		if err := d.srv.store.AddQuestion(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.srv.reconcile(ctx)
+	if q, _ := d.srv.store.Question(ctx, "q-left"); q.Status != state.QuestionCancelled || !strings.Contains(q.Answer, "restarted") {
+		t.Errorf("the request left waiting is %s (%q), want it cancelled by the restart", q.Status, q.Answer)
+	}
+	if q, _ := d.srv.store.Question(ctx, "q-decision"); q.Status != state.QuestionPending {
+		t.Errorf("a decision is %s after the restart, want it left pending", q.Status)
+	}
+}

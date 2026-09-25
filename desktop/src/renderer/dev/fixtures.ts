@@ -339,6 +339,37 @@ export function agent12Chat(): T.ChatThread {
   };
 }
 
+// leadChat is the project's chat, where you talk to the lead, a little after
+// it told agent-12 to push again: the credential cards come after it, drawn
+// from the project's questions rather than written into the conversation.
+export function leadChat(): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  return {
+    agent: `${PROJECT}/lead`,
+    seq: 1,
+    session: { state: 'idle', tool: 'claude', options: [], commands: [] },
+    items: [
+      {
+        id: 'l1',
+        turn: 'l1',
+        kind: 'user',
+        text: 'agent-12 still has its branch unpushed. Get it pushed.',
+        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(100_000) },
+        createdAt: at(120_000),
+        updatedAt: at(120_000),
+      },
+      {
+        id: 'l2',
+        turn: 'l1',
+        kind: 'assistant',
+        text: 'I told agent-12 to push again. If the push fails on GitHub auth it asks you for an account with `request_credential`, and the card shows up here.',
+        createdAt: at(110_000),
+        updatedAt: at(110_000),
+      },
+    ],
+  };
+}
+
 // seedQueryClient primes every query AgentRail and Sidebar read, at
 // staleTime: Infinity (set by the caller's QueryClient), so nothing refetches
 // through the stub bridge below.
@@ -348,6 +379,7 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['fleet', PROJECT], data.fleet);
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
   queryClient.setQueryData(['questions', PROJECT], data.questions);
+  queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);
   queryClient.setQueryData(['jobs'], []);

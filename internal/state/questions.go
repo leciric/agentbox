@@ -138,6 +138,37 @@ func (s *Store) CancelQuestions(ctx context.Context, project, agent string) erro
 	return err
 }
 
+// CancelQuestion gives up on one question that is still waiting, with why in
+// its answer, since nobody else will write one.
+func (s *Store) CancelQuestion(ctx context.Context, id, why string) (Question, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE questions SET status = ?, answer = ?, answered_at = ? WHERE id = ? AND status IN (?, ?)`,
+		QuestionCancelled, why, time.Now().UnixMilli(), id, QuestionPending, QuestionEscalated)
+	if err != nil {
+		return Question{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		q, err := s.Question(ctx, id)
+		if err != nil {
+			return Question{}, err
+		}
+		return q, fmt.Errorf("question %s was already %s", id, q.Status)
+	}
+	return s.Question(ctx, id)
+}
+
+// WaitingCredentialRequests lists the credential requests still waiting, of
+// one agent, or of every agent when agent is empty and project too.
+func (s *Store) WaitingCredentialRequests(ctx context.Context, project, agent string) ([]Question, error) {
+	where := `WHERE kind != ? AND status IN (?, ?)`
+	args := []any{QuestionDecision, QuestionPending, QuestionEscalated}
+	if project != "" {
+		where += ` AND project = ? AND agent = ?`
+		args = append(args, project, agent)
+	}
+	return s.queryQuestions(ctx, where+` ORDER BY created_at, rowid`, args...)
+}
+
 func (s *Store) queryQuestions(ctx context.Context, clause string, args ...any) ([]Question, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+questionColumns+` FROM questions `+clause, args...)
 	if err != nil {

@@ -71,6 +71,9 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 	if q.Text == "" {
 		return state.Question{}, errors.New("no reason: say what failed and what you need the credential for, so the user can decide")
 	}
+	// An agent waits on one call at a time, so one it made before this is
+	// gone, or about to be: its card would only wait for nothing.
+	s.cancelCredentialRequests(ctx, a.Project, a.Name, "The agent asked again, and that request replaces this one.")
 	if err := s.store.AddQuestion(ctx, q); err != nil {
 		return state.Question{}, err
 	}
@@ -86,14 +89,46 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 	// there is nothing it can do about it.
 	s.tellLead(ctx, a.Project, credentialNotice(q), false)
 
+	// A request is only waiting while the call behind it is: when the call is
+	// gone — interrupted, its session or machine gone — so is the request.
 	select {
 	case answered := <-ch:
+		if answered.Status == state.QuestionCancelled {
+			return answered, errors.New(answered.Answer)
+		}
 		return answered, nil
 	case <-ctx.Done():
+		s.cancelCredentialRequest(context.WithoutCancel(ctx), q, "The agent stopped waiting for it.")
 		return state.Question{}, ctx.Err()
 	case <-time.After(askTimeout):
-		s.store.CancelQuestions(context.WithoutCancel(ctx), a.Project, a.Name)
+		s.cancelCredentialRequest(context.WithoutCancel(ctx), q, fmt.Sprintf("Nobody answered within %s; the agent carried on without it.", askTimeout))
 		return state.Question{}, fmt.Errorf("nobody answered within %s: carry on without it, and say in your final message what it was needed for", askTimeout)
+	}
+}
+
+// cancelCredentialRequest gives up on a request still waiting, with why, and
+// says so to everything showing its card: the agent's thread, its chat and the
+// project's chat all settle at once. A call still waiting on it is told why.
+func (s *Server) cancelCredentialRequest(ctx context.Context, q state.Question, why string) {
+	cancelled, err := s.store.CancelQuestion(ctx, q.ID, why)
+	if err != nil {
+		return // answered or cancelled already, which was published then
+	}
+	s.waiting.resolve(cancelled)
+	s.events.publish(api.EventQuestion, toAPIQuestion(cancelled))
+	s.logf("%s's request for %s is cancelled: %s", cancelled.Ref(), credentialWanted(cancelled), why)
+}
+
+// cancelCredentialRequests cancels an agent's requests still waiting, or with
+// an empty project every agent's.
+func (s *Server) cancelCredentialRequests(ctx context.Context, project, agent, why string) {
+	waiting, err := s.store.WaitingCredentialRequests(ctx, project, agent)
+	if err != nil {
+		s.logf("credential requests of %s/%s: %v", project, agent, err)
+		return
+	}
+	for _, q := range waiting {
+		s.cancelCredentialRequest(ctx, q, why)
 	}
 }
 

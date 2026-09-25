@@ -221,7 +221,10 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"reason": str("what failed and what you need it for, in a sentence or two, so the user can decide: " +
 					"the command and its error, and what you were doing"),
 			}),
-			Run: func(args json.RawMessage) (string, error) {
+			// It waits, and the daemon has to hear when the call is given up on
+			// — interrupted, or its session gone — so the request doesn't stay
+			// waiting on the user for a call nobody is waiting on.
+			Wait: func(ctx context.Context, args json.RawMessage) (string, error) {
 				var in struct{ Kind, Name, Reason string }
 				if err := decode(args, &in); err != nil {
 					return "", err

@@ -110,5 +110,19 @@
     "query": "chat=agent-12&theme=light",
     "width": 1280,
     "height": 800
+  },
+  {
+    "id": "credential-project-chat-dark",
+    "description": "The project's chat, with the three credential requests its agents are waiting on, each under the agent that asked \u2014 dark, 1280x900",
+    "query": "chat=lead&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "credential-project-chat-light",
+    "description": "The same, light",
+    "query": "chat=lead&theme=light",
+    "width": 1280,
+    "height": 900
   }
 ]
