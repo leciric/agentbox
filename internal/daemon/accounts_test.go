@@ -32,6 +32,52 @@ esac
 exit 0
 `
 
+// addProjectAllowingEvery adds a project and empties its allowed list, which
+// a new project otherwise starts with only its own account on, so it may use
+// every account.
+func addProjectAllowingEvery(t *testing.T, d testDaemon, repo string) {
+	t.Helper()
+	ctx := context.Background()
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.UpdateProject(ctx, p.Name, api.UpdateProjectRequest{ClaudeAccounts: &[]string{}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestNewProjectAllowsItsOwnAccount: a new project starts with only the
+// account it was given allowed, or the machine's default when it was given
+// none, rather than an empty list, which still allows every account.
+func TestNewProjectAllowsItsOwnAccount(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	creds := credentials.Store{Dir: d.paths.Credentials()}
+	for _, name := range []string{"default", "work"} {
+		if err := creds.SaveClaudeToken(name, "sk-ant-oat01-"+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")})
+	if err != nil || strings.Join(p.ClaudeAccounts, ",") != "default" {
+		t.Errorf("with no account chosen: ClaudeAccounts = %v, %v, want only the machine's default", p.ClaudeAccounts, err)
+	}
+	p, err = d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack"), Name: "pawly", ClaudeAccount: "work"})
+	if err != nil || p.ClaudeAccount != "work" || strings.Join(p.ClaudeAccounts, ",") != "work" {
+		t.Errorf("with work chosen: %q, %v, %v, want only work", p.ClaudeAccount, p.ClaudeAccounts, err)
+	}
+	// It is the same list create_agent and list_accounts go by.
+	lead := api.NewClient(d.srv.leadSocketPath("pawly"))
+	if accounts, err := lead.ProjectAccounts(ctx); err != nil || len(accounts) != 1 || accounts[0].Name != "work" {
+		t.Errorf("list_accounts = %+v, %v, want only work", accounts, err)
+	}
+	if _, err := lead.CreateProjectAgent(ctx, api.CreateAgentRequest{Title: "Reminders page", Task: "add it", ClaudeAccount: "default"}); err == nil ||
+		!strings.Contains(err.Error(), `may only use the Claude Code accounts work, not "default"`) {
+		t.Errorf("create_agent on default: %v, want it refused naming work", err)
+	}
+}
+
 // TestLeadCreateAgentPicksAccount: a project's chat can name one of this
 // machine's Claude Code accounts when it creates an agent, and the agent
 // keeps it (D88).
@@ -44,9 +90,7 @@ func TestLeadCreateAgentPicksAccount(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
-		t.Fatal(err)
-	}
+	addProjectAllowingEvery(t, d, testutil.FixtureRepo(t, "hello-stack"))
 	lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
 
 	job, err := lead.CreateProjectAgent(ctx, api.CreateAgentRequest{Title: "Reminders page", Task: "add it", ClaudeAccount: "work"})
@@ -134,9 +178,7 @@ func TestLeadAccountsRoute(t *testing.T) {
 		}
 	}
 	repo := testutil.FixtureRepo(t, "hello-stack")
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
-		t.Fatal(err)
-	}
+	addProjectAllowingEvery(t, d, repo)
 	if err := d.srv.store.SetProjectClaudeAccount(ctx, "hello-stack", "work"); err != nil {
 		t.Fatal(err)
 	}
@@ -228,12 +270,15 @@ func TestProjectClaudeAccountsAllowList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ClaudeAccounts == nil || len(p.ClaudeAccounts) != 0 {
-		t.Fatalf("a new project's ClaudeAccounts = %#v, want an empty list", p.ClaudeAccounts)
+	if strings.Join(p.ClaudeAccounts, ",") != "default" {
+		t.Fatalf("a new project's ClaudeAccounts = %#v, want only the machine's default", p.ClaudeAccounts)
 	}
 
 	work := "work"
-	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{ClaudeAccount: &work}); err != nil {
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{ClaudeAccount: &work}); err == nil {
+		t.Error("moving to an account the new project doesn't allow was accepted")
+	}
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{ClaudeAccount: &work, ClaudeAccounts: &[]string{}}); err != nil {
 		t.Fatal(err)
 	}
 	without := []string{"default", "spare"}
@@ -295,9 +340,7 @@ func TestProjectAccountMovesItsChat(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
-		t.Fatal(err)
-	}
+	addProjectAllowingEvery(t, d, testutil.FixtureRepo(t, "hello-stack"))
 	m := d.srv.manager(nil)
 	if a, err := m.EnsureLead(ctx, "hello-stack"); err != nil || a.ClaudeAccount != "default" {
 		t.Fatalf("EnsureLead() = %q, %v; want the default account", a.ClaudeAccount, err)

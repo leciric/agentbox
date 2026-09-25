@@ -890,6 +890,7 @@ export interface ChatItem {
   permission?: ChatPermission;
   result?: ChatTurnResult;
   subagent?: ChatSubagent;
+  compaction?: ChatCompaction;
   parent?: string;
   createdAt: string;
   updatedAt: string;
@@ -937,6 +938,12 @@ export interface ChatSubagent {
   name: string;
   task: string;
   state: string;
+}
+
+export interface ChatCompaction {
+  state: string;
+  waiting?: number;
+  error?: string;
 }
 
 export interface ChatTurnResult {
@@ -992,6 +999,23 @@ export interface ProjectChat {
   worktree?: string;
   baseRef?: string;
   chat: string;
+}
+
+export interface ChatCache {
+  project: string;
+  idleSince?: string;
+  ttlSeconds?: number;
+  ttlSource?: string;
+  dueAt?: string;
+  expiresAt?: string;
+  contextUsed?: number;
+  due: boolean;
+}
+
+export interface ChatCacheChoice {
+  compact: boolean;
+  text?: string;
+  images?: ChatImageUpload[];
 }
 
 export interface MemoryEvent {
@@ -1367,6 +1391,7 @@ export const AgentModelAuto = "auto";
 export const ConsolidationModelCheap = "cheap";
 export const ConsolidationModelChat = "";
 export const EventChat = "chat";
+export const EventChatCache = "chat.cache";
 export const EventQuestion = "question";
 export const EventAgentEvent = "agent.event";
 export const AgentCreated = "created";

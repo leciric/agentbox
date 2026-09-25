@@ -77,6 +77,16 @@ type Manager struct {
 	// genuine finish (the model stopping on its own) from a turn merely cut
 	// short by a limit or a cancellation.
 	Finished func(a state.Agent, result api.ChatTurnResult)
+	// LeadIdle, when set, is called when a project's lead finishes a turn and
+	// has nothing else to run, so the daemon can offer to compact it before
+	// its prompt cache expires (cachecard.go in the daemon). Off the lock, in
+	// a goroutine of its own.
+	LeadIdle func(a state.Agent)
+	// Idle, when set, is called after a turn ends with nothing following it:
+	// no notice or message that waited started another. The daemon compacts a
+	// lead's full chat then (D73), while nobody is waiting on it. Off the
+	// conversation's lock, in a goroutine of its own.
+	Idle func(a state.Agent)
 	// AuthFailed, when set, is called when a turn failed because the agent's
 	// AI tool was refused by its provider: an expired or revoked login. The
 	// daemon marks the account rejected, so a dead token is named where it is
@@ -286,6 +296,9 @@ func (m *Manager) Send(a state.Agent, text string, images ...api.ChatImageUpload
 	saved, err := c.saveImages(images)
 	if err != nil {
 		return api.ChatItem{}, err
+	}
+	if c.compaction != nil {
+		return clone(*c.hold(text, saved)), nil
 	}
 	if c.turn != nil {
 		return clone(*c.aside(text, saved)), nil
@@ -883,7 +896,7 @@ func (m *Manager) Clear(a state.Agent) error {
 	c.items, c.byID = nil, map[string]*api.ChatItem{}
 	c.dirty, c.unsaved, c.appends = map[string]bool{}, map[string]bool{}, nil
 	c.turn, c.tools, c.plan, c.open, c.openMessage = nil, map[string]*api.ChatItem{}, nil, nil, ""
-	c.queued, c.outbox = nil, nil
+	c.queued, c.outbox, c.compaction = nil, nil, nil
 	c.clearLimit()
 	c.stored.SessionID = ""
 	c.session.TurnStartedAt, c.session.ContextUsed, c.session.ContextSize = nil, 0, 0
@@ -1005,6 +1018,9 @@ type conversation struct {
 	// asked to distil the project's events into memories and kept
 	// (hidden.go). Notices wait for it, as they wait for a running turn.
 	rolling bool
+	// compaction is the running compaction's card (rollover.go). While it is
+	// set, messages the user sends are held for the fresh session.
+	compaction *api.ChatItem
 	// windowRestart says the context window changed since the adapter
 	// started, so the next turn restarts it (window.go).
 	windowRestart bool
@@ -1169,6 +1185,11 @@ func (c *conversation) settle() {
 			changed = true
 		case it.Subagent != nil && it.Subagent.State == subagentRunning:
 			it.Subagent.State = subagentStopped
+			changed = true
+		case it.Compaction != nil && it.Compaction.State == api.ChatCompactionRunning:
+			it.Compaction.State = api.ChatCompactionFailed
+			it.Compaction.Error = "AgentBox stopped while it ran"
+			it.Text = "The session couldn't be replaced; AgentBox stopped first."
 			changed = true
 		case it.Kind == "aside" && it.Delivery != api.ChatAsideSent && it.Delivery != api.ChatAsideLost:
 			// The outbox only ever lived in memory, so a message still waiting
@@ -1709,6 +1730,17 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	// project's chat that this agent finished.
 	if c.m.Finished != nil && !c.agent.IsLead() {
 		go c.m.Finished(c.agent, *result)
+	}
+	// A lead is idle from here, and its prompt cache starts running out. The
+	// daemon checks again when it acts: a message drain is still handing the
+	// tool starts a turn this can't see yet.
+	if c.m.LeadIdle != nil && c.agent.IsLead() && c.turn == nil && !c.gone {
+		go c.m.LeadIdle(c.agent)
+	}
+	// Nothing that waited started another turn, so the chat is idle: the
+	// moment the daemon can replace a full session without anyone waiting.
+	if c.m.Idle != nil && c.turn == nil && !c.gone {
+		go c.m.Idle(c.agent)
 	}
 }
 

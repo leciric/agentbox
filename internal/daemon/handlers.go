@@ -126,6 +126,14 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	p := state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()}
+	// A new project may only use the account it was given, or the machine's
+	// default when it was given none, until the user allows more. The list is
+	// written out rather than left empty, which still allows every account.
+	if own, err := s.manager(nil).Creds.ClaudeAccountOf(claudeAccount); err != nil {
+		return err
+	} else if own != "" {
+		p.ClaudeAccounts = []string{own}
+	}
 	if err := s.store.AddProject(r.Context(), p); err != nil {
 		return err
 	}

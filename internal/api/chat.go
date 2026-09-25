@@ -82,7 +82,7 @@ type ChatItem struct {
 	ID string `json:"id"`
 	// Turn is the ID of the user message whose turn this item belongs to.
 	Turn string `json:"turn"`
-	Kind string `json:"kind"` // user, aside, assistant, thought, tool, plan, permission, subagent, notice or error
+	Kind string `json:"kind"` // user, aside, assistant, thought, tool, plan, permission, subagent, compaction, notice or error
 	Text string `json:"text,omitempty"`
 	// Images, on a user message or an aside, are the pictures sent with it.
 	Images []ChatImage `json:"images,omitempty"`
@@ -102,6 +102,9 @@ type ChatItem struct {
 	// Subagent is set on a subagent's card (D86): a subagent the AI tool
 	// started, running in a session of its own.
 	Subagent *ChatSubagent `json:"subagent,omitempty"`
+	// Compaction is set on a compaction's card (D73): the conversation being
+	// saved to the project's memory and carried on in a fresh session.
+	Compaction *ChatCompaction `json:"compaction,omitempty"`
 	// Parent, on a message, thought or tool call a subagent made, is that
 	// subagent's card. The app nests the item under the card instead of
 	// showing it in the conversation itself.
@@ -118,6 +121,27 @@ const (
 	ChatAsideSent     = "sent"     // the AI tool took it into the running turn
 	ChatAsideDeferred = "deferred" // it couldn't join that turn: it goes in as its own, after
 	ChatAsideLost     = "lost"     // the session ended before it could be delivered
+	ChatAsideHeld     = "held"     // sent while the chat compacted: it starts the fresh session's first turn
+)
+
+// ChatCompaction is a compaction's card (D73). While it runs, the chat is
+// consolidating the conversation into the project's memory and nothing reaches
+// the session: a message sent meanwhile is held, and counted here, so the card
+// can say why it hasn't been answered. Its item's Text says how it ended.
+type ChatCompaction struct {
+	State string `json:"state"` // running, done or failed
+	// Waiting is how many messages were held for the fresh session.
+	Waiting int `json:"waiting,omitempty"`
+	// Error, on a failed card, is what went wrong.
+	Error string `json:"error,omitempty"`
+}
+
+const (
+	ChatCompactionRunning = "running"
+	ChatCompactionDone    = "done"
+	// Failed is a compaction that couldn't save the conversation, or couldn't
+	// replace the session. The chat carries on either way.
+	ChatCompactionFailed = "failed"
 )
 
 // ChatSubagent is a subagent the AI tool started (D86). What it does — its
@@ -228,6 +252,43 @@ type ProjectChat struct {
 	BaseRef  string `json:"baseRef,omitempty"`
 	Chat     string `json:"chat"` // its session's state, as in ChatSession.State
 }
+
+// ChatCache is how long a project's chat has been idle against its prompt
+// cache: Claude Code keeps the conversation's prefix cached for a TTL, and the
+// first message after it expires re-sends the whole context uncached. Due is
+// the card the app shows once the cache is about to expire, or has, offering
+// to compact the conversation first. Only a Claude Code lead has one.
+type ChatCache struct {
+	Project string `json:"project"`
+	// IdleSince is when the last turn ended, which is the last time the model
+	// was called; absent when no turn has ended since the daemon started, or
+	// while one runs.
+	IdleSince  *time.Time `json:"idleSince,omitempty"`
+	TTLSeconds int64      `json:"ttlSeconds,omitempty"` // how long the cache lasts
+	TTLSource  string     `json:"ttlSource,omitempty"`  // what said so: its settings, or what Claude Code picks
+	// DueAt is when the card shows, a margin before ExpiresAt: a tenth of the
+	// TTL, or five minutes, whichever is smaller.
+	DueAt     *time.Time `json:"dueAt,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	// ContextUsed is the context the chat last reported: roughly what its
+	// next message re-sends, uncached once the cache has expired.
+	ContextUsed int64 `json:"contextUsed,omitempty"`
+	// Due says the card is up: DueAt has passed with the chat still idle and
+	// ContextUsed worth compacting, and the user hasn't chosen yet.
+	Due bool `json:"due"`
+}
+
+// ChatCacheChoice is the user's answer to the card: compact first, or send
+// as it is. The message is the one they wrote while it was up, if any.
+// Compacting with no message only compacts.
+type ChatCacheChoice struct {
+	Compact bool              `json:"compact"`
+	Text    string            `json:"text,omitempty"`
+	Images  []ChatImageUpload `json:"images,omitempty"`
+}
+
+// EventChatCache carries a ChatCache whenever its card shows or goes.
+const EventChatCache = "chat.cache"
 
 const EventChat = "chat"
 

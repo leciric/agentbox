@@ -1,4 +1,4 @@
-import { Brain, Check, ChevronRight, CircleAlert, Copy, Info } from 'lucide-react';
+import { Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Info, LoaderCircle } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
@@ -60,6 +60,8 @@ const TimelineRow = memo(
         return <WorkGroup items={row.items} live={row.live} root={root} />;
       case 'subagent':
         return <SubagentCard item={row.item} children={row.children} root={root} />;
+      case 'compaction':
+        return <CompactionCard item={row.item} />;
       case 'credential':
         return <ChatCredentialCard agentRef={chatRef} />;
       case 'fold':
@@ -122,6 +124,7 @@ function sameRow(a: Row, b: Row): boolean {
   switch (a.type) {
     case 'user':
     case 'note':
+    case 'compaction':
     case 'credential':
       return a.item === (b as typeof a).item;
     case 'assistant':
@@ -156,7 +159,49 @@ const deliveries: Record<string, { label: string; className: string }> = {
   sent: { label: 'Sent while working', className: 'text-subtle' },
   deferred: { label: 'Waiting for this turn to end', className: 'text-amber-300/70' },
   lost: { label: "Never reached the tool", className: 'text-rose-300/80' },
+  held: { label: 'Waiting for the compaction to finish', className: 'text-amber-300/70' },
 };
+
+// CompactionCard is the chat saving its conversation to the project's memory
+// and carrying on in a fresh session ([D73]). It is up while that runs, so a
+// message that isn't answered yet has a reason on screen, and then says how it
+// went. The card's text is the daemon's, once it has ended.
+function CompactionCard({ item }: { item: T.ChatItem }) {
+  const c = item.compaction!;
+  const waiting = c.waiting ?? 0;
+  if (c.state === 'running') {
+    return (
+      <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px]" role="status" data-chat-item="compaction" data-chat-compaction="running">
+        <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-subtle" />
+        <div className="min-w-0 leading-relaxed">
+          <p className="chat-shine">Compacting context — saving to project memory…</p>
+          {waiting > 0 && (
+            <p className="break-words text-subtle">
+              {waiting === 1 ? 'Your message waits' : `Your ${waiting} messages wait`} for the fresh session, and goes in as soon as it starts.
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+  const failed = c.state === 'failed';
+  return (
+    <div
+      className={cn(
+        'mb-4 flex items-start gap-2.5 rounded-xl border px-3.5 py-2.5 text-[13px]',
+        failed ? 'border-amber-500/20 bg-amber-500/[0.06] text-amber-100' : 'border-line bg-surface-faint text-muted',
+      )}
+      data-chat-item="compaction"
+      data-chat-compaction={c.state}
+    >
+      {failed ? <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" /> : <Archive className="mt-0.5 size-4 shrink-0 text-subtle" />}
+      <div className="min-w-0 leading-relaxed">
+        <p className="break-words">{item.text}</p>
+        {failed && c.error && <p className="break-words text-[12.5px] text-amber-200/70">{c.error}</p>}
+      </div>
+    </div>
+  );
+}
 
 function Delivered({ item }: { item: T.ChatItem }) {
   const delivery = item.delivery ? deliveries[item.delivery] : undefined;

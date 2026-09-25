@@ -18,10 +18,11 @@ import (
 // Compacting a project's chat (D73).
 //
 // A project's chat is one conversation that never ends, and a model's context
-// is finite. Before a turn of the lead's starts, this checks how full that
-// context is; past the project's threshold, the conversation is consolidated
-// into the project's memory and carried on in a fresh session
-// (chat.Manager.Compact). The user sees one chat with a notice in it.
+// is finite. Once a turn of the lead's has ended, and again before one starts,
+// this checks how full that context is; past the project's threshold, the
+// conversation is consolidated into the project's memory and carried on in a
+// fresh session (chat.Manager.Compact). The user sees one chat with a card in
+// it that says so while it happens, and how it went.
 //
 // It is provider-agnostic on purpose. Claude Code compacts conversations
 // itself, and so may any other tool behind an ACP adapter; AgentBox neither
@@ -30,23 +31,28 @@ import (
 // outlives any session, and a recap it can start the next one with.
 
 // compactTimeout bounds the hidden consolidation prompt. It is generous: the
-// model is summarising a whole conversation, and the turn the user is waiting
-// for hasn't started. Past it the session is rolled over anyway, with whatever
-// the recap can be built from without it.
+// model is summarising a whole conversation. Past it the session is rolled
+// over anyway, with whatever the recap can be built from without it.
 const compactTimeout = 3 * time.Minute
 
-// rolloverIfNeeded compacts a project's chat when its context has filled past
-// the project's threshold. It is called where a lead turn is about to start —
-// the user writing, or an agent's notice waking the chat — because that is the
-// only moment at which replacing the session costs nothing: no turn is
-// running, and the turn that follows starts in the fresh session and reads the
-// recap.
+// rolloverIfNeeded starts compacting a project's chat when its context has
+// filled past the project's threshold, and returns as soon as it has started.
 //
-// It blocks, and it is meant to. Rolling over after the turn had started would
-// put the user's message in the session that is being thrown away.
+// It is called at the two moments replacing the session costs nothing, both
+// with no turn running. The main one is right after a lead turn ends (the
+// chat's Idle hook), so the compaction usually runs while the user reads the
+// answer. The other is where a lead turn is about to start — the user writing,
+// or an agent's notice waking the chat — as a fallback for a chat whose usage
+// arrived too late for the first, or whose threshold was lowered since.
 //
-// Anything that goes wrong is logged and swallowed: a chat that couldn't be
-// compacted still takes its turn, on the session it has.
+// Either way nobody waits on it. The chat holds whatever arrives while it runs
+// — the user's message, an agent's notice — and delivers it into the fresh
+// session once that is in place (chat.Manager.BeginCompact), so a turn that
+// was about to start starts there, after the compaction, rather than in the
+// session being thrown away.
+//
+// Anything that goes wrong is logged and swallowed, and shown on the card: a
+// chat that couldn't be compacted still takes its turn, on the session it has.
 func (s *Server) rolloverIfNeeded(ctx context.Context, a state.Agent) {
 	if a.Role != state.RoleLead {
 		return
@@ -63,9 +69,29 @@ func (s *Server) rolloverIfNeeded(ctx context.Context, a state.Agent) {
 		return
 	}
 	s.logf("compacting the %s chat: %d of %d tokens used, over %d%%", a.Project, used, size, p.RolloverThreshold)
-	if err := s.compactLead(ctx, a); err != nil && !errors.Is(err, chat.ErrBusy) {
-		s.logf("compacting the %s chat: %v", a.Project, err)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), compactTimeout)
+	finish, err := s.beginCompactLead(ctx, a)
+	if err != nil {
+		cancel()
+		if !errors.Is(err, chat.ErrBusy) {
+			s.logf("compacting the %s chat: %v", a.Project, err)
+		}
+		return
 	}
+	go func() {
+		defer cancel()
+		if err := finish(); err != nil && !errors.Is(err, chat.ErrBusy) {
+			s.logf("compacting the %s chat: %v", a.Project, err)
+		}
+	}()
+}
+
+// leadIdle is the chat's Idle hook: a turn has ended and nothing followed it.
+func (s *Server) leadIdle(a state.Agent) {
+	if !a.IsLead() {
+		return
+	}
+	s.rolloverIfNeeded(context.Background(), a)
 }
 
 // needsRollover reports whether a context this full is worth compacting, for a
@@ -93,7 +119,17 @@ func (s *Server) compactLead(ctx context.Context, a state.Agent) error {
 	// navigates away mid-consolidation shouldn't leave the chat half rolled.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), compactTimeout)
 	defer cancel()
-	return s.chat.Compact(ctx, a, consolidationAsk, func(answer string, askErr error) error {
+	finish, err := s.beginCompactLead(ctx, a)
+	if err != nil {
+		return err
+	}
+	return finish()
+}
+
+// beginCompactLead puts the compaction's card up and returns the rest of it.
+// ctx bounds the whole compaction, finish included.
+func (s *Server) beginCompactLead(ctx context.Context, a state.Agent) (finish func() error, err error) {
+	return s.chat.BeginCompact(ctx, a, consolidationAsk, func(answer string, askErr error) error {
 		return s.settleCompaction(ctx, a, answer, askErr)
 	})
 }
