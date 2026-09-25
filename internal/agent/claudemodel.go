@@ -8,6 +8,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"agentbox/internal/state"
 )
@@ -330,15 +332,69 @@ func (m *Manager) prepareLeadClaudeSettings(a state.Agent, merge func([]byte) ([
 // AgentBox put there itself and which the user chose: without this, choosing a
 // model for a project's chat would survive until its next message and then
 // quietly vanish from the file. The compact window and the env are carried for
-// the same reason — PrepareChatModel wrote them.
+// the same reason — PrepareChatModel wrote them — and so is promptCacheTtl,
+// which only the user writes and which the idle rollover reads.
 func carryClaudeModel(existing []byte, settings map[string]any) {
 	var was map[string]json.RawMessage
 	if json.Unmarshal(bytes.TrimSpace(existing), &was) != nil {
 		return
 	}
-	for _, key := range []string{"model", compactWindowKey, "env"} {
+	for _, key := range []string{"model", compactWindowKey, "env", promptCacheTTLKey} {
 		if value, ok := was[key]; ok {
 			settings[key] = value
 		}
 	}
+}
+
+// Claude Code keeps the main conversation's prompt cache for five minutes or
+// an hour. settings.json's promptCacheTtl sets which, and the
+// CLAUDE_CODE_PROMPT_CACHE_TTL variable overrides it; with neither it chooses
+// by itself — an hour on a subscription within its usage limits, five minutes
+// on an API key or once past them. The lead's environment is the one
+// LeadChatCommand builds, fresh, so the variable can only come from
+// settings.json's "env", which Claude Code copies into its environment.
+const (
+	promptCacheTTLKey = "promptCacheTtl"
+	promptCacheTTLEnv = "CLAUDE_CODE_PROMPT_CACHE_TTL"
+)
+
+// LeadPromptCacheTTL is the prompt-cache TTL a project's lead has been set to
+// in its settings.json, or 0 when nothing there sets it and Claude Code picks
+// one itself. A value Claude Code wouldn't accept is read as unset too.
+func (m *Manager) LeadPromptCacheTTL(a state.Agent) time.Duration {
+	existing, err := os.ReadFile(filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile))
+	if err != nil {
+		return 0
+	}
+	return promptCacheTTLOf(existing)
+}
+
+// promptCacheTTLOf reads the TTL out of a settings.json, the variable first.
+func promptCacheTTLOf(settings []byte) time.Duration {
+	// Raw values, so a key of some other type — anywhere, the env included —
+	// can't make the two this reads unreadable.
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(bytes.TrimSpace(settings), &doc) != nil {
+		return 0
+	}
+	var env map[string]json.RawMessage
+	var fromEnv, fromKey string
+	if json.Unmarshal(doc["env"], &env) == nil {
+		_ = json.Unmarshal(env[promptCacheTTLEnv], &fromEnv)
+	}
+	_ = json.Unmarshal(doc[promptCacheTTLKey], &fromKey)
+	if ttl := parsePromptCacheTTL(fromEnv); ttl > 0 {
+		return ttl
+	}
+	return parsePromptCacheTTL(fromKey)
+}
+
+func parsePromptCacheTTL(v string) time.Duration {
+	switch strings.TrimSpace(v) {
+	case "5m":
+		return 5 * time.Minute
+	case "1h":
+		return time.Hour
+	}
+	return 0
 }

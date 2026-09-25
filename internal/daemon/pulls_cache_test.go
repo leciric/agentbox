@@ -34,12 +34,12 @@ type slowGitHub struct {
 	byCommit map[string]string
 }
 
-func newSlowGitHub(t *testing.T, list string, delay time.Duration) *slowGitHub {
+func newSlowGitHub(t *testing.T, d testDaemon, list string, delay time.Duration) *slowGitHub {
 	t.Helper()
 	g := &slowGitHub{calls: map[string]int{}, list: list, delay: delay, byCommit: map[string]string{}}
 	stub := httptest.NewServer(http.HandlerFunc(g.serve))
 	t.Cleanup(stub.Close)
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 	return g
 }
 
@@ -141,7 +141,7 @@ func testClock(d testDaemon) *atomic.Int64 {
 func pullsProject(t *testing.T, d testDaemon, names ...string) (string, map[string]state.Agent) {
 	t.Helper()
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -157,9 +157,10 @@ func pullsProject(t *testing.T, d testDaemon, names ...string) (string, map[stri
 // behind the answer. The first request for a repository has nothing to show
 // and says so; every one after it shows the last answer at once, however old.
 func TestPullRequestsAreServedStaleWhileGitHubIsReRead(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	offset := testClock(d)
-	gh := newSlowGitHub(t, pullsList("agentbox/agent-01"), 700*time.Millisecond)
+	gh := newSlowGitHub(t, d, pullsList("agentbox/agent-01"), 700*time.Millisecond)
 	pullsProject(t, d, "agent-01")
 
 	// The first request doesn't wait for GitHub: it says it has nothing yet,
@@ -214,8 +215,9 @@ func TestPullRequestsAreServedStaleWhileGitHubIsReRead(t *testing.T) {
 // Requests pile up on a tab that polls every few seconds; they must not pile
 // GitHub calls up behind them.
 func TestPullRequestRefreshIsSingleFlight(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	gh := newSlowGitHub(t, pullsList("agentbox/agent-01"), 500*time.Millisecond)
+	gh := newSlowGitHub(t, d, pullsList("agentbox/agent-01"), 500*time.Millisecond)
 	pullsProject(t, d, "agent-01")
 
 	var wg sync.WaitGroup
@@ -242,8 +244,9 @@ func TestPullRequestRefreshIsSingleFlight(t *testing.T) {
 // under whatever name suits it (feat/…, fix/…), and an old pull request from
 // a branch whose name is being reused isn't the agent's.
 func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	gh := newSlowGitHub(t, "[]", 0)
+	gh := newSlowGitHub(t, d, "[]", 0)
 	_, agents := pullsProject(t, d, "agent-01", "agent-02", "agent-03", "agent-04")
 
 	one := commitOn(t, agents["agent-01"], "one.txt")
@@ -319,8 +322,9 @@ func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
 // a fix to it from elsewhere — is still found, by asking GitHub which pull
 // requests carry the agent's commits.
 func TestFleetLooksUpAPullRequestByTheAgentsCommits(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	gh := newSlowGitHub(t, "[]", 0)
+	gh := newSlowGitHub(t, d, "[]", 0)
 	_, agents := pullsProject(t, d, "agent-01", "agent-02")
 
 	old := commitOn(t, agents["agent-01"], "old.txt")
@@ -358,6 +362,7 @@ func TestFleetLooksUpAPullRequestByTheAgentsCommits(t *testing.T) {
 // One that merely carries that commit, because the agent only caught up with
 // main, is not.
 func TestAgentHeadsAfterAMerge(t *testing.T) {
+	t.Parallel()
 	testutil.GitEnv(t)
 	repo := testutil.FixtureRepo(t, "hello-stack")
 	base := testutil.Git(t, repo, "rev-parse", "HEAD")
@@ -398,9 +403,10 @@ func TestAgentHeadsAfterAMerge(t *testing.T) {
 // redraws then rather than at its next poll. One that finds nothing new says
 // nothing: an event per poll would be the polling it replaces.
 func TestPullRequestRefreshAnnouncesWhatMoved(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	offset := testClock(d)
-	gh := newSlowGitHub(t, pullsList("agentbox/agent-01"), 0)
+	gh := newSlowGitHub(t, d, pullsList("agentbox/agent-01"), 0)
 	pullsProject(t, d, "agent-01")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -456,6 +462,7 @@ func TestPullRequestRefreshAnnouncesWhatMoved(t *testing.T) {
 
 // One refresh at a time per repository, and a stale entry starts one.
 func TestPullsCacheClaimsOneRefreshAtATime(t *testing.T) {
+	t.Parallel()
 	c := newPullsCache()
 	var now atomic.Int64
 	c.now = func() time.Time { return time.Unix(now.Load(), 0) }
@@ -490,6 +497,7 @@ func TestPullsCacheClaimsOneRefreshAtATime(t *testing.T) {
 // A merge invalidates the repository. A refresh that was already in flight
 // must not put the pre-merge list back over it.
 func TestPullsCacheDropsARefreshAMergeOvertook(t *testing.T) {
+	t.Parallel()
 	c := newPullsCache()
 	gen, _ := c.claim("acme/x", nil)
 	c.invalidate("acme/x")
@@ -507,6 +515,7 @@ func TestPullsCacheDropsARefreshAMergeOvertook(t *testing.T) {
 // A new agent shouldn't wait out the TTL to find out it has a pull request:
 // a branch the cached answer says nothing about is reason enough to re-read.
 func TestPullsCacheRefreshesForAnAgentItDoesntKnow(t *testing.T) {
+	t.Parallel()
 	c := newPullsCache()
 	one := agentHead{agent: "agent-01", tip: "b1", own: []string{"b1", "a1"}}
 	two := agentHead{agent: "agent-02", tip: "b2", own: []string{"b2"}}
@@ -527,6 +536,7 @@ func TestPullsCacheRefreshesForAnAgentItDoesntKnow(t *testing.T) {
 // A GitHub that refuses the list must not turn into a call per request: an
 // unknown branch is only worth re-reading for when the last read worked.
 func TestPullsCacheDoesNotRetryAFailedListPerRequest(t *testing.T) {
+	t.Parallel()
 	c := newPullsCache()
 	one := []agentHead{{agent: "agent-01", tip: "b1", own: []string{"b1"}}}
 	gen, _ := c.claim("acme/x", one)
@@ -539,6 +549,7 @@ func TestPullsCacheDoesNotRetryAFailedListPerRequest(t *testing.T) {
 // Fifteen agents are fifteen git diffs, on a tab that polls. They run at the
 // same time rather than one after another: see the benchmark below.
 func TestAgentChangesMeasuresEveryAgent(t *testing.T) {
+	t.Parallel()
 	agents := make([]state.Agent, 15)
 	for i := range agents {
 		agents[i] = state.Agent{Name: fmt.Sprintf("agent-%02d", i)}

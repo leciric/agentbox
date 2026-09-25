@@ -45,7 +45,12 @@ func (s *Server) githubFor(p state.Project) (github.Client, github.Repo, error) 
 	if err != nil || token == "" {
 		return github.Client{}, repo, errNoGitHubToken
 	}
-	return github.Client{Token: token}, repo, nil
+	return s.gitHub(token), repo, nil
+}
+
+// gitHub is a GitHub client with token, on the API root the daemon was given.
+func (s *Server) gitHub(token string) github.Client {
+	return github.Client{Token: token, BaseURL: s.cfg.GitHubAPI}
 }
 
 const (

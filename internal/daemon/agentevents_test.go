@@ -10,7 +10,6 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
-	"agentbox/internal/testutil"
 )
 
 var eventTime = time.Date(2026, 9, 20, 11, 30, 0, 0, time.UTC)
@@ -23,6 +22,7 @@ func worker(name, title string) state.Agent {
 // the pull request it opened, and what it said about the work — each as
 // itself, not as a sentence the app would have to read back.
 func TestFinishedEventCarriesTheWorkAsFields(t *testing.T) {
+	t.Parallel()
 	summary := "Added pagination to the reminders list, twenty a page, with the page in the query string."
 	changes := api.AgentChanges{Files: 4, Insertions: 120, Deletions: 8, Dirty: true}
 	pr := &api.PullRequest{Number: 58, Title: "Paginate the reminders", URL: "https://github.com/leciric/agentbox/pull/58"}
@@ -56,6 +56,7 @@ func TestFinishedEventCarriesTheWorkAsFields(t *testing.T) {
 // wrote a report left too much: neither is allowed to become a summary that
 // promises what it isn't.
 func TestFinishedEventSummaryIsTrimmed(t *testing.T) {
+	t.Parallel()
 	a := worker("agent-01", "")
 
 	if ev := finishedEvent(a, api.AgentChanges{}, nil, "Done!", eventTime); ev.Summary != "" {
@@ -81,6 +82,7 @@ func TestFinishedEventSummaryIsTrimmed(t *testing.T) {
 // kept even when it is a single short line — unlike a finish, where a line
 // that short is an acknowledgement rather than a summary.
 func TestCreatedEventKeepsAShortTask(t *testing.T) {
+	t.Parallel()
 	ev := createdEvent(worker("agent-02", "Image bump"), "  Bump the image.  ", eventTime)
 
 	if ev.Kind != api.AgentCreated {
@@ -100,6 +102,7 @@ func TestCreatedEventKeepsAShortTask(t *testing.T) {
 // A question changes after it is asked, so the event points at it rather than
 // copying it: the thread reads it as it is now, escalation and answer included.
 func TestQuestionEventsPointAtTheQuestion(t *testing.T) {
+	t.Parallel()
 	q := state.Question{
 		ID: "q1", Project: "hello-stack", Agent: "agent-01",
 		Text: "Should the reminders page paginate?", Status: state.QuestionPending, CreatedAt: eventTime,
@@ -128,6 +131,7 @@ func TestQuestionEventsPointAtTheQuestion(t *testing.T) {
 // The lead's prose and the app's thread are two renderings of one event, so
 // the notice is built from the event: anything the notice says, the thread has.
 func TestFinishNoticeIsWrittenFromTheEvent(t *testing.T) {
+	t.Parallel()
 	a := worker("agent-01", "Reminders page")
 	summary := "Added pagination to the reminders list, twenty a page, with the page in the query string."
 	pr := &api.PullRequest{Number: 58, URL: "https://github.com/leciric/agentbox/pull/58"}
@@ -159,9 +163,10 @@ func TestFinishNoticeIsWrittenFromTheEvent(t *testing.T) {
 // the app: a finish, a question and its answer all end up in the project's
 // list, newest first, with the question's ID linking the two halves.
 func TestAgentEventsArePersistedPerProject(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -209,9 +214,10 @@ func TestAgentEventsArePersistedPerProject(t *testing.T) {
 // Destroying an agent takes its thread with it, the way it takes its
 // conversation: a row in the rail for an agent that is gone has nothing behind it.
 func TestAgentEventsGoWithTheAgent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}

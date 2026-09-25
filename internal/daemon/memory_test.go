@@ -13,6 +13,7 @@ import (
 // project chat's socket, and an agent's own socket inside its machine. What
 // each of the three may do to it is the whole point of the test.
 func TestProjectMemoryOnAllThreeSurfaces(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -161,6 +162,7 @@ func TestProjectMemoryOnAllThreeSurfaces(t *testing.T) {
 // An agent's memory routes are its project's, and the ones it shouldn't have
 // are not there at all rather than quietly ignored.
 func TestInAgentMemoryIsScopedToItsProject(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -192,6 +194,7 @@ func TestInAgentMemoryIsScopedToItsProject(t *testing.T) {
 // one builder rather than three approximations of it (D75). An agent's is
 // smaller by default, and the accounting says what each build cost.
 func TestContextRouteOnAllThreeSurfaces(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)

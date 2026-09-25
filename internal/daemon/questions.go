@@ -78,14 +78,17 @@ func (s *Server) ask(instance string) func(http.ResponseWriter, *http.Request) e
 			Text: req.Question, Context: req.Context,
 			Status: state.QuestionPending, CreatedAt: time.Now(),
 		}
+		// Waiting before the question is stored, where it can be answered: an
+		// answer that came in between would find nobody to give it to, and the
+		// agent would wait out askTimeout for one it had already been sent.
+		ch := s.waiting.add(q.ID)
+		defer s.waiting.remove(q.ID)
 		if err := s.store.AddQuestion(r.Context(), q); err != nil {
 			return err
 		}
 		s.captureEvent(r.Context(), a.Project, a.Name, "question_asked", map[string]any{
 			"question": q.Text, "context": q.Context,
 		}, "")
-		ch := s.waiting.add(q.ID)
-		defer s.waiting.remove(q.ID)
 		s.events.publish(api.EventQuestion, toAPIQuestion(q))
 		s.record(r.Context(), questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
 		s.logf("%s asks its project's chat: %s", a.Ref(), req.Question)
@@ -112,14 +115,14 @@ func (s *Server) askForTest(ctx context.Context, a state.Agent, question, about 
 		ID: newID(), Project: a.Project, Agent: a.Name, Text: question, Context: about,
 		Status: state.QuestionPending, CreatedAt: time.Now(),
 	}
+	ch := s.waiting.add(q.ID)
+	defer s.waiting.remove(q.ID)
 	if err := s.store.AddQuestion(ctx, q); err != nil {
 		return api.Question{}, err
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "question_asked", map[string]any{
 		"question": q.Text, "context": q.Context,
 	}, "")
-	ch := s.waiting.add(q.ID)
-	defer s.waiting.remove(q.ID)
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
 	s.tellLead(ctx, a.Project, questionNotice(q), true)
 	select {
@@ -428,7 +431,7 @@ func (s *Server) prFor(ctx context.Context, a state.Agent) *api.PullRequest {
 	if h.tip == "" {
 		return nil
 	}
-	l := lookUp(ctx, github.Client{Token: token}, repo, h)
+	l := lookUp(ctx, s.gitHub(token), repo, h)
 	for _, pr := range l.prs {
 		if h.accepts(pr, l.via) {
 			return &api.PullRequest{Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.URL, Draft: pr.Draft}

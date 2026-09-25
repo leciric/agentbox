@@ -136,6 +136,10 @@ export const api = {
   setChatOption: (ref: string, option: string, value: string) =>
     call<T.ChatSession>('PUT', `${chatBase(ref)}/options/${encodeURIComponent(option)}`, { value } satisfies T.ChatOptionRequest),
   clearChat: (ref: string) => call<void>('DELETE', chatBase(ref)),
+  // A project chat's prompt cache, and the card that asks before a message
+  // re-sends a context whose cache is about to expire (or has).
+  chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
+  chooseChatCache: (name: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${project(name)}/chat/cache`, choice),
   files: (ref: string) => call<T.WorktreeFiles>('GET', filesBase(ref)),
 
   // Secrets: names in, names out. A value only ever goes in — no call here
@@ -172,6 +176,8 @@ export const api = {
   saveGitHubToken: (token: string, account?: string) => call<{ user: string }>('POST', '/v1/auth/github', { token, account } satisfies T.GitHubTokenRequest),
   removeGitHubAccount: (account: string) => call<void>('DELETE', `/v1/auth/github/${encodeURIComponent(account)}`),
   setDefaultGitHubAccount: (account: string) => call<void>('POST', `/v1/auth/github/${encodeURIComponent(account)}/default`),
+  renameGitHubAccount: (account: string, name: string) =>
+    call<T.RenamedGitHubAccount>('POST', `/v1/auth/github/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameGitHubAccountRequest),
 
   projectChat: (project: string) => call<T.ProjectChat>('GET', `/v1/projects/${encodeURIComponent(project)}/lead`),
   resetProjectChat: (project: string) => call<void>('DELETE', `/v1/projects/${encodeURIComponent(project)}/lead`),

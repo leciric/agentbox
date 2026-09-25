@@ -19,7 +19,9 @@ type fakeLatest struct {
 	queries []url.Values
 }
 
-func (f *fakeLatest) start(t *testing.T, version string) {
+// start serves version as the latest release, and answers with the URL to
+// give the daemon as its UpdateURL.
+func (f *fakeLatest) start(t *testing.T, version string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -28,7 +30,7 @@ func (f *fakeLatest) start(t *testing.T, version string) {
 		w.Write([]byte(`{"version":"` + version + `","url":"https://github.com/leciric/agentbox/releases/tag/v` + version + `"}`))
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("AGENTBOX_UPDATE_URL", srv.URL)
+	return srv.URL
 }
 
 func (f *fakeLatest) count() int {
@@ -50,8 +52,7 @@ func TestUpdateCheckFindsANewerRelease(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.16.0")
 	var fake fakeLatest
-	fake.start(t, "0.17.0")
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0")})
 	ctx := context.Background()
 
 	waitFor(t, "the check as the daemon starts", func() bool {
@@ -108,8 +109,7 @@ func TestUpdateCheckIsQuietWhenCurrent(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.17.0")
 	var fake fakeLatest
-	fake.start(t, "0.17.0")
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0")})
 	ctx := context.Background()
 	waitFor(t, "the check as the daemon starts", func() bool {
 		status, err := d.client.Update(ctx)
@@ -137,8 +137,7 @@ func TestUpdateCheckBlocked(t *testing.T) {
 				asVersion(t, "0.16.0")
 			}
 			var fake fakeLatest
-			fake.start(t, "0.17.0")
-			d := startTestDaemon(t, t.TempDir(), fakeIncus)
+			d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0")})
 			ctx := context.Background()
 			d.srv.checkForUpdate(ctx)
 			time.Sleep(100 * time.Millisecond) // and the one Run started
