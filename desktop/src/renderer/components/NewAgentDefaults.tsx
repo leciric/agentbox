@@ -15,50 +15,105 @@ import { Field, Input } from './ui/input';
 import { Select, SelectOption } from './ui/select';
 import { Switch } from './ui/switch';
 
-// The empty stored value: AgentBox's own default rather than a model you named.
-const agentBoxDefault = { value: '', name: 'AgentBox default', description: 'Opus, compacting at the window below' };
+// Role is a section of Settings with defaults of its own: the agents a project
+// creates, or its lead — the project's chat. Each has its own model and context
+// window, so a lead that plans and briefs can run on something other than the
+// agents doing the work.
+export type Role = 'agents' | 'lead';
 
-// NewAgentDefaults chooses the model new Claude Code agents start on, for
+// roles says, for each, where its defaults are kept and what an empty model
+// means: AgentBox's own default for agents, Claude Code's own for the lead,
+// which is what every lead ran on before it had a setting.
+const roles = {
+  agents: {
+    title: 'Model for new agents',
+    about: "What a new Claude Code agent starts on, in every project. Agents you've already made keep the model they have.",
+    windowTitle: 'Context window for new agents',
+    windowAbout: "Where a new Claude Code agent's chat compacts. Agents you've already made keep the window they have.",
+    empty: { value: '', name: 'AgentBox default', description: 'Opus' },
+    emptyModel: 'opus',
+    model: (s: T.Settings) => s.defaultClaudeModel,
+    window: (s: T.Settings) => s.defaultAgentContextWindow,
+    save: (model: string, window?: string): T.UpdateSettingsRequest => ({ defaultClaudeModel: model, defaultAgentContextWindow: window }),
+    saveWindow: (window: string): T.UpdateSettingsRequest => ({ defaultAgentContextWindow: window }),
+  },
+  lead: {
+    title: "Model for the lead",
+    about: "What each project's chat runs on, unless you pick another in its composer. Leads you already have move to it the next time their chat starts.",
+    windowTitle: "Context window for the lead",
+    windowAbout: 'Where the lead\'s chat compacts, unless you pick another in its composer. Applies from its next session.',
+    empty: { value: '', name: "Claude Code's default", description: 'Whatever Claude Code picks for the account' },
+    emptyModel: 'default',
+    model: (s: T.Settings) => s.defaultLeadModel,
+    window: (s: T.Settings) => s.defaultLeadContextWindow,
+    save: (model: string, window?: string): T.UpdateSettingsRequest => ({ defaultLeadModel: model, defaultLeadContextWindow: window }),
+    saveWindow: (window: string): T.UpdateSettingsRequest => ({ defaultLeadContextWindow: window }),
+  },
+} as const;
+
+// fullWindow is the 1M window, stored as its count of tokens.
+const fullWindow = '1000000';
+
+// windowsFor are the context windows a role's default model has, smallest
+// first, from the ones the daemon worked out per model. A model it has no entry
+// for — one typed by name — is taken to have only the first, which is the
+// daemon's own answer for a model it has never seen run.
+function windowsFor(settings: T.Settings | undefined, role: Role): number[] {
+  if (!settings) return [];
+  const r = roles[role];
+  const model = r.model(settings) || r.emptyModel;
+  const all = settings.claudeContextWindows ?? {};
+  return all[model] ?? all[model.replace(/\[1m\]$/, '')] ?? (all.default ?? []).slice(0, 1);
+}
+
+// DefaultModel chooses the model a role's Claude Code chats start on, for
 // every project — the setting says what you want an agent to cost and be
 // capable of, which doesn't change from one repository to the next, and this
-// page spans them all. Agents that already exist are left alone.
+// page spans them all.
 //
 // The choices are the ones a Claude Code adapter really advertised, remembered
 // from the last chat that started (see rememberChoices in internal/chat),
 // plus AgentBox's own small pinned list — Fable, chief among them, marked
-// with a note since the account gates it (D69 in decisions.md).
-export function NewAgentDefaults() {
+// with a note since the account gates it (D69).
+export function DefaultModel({ role }: { role: Role }) {
+  const r = roles[role];
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const save = useMutation({
-    mutationFn: (defaultClaudeModel: string) => api.updateSettings({ defaultClaudeModel }),
+    // A model without the 1M window takes the role's window back to the
+    // compact one in the same request: the daemon refuses the pair otherwise.
+    mutationFn: (model: string) => {
+      const all = settings.data?.claudeContextWindows ?? {};
+      const windows = all[model || r.emptyModel] ?? (all.default ?? []).slice(0, 1);
+      const drop = settings.data && r.window(settings.data) === fullWindow && !windows.includes(Number(fullWindow));
+      return api.updateSettings(r.save(model, drop ? '' : undefined));
+    },
     onSuccess: (next) => queryClient.setQueryData(['settings'], next),
     onError: (err) => toast.error(errorMessage(err)),
   });
 
   const choices = settings.data?.claudeModelChoices ?? [];
-  const value = settings.data?.defaultClaudeModel ?? '';
+  const value = (settings.data && r.model(settings.data)) ?? '';
   const current = choices.find((c) => c.value === value);
   const missing = unavailableValue(choices, value);
   const groups = groupChoices(choices.filter((c) => matchesQuery(c, query)));
   const searchable = choices.length >= searchThreshold;
-  const label = value === '' ? agentBoxDefault.name : (current && choiceName(current)) || value;
+  const label = value === '' ? r.empty.name : (current && choiceName(current)) || value;
+  const marker = role === 'agents' ? { 'data-default-model': true } : { 'data-lead-model': true };
 
   return (
     <Panel className="flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
       <div className="min-w-0 flex-1">
-        <div className="text-[13px] font-medium text-primary">Model for new agents</div>
-        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          What a new Claude Code agent starts on, in every project. Agents you've already made keep the model they have.
-        </p>
+        <div className="text-[13px] font-medium text-primary">{r.title}</div>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">{r.about}</p>
       </div>
       <Menu onOpenChange={(open) => !open && setQuery('')}>
         <MenuTrigger asChild>
           <button
-            data-default-model
+            {...marker}
             disabled={save.isPending}
-            aria-label="Model for new agents"
+            aria-label={r.title}
             className={cn(
               'flex h-9 min-w-[13rem] items-center gap-2 rounded-xl border border-line-strong bg-surface-faint px-3 text-[13px] transition hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0',
               missing ? 'text-amber-300' : 'text-primary',
@@ -70,7 +125,7 @@ export function NewAgentDefaults() {
           </button>
         </MenuTrigger>
         <MenuContent align="end" className="max-h-96 w-80 overflow-y-auto">
-          <MenuLabel>Model for new agents</MenuLabel>
+          <MenuLabel>{r.title}</MenuLabel>
           {searchable && (
             <div className="mb-1 flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
               <Search className="size-3.5 shrink-0 text-subtle" />
@@ -85,11 +140,11 @@ export function NewAgentDefaults() {
               />
             </div>
           )}
-          {matchesQuery(agentBoxDefault, query) && (
+          {matchesQuery(r.empty, query) && (
             <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
               <span className="grid">
-                <span>{agentBoxDefault.name}</span>
-                <span className="text-[11px] text-subtle">{agentBoxDefault.description}</span>
+                <span>{r.empty.name}</span>
+                <span className="text-[11px] text-subtle">{r.empty.description}</span>
               </span>
             </MenuItem>
           )}
@@ -140,6 +195,49 @@ export function NewAgentDefaults() {
           <ModelByName onPick={(model) => save.mutate(model)} disabled={save.isPending} />
         </MenuContent>
       </Menu>
+    </Panel>
+  );
+}
+
+// DefaultContextWindow chooses where a role's Claude Code chats compact (D91):
+// the installation's compact window, set below under "Every agent", or the
+// model's whole window. A default model without a 1M window, like Haiku, has
+// nothing to choose, and the daemon refuses the pair anyway.
+export function DefaultContextWindow({ role }: { role: Role }) {
+  const r = roles[role];
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (window: string) => api.updateSettings(r.saveWindow(window)),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const windows = windowsFor(settings.data, role);
+  const standard = windows[0] ?? settings.data?.claudeCompactWindow ?? 200_000;
+  const hasFull = windows.includes(Number(fullWindow)) && standard !== Number(fullWindow);
+  const value = (settings.data && r.window(settings.data)) || '';
+
+  return (
+    <Panel className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3 p-4">
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-medium text-primary">{r.windowTitle}</div>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
+          {r.windowAbout} Past the compact window every step resends the whole conversation, so 1M costs up to five times as much per step late in a long task.
+          {settings.data && !hasFull && ' This model has no 1M window.'}
+        </p>
+      </div>
+      <Select
+        data-default-window={role}
+        aria-label={r.windowTitle}
+        disabled={save.isPending || settings.data === undefined}
+        className="w-[13rem] flex-none rounded-xl"
+        value={value}
+        onChange={(next) => save.mutate(next)}
+      >
+        <SelectOption value="">{standard ? formatTokens(standard) : 'The model\'s whole window'} (default)</SelectOption>
+        {(hasFull || value === fullWindow) && <SelectOption value={fullWindow}>1M, the model's whole window</SelectOption>}
+      </Select>
     </Panel>
   );
 }

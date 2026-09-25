@@ -84,6 +84,9 @@ export interface NotesRequest {
 
 export interface Settings {
   defaultClaudeModel: string;
+  defaultAgentContextWindow: string;
+  defaultLeadModel: string;
+  defaultLeadContextWindow: string;
   claudeModelChoices: ChatOptionChoice[];
   claudeContextWindows: Record<string, number[]>;
   claudeMenuKnown: boolean;
@@ -104,6 +107,9 @@ export interface Settings {
 
 export interface UpdateSettingsRequest {
   defaultClaudeModel?: string;
+  defaultAgentContextWindow?: string;
+  defaultLeadModel?: string;
+  defaultLeadContextWindow?: string;
   defaultClaudeEffort?: string;
   defaultCPU?: string;
   defaultCPUAllowance?: string;

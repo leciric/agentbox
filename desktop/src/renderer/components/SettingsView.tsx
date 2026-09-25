@@ -12,6 +12,7 @@ import {
   ListChecks,
   LoaderCircle,
   LogIn,
+  MessagesSquare,
   Monitor,
   Moon,
   PartyPopper,
@@ -34,7 +35,8 @@ import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import {
   CompactWindow,
-  NewAgentDefaults,
+  DefaultContextWindow,
+  DefaultModel,
   NewAgentEffort,
   NewAgentResources,
   OpenCodeInImage,
@@ -682,7 +684,7 @@ function SettingsTabs({
   hostSetupRan: boolean;
   onWizard: () => void;
 }) {
-  type Section = "environment" | "accounts" | "agents";
+  type Section = "environment" | "accounts" | "lead" | "agents";
   const [section, setSection] = useState<Section>("environment");
   const environmentSteps = steps.filter((s) => environmentIds.has(s.id));
   const accountSteps = steps.filter((s) => accountIds.has(s.id));
@@ -742,6 +744,10 @@ function SettingsTabs({
               <KeyRound />
               Accounts
             </TabsTrigger>
+            <TabsTrigger value="lead">
+              <MessagesSquare />
+              Lead
+            </TabsTrigger>
             <TabsTrigger value="agents">
               <SquareTerminal />
               Agents
@@ -782,6 +788,23 @@ function SettingsTabs({
             </ol>
           </TabsContent>
 
+          <TabsContent value="lead" className="mt-4">
+            <Panel className="p-5">
+              <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">
+                Lead
+              </h2>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-subtle">
+                Each project's chat, which plans the work and directs its
+                agents. Its composer can still pick another model or window
+                for one project, and what it picks there wins.
+              </p>
+              <div className="mt-3">
+                <DefaultModel role="lead" />
+                <DefaultContextWindow role="lead" />
+              </div>
+            </Panel>
+          </TabsContent>
+
           <TabsContent value="agents" className="mt-4">
             <Panel className="p-5">
               <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">
@@ -791,7 +814,8 @@ function SettingsTabs({
                 Each can be overridden for a single agent as you create it.
               </p>
               <div className="mt-3">
-                <NewAgentDefaults />
+                <DefaultModel role="agents" />
+                <DefaultContextWindow role="agents" />
                 <NewAgentEffort />
                 <div className="mt-3" />
                 <NewAgentResources />

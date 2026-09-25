@@ -23,6 +23,9 @@
 //                           done, failed and running with a held message
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
+//   ?defaults=1             Settings' Lead and Agents defaults, the model and
+//                           the context window of each, which the dev bridge
+//                           saves (fixtures.ts)
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -34,7 +37,9 @@ import type * as T from '../../shared/api';
 import { Toaster } from 'sonner';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
+import { DefaultContextWindow, DefaultModel } from '../components/NewAgentDefaults';
 import { ClaudeAccounts } from '../components/SettingsView';
+import { Panel } from '../components/ui/card';
 import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
@@ -42,7 +47,7 @@ import { VMSize } from '../components/VMSize';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, seedDefaults, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -52,6 +57,7 @@ localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' 
 const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's data-rail-thread
 const vm = params.get('vm');
 const accounts = params.get('accounts') === '1';
+const defaults = params.get('defaults') === '1';
 
 const chat = params.get('chat');
 const fixtures = buildFixtures();
@@ -59,6 +65,7 @@ const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${cha
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
 seedQueryClient(queryClient, fixtures);
+if (defaults) seedDefaults(queryClient);
 
 const view: View = { kind: 'project', project: PROJECT };
 
@@ -70,6 +77,27 @@ function Preview() {
     if (!openAgent) return;
     document.querySelector<HTMLButtonElement>(`[data-rail-thread="${PROJECT}/${openAgent}"]`)?.click();
   }, []);
+
+  if (defaults) {
+    return (
+      <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }} className="grid gap-3">
+        <Panel className="p-5">
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">Lead</h2>
+          <div className="mt-3">
+            <DefaultModel role="lead" />
+            <DefaultContextWindow role="lead" />
+          </div>
+        </Panel>
+        <Panel className="p-5">
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-subtle">New agents</h2>
+          <div className="mt-3">
+            <DefaultModel role="agents" />
+            <DefaultContextWindow role="agents" />
+          </div>
+        </Panel>
+      </div>
+    );
+  }
 
   if (accounts) {
     // Alone: a rename refetches projects and agents, which the dev bridge

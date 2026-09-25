@@ -241,6 +241,18 @@ type Settings struct {
 	// means AgentBox's own default. Agents that already exist keep whatever
 	// they have: this only sets the starting point for the next one.
 	DefaultClaudeModel string `json:"defaultClaudeModel"`
+	// DefaultAgentContextWindow is the context window new Claude Code agents
+	// start with: "" for the installation's compact window (the first of
+	// ClaudeContextWindows), or "1000000" for the model's whole window.
+	DefaultAgentContextWindow string `json:"defaultAgentContextWindow"`
+	// DefaultLeadModel is the model a project's lead chats on when its own
+	// composer hasn't chosen one. Empty means Claude Code's own default, not
+	// AgentBox's. Unlike the agents' default it reaches leads that already
+	// exist, the next time their chat starts.
+	DefaultLeadModel string `json:"defaultLeadModel"`
+	// DefaultLeadContextWindow is DefaultAgentContextWindow for the lead's
+	// chat, applied the way DefaultLeadModel is.
+	DefaultLeadContextWindow string `json:"defaultLeadContextWindow"`
 	// ClaudeModelChoices is the model menu the Claude Code adapter last
 	// advertised for this account, plus AgentBox's own small pinned list
 	// (D69, marked in each choice's Description). The adapter's part is
@@ -319,6 +331,15 @@ type Settings struct {
 type UpdateSettingsRequest struct {
 	// DefaultClaudeModel is "" to go back to AgentBox's own default.
 	DefaultClaudeModel *string `json:"defaultClaudeModel,omitempty"`
+	// DefaultAgentContextWindow and DefaultLeadContextWindow are "200k" (or
+	// "") for the installation's compact window, or "1m" for the model's
+	// whole window, which is refused for a default model without one, like
+	// Haiku. A request that moves a role's model to one without a 1M window
+	// has to bring its window back to 200k in the same request.
+	DefaultAgentContextWindow *string `json:"defaultAgentContextWindow,omitempty"`
+	// DefaultLeadModel is "" to go back to Claude Code's own default.
+	DefaultLeadModel         *string `json:"defaultLeadModel,omitempty"`
+	DefaultLeadContextWindow *string `json:"defaultLeadContextWindow,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
 	// DefaultCPU, DefaultCPUAllowance and DefaultMemory are what new agents
