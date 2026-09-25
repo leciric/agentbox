@@ -23,6 +23,9 @@
 //                           done, failed and running with a held message
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
+//   ?resources=1            the resource limits' copy: Home's host stats,
+//                           Settings' defaults for new agents, and an agent's
+//                           limits editor, open
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -34,7 +37,11 @@ import type * as T from '../../shared/api';
 import { Toaster } from 'sonner';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
+import { HomeView } from '../components/HomeView';
+import { NewAgentResources } from '../components/NewAgentDefaults';
+import { LimitsEditor } from '../components/OverviewTab';
 import { ClaudeAccounts } from '../components/SettingsView';
+import { Panel } from '../components/ui/card';
 import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
@@ -52,6 +59,7 @@ localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' 
 const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's data-rail-thread
 const vm = params.get('vm');
 const accounts = params.get('accounts') === '1';
+const resources = params.get('resources') === '1';
 
 const chat = params.get('chat');
 const fixtures = buildFixtures();
@@ -59,6 +67,11 @@ const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${cha
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
 seedQueryClient(queryClient, fixtures);
+if (resources) {
+  const GiB = 1024 ** 3;
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
+  queryClient.setQueryData(['settings'], { ...(queryClient.getQueryData(['settings']) ?? {}), hostCores: 8, hostMemory: 31 * GiB, defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
+}
 
 const view: View = { kind: 'project', project: PROJECT };
 
@@ -70,6 +83,30 @@ function Preview() {
     if (!openAgent) return;
     document.querySelector<HTMLButtonElement>(`[data-rail-thread="${PROJECT}/${openAgent}"]`)?.click();
   }, []);
+
+  // The limits editor opens on a click, like the rail's threads.
+  useEffect(() => {
+    if (!resources) return;
+    document.querySelector<HTMLButtonElement>('[data-preview-limits] button')?.click();
+    // Its input takes focus and scrolls itself into view; put Home's stats back on screen.
+    requestAnimationFrame(() => document.querySelector('[data-preview-resources]')?.scrollTo(0, 0));
+  }, []);
+
+  if (resources) {
+    return (
+      <div data-preview-resources style={{ height: '100vh', overflowY: 'auto', background: 'var(--color-ink)' }}>
+        <div style={{ height: 300 }}>
+          <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
+        </div>
+        <div className="mx-auto grid max-w-3xl gap-4 px-4 pb-10">
+          <NewAgentResources />
+          <Panel className="p-5" data-preview-limits>
+            <LimitsEditor agent={{ ...fixtures.agents[0], limits: { cpu: '4', allowance: '', memory: '8GiB' } }} />
+          </Panel>
+        </div>
+      </div>
+    );
+  }
 
   if (accounts) {
     // Alone: a rename refetches projects and agents, which the dev bridge
