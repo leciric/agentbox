@@ -77,6 +77,11 @@ type Manager struct {
 	// genuine finish (the model stopping on its own) from a turn merely cut
 	// short by a limit or a cancellation.
 	Finished func(a state.Agent, result api.ChatTurnResult)
+	// LeadIdle, when set, is called when a project's lead finishes a turn and
+	// has nothing else to run, so the daemon can offer to compact it before
+	// its prompt cache expires (cachecard.go in the daemon). Off the lock, in
+	// a goroutine of its own.
+	LeadIdle func(a state.Agent)
 	// Idle, when set, is called after a turn ends with nothing following it:
 	// no notice or message that waited started another. The daemon compacts a
 	// lead's full chat then (D73), while nobody is waiting on it. Off the
@@ -1734,6 +1739,12 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	// project's chat that this agent finished.
 	if c.m.Finished != nil && !c.agent.IsLead() {
 		go c.m.Finished(c.agent, *result)
+	}
+	// A lead is idle from here, and its prompt cache starts running out. The
+	// daemon checks again when it acts: a message drain is still handing the
+	// tool starts a turn this can't see yet.
+	if c.m.LeadIdle != nil && c.agent.IsLead() && c.turn == nil && !c.gone {
+		go c.m.LeadIdle(c.agent)
 	}
 	// Nothing that waited started another turn, so the chat is idle: the
 	// moment the daemon can replace a full session without anyone waiting.

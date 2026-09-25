@@ -75,7 +75,12 @@ export class EventStream {
       this.timer = setTimeout(() => void this.connect(failures + 1), Math.min(500 * 2 ** failures, 5000));
     };
 
-    this.setState({ state: 'connecting', error: this.state.error });
+    // Only a first attempt is news. Once one has failed, the next ones stay
+    // "disconnected", with the last error, until one gets through: flipping to
+    // "connecting" and back on every retry blinked everything that shows the
+    // connection, and on Windows before the WSL distro is set up, where each
+    // retry fails after a round trip through wsl.exe, that was the setup card.
+    if (this.state.state !== 'disconnected') this.setState({ state: 'connecting' });
     try {
       if (isLocal()) await ensureDaemon();
     } catch (err) {

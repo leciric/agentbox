@@ -75,6 +75,9 @@ type Server struct {
 	// reason, and for one more: the real one starts an AI tool, which a test
 	// must never do by forgetting to say otherwise.
 	askAside func(ctx context.Context, a state.Agent, model, ask string) (answer, ranOn string, err error)
+	// idleAfter schedules a lead's cache card: time.AfterFunc when nil, a test's
+	// clock otherwise.
+	idleAfter func(d time.Duration, f func()) interface{ Stop() bool }
 
 	waiting *waiters // agents waiting for an answer to a question
 
@@ -91,6 +94,7 @@ type Server struct {
 	previewIPs   map[string]previewTarget // agents' addresses, cached for the preview proxy
 	claudeLogins map[string]*claudeLogin  // in-app Claude Code logins, by job
 	distilling   map[string]bool          // projects with a distillation running, by name
+	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
 	remoteStop   context.CancelFunc
@@ -135,6 +139,7 @@ func New(cfg Config) (*Server, error) {
 			s.captureLeadTurn(ev)
 		},
 		Finished:   s.agentFinished,
+		LeadIdle:   s.leadCacheIdle,
 		Idle:       s.leadIdle,
 		AuthFailed: s.claudeAuthFailed,
 		Limits:     s.claudeLimited,
@@ -356,6 +361,8 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
+	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
+	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
 	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
 	h("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
 	h("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
