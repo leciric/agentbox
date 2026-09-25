@@ -79,9 +79,13 @@ func TestDaemonUpdatesTheBaseImageToolsInPlace(t *testing.T) {
 	root := t.TempDir()
 	toolsVersion, tools := olderTools()
 	// Every exec in the copy waits for the test's go-ahead, so it can look
-	// at Setup while the update runs.
+	// at Setup while the update runs. The image only answers as updated once
+	// the swap's rename actually lands the new base on agentbox-base: doing
+	// it any earlier (say, on the "config set" that records the tools version
+	// on -next) would have Setup call the update done while the swap is
+	// still in flight, racing the very renames this test asserts on.
 	extra := withNext + `  exec) while [ ! -f "$INCUS_LOG.go" ]; do sleep 0.02; done ;;
-  config) [ "$2" = set ] && touch "$INCUS_LOG.updated" ;;
+  rename) [ "$2" = agentbox-base-next ] && touch "$INCUS_LOG.updated" ;;
 `
 	d := startTestDaemon(t, root, toolsIncus(image.Version, image.Components{}, toolsVersion, tools, extra, updatedConfig()))
 
