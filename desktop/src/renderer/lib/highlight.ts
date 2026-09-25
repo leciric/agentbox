@@ -8,7 +8,7 @@
 // loading the second one only when the window turns over would leave every
 // visible code block un-highlighted until it arrived.
 import type { HighlighterCore, ThemedToken } from 'shiki/core';
-import { currentMode } from './theme';
+import { currentMode } from './theme.ts';
 
 const themes = { dark: 'github-dark-default', light: 'github-light-default' } as const;
 

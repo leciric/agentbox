@@ -4,7 +4,7 @@ import type { ComponentType, ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { chatLabel, type StatusTone } from '../lib/agentStatus';
+import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
 import { JobStatusBadge } from './state';
@@ -123,15 +123,7 @@ const pillDot: Record<StatusTone, string> = {
 // so whatever needs you is the first thing you see on the page - before you've
 // scrolled to a single row of the list below.
 function StatusSummary({ agents, className }: { agents: T.Agent[]; className?: string }) {
-  const order: StatusTone[] = ['urgent', 'error', 'live', 'muted'];
-  const counts = new Map<string, { tone: StatusTone; count: number }>();
-  for (const agent of agents) {
-    const { text, tone } = chatLabel(agent);
-    const entry = counts.get(text);
-    if (entry) entry.count++;
-    else counts.set(text, { tone, count: 1 });
-  }
-  const items = Array.from(counts, ([text, v]) => ({ text, ...v })).sort((a, b) => order.indexOf(a.tone) - order.indexOf(b.tone));
+  const items = summarizeStatus(agents);
 
   return (
     <div className={cn('flex flex-wrap items-center gap-2', className)}>

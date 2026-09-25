@@ -5,7 +5,7 @@
 // at the other.
 import { useQuery } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
-import { api } from './api';
+import { api } from './api.ts';
 
 export type StatusTone = 'urgent' | 'error' | 'live' | 'muted';
 
@@ -73,6 +73,20 @@ export function avatarMood(agent: { state: string; chat?: string }, asking = fal
 // request, which only the user can, or a question the lead passed on.
 export function isAsking(questions: T.Question[] | undefined, ref: string): boolean {
   return (questions ?? []).some((q) => q.ref === ref && (q.status === 'escalated' || (q.status === 'pending' && !!q.kind)));
+}
+
+// summarizeStatus is a one-line breakdown of what a set of agents is up to,
+// grouped by chatLabel's own text and ordered by urgency, so whatever needs
+// you is the first thing shown. Home's StatusSummary reads this.
+export function summarizeStatus(agents: T.Agent[]): { text: string; tone: StatusTone; count: number }[] {
+  const counts = new Map<string, { tone: StatusTone; count: number }>();
+  for (const agent of agents) {
+    const { text, tone } = chatLabel(agent);
+    const entry = counts.get(text);
+    if (entry) entry.count++;
+    else counts.set(text, { tone, count: 1 });
+  }
+  return Array.from(counts, ([text, v]) => ({ text, ...v })).sort((a, b) => toneOrder.indexOf(a.tone) - toneOrder.indexOf(b.tone));
 }
 
 // useMood is avatarMood with the asking read from the agent's project: the

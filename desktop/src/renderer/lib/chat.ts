@@ -3,7 +3,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { diffLines } from 'diff';
 import type * as T from '../../shared/api';
-import { api } from './api';
+import { api } from './api.ts';
 
 export const chatKey = (ref: string) => ['chat', ref];
 
