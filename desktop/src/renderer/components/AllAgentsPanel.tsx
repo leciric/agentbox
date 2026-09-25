@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes } from '../lib/utils';
+import { AgentContextMenu } from './AgentContextMenu';
 import { Sparkline } from './Sparkline';
 import { LiveAgentAvatar } from './state';
 import { Button } from './ui/button';
@@ -72,6 +73,7 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
             sample={usage.data?.agents.find((u) => u.ref === agent.ref)}
             cpuHistory={history.get(agent.ref) ?? []}
             onSelect={() => onSelect({ kind: 'agent', ref: agent.ref })}
+            onOpen={onSelect}
           />
         ))}
       </Panel>
@@ -103,11 +105,13 @@ function AgentFleetRow({
   sample,
   cpuHistory,
   onSelect,
+  onOpen,
 }: {
   agent: T.Agent;
   sample?: T.AgentUsage;
   cpuHistory: number[];
   onSelect: () => void;
+  onOpen: (view: View) => void;
 }) {
   const status = chatLabel(agent);
   // A machine that's stopped or paused holds nothing live: draw it quieter so
@@ -115,6 +119,7 @@ function AgentFleetRow({
   const quiet = agent.state === 'stopped' || agent.state === 'paused';
 
   return (
+    <AgentContextMenu agent={agent} onSelect={onOpen}>
     <button
       type="button"
       data-agent={agent.ref}
@@ -181,5 +186,6 @@ function AgentFleetRow({
       </span>
       <ChevronRight className="hidden size-4 shrink-0 text-ghost transition group-hover:translate-x-0.5 group-hover:text-muted sm:block" />
     </button>
+    </AgentContextMenu>
   );
 }

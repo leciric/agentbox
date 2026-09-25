@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import { avatarMood, chatLabel, isAsking, rank, settled, type Mood } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
+import { AgentContextMenu } from './AgentContextMenu';
 import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
 import { Tip } from './ui/tooltip';
@@ -93,6 +94,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
       asking={asking(agent)}
       mood={mood(agent)}
       onSelect={() => onSelect({ kind: 'agent', ref: agent.ref })}
+      onOpen={onSelect}
     />
   );
 
@@ -214,6 +216,7 @@ function AgentRow({
   asking,
   mood,
   onSelect,
+  onOpen,
 }: {
   agent: T.Agent;
   active: boolean;
@@ -224,6 +227,7 @@ function AgentRow({
   asking: boolean;
   mood: Mood;
   onSelect: () => void;
+  onOpen: (view: View) => void;
 }) {
   // A question or a credential request waiting on you is said in words too,
   // not only by the avatar: the agent is usually mid-turn, blocked on it, so
@@ -233,48 +237,50 @@ function AgentRow({
   // The row is a button that opens the agent, with the pull request badge over
   // it: a link inside a button is neither valid HTML nor clickable on its own.
   return (
-    <div className="relative">
-      <button
-        data-agent={agent.ref}
-        onClick={onSelect}
-        className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', active ? 'bg-surface-strong' : 'hover:bg-surface')}
-      >
-        {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
-        <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
-        <span className={cn('min-w-0 flex-1', pr && 'pr-11')}>
-          <span className={cn('block truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
-          <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
-            {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
-            {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
-            <span
-              className={cn(
-                'shrink-0',
-                status.tone === 'urgent' && 'font-medium text-amber-300',
-                status.tone === 'error' && 'font-medium text-rose-300',
-                status.tone === 'live' && 'chat-shine font-medium',
-                status.tone === 'muted' && 'text-subtle',
-              )}
-            >
-              {status.text}
-            </span>
-            {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
-          </span>
-          <span className="mt-1 flex items-center gap-1 font-mono text-[10.5px] text-faint" data-rail-branch>
-            <GitBranch className="size-3 shrink-0" />
-            <span className="min-w-0 truncate">{agent.branch}</span>
-          </span>
-          {sample && agent.state === 'running' && (
-            <span className="mt-1.5 hidden items-center gap-2 xl:flex">
-              <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
-              <span className="font-mono text-[10px] tabular-nums text-subtle">
-                {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)}
+    <AgentContextMenu agent={agent} pr={pr} active={active} onSelect={onOpen}>
+      <div className="relative">
+        <button
+          data-agent={agent.ref}
+          onClick={onSelect}
+          className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', active ? 'bg-surface-strong' : 'hover:bg-surface')}
+        >
+          {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
+          <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
+          <span className={cn('min-w-0 flex-1', pr && 'pr-11')}>
+            <span className={cn('block truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
+            <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
+              {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
+              {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
+              <span
+                className={cn(
+                  'shrink-0',
+                  status.tone === 'urgent' && 'font-medium text-amber-300',
+                  status.tone === 'error' && 'font-medium text-rose-300',
+                  status.tone === 'live' && 'chat-shine font-medium',
+                  status.tone === 'muted' && 'text-subtle',
+                )}
+              >
+                {status.text}
               </span>
+              {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
             </span>
-          )}
-        </span>
-      </button>
-      {pr && <PullRequestBadge pr={pr} />}
-    </div>
+            <span className="mt-1 flex items-center gap-1 font-mono text-[10.5px] text-faint" data-rail-branch>
+              <GitBranch className="size-3 shrink-0" />
+              <span className="min-w-0 truncate">{agent.branch}</span>
+            </span>
+            {sample && agent.state === 'running' && (
+              <span className="mt-1.5 hidden items-center gap-2 xl:flex">
+                <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
+                <span className="font-mono text-[10px] tabular-nums text-subtle">
+                  {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)}
+                </span>
+              </span>
+            )}
+          </span>
+        </button>
+        {pr && <PullRequestBadge pr={pr} />}
+      </div>
+    </AgentContextMenu>
   );
 }
 
