@@ -58,10 +58,6 @@ type Project struct {
 	// on: "agentbox/" (the default) makes agentbox/fix-login. It may be empty,
 	// or nested like "thiago/agentbox/". Existing agents keep their branches.
 	BranchPrefix string `json:"branchPrefix"`
-	// MediaRetentionDays is how long media whose agent is gone survives
-	// before the daemon sweeps it away; 30 by default. Media of an agent
-	// that still exists never expires, however old.
-	MediaRetentionDays int `json:"mediaRetentionDays"`
 	// FinishNotices is what happens when one of this project's agents
 	// finishes: "chat" (tell the project's chat, and let it decide what
 	// happens next), "off" (record it in the chat's history, without
@@ -201,8 +197,6 @@ type UpdateProjectRequest struct {
 	// BranchPrefix is what the project's new agents' branches are named with,
 	// before the agent's name: "" for none. It must make a valid branch name.
 	BranchPrefix *string `json:"branchPrefix,omitempty"`
-	// MediaRetentionDays sets how long kept media survives its agent.
-	MediaRetentionDays *int `json:"mediaRetentionDays,omitempty"`
 	// FinishNotices is what a finishing agent does to the project's chat:
 	// chat, off or lead.
 	FinishNotices *string `json:"finishNotices,omitempty"`
@@ -241,6 +235,18 @@ type Settings struct {
 	// means AgentBox's own default. Agents that already exist keep whatever
 	// they have: this only sets the starting point for the next one.
 	DefaultClaudeModel string `json:"defaultClaudeModel"`
+	// DefaultAgentContextWindow is the context window new Claude Code agents
+	// start with: "" for the installation's compact window (the first of
+	// ClaudeContextWindows), or "1000000" for the model's whole window.
+	DefaultAgentContextWindow string `json:"defaultAgentContextWindow"`
+	// DefaultLeadModel is the model a project's lead chats on when its own
+	// composer hasn't chosen one. Empty means Claude Code's own default, not
+	// AgentBox's. Unlike the agents' default it reaches leads that already
+	// exist, the next time their chat starts.
+	DefaultLeadModel string `json:"defaultLeadModel"`
+	// DefaultLeadContextWindow is DefaultAgentContextWindow for the lead's
+	// chat, applied the way DefaultLeadModel is.
+	DefaultLeadContextWindow string `json:"defaultLeadContextWindow"`
 	// ClaudeModelChoices is the model menu the Claude Code adapter last
 	// advertised for this account, plus AgentBox's own small pinned list
 	// (D69, marked in each choice's Description). The adapter's part is
@@ -310,6 +316,9 @@ type Settings struct {
 	// AgentBox is out, which is also how installations are counted. On unless
 	// it was turned off; see UpdateStatus for what else can keep it off.
 	UpdateCheck bool `json:"updateCheck"`
+	// MediaRetention is how long a removed agent's media is kept before the
+	// daemon purges it: one of the MediaRetention values.
+	MediaRetention string `json:"mediaRetention"`
 	// DefaultClaudeCompactWindow is what ClaudeCompactWindow is when nobody
 	// chose, so a client can offer to go back to it.
 	DefaultClaudeCompactWindow int64 `json:"defaultClaudeCompactWindow"`
@@ -319,6 +328,15 @@ type Settings struct {
 type UpdateSettingsRequest struct {
 	// DefaultClaudeModel is "" to go back to AgentBox's own default.
 	DefaultClaudeModel *string `json:"defaultClaudeModel,omitempty"`
+	// DefaultAgentContextWindow and DefaultLeadContextWindow are "200k" (or
+	// "") for the installation's compact window, or "1m" for the model's
+	// whole window, which is refused for a default model without one, like
+	// Haiku. A request that moves a role's model to one without a 1M window
+	// has to bring its window back to 200k in the same request.
+	DefaultAgentContextWindow *string `json:"defaultAgentContextWindow,omitempty"`
+	// DefaultLeadModel is "" to go back to Claude Code's own default.
+	DefaultLeadModel         *string `json:"defaultLeadModel,omitempty"`
+	DefaultLeadContextWindow *string `json:"defaultLeadContextWindow,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
 	// DefaultCPU, DefaultCPUAllowance and DefaultMemory are what new agents
@@ -336,7 +354,19 @@ type UpdateSettingsRequest struct {
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`
 	// UpdateCheck turns the daily update check on or off.
 	UpdateCheck *bool `json:"updateCheck,omitempty"`
+	// MediaRetention is one of the MediaRetention values.
+	MediaRetention *string `json:"mediaRetention,omitempty"`
 }
+
+// How long a removed agent's media is kept (Settings.MediaRetention).
+// Immediately deletes it with the agent; forever never purges it.
+const (
+	MediaRetentionImmediately = "immediately"
+	MediaRetentionDay         = "1d"
+	MediaRetentionWeek        = "7d"
+	MediaRetentionMonth       = "30d"
+	MediaRetentionForever     = "forever"
+)
 
 // Limits are the resource limits on an agent's machine, as Incus applies them.
 // Empty means no limit.
@@ -594,6 +624,23 @@ type GitHubTokenRequest struct {
 	Account string `json:"account,omitempty"`
 }
 
+// RenameGitHubAccountRequest gives a stored GitHub account another name.
+type RenameGitHubAccountRequest struct {
+	Name string `json:"name"`
+}
+
+// RenamedGitHubAccount is what a rename carried over to the new name. The
+// token is the same, so the agents holding it keep running: nothing needs a
+// restart.
+type RenamedGitHubAccount struct {
+	Old  string `json:"old"`
+	Name string `json:"name"`
+	// Projects are the projects whose new agents get the account.
+	Projects []string `json:"projects"`
+	// Agents are the agents holding its token, by project/name.
+	Agents []string `json:"agents"`
+}
+
 // PullRequest is what GitHub knows about a pull request.
 type PullRequest struct {
 	Number    int        `json:"number"`
@@ -610,8 +657,11 @@ type PullRequest struct {
 	// branch.
 	BaseBranch string `json:"baseBranch,omitempty"`
 	HeadBranch string `json:"headBranch,omitempty"`
-	// Agent is the name of this project's agent behind HeadBranch, when
-	// there is one; only the project pull requests list sets it.
+	// HeadSHA is the commit its branch is at. That, not HeadBranch, is what
+	// ties it to an agent: an agent's work is pushed under any branch name.
+	HeadSHA string `json:"headSha,omitempty"`
+	// Agent is the name of this project's agent whose commits it carries,
+	// when there is one; only the project pull requests list sets it.
 	Agent string `json:"agent,omitempty"`
 }
 
@@ -807,7 +857,8 @@ type RetireRequest struct {
 	// Agents names the ones to retire; empty means every idle one.
 	Agents []string `json:"agents,omitempty"`
 	// Force retires an agent whose work isn't committed. Its branch is kept
-	// either way, but uncommitted changes in a destroyed worktree are lost.
+	// unless merged or pushed, but uncommitted changes in a destroyed
+	// worktree are lost.
 	Force bool `json:"force,omitempty"`
 	// DryRun says what would happen without doing it.
 	DryRun bool `json:"dryRun,omitempty"`
@@ -1253,6 +1304,9 @@ type ImageComponents struct {
 	Codex bool `json:"codex"`
 	// OpenCode adds the OpenCode CLI, which is its own ACP adapter.
 	OpenCode bool `json:"opencode"`
+	// DevCaches fills the Go, npm and Electron caches from AgentBox's own
+	// repository, for agents that work on AgentBox itself.
+	DevCaches bool `json:"devCaches"`
 }
 
 // ImageBuild describes the base image build: the version it would produce, the
@@ -1280,7 +1334,7 @@ type ImageDownload struct {
 	Purpose string `json:"purpose"` // one sentence on why an agent has it
 	MB      int    `json:"mb"`      // approximate download size in megabytes
 	// Option is the component that fetches it: empty for every build,
-	// otherwise "android", "codex" or "opencode".
+	// otherwise "android", "codex", "opencode" or "dev-caches".
 	Option string `json:"option,omitempty"`
 }
 
@@ -1288,9 +1342,10 @@ type ImageDownload struct {
 // component keeps what the installation already chose, so rebuilding never
 // silently drops one someone turned on.
 type BuildImageRequest struct {
-	Android  *bool `json:"android,omitempty"`
-	Codex    *bool `json:"codex,omitempty"`
-	OpenCode *bool `json:"opencode,omitempty"`
+	Android   *bool `json:"android,omitempty"`
+	Codex     *bool `json:"codex,omitempty"`
+	OpenCode  *bool `json:"opencode,omitempty"`
+	DevCaches *bool `json:"devCaches,omitempty"`
 }
 
 const (

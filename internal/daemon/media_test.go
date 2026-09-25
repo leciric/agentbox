@@ -19,6 +19,7 @@ import (
 )
 
 func TestMediaNotesFromTheAgentAndTheUser(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -69,6 +70,7 @@ func TestMediaNotesFromTheAgentAndTheUser(t *testing.T) {
 }
 
 func TestMediaFilesAreServedWithRanges(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -130,6 +132,7 @@ func TestMediaFilesAreServedWithRanges(t *testing.T) {
 // must still say which agent it came from and that the agent is gone, not
 // render it blank or broken.
 func TestProjectMediaShowsAnItemWhoseAgentIsGone(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -176,6 +179,7 @@ func TestProjectMediaShowsAnItemWhoseAgentIsGone(t *testing.T) {
 // own agent name so OrphanAgentMedia, which is scoped by agent, can put each
 // on its own clock.
 func TestSweepExpiredMediaRemovesRowsAndFiles(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -196,8 +200,8 @@ func TestSweepExpiredMediaRemovesRowsAndFiles(t *testing.T) {
 	}
 	itemDir := func(id, agent string) string { return filepath.Join(d.srv.manager(nil).MediaDir(a.Project, agent), id) }
 
-	addItem("expired", "agent-expired") // orphaned 31 days ago: past the 30-day default
-	if err := d.srv.store.OrphanAgentMedia(ctx, a.Project, "agent-expired", now.Add(-31*24*time.Hour)); err != nil {
+	addItem("expired", "agent-expired") // orphaned 2 days ago: past the 1-day default
+	if err := d.srv.store.OrphanAgentMedia(ctx, a.Project, "agent-expired", now.Add(-2*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	addItem("live", "agent-live") // never orphaned: its agent still exists
@@ -273,6 +277,7 @@ func mediaIsGone(t *testing.T, d testDaemon, item state.Media) {
 // already gone is not an error; one from another agent, on an agent's own
 // route, is refused rather than quietly taken.
 func TestBulkDeleteMediaByIDs(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -348,6 +353,7 @@ func TestBulkDeleteMediaByIDs(t *testing.T) {
 // Deleting all obeys the same agent and kind filters as the project's list, so
 // what goes is exactly what the gallery was showing.
 func TestBulkDeleteProjectMediaByFilter(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)

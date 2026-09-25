@@ -10,7 +10,6 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
-	"agentbox/internal/testutil"
 )
 
 var eventTime = time.Date(2026, 9, 20, 11, 30, 0, 0, time.UTC)
@@ -164,9 +163,10 @@ func TestFinishNoticeIsWrittenFromTheEvent(t *testing.T) {
 // the app: a finish, a question and its answer all end up in the project's
 // list, newest first, with the question's ID linking the two halves.
 func TestAgentEventsArePersistedPerProject(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -214,9 +214,10 @@ func TestAgentEventsArePersistedPerProject(t *testing.T) {
 // Destroying an agent takes its thread with it, the way it takes its
 // conversation: a row in the rail for an agent that is gone has nothing behind it.
 func TestAgentEventsGoWithTheAgent(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}

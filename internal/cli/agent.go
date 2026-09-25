@@ -26,7 +26,7 @@ func newImageCmd(a *app) *cobra.Command {
 		Short: "Manage the base image agents are created from",
 	}
 
-	var local, android, codex, withOpenCode bool
+	var local, android, codex, withOpenCode, devCaches bool
 	build := &cobra.Command{
 		Use:   "build",
 		Short: "Build the base image (replaces an existing one; existing agents are unaffected)",
@@ -34,11 +34,14 @@ func newImageCmd(a *app) *cobra.Command {
 few minutes. Nothing publishes a ready-made image: it holds software AgentBox may
 not redistribute, so every machine builds its own.
 
-Three components are optional and off until you ask, because most agents use
+Four components are optional and off until you ask, because most agents use
 none of them: --android adds scrcpy, which mirrors an Android emulator's screen,
---codex adds the Codex CLI and the adapter the app's chat drives it with, and
---opencode adds the OpenCode CLI, which is its own adapter. What you choose is remembered, so a later rebuild keeps it; turn one off again with
---android=false, --codex=false or --opencode=false.`,
+--codex adds the Codex CLI and the adapter the app's chat drives it with,
+--opencode adds the OpenCode CLI, which is its own adapter, and --dev-caches
+fills the Go, npm and Electron caches from AgentBox's own repository, for a
+machine whose agents work on AgentBox itself. What you choose is remembered, so
+a later rebuild keeps it; turn one off again with --android=false,
+--codex=false, --opencode=false or --dev-caches=false.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(cmd)
@@ -55,6 +58,9 @@ none of them: --android adds scrcpy, which mirrors an Android emulator's screen,
 			}
 			if f.Changed("opencode") {
 				req.OpenCode = &withOpenCode
+			}
+			if f.Changed("dev-caches") {
+				req.DevCaches = &devCaches
 			}
 			out := cmd.OutOrStdout()
 			components, err := buildComponents(cmd.Context(), c, req)
@@ -83,6 +89,7 @@ none of them: --android adds scrcpy, which mirrors an Android emulator's screen,
 	build.Flags().BoolVar(&android, "android", false, "build in scrcpy, for watching an agent's Android emulator")
 	build.Flags().BoolVar(&codex, "codex", false, "build in the Codex CLI and its chat adapter")
 	build.Flags().BoolVar(&withOpenCode, "opencode", false, "build in the OpenCode CLI, which is its own chat adapter")
+	build.Flags().BoolVar(&devCaches, "dev-caches", false, "fill the Go, npm and Electron caches from AgentBox's own repository, for agents that work on AgentBox")
 	cmd.AddCommand(build)
 
 	version := &cobra.Command{
@@ -108,9 +115,10 @@ func buildComponents(ctx context.Context, c *api.Client, req api.BuildImageReque
 		return image.Components{}, err
 	}
 	components := image.Components{
-		Android:  status.Image.Components.Android,
-		Codex:    status.Image.Components.Codex,
-		OpenCode: status.Image.Components.OpenCode,
+		Android:   status.Image.Components.Android,
+		Codex:     status.Image.Components.Codex,
+		OpenCode:  status.Image.Components.OpenCode,
+		DevCaches: status.Image.Components.DevCaches,
 	}
 	if req.Android != nil {
 		components.Android = *req.Android
@@ -120,6 +128,9 @@ func buildComponents(ctx context.Context, c *api.Client, req api.BuildImageReque
 	}
 	if req.OpenCode != nil {
 		components.OpenCode = *req.OpenCode
+	}
+	if req.DevCaches != nil {
+		components.DevCaches = *req.DevCaches
 	}
 	return components, nil
 }
@@ -415,8 +426,8 @@ func newDestroyCmd(a *app) *cobra.Command {
 	var force, deleteBranch, deleteMedia bool
 	cmd := &cobra.Command{
 		Use: "destroy <project/agent>",
-		Short: "Delete an agent's machine, snapshots and worktree (its branch and media stay " +
-			"unless --delete-branch or --delete-media)",
+		Short: "Delete an agent's machine, snapshots and worktree (its branch stays if it has commits " +
+			"that aren't merged or pushed, and its media for the media retention, unless --delete-branch or --delete-media)",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
@@ -433,7 +444,7 @@ func newDestroyCmd(a *app) *cobra.Command {
 			msg := "Destroyed " + ag.Ref
 			var kept []string
 			if !deleteBranch {
-				kept = append(kept, "branch "+ag.Branch)
+				kept = append(kept, "branch "+ag.Branch+" unless it was merged or pushed")
 			}
 			if !deleteMedia {
 				kept = append(kept, "its media")
@@ -446,7 +457,7 @@ func newDestroyCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "discard uncommitted changes")
-	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "also delete the agent's branch")
+	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "also delete the agent's branch, even with commits that aren't merged or pushed")
 	cmd.Flags().BoolVar(&deleteMedia, "delete-media", false, "also delete its media, instead of keeping it in the project's media view")
 	return cmd
 }

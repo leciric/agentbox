@@ -942,3 +942,55 @@ exit 0`))
 		t.Errorf("an effort for an OpenCode agent: %v", err)
 	}
 }
+
+// TestCreateSeedsTheDefaultContextWindow checks the window new agents start
+// with in Settings → Agents: an agent nobody chose a window for gets it, and
+// one whose model has no such window — Haiku, picked by the lead — gets the
+// compact window instead of a refusal, since nobody asked it for 1M.
+func TestCreateSeedsTheDefaultContextWindow(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},{"name":"ab-hello-stack-agent-02","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.6"}]}}}}]' ;;
+  query)
+    case "$2" in
+      */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+      */snapshots) echo '[]' ;;
+      *) echo '{"config": {}, "devices": {}}' ;;
+    esac ;;
+esac
+exit 0`))
+	if err := f.m.Creds.SaveClaudeToken("dev", "sk-ant-oat01-dev"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := f.st.SetSetting(ctx, state.SettingDefaultAgentContextWindow, "1000000"); err != nil {
+		t.Fatal(err)
+	}
+	// The lead's defaults are another section, and never reach an agent.
+	if err := f.st.SetSetting(ctx, state.SettingDefaultLeadModel, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := f.st.Chat(ctx, a.Project, a.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chat.Options[state.ChatOptionContextWindow] != "1000000" || chat.Options["model"] != state.DefaultClaudeModel {
+		t.Errorf("an agent with no choices started with %+v, want AgentBox's model at the 1M default", chat.Options)
+	}
+
+	haiku := "haiku"
+	b, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "claude", Model: &haiku})
+	if err != nil {
+		t.Fatalf("a Haiku agent under a 1M default: %v", err)
+	}
+	chat, err = f.st.Chat(ctx, b.Project, b.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, ok := chat.Options[state.ChatOptionContextWindow]; ok {
+		t.Errorf("a Haiku agent was given the %q window", w)
+	}
+}

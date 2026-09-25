@@ -72,6 +72,38 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
   };
 }
 
+// compactionThread is a project chat that has compacted three times (D73):
+// once cleanly, once without managing to save the conversation, and once
+// still running, with a message the user sent meanwhile held under the card.
+export function compactionThread(): T.ChatThread {
+  const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+  let n = 0;
+  const item = (minutesAgo: number, it: Partial<T.ChatItem> & { kind: string; turn: string }): T.ChatItem => ({ id: `c${++n}`, createdAt: at(minutesAgo), updatedAt: at(minutesAgo), ...it });
+  const done = (minutesAgo: number) => ({ state: 'completed', endedAt: at(minutesAgo) });
+  return {
+    agent: `${PROJECT}/lead`,
+    seq: 1,
+    session: { state: 'ready', tool: 'claude', options: [], commands: [] },
+    items: [
+      item(50, { kind: 'user', turn: 'c1', text: 'Where did we get to with the launch posts?', result: done(49) }),
+      item(49, { kind: 'assistant', turn: 'c1', text: 'All four are written; the Product Hunt one is waiting on the screenshots in PR #3.' }),
+      item(48, { kind: 'compaction', turn: 'c1', text: 'Conversation continued in a fresh session; earlier context was consolidated into project memory.', compaction: { state: 'done' } }),
+      item(30, { kind: 'user', turn: 'c4', text: `Check ${WIDE.longUrl} once more`, result: done(29) }),
+      item(29, { kind: 'assistant', turn: 'c4', text: 'It still answers with the old landing page.' }),
+      item(28, {
+        kind: 'compaction',
+        turn: 'c4',
+        text: "Conversation continued in a fresh session, but its earlier context couldn't be saved to project memory.",
+        compaction: { state: 'failed', error: `the agentbox chat didn't summarise itself: ${WIDE.longErrorString}` },
+      }),
+      item(3, { kind: 'user', turn: 'c7', text: 'Ship the Mac build without the Apple secrets.', result: done(1) }),
+      item(1, { kind: 'assistant', turn: 'c7', text: 'agent-13 is on it; I will tell you when its PR is up.' }),
+      item(0, { kind: 'compaction', turn: 'c7', compaction: { state: 'running', waiting: 1 } }),
+      item(0, { kind: 'aside', turn: 'c7', text: 'And make sure the release notes mention the ad hoc signing.', delivery: 'held' }),
+    ],
+  };
+}
+
 export interface FixtureData {
   agents: T.Agent[];
   events: T.AgentEvent[];
@@ -86,13 +118,22 @@ export interface FixtureData {
 // module load.
 export function buildFixtures(): FixtureData {
   const agents: T.Agent[] = [
-    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12' }),
-    agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account' }),
-    agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret' }),
-    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text' }),
-    agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent' }),
-    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent' }),
-    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent' }),
+    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
+    agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret', chat: 'waiting' }),
+    // An agent in each of the avatars' moods (avatarMood), across the three
+    // AI tools: working, asking (the escalated questions below), idle,
+    // stopped and broken.
+    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'codex', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
+    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
+    agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
+    // Done with, one way or another: the rail's Finished section, with agent-97
+    // above, which finished and sits idle.
+    agent({ ref: `${PROJECT}/agent-93`, title: 'Stopped for the night', ai: 'opencode', state: 'stopped' }),
+    agent({ ref: `${PROJECT}/agent-91`, title: 'Rename the settings keys', state: 'stopped' }),
+    agent({ ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused' }),
   ];
 
   const events: T.AgentEvent[] = [
@@ -262,7 +303,6 @@ export function buildFixtures(): FixtureData {
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
-      mediaRetentionDays: 30,
       finishNotices: 'all',
       rolloverThreshold: 0,
       contextBudget: 0,
@@ -284,7 +324,6 @@ export function buildFixtures(): FixtureData {
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
-      mediaRetentionDays: 30,
       finishNotices: 'all',
       rolloverThreshold: 0,
       contextBudget: 0,
@@ -370,23 +409,31 @@ export function leadChat(): T.ChatThread {
   };
 }
 
+// devState is what the dev bridge serves for the projects and the stored
+// accounts, and what picking a project's GitHub account or renaming one
+// changes, so a scenario that refetches them after a change (?github=1) sees
+// what the daemon would have answered.
+const devState: { projects: T.Project[]; auth?: T.AuthStatus } = { projects: [] };
+
 // seedQueryClient primes every query AgentRail and Sidebar read, at
 // staleTime: Infinity (set by the caller's QueryClient), so nothing refetches
 // through the stub bridge below.
 export function seedQueryClient(queryClient: QueryClient, data: FixtureData): void {
+  devState.projects = structuredClone(data.projects);
   queryClient.setQueryData(['agents'], data.agents);
   queryClient.setQueryData(['usage'], { host: { cpu: 0, cores: 1, memUsed: 0, memTotal: 0, poolUsed: 0, poolTotal: 0 }, agents: [] });
   queryClient.setQueryData(['fleet', PROJECT], data.fleet);
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
   queryClient.setQueryData(['questions', PROJECT], data.questions);
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
+  queryClient.setQueryData(['projectChat', PROJECT], { project: PROJECT, ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);
   queryClient.setQueryData(['jobs'], []);
   queryClient.setQueryData(['setup'], { ready: true });
   queryClient.setQueryData(['target'], { kind: 'local' });
   queryClient.setQueryData(['hubs'], []);
-  queryClient.setQueryData(['auth'], {
+  devState.auth = {
     claude: true,
     codex: false,
     opencode: false,
@@ -396,7 +443,8 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
       { name: 'default', default: true, savedAt: new Date().toISOString(), login: 'leciric-work' },
       { name: 'personal-account-with-a-long-name', default: false, savedAt: new Date().toISOString(), login: 'a-github-login-that-is-long-too' },
     ],
-  } satisfies T.AuthStatus);
+  } satisfies T.AuthStatus;
+  queryClient.setQueryData(['auth'], devState.auth);
 }
 
 // fakeVM prints what `agentbox vm resize` prints, a line at a time, so the
@@ -429,6 +477,63 @@ function fakeVM() {
   };
 }
 
+// defaultsSettings are Settings for the ?defaults=1 scenario: an account whose
+// menu has Opus, Sonnet and Haiku, agents on Sonnet at 1M and the lead left on
+// Claude Code's own default. The dev bridge answers PATCH /v1/settings against
+// it, refusing Haiku at 1M the way the daemon does.
+let defaultsSettings = {
+  defaultClaudeModel: 'sonnet',
+  defaultAgentContextWindow: '1000000',
+  defaultLeadModel: '',
+  defaultLeadContextWindow: '',
+  mediaRetention: '1d',
+  claudeModelChoices: [
+    { value: 'default', name: 'Default (recommended)', description: 'Opus 5.5 with 1M context' },
+    { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5 for everyday tasks' },
+    { value: 'haiku', name: 'Haiku', description: 'Haiku 4.5 for quick answers' },
+  ],
+  claudeContextWindows: { default: [200_000, 1_000_000], opus: [200_000, 1_000_000], sonnet: [200_000, 1_000_000], haiku: [200_000] },
+  claudeMenuKnown: true,
+  defaultClaudeEffort: '',
+  claudeEffortChoices: [],
+  openCodeModelChoices: [],
+  openCodeReady: false,
+  defaultCPU: '4',
+  defaultCPUAllowance: '',
+  defaultMemory: '8GiB',
+  hostCores: 16,
+  hostMemory: 32 * 1024 ** 3,
+  resumeAfterLimit: true,
+  claudeCompactWindow: 200_000,
+  updateCheck: true,
+  defaultClaudeCompactWindow: 200_000,
+} as T.Settings;
+
+function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
+  const next = { ...defaultsSettings };
+  const window = (v: string) => (/^1m$|^1000000$/i.test(v) ? '1000000' : '');
+  if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
+  if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
+  if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
+  if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
+  for (const [model, win] of [
+    [next.defaultClaudeModel || 'opus', next.defaultAgentContextWindow],
+    [next.defaultLeadModel || 'default', next.defaultLeadContextWindow],
+  ]) {
+    if (win && !(next.claudeContextWindows[model] ?? []).includes(1_000_000))
+      return { status: 400, body: JSON.stringify({ error: `${model} has no 1M context window: it only has 200k` }), contentType: 'application/json' };
+  }
+  // A new object each time, as a real response is: React Query ignores data
+  // that is the same object it already holds.
+  defaultsSettings = next;
+  return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
+}
+
+// seedDefaults puts defaultsSettings where the Settings components read them.
+export function seedDefaults(queryClient: QueryClient): void {
+  queryClient.setQueryData(['settings'], defaultsSettings);
+}
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -436,6 +541,7 @@ function fakeVM() {
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
+      if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       // Renaming a Claude account answers with what it carried over (the
       // ?accounts=1 scenario), and refuses a name one of the fixtures has.
       const rename = method === 'POST' ? /^\/v1\/auth\/claude\/([^/]+)\/rename$/.exec(path) : null;
@@ -444,6 +550,30 @@ export function installDevBridge(): void {
         if (['default', 'work'].includes(name))
           return { status: 400, body: JSON.stringify({ error: `there is already a Claude Code account named "${name}": remove it first, or pick another name` }), contentType: 'application/json' };
         const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
+        return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
+      }
+      if (method === 'GET' && path === '/v1/projects') return { status: 200, body: JSON.stringify(devState.projects), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/auth') return { status: 200, body: JSON.stringify(devState.auth), contentType: 'application/json' };
+      // Picking a project's GitHub account, and renaming one (?github=1),
+      // change what the two above answer, the way the daemon's would.
+      const patched = method === 'PATCH' ? /^\/v1\/projects\/([^/]+)$/.exec(path) : null;
+      const req = body as Partial<T.UpdateProjectRequest> | undefined;
+      if (patched && req?.githubAccount !== undefined) {
+        const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
+        project.githubAccount = req.githubAccount;
+        return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
+      }
+      const renameGitHub = method === 'POST' ? /^\/v1\/auth\/github\/([^/]+)\/rename$/.exec(path) : null;
+      if (renameGitHub && devState.auth) {
+        const old = decodeURIComponent(renameGitHub[1]);
+        const name = (body as { name: string }).name;
+        const accounts = devState.auth.githubAccounts;
+        if (accounts.some((a) => a.name === name))
+          return { status: 400, body: JSON.stringify({ error: `there is already a GitHub account named "${name}": remove it first, or pick another name` }), contentType: 'application/json' };
+        devState.auth = { ...devState.auth, githubAccounts: accounts.map((a) => (a.name === old ? { ...a, name } : a)).sort((a, b) => a.name.localeCompare(b.name)) };
+        const projects = devState.projects.filter((p) => p.githubAccount === old);
+        for (const p of projects) p.githubAccount = name;
+        const got = { old, name, projects: projects.map((p) => p.name), agents: [`${PROJECT}/agent-01`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
       // Answering a credential request gives back the question, answered, the

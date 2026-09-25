@@ -47,10 +47,11 @@ func addAgent(t *testing.T, d testDaemon, repo, project, name, title string) sta
 
 // The fleet is how you follow a project's agents without opening each one.
 func TestFleetShowsWhatEachAgentHasChanged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -91,10 +92,11 @@ func TestFleetShowsWhatEachAgentHasChanged(t *testing.T) {
 
 // The project's chat is not one of its agents, so it never appears in the fleet.
 func TestFleetLeavesOutTheProjectChat(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,10 +121,11 @@ func TestFleetLeavesOutTheProjectChat(t *testing.T) {
 // A project's media is one stream, labelled with the agent each item came from
 // and what that agent was for, and filterable by agent and by kind.
 func TestProjectMediaIsLabelledAndFilterable(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -182,6 +185,7 @@ func TestProjectMediaIsLabelledAndFilterable(t *testing.T) {
 // Sharing a GitHub token checks it first, so a bad paste is refused here rather
 // than failing inside an agent later.
 func TestShareGitHubTokenChecksItFirst(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
@@ -211,10 +215,11 @@ func TestShareGitHubTokenChecksItFirst(t *testing.T) {
 // An agent that has finished is holding a machine for nothing, and retiring it
 // frees that without touching its branch: the branch is the work.
 func TestRetireFreesFinishedAgentsAndKeepsTheirBranches(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -274,15 +279,23 @@ func TestRetireFreesFinishedAgentsAndKeepsTheirBranches(t *testing.T) {
 
 // Naming an agent means you meant it, but uncommitted work still needs --force.
 func TestRetireNamedAgentStillProtectsUncommittedWork(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Halfway")
 	worktree := a.Worktree
+	// A commit of its own, merged nowhere and pushed nowhere, so the branch
+	// is kept for it; a branch with nothing on it is deleted by any destroy.
+	if err := os.WriteFile(filepath.Join(worktree, "notes.md"), []byte("done so far\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, worktree, "add", "notes.md")
+	testutil.Git(t, worktree, "commit", "-qm", "notes")
 	if err := os.WriteFile(filepath.Join(worktree, "server.mjs"), []byte("// halfway\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -302,6 +315,6 @@ func TestRetireNamedAgentStillProtectsUncommittedWork(t *testing.T) {
 		t.Errorf("Retire(--force) = %+v, want agent-01 retired", out)
 	}
 	if testutil.Git(t, repo, "branch", "--list", a.Branch) == "" {
-		t.Error("--force deleted the branch; it should only discard the uncommitted worktree")
+		t.Error("--force deleted the branch and its unpushed commit; it should only discard the uncommitted worktree")
 	}
 }

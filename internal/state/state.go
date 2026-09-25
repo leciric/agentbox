@@ -491,8 +491,9 @@ var migrations = []string{
 	`ALTER TABLE questions ADD COLUMN secret_name TEXT NOT NULL DEFAULT ''`,
 }
 
-// DefaultMediaRetentionDays is how long kept media survives its agent when a
-// project hasn't set its own period.
+// DefaultMediaRetentionDays is what projects.media_retention_days reads as
+// when it is zero. Nothing reads that column any more: how long media is kept
+// is SettingMediaRetention, the installation's.
 const DefaultMediaRetentionDays = 30
 
 type Store struct {
@@ -532,29 +533,39 @@ func (s *Store) Close() error { return s.db.Close() }
 // Anything that holds this has already been migrated to the current version.
 func (s *Store) DB() *sql.DB { return s.db }
 
+// migrate brings the database up to the latest migration in one transaction:
+// one commit, so one fsync, rather than one per migration, which made opening
+// a fresh database take 100ms or more — every test that opens one paid that.
+// It is also what an upgrade should be: one that fails part of the way through
+// rolls back whole, leaving the database at the version it was, not between
+// two. SQLite's schema changes are transactional, user_version included.
 func (s *Store) migrate(ctx context.Context) error {
 	var version int
 	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
+	if version >= len(migrations) {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Read it again under the write lock: another process may have migrated
+	// the database between the read above and taking the lock.
+	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return err
+	}
 	for i := version; i < len(migrations); i++ {
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
 		if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
-			tx.Rollback()
 			return fmt.Errorf("migration %d: %w", i+1, err)
 		}
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", i+1)); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
-			return err
-		}
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", len(migrations))); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type Project struct {
@@ -585,9 +596,9 @@ type Project struct {
 	// components, like thiago/agentbox/. Agents keep the branch they were
 	// created on when it changes.
 	BranchPrefix string
-	// MediaRetentionDays is how long media whose agent is gone survives
-	// before the daemon sweeps it away. Media of an agent that still exists
-	// never expires, however old.
+	// MediaRetentionDays is what the project once said about how long media
+	// whose agent is gone survives. It is no longer read: SettingMediaRetention
+	// replaced it, for the whole installation.
 	MediaRetentionDays int
 	// FinishNotices is what happens when one of this project's agents
 	// finishes: FinishNoticesChat (tell the chat, and let it decide),
@@ -1397,6 +1408,74 @@ func (s *Store) SetAgentGitHubAccount(ctx context.Context, project, name, accoun
 		return fmt.Errorf("agent %s/%s: %w", project, name, ErrNotFound)
 	}
 	return nil
+}
+
+// GitHubAccountRename is what renaming a GitHub account carried over.
+type GitHubAccountRename struct {
+	// Projects are the projects whose new agents get the account.
+	Projects []string
+	// Agents are the agents holding its token, by project/name.
+	Agents []string
+}
+
+// RenameGitHubAccount carries every reference to a GitHub account over to its
+// new name, in one transaction: each project's account and each agent's.
+// Projects on the machine's default name no account, so the default marker
+// the credentials store moves is all they need. move, when not nil, runs
+// inside the transaction — it is where the credentials store renames the
+// token — and an error from it undoes the whole rename.
+func (s *Store) RenameGitHubAccount(ctx context.Context, old, name string, move func() error) (GitHubAccountRename, error) {
+	var done GitHubAccountRename
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return done, err
+	}
+	defer tx.Rollback()
+
+	collect := func(query string, scan func(*sql.Rows) (string, error)) ([]string, error) {
+		rows, err := tx.QueryContext(ctx, query, old)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			v, err := scan(rows)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, v)
+		}
+		return out, rows.Err()
+	}
+	if done.Projects, err = collect(`SELECT name FROM projects WHERE github_account = ? ORDER BY name`, func(rows *sql.Rows) (string, error) {
+		var p string
+		return p, rows.Scan(&p)
+	}); err != nil {
+		return done, err
+	}
+	if done.Agents, err = collect(`SELECT project, name FROM agents WHERE github_account = ? ORDER BY project, name`, func(rows *sql.Rows) (string, error) {
+		var project, agent string
+		err := rows.Scan(&project, &agent)
+		return project + "/" + agent, err
+	}); err != nil {
+		return done, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE projects SET github_account = ? WHERE github_account = ?`, name, old); err != nil {
+		return done, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agents SET github_account = ? WHERE github_account = ?`, name, old); err != nil {
+		return done, err
+	}
+	if move != nil {
+		if err := move(); err != nil {
+			return GitHubAccountRename{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return GitHubAccountRename{}, err
+	}
+	return done, nil
 }
 
 // SetAgentBaseCommit records the commit an agent's worktree stands on. Only a

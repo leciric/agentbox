@@ -85,6 +85,11 @@ tests with `t.Parallel()`, and `internal/state` and `internal/memory` migrate a 
 once per test binary rather than once per test, so testing one of those packages on its own, or
 `go test ./...` as a whole, is far faster than it was.
 
+While you work, test the packages you changed (`go test ./internal/brief/...`), and run
+`go test ./...` once before you finish. To show a change in the app, `npm --prefix desktop start`
+builds it and launches it unpacked, which takes seconds; `dist` packages installers, which takes
+minutes, and is only worth it when packaging is what you changed.
+
 Every push to `main` and every pull request runs [CI](.github/workflows/ci.yml): `go vet ./...` and
 `go test ./...`, and the desktop app's `typecheck` and `build`. It doesn't package the AppImage, which
 takes minutes and belongs to a release, and it can't run the Incus tests — those are behind the
@@ -112,9 +117,9 @@ A scenario is a URL (`?open=agent-99&theme=light`, see the comment atop `preview
 `--against <ref>` checks that ref out into a throwaway `git worktree` — the same primitive every
 agent already runs in — screenshots it into `out/before/`, and screenshots the working tree into
 `out/after/`, so a change here can show its before and after instead of asserting them. It needs the
-ref to already carry this harness, so it can diff anything after #82, not further back. Playwright's
-own Chromium is a separate download from the one `agentbox browser` manages: `npx playwright install
-chromium` once if launching it fails.
+ref to already carry this harness, so it can diff anything after #82, not further back. It launches
+the system's `/usr/bin/chromium` when there is one, as in every agent's machine; elsewhere it needs
+Playwright's own Chromium: `npx playwright install chromium` once if launching it fails.
 
 ## The agents' base image
 
@@ -128,6 +133,13 @@ the user's own install.
 which is what tells Setup the installed image is outdated and asks for a rebuild. The
 [Base image](.github/workflows/base-image.yml) workflow builds the image on every change to
 `internal/image/`, the way a new machine does, and publishes nothing.
+
+Every agent's temporary files, and so every test's `t.TempDir()`, go to a tmpfs on `/t` (`TMPDIR`):
+a short path, because a unix socket's path can't be longer than 107 bytes, and not `/tmp`, which
+stays on disk because Incus mounts worktrees under it. A machine whose agents work on AgentBox
+itself can have the Go, npm and Electron caches filled from this repository at build time, with
+`agentbox image build --dev-caches`; it's off by default, since other projects' agents don't need
+them.
 
 `personalise.sh`, which renames the image's placeholder user to the host's, can be checked without
 Incus: `sudo scripts/check-personalise.sh`.

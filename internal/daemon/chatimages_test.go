@@ -13,15 +13,15 @@ import (
 	"agentbox/internal/chat"
 	"agentbox/internal/credentials"
 	"agentbox/internal/state"
-	"agentbox/internal/testutil"
 )
 
 // A picture sent to the project's chat is kept beside it, not in state.db, and
 // the app reads it back from the chat's images route. It goes with the chat.
 func TestChatImagesAreKeptAndServed(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	if err := (credentials.Store{Dir: d.paths.Credentials()}).SaveClaudeToken("", "test-token"); err != nil {

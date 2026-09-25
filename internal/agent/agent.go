@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agentbox/internal/android"
+	"agentbox/internal/api"
 	"agentbox/internal/brief"
 	"agentbox/internal/credentials"
 	"agentbox/internal/gitrepo"
@@ -90,23 +91,38 @@ func (m *Manager) claudeChatDefaults(ctx context.Context, p state.Project, model
 		return nil, err
 	}
 	options := map[string]string{"model": chosenModel, "effort": chosenEffort}
+	w, err := m.Store.ClaudeWindows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	installation, err := m.Store.ClaudeCompactWindow(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if window != nil {
 		// The context window (D91) is checked against the model it will run
 		// on, so "1m" for Haiku is refused here rather than ignored later.
-		// Nobody choosing is the installation's compact window.
-		w, err := m.Store.ClaudeWindows(ctx)
-		if err != nil {
-			return nil, err
-		}
-		installation, err := m.Store.ClaudeCompactWindow(ctx)
-		if err != nil {
-			return nil, err
-		}
 		chosen, err := w.ContextWindowChoice(w.NormalizeClaudeModel(chosenModel), *window, installation)
 		if err != nil {
 			return nil, err
 		}
 		options[state.ChatOptionContextWindow] = chosen
+		return options, nil
+	}
+	// Nobody chose for this agent: the window new agents start with in
+	// Settings, where "" is the installation's compact window. It was checked
+	// against the agents' default model when it was set, but this agent may
+	// run on another — the project's, or one the lead picked — and a model
+	// without that window gets the compact window instead of a refusal, since
+	// nobody asked for this one.
+	def, err := m.Store.Setting(ctx, state.SettingDefaultAgentContextWindow)
+	if err != nil {
+		return nil, err
+	}
+	if def != "" {
+		if chosen, err := w.ContextWindowChoice(w.NormalizeClaudeModel(chosenModel), def, installation); err == nil {
+			options[state.ChatOptionContextWindow] = chosen
+		}
 	}
 	return options, nil
 }
@@ -1500,20 +1516,34 @@ func (m *Manager) Resume(ctx context.Context, a state.Agent) error {
 }
 
 type DestroyOptions struct {
-	Force        bool // discard uncommitted changes
+	Force bool // discard uncommitted changes
+	// DeleteBranch deletes the agent's local branch whatever it holds. Left
+	// false, the branch still goes when losing it loses nothing (see
+	// BranchDisposable), and stays otherwise.
 	DeleteBranch bool
 	// DeleteMedia removes the agent's screenshots, recordings, reports, logs
 	// and notes along with everything else. Left false, the default, they
 	// survive the agent: they're often the best proof of what it did, and
 	// deleting is the one part of a destroy that can't be undone. Kept media
-	// still expires on its own, per the project's media retention.
+	// still expires on its own, per the installation's media retention —
+	// which, set to immediately, deletes it here as if this were set.
 	DeleteMedia bool
 }
 
+// BranchDisposable reports whether an agent's local branch holds nothing
+// that isn't somewhere else: it is merged into the branch the agent was made
+// from or the project's current one, here or on a remote, or a remote has the
+// branch at the very same commit. An agent that never committed is merged by
+// definition.
+func BranchDisposable(repo gitrepo.Repo, a state.Agent) bool {
+	return repo.MergedInto(a.Branch, a.BaseRef, repo.CurrentBranch()) || repo.OnRemote(a.Branch)
+}
+
 // Destroy deletes the agent's instance, snapshots and worktree. Its branch,
-// with every commit the agent made, stays unless DeleteBranch is set. Its
-// media stays too, findable in the project's media view, unless DeleteMedia
-// is set.
+// with every commit the agent made, stays unless DeleteBranch is set or
+// BranchDisposable says nothing would be lost. Its media stays too, findable
+// in the project's media view, unless DeleteMedia is set or the media
+// retention is immediately.
 func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOptions) error {
 	_, repo, err := m.project(ctx, a.Project)
 	if err != nil {
@@ -1550,10 +1580,27 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 		return err
 	}
 	deleteAgentRefs(repo, a.Name)
-	if opts.DeleteBranch && repo.BranchExists(a.Branch) {
-		if err := repo.DeleteBranch(a.Branch); err != nil {
-			return err
+	if a.Branch != "" && repo.BranchExists(a.Branch) {
+		switch {
+		case opts.DeleteBranch:
+			if err := repo.DeleteBranch(a.Branch); err != nil {
+				return err
+			}
+		case BranchDisposable(repo, a):
+			// Nobody asked for this, so a branch git won't delete — checked
+			// out in the project's own checkout, say — is no reason to fail
+			// a destroy that has already taken the machine.
+			if err := repo.DeleteBranch(a.Branch); err != nil {
+				m.logf("Keeping branch %s: %v", a.Branch, err)
+			} else {
+				m.logf("Deleted branch %s: nothing on it is only here", a.Branch)
+			}
+		default:
+			m.logf("Keeping branch %s: it has commits that aren't merged or pushed", a.Branch)
 		}
+	}
+	if retention, err := m.Store.MediaRetention(ctx); err == nil && retention == api.MediaRetentionImmediately {
+		opts.DeleteMedia = true
 	}
 	if opts.DeleteMedia {
 		if err := m.deleteAgentMedia(ctx, a); err != nil {

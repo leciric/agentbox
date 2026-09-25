@@ -35,6 +35,11 @@ export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void 
     queryClient.setQueryData<T.Agent[]>(['agents'], (agents) =>
       agents?.some((a) => a.ref === ev.agent && a.chat !== state) ? agents.map((a) => (a.ref === ev.agent ? { ...a, chat: state } : a)) : agents,
     );
+    // The lead isn't in the agents list: its state is on the project's chat,
+    // which the rail's Project chat avatar reads.
+    queryClient.setQueryData<T.ProjectChat>(['projectChat', ev.agent.split('/')[0]], (info) =>
+      info && info.ref === ev.agent && info.chat !== state ? { ...info, chat: state } : info,
+    );
   }
   const thread = queryClient.getQueryData<T.ChatThread>(chatKey(ev.agent));
   if (!thread) return;
@@ -89,6 +94,7 @@ export type Row =
   | { type: 'thinking'; key: string }
   | { type: 'note'; key: string; item: T.ChatItem }
   | { type: 'subagent'; key: string; item: T.ChatItem; children: T.ChatItem[] }
+  | { type: 'compaction'; key: string; item: T.ChatItem }
   | { type: 'credential'; key: string; item: T.ChatItem }
   | { type: 'changes'; key: string; files: ChangedFile[] };
 
@@ -122,7 +128,9 @@ function turnsOf(items: T.ChatItem[]): Turn[] {
 }
 
 export const isWork = (it: T.ChatItem) => it.kind === 'tool' || it.kind === 'thought' || (it.kind === 'permission' && !!it.permission?.outcome);
-const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error';
+// A compaction's card ([D73]) reads like a notice: it marks where the session
+// changed, so a settled turn's fold never hides it.
+const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction';
 const isAside = (it: T.ChatItem) => it.kind === 'aside';
 
 // isCredentialRequest is the agent calling request_credential (D95), under
@@ -211,6 +219,10 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
       }
       if (it.kind === 'subagent') {
         rows.push({ type: 'subagent', key: it.id, item: it, children: children.get(it.id) ?? [] });
+        continue;
+      }
+      if (it.kind === 'compaction') {
+        rows.push({ type: 'compaction', key: it.id, item: it });
         continue;
       }
       rows.push(it.kind === 'assistant' ? { type: 'assistant', key: it.id, item: it, final: settled && it === final } : { type: 'note', key: it.id, item: it });

@@ -64,6 +64,12 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventChat:
         applyChatEvent(queryClient, event.data as T.ChatEvent);
         break;
+      case T.EventChatCache: {
+        // A project chat's cache card went up or down (see CacheCard).
+        const cache = event.data as T.ChatCache;
+        queryClient.setQueryData(['chatCache', cache.project], cache);
+        break;
+      }
       case T.EventAgentEvent: {
         // One of a project's agents reported something. It goes at the head of
         // that project's list, which is what the chat's agent threads read.

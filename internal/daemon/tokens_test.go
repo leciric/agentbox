@@ -32,6 +32,7 @@ func getTokens(t *testing.T, d testDaemon, query string) (api.TokenReport, error
 // agent, most expensive first, with each agent's models, and says which agents
 // are gone — the ledger keeps them.
 func TestTokenReport(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	now := time.Now()
@@ -107,6 +108,7 @@ func TestParseSince(t *testing.T) {
 }
 
 func TestCompactWindowSetting(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	out, err := patchSettings(t, d, `{}`)
 	if err != nil {
@@ -130,6 +132,7 @@ func TestCompactWindowSetting(t *testing.T) {
 // default first, its windows in the order a person reads them; an account
 // removed since is left out.
 func TestClaudeLimitsRoute(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	creds := d.srv.manager(nil).Creds
 	for _, name := range []string{"default", "work"} {

@@ -18,7 +18,6 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/brief"
 	"agentbox/internal/credentials"
-	"agentbox/internal/github"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -47,7 +46,7 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 func projectInfo(p state.Project) api.Project {
 	info := api.Project{Name: p.Name, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
-		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, MediaRetentionDays: p.MediaRetentionDays, FinishNotices: p.FinishNotices,
+		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
 		Section: p.Section, Position: p.Position, CreatedAt: p.CreatedAt}
@@ -126,6 +125,14 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	p := state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()}
+	// A new project may only use the account it was given, or the machine's
+	// default when it was given none, until the user allows more. The list is
+	// written out rather than left empty, which still allows every account.
+	if own, err := s.manager(nil).Creds.ClaudeAccountOf(claudeAccount); err != nil {
+		return err
+	} else if own != "" {
+		p.ClaudeAccounts = []string{own}
+	}
 	if err := s.store.AddProject(r.Context(), p); err != nil {
 		return err
 	}
@@ -247,12 +254,6 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		// here. Dropped the same way as when an account is saved or removed.
 		s.pulls.reset()
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
-	}
-	if req.MediaRetentionDays != nil {
-		if err := s.store.SetProjectMediaRetentionDays(r.Context(), p.Name, *req.MediaRetentionDays); err != nil {
-			return err
-		}
-		p.MediaRetentionDays = *req.MediaRetentionDays
 	}
 	if req.FinishNotices != nil {
 		notices := strings.TrimSpace(*req.FinishNotices)
@@ -910,14 +911,11 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	force, _ := strconv.ParseBool(q.Get("force"))
 	deleteBranch, _ := strconv.ParseBool(q.Get("deleteBranch"))
 	deleteMedia, _ := strconv.ParseBool(q.Get("deleteMedia"))
-	if err := s.manager(s.cfg.Log).Destroy(r.Context(), a, agent.DestroyOptions{Force: force, DeleteBranch: deleteBranch, DeleteMedia: deleteMedia}); err != nil {
+	opts := agent.DestroyOptions{Force: force, DeleteBranch: deleteBranch, DeleteMedia: deleteMedia}
+	if err := s.destroyAgentNow(r.Context(), s.manager(s.cfg.Log), a, opts); err != nil {
 		return err
 	}
 	s.captureEvent(r.Context(), a.Project, a.Name, "agent_retired", map[string]any{"how": "destroy", "branch": a.Branch}, "")
-	s.removeActiveAgent(r.Context(), a.Project, a.Name)
-	s.chat.Forget(a.Ref())
-	s.stopAgentAPI(a.Instance)
-	s.removeBrowserSockets(a.Instance)
 	s.refreshAgents(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
@@ -1145,6 +1143,7 @@ func (s *Server) chooseImageComponents(ctx context.Context, req api.BuildImageRe
 		{req.Android, &components.Android, state.SettingImageAndroid},
 		{req.Codex, &components.Codex, state.SettingImageCodex},
 		{req.OpenCode, &components.OpenCode, state.SettingImageOpenCode},
+		{req.DevCaches, &components.DevCaches, state.SettingImageDevCaches},
 	} {
 		if c.want == nil {
 			continue
@@ -1169,7 +1168,7 @@ func (s *Server) saveGitHubToken(w http.ResponseWriter, r *http.Request) error {
 	if token == "" {
 		return errors.New("no token: paste the one from gh auth token, or a personal access token")
 	}
-	login, err := github.Client{Token: token}.Login(r.Context())
+	login, err := s.gitHub(token).Login(r.Context())
 	if err != nil {
 		return err
 	}
@@ -1206,6 +1205,61 @@ func (s *Server) setDefaultGitHubAccount(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
+// renameGitHubAccount gives a stored GitHub account another name and carries
+// every reference to it over: the machine default, each project's account and
+// each agent's. The token doesn't change, so agents holding it keep running as
+// they are.
+func (s *Server) renameGitHubAccount(w http.ResponseWriter, r *http.Request) error {
+	var req api.RenameGitHubAccountRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	old, name := r.PathValue("account"), strings.TrimSpace(req.Name)
+	creds := s.manager(nil).Creds
+	// The store's checks come first, so a refused name leaves the database
+	// alone; the move itself runs again inside the transaction.
+	if err := credentials.ValidateAccount(name); err != nil {
+		return err
+	}
+	if taken, err := creds.HasGitHubAccount(name); err != nil {
+		return err
+	} else if taken && name != old {
+		return fmt.Errorf("there is already a GitHub account named %q: remove it first, or pick another name", name)
+	}
+	moved := false
+	done, err := s.store.RenameGitHubAccount(r.Context(), old, name, func() error {
+		if err := creds.RenameGitHubAccount(old, name); err != nil {
+			return err
+		}
+		moved = true
+		return nil
+	})
+	if err != nil {
+		if moved {
+			// The transaction didn't commit, so the token goes back to the
+			// name the database still has.
+			if undo := creds.RenameGitHubAccount(name, old); undo != nil {
+				s.logf("renaming the GitHub account %q back from %q: %v", old, name, undo)
+			}
+		}
+		return err
+	}
+	s.logf("Renamed the GitHub account %q to %q", old, name)
+	// Pull requests and the fleet say which account they were read with.
+	s.pulls.reset()
+	for _, p := range done.Projects {
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p})
+	}
+	out := api.RenamedGitHubAccount{Old: old, Name: name, Projects: done.Projects, Agents: done.Agents}
+	if out.Projects == nil {
+		out.Projects = []string{}
+	}
+	if out.Agents == nil {
+		out.Agents = []string{}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
 func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 	creds := s.manager(nil).Creds
 	claude, err := claudeAccounts(creds)
@@ -1232,7 +1286,7 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		if token, err := creds.GitHubToken(""); err == nil && token != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if login, err := (github.Client{Token: token}).Login(ctx); err != nil {
+			if login, err := s.gitHub(token).Login(ctx); err != nil {
 				status.GitHubError = err.Error()
 			} else {
 				status.GitHubUser = login

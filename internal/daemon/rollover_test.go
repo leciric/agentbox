@@ -8,7 +8,6 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
 	"agentbox/internal/state"
-	"agentbox/internal/testutil"
 )
 
 // When a chat is compacted, and — the case worth the test — when it is not.
@@ -45,9 +44,10 @@ func TestNeedsRollover(t *testing.T) {
 // round-trips through the API, it can be switched off, and what makes no sense
 // is refused.
 func TestRolloverThresholdRoundTrips(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	p, err := d.client.Project(ctx, "hello-stack")
@@ -77,9 +77,10 @@ func TestRolloverThresholdRoundTrips(t *testing.T) {
 // What the session says about itself becomes the project's memory: one event,
 // the narrative the next session is started with, and a memory of each kind.
 func TestStoringAConsolidationWritesMemories(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	lead := state.Agent{Project: "hello-stack", Name: state.LeadName, Role: state.RoleLead}

@@ -323,3 +323,60 @@ func TestCheckBranchPrefixAgreesWithGit(t *testing.T) {
 		}
 	}
 }
+
+// What decides whether an agent's branch may go when the agent does: merged
+// into the project's branch (here or on the remote), or on the remote at the
+// same commit. A branch the remote has an older copy of, or none, keeps.
+func TestMergedIntoOnRemoteAndPushed(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	commit := func(branch, file string) string {
+		testutil.Git(t, root, "checkout", "--quiet", branch)
+		write(t, root, file, file)
+		testutil.Git(t, root, "add", file)
+		testutil.Git(t, root, "commit", "--quiet", "-m", file)
+		testutil.Git(t, root, "checkout", "--quiet", "main")
+		sha, _ := repo.ResolveCommit(branch)
+		return sha
+	}
+	testutil.Git(t, root, "remote", "add", "origin", "https://example.invalid/repo.git")
+	testutil.Git(t, root, "update-ref", "refs/remotes/origin/main", "main")
+
+	testutil.Git(t, root, "branch", "agentbox/empty") // nothing past main
+	testutil.Git(t, root, "branch", "agentbox/local")
+	commit("agentbox/local", "local.txt")
+	testutil.Git(t, root, "branch", "agentbox/pushed")
+	pushed := commit("agentbox/pushed", "pushed.txt")
+	testutil.Git(t, root, "update-ref", "refs/remotes/origin/agentbox/pushed", pushed)
+	testutil.Git(t, root, "branch", "agentbox/ahead")
+	behind := commit("agentbox/ahead", "a.txt")
+	testutil.Git(t, root, "update-ref", "refs/remotes/origin/agentbox/ahead", behind)
+	ahead := commit("agentbox/ahead", "b.txt")
+	testutil.Git(t, root, "branch", "agentbox/merged-remotely")
+	merged := commit("agentbox/merged-remotely", "m.txt")
+	testutil.Git(t, root, "update-ref", "refs/remotes/origin/main", merged)
+
+	for _, tc := range []struct {
+		branch           string
+		merged, onRemote bool
+	}{
+		{"agentbox/empty", true, false},
+		{"agentbox/local", false, false},
+		{"agentbox/pushed", false, true},
+		{"agentbox/ahead", false, false},
+		{"agentbox/merged-remotely", true, false},
+	} {
+		if got := repo.MergedInto(tc.branch, "main"); got != tc.merged {
+			t.Errorf("MergedInto(%s, main) = %v, want %v", tc.branch, got, tc.merged)
+		}
+		if got := repo.OnRemote(tc.branch); got != tc.onRemote {
+			t.Errorf("OnRemote(%s) = %v, want %v", tc.branch, got, tc.onRemote)
+		}
+	}
+	if repo.MergedInto("agentbox/local", "", "HEAD", "no-such-branch") {
+		t.Error("MergedInto() with nothing to merge into = true")
+	}
+	if !repo.Pushed(behind) || repo.Pushed(ahead) || !repo.Pushed(pushed) {
+		t.Errorf("Pushed(behind, ahead, pushed) = %v, %v, %v; want true, false, true", repo.Pushed(behind), repo.Pushed(ahead), repo.Pushed(pushed))
+	}
+}

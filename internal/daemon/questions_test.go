@@ -14,10 +14,11 @@ import (
 // The chain the whole feature is about: an agent asks, the project's chat
 // answers — or passes it to the user, who does. The agent waits either way.
 func TestAgentAsksTheChatWhichAnswersOrEscalates(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -89,9 +90,10 @@ func TestAgentAsksTheChatWhichAnswersOrEscalates(t *testing.T) {
 // Autonomy governs what the lead does once it notices something — act, or
 // propose and wait — not whether it notices at all.
 func TestAutonomyIsSetPerProjectAndDefaultsToAsk(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo})
 	if err != nil {
 		t.Fatal(err)
@@ -115,9 +117,10 @@ func TestAutonomyIsSetPerProjectAndDefaultsToAsk(t *testing.T) {
 // TestAgentModelIsSetPerProject covers the project setting over the API: the
 // three things it can say, and the one value that is not a model.
 func TestAgentModelIsSetPerProject(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo})
 	if err != nil {
 		t.Fatal(err)
@@ -162,9 +165,10 @@ func waitForQuestion(t *testing.T, d testDaemon, project string) string {
 }
 
 func TestQuestionsAreScopedToTheirProject(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	// Answering a question that isn't there is refused, not silently ignored.
@@ -207,9 +211,10 @@ func TestResolveFinishStartsTurn(t *testing.T) {
 // TestBranchPrefixIsSetPerProject covers the project setting over the API,
 // and the brief preview that names the branch an agent made now would get.
 func TestBranchPrefixIsSetPerProject(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo})
 	if err != nil {
 		t.Fatal(err)

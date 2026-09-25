@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +18,8 @@ import (
 // port <port> of that agent, so you can open agents' servers in your own
 // browser without knowing their IP addresses. Browsers and curl resolve
 // *.localhost to the loopback address, and the proxy listens only there.
-// AGENTBOX_PREVIEW_ADDR changes the address, or turns the proxy off ("off").
+// Config.PreviewAddr — AGENTBOX_PREVIEW_ADDR, for `agentbox daemon` — changes
+// the address, or turns the proxy off ("off").
 
 const defaultPreviewAddr = "127.0.0.1:7777"
 
@@ -29,7 +29,7 @@ type previewTarget struct {
 }
 
 func (s *Server) servePreview(ctx context.Context) {
-	addr := os.Getenv("AGENTBOX_PREVIEW_ADDR")
+	addr := s.cfg.PreviewAddr
 	switch addr {
 	case "off":
 		return

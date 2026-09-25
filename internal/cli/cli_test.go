@@ -210,34 +210,27 @@ func TestNotesCmd(t *testing.T) {
 func TestMediaRetentionCmd(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
-	repo := testutil.FixtureRepo(t, "hello-stack")
-	if _, err := run(t, "", "add", repo); err != nil {
-		t.Fatal(err)
-	}
 
-	out, err := run(t, "", "media", "retention", "hello-stack")
+	out, err := run(t, "", "media", "retention")
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "hello-stack: 30 day(s)") // the default
+	mustContain(t, out, "1d") // the default
 
-	out, err = run(t, "", "media", "retention", "hello-stack", "5")
+	out, err = run(t, "", "media", "retention", "7d")
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "hello-stack: 5 day(s)")
+	mustContain(t, out, "7d")
 
-	out, err = run(t, "", "media", "retention", "hello-stack")
+	out, err = run(t, "", "media", "retention")
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "hello-stack: 5 day(s)") // persisted
+	mustContain(t, out, "7d") // persisted
 
-	if _, err := run(t, "", "media", "retention", "hello-stack", "0"); err == nil {
-		t.Error("setting retention to 0 days succeeded, want a positive-integer error")
-	}
-	if _, err := run(t, "", "media", "retention", "no-such-project"); err == nil {
-		t.Error("retention for an unknown project succeeded")
+	if _, err := run(t, "", "media", "retention", "5"); err == nil {
+		t.Error("setting retention to 5 succeeded, want an error naming the choices")
 	}
 }
 

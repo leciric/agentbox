@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, GitBranch, MessagesSquare, PanelRight, Plus } from 'lucide-react';
+import { ChevronRight, GitBranch, PanelRight, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { chatLabel, rank } from '../lib/agentStatus';
+import { avatarMood, chatLabel, isAsking, rank, settled, type Mood } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AgentThread, eventsByAgent, latestLine, markSeen, unreadCount, useSeen } from './AgentThread';
@@ -21,6 +21,13 @@ import { Tip } from './ui/tooltip';
 // the box to answer it in, and a box to write back. They are one list on
 // purpose: an agent and what it last said are the same thing to look at, and
 // two rails of the same agents side by side was one rail too many.
+//
+// The agents still at something — working, waiting on you, starting, or with
+// a machine that needs a look — are on top. The rest, idle, paused or stopped,
+// are folded under "Finished" at the bottom, closed unless you open it: a
+// project that has run for a while has more agents that are done than ones
+// that aren't, and those are not what you open the rail to find. The section
+// opens by itself while the agent you're on, or the thread you opened, is in it.
 export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
   const enabled = project !== null;
@@ -43,10 +50,13 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   // is escalated and then answered after the event recording it was written.
   const events = useQuery({ queryKey: ['agentEvents', project], queryFn: () => api.agentEvents(project as string), enabled });
   const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project as string), enabled });
+  // The lead's own state, for its avatar: whether it's mid-turn or asking.
+  const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
   const history = useCpuHistory(usage.data);
   const seen = useSeen();
   const [folded, setFolded] = useFolded();
   const [openRef, setOpenRef] = useState<string | null>(null);
+  const [showFinished, setShowFinished] = useShowFinished();
 
   const byAgent = eventsByAgent(events.data ?? []);
   const byId = new Map((questions.data ?? []).map((q) => [q.id, q]));
@@ -59,12 +69,46 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
 
   if (!project) return null;
   const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
+  const moving = mine.filter((a) => !settled(a));
+  const finished = mine.filter(settled);
+  const finishedOpen = showFinished || finished.some((a) => a.ref === openRef || (view.kind === 'agent' && view.ref === a.ref));
   const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
   const onLead = view.kind === 'project';
+  const leadMood = avatarMood({ state: 'running', chat: lead.data?.chat });
+  const mood = (agent: T.Agent) => avatarMood(agent, isAsking(questions.data, agent.ref));
   const open = (ref: string) => {
     setFolded(false);
     setOpenRef(ref);
   };
+
+  const icon = (agent: T.Agent) => {
+    const unread = unreadCount(byAgent.get(agent.ref) ?? [], seen[agent.ref]);
+    return (
+      <Tip key={agent.ref} label={`${agent.title || agent.name}${unread > 0 ? ` — ${unread} new` : ''}`}>
+        <button aria-label={agent.title || agent.name} data-rail-icon={agent.ref} className="relative rounded-xl p-0.5 transition hover:bg-surface-strong" onClick={() => open(agent.ref)}>
+          <AgentAvatar ai={agent.ai} mood={mood(agent)} state={agent.state} seed={agent.ref} />
+          {unread > 0 && <span className="absolute right-0 top-0 size-2 rounded-full bg-brand-400 ring-2 ring-ink" />}
+        </button>
+      </Tip>
+    );
+  };
+  const row = (agent: T.Agent) => (
+    <AgentRow
+      key={agent.ref}
+      agent={agent}
+      active={view.kind === 'agent' && view.ref === agent.ref}
+      open={openRef === agent.ref}
+      sample={usage.data?.agents.find((u) => u.ref === agent.ref)}
+      cpuHistory={history.get(agent.ref) ?? []}
+      pr={prs.get(agent.ref)}
+      events={byAgent.get(agent.ref) ?? []}
+      unread={unreadCount(byAgent.get(agent.ref) ?? [], seen[agent.ref])}
+      questions={byId}
+      mood={mood(agent)}
+      onSelect={() => onSelect({ kind: 'agent', ref: agent.ref })}
+      onToggle={() => (openRef === agent.ref ? setOpenRef(null) : open(agent.ref))}
+    />
+  );
 
   if (folded) {
     return (
@@ -75,25 +119,29 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           </button>
         </Tip>
         <Tip label="Project chat">
-          <button
-            aria-label="Project chat"
-            className={cn('flex size-9 items-center justify-center rounded-xl border border-line-strong bg-gradient-to-br from-brand-500/25 via-indigo-500/10 to-transparent text-brand-200 transition', onLead && 'ring-1 ring-brand-400')}
-            onClick={() => onSelect({ kind: 'project', project })}
-          >
-            <MessagesSquare className="size-4" />
+          <button aria-label="Project chat" className="rounded-xl p-0.5 transition hover:bg-surface-strong" onClick={() => onSelect({ kind: 'project', project })}>
+            <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} className={cn(onLead && 'ring-1 ring-brand-400')} />
           </button>
         </Tip>
-        {mine.map((agent) => {
-          const unread = unreadCount(byAgent.get(agent.ref) ?? [], seen[agent.ref]);
-          return (
-            <Tip key={agent.ref} label={`${agent.title || agent.name}${unread > 0 ? ` — ${unread} new` : ''}`}>
-              <button aria-label={agent.title || agent.name} data-rail-icon={agent.ref} className="relative rounded-xl p-0.5 transition hover:bg-surface-strong" onClick={() => open(agent.ref)}>
-                <AgentAvatar ai={agent.ai} state={agent.state} className="size-9" />
-                {unread > 0 && <span className="absolute right-0 top-0 size-2 rounded-full bg-brand-400 ring-2 ring-ink" />}
+        {moving.map(icon)}
+        {finished.length > 0 && (
+          <>
+            <div className="my-1 w-7 border-t border-line-faint" />
+            <Tip label={finishedOpen ? 'Hide the finished agents' : `Show ${finished.length} finished`}>
+              <button
+                aria-label={finishedOpen ? 'Hide the finished agents' : `Show ${finished.length} finished`}
+                aria-expanded={finishedOpen}
+                data-rail-finished={finishedOpen ? 'open' : 'closed'}
+                className="flex h-6 items-center gap-0.5 rounded-md px-1 text-[10.5px] tabular-nums text-subtle transition hover:bg-surface-strong hover:text-primary"
+                onClick={() => setShowFinished(!finishedOpen)}
+              >
+                <ChevronRight className={cn('size-3 transition-transform', finishedOpen && 'rotate-90')} />
+                {finished.length}
               </button>
             </Tip>
-          );
-        })}
+            {finishedOpen && finished.map(icon)}
+          </>
+        )}
       </aside>
     );
   }
@@ -133,33 +181,31 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', onLead ? 'bg-surface-strong' : 'hover:bg-surface')}
         >
           {onLead && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line-strong bg-gradient-to-br from-brand-500/25 via-indigo-500/10 to-transparent text-brand-200">
-            <MessagesSquare className="size-4" />
-          </span>
+          <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} />
           <span className="min-w-0 flex-1">
             <span className={cn('block truncate text-[13px] font-medium', onLead ? 'text-title' : 'text-secondary')}>Project chat</span>
             <span className="block truncate text-[11px] text-subtle">The lead's conversation</span>
           </span>
         </button>
 
-        {mine.length > 0 && <div className="my-1.5 border-t border-line-faint" />}
+        {moving.length > 0 && <div className="my-1.5 border-t border-line-faint" />}
 
-        {mine.map((agent) => (
-          <AgentRow
-            key={agent.ref}
-            agent={agent}
-            active={view.kind === 'agent' && view.ref === agent.ref}
-            open={openRef === agent.ref}
-            sample={usage.data?.agents.find((u) => u.ref === agent.ref)}
-            cpuHistory={history.get(agent.ref) ?? []}
-            pr={prs.get(agent.ref)}
-            events={byAgent.get(agent.ref) ?? []}
-            unread={unreadCount(byAgent.get(agent.ref) ?? [], seen[agent.ref])}
-            questions={byId}
-            onSelect={() => onSelect({ kind: 'agent', ref: agent.ref })}
-            onToggle={() => (openRef === agent.ref ? setOpenRef(null) : open(agent.ref))}
-          />
-        ))}
+        {moving.map(row)}
+
+        {finished.length > 0 && (
+          <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-finished={finishedOpen ? 'open' : 'closed'}>
+            <button
+              aria-expanded={finishedOpen}
+              className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle transition hover:bg-surface hover:text-primary"
+              onClick={() => setShowFinished(!finishedOpen)}
+            >
+              <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', finishedOpen && 'rotate-90')} />
+              Finished
+              <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{finished.length}</span>
+            </button>
+            {finishedOpen && finished.map(row)}
+          </section>
+        )}
 
         {mine.length === 0 && (
           <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
@@ -185,6 +231,7 @@ function AgentRow({
   events,
   unread,
   questions,
+  mood,
   onSelect,
   onToggle,
 }: {
@@ -197,6 +244,7 @@ function AgentRow({
   events: T.AgentEvent[];
   unread: number;
   questions: Map<string, T.Question>;
+  mood: Mood;
   onSelect: () => void;
   onToggle: () => void;
 }) {
@@ -215,7 +263,7 @@ function AgentRow({
           className={cn('group relative flex w-full items-center gap-2.5 rounded-xl py-2 pl-2.5 pr-7 text-left transition-colors xl:py-2.5', active ? 'bg-surface-strong' : 'hover:bg-surface')}
         >
           {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
-          <AgentAvatar ai={agent.ai} state={agent.state} className="size-8" />
+          <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
           <span className={cn('min-w-0 flex-1', pr && 'pr-11')}>
             <span className={cn('block truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
             <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
@@ -295,6 +343,21 @@ function useFolded(): [boolean, (folded: boolean) => void] {
     folded,
     (next: boolean) => {
       localStorage.setItem(foldedKey, next ? '1' : '0');
+      set(next);
+    },
+  ];
+}
+
+// Whether the Finished section is open, kept in this browser like the fold.
+// Closed until somebody opens it.
+const finishedKey = 'agentbox.rail.finished';
+
+function useShowFinished(): [boolean, (open: boolean) => void] {
+  const [open, set] = useState(() => localStorage.getItem(finishedKey) === '1');
+  return [
+    open,
+    (next: boolean) => {
+      localStorage.setItem(finishedKey, next ? '1' : '0');
       set(next);
     },
   ];

@@ -298,7 +298,7 @@ func TestPrepareLeadChatModelReportsUnreadableSettings(t *testing.T) {
 func TestConfigureLeadKeepsTheChosenModel(t *testing.T) {
 	t.Parallel()
 	policy := leadSettings()
-	carryClaudeModel([]byte(`{"model":"claude-fable-5-1","autoCompactWindow":200000,"permissions":{"deny":[]}}`), policy)
+	carryClaudeModel([]byte(`{"model":"claude-fable-5-1","autoCompactWindow":200000,"promptCacheTtl":"5m","permissions":{"deny":[]}}`), policy)
 	raw, err := json.Marshal(policy)
 	if err != nil {
 		t.Fatal(err)
@@ -309,6 +309,9 @@ func TestConfigureLeadKeepsTheChosenModel(t *testing.T) {
 	}
 	if got[compactWindowKey] != float64(200_000) {
 		t.Errorf("the compact window didn't survive a rewrite: %v", got[compactWindowKey])
+	}
+	if got[promptCacheTTLKey] != "5m" {
+		t.Errorf("the prompt cache TTL didn't survive a rewrite: %v", got[promptCacheTTLKey])
 	}
 	// The policy is still the new one, not whatever was on disk.
 	if mode, _ := got["permissions"].(map[string]any)["defaultMode"].(string); mode != "default" {

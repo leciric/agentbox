@@ -48,6 +48,7 @@ func toldAgent(t *testing.T, told <-chan state.Question) state.Question {
 // through anything a model reads: the agent is told the variable, and neither
 // the answer nor the question's record carries the value.
 func TestCredentialRequestForASecret(t *testing.T) {
+	t.Parallel()
 	d, files := secretsDaemon(t)
 	ctx := context.Background()
 	const value = "sk_live_never_in_a_model"
@@ -121,6 +122,7 @@ func TestCredentialRequestForASecret(t *testing.T) {
 // A GitHub account the user picks becomes the project's, and the asking
 // agent's token is replaced with its own.
 func TestCredentialRequestForAGitHubAccount(t *testing.T) {
+	t.Parallel()
 	d, files := secretsDaemon(t)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
@@ -172,6 +174,7 @@ func TestCredentialRequestForAGitHubAccount(t *testing.T) {
 
 // The user can say no, with a reason the agent is told.
 func TestCredentialRequestRefused(t *testing.T) {
+	t.Parallel()
 	d, _ := secretsDaemon(t)
 	ctx := context.Background()
 	told, id := requestInBackground(t, d, api.CredentialRequest{Kind: "github", Reason: "gh pr create: 403"})
@@ -190,6 +193,7 @@ func TestCredentialRequestRefused(t *testing.T) {
 
 // What an agent may ask for is checked before anybody is bothered with it.
 func TestCredentialRequestIsChecked(t *testing.T) {
+	t.Parallel()
 	d, _ := secretsDaemon(t)
 	ctx := context.Background()
 	a, err := d.srv.store.Agent(ctx, "hello-stack", "agent-01")
@@ -239,6 +243,7 @@ func leadAnswers(t *testing.T, d testDaemon, id string) (int, string) {
 // interrupted, or its session gone — cancels it, so its card doesn't wait on
 // the user for nothing.
 func TestCredentialRequestCancelledWhenTheCallIsGone(t *testing.T) {
+	t.Parallel()
 	d, _ := secretsDaemon(t)
 	ctx := context.Background()
 	a, err := d.srv.store.Agent(ctx, "hello-stack", "agent-01")
@@ -271,6 +276,7 @@ func TestCredentialRequestCancelledWhenTheCallIsGone(t *testing.T) {
 // An agent asking again replaces what it asked before: it waits on one call
 // at a time, so the earlier card would be answering nobody.
 func TestCredentialRequestReplacedWhenTheAgentAsksAgain(t *testing.T) {
+	t.Parallel()
 	d, _ := secretsDaemon(t)
 	ctx := context.Background()
 	a, err := d.srv.store.Agent(ctx, "hello-stack", "agent-01")
@@ -318,6 +324,7 @@ func TestCredentialRequestReplacedWhenTheAgentAsksAgain(t *testing.T) {
 // No call outlives the daemon it was made to, so a daemon starting cancels
 // every request its predecessor left waiting — and leaves decisions alone.
 func TestCredentialRequestsCancelledOnRestart(t *testing.T) {
+	t.Parallel()
 	d, _ := secretsDaemon(t)
 	ctx := context.Background()
 	now := time.Now()

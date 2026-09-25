@@ -14,7 +14,6 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/state"
-	"agentbox/internal/testutil"
 )
 
 // finishedTask is the line between "the agent is genuinely done" and "the
@@ -141,9 +140,10 @@ func noticeTo(t *testing.T, d testDaemon, lead state.Agent) string {
 // The point of the notice: the lead learns what the agent did, not only how
 // much it changed, and can decide from the notice alone.
 func TestFinishNoticeCarriesTheAgentsSummary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -183,9 +183,10 @@ func TestFinishNoticeCarriesTheAgentsSummary(t *testing.T) {
 // A summary of the size agents on this project actually write is cut, or the
 // notice would cost the lead more context than the read_agent call it saves.
 func TestFinishNoticeCutsAnEnormousSummary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -216,9 +217,10 @@ func TestFinishNoticeCutsAnEnormousSummary(t *testing.T) {
 // The notice still has to be worth reading — and must not dress up whatever was
 // there as a summary.
 func TestFinishNoticeWithoutASummary(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -248,9 +250,10 @@ func TestFinishNoticeWithoutASummary(t *testing.T) {
 // project's autonomy is set to: noticing isn't the same as acting without
 // asking, which is what autonomy actually governs.
 func TestAgentFinishingWakesTheLeadRegardlessOfAutonomy(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -297,9 +300,10 @@ func TestAgentFinishingWakesTheLeadRegardlessOfAutonomy(t *testing.T) {
 // — is the agent stopping to breathe, not finishing: it must not wake the
 // lead, or the lead would be triggered on every ordinary pause.
 func TestAgentPausingDoesNotWakeTheLead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -332,9 +336,10 @@ func TestAgentPausingDoesNotWakeTheLead(t *testing.T) {
 // folded into the one turn that follows, not a turn each — otherwise a lead
 // that reacts by nudging its agents could wake itself in an endless chain.
 func TestFinishesWhileTheLeadIsBusyBecomeOneTurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -385,9 +390,10 @@ func TestFinishesWhileTheLeadIsBusyBecomeOneTurn(t *testing.T) {
 // shows that the agent finished and what it said, but no turn is started, so
 // the finish costs nothing.
 func TestAgentFinishingWithNoticesOffRecordsWithoutATurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -429,9 +435,10 @@ func TestAgentFinishingWithNoticesOffRecordsWithoutATurn(t *testing.T) {
 // Questions are not the same thing (D42): the agent is blocked until somebody
 // answers, so its question wakes the lead even with finish notices off.
 func TestQuestionsStillWakeTheLeadWithNoticesOff(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -480,9 +487,10 @@ func TestQuestionsStillWakeTheLeadWithNoticesOff(t *testing.T) {
 
 // The setting round trip over the API, and what a project starts with.
 func TestFinishNoticesAreSetPerProjectAndDefaultToLead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")})
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +516,7 @@ func TestFinishNoticesAreSetPerProjectAndDefaultToLead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.Autonomy != state.AutonomyAsk || back.MediaRetentionDays != state.DefaultMediaRetentionDays {
+	if back.Autonomy != state.AutonomyAsk {
 		t.Errorf("setting finish notices changed something else: %+v", back)
 	}
 }
@@ -519,9 +527,10 @@ func TestFinishNoticesAreSetPerProjectAndDefaultToLead(t *testing.T) {
 // the agent for something (tell_agent, through its own socket), the next
 // finish wakes it, and only that one.
 func TestAFinishTheLeadDidNotAskForDoesNotWakeIt(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -574,13 +583,14 @@ func TestAFinishTheLeadDidNotAskForDoesNotWakeIt(t *testing.T) {
 // finish it asked for wakes it — otherwise it believes an agent exists that
 // never came to be.
 func TestCreateAgentFailureInTheJobNoticesTheLead(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	creds := credentials.Store{Dir: d.paths.Credentials()}
 	if err := creds.SaveClaudeToken("default", "sk-ant-oat01-default"); err != nil {
 		t.Fatal(err)
 	}
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}

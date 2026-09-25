@@ -430,6 +430,7 @@ Agents are told to read pull requests, not to push or merge.`,
 		Example: `  agentbox auth github
   gh auth token | agentbox auth github --token-stdin
   agentbox auth github --account work
+  agentbox auth github rename default personal
   agentbox auth github remove personal`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -465,7 +466,7 @@ Agents are told to read pull requests, not to push or merge.`,
 	}
 	cmd.Flags().BoolVar(&fromStdin, "token-stdin", false, "read the token from stdin instead of asking gh for it")
 	cmd.Flags().StringVar(&account, "account", "", `store it under this name (default "`+credentials.DefaultAccount+`")`)
-	cmd.AddCommand(newAuthGitHubListCmd(a), newAuthGitHubDefaultCmd(a), newAuthGitHubRemoveCmd(a))
+	cmd.AddCommand(newAuthGitHubListCmd(a), newAuthGitHubDefaultCmd(a), newAuthGitHubRenameCmd(a), newAuthGitHubRemoveCmd(a))
 	return cmd
 }
 
@@ -556,6 +557,37 @@ func githubToken(cmd *cobra.Command, fromStdin bool) (string, error) {
 		return "", errors.New("gh returned no token: run 'gh auth login', or pipe a token in with --token-stdin")
 	}
 	return token, nil
+}
+
+func newAuthGitHubRenameCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rename <account> <new-name>",
+		Short: "Give a stored GitHub account another name",
+		Long: `Everything that names the account follows it: the machine's default, each
+project's account and each agent's. The token stays the same, so agents that
+hold it keep running without a restart. A name another account already has is
+refused.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			got, err := c.RenameGitHubAccount(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "Renamed the GitHub account %q to %q\n", got.Old, got.Name)
+			if len(got.Projects) > 0 {
+				fmt.Fprintf(out, "Projects carried over: %s\n", strings.Join(got.Projects, ", "))
+			}
+			if len(got.Agents) > 0 {
+				fmt.Fprintf(out, "Agents carried over: %s. They keep the same token, so none needs a restart.\n", strings.Join(got.Agents, ", "))
+			}
+			return nil
+		},
+	}
 }
 
 func newAuthGitHubRemoveCmd(a *app) *cobra.Command {

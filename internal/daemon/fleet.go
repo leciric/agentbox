@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -22,7 +21,7 @@ import (
 // agent's diff, and where its branch stands on GitHub.
 //
 // Neither of those is allowed to hold the answer up. Pull requests come from
-// the shared per-repository cache in pulls.go, matched to branches rather than
+// the shared per-repository cache in pulls.go, matched to agents' commits rather than
 // asked for one agent at a time, and the diffs are measured concurrently
 // (D54).
 
@@ -49,13 +48,11 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 	account, _ := s.githubAccountFor(p)
 	out := api.Fleet{Project: project, GitHubAccount: account, Agents: []api.FleetAgent{}, Creating: []api.Job{}}
 
-	branches := make([]string, 0, len(statuses))
-	for _, st := range statuses {
-		if st.Branch != "" {
-			branches = append(branches, st.Branch)
-		}
+	agents := make([]state.Agent, len(statuses))
+	for i, st := range statuses {
+		agents[i] = st.Agent
 	}
-	repo, entry, refreshing, err := s.projectPulls(p, branches)
+	repo, entry, heads, refreshing, err := s.projectPulls(p, agents)
 	var prs map[string]*api.PullRequest
 	if err == nil {
 		out.GitHub = repo.String()
@@ -65,15 +62,11 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 			at := entry.at
 			out.PullsFetchedAt = &at
 		}
-		prs = entry.byBranch(branches)
+		prs = entry.byAgent(heads)
 	} else {
 		out.GitHubError = s.githubErrorFor(p, repo, err)
 	}
 
-	agents := make([]state.Agent, len(statuses))
-	for i, st := range statuses {
-		agents[i] = st.Agent
-	}
 	changes := agentChanges(agents, changesOf)
 
 	for i, st := range statuses {
@@ -82,7 +75,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 		if items, err := s.store.Media(ctx, st.Project, st.Name); err == nil {
 			row.Media = len(items)
 		}
-		row.PR = prs[st.Branch]
+		row.PR = prs[st.Name]
 		row.Busy, row.Idle, row.LastActive, row.Retire = s.idleOf(ctx, st, row.Changes)
 		if row.Idle {
 			out.Idle++
@@ -162,10 +155,14 @@ func changesOf(a state.Agent) api.AgentChanges {
 func (s *Server) projectMedia(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	project := r.PathValue("project")
-	p, err := s.store.Project(ctx, project)
+	if _, err := s.store.Project(ctx, project); err != nil {
+		return err
+	}
+	retention, err := s.store.MediaRetention(ctx)
 	if err != nil {
 		return err
 	}
+	period, forever, _ := state.MediaRetentionPeriod(retention)
 	items, err := s.store.ProjectMedia(ctx, project)
 	if err != nil {
 		return err
@@ -190,10 +187,10 @@ func (s *Server) projectMedia(w http.ResponseWriter, r *http.Request) error {
 			// Its agent is gone: it was kept, not deleted, at destroy time.
 			item.AgentGone = true
 		}
-		if !it.OrphanedAt.IsZero() {
+		if !it.OrphanedAt.IsZero() && !forever {
 			// Matches Store.ExpiredMedia's own arithmetic, so what's shown here
 			// is exactly when the sweeper will remove the item.
-			expires := it.OrphanedAt.Add(time.Duration(p.MediaRetentionDays) * 24 * time.Hour)
+			expires := it.OrphanedAt.Add(period)
 			item.ExpiresAt = &expires
 		}
 		out = append(out, item)

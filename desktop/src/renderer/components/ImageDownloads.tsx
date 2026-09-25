@@ -6,7 +6,9 @@ import { Button } from './ui/button';
 import { Code } from './ui/card';
 
 // The flag that turns each optional component on, for the row that is off.
-const flags: Record<string, string> = { android: '--android', codex: '--codex', opencode: '--opencode' };
+const flags: Record<string, string> = { android: '--android', codex: '--codex', opencode: '--opencode', 'dev-caches': '--dev-caches' };
+// keys maps an option to its field in ImageComponents, where the names differ.
+const keys: Record<string, keyof T.ImageComponents> = { 'dev-caches': 'devCaches' };
 
 function size(mb: number): string {
   return mb < 1000 ? `${mb} MB` : `${(mb / 1000).toFixed(1)} GB`;
@@ -18,7 +20,7 @@ function size(mb: number): string {
 export function ImageDownloads({ image }: { image?: T.ImageBuild }) {
   const [open, setOpen] = useState(false);
   if (!image) return null;
-  const on = (option?: string) => !option || image.components[option as keyof T.ImageComponents] === true;
+  const on = (option?: string) => !option || image.components[keys[option] ?? (option as keyof T.ImageComponents)] === true;
   const total = image.downloads.filter((d) => on(d.option)).reduce((sum, d) => sum + d.mb, 0);
 
   return (

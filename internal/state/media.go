@@ -97,36 +97,20 @@ func (s *Store) OrphanAgentMedia(ctx context.Context, project, agent string, at 
 	return err
 }
 
-// ExpiredMedia lists kept media whose agent is gone and whose project's
-// retention period, counted from when it was orphaned, has passed as of now.
-// Media whose agent still exists is never included.
+// ExpiredMedia lists kept media whose agent is gone and whose retention
+// period, counted from when it was orphaned, has passed as of now. Media
+// whose agent still exists is never included, and nothing is while the
+// installation keeps media forever.
 func (s *Store) ExpiredMedia(ctx context.Context, now time.Time) ([]Media, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT m.id, m.project, m.agent, m.kind, m.name, m.file, m.mime, m.size, m.sha256, m.source, m.text, m.meta,
-		        m.created_at, m.orphaned_at, COALESCE(p.media_retention_days, ?)
-		 FROM media m
-		 LEFT JOIN projects p ON p.name = m.project
-		 WHERE m.orphaned_at > 0`, DefaultMediaRetentionDays)
+	retention, err := s.MediaRetention(ctx)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var items []Media
-	for rows.Next() {
-		var m Media
-		var created, orphaned int64
-		var retentionDays int
-		if err := rows.Scan(&m.ID, &m.Project, &m.Agent, &m.Kind, &m.Name, &m.File, &m.Mime, &m.Size,
-			&m.SHA256, &m.Source, &m.Text, &m.Meta, &created, &orphaned, &retentionDays); err != nil {
-			return nil, err
-		}
-		m.CreatedAt = time.UnixMilli(created)
-		m.OrphanedAt = time.UnixMilli(orphaned)
-		if now.Sub(m.OrphanedAt) >= time.Duration(retentionDays)*24*time.Hour {
-			items = append(items, m)
-		}
+	period, forever, _ := MediaRetentionPeriod(retention)
+	if forever {
+		return nil, nil
 	}
-	return items, rows.Err()
+	return s.queryMedia(ctx, `WHERE orphaned_at > 0 AND orphaned_at <= ? ORDER BY created_at`, now.Add(-period).UnixMilli())
 }
 
 func (s *Store) queryMedia(ctx context.Context, clause string, args ...any) ([]Media, error) {

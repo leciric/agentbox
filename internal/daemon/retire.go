@@ -17,7 +17,8 @@ import (
 // Retiring an agent frees what it holds when it has finished. An agent is one
 // task: its deliverable is its branch, which outlives it, so the cheapest way
 // to move on is to retire the agent and make a new one — creating one takes
-// 1.4 s from the project's base ([D2], [D12]). Retiring never deletes a branch.
+// 1.4 s from the project's base ([D2], [D12]). Destroying one deletes its
+// branch only when that loses nothing (agent.BranchDisposable).
 
 // idleOf works out whether an agent has finished and is holding a machine for
 // nothing, and whether retiring it now would lose anything.
@@ -136,22 +137,22 @@ func (s *Server) retire(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusOK, out)
 }
 
-// retireOne frees one agent. The branch is always kept: it is the work.
+// retireOne frees one agent. The branch is kept unless it is merged or
+// pushed: until then it is the work.
 func (s *Server) retireOne(ctx context.Context, m *agent.Manager, a state.Agent, how string) error {
-	s.chat.Stop(a.Ref(), "the agent was retired")
 	var err error
 	switch how {
 	case api.RetirePause:
+		s.chat.Stop(a.Ref(), "the agent was retired")
 		err = m.Pause(ctx, a)
 	case api.RetireStop:
+		s.chat.Stop(a.Ref(), "the agent was retired")
 		err = m.Stop(ctx, a)
 	case api.RetireDestroy:
-		s.chat.Forget(a.Ref())
-		s.stopAgentAPI(a.Instance)
 		// Force discards the worktree, which the caller has already agreed to;
-		// DeleteBranch and DeleteMedia stay false, so the work and its proof
-		// both survive the agent.
-		err = m.Destroy(ctx, a, agent.DestroyOptions{Force: true, DeleteBranch: false, DeleteMedia: false})
+		// DeleteBranch and DeleteMedia stay false, so unmerged work and its
+		// proof both survive the agent.
+		err = s.destroyAgentNow(ctx, m, a, agent.DestroyOptions{Force: true})
 	default:
 		return errors.New("unknown way to retire")
 	}

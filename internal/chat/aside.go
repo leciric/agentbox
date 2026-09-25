@@ -195,7 +195,7 @@ func (m *Manager) Model(a state.Agent) string {
 	if value := optionValueOf(c.session.Options, "model"); value != "" {
 		return value
 	}
-	return c.stored.Options["model"]
+	return c.storedOption("model")
 }
 
 // asideHandler is the whole client side of an aside session: it collects the

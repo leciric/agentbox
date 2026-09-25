@@ -19,28 +19,31 @@ func Tools(ctx context.Context) []mcp.Tool {
 		{
 			Name: "screenshot",
 			Description: "Look at the whole virtual display: every window, the panel and the mouse cursor, " +
-				"not just a browser page. Take one before clicking anywhere you haven't already seen — " +
-				"coordinates from a stale screenshot click the wrong thing. The image is scaled down to " +
-				"fit, and the reply says how big the display really is: give coordinates in real display " +
-				"pixels, not in the pixels of the image you were shown.",
+				"not just a browser page. The actions answer with a screenshot of what they led to, so take " +
+				"one yourself only to start, or after something changed on its own. Give coordinates in " +
+				"this image's pixels: the tools scale them to the display.",
 			RunContent: func(json.RawMessage) ([]mcp.Content, error) {
-				return screenshotContent(ctx, "")
+				jpg, sc, err := Screenshot(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return shotContent(jpg, sc, ""), nil
 			},
 		},
 		{
 			Name:        "mouse_move",
-			Description: "Move the mouse pointer, without clicking. The pointer travels visibly rather than jumping, so use it to hover something, or to show the user where you are about to click in a recording.",
-			Schema:      point2("x", "y"),
-			Run: run1(ctx, func(ctx context.Context, in args) (string, error) {
+			Description: "Move the mouse pointer, without clicking. The pointer travels visibly rather than jumping, so use it to hover something, or to show the user where you are about to click in a recording." + afterAction,
+			Schema:      object([]string{"x", "y"}, merge(point2props("x", "y"), lookProp())),
+			RunContent: act(ctx, func(ctx context.Context, sc Scale, in args) (string, error) {
+				x, y, err := sc.ToReal(in.X, in.Y)
+				if err != nil {
+					return "", err
+				}
 				from, err := CursorPosition(ctx)
 				if err != nil {
 					return "", err
 				}
-				a, err := moveArgs(from.X, from.Y, in.X, in.Y)
-				if err != nil {
-					return "", err
-				}
-				if a != nil {
+				if a := moveSteps(from.X, from.Y, x, y); a != nil {
 					if _, err := xdotool(ctx, a...); err != nil {
 						return "", err
 					}
@@ -50,21 +53,13 @@ func Tools(ctx context.Context) []mcp.Tool {
 		},
 		{
 			Name:        "click",
-			Description: "Click at a point on the display. The pointer travels there visibly rather than jumping before it clicks. Take a screenshot first, so you know what is there.",
-			Schema: object([]string{"x", "y"}, merge(point2props("x", "y"), map[string]any{
+			Description: "Click at a point on the display, in the pixels of the last screenshot. The pointer travels there visibly rather than jumping before it clicks." + afterAction,
+			Schema: object([]string{"x", "y"}, merge(point2props("x", "y"), merge(map[string]any{
 				"button": choice("which button; left by default", "left", "right", "middle"),
 				"double": boolean("double-click instead of a single click, to open a file or select a word"),
-			})),
-			Run: run1(ctx, func(ctx context.Context, in args) (string, error) {
-				from, err := CursorPosition(ctx)
-				if err != nil {
-					return "", err
-				}
-				a, err := clickArgs(from.X, from.Y, in.X, in.Y, in.Button, in.Double)
-				if err != nil {
-					return "", err
-				}
-				if _, err := xdotool(ctx, a...); err != nil {
+			}, lookProp()))),
+			RunContent: act(ctx, func(ctx context.Context, sc Scale, in args) (string, error) {
+				if err := click(ctx, sc, in.X, in.Y, in.Button, in.Double); err != nil {
 					return "", err
 				}
 				return fmt.Sprintf("%s at (%d, %d).", describeClick(in.Button, in.Double), in.X, in.Y), nil
@@ -72,20 +67,28 @@ func Tools(ctx context.Context) []mcp.Tool {
 		},
 		{
 			Name:        "drag",
-			Description: "Press the mouse button at one point, move to another and release: drag a file, a window's titlebar, a scrollbar, or a selection. The pointer travels visibly both getting there and dragging.",
-			Schema: object([]string{"from_x", "from_y", "to_x", "to_y"}, map[string]any{
-				"from_x": integer("where the drag starts, in display pixels"),
-				"from_y": integer("where the drag starts, in display pixels"),
+			Description: "Press the mouse button at one point, move to another and release: drag a file, a window's titlebar, a scrollbar, or a selection. The pointer travels visibly both getting there and dragging." + afterAction,
+			Schema: object([]string{"from_x", "from_y", "to_x", "to_y"}, merge(map[string]any{
+				"from_x": integer("where the drag starts, in the screenshot's pixels"),
+				"from_y": integer("where the drag starts, in the screenshot's pixels"),
 				"to_x":   integer("where it ends"),
 				"to_y":   integer("where it ends"),
 				"button": choice("which button; left by default", "left", "right", "middle"),
-			}),
-			Run: run1(ctx, func(ctx context.Context, in args) (string, error) {
+			}, lookProp())),
+			RunContent: act(ctx, func(ctx context.Context, sc Scale, in args) (string, error) {
+				fromX, fromY, err := sc.ToReal(in.FromX, in.FromY)
+				if err != nil {
+					return "", err
+				}
+				toX, toY, err := sc.ToReal(in.ToX, in.ToY)
+				if err != nil {
+					return "", err
+				}
 				cur, err := CursorPosition(ctx)
 				if err != nil {
 					return "", err
 				}
-				a, err := dragArgs(cur.X, cur.Y, in.FromX, in.FromY, in.ToX, in.ToY, in.Button)
+				a, err := dragArgs(cur.X, cur.Y, fromX, fromY, toX, toY, in.Button)
 				if err != nil {
 					return "", err
 				}
@@ -97,17 +100,21 @@ func Tools(ctx context.Context) []mcp.Tool {
 		},
 		{
 			Name:        "scroll",
-			Description: "Turn the mouse wheel over a point. The pointer travels there visibly rather than jumping. Whatever is under the pointer scrolls, so aim at the list or pane you mean.",
-			Schema: object([]string{"x", "y", "direction"}, merge(point2props("x", "y"), map[string]any{
+			Description: "Turn the mouse wheel over a point. The pointer travels there visibly rather than jumping. Whatever is under the pointer scrolls, so aim at the list or pane you mean." + afterAction,
+			Schema: object([]string{"x", "y", "direction"}, merge(point2props("x", "y"), merge(map[string]any{
 				"direction": choice("which way to scroll", "up", "down", "left", "right"),
 				"amount":    integer("how many notches of the wheel; 3 by default, up to 50"),
-			})),
-			Run: run1(ctx, func(ctx context.Context, in args) (string, error) {
+			}, lookProp()))),
+			RunContent: act(ctx, func(ctx context.Context, sc Scale, in args) (string, error) {
+				x, y, err := sc.ToReal(in.X, in.Y)
+				if err != nil {
+					return "", err
+				}
 				from, err := CursorPosition(ctx)
 				if err != nil {
 					return "", err
 				}
-				a, err := scrollArgs(from.X, from.Y, in.X, in.Y, in.Direction, in.Amount)
+				a, err := scrollArgs(from.X, from.Y, x, y, in.Direction, in.Amount)
 				if err != nil {
 					return "", err
 				}
@@ -118,28 +125,56 @@ func Tools(ctx context.Context) []mcp.Tool {
 			}),
 		},
 		{
+			// A field is filled in one call rather than three: click it, type,
+			// press Return, each a model request carrying the whole conversation.
 			Name: "type",
-			Description: "Type text into whatever has the keyboard focus. Click the field first. This types " +
-				"characters; for Return, Tab, Escape or any combination with a modifier, use key.",
-			Schema: object([]string{"text"}, map[string]any{"text": str("the text to type")}),
-			Run: run1(ctx, func(ctx context.Context, in args) (string, error) {
+			Description: "Type text into whatever has the keyboard focus, or give x and y to click a field first. " +
+				"This types characters; key presses a key afterwards, like Return to submit or Tab to move on, " +
+				"and the key tool presses keys on their own." + afterAction,
+			Schema: object([]string{"text"}, merge(map[string]any{
+				"text": str("the text to type"),
+				"x":    integer("optional: click here first, in the screenshot's pixels, to focus the field"),
+				"y":    integer("optional: click here first"),
+				"key":  str("optional: a key to press after typing, like Return or Tab"),
+			}, lookProp())),
+			RunContent: act(ctx, func(ctx context.Context, sc Scale, in args) (string, error) {
 				a, err := typeArgs(in.Text)
 				if err != nil {
 					return "", err
 				}
+				if in.hasX != in.hasY {
+					return "", fmt.Errorf("give both x and y to click a field first, or neither")
+				}
+				done := ""
+				if in.hasX {
+					if err := click(ctx, sc, in.X, in.Y, "", false); err != nil {
+						return "", err
+					}
+					done = fmt.Sprintf("Clicked at (%d, %d), then typed", in.X, in.Y)
+				}
 				if _, err := xdotool(ctx, a...); err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Typed %d character(s).", len([]rune(in.Text))), nil
+				if done == "" {
+					done = "Typed"
+				}
+				done = fmt.Sprintf("%s %d character(s)", done, len([]rune(in.Text)))
+				if strings.TrimSpace(in.Key) != "" {
+					if err := pressKeys(ctx, in.Key); err != nil {
+						return "", fmt.Errorf("%s, but: %w", done, err)
+					}
+					done += " and pressed " + strings.TrimSpace(in.Key)
+				}
+				return done + ".", nil
 			}),
 		},
 		{
 			Name: "key",
 			Description: "Press a key or a combination: Return, Escape, ctrl+l, ctrl+shift+t, alt+Tab, super. " +
 				"Several separated by spaces are pressed in order. Key names are X keysyms, so a letter is " +
-				"its letter and a named key is capitalised (Return, Tab, BackSpace, Escape, Up, Down).",
-			Schema: object([]string{"combo"}, map[string]any{"combo": str("the key or combination, like ctrl+l or Return")}),
-			Run: run1(ctx, func(ctx context.Context, in args) (string, error) {
+				"its letter and a named key is capitalised (Return, Tab, BackSpace, Escape, Up, Down)." + afterAction,
+			Schema: object([]string{"combo"}, merge(map[string]any{"combo": str("the key or combination, like ctrl+l or Return")}, lookProp())),
+			RunContent: act(ctx, func(ctx context.Context, _ Scale, in args) (string, error) {
 				if err := pressKeys(ctx, in.Combo); err != nil {
 					return "", err
 				}
@@ -154,7 +189,11 @@ func Tools(ctx context.Context) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				return describeWindows(windows), nil
+				sc, err := DisplayScale(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeWindows(windows, sc), nil
 			},
 		},
 		{
@@ -166,6 +205,11 @@ func Tools(ctx context.Context) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
+				sc, err := DisplayScale(ctx)
+				if err != nil {
+					return "", err
+				}
+				w = shownWindow(w, sc)
 				return fmt.Sprintf("Focused %q (id %s), at (%d, %d), %d×%d.", w.Name, w.ID, w.X, w.Y, w.W, w.H), nil
 			}),
 		},
@@ -195,7 +239,11 @@ func Tools(ctx context.Context) []mcp.Tool {
 				case <-ctx.Done():
 					return nil, ctx.Err()
 				}
-				return screenshotContent(ctx, fmt.Sprintf("Waited %s. ", d))
+				jpg, sc, err := Screenshot(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return shotContent(jpg, sc, fmt.Sprintf("Waited %s. ", d)), nil
 			},
 		},
 		{
@@ -206,25 +254,78 @@ func Tools(ctx context.Context) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("The pointer is at (%d, %d), over window %s.", c.X, c.Y, c.Window), nil
+				sc, err := DisplayScale(ctx)
+				if err != nil {
+					return "", err
+				}
+				x, y := sc.ToShown(c.X, c.Y)
+				return fmt.Sprintf("The pointer is at (%d, %d), over window %s.", x, y, c.Window), nil
 			},
 		},
 	}
 }
 
-// screenshotContent is a screenshot of the display as a tool answers with it:
-// the image, and a note saying which pixels coordinates are given in. before
-// is said first, for a tool that did something before looking.
-func screenshotContent(ctx context.Context, before string) ([]mcp.Content, error) {
-	png, real, shown, err := Screenshot(ctx)
+// afterAction ends the description of every tool that does something.
+const afterAction = " Answers with a screenshot once the screen has stopped changing, so there is no need to take " +
+	"one yourself; pass screenshot false while chaining steps whose results you don't need to see."
+
+func lookProp() map[string]any {
+	return map[string]any{"screenshot": boolean("answer with a screenshot of the result; true by default")}
+}
+
+// act runs an action with the display's scale, and answers with a screenshot
+// of what it led to, taken once the screen has settled. Every call costs a
+// model request carrying the whole conversation, and an action is nearly
+// always followed by a look, so answering with one halves the requests (D83).
+func act(ctx context.Context, fn func(context.Context, Scale, args) (string, error)) func(json.RawMessage) ([]mcp.Content, error) {
+	return func(raw json.RawMessage) ([]mcp.Content, error) {
+		in, err := decodeArgs(raw)
+		if err != nil {
+			return nil, err
+		}
+		sc, err := DisplayScale(ctx)
+		if err != nil {
+			return nil, err
+		}
+		done, err := fn(ctx, sc, in)
+		if err != nil {
+			return nil, err
+		}
+		if in.Screenshot != nil && !*in.Screenshot {
+			return []mcp.Content{mcp.Text(done)}, nil
+		}
+		jpg, sc, err := SettledScreenshot(ctx)
+		if err != nil {
+			return []mcp.Content{mcp.Text(done + " The screenshot afterwards failed: " + err.Error())}, nil
+		}
+		return shotContent(jpg, sc, done+" "), nil
+	}
+}
+
+// click moves the pointer to a point in the screenshot's pixels and clicks.
+func click(ctx context.Context, sc Scale, x, y int, button string, double bool) error {
+	rx, ry, err := sc.ToReal(x, y)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	note := fmt.Sprintf("The display is %s. Give coordinates in those pixels.", real)
-	if shown != real {
-		note = fmt.Sprintf("The display is %s; this image is scaled down to %s. Give coordinates in the display's %s, not the image's.", real, shown, real)
+	from, err := CursorPosition(ctx)
+	if err != nil {
+		return err
 	}
-	return []mcp.Content{mcp.Image(png, "image/png"), mcp.Text(before + note)}, nil
+	a, err := clickArgs(from.X, from.Y, rx, ry, button, double)
+	if err != nil {
+		return err
+	}
+	_, err = xdotool(ctx, a...)
+	return err
+}
+
+// shotContent is a screenshot as a tool answers with it: the image, and a
+// note saying which pixels coordinates are given in. before is said first,
+// for a tool that did something before looking.
+func shotContent(jpg []byte, sc Scale, before string) []mcp.Content {
+	note := fmt.Sprintf("The screenshot is %s: give coordinates in its pixels.", sc.Shown)
+	return []mcp.Content{mcp.Image(jpg, "image/jpeg"), mcp.Text(before + note)}
 }
 
 // args is every argument any of these tools takes. One struct keeps the
@@ -239,7 +340,29 @@ type args struct {
 	Amount              int
 	Double              bool
 	Text, Combo, Window string
+	Key                 string
 	Seconds             float64
+	Screenshot          *bool // nil is true
+	// hasX and hasY say whether x and y were given at all, which type's
+	// optional field to click first needs to tell apart from (0, 0).
+	hasX, hasY bool
+}
+
+// decodeArgs reads a tool's arguments.
+func decodeArgs(raw json.RawMessage) (args, error) {
+	var in args
+	if len(raw) == 0 {
+		return in, nil
+	}
+	var given struct{ X, Y *int }
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return in, err
+	}
+	if err := json.Unmarshal(raw, &given); err != nil {
+		return in, err
+	}
+	in.hasX, in.hasY = given.X != nil, given.Y != nil
+	return in, nil
 }
 
 // run1 decodes a tool's arguments and hands them to fn.
@@ -266,13 +389,22 @@ func describeClick(button string, double bool) string {
 	return "Clicked the " + name + " button"
 }
 
-func describeWindows(windows []Window) string {
+// shownWindow is a window's geometry in the screenshot's pixels.
+func shownWindow(w Window, sc Scale) Window {
+	x2, y2 := sc.ToShown(w.X+w.W, w.Y+w.H)
+	w.X, w.Y = sc.ToShown(w.X, w.Y)
+	w.W, w.H = x2-w.X, y2-w.Y
+	return w
+}
+
+func describeWindows(windows []Window, sc Scale) string {
 	if len(windows) == 0 {
 		return "No windows are open on the display. The browser may still be starting: wait a second and look again."
 	}
 	var b strings.Builder
 	b.WriteString("Visible windows, in the order X lists them:\n")
 	for _, w := range windows {
+		w = shownWindow(w, sc)
 		fmt.Fprintf(&b, "- %s — %s", w.ID, w.Name)
 		if w.hasGeometry {
 			fmt.Fprintf(&b, " (at %d,%d, %d×%d)", w.X, w.Y, w.W, w.H)
@@ -323,8 +455,8 @@ func choice(description string, values ...string) map[string]any {
 
 func point2props(x, y string) map[string]any {
 	return map[string]any{
-		x: integer("how far across the display, in its real pixels, from the left"),
-		y: integer("how far down the display, in its real pixels, from the top"),
+		x: integer("how far across, in the screenshot's pixels, from the left"),
+		y: integer("how far down, in the screenshot's pixels, from the top"),
 	}
 }
 

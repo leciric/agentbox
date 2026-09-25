@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -247,6 +248,53 @@ func (r Repo) DeleteBranch(branch string) error {
 	return err
 }
 
+// IsAncestor reports whether commit is reachable from rev: everything commit
+// has, rev has too. A rev that doesn't resolve contains nothing.
+func (r Repo) IsAncestor(commit, rev string) bool {
+	_, err := run(r.Root, "merge-base", "--is-ancestor", commit, rev)
+	return err == nil
+}
+
+// MergedInto reports whether branch's commit is in one of targets, taken
+// both as the local branch and as every remote's copy of it as last fetched:
+// a pull request merged on GitHub is in origin/main before anyone pulls it.
+func (r Repo) MergedInto(branch string, targets ...string) bool {
+	tip, err := r.ResolveCommit("refs/heads/" + branch)
+	if err != nil {
+		return false
+	}
+	for _, target := range targets {
+		if target == "" || target == "HEAD" || target == branch {
+			continue
+		}
+		refs, _ := run(r.Root, "for-each-ref", "--format=%(refname)", "refs/heads/"+target, "refs/remotes/*/"+target)
+		for _, ref := range strings.Fields(refs) {
+			if r.IsAncestor(tip, ref) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// OnRemote reports whether some remote has branch, as last fetched, at the
+// very commit the local branch is at: deleting the local one loses nothing.
+func (r Repo) OnRemote(branch string) bool {
+	tip, err := r.ResolveCommit("refs/heads/" + branch)
+	if err != nil {
+		return false
+	}
+	out, _ := run(r.Root, "for-each-ref", "--format=%(objectname)", "refs/remotes/*/"+branch)
+	return slices.Contains(strings.Fields(out), tip)
+}
+
+// Pushed reports whether commit is in some remote's branch as last fetched,
+// so that nothing up to it lives only in this repository.
+func (r Repo) Pushed(commit string) bool {
+	out, err := run(r.Root, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, "refs/remotes")
+	return err == nil && out != ""
+}
+
 // EnvFiles lists gitignored env files in the main checkout, like .env or
 // apps/api/.env.local. New worktrees don't have them, so agents need copies.
 func (r Repo) EnvFiles() ([]string, error) {
@@ -339,4 +387,23 @@ func output(dir string, env []string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return string(out), nil
+}
+
+// BranchCommits is where a branch is, and the commits on it that are its own:
+// reachable from it but from none of not, newest first and at most limit of
+// them. A name in not that doesn't resolve is left out rather than failing the
+// call, so a base branch that has since been deleted still works. The tip is
+// returned even when none of the branch's commits are its own.
+func BranchCommits(root, branch string, limit int, not ...string) (tip string, own []string, err error) {
+	ref := "refs/heads/" + branch
+	args := append([]string{"rev-list", "--ignore-missing", fmt.Sprintf("--max-count=%d", limit), ref, "--not"}, not...)
+	out, err := run(root, args...)
+	if err != nil {
+		return "", nil, err
+	}
+	if own = strings.Fields(out); len(own) > 0 {
+		return own[0], own, nil
+	}
+	tip, err = run(root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	return tip, nil, err
 }

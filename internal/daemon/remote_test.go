@@ -17,6 +17,7 @@ import (
 // so what this proves is that AgentBox speaks the protocol in agentbox/hubapi,
 // not that any particular hub implements it correctly.
 func TestRemoteThroughAHub(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	ctx := context.Background()
 	h := hubtest.New(t)
