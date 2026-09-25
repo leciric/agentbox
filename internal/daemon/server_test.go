@@ -418,6 +418,63 @@ func addTestAgent(t *testing.T, d testDaemon) state.Agent {
 	return a
 }
 
+// busyBinaryIncus is fakeIncus for agents whose agentbox binary is running:
+// like the real `incus file push`, which opens its target for writing, a push
+// straight onto /usr/local/bin/agentbox fails with "text file busy".
+const busyBinaryIncus = `case "$1" in
+  query) echo '{"config": {}, "devices": {"agentbox": {}}}' ;;
+  file)
+    case "$4" in
+      */usr/local/bin/agentbox) echo "Error: open /usr/local/bin/agentbox: text file busy" >&2; exit 1 ;;
+    esac
+    echo "$*" >> "$INCUS_LOG" ;;
+  exec) echo "$*" >> "$INCUS_LOG" ;;
+esac
+exit 0
+`
+
+// A daemon started on a new build must hand that build to every running
+// agent, even though each one is running the old binary as its MCP servers.
+func TestReconcileUpdatesEveryReadyAgentsBinary(t *testing.T) {
+	root := t.TempDir()
+	d := startTestDaemon(t, root, busyBinaryIncus)
+	ctx := context.Background()
+	addTestAgent(t, d)
+	for _, a := range []state.Agent{
+		{Name: "agent-02", Status: state.AgentReady},
+		{Name: "agent-03", Status: state.AgentCreating},
+	} {
+		a.Project, a.AI, a.Instance, a.Branch, a.CreatedAt = "hello-stack", "none", "ab-hello-stack-"+a.Name, "agentbox/"+a.Name, time.Now()
+		if err := d.srv.store.AddAgent(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var log bytes.Buffer
+	d.srv.cfg.Log = &log
+	d.srv.cfg.Binary = filepath.Join(root, "agentbox")
+	os.Remove(filepath.Join(root, "incus.log"))
+
+	d.srv.reconcile(ctx) // what the daemon does when it starts
+
+	if strings.Contains(log.String(), "in-agent API") {
+		t.Errorf("reconcile logged a failure:\n%s", log.String())
+	}
+	got, _ := os.ReadFile(filepath.Join(root, "incus.log"))
+	for _, inst := range []string{"ab-hello-stack-agent-01", "ab-hello-stack-agent-02"} {
+		for _, want := range []string{
+			"file push " + d.srv.cfg.Binary + " " + inst + "/usr/local/bin/agentbox.new --mode 0755",
+			"exec " + inst + " -- mv -f /usr/local/bin/agentbox.new /usr/local/bin/agentbox",
+		} {
+			if !strings.Contains(string(got), want) {
+				t.Errorf("incus calls lack %q:\n%s", want, got)
+			}
+		}
+	}
+	if strings.Contains(string(got), "agent-03") {
+		t.Errorf("reconcile touched an agent still being created:\n%s", got)
+	}
+}
+
 func TestNewSubscriberGetsEachAgentOnce(t *testing.T) {
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
