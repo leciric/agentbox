@@ -86,6 +86,7 @@ func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error 
 	project := r.PathValue("project")
 	s.chat.Stop(agent.LeadRef(project), "the project chat was reset")
 	s.chat.Forget(agent.LeadRef(project))
+	s.settleLeadCache(project, true)
 	if err := s.manager(s.cfg.Log).DestroyLead(r.Context(), project); err != nil {
 		return err
 	}
