@@ -124,5 +124,26 @@
     "query": "chat=lead&theme=light",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "rail-finished-closed-dark",
+    "description": "Working and waiting agents on top, the idle, paused and stopped ones folded into Finished at the bottom \u2014 dark, xl width",
+    "query": "theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "rail-finished-open-light",
+    "description": "The Finished section opened, a long title in it, below the xl breakpoint (268px rail) \u2014 light",
+    "query": "finished=1&theme=light",
+    "width": 1100,
+    "height": 900
+  },
+  {
+    "id": "rail-finished-folded-dark",
+    "description": "The folded rail: the finished agents' icons behind a count under a divider \u2014 dark",
+    "query": "folded=1&theme=dark",
+    "width": 1280,
+    "height": 900
   }
 ]

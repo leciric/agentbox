@@ -415,8 +415,8 @@ func newDestroyCmd(a *app) *cobra.Command {
 	var force, deleteBranch, deleteMedia bool
 	cmd := &cobra.Command{
 		Use: "destroy <project/agent>",
-		Short: "Delete an agent's machine, snapshots and worktree (its branch and media stay " +
-			"unless --delete-branch or --delete-media)",
+		Short: "Delete an agent's machine, snapshots and worktree (its branch stays if it has commits " +
+			"that aren't merged or pushed, and its media for the media retention, unless --delete-branch or --delete-media)",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
@@ -433,7 +433,7 @@ func newDestroyCmd(a *app) *cobra.Command {
 			msg := "Destroyed " + ag.Ref
 			var kept []string
 			if !deleteBranch {
-				kept = append(kept, "branch "+ag.Branch)
+				kept = append(kept, "branch "+ag.Branch+" unless it was merged or pushed")
 			}
 			if !deleteMedia {
 				kept = append(kept, "its media")
@@ -446,7 +446,7 @@ func newDestroyCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "discard uncommitted changes")
-	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "also delete the agent's branch")
+	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "also delete the agent's branch, even with commits that aren't merged or pushed")
 	cmd.Flags().BoolVar(&deleteMedia, "delete-media", false, "also delete its media, instead of keeping it in the project's media view")
 	return cmd
 }

@@ -26,6 +26,14 @@ export function rank(agent: T.Agent): number {
   return 3;
 }
 
+// settled is an agent with nothing going on: it isn't working, starting or
+// waiting on you, and nothing about its machine needs a look — idle, paused or
+// stopped. The rail folds these into its Finished section, below the ones
+// that are still moving.
+export function settled(agent: T.Agent): boolean {
+  return chatLabel(agent).tone === 'muted' && agent.chat !== 'starting';
+}
+
 const toneOrder: StatusTone[] = ['urgent', 'error', 'live', 'muted'];
 
 // projectTone is the most urgent tone among a set of agents, standing in for

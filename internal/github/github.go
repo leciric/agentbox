@@ -58,6 +58,7 @@ type PullRequest struct {
 	// branch.
 	BaseBranch string `json:"baseBranch,omitempty"`
 	HeadBranch string `json:"headBranch,omitempty"`
+	HeadSHA    string `json:"headSha,omitempty"`
 }
 
 // rawPR is a pull request as GitHub's API shapes it, whichever endpoint sent
@@ -87,7 +88,7 @@ func (pr rawPR) pullRequest() PullRequest {
 	out := PullRequest{
 		Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.HTMLURL,
 		Draft: pr.Draft, Comments: pr.Comments, Additions: pr.Additions, Deletions: pr.Deletions,
-		UpdatedAt: &pr.UpdatedAt, BaseBranch: pr.Base.Ref, HeadBranch: pr.Head.Ref,
+		UpdatedAt: &pr.UpdatedAt, BaseBranch: pr.Base.Ref, HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA,
 	}
 	if pr.MergedAt != nil && *pr.MergedAt != "" {
 		out.State = "merged"

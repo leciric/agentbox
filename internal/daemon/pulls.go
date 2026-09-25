@@ -477,7 +477,7 @@ func toAPIPullRequests(prs []github.PullRequest) []api.PullRequest {
 		out[i] = api.PullRequest{
 			Number: pr.Number, Title: pr.Title, State: pr.State, Checks: pr.Checks, URL: pr.URL,
 			Draft: pr.Draft, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments,
-			UpdatedAt: pr.UpdatedAt, BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch,
+			UpdatedAt: pr.UpdatedAt, BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch, HeadSHA: pr.HeadSHA,
 		}
 	}
 	return out

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -106,6 +107,19 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		if err := s.store.SetSetting(r.Context(), state.SettingClaudeCompactWindow, strconv.FormatInt(*req.ClaudeCompactWindow, 10)); err != nil {
 			return err
 		}
+	}
+	if req.MediaRetention != nil {
+		want := strings.TrimSpace(*req.MediaRetention)
+		if _, _, ok := state.MediaRetentionPeriod(want); !ok {
+			return fmt.Errorf("invalid media retention %q: use %s, %s, %s, %s or %s", want,
+				api.MediaRetentionImmediately, api.MediaRetentionDay, api.MediaRetentionWeek, api.MediaRetentionMonth, api.MediaRetentionForever)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingMediaRetention, want); err != nil {
+			return err
+		}
+		// A shorter period can make kept media due now, so the sweep doesn't
+		// wait out its hour to act on it.
+		go s.sweepExpiredMedia(s.background(), time.Now())
 	}
 	if req.UpdateCheck != nil {
 		if err := s.setUpdateCheck(r.Context(), *req.UpdateCheck); err != nil {
@@ -211,6 +225,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	for _, c := range models {
 		contextWindows[c.Value] = windows.ContextWindows(windows.NormalizeClaudeModel(c.Value), compactWindow)
 	}
+	mediaRetention, err := s.store.MediaRetention(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
 		DefaultClaudeModel:   model,
 		ClaudeModelChoices:   models,
@@ -230,6 +248,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		ResumeAfterLimit: resumeAfterLimit,
 		UpdateCheck:      updateCheck,
+		MediaRetention:   mediaRetention,
 
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,

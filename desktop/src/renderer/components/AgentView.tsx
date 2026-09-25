@@ -303,7 +303,7 @@ export function AgentView({
         open={destroying}
         onOpenChange={setDestroying}
         title={`Destroy ${agent.title || agent.ref}?`}
-        description="Deletes the machine, its snapshots and the worktree. Commits stay on the branch, and media stays in the project's media view, unless you delete them too."
+        description="Deletes the machine, its snapshots and the worktree. The branch is deleted too once it's merged or pushed; otherwise its commits stay on it. Media stays in the project's media view for as long as Settings keeps it, unless you delete it now."
         confirmLabel="Destroy"
         destructive
         onConfirm={async () => {
@@ -323,7 +323,7 @@ export function AgentView({
           <div className="flex items-center gap-3">
             <Switch id="destroy-branch" checked={deleteBranch} onCheckedChange={setDeleteBranch} />
             <Label htmlFor="destroy-branch" className="font-normal">
-              Also delete the branch <Code>{agent.branch}</Code>
+              Delete the branch <Code>{agent.branch}</Code> even if it isn't merged or pushed
             </Label>
           </div>
           <div className="flex items-center gap-3">

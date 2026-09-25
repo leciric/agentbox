@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/api"
 	"agentbox/internal/state"
+	"agentbox/internal/testutil"
 )
 
 // destroyFixture adds an agent-01 record with a real worktree, ready for
@@ -193,5 +195,61 @@ esac`))
 	}
 	if _, err := os.Stat(f.m.MediaPath(item)); !os.IsNotExist(err) {
 		t.Errorf("deleted media's file should be gone, stat = %v", err)
+	}
+}
+
+// A destroy that wasn't asked to delete the branch still deletes it when
+// nothing on it is only here, and keeps it when it has a commit that isn't
+// merged or pushed — until that commit reaches a remote at the same place.
+func TestDestroyDeletesTheBranchOnlyWhenNothingIsLost(t *testing.T) {
+	script := `case "$1" in
+  list) echo '[]' ;;
+esac`
+	for _, tc := range []struct {
+		name         string
+		commit, push bool
+		wantBranch   bool
+	}{
+		{"no commits", false, false, false},
+		{"an unpushed commit", true, false, true},
+		{"a pushed commit", true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setup(t, fakeIncus(t, script))
+			a := destroyFixture(t, f)
+			if tc.commit {
+				if err := os.WriteFile(filepath.Join(a.Worktree, "work.txt"), []byte("work"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				testutil.Git(t, a.Worktree, "add", "work.txt")
+				testutil.Git(t, a.Worktree, "commit", "--quiet", "-m", "work")
+			}
+			if tc.push {
+				testutil.Git(t, f.repo.Root, "update-ref", "refs/remotes/origin/"+a.Branch, a.Branch)
+			}
+			err := f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true})
+			assertGone(t, f, err)
+			if got := f.repo.BranchExists(a.Branch); got != tc.wantBranch {
+				t.Errorf("branch exists after destroy = %v, want %v", got, tc.wantBranch)
+			}
+		})
+	}
+}
+
+// Media retention set to immediately deletes an agent's media with it, as if
+// DeleteMedia had been asked for.
+func TestDestroyDeletesMediaWhenRetentionIsImmediately(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[]' ;;
+esac`))
+	if err := f.st.SetSetting(context.Background(), state.SettingMediaRetention, api.MediaRetentionImmediately); err != nil {
+		t.Fatal(err)
+	}
+	a := destroyFixture(t, f)
+	item := addMediaFixture(t, f, a)
+	err := f.m.Destroy(context.Background(), a, agent.DestroyOptions{Force: true})
+	assertGone(t, f, err)
+	if _, err := f.st.MediaItem(context.Background(), item.ID); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("MediaItem() after destroy with immediate retention = %v, want ErrNotFound", err)
 	}
 }

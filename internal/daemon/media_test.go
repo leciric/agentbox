@@ -196,8 +196,8 @@ func TestSweepExpiredMediaRemovesRowsAndFiles(t *testing.T) {
 	}
 	itemDir := func(id, agent string) string { return filepath.Join(d.srv.manager(nil).MediaDir(a.Project, agent), id) }
 
-	addItem("expired", "agent-expired") // orphaned 31 days ago: past the 30-day default
-	if err := d.srv.store.OrphanAgentMedia(ctx, a.Project, "agent-expired", now.Add(-31*24*time.Hour)); err != nil {
+	addItem("expired", "agent-expired") // orphaned 2 days ago: past the 1-day default
+	if err := d.srv.store.OrphanAgentMedia(ctx, a.Project, "agent-expired", now.Add(-2*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	addItem("live", "agent-live") // never orphaned: its agent still exists

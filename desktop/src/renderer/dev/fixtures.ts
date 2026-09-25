@@ -86,13 +86,18 @@ export interface FixtureData {
 // module load.
 export function buildFixtures(): FixtureData {
   const agents: T.Agent[] = [
-    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12' }),
-    agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account' }),
-    agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret' }),
-    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text' }),
+    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
+    agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret', chat: 'waiting' }),
+    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', chat: 'running' }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent' }),
-    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent' }),
+    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent' }),
+    // Done with, one way or another: the rail's Finished section, with agent-97
+    // and agent-99 above, which finished and sit idle.
+    agent({ ref: `${PROJECT}/agent-91`, title: 'Rename the settings keys', state: 'stopped' }),
+    agent({ ref: `${PROJECT}/agent-92`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused' }),
+    agent({ ref: `${PROJECT}/agent-93`, title: 'Look into the flaky media test', state: 'stopped' }),
   ];
 
   const events: T.AgentEvent[] = [
@@ -262,7 +267,6 @@ export function buildFixtures(): FixtureData {
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
-      mediaRetentionDays: 30,
       finishNotices: 'all',
       rolloverThreshold: 0,
       contextBudget: 0,
@@ -284,7 +288,6 @@ export function buildFixtures(): FixtureData {
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
-      mediaRetentionDays: 30,
       finishNotices: 'all',
       rolloverThreshold: 0,
       contextBudget: 0,

@@ -506,7 +506,7 @@ func TestFinishNoticesAreSetPerProjectAndDefaultToLead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back.Autonomy != state.AutonomyAsk || back.MediaRetentionDays != state.DefaultMediaRetentionDays {
+	if back.Autonomy != state.AutonomyAsk {
 		t.Errorf("setting finish notices changed something else: %+v", back)
 	}
 }

@@ -34,6 +34,7 @@ import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import {
   CompactWindow,
+  MediaRetention,
   NewAgentDefaults,
   NewAgentEffort,
   NewAgentResources,
@@ -809,6 +810,7 @@ function SettingsTabs({
               <div className="mt-3">
                 <ResumeAfterLimit />
                 <CompactWindow />
+                <MediaRetention />
               </div>
             </Panel>
           </TabsContent>

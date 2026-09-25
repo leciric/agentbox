@@ -167,6 +167,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.watchTheme(ctx)
 	go s.watch(ctx)
 	go s.sweepMedia(ctx)
+	go s.sweepFinishedAgents(ctx)
 	go s.sweepMemories(ctx)
 	go s.watchUpdates(ctx)
 	s.runCtx = ctx

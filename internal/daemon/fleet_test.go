@@ -283,6 +283,13 @@ func TestRetireNamedAgentStillProtectsUncommittedWork(t *testing.T) {
 	}
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Halfway")
 	worktree := a.Worktree
+	// A commit of its own, merged nowhere and pushed nowhere, so the branch
+	// is kept for it; a branch with nothing on it is deleted by any destroy.
+	if err := os.WriteFile(filepath.Join(worktree, "notes.md"), []byte("done so far\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, worktree, "add", "notes.md")
+	testutil.Git(t, worktree, "commit", "-qm", "notes")
 	if err := os.WriteFile(filepath.Join(worktree, "server.mjs"), []byte("// halfway\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -302,6 +309,6 @@ func TestRetireNamedAgentStillProtectsUncommittedWork(t *testing.T) {
 		t.Errorf("Retire(--force) = %+v, want agent-01 retired", out)
 	}
 	if testutil.Git(t, repo, "branch", "--list", a.Branch) == "" {
-		t.Error("--force deleted the branch; it should only discard the uncommitted worktree")
+		t.Error("--force deleted the branch and its unpushed commit; it should only discard the uncommitted worktree")
 	}
 }
