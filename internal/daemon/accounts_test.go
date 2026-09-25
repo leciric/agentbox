@@ -375,3 +375,65 @@ func TestRenameClaudeAccount(t *testing.T) {
 		t.Errorf("the default after renaming it = %q, want personal", def)
 	}
 }
+
+// TestRenameGitHubAccount: the route renames the token and carries the
+// project over, keeps the machine default on the same account, and refuses a
+// name that is taken or invalid without touching anything.
+func TestRenameGitHubAccount(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	creds := credentials.Store{Dir: d.paths.Credentials()}
+	for _, name := range []string{"default", "work"} {
+		if err := creds.SaveGitHubToken(name, "gho_"+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack"), GitHubAccount: "work"}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, bad := range []string{"default", "Not Valid", ""} {
+		if _, err := d.client.RenameGitHubAccount(ctx, "work", bad); err == nil {
+			t.Errorf("renaming work to %q was allowed", bad)
+		}
+	}
+	if _, err := d.client.RenameGitHubAccount(ctx, "nobody", "someone"); err == nil {
+		t.Error("renaming an account that doesn't exist was allowed")
+	}
+	if p, _ := d.client.Project(ctx, "hello-stack"); p.GitHubAccount != "work" {
+		t.Fatalf("a refused rename moved the project to %q", p.GitHubAccount)
+	}
+
+	got, err := d.client.RenameGitHubAccount(ctx, "work", "client")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Old != "work" || got.Name != "client" || len(got.Projects) != 1 || got.Projects[0] != "hello-stack" || got.Agents == nil {
+		t.Errorf("RenameGitHubAccount() = %+v", got)
+	}
+	if p, _ := d.client.Project(ctx, "hello-stack"); p.GitHubAccount != "client" {
+		t.Errorf("the project's account = %q, want client", p.GitHubAccount)
+	}
+	if token, _ := creds.GitHubToken("client"); token != "gho_work" {
+		t.Errorf("client's token = %q", token)
+	}
+
+	if _, err := d.client.RenameGitHubAccount(ctx, "default", "personal"); err != nil {
+		t.Fatal(err)
+	}
+	auth, err := d.client.Auth(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	var def string
+	for _, acc := range auth.GitHubAccounts {
+		names = append(names, acc.Name)
+		if acc.Default {
+			def = acc.Name
+		}
+	}
+	if def != "personal" || strings.Join(names, ",") != "client,personal" {
+		t.Errorf("GitHub accounts after the renames = %v, default %q; want client,personal with personal the default", names, def)
+	}
+}

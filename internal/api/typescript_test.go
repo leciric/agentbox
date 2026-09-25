@@ -25,7 +25,7 @@ var tsTypes = []any{
 	MediaItem{}, MediaMeta{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{},
 	AddMediaRequest{}, NoteRequest{}, LogsRequest{}, ExportRequest{}, ExportResult{}, DeleteMediaRequest{}, DeleteMediaResult{},
 	SetupCheck{}, SetupStatus{}, ImageComponents{}, ImageBuild{}, ImageDownload{}, BuildImageRequest{},
-	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{},
+	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},
 	Secret{}, SetSecretRequest{},
 	PullRequest{}, GitHubError{}, ProjectPullRequests{}, MergePullRequestRequest{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{},
 	RetireRequest{}, RetiredAgent{}, RetireResult{},

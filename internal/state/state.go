@@ -1399,6 +1399,74 @@ func (s *Store) SetAgentGitHubAccount(ctx context.Context, project, name, accoun
 	return nil
 }
 
+// GitHubAccountRename is what renaming a GitHub account carried over.
+type GitHubAccountRename struct {
+	// Projects are the projects whose new agents get the account.
+	Projects []string
+	// Agents are the agents holding its token, by project/name.
+	Agents []string
+}
+
+// RenameGitHubAccount carries every reference to a GitHub account over to its
+// new name, in one transaction: each project's account and each agent's.
+// Projects on the machine's default name no account, so the default marker
+// the credentials store moves is all they need. move, when not nil, runs
+// inside the transaction — it is where the credentials store renames the
+// token — and an error from it undoes the whole rename.
+func (s *Store) RenameGitHubAccount(ctx context.Context, old, name string, move func() error) (GitHubAccountRename, error) {
+	var done GitHubAccountRename
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return done, err
+	}
+	defer tx.Rollback()
+
+	collect := func(query string, scan func(*sql.Rows) (string, error)) ([]string, error) {
+		rows, err := tx.QueryContext(ctx, query, old)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			v, err := scan(rows)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, v)
+		}
+		return out, rows.Err()
+	}
+	if done.Projects, err = collect(`SELECT name FROM projects WHERE github_account = ? ORDER BY name`, func(rows *sql.Rows) (string, error) {
+		var p string
+		return p, rows.Scan(&p)
+	}); err != nil {
+		return done, err
+	}
+	if done.Agents, err = collect(`SELECT project, name FROM agents WHERE github_account = ? ORDER BY project, name`, func(rows *sql.Rows) (string, error) {
+		var project, agent string
+		err := rows.Scan(&project, &agent)
+		return project + "/" + agent, err
+	}); err != nil {
+		return done, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE projects SET github_account = ? WHERE github_account = ?`, name, old); err != nil {
+		return done, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agents SET github_account = ? WHERE github_account = ?`, name, old); err != nil {
+		return done, err
+	}
+	if move != nil {
+		if err := move(); err != nil {
+			return GitHubAccountRename{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return GitHubAccountRename{}, err
+	}
+	return done, nil
+}
+
 // SetAgentBaseCommit records the commit an agent's worktree stands on. Only a
 // lead moves: an ordinary agent's base commit is where its branch started.
 func (s *Store) SetAgentBaseCommit(ctx context.Context, project, name, commit string) error {

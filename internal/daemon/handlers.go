@@ -1206,6 +1206,61 @@ func (s *Server) setDefaultGitHubAccount(w http.ResponseWriter, r *http.Request)
 	return nil
 }
 
+// renameGitHubAccount gives a stored GitHub account another name and carries
+// every reference to it over: the machine default, each project's account and
+// each agent's. The token doesn't change, so agents holding it keep running as
+// they are.
+func (s *Server) renameGitHubAccount(w http.ResponseWriter, r *http.Request) error {
+	var req api.RenameGitHubAccountRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	old, name := r.PathValue("account"), strings.TrimSpace(req.Name)
+	creds := s.manager(nil).Creds
+	// The store's checks come first, so a refused name leaves the database
+	// alone; the move itself runs again inside the transaction.
+	if err := credentials.ValidateAccount(name); err != nil {
+		return err
+	}
+	if taken, err := creds.HasGitHubAccount(name); err != nil {
+		return err
+	} else if taken && name != old {
+		return fmt.Errorf("there is already a GitHub account named %q: remove it first, or pick another name", name)
+	}
+	moved := false
+	done, err := s.store.RenameGitHubAccount(r.Context(), old, name, func() error {
+		if err := creds.RenameGitHubAccount(old, name); err != nil {
+			return err
+		}
+		moved = true
+		return nil
+	})
+	if err != nil {
+		if moved {
+			// The transaction didn't commit, so the token goes back to the
+			// name the database still has.
+			if undo := creds.RenameGitHubAccount(name, old); undo != nil {
+				s.logf("renaming the GitHub account %q back from %q: %v", old, name, undo)
+			}
+		}
+		return err
+	}
+	s.logf("Renamed the GitHub account %q to %q", old, name)
+	// Pull requests and the fleet say which account they were read with.
+	s.pulls.reset()
+	for _, p := range done.Projects {
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p})
+	}
+	out := api.RenamedGitHubAccount{Old: old, Name: name, Projects: done.Projects, Agents: done.Agents}
+	if out.Projects == nil {
+		out.Projects = []string{}
+	}
+	if out.Agents == nil {
+		out.Agents = []string{}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
 func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 	creds := s.manager(nil).Creds
 	claude, err := claudeAccounts(creds)

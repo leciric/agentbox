@@ -553,6 +553,17 @@ export interface GitHubTokenRequest {
   account?: string;
 }
 
+export interface RenameGitHubAccountRequest {
+  name: string;
+}
+
+export interface RenamedGitHubAccount {
+  old: string;
+  name: string;
+  projects: string[];
+  agents: string[];
+}
+
 export interface Secret {
   name: string;
   scope: string;
