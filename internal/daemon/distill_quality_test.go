@@ -203,6 +203,7 @@ func qualityCandidates() []qualityCandidate {
 // over the same fixture window and logs the table, then holds each to what it
 // should have left behind.
 func TestDistillationQuality(t *testing.T) {
+	t.Parallel()
 	t.Log("candidate          pass  read  written  superseded  resolved  covered  memories/event")
 	for _, c := range qualityCandidates() {
 		t.Run(c.name, func(t *testing.T) {
@@ -309,6 +310,7 @@ func TestDistillationQuality(t *testing.T) {
 // What each candidate leaves behind, in detail: the parts that are about
 // AgentBox containing a model rather than about the model.
 func TestDistillationContainsAWeakAnswer(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := consolidationProject(t)
 	lead.AI = "claude"

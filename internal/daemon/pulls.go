@@ -14,6 +14,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/github"
+	"agentbox/internal/gitrepo"
 	"agentbox/internal/state"
 )
 
@@ -44,23 +45,105 @@ func (s *Server) githubFor(p state.Project) (github.Client, github.Repo, error) 
 	if err != nil || token == "" {
 		return github.Client{}, repo, errNoGitHubToken
 	}
-	return github.Client{Token: token}, repo, nil
+	return s.gitHub(token), repo, nil
+}
+
+// gitHub is a GitHub client with token, on the API root the daemon was given.
+func (s *Server) gitHub(token string) github.Client {
+	return github.Client{Token: token, BaseURL: s.cfg.GitHubAPI}
 }
 
 const (
 	// pullsTTL is how old a repository's answer may be before the next
 	// request starts a refresh behind it.
 	pullsTTL = 30 * time.Second
-	// pullsBranchTTL is how long "this agent branch isn't in the list page"
-	// is believed. A pull request opened later arrives in the list itself,
-	// which is sorted by when each last moved, so this only holds answers
-	// about branches whose pull request is older than the whole page.
+	// pullsBranchTTL is how long a lookup of an agent the list page had no
+	// pull request for is believed. A pull request opened later arrives in
+	// the list itself, which is sorted by when each last moved, so this only
+	// holds answers about agents whose pull request is older than the whole
+	// page. A new commit on the agent's branch is a new lookup.
 	pullsBranchTTL = 10 * time.Minute
 	// pullsFetchTimeout bounds one background refresh.
 	pullsFetchTimeout = 60 * time.Second
-	// pullsBranchLookups is how many per-branch lookups run at once.
+	// pullsBranchLookups is how many per-agent lookups run at once.
 	pullsBranchLookups = 4
+	// agentCommitsLimit is how many of an agent's own commits are read to
+	// recognise its pull request by: plenty for one branch's work, and a bound
+	// on an agent whose base went missing.
+	agentCommitsLimit = 200
+	// pullsLookupCommits is how many of an agent's newest commits a lookup
+	// asks GitHub about, newest first, before deciding it has no pull request:
+	// an agent often commits again after its work was pushed, and GitHub has
+	// never heard of those.
+	pullsLookupCommits = 3
 )
+
+// agentHead is what recognises an agent's pull request: the commits the agent
+// made, not the name of a branch. The branch an agent works on is its own,
+// but its work reaches GitHub under whatever name whoever pushed it chose —
+// feat/…, fix/…, anything — so a pull request is the agent's when its head is
+// one of the agent's own commits. That also keeps an old pull request from a
+// branch whose name is being reused off an agent that never made its commits.
+type agentHead struct {
+	agent string
+	tip   string   // where the agent's branch is; "" when it has none, or hasn't moved from where it started
+	own   []string // the agent's own commits, newest first: on its branch, not on where it started or its base branch
+}
+
+func (h agentHead) owns(sha string) bool {
+	return sha != "" && slices.Contains(h.own, sha)
+}
+
+// accepts reports whether a pull request a lookup found by commit is this
+// agent's: any that carries one of its own commits, or one whose head is
+// exactly where the agent's branch is (its work, merged since).
+func (h agentHead) accepts(pr api.PullRequest, via string) bool {
+	return h.owns(via) || (pr.HeadSHA != "" && pr.HeadSHA == h.tip)
+}
+
+// agentHeads reads each worker agent's commits from the project's repository,
+// a git process or two per agent, a few at a time.
+func agentHeads(root string, agents []state.Agent) []agentHead {
+	var workers []state.Agent
+	for _, a := range agents {
+		if !a.IsLead() && a.Branch != "" {
+			workers = append(workers, a)
+		}
+	}
+	out := make([]agentHead, len(workers))
+	var g errgroup.Group
+	g.SetLimit(changesConcurrency)
+	for i, a := range workers {
+		g.Go(func() error {
+			out[i] = agentHeadOf(root, a)
+			return nil
+		})
+	}
+	g.Wait()
+	return out
+}
+
+func agentHeadOf(root string, a state.Agent) agentHead {
+	h := agentHead{agent: a.Name}
+	var not []string
+	if a.BaseCommit != "" {
+		not = append(not, a.BaseCommit)
+	}
+	// The base branch as it is now, too: an agent that rebased onto a newer
+	// main doesn't own what it picked up, pull requests merged in included.
+	if a.BaseRef != "" && a.BaseRef != a.Branch {
+		not = append(not, a.BaseRef)
+	}
+	tip, own, err := gitrepo.BranchCommits(root, a.Branch, agentCommitsLimit, not...)
+	if err != nil {
+		return h
+	}
+	h.tip, h.own = tip, own
+	if tip == a.BaseCommit && len(own) == 0 {
+		h.tip = "" // it hasn't moved: there is nothing of its own to find
+	}
+	return h
+}
 
 // pullsCache keeps what GitHub said about a repository — its pull requests,
 // what the account may merge, and the pull request of an agent branch the
@@ -99,14 +182,16 @@ type pullsEntry struct {
 	listErr pullsErr
 	infoErr pullsErr
 	at      time.Time // when GitHub answered; zero means it never has
-	// branches holds what a per-branch lookup found for an agent branch the
-	// list page didn't carry — including that it found nothing, so an agent
-	// whose branch was never pushed isn't one GitHub call per refresh.
-	branches map[string]branchPR
+	// lookups holds what a lookup found for an agent the list page had no
+	// pull request for, by the commit its branch was at — including that it
+	// found nothing, so an agent whose work was never pushed isn't one GitHub
+	// call per refresh. A new commit is a new key, and a new lookup.
+	lookups map[string]lookedUp
 }
 
-type branchPR struct {
-	pr     *api.PullRequest
+type lookedUp struct {
+	prs    []api.PullRequest // the pull requests carrying the commit named in via, most recently updated first
+	via    string
 	at     time.Time
 	failed bool // the lookup failed; believed enough not to retry until the next refresh
 }
@@ -130,9 +215,10 @@ func (c *pullsCache) state(key string) (pullsEntry, bool) {
 // claim marks a refresh as started when one is wanted and none is running,
 // and returns the generation to hand back to finish. A refresh is wanted when
 // nothing is cached, when what is cached is older than the TTL, or when an
-// agent branch has appeared that a working answer says nothing about — a new
-// agent shouldn't wait out the TTL to learn it has a pull request.
-func (c *pullsCache) claim(key string, branches []string) (int, bool) {
+// agent has commits that a working answer says nothing about — a new agent,
+// or one that pushed again, shouldn't wait out the TTL to learn it has a pull
+// request.
+func (c *pullsCache) claim(key string, heads []agentHead) (int, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.fetching[key] {
@@ -141,7 +227,7 @@ func (c *pullsCache) claim(key string, branches []string) (int, bool) {
 	e, ok := c.byRepo[key]
 	// An entry whose list failed is only retried on the TTL: an unknown
 	// branch must never turn a broken GitHub into a call per request.
-	if ok && c.now().Sub(e.at) < c.ttl && (e.listErr.failed() || e.knows(branches, c.now(), c.branchTTL)) {
+	if ok && c.now().Sub(e.at) < c.ttl && (e.listErr.failed() || e.knows(heads, c.now(), c.branchTTL)) {
 		return 0, false
 	}
 	c.fetching[key] = true
@@ -184,14 +270,15 @@ func (c *pullsCache) reset() {
 	clear(c.byRepo)
 }
 
-// knows reports whether the entry can answer for every one of these branches:
-// either the list page carries it, or a per-branch lookup still stands.
-func (e pullsEntry) knows(branches []string, now time.Time, branchTTL time.Duration) bool {
-	for _, branch := range branches {
-		if slices.ContainsFunc(e.prs, func(pr api.PullRequest) bool { return pr.HeadBranch == branch }) {
+// knows reports whether the entry can answer for every one of these agents:
+// either the list page carries a pull request of its, or a lookup of where
+// its branch is still stands.
+func (e pullsEntry) knows(heads []agentHead, now time.Time, lookupTTL time.Duration) bool {
+	for _, h := range heads {
+		if h.tip == "" || e.listed(h) != nil {
 			continue
 		}
-		if b, ok := e.branches[branch]; ok && now.Sub(b.at) < branchTTL {
+		if l, ok := e.lookups[h.tip]; ok && now.Sub(l.at) < lookupTTL {
 			continue
 		}
 		return false
@@ -199,25 +286,45 @@ func (e pullsEntry) knows(branches []string, now time.Time, branchTTL time.Durat
 	return true
 }
 
-// byBranch is each branch's pull request, the list first and the per-branch
-// lookups behind it. The list is sorted by when each pull request last moved,
-// so a branch with several keeps the one that moved last. The values are
-// copies: the entry itself is shared with whoever else is reading the cache.
-func (e pullsEntry) byBranch(branches []string) map[string]*api.PullRequest {
-	out := make(map[string]*api.PullRequest, len(branches))
-	wanted := make(map[string]bool, len(branches))
-	for _, branch := range branches {
-		wanted[branch] = true
-	}
-	for _, pr := range e.prs {
-		if wanted[pr.HeadBranch] && out[pr.HeadBranch] == nil {
-			out[pr.HeadBranch] = &pr
+// listed is the agent's pull request from the list page, if it carries one.
+// The list is sorted by when each pull request last moved, so an agent with
+// several gets the one that moved last.
+func (e pullsEntry) listed(h agentHead) *api.PullRequest {
+	for i := range e.prs {
+		if h.owns(e.prs[i].HeadSHA) {
+			return &e.prs[i]
 		}
 	}
-	for branch, b := range e.branches {
-		if wanted[branch] && out[branch] == nil && b.pr != nil {
-			pr := *b.pr
-			out[branch] = &pr
+	return nil
+}
+
+// found is the agent's pull request from a lookup, if one found it.
+func (e pullsEntry) found(h agentHead) *api.PullRequest {
+	l, ok := e.lookups[h.tip]
+	if !ok || h.tip == "" {
+		return nil
+	}
+	for i := range l.prs {
+		if h.accepts(l.prs[i], l.via) {
+			return &l.prs[i]
+		}
+	}
+	return nil
+}
+
+// byAgent is each agent's pull request, the list first and the lookups behind
+// it. The values are copies: the entry itself is shared with whoever else is
+// reading the cache.
+func (e pullsEntry) byAgent(heads []agentHead) map[string]*api.PullRequest {
+	out := make(map[string]*api.PullRequest, len(heads))
+	for _, h := range heads {
+		pr := e.listed(h)
+		if pr == nil {
+			pr = e.found(h)
+		}
+		if pr != nil {
+			c := *pr
+			out[h.agent] = &c
 		}
 	}
 	return out
@@ -235,15 +342,12 @@ func (e pullsEntry) same(o pullsEntry) bool {
 	if !slices.EqualFunc(e.prs, o.prs, samePullRequest) {
 		return false
 	}
-	if len(e.branches) != len(o.branches) {
+	if len(e.lookups) != len(o.lookups) {
 		return false
 	}
-	for branch, b := range e.branches {
-		other, ok := o.branches[branch]
-		if !ok || (b.pr == nil) != (other.pr == nil) {
-			return false
-		}
-		if b.pr != nil && !samePullRequest(*b.pr, *other.pr) {
+	for tip, l := range e.lookups {
+		other, ok := o.lookups[tip]
+		if !ok || l.via != other.via || !slices.EqualFunc(l.prs, other.prs, samePullRequest) {
 			return false
 		}
 	}
@@ -269,28 +373,32 @@ func sameTime(a, b *time.Time) bool {
 // with a background refresh started behind it when that has gone stale. It
 // never waits for GitHub: an empty cache answers empty, refreshing, and the
 // event that follows fills it in.
-func (s *Server) projectPulls(p state.Project, branches []string) (github.Repo, pullsEntry, bool, error) {
+//
+// It returns the heads of the agents it was given, which is what its answer is
+// matched against; they are only read when there is a repository to read.
+func (s *Server) projectPulls(p state.Project, agents []state.Agent) (github.Repo, pullsEntry, []agentHead, bool, error) {
 	client, repo, err := s.githubFor(p)
 	if err != nil {
-		return repo, pullsEntry{}, false, err
+		return repo, pullsEntry{}, nil, false, err
 	}
+	heads := agentHeads(p.Root, agents)
 	key := repo.String()
-	if gen, ok := s.pulls.claim(key, branches); ok {
-		go s.refreshPulls(p.Name, client, repo, gen, branches)
+	if gen, ok := s.pulls.claim(key, heads); ok {
+		go s.refreshPulls(p.Name, client, repo, gen, heads)
 	}
 	entry, refreshing := s.pulls.state(key)
-	return repo, entry, refreshing, nil
+	return repo, entry, heads, refreshing, nil
 }
 
 // refreshPulls re-reads a repository and stores what it finds, announcing it
 // on the event stream when something moved, so the app doesn't have to wait
 // for its next poll (D15).
-func (s *Server) refreshPulls(project string, client github.Client, repo github.Repo, gen int, branches []string) {
+func (s *Server) refreshPulls(project string, client github.Client, repo github.Repo, gen int, heads []agentHead) {
 	key := repo.String()
 	before, _ := s.pulls.state(key)
 	ctx, cancel := context.WithTimeout(s.background(), pullsFetchTimeout)
 	defer cancel()
-	entry, changed := s.pulls.finish(key, gen, s.fetchPulls(ctx, client, repo, branches, before))
+	entry, changed := s.pulls.finish(key, gen, s.fetchPulls(ctx, client, repo, heads, before))
 	if !changed {
 		return
 	}
@@ -307,8 +415,8 @@ func (s *Server) background() context.Context {
 }
 
 // fetchPulls reads a repository's pull requests and merge permissions fresh,
-// plus the agent branches the list page didn't carry.
-func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo github.Repo, branches []string, before pullsEntry) pullsEntry {
+// plus the agents the list page has no pull request for.
+func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo github.Repo, heads []agentHead, before pullsEntry) pullsEntry {
 	// The list and the repository's settings are two independent calls, so
 	// they go out together rather than one after the other.
 	var prs []github.PullRequest
@@ -339,34 +447,32 @@ func (s *Server) fetchPulls(ctx context.Context, client github.Client, repo gith
 	}
 
 	if entry.listErr.failed() {
-		// Don't ask GitHub branch by branch when it just refused the list.
-		entry.branches = before.branches
+		// Don't ask GitHub agent by agent when it just refused the list.
+		entry.lookups = before.lookups
 		return entry
 	}
-	entry.branches = s.branchPulls(ctx, client, repo, branches, entry.prs, before.branches)
+	entry.lookups = s.lookupPulls(ctx, client, repo, heads, entry, before.lookups)
 	return entry
 }
 
-// branchPulls fills in the agent branches the list page didn't carry. The
-// list is the most recently updated pull requests, so a branch missing from
-// it either has none or has one nobody has touched in a while — either way
-// the answer keeps, and one opened later arrives in the list itself.
-func (s *Server) branchPulls(ctx context.Context, client github.Client, repo github.Repo, branches []string, prs []api.PullRequest, before map[string]branchPR) map[string]branchPR {
-	listed := make(map[string]bool, len(prs))
-	for _, pr := range prs {
-		listed[pr.HeadBranch] = true
-	}
+// lookupPulls looks up the agents the list page has no pull request for. The
+// list is the most recently updated pull requests, so an agent missing from it
+// either has none or has one nobody has touched in a while — either way the
+// answer keeps until the agent commits again, and one opened later arrives in
+// the list itself.
+func (s *Server) lookupPulls(ctx context.Context, client github.Client, repo github.Repo, heads []agentHead, entry pullsEntry, before map[string]lookedUp) map[string]lookedUp {
 	now := s.pulls.now()
-	out := map[string]branchPR{}
-	var ask []string
-	for _, branch := range branches {
-		switch b, ok := before[branch]; {
-		case listed[branch]:
-		case ok && !b.failed && now.Sub(b.at) < s.pulls.branchTTL:
-			out[branch] = b
-		default:
-			ask = append(ask, branch)
+	out := map[string]lookedUp{}
+	var ask []agentHead
+	for _, h := range heads {
+		if h.tip == "" || entry.listed(h) != nil {
+			continue
 		}
+		if l, ok := before[h.tip]; ok && !l.failed && now.Sub(l.at) < s.pulls.branchTTL {
+			out[h.tip] = l
+			continue
+		}
+		ask = append(ask, h)
 	}
 	if len(ask) == 0 {
 		return out
@@ -374,26 +480,49 @@ func (s *Server) branchPulls(ctx context.Context, client github.Client, repo git
 	var mu sync.Mutex
 	var g errgroup.Group
 	g.SetLimit(pullsBranchLookups)
-	for _, branch := range ask {
+	for _, h := range ask {
 		g.Go(func() error {
-			found, err := client.PullRequestFor(ctx, repo, branch)
+			l := lookUp(ctx, client, repo, h)
+			l.at = now
 			mu.Lock()
 			defer mu.Unlock()
-			if err != nil {
-				out[branch] = branchPR{at: now, failed: true}
-				return nil
-			}
-			b := branchPR{at: now}
-			if found != nil {
-				pr := toAPIPullRequests([]github.PullRequest{*found})[0]
-				b.pr = &pr
-			}
-			out[branch] = b
+			out[h.tip] = l
 			return nil
 		})
 	}
 	g.Wait()
 	return out
+}
+
+// lookUp asks GitHub which pull requests carry the agent's newest commits,
+// newest first, and stops at the first commit GitHub has one for: the agent
+// may have committed again since its work was pushed, and GitHub knows
+// nothing of those.
+func lookUp(ctx context.Context, client github.Client, repo github.Repo, h agentHead) lookedUp {
+	commits := h.own[:min(len(h.own), pullsLookupCommits)]
+	if len(commits) == 0 {
+		commits = []string{h.tip}
+	}
+	for _, commit := range commits {
+		found, err := client.PullRequestsWithCommit(ctx, repo, commit)
+		if err != nil {
+			return lookedUp{failed: true}
+		}
+		l := lookedUp{prs: toAPIPullRequests(found), via: commit}
+		if slices.ContainsFunc(l.prs, func(pr api.PullRequest) bool { return h.accepts(pr, commit) }) {
+			return l
+		}
+	}
+	return lookedUp{}
+}
+
+// agentsOf reads the heads of a project's worker agents.
+func (s *Server) agentsOf(ctx context.Context, p state.Project) []agentHead {
+	agents, err := s.store.Agents(ctx, p.Name)
+	if err != nil {
+		return nil
+	}
+	return agentHeads(p.Root, agents)
 }
 
 // projectPullRequests lists a project repository's pull requests: every one
@@ -416,18 +545,8 @@ func (s *Server) projectPullRequests(w http.ResponseWriter, r *http.Request) err
 	account, _ := s.githubAccountFor(p)
 	out := api.ProjectPullRequests{Project: project, GitHubAccount: account, PullRequests: []api.PullRequest{}}
 
-	byBranch := map[string]string{}
-	var branches []string
-	if agents, err := s.store.Agents(ctx, project); err == nil {
-		for _, a := range agents {
-			if !a.IsLead() && a.Branch != "" {
-				byBranch[a.Branch] = a.Name
-				branches = append(branches, a.Branch)
-			}
-		}
-	}
-
-	repo, entry, refreshing, err := s.projectPulls(p, branches)
+	agents, _ := s.store.Agents(ctx, project)
+	repo, entry, heads, refreshing, err := s.projectPulls(p, agents)
 	if err != nil {
 		out.GitHubError = s.githubErrorFor(p, repo, err)
 		out.NoOrigin, out.NonGitHubRemote = remoteProblemOf(err)
@@ -451,8 +570,22 @@ func (s *Server) projectPullRequests(w http.ResponseWriter, r *http.Request) err
 	if out.GitHubError = s.githubErrorFrom(p, repo, entry.listErr); out.GitHubError == nil {
 		out.GitHubError = s.githubErrorFrom(p, repo, entry.infoErr)
 	}
+	// Every pull request carrying an agent's commits links to it; one the list
+	// only ties to an agent through a lookup — its head has moved past the
+	// agent's commits, say, with a fix pushed from somewhere else — does too.
+	byNumber := map[int]string{}
+	for agent, pr := range entry.byAgent(heads) {
+		byNumber[pr.Number] = agent
+	}
 	for i := range out.PullRequests {
-		out.PullRequests[i].Agent = byBranch[out.PullRequests[i].HeadBranch]
+		pr := &out.PullRequests[i]
+		pr.Agent = byNumber[pr.Number]
+		for _, h := range heads {
+			if h.owns(pr.HeadSHA) {
+				pr.Agent = h.agent
+				break
+			}
+		}
 	}
 	return writeJSON(w, http.StatusOK, out)
 }
@@ -533,7 +666,7 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	}
 	pr.State = "merged"
 	s.pulls.invalidate(repo.String())
-	s.captureEvent(ctx, project, s.agentOfBranch(ctx, project, pr.HeadBranch), "pr_merged", map[string]any{
+	s.captureEvent(ctx, project, agentOfCommit(s.agentsOf(ctx, p), pr.HeadSHA), "pr_merged", map[string]any{
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
 	}, "")
 

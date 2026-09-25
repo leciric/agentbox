@@ -34,15 +34,20 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	if req.DefaultClaudeModel != nil {
-		// Stored as typed, with no check against the menu above: a model
-		// preference is passed to the adapter even when it isn't literally one
-		// of this account's choices, because the adapter resolves aliases
-		// itself ("opus[1m]" becomes plain "opus" where there's no 1M entry).
-		// A pre-check here would reject exactly the values that do work.
-		if err := s.store.SetSetting(r.Context(), state.SettingDefaultClaudeModel, strings.TrimSpace(*req.DefaultClaudeModel)); err != nil {
-			return err
-		}
+	// The models are stored as typed, with no check against the menu above: a
+	// model preference is passed to the adapter even when it isn't literally
+	// one of this account's choices, because the adapter resolves aliases
+	// itself ("opus[1m]" becomes plain "opus" where there's no 1M entry). A
+	// pre-check here would reject exactly the values that do work. The window
+	// is checked, though, against the model it goes with — whichever of them
+	// this request moves — so that a Haiku default can't hold a 1M window.
+	if err := s.updateRoleDefaults(r.Context(), []roleDefaults{
+		{"new agents", state.SettingDefaultClaudeModel, state.DefaultClaudeModel, req.DefaultClaudeModel,
+			state.SettingDefaultAgentContextWindow, req.DefaultAgentContextWindow},
+		{"the lead", state.SettingDefaultLeadModel, "default", req.DefaultLeadModel,
+			state.SettingDefaultLeadContextWindow, req.DefaultLeadContextWindow},
+	}); err != nil {
+		return err
 	}
 	if req.DefaultClaudeEffort != nil {
 		// Checked, unlike the model: the adapter resolves no aliases for this
@@ -133,6 +138,71 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusOK, out)
 }
 
+// roleDefaults are one Settings section's default model and context window,
+// and what a request asks of them. builtin is the model an empty setting
+// means: AgentBox's own default for agents, Claude Code's for the lead.
+type roleDefaults struct {
+	role              string
+	modelKey, builtin string
+	model             *string
+	windowKey         string
+	window            *string
+}
+
+// updateRoleDefaults checks every role's model and window together, and only
+// then stores any of them, so a refused window leaves the model it came with
+// unchanged too.
+func (s *Server) updateRoleDefaults(ctx context.Context, roles []roleDefaults) error {
+	windows, err := s.store.ClaudeWindows(ctx)
+	if err != nil {
+		return err
+	}
+	installation, err := s.store.ClaudeCompactWindow(ctx)
+	if err != nil {
+		return err
+	}
+	var writes [][2]string
+	for _, role := range roles {
+		if role.model == nil && role.window == nil {
+			continue
+		}
+		model, err := s.store.Setting(ctx, role.modelKey)
+		if err != nil {
+			return err
+		}
+		if role.model != nil {
+			model = strings.TrimSpace(*role.model)
+			writes = append(writes, [2]string{role.modelKey, model})
+		}
+		window, err := s.store.Setting(ctx, role.windowKey)
+		if err != nil {
+			return err
+		}
+		if role.window != nil {
+			window = *role.window
+		}
+		if model == "" {
+			model = role.builtin
+		}
+		stored, err := windows.DefaultContextWindow(windows.NormalizeClaudeModel(model), window, installation)
+		if err != nil {
+			if role.window == nil {
+				return fmt.Errorf("%s start with a 1M context window, which %s doesn't have: choose 200k for them too", role.role, model)
+			}
+			return fmt.Errorf("the context window for %s: %w", role.role, err)
+		}
+		if role.window != nil {
+			writes = append(writes, [2]string{role.windowKey, stored})
+		}
+	}
+	for _, w := range writes {
+		if err := s.store.SetSetting(ctx, w[0], w[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // seedResourceDefaults writes the limits new agents start capped at, once, on
 // an installation that has never had them. They can't be resolved lazily the
 // way the Claude Code settings are: "" is a real choice there (no limit at
@@ -173,6 +243,16 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	effort, err := s.store.Setting(r.Context(), state.SettingDefaultClaudeEffort)
 	if err != nil {
 		return api.Settings{}, err
+	}
+	var agentWindow, leadModel, leadWindow string
+	for key, into := range map[string]*string{
+		state.SettingDefaultAgentContextWindow: &agentWindow,
+		state.SettingDefaultLeadModel:          &leadModel,
+		state.SettingDefaultLeadContextWindow:  &leadWindow,
+	} {
+		if *into, err = s.store.Setting(r.Context(), key); err != nil {
+			return api.Settings{}, err
+		}
 	}
 	models, err := s.rememberedMenu(r, state.SettingClaudeModelChoices)
 	if err != nil {
@@ -230,12 +310,15 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	return api.Settings{
-		DefaultClaudeModel:   model,
-		ClaudeModelChoices:   models,
-		ClaudeContextWindows: contextWindows,
-		ClaudeMenuKnown:      menuKnown,
-		DefaultClaudeEffort:  effort,
-		ClaudeEffortChoices:  efforts,
+		DefaultClaudeModel:        model,
+		DefaultAgentContextWindow: agentWindow,
+		DefaultLeadModel:          leadModel,
+		DefaultLeadContextWindow:  leadWindow,
+		ClaudeModelChoices:        models,
+		ClaudeContextWindows:      contextWindows,
+		ClaudeMenuKnown:           menuKnown,
+		DefaultClaudeEffort:       effort,
+		ClaudeEffortChoices:       efforts,
 
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,

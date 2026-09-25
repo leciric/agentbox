@@ -388,3 +388,22 @@ func output(dir string, env []string, args ...string) (string, error) {
 	}
 	return string(out), nil
 }
+
+// BranchCommits is where a branch is, and the commits on it that are its own:
+// reachable from it but from none of not, newest first and at most limit of
+// them. A name in not that doesn't resolve is left out rather than failing the
+// call, so a base branch that has since been deleted still works. The tip is
+// returned even when none of the branch's commits are its own.
+func BranchCommits(root, branch string, limit int, not ...string) (tip string, own []string, err error) {
+	ref := "refs/heads/" + branch
+	args := append([]string{"rev-list", "--ignore-missing", fmt.Sprintf("--max-count=%d", limit), ref, "--not"}, not...)
+	out, err := run(root, args...)
+	if err != nil {
+		return "", nil, err
+	}
+	if own = strings.Fields(out); len(own) > 0 {
+		return own[0], own, nil
+	}
+	tip, err = run(root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	return tip, nil, err
+}

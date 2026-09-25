@@ -3,7 +3,9 @@
 // agent activity should read from here rather than inventing their own words
 // for the same states, so a glance at one means the same thing as a glance
 // at the other.
+import { useQuery } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
+import { api } from './api';
 
 export type StatusTone = 'urgent' | 'error' | 'live' | 'muted';
 
@@ -49,4 +51,34 @@ export function projectTone(agents: T.Agent[]): StatusTone | undefined {
     if (!best || toneOrder.indexOf(tone) < toneOrder.indexOf(best)) best = tone;
   }
   return best;
+}
+
+// Mood is what an agent's avatar acts out: the same reading as chatLabel,
+// cut to the five poses a face can hold.
+export type Mood = 'working' | 'asking' | 'idle' | 'sleeping' | 'error';
+
+// avatarMood reads an agent's mood from its machine and its chat. asking is
+// whether it has a question or a credential request waiting on the user,
+// which lives in the project's questions rather than on the agent (see
+// isAsking); a permission prompt is the chat's own 'waiting'.
+export function avatarMood(agent: { state: string; chat?: string }, asking = false): Mood {
+  if (agent.state === 'incomplete' || agent.state === 'missing' || agent.chat === 'error') return 'error';
+  if (agent.state !== 'running') return 'sleeping';
+  if (agent.chat === 'waiting' || asking) return 'asking';
+  if (agent.chat === 'running' || agent.chat === 'starting') return 'working';
+  return 'idle';
+}
+
+// isAsking is whether ref has a question the user has to answer: a credential
+// request, which only the user can, or a question the lead passed on.
+export function isAsking(questions: T.Question[] | undefined, ref: string): boolean {
+  return (questions ?? []).some((q) => q.ref === ref && (q.status === 'escalated' || (q.status === 'pending' && !!q.kind)));
+}
+
+// useMood is avatarMood with the asking read from the agent's project: the
+// same ['questions', project] query the rail and the credential cards read,
+// so the rows of one project share one request.
+export function useMood(agent: { project: string; ref: string; state: string; chat?: string }): Mood {
+  const questions = useQuery({ queryKey: ['questions', agent.project], queryFn: () => api.questions(agent.project) });
+  return avatarMood(agent, isAsking(questions.data, agent.ref));
 }

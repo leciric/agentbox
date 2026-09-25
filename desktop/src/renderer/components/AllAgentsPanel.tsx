@@ -7,7 +7,7 @@ import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes } from '../lib/utils';
 import { Sparkline } from './Sparkline';
-import { AgentAvatar } from './state';
+import { LiveAgentAvatar } from './state';
 import { Button } from './ui/button';
 import { Panel } from './ui/card';
 
@@ -137,7 +137,7 @@ function AgentFleetRow({
           status.tone === 'muted' && 'bg-transparent',
         )}
       />
-      <AgentAvatar ai={agent.ai} state={agent.state} className="size-8 shrink-0" />
+      <LiveAgentAvatar agent={agent} />
       <span className="hidden w-24 shrink-0 items-center gap-1.5 truncate text-[12px] text-subtle sm:flex md:w-32 lg:w-40" title={agent.project}>
         <FolderGit2 className="size-3.5 shrink-0 text-faint" />
         <span className="truncate">{agent.project}</span>

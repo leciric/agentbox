@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
@@ -34,6 +35,9 @@ var (
 	// admitting it exists — and 403 when the account is blocked from it. Both
 	// mean the same thing to a user: another account might see it.
 	ErrNoAccess = errors.New("this GitHub account can't see it")
+	// ErrNoCommit is GitHub not having a commit (422): it was never pushed,
+	// which for an agent's newest commit is ordinary rather than a failure.
+	ErrNoCommit = errors.New("GitHub has no such commit")
 )
 
 // Repo is a GitHub repository, as owner and name. remote.go finds one from a
@@ -58,7 +62,9 @@ type PullRequest struct {
 	// branch.
 	BaseBranch string `json:"baseBranch,omitempty"`
 	HeadBranch string `json:"headBranch,omitempty"`
-	HeadSHA    string `json:"headSha,omitempty"`
+	// HeadSHA is the commit its branch is at, which is what ties it to an
+	// agent: the branch it was pushed to can be called anything.
+	HeadSHA string `json:"headSha,omitempty"`
 }
 
 // rawPR is a pull request as GitHub's API shapes it, whichever endpoint sent
@@ -187,6 +193,8 @@ func apiError(path string, res *http.Response) error {
 		// Rate-limited, not shut out: the account is fine and waiting fixes it,
 		// so this must not read as "pick another account".
 		return fmt.Errorf("GitHub %s for %s: %s", res.Status, path, body.Message)
+	case res.StatusCode == http.StatusUnprocessableEntity && strings.HasPrefix(body.Message, "No commit found"):
+		return fmt.Errorf("%w: %s", ErrNoCommit, body.Message)
 	case res.StatusCode == http.StatusForbidden, res.StatusCode == http.StatusNotFound:
 		if body.Message != "" {
 			return fmt.Errorf("%w: %s (%s): %s — check agentbox auth github", ErrNoAccess, path, res.Status, body.Message)
@@ -210,24 +218,31 @@ func (c Client) Login(ctx context.Context) (string, error) {
 	return user.Login, nil
 }
 
-// PullRequestFor returns the pull request whose head is branch, or nil when the
-// branch has none. An agent's branch is only pushed by the user, so most agents
-// have no pull request and that is not an error.
-func (c Client) PullRequestFor(ctx context.Context, repo Repo, branch string) (*PullRequest, error) {
+// PullRequestsWithCommit returns the repository's pull requests whose branch
+// carries commit, most recently updated first, or none when GitHub has never
+// seen the commit. It is how an agent's pull request is found when the list
+// page doesn't carry it: by what the agent committed, not by a branch name,
+// since an agent's work gets pushed under whatever name suits it.
+func (c Client) PullRequestsWithCommit(ctx context.Context, repo Repo, commit string) ([]PullRequest, error) {
 	var list []rawPR
-	path := fmt.Sprintf("/repos/%s/%s/pulls?state=all&per_page=1&head=%s:%s",
-		url.PathEscape(repo.Owner), url.PathEscape(repo.Name), url.PathEscape(repo.Owner), url.PathEscape(branch))
+	path := fmt.Sprintf("/repos/%s/%s/commits/%s/pulls",
+		url.PathEscape(repo.Owner), url.PathEscape(repo.Name), url.PathEscape(commit))
 	if err := c.get(ctx, path, &list); err != nil {
+		if errors.Is(err, ErrNoCommit) {
+			return nil, nil
+		}
 		return nil, err
 	}
-	if len(list) == 0 {
-		return nil, nil
+	slices.SortStableFunc(list, func(a, b rawPR) int { return b.UpdatedAt.Compare(a.UpdatedAt) })
+	out := make([]PullRequest, 0, len(list))
+	for _, raw := range list {
+		item := raw.pullRequest()
+		if raw.Head.SHA != "" {
+			item.Checks = c.checks(ctx, repo, raw.Head.SHA)
+		}
+		out = append(out, item)
 	}
-	out := list[0].pullRequest()
-	if list[0].Head.SHA != "" {
-		out.Checks = c.checks(ctx, repo, list[0].Head.SHA)
-	}
-	return &out, nil
+	return out, nil
 }
 
 // pullRequestPageSize bounds how many of a repository's most recently moved

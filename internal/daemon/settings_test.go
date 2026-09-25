@@ -34,6 +34,7 @@ func patchSettings(t *testing.T, d testDaemon, body string) (api.Settings, error
 // daemon seeds a concrete value once, and never writes over what was chosen —
 // including a choice of no limit, which a re-seed would silently undo.
 func TestResourceDefaultsAreSeededThenChosen(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 
@@ -73,6 +74,7 @@ func TestResourceDefaultsAreSeededThenChosen(t *testing.T) {
 // TestSettingsRefuseLimitsThatDontMeanWhatTheySay checks a bad default is
 // refused where it is typed, rather than when the next agent is built.
 func TestSettingsRefuseLimitsThatDontMeanWhatTheySay(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	for _, c := range []struct{ body, want string }{
 		{`{"defaultCPU":"0-3"}`, "pin the agent to those exact cores"},
@@ -94,6 +96,7 @@ func TestSettingsRefuseLimitsThatDontMeanWhatTheySay(t *testing.T) {
 // chosen: it is the setting whose useful state is the one you get without
 // touching it, and only turning it off is a choice worth storing.
 func TestResumeAfterLimitIsOnUntilItIsTurnedOff(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
@@ -120,6 +123,7 @@ func TestResumeAfterLimitIsOnUntilItIsTurnedOff(t *testing.T) {
 // the menu, so the app can't tell from the choices alone that Claude Code
 // hasn't sent the account's own yet, and says so from this.
 func TestClaudeMenuIsKnownOnceAnAdapterSentOne(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
 
@@ -137,5 +141,60 @@ func TestClaudeMenuIsKnownOnceAnAdapterSentOne(t *testing.T) {
 	}
 	if out, err = d.srv.currentSettings(r); err != nil || !out.ClaudeMenuKnown {
 		t.Errorf("after an adapter sent a menu: known %v, %v", out.ClaudeMenuKnown, err)
+	}
+}
+
+// TestLeadAndAgentDefaultsAreSeparate: Settings has a Lead section and an
+// Agents section, each with its own model and context window. An installation
+// that never chose has what it had before they were split — agents on
+// AgentBox's own default, leads on Claude Code's, both at the compact window —
+// and choosing one role's never moves the other's.
+func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	// An installation from before the split chose a model for its agents.
+	if err := d.srv.store.SetSetting(ctx, state.SettingDefaultClaudeModel, "sonnet"); err != nil {
+		t.Fatal(err)
+	}
+	out, err := patchSettings(t, d, `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DefaultClaudeModel != "sonnet" || out.DefaultAgentContextWindow != "" || out.DefaultLeadModel != "" || out.DefaultLeadContextWindow != "" {
+		t.Fatalf("defaults after upgrading = %+v, want the agents' model kept and everything else as it was", out)
+	}
+
+	out, err = patchSettings(t, d, `{"defaultLeadModel":"opus","defaultLeadContextWindow":"1m"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DefaultLeadModel != "opus" || out.DefaultLeadContextWindow != "1000000" {
+		t.Errorf("lead defaults = %q, %q; want opus at 1M", out.DefaultLeadModel, out.DefaultLeadContextWindow)
+	}
+	if out.DefaultClaudeModel != "sonnet" || out.DefaultAgentContextWindow != "" {
+		t.Errorf("choosing the lead's defaults moved the agents': %q, %q", out.DefaultClaudeModel, out.DefaultAgentContextWindow)
+	}
+
+	// Haiku has no 1M window: not as the window chosen with it...
+	if _, err := patchSettings(t, d, `{"defaultClaudeModel":"haiku","defaultAgentContextWindow":"1m"}`); err == nil {
+		t.Error("new agents were given Haiku with a 1M window")
+	}
+	if model, _ := d.srv.store.Setting(ctx, state.SettingDefaultClaudeModel); model != "sonnet" {
+		t.Errorf("a refused request still stored its model: %q", model)
+	}
+	// ...nor as a model moved under a 1M window already chosen.
+	if _, err := patchSettings(t, d, `{"defaultLeadModel":"haiku"}`); err == nil || !strings.Contains(err.Error(), "200k") {
+		t.Errorf("the lead moved to Haiku under its 1M window: err = %v", err)
+	}
+	out, err = patchSettings(t, d, `{"defaultLeadModel":"haiku","defaultLeadContextWindow":"200k"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DefaultLeadModel != "haiku" || out.DefaultLeadContextWindow != "" {
+		t.Errorf("lead defaults = %q, %q; want Haiku at the compact window", out.DefaultLeadModel, out.DefaultLeadContextWindow)
+	}
+	// Anything but the two windows is the compact window's own setting.
+	if _, err := patchSettings(t, d, `{"defaultAgentContextWindow":"500k"}`); err == nil {
+		t.Error("a 500k default window was accepted")
 	}
 }

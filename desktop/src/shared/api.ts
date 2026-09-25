@@ -82,6 +82,9 @@ export interface NotesRequest {
 
 export interface Settings {
   defaultClaudeModel: string;
+  defaultAgentContextWindow: string;
+  defaultLeadModel: string;
+  defaultLeadContextWindow: string;
   claudeModelChoices: ChatOptionChoice[];
   claudeContextWindows: Record<string, number[]>;
   claudeMenuKnown: boolean;
@@ -103,6 +106,9 @@ export interface Settings {
 
 export interface UpdateSettingsRequest {
   defaultClaudeModel?: string;
+  defaultAgentContextWindow?: string;
+  defaultLeadModel?: string;
+  defaultLeadContextWindow?: string;
   defaultClaudeEffort?: string;
   defaultCPU?: string;
   defaultCPUAllowance?: string;
@@ -492,6 +498,7 @@ export interface ImageComponents {
   android: boolean;
   codex: boolean;
   opencode: boolean;
+  devCaches: boolean;
 }
 
 export interface ImageBuild {
@@ -513,6 +520,7 @@ export interface BuildImageRequest {
   android?: boolean;
   codex?: boolean;
   opencode?: boolean;
+  devCaches?: boolean;
 }
 
 export interface ClaudeTokenRequest {
@@ -551,6 +559,17 @@ export interface RenamedClaudeAccount {
 export interface GitHubTokenRequest {
   token: string;
   account?: string;
+}
+
+export interface RenameGitHubAccountRequest {
+  name: string;
+}
+
+export interface RenamedGitHubAccount {
+  old: string;
+  name: string;
+  projects: string[];
+  agents: string[];
 }
 
 export interface Secret {

@@ -81,8 +81,8 @@ func removeReason(f cleanupFacts, now time.Time) string {
 		return ""
 	}
 	if pr := f.PR; pr != nil {
-		// A pull request last touched before this agent existed is an older
-		// one on a branch name used again, and says nothing about this agent.
+		// A pull request last touched before this agent existed can't be one
+		// this agent made, whatever it carries.
 		if pr.UpdatedAt != nil && pr.UpdatedAt.Before(f.CreatedAt) {
 			return ""
 		}
@@ -129,22 +129,23 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 		return 0
 	}
 	var candidates []agent.Status
-	var branches []string
+	var agents []state.Agent
 	for _, st := range statuses {
 		if st.IsLead() || st.Status != state.AgentReady || st.Branch == "" {
 			continue
 		}
 		candidates = append(candidates, st)
-		branches = append(branches, st.Branch)
+		agents = append(agents, st.Agent)
 	}
 	if len(candidates) == 0 {
 		return 0
 	}
 	// From the cache, which refreshes itself behind this: a pull request
-	// merged since the last refresh is caught by the next pass.
+	// merged since the last refresh is caught by the next pass. It is the
+	// agent's by its commits, whatever branch they were pushed to.
 	var prs map[string]*api.PullRequest
-	if _, entry, _, err := s.projectPulls(p, branches); err == nil && !entry.listErr.failed() {
-		prs = entry.byBranch(branches)
+	if _, entry, heads, _, err := s.projectPulls(p, agents); err == nil && !entry.listErr.failed() {
+		prs = entry.byAgent(heads)
 	}
 	repo, err := gitrepo.Open(p.Root)
 	if err != nil {
@@ -161,7 +162,7 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 			Attended:   st.Interface == state.InterfaceCLI && st.State == "running",
 			Dirty:      changes.Dirty,
 			Changed:    changes.Files > 0,
-			PR:         prs[st.Branch],
+			PR:         prs[st.Name],
 			CreatedAt:  st.CreatedAt,
 			LastActive: last,
 		}

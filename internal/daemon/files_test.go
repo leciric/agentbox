@@ -17,6 +17,7 @@ import (
 // that has passed — the unit the HTTP tests below don't exercise, since they
 // each only call it once.
 func TestFilesCacheRefreshesAfterTTL(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	testutil.Git(t, root, "init", "-q", "-b", "main")
 	c := newFilesCache()
@@ -51,10 +52,10 @@ func TestFilesCacheRefreshesAfterTTL(t *testing.T) {
 // A freshly made agent's worktree is a real git checkout on disk, so the
 // files route reads its tracked files, plus anything untracked added since.
 func TestFilesListsAgentWorktree(t *testing.T) {
-	t.Setenv("INCUS_INSTANCES", `[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]`)
-	d := startTestDaemon(t, t.TempDir(), recordingIncus)
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), recordingIncus, testConfig{instances: runningAgent01})
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -102,9 +103,10 @@ func TestFilesListsAgentWorktree(t *testing.T) {
 // A project you have never written to has no worktree of its own yet, so its
 // files are the main checkout's — the same thing its first message stands on.
 func TestFilesFallsBackToProjectRootBeforeLeadStarts(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -121,9 +123,10 @@ func TestFilesFallsBackToProjectRootBeforeLeadStarts(t *testing.T) {
 // Once the lead has its own worktree, its files come from there, not the main
 // checkout, the same way its chat reads that branch's tip.
 func TestFilesUsesLeadWorktreeOnceStarted(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}

@@ -674,3 +674,50 @@ func (s Store) RemoveGitHubAccount(name string) error {
 	}
 	return nil
 }
+
+// RenameGitHubAccount gives a stored GitHub account another name: its token,
+// which keeps its saved date, the GitHub user it belongs to, and the default
+// marker when it is the default, so the machine's default stays the same
+// account. A name already taken is refused. The token itself doesn't change,
+// so agents that hold it keep working.
+func (s Store) RenameGitHubAccount(old, name string) error {
+	if err := ValidateAccount(name); err != nil {
+		return err
+	}
+	ok, err := s.HasGitHubAccount(old)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("no GitHub account named %q: see agentbox auth github list", old)
+	}
+	if old == name {
+		return fmt.Errorf("the GitHub account is already called %q", name)
+	}
+	if taken, err := s.HasGitHubAccount(name); err != nil {
+		return err
+	} else if taken {
+		return fmt.Errorf("there is already a GitHub account named %q: remove it first, or pick another name", name)
+	}
+	// Read before anything moves: an implicit default ("default", or the only
+	// account) would otherwise pass to whichever name sorts first.
+	def, err := s.DefaultGitHubAccount()
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(s.GitHubTokenPath(old), s.GitHubTokenPath(name)); err != nil {
+		return err
+	}
+	// A login left behind by a removed account of the new name belongs to
+	// another token, so it goes whether or not this one has a login to move.
+	if err := os.Remove(s.GitHubLoginPath(name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(s.GitHubLoginPath(old), s.GitHubLoginPath(name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if def == old {
+		return writeDefaultMarker(s.githubDefaultPath(), name)
+	}
+	return nil
+}

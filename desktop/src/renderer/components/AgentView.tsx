@@ -36,7 +36,7 @@ import { MediaTab } from './MediaTab';
 import { OverviewTab } from './OverviewTab';
 import { SecretsTab } from './SecretsTab';
 import { SnapshotsTab } from './SnapshotsTab';
-import { AgentAvatar, AIIcon, aiLabel, StateBadge } from './state';
+import { AIIcon, aiLabel, LiveAgentAvatar, StateBadge } from './state';
 import { TerminalTab } from './TerminalTab';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
@@ -104,7 +104,7 @@ export function AgentView({
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:flex-nowrap md:px-6">
-        <AgentAvatar ai={agent.ai} state={agent.state} className="size-8" />
+        <LiveAgentAvatar agent={agent} />
         <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <StateBadge state={agent.state} />

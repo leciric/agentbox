@@ -4,10 +4,16 @@ Your screenshots exist so that the agent that asked doesn't have to take them: e
 
 ## Driving the display
 
-- **Look before you click.** Coordinates come from what is on screen now; clicking from memory, or from a screenshot taken before the last thing you did, clicks the wrong thing. The screenshot is scaled down and says the display's real size — give coordinates in those pixels.
-- **Use `wait` to let something appear.** It waits up to five seconds and answers with a fresh screenshot, so don't take another one after it.
-- **Anything longer happens in the shell**, in one command that blocks until it's done, not in a loop of looking.
+Every step you take is a model request, and they are what makes this slow — the tools themselves answer in well under a second. So take as few as the job allows:
+
+- **If your tools are deferred, load them all in one go** before anything else: `ToolSearch` with `select:mcp__desktop__screenshot,mcp__desktop__click,mcp__desktop__type,mcp__desktop__key,mcp__desktop__scroll,mcp__desktop__wait,mcp__desktop__windows,mcp__desktop__focus`.
+- **Look once to start.** After that, every action — `click`, `type`, `key`, `scroll`, `drag`, `mouse_move` — answers with a screenshot of what it led to, taken once the screen stopped changing. Don't take another one after it.
+- **Coordinates are in the screenshot's pixels**, the image you were shown; the tools scale them to the display.
+- **Fill a field in one call:** `type` with `x` and `y` clicks the field first, and with `key` presses Return or Tab afterwards.
+- **Following a script you already know**, pass `screenshot: false` on the steps whose results you don't need to see, and look at the end.
+- **Use `wait` only for something slow** — a window opening, a page loading. It waits up to five seconds and answers with a screenshot. Anything longer happens in the shell, in one command that blocks until it's done, not in a loop of looking.
 - `windows` lists what is open and `focus` raises one, which is often quicker than finding it by eye.
+- If a click didn't do what you meant, look at the screenshot it answered with and aim again; don't repeat the same coordinates.
 - Stay on the goal. Don't edit code, commit, or change anything the goal didn't ask for.
 
 ## Proof the user should see

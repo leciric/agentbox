@@ -35,6 +35,11 @@ export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void 
     queryClient.setQueryData<T.Agent[]>(['agents'], (agents) =>
       agents?.some((a) => a.ref === ev.agent && a.chat !== state) ? agents.map((a) => (a.ref === ev.agent ? { ...a, chat: state } : a)) : agents,
     );
+    // The lead isn't in the agents list: its state is on the project's chat,
+    // which the rail's Project chat avatar reads.
+    queryClient.setQueryData<T.ProjectChat>(['projectChat', ev.agent.split('/')[0]], (info) =>
+      info && info.ref === ev.agent && info.chat !== state ? { ...info, chat: state } : info,
+    );
   }
   const thread = queryClient.getQueryData<T.ChatThread>(chatKey(ev.agent));
   if (!thread) return;
