@@ -112,18 +112,43 @@ func TestVersionReportsWhetherTheDaemonCanReachIncus(t *testing.T) {
 }
 
 // imageIncus stands in for incus with a base image built by the version and
-// components given, so Setup sees a real answer for what the image has in it.
+// components given, with the tools this AgentBox pins for them, so Setup sees
+// a real answer for what the image has in it.
 func imageIncus(version string, components image.Components) string {
-	config := fmt.Sprintf(`{"config": {"user.agentbox.image-version": %q, "user.agentbox.with-android": %q, "user.agentbox.with-codex": %q, "user.agentbox.with-opencode": %q}, "devices": {}}`,
-		version, flag01(components.Android), flag01(components.Codex), flag01(components.OpenCode))
-	return `case "$1" in
+	tools := image.ToolsFor(components)
+	return toolsIncus(version, components, image.ToolsVersion(tools), toolSpecs(tools), "", "")
+}
+
+func toolSpecs(tools []image.Tool) string {
+	specs := make([]string, 0, len(tools))
+	for _, t := range tools {
+		specs = append(specs, t.Spec)
+	}
+	return strings.Join(specs, " ")
+}
+
+// imageConfig is the base image's configuration, as incus query answers it.
+func imageConfig(version string, components image.Components, toolsVersion, tools string) string {
+	return fmt.Sprintf(`{"config": {"user.agentbox.image-version": %q, "user.agentbox.with-android": %q, "user.agentbox.with-codex": %q, "user.agentbox.with-opencode": %q, "user.agentbox.tools-version": %q, "user.agentbox.tools": %q}, "devices": {}}`,
+		version, flag01(components.Android), flag01(components.Codex), flag01(components.OpenCode), toolsVersion, tools)
+}
+
+// toolsIncus is imageIncus with the tools the image records given, and a
+// test's own cases, which come before the defaults. Every command is logged
+// to $INCUS_LOG, one a line. Once $INCUS_LOG.updated exists, the image
+// answers with updated as its configuration instead.
+func toolsIncus(version string, components image.Components, toolsVersion, tools, extra, updated string) string {
+	config := imageConfig(version, components, toolsVersion, tools)
+	return `echo "$*" >>"$INCUS_LOG"
+case "$1" in
+` + extra + `
   list) echo '[{"name": "agentbox-base", "status": "Stopped", "config": ` + config + `}]' ;;
   init) echo "Error: this fake incus builds nothing" >&2; exit 1 ;;
   query)
     case "$2" in
       */agentbox-base/snapshots) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
       */snapshots) echo '[]' ;;
-      *) echo '` + config + `' ;;
+      *) if [ -f "$INCUS_LOG.updated" ]; then echo '` + updated + `'; else echo '` + config + `'; fi ;;
     esac ;;
 esac
 exit 0

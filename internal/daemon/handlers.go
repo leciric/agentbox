@@ -1137,12 +1137,25 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	opts := image.Options{Components: components}
-	return s.startJob(w, "image-build", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
+	// One job at a time makes the next image: the daemon may be updating the
+	// agent tools, or another build be under way.
+	if !s.claimImage() {
+		return fmt.Errorf("the base image is being updated in the background: follow it in Setup, and build again once it's done")
+	}
+	err = s.startJob(w, "image-build", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
+		defer s.releaseImage()
 		if err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log); err != nil {
 			return nil, err
 		}
+		// A build you made settles an update of the daemon's that failed or
+		// was cancelled.
+		s.setImagePhase(func(w *imageWork) { *w = imageWork{busy: w.busy} })
 		return map[string]string{"snapshot": image.SnapshotRef()}, nil
 	})
+	if err != nil {
+		s.releaseImage()
+	}
+	return err
 }
 
 // chooseImageComponents works out which optional components this build

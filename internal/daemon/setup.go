@@ -64,27 +64,9 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 
 	built, _ := image.Ready(ctx, s.cfg.Incus)
 
-	base := api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Fix: "agentbox image build"}
-	switch {
-	case incusErr != nil:
-		base.Detail = "needs Incus first"
-	case !built:
-		base.Detail = "not built yet"
-	case installed.Version != image.Version:
-		base.Status = api.SetupOutdated
-		base.Detail = fmt.Sprintf("built by an older AgentBox (version %s, now %s): rebuild it for the latest agent tools", cmpOr(installed.Version, "unknown"), image.Version)
-	case installed.Components != wanted:
-		// A component turned on since the build asks for a rebuild the same
-		// way a version bump does: it is in the settings but not in the image,
-		// and only a build puts it there.
-		base.Status = api.SetupOutdated
-		base.Detail = fmt.Sprintf("built with %s, and you now want %s: rebuild it", installed.Components.Summary(), wanted.Summary())
-	default:
-		base.Detail = "ready, version " + installed.Version
-		if wanted != (image.Components{}) {
-			base.Detail += ", with " + wanted.Summary()
-		}
-		base.Status = api.SetupOK
+	base := api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Detail: "needs Incus first", Fix: "agentbox image build"}
+	if incusErr == nil {
+		base = s.baseImageCheck(image.PlanFor(built, installed, wanted), installed, wanted)
 	}
 	checks = append(checks, base)
 
@@ -151,7 +133,9 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 
 	ready := true
 	for _, c := range checks {
-		if c.Required && c.Status != api.SetupOK {
+		// An image whose tools are being updated, or failed to be, is still
+		// the one agents use: a caveat, not a reason to hold anything up.
+		if c.Required && c.Status != api.SetupOK && c.Status != api.SetupUpdating && c.Status != api.SetupWarn {
 			ready = false
 		}
 	}

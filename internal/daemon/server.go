@@ -96,6 +96,7 @@ type Server struct {
 	distilling   map[string]bool          // projects with a distillation running, by name
 	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
+	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
 	remoteStop   context.CancelFunc
 	// openCodeModels is the state of the background ask that fills OpenCode's
@@ -199,6 +200,9 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchUpdates(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
+	// A new AgentBox may pin newer agent tools than the base image has: they
+	// are moved on in the background, while agents go on being made from it.
+	go s.updateBaseTools(ctx)
 
 	srv := &http.Server{Handler: s.routes(), BaseContext: func(net.Listener) context.Context { return ctx }}
 	go func() {

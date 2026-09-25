@@ -133,6 +133,13 @@
     "height": 900
   },
   {
+    "id": "setup-image-updating-dark",
+    "description": "Settings while the daemon updates the base image's agent tools in place: the image check updating, with its job's log \u2014 dark",
+    "query": "setup=updating&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "avatars-asking-dark",
     "description": "Avatars, waiting on the user (a question, a permission, a credential request): waving, on an amber tile \u2014 each AI tool at 40px and blown up, dark",
     "query": "avatars=asking&theme=dark",

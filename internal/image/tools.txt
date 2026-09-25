@@ -1,0 +1,38 @@
+# The agent tools the base image pins, installed with mise as the user
+# (tools.go reads this file, tools.sh installs from it).
+#
+# Moving one on needs no image rebuild: the tools version is worked out from
+# the lines below, and a daemon that finds a base built with other tools
+# updates them in place (UpdateTools). Don't bump image.Version for it.
+#
+# Every tool is pinned: two builds of the same image then install the same
+# thing, and a release that breaks agents can't arrive on its own. These were
+# the current stable versions on 2026-09-18, except Claude Code, moved to
+# 2.1.280 on 2026-09-22 for Opus 5.5.
+#
+# Once a tool has a shim, mise auto-installs whatever version a project pins
+# for it (this repo's own mise.toml, say) the first time it runs, with no
+# `mise activate` or other shell setup. A tool with no shim at all, like a bare
+# `go` before Go was here, just isn't found.
+#
+# One tool a line: the component it belongs to ("-" for every image, or codex
+# or opencode, as in image.Components), mise's name for it with its version,
+# and the rest of the line is a shell command, run as the user, that proves it
+# works.
+#
+# @playwright/mcp is pinned to the newest release published with provenance
+# from its GitHub workflow: later releases have no trust evidence (D21). The
+# ACP adapters run Claude Code and Codex for the app's chat, and OpenCode is
+# its own; internal/agent/chat.go installs the same versions in older agents,
+# from these lines.
+
+-        go@1.27.1                                         go version
+-        node@24.21.0                                      node --version
+-        pnpm@12.4.2                                       pnpm --version
+-        claude@2.1.280                                    claude --version
+-        gh@2.101.0                                        gh --version
+-        npm:@playwright/mcp@0.0.79                        playwright-mcp --version && playwright-mcp --help | grep -q -- --cdp-endpoint
+-        npm:@agentclientprotocol/claude-agent-acp@0.81.0  command -v claude-agent-acp
+codex    codex@0.155.0                                     codex --version
+codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
+opencode npm:opencode-ai@1.18.31                           opencode --version && opencode acp --help | grep -q ACP

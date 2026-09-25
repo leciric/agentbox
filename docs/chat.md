@@ -42,11 +42,14 @@ binary that speaks ACP for it:
 
 ```go
 var ChatAdapters = map[string]ChatAdapter{
-    "claude":   {Tool: "Claude Code", Command: "claude-agent-acp", Package: "npm:@agentclientprotocol/claude-agent-acp@0.81.0"},
-    "codex":    {Tool: "Codex", Command: "codex-acp", Package: "npm:@agentclientprotocol/codex-acp@1.11.0"},
-    "opencode": {Tool: "OpenCode", Command: "opencode", Args: []string{"acp"}, Package: "npm:opencode-ai@1.18.31"},
+    "claude":   {Tool: "Claude Code", Command: "claude-agent-acp", Package: image.Pin("npm:@agentclientprotocol/claude-agent-acp")},
+    "codex":    {Tool: "Codex", Command: "codex-acp", Package: image.Pin("npm:@agentclientprotocol/codex-acp")},
+    "opencode": {Tool: "OpenCode", Command: "opencode", Args: []string{"acp"}, Package: image.Pin("npm:opencode-ai")},
 }
 ```
+
+The versions are the ones the base image pins, in
+[`internal/image/tools.txt`](../internal/image/tools.txt).
 
 Claude Code and Codex don't speak ACP themselves, so AgentBox runs a separate adapter package in
 front of each (`claude-agent-acp`, `codex-acp`) that wraps the tool's own protocol in ACP. OpenCode

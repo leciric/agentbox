@@ -17,7 +17,14 @@ anywhere, and every tool in it is the user's own install. A first setup, and eve
 version bump, takes a few minutes of building.
 
 **Changing `provision.sh` means bumping `image.Version`**: that's what tells an existing
-machine's Setup page the installed image is outdated.
+machine's Setup page the installed image is outdated, and asks for a rebuild.
+
+A new AgentBox that only moves the agent tools on (Claude Code, Codex, OpenCode, the GitHub CLI
+and the like) doesn't ask for a rebuild: on start, the daemon updates them in the base image in
+place, in the background, installing only the tools that changed and checking every one. Setup
+says "Updating agent tools…" while it runs, and new agents are made from the current image until
+the updated one is in place. If the update fails, the image stays as it was and keeps working, and
+Setup says why and offers **Rebuild base image**.
 
 ## What `provision.sh` sets up
 
@@ -28,8 +35,8 @@ Run inside the container before it's snapshotted:
 - a display stack for the desktop tools: a VNC server, Chromium, an Openbox desktop, a terminal,
   `ffmpeg` for recordings, and (opt-in, `AGENTBOX_WITH_ANDROID`) `scrcpy` for the Android emulator
   screen;
-- [mise](https://mise.jdx.dev), and through it pinned versions of the tools every agent gets: Go,
-  Node, Claude Code, the GitHub CLI, the Playwright MCP server, and Codex/OpenCode where
+- [mise](https://mise.jdx.dev), and through it the tools pinned in `tools.txt` that every agent
+  gets: Go, Node, Claude Code, the GitHub CLI, the Playwright MCP server, and Codex/OpenCode where
   requested;
 - a placeholder user, `agent` (UID/GID 1000), in the `sudo` and `docker` groups;
 - a check at the end that every pinned tool actually reports the version it was asked to install.

@@ -102,9 +102,9 @@ func newHostCheckCmd(a *app) *cobra.Command {
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			for _, check := range status.Checks {
-				mark := map[string]string{api.SetupOK: "✓", api.SetupMissing: "✗", api.SetupOutdated: "!", api.SetupOptional: "–"}[check.Status]
+				mark := map[string]string{api.SetupOK: "✓", api.SetupMissing: "✗", api.SetupOutdated: "!", api.SetupOptional: "–", api.SetupWarn: "!", api.SetupUpdating: "↻"}[check.Status]
 				fmt.Fprintf(w, "%s\t%s\t%s\n", mark, check.Title, check.Detail)
-				if check.Status != api.SetupOK && check.Fix != "" {
+				if check.Status != api.SetupOK && check.Status != api.SetupUpdating && check.Fix != "" {
 					fmt.Fprintf(w, "\t\tfix: %s\n", check.Fix)
 				}
 			}

@@ -7,6 +7,9 @@
 #
 # Usage: provision.sh <user> <uid> <gid>
 #
+# tools.sh and tools.list, the agent tools to install, must be next to it in
+# /root: Build puts them there.
+#
 # Some parts of the image are optional, and off unless internal/image asks for
 # them (image.Options). Each is a download most agents never need, so a plain
 # build stays small:
@@ -118,41 +121,13 @@ systemctl mask tmp.mount
 install -d -m 1777 /t
 echo 'tmpfs /t tmpfs mode=1777,nosuid,nodev 0 0' >>/etc/fstab
 
-# Every tool is pinned: two builds of the same image version then install the
-# same thing, and a release that breaks agents can't arrive on its own. These
-# were the current stable versions on 2026-09-18, except Claude Code, moved to
-# 2.1.280 on 2026-09-22 for Opus 5.5; docs/implementation/
-# packaging-and-setup.md says how to move them on.
-GO_VERSION=1.27.1        # go.dev/dl
-NODE_VERSION=24.21.0     # Node.js 24 "Krypton", the active LTS line
-PNPM_VERSION=12.4.2      # npm: pnpm
-CLAUDE_VERSION=2.1.280   # npm: @anthropic-ai/claude-code
-GH_VERSION=2.101.0       # github.com/cli/cli releases
-CODEX_VERSION=0.155.0    # npm: @openai/codex, only with AGENTBOX_WITH_CODEX
-OPENCODE_VERSION=1.18.31 # npm: opencode-ai, only with AGENTBOX_WITH_OPENCODE
-# @playwright/mcp is pinned to the newest release published with provenance
-# from its GitHub workflow: later releases have no trust evidence (D21).
-# The ACP adapters run Claude Code and Codex for the app's chat. They are pinned
-# to the versions in internal/agent/chat.go, which installs them in older agents.
-# Once a tool has a shim here, mise auto-installs whatever version a project
-# pins for it (this repo's own mise.toml, say) the first time it runs, with no
-# `mise activate` or other shell setup. A tool with no shim at all, like a bare
-# `go` before this line existed, just isn't found.
-TOOLS="go@$GO_VERSION node@$NODE_VERSION pnpm@$PNPM_VERSION claude@$CLAUDE_VERSION gh@$GH_VERSION"
-TOOLS="$TOOLS npm:@playwright/mcp@0.0.79 npm:@agentclientprotocol/claude-agent-acp@0.81.0"
-if [[ $WITH_CODEX == 1 ]]; then
-  TOOLS="$TOOLS codex@$CODEX_VERSION npm:@agentclientprotocol/codex-acp@1.11.0"
-fi
-# OpenCode needs no separate adapter: `opencode acp` is one, and it is the same
-# version pinned in internal/agent/chat.go.
-if [[ $WITH_OPENCODE == 1 ]]; then
-  TOOLS="$TOOLS npm:opencode-ai@$OPENCODE_VERSION"
-fi
-
+# The agent tools are pinned in tools.txt, and installed by tools.sh from the
+# list internal/image wrote next to this script for the image's components:
+# they move on without a rebuild (image.UpdateTools).
 step "Go, Node.js, pnpm, Claude Code, its ACP adapter, the GitHub CLI and the Playwright MCP server for $USER_NAME"
 [[ $WITH_CODEX == 1 ]] || skip "the Codex CLI and its ACP adapter" "Codex is off"
 [[ $WITH_OPENCODE == 1 ]] || skip "the OpenCode CLI" "OpenCode is off"
-as_user "export MISE_YES=1 && mise use -g $TOOLS"
+/root/tools.sh install "$USER_NAME" /root/tools.list
 # AgentBox writes into these later, so they must belong to the user rather than root.
 as_user 'mkdir -p ~/.claude ~/.config/agentbox'
 as_user 'echo "{\"skipDangerousModePermissionPrompt\": true}" > ~/.claude/settings.json'
@@ -195,17 +170,9 @@ else
 fi
 
 step "Versions"
-as_user 'git --version; go version; node --version; pnpm --version; claude --version; gh --version; playwright-mcp --version; docker --version; docker compose version'
-as_user 'playwright-mcp --help | grep -q -- --cdp-endpoint' || { echo "playwright-mcp has no --cdp-endpoint option" >&2; exit 1; }
-as_user 'command -v claude-agent-acp'
+as_user 'git --version; docker --version; docker compose version'
 chromium --version
-if [[ $WITH_CODEX == 1 ]]; then
-  as_user 'codex --version; command -v codex-acp'
-fi
-if [[ $WITH_OPENCODE == 1 ]]; then
-  as_user 'opencode --version'
-  as_user 'opencode acp --help | grep -q "ACP"' || { echo "opencode has no acp subcommand" >&2; exit 1; }
-fi
+/root/tools.sh verify "$USER_NAME" /root/tools.list
 if [[ $WITH_ANDROID == 1 ]]; then
   /opt/scrcpy/scrcpy --version | head -n 1
 fi

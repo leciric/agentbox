@@ -2,10 +2,7 @@ package agent
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -79,30 +76,7 @@ func TestOpenCodeIsItsOwnAdapter(t *testing.T) {
 	if adapter.Command != "opencode" || !slices.Equal(adapter.Args, []string{"acp"}) {
 		t.Errorf("the OpenCode adapter runs %q %v", adapter.Command, adapter.Args)
 	}
-	// The pinned package is the one the base image installs: an agent made by
-	// an older build has the adapter installed into it by version, so the two
-	// have to name the same thing.
-	if adapter.Package != "npm:opencode-ai@"+openCodeImageVersion(t) {
-		t.Errorf("chat.go pins %q, which isn't what provision.sh installs", adapter.Package)
-	}
 	if _, ok := Tools["opencode"]; !ok {
 		t.Error("no command line for OpenCode agents")
 	}
-}
-
-// openCodeImageVersion is the OpenCode version the base image pins, read from
-// provision.sh itself so the two can't drift apart unnoticed.
-func openCodeImageVersion(t *testing.T) string {
-	t.Helper()
-	script, err := os.ReadFile(filepath.Join("..", "image", "provision.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for line := range strings.Lines(string(script)) {
-		if version, ok := strings.CutPrefix(strings.TrimSpace(line), "OPENCODE_VERSION="); ok {
-			return strings.Fields(version)[0]
-		}
-	}
-	t.Fatal("provision.sh pins no OPENCODE_VERSION")
-	return ""
 }
