@@ -52,6 +52,14 @@ func gitEnv(config string) map[string]string {
 		"GIT_AUTHOR_EMAIL":    "test@agentbox.invalid",
 		"GIT_COMMITTER_NAME":  "AgentBox Test",
 		"GIT_COMMITTER_EMAIL": "test@agentbox.invalid",
+		// Without this, git commit/merge spawns "git maintenance run --auto
+		// --detach", a background process that keeps writing into .git after
+		// the command that started it has returned — and so after a test that
+		// ran it has already returned too, racing t.TempDir's cleanup ("directory
+		// not empty").
+		"GIT_CONFIG_COUNT":   "1",
+		"GIT_CONFIG_KEY_0":   "maintenance.auto",
+		"GIT_CONFIG_VALUE_0": "false",
 	}
 }
 

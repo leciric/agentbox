@@ -368,6 +368,12 @@ func newManager(t *testing.T, store *state.Store, f *fakeTool) (*Manager, *recor
 	t.Helper()
 	rec := &recorded{}
 	m := &Manager{Store: store, Launch: f.launch, Publish: rec.publish, Version: "test"}
+	// Registered before Close, so it runs after it (t.Cleanup is LIFO): an
+	// adapter still launching when Close is called has no process yet to
+	// stop, and keeps writing until it notices and gives up. A test's
+	// store is a t.TempDir, so it has to wait for that before the store's
+	// own cleanup can remove it.
+	t.Cleanup(m.Wait)
 	t.Cleanup(m.Close)
 	return m, rec
 }
