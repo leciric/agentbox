@@ -85,7 +85,7 @@ func CheckHost(u User) error {
 
 // Version changes whenever provision.sh changes what agents get, so Setup can
 // ask you to rebuild a base image made by an older AgentBox.
-const Version = "2026.09.23.1"
+const Version = "2026.09.25.1"
 
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.
@@ -96,10 +96,11 @@ const (
 )
 
 const (
-	versionKey  = "user.agentbox.image-version"
-	androidKey  = "user.agentbox.with-android"
-	codexKey    = "user.agentbox.with-codex"
-	opencodeKey = "user.agentbox.with-opencode"
+	versionKey   = "user.agentbox.image-version"
+	androidKey   = "user.agentbox.with-android"
+	codexKey     = "user.agentbox.with-codex"
+	opencodeKey  = "user.agentbox.with-opencode"
+	devCachesKey = "user.agentbox.with-dev-caches"
 )
 
 // Installed is what the base image on this machine was built with.
@@ -123,9 +124,10 @@ func InstalledBuild(ctx context.Context, inc incus.Client) (Installed, error) {
 	return Installed{
 		Version: config[versionKey],
 		Components: Components{
-			Android:  config[androidKey] == "1",
-			Codex:    config[codexKey] == "1",
-			OpenCode: config[opencodeKey] == "1",
+			Android:   config[androidKey] == "1",
+			Codex:     config[codexKey] == "1",
+			OpenCode:  config[opencodeKey] == "1",
+			DevCaches: config[devCachesKey] == "1",
 		},
 	}, nil
 }
@@ -164,7 +166,7 @@ func EnsureProfile(ctx context.Context, inc incus.Client) error {
 }
 
 // Components are the parts of the base image that are only in it if you ask.
-// All are off by default: together they are about 400 MB on top of a 1.1 GB
+// All are off by default: together they are about 650 MB on top of a 1.1 GB
 // build, and most agents use none of them.
 type Components struct {
 	// Android adds scrcpy, which mirrors the screen of an agent's Android
@@ -176,10 +178,15 @@ type Components struct {
 	// OpenCode adds the OpenCode CLI, which is its own ACP adapter
 	// (`opencode acp`). An agent created with --ai opencode needs it.
 	OpenCode bool
+	// DevCaches fills the Go module and build caches, npm's cache and
+	// Electron's download from AgentBox's own repository, so an agent working
+	// on AgentBox itself starts testing without downloading or compiling its
+	// dependencies first. Only a machine that develops AgentBox wants it.
+	DevCaches bool
 }
 
 // Any reports whether any component is asked for.
-func (c Components) Any() bool { return c.Android || c.Codex || c.OpenCode }
+func (c Components) Any() bool { return c.Android || c.Codex || c.OpenCode || c.DevCaches }
 
 // Env renders the components as the environment variables provision.sh checks.
 func (c Components) Env() []string {
@@ -187,6 +194,7 @@ func (c Components) Env() []string {
 		"AGENTBOX_WITH_ANDROID=" + envFlag(c.Android),
 		"AGENTBOX_WITH_CODEX=" + envFlag(c.Codex),
 		"AGENTBOX_WITH_OPENCODE=" + envFlag(c.OpenCode),
+		"AGENTBOX_WITH_DEV_CACHES=" + envFlag(c.DevCaches),
 	}
 }
 
@@ -201,6 +209,9 @@ func (c Components) Summary() string {
 	}
 	if c.OpenCode {
 		on = append(on, "OpenCode")
+	}
+	if c.DevCaches {
+		on = append(on, "AgentBox's development caches")
 	}
 	if len(on) == 0 {
 		return "no optional components"
@@ -261,7 +272,8 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 			versionKey + "=" + Version,
 			androidKey + "=" + envFlag(opts.Components.Android),
 			codexKey + "=" + envFlag(opts.Components.Codex),
-			opencodeKey + "=" + envFlag(opts.Components.OpenCode)},
+			opencodeKey + "=" + envFlag(opts.Components.OpenCode),
+			devCachesKey + "=" + envFlag(opts.Components.DevCaches)},
 		[]string{"snapshot", "create", next, Generic},
 	); err != nil {
 		return fail(err)
