@@ -17,7 +17,7 @@ jobs:
     name: Go
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # Go's version comes from mise.toml, so CI and a checkout can't drift.
       # ttyd and pnpm are the host's tools, and nothing here needs them.
@@ -59,7 +59,7 @@ jobs:
     name: Go on macOS
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: jdx/mise-action@v4
         with:
@@ -76,7 +76,7 @@ jobs:
       # workflow, which packages the AppImage, does not set this.
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: jdx/mise-action@v4
         with:
@@ -108,7 +108,7 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - uses: jdx/mise-action@v4
         with:
