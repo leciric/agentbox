@@ -78,6 +78,8 @@ export interface FixtureData {
 // module load.
 export function buildFixtures(): FixtureData {
   const agents: T.Agent[] = [
+    agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account' }),
+    agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret' }),
     agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text' }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent' }),
@@ -125,7 +127,51 @@ export function buildFixtures(): FixtureData {
     },
   ];
 
+  // Two credential requests (request_credential, D95), with the reason as
+  // long as an agent's pasted error gets.
+  events.push(
+    {
+      id: 'e5',
+      project: PROJECT,
+      agent: 'agent-94',
+      ref: `${PROJECT}/agent-94`,
+      kind: 'asked',
+      question: 'q2',
+      at: new Date(Date.now() - 20_000).toISOString(),
+    },
+    {
+      id: 'e6',
+      project: PROJECT,
+      agent: 'agent-95',
+      ref: `${PROJECT}/agent-95`,
+      kind: 'asked',
+      question: 'q3',
+      at: new Date(Date.now() - 10_000).toISOString(),
+    },
+  );
+
   const questions: T.Question[] = [
+    {
+      id: 'q2',
+      project: PROJECT,
+      agent: 'agent-94',
+      ref: `${PROJECT}/agent-94`,
+      kind: 'github',
+      question: `git push origin agentbox/agent-94 failed: "ERROR: Repository not found." The token here logs in as luisflorido-stf, which can't see ${WIDE.longUrl}`,
+      status: 'escalated',
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'q3',
+      project: PROJECT,
+      agent: 'agent-95',
+      ref: `${PROJECT}/agent-95`,
+      kind: 'secret',
+      secretName: 'STRIPE_SECRET_KEY_FOR_THE_CHECKOUT_INTEGRATION_TESTS',
+      question: 'The checkout integration tests call Stripe in test mode and need a secret key; there is none in the environment.',
+      status: 'escalated',
+      createdAt: new Date().toISOString(),
+    },
     {
       id: 'q1',
       project: PROJECT,
@@ -222,6 +268,17 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['setup'], { ready: true });
   queryClient.setQueryData(['target'], { kind: 'local' });
   queryClient.setQueryData(['hubs'], []);
+  queryClient.setQueryData(['auth'], {
+    claude: true,
+    codex: false,
+    opencode: false,
+    claudeAccounts: [],
+    github: true,
+    githubAccounts: [
+      { name: 'default', default: true, savedAt: new Date().toISOString(), login: 'luisflorido-stf' },
+      { name: 'personal-account-with-a-long-name', default: false, savedAt: new Date().toISOString(), login: 'a-github-login-that-is-long-too' },
+    ],
+  } satisfies T.AuthStatus);
 }
 
 // fakeVM prints what `agentbox vm resize` prints, a line at a time, so the

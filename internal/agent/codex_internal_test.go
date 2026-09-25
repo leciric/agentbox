@@ -12,8 +12,9 @@ import (
 // read as belonging to that table instead of the document root.
 func TestCodexConfigFor(t *testing.T) {
 	servers := []mcpServer{
-		{"playwright", "/home/dev/.local/share/mise/shims/playwright-mcp", []string{"--cdp-endpoint", BrowserDevTools}},
-		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}},
+		{"playwright", "/home/dev/.local/share/mise/shims/playwright-mcp", []string{"--cdp-endpoint", BrowserDevTools}, false},
+		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
+		{"memory", AgentBinaryPath, []string{"memory", "mcp"}, true},
 	}
 
 	config := codexConfigFor("/worktree", servers, 150_000)
@@ -22,6 +23,13 @@ func TestCodexConfigFor(t *testing.T) {
 	}
 	if !strings.Contains(config, "trust_level = \"trusted\"") {
 		t.Errorf("config.toml = %s, want it trusted", config)
+	}
+	// request_credential waits on the user, far past Codex's default minute.
+	if !strings.Contains(config, "[mcp_servers.memory]\ncommand = \""+AgentBinaryPath+"\"\nargs = [\"memory\", \"mcp\"]\ntool_timeout_sec = 7500\n") {
+		t.Errorf("config.toml = %s, want the memory server's tools given two hours", config)
+	}
+	if strings.Count(config, "tool_timeout_sec") != 1 {
+		t.Errorf("config.toml = %s, want only the memory server given a long timeout", config)
 	}
 	for _, want := range []string{`[mcp_servers.playwright]`, `[mcp_servers.desktop]`} {
 		if !strings.Contains(config, want) {

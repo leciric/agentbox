@@ -1172,12 +1172,27 @@ func describeQuestions(questions []api.Question) string {
 	}
 	var b strings.Builder
 	for _, q := range questions {
+		if q.Kind != "" {
+			// Not the lead's to answer: the user does, in the app, and the value
+			// never passes through a chat (D95).
+			fmt.Fprintf(&b, "- id %s, from %s: asking the user for %s, which only the user can answer, in the app\n  %s\n",
+				q.ID, q.Agent, credentialWanted(q), q.Question)
+			continue
+		}
 		fmt.Fprintf(&b, "- id %s, from %s (%s)\n  %s\n", q.ID, q.Agent, q.Status, q.Question)
 		if q.Context != "" {
 			fmt.Fprintf(&b, "  what it was doing: %s\n", q.Context)
 		}
 	}
 	return b.String()
+}
+
+// credentialWanted names what a credential request asks for.
+func credentialWanted(q api.Question) string {
+	if q.Kind == api.CredentialSecret {
+		return "the secret $" + q.SecretName
+	}
+	return "a GitHub account"
 }
 
 // describeNoteChange is what the chat is told after an edit or a removal: the

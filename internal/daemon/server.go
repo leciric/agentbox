@@ -340,6 +340,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/agent-events", s.projectAgentEvents)
 	h("GET /v1/projects/{project}/questions", s.projectQuestions)
 	h("POST /v1/projects/{project}/questions/{id}/answer", s.answerAsUser)
+	h("POST /v1/projects/{project}/questions/{id}/credential", s.answerCredential)
 	h("POST /v1/projects/{project}/retire", s.retire)
 	h("GET /v1/projects/{project}/media", s.projectMedia)
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)

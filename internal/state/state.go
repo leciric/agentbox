@@ -482,6 +482,13 @@ var migrations = []string{
 	// What a project's agent branches are named with, before the agent's own
 	// name. 'agentbox/' is what every agent's branch was before this column.
 	`ALTER TABLE projects ADD COLUMN branch_prefix TEXT NOT NULL DEFAULT 'agentbox/'`,
+
+	// What a question asks for: '' is a decision, which is what every
+	// question was before these columns; github and secret are an agent
+	// asking the user for a credential, and secret_name is the variable a
+	// secret goes into. The value itself is never stored here.
+	`ALTER TABLE questions ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE questions ADD COLUMN secret_name TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is how long kept media survives its agent when a

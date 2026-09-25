@@ -1049,14 +1049,21 @@ func agentMCPServers(home string) []mcpServer {
 		// image, and left browser_snapshot's 49,893-byte accessibility tree
 		// — what an agent actually clicks by — untouched.
 		{"playwright", home + "/.local/share/mise/shims/playwright-mcp",
-			[]string{"--cdp-endpoint", BrowserDevTools, "--output-dir", home + "/.cache/playwright-mcp", "--image-responses", "omit"}},
-		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}},
+			[]string{"--cdp-endpoint", BrowserDevTools, "--output-dir", home + "/.cache/playwright-mcp", "--image-responses", "omit"}, false},
+		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
 		// What the project remembers, which is the same binary again: search
 		// it, report on the task, record what was produced
 		// (D72).
-		{"memory", AgentBinaryPath, []string{"memory", "mcp"}},
+		// request_credential waits on the user, which the MCP call itself
+		// has to outlast (D95).
+		{"memory", AgentBinaryPath, []string{"memory", "mcp"}, true},
 	}
 }
+
+// waitingToolTimeout is how long a tool that waits on a person may take: a
+// little longer than the daemon waits (askTimeout in package daemon), so the
+// daemon's own answer arrives first.
+const waitingToolTimeout = 2*time.Hour + 5*time.Minute
 
 // mcpServer is one MCP server every AI tool is given, written into Claude
 // Code's ~/.claude.json, Codex's ~/.codex/config.toml and OpenCode's
@@ -1065,6 +1072,10 @@ type mcpServer struct {
 	name    string
 	command string
 	args    []string
+	// waits is a server with a tool that waits on a person, like
+	// request_credential, which Codex would otherwise give up on after its
+	// default of a minute.
+	waits bool
 }
 
 // codex renders the server as Codex's TOML table. Every value goes through %q,
@@ -1074,7 +1085,11 @@ func (s mcpServer) codex() string {
 	for i, arg := range s.args {
 		quoted[i] = fmt.Sprintf("%q", arg)
 	}
-	return fmt.Sprintf("[mcp_servers.%s]\ncommand = %q\nargs = [%s]\n", s.name, s.command, strings.Join(quoted, ", "))
+	table := fmt.Sprintf("[mcp_servers.%s]\ncommand = %q\nargs = [%s]\n", s.name, s.command, strings.Join(quoted, ", "))
+	if s.waits {
+		table += fmt.Sprintf("tool_timeout_sec = %d\n", int(waitingToolTimeout.Seconds()))
+	}
+	return table
 }
 
 // brief renders what one agent is told: its machine, its branch, the secrets it

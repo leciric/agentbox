@@ -153,6 +153,10 @@ export const api = {
   questions: (name: string) => call<T.Question[]>('GET', `${project(name)}/questions?all=1`),
   answerQuestion: (name: string, id: string, answer: string) =>
     call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/answer`, { answer } satisfies T.AnswerQuestionRequest),
+  // An agent's credential request: the value goes to the daemon, which puts it
+  // into the agent, and the agent is told only what happened (D95).
+  answerCredential: (name: string, id: string, req: T.AnswerCredentialRequest) =>
+    call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/credential`, req),
   retire: (project: string, req: T.RetireRequest) => call<T.RetireResult>('POST', `/v1/projects/${encodeURIComponent(project)}/retire`, req),
   projectMedia: (project: string, agent = '', kind = '') => {
     const q = new URLSearchParams();

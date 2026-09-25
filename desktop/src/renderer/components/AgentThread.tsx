@@ -6,6 +6,7 @@ import * as A from '../../shared/api';
 import { api } from '../lib/api';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
+import { CredentialCard } from './CredentialCard';
 import { Button } from './ui/button';
 import { Textarea } from './ui/input';
 
@@ -46,6 +47,12 @@ export function latestLine(events: T.AgentEvent[], questions: Map<string, T.Ques
   switch (ev.kind) {
     case A.AgentAsked: {
       const q = questions.get(ev.question ?? '');
+      if (q?.kind) {
+        const what = q.kind === A.CredentialSecret ? `$${q.secretName}` : 'a GitHub account';
+        if (q.status === 'answered') return { text: `asked you for ${what}`, urgent: false };
+        if (q.status === 'cancelled') return { text: `gave up waiting for ${what}`, urgent: false };
+        return { text: `needs ${what} from you`, urgent: true };
+      }
       if (!q || q.status === 'answered') return { text: 'asked a question', urgent: false };
       if (q.status === 'cancelled') return { text: 'gave up waiting for an answer', urgent: false };
       return { text: q.status === 'escalated' ? 'asking you something' : 'asking the chat something', urgent: true };
@@ -105,7 +112,9 @@ function EventCard({ event, question }: { event: T.AgentEvent; question?: T.Ques
   return (
     <div className="min-w-0 rounded-lg border border-line-faint bg-rail p-2" data-thread-event={event.kind}>
       <div className="flex items-baseline gap-1.5 text-[10px] uppercase tracking-[0.07em]">
-        <span className={cn('font-semibold', event.kind === A.AgentAsked ? 'text-amber-300/90' : 'text-subtle')}>{kindLabels[event.kind] ?? event.kind}</span>
+        <span className={cn('font-semibold', event.kind === A.AgentAsked ? 'text-amber-300/90' : 'text-subtle')}>
+          {event.kind === A.AgentAsked && question?.kind ? 'Credential' : (kindLabels[event.kind] ?? event.kind)}
+        </span>
         <span className="ml-auto shrink-0 normal-case tracking-normal text-faint">{timeAgo(event.at)}</span>
       </div>
 
@@ -118,7 +127,14 @@ function EventCard({ event, question }: { event: T.AgentEvent; question?: T.Ques
 
       {event.changes && <ChangesLine changes={event.changes} />}
       {event.pr && <PullRequestLink pr={event.pr} />}
-      {question && (event.kind === A.AgentAnswered ? <AnswerBlock question={question} /> : <QuestionBlock question={question} />)}
+      {question &&
+        (event.kind === A.AgentAnswered ? (
+          <AnswerBlock question={question} />
+        ) : question.kind ? (
+          <CredentialCard question={question} />
+        ) : (
+          <QuestionBlock question={question} />
+        ))}
     </div>
   );
 }

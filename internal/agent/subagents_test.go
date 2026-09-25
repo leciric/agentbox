@@ -11,7 +11,7 @@ import (
 // a description, a model, and the desktop server declared inline as a list of
 // one-key maps — the shape its parser insists on ("expected exactly one key").
 func TestDesktopAgentDefinition(t *testing.T) {
-	def, err := desktopAgent(mcpServer{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}})
+	def, err := desktopAgent(mcpServer{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false})
 	if err != nil {
 		t.Fatal(err)
 	}

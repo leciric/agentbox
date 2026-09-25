@@ -679,6 +679,8 @@ export interface Question {
   project: string;
   agent: string;
   ref: string;
+  kind?: string;
+  secretName?: string;
   question: string;
   context?: string;
   status: string;
@@ -700,6 +702,19 @@ export interface AnswerQuestionRequest {
 
 export interface EscalateQuestionRequest {
   why?: string;
+}
+
+export interface CredentialRequest {
+  kind: string;
+  name?: string;
+  reason: string;
+}
+
+export interface AnswerCredentialRequest {
+  githubAccount?: string;
+  value?: string;
+  refuse?: boolean;
+  reason?: string;
 }
 
 export interface AgentEvent {
@@ -1345,6 +1360,8 @@ export const AgentCreated = "created";
 export const AgentFinished = "finished";
 export const AgentAsked = "asked";
 export const AgentAnswered = "answered";
+export const CredentialGitHub = "github";
+export const CredentialSecret = "secret";
 export const GitHubNoAccount = "noAccount";
 export const GitHubNoAccess = "noAccess";
 export const GitHubBadToken = "badToken";

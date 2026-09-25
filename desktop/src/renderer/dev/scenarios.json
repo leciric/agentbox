@@ -68,5 +68,26 @@
     "query": "vm=resize&theme=light",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "credential-github-dark",
+    "description": "A GitHub credential request: pick an account, log in another, or refuse \u2014 dark, xl width",
+    "query": "open=agent-94&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "credential-secret-dark",
+    "description": "A secret credential request with a long variable name \u2014 dark, xl width",
+    "query": "open=agent-95&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "credential-github-below-xl-light",
+    "description": "The GitHub credential request below the xl breakpoint (268px rail), light",
+    "query": "open=agent-94&theme=light",
+    "width": 1100,
+    "height": 900
   }
 ]

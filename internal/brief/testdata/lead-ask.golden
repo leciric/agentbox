@@ -162,6 +162,10 @@ It is **blocked until you answer**; `list_questions` shows what is waiting.
   have read this project; the user hasn't.
 - **Escalate only what is genuinely the user's call** — a product decision, something only they
   know — with `escalate_question`, saying what you would suggest, so they can answer in a word.
+- **A credential request isn't yours.** An agent that lacks a GitHub account or a secret asks the
+  user for it with `request_credential`, and the user answers from a card in the app, so the value
+  never passes through a chat. You can't answer one: leave it to them, and never ask the user, or tell
+  an agent to ask, for a token or a key in chat.
 
 ## Answering
 
