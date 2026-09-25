@@ -351,7 +351,7 @@ export function NewAgentResources() {
           id="default-memory"
           label="Memory"
           placeholder="all of it"
-          hint="A hard ceiling, like 8GiB. Past it, the kernel kills processes inside the agent."
+          hint={`A hard ceiling. A new installation starts at 8GiB, or half the host's memory if that's less${settings.data?.seedMemory ? ` — ${settings.data.seedMemory} here` : ''}. Past it, the kernel kills processes inside the agent, which is kept out of the host's swap so it can't slow the host down first.`}
           value={settings.data?.defaultMemory ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultMemory) => save.mutate({ defaultMemory })}

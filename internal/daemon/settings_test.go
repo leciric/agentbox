@@ -38,17 +38,17 @@ func TestResourceDefaultsAreSeededThenChosen(t *testing.T) {
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 
-	seeded := agent.DefaultLimits(agent.HostCores())
-	value, set, err := d.srv.store.SettingValue(ctx, state.SettingDefaultCPU)
-	if err != nil || !set || value != seeded.CPU {
-		t.Fatalf("the CPU default after a first start = %q, set %v, %v; want %q", value, set, err, seeded.CPU)
-	}
-	// Seeded, not invented on every read: the app's input shows a number, and
-	// the memory ceiling and the share start off deliberately empty.
-	for _, key := range []string{state.SettingDefaultCPUAllowance, state.SettingDefaultMemory} {
-		if value, set, err := d.srv.store.SettingValue(ctx, key); err != nil || !set || value != "" {
-			t.Errorf("%s = %q, set %v, %v; want it stored and empty", key, value, set, err)
+	seeded := agent.DefaultLimits(agent.HostCores(), agent.HostMemory())
+	// Seeded, not invented on every read: the app's inputs show a number.
+	for key, want := range map[string]string{state.SettingDefaultCPU: seeded.CPU, state.SettingDefaultMemory: seeded.Memory} {
+		value, set, err := d.srv.store.SettingValue(ctx, key)
+		if err != nil || !set || value != want || want == "" {
+			t.Fatalf("%s after a first start = %q, set %v, %v; want %q", key, value, set, err, want)
 		}
+	}
+	// And the share starts off deliberately empty.
+	if value, set, err := d.srv.store.SettingValue(ctx, state.SettingDefaultCPUAllowance); err != nil || !set || value != "" {
+		t.Errorf("the CPU share = %q, set %v, %v; want it stored and empty", value, set, err)
 	}
 
 	out, err := patchSettings(t, d, `{"defaultCPU":"","defaultMemory":"8GiB","defaultCPUAllowance":"50%"}`)
@@ -68,6 +68,44 @@ func TestResourceDefaultsAreSeededThenChosen(t *testing.T) {
 	}
 	if value, _, _ := d.srv.store.SettingValue(ctx, state.SettingDefaultCPU); value != "" {
 		t.Errorf("a restart put the CPU default back to %q; a chosen empty limit is a choice", value)
+	}
+	// Nor a choice of no memory ceiling, made after the ceiling was seeded.
+	if _, err := patchSettings(t, d, `{"defaultMemory":""}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.srv.seedResourceDefaults(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if value, _, _ := d.srv.store.SettingValue(ctx, state.SettingDefaultMemory); value != "" {
+		t.Errorf("a restart put the memory default back to %q; a chosen empty limit is a choice", value)
+	}
+}
+
+// TestMemoryDefaultReachesOlderInstallations checks the one-off upgrade: an
+// installation seeded before there was a memory ceiling has default_memory
+// stored as "", written by the daemon rather than chosen, and gets the ceiling
+// on its next start. One whose memory default was set to a size keeps it.
+func TestMemoryDefaultReachesOlderInstallations(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ before, want string }{
+		{"", agent.DefaultMemory(agent.HostMemory())},
+		{"12GiB", "12GiB"},
+	} {
+		d := startTestDaemon(t, t.TempDir(), fakeIncus)
+		ctx := context.Background()
+		// What an older build left behind: the value, and no marker.
+		if err := d.srv.store.SetSetting(ctx, state.SettingDefaultMemory, c.before); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := d.srv.store.DB().ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, state.SettingDefaultMemorySeeded); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.srv.seedResourceDefaults(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if value, _, _ := d.srv.store.SettingValue(ctx, state.SettingDefaultMemory); value != c.want {
+			t.Errorf("default_memory %q after an upgrade = %q, want %q", c.before, value, c.want)
+		}
 	}
 }
 

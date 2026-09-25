@@ -24,7 +24,9 @@ func newLimitsCmd(a *app) *cobra.Command {
                     picks which cores and re-balances them; nothing is pinned.
   --memory          a ceiling, like 8GiB. The kernel enforces it by killing
                     processes inside the agent, so a ceiling below what a
-                    running agent is already using is refused.
+                    running agent is already using is refused. A capped
+                    agent is kept out of the host's swap, so past its
+                    ceiling it is killed rather than slowing the host down.
   --cpu-allowance   its share of the CPUs: a percentage like 50%, which only
                     counts when the host is busy, or a chunk like 25ms/100ms,
                     a hard ceiling that counts even on an idle host.

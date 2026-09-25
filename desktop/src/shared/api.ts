@@ -97,6 +97,7 @@ export interface Settings {
   defaultMemory: string;
   hostCores: number;
   hostMemory: number;
+  seedMemory: string;
   resumeAfterLimit: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;

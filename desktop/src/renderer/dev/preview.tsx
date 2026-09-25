@@ -162,7 +162,7 @@ if (imageUpdate) seedImageUpdate(queryClient);
 if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
-  queryClient.setQueryData(['settings'], { ...(queryClient.getQueryData(['settings']) ?? {}), hostCores: 8, hostMemory: 31 * GiB, defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
+  queryClient.setQueryData(['settings'], { ...(queryClient.getQueryData(['settings']) ?? {}), hostCores: 8, hostMemory: 31 * GiB, seedMemory: '8GiB', defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
 }
 
 if (usage) {

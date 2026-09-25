@@ -549,6 +549,7 @@ let defaultsSettings = {
   defaultMemory: '8GiB',
   hostCores: 16,
   hostMemory: 32 * 1024 ** 3,
+  seedMemory: '8GiB',
   resumeAfterLimit: true,
   claudeCompactWindow: 200_000,
   updateCheck: true,

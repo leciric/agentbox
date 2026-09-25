@@ -299,6 +299,10 @@ type Settings struct {
 	// what a limit is being carved out of without a second call.
 	HostCores  int   `json:"hostCores"`
 	HostMemory int64 `json:"hostMemory"`
+	// SeedMemory is the memory ceiling a new installation starts new agents
+	// at on this host: 8GiB, or half its memory when that is less. The app
+	// shows it, so "the default" means a size and not a rule to work out.
+	SeedMemory string `json:"seedMemory"`
 	// ResumeAfterLimit says whether a chat whose turn was cut short by a
 	// Claude usage limit carries on by itself once the limit resets. On
 	// unless it was turned off, and unlike the settings above it applies to
