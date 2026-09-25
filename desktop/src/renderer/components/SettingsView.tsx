@@ -30,6 +30,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type * as T from "../../shared/api";
 import { api } from "../lib/api";
+import { countFeature, settingsSectionFeatures } from "../lib/usageStats";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
@@ -717,6 +718,7 @@ function SettingsTabs({
 }) {
   type Section = "environment" | "accounts" | "lead" | "agents";
   const [section, setSection] = useState<Section>("environment");
+  useEffect(() => countFeature(settingsSectionFeatures[section]), [section]);
   const environmentSteps = steps.filter((s) => environmentIds.has(s.id));
   const accountSteps = steps.filter((s) => accountIds.has(s.id));
   // On a Mac, the VM everything runs in, whose size can be changed here.
@@ -804,6 +806,7 @@ function SettingsTabs({
             )}
             <Appearance />
             <UpdateCheck />
+            <UsageStats />
           </TabsContent>
 
           <TabsContent value="accounts" className="mt-4">
@@ -939,6 +942,59 @@ function UpdateCheck() {
           >
             See what's new
           </button>
+        </p>
+      )}
+    </Panel>
+  );
+}
+
+// UsageStats rides on the update check: the same request's day, carrying how
+// many times each feature was used (internal/daemon/usagestats.go). Its one
+// line is the whole of what it sends; keep it in step with the README's
+// "Update check" section. It can't be on while the check is off or blocked,
+// and says which, rather than a switch that does nothing.
+function UsageStats() {
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const update = useQuery({
+    queryKey: ["update"],
+    queryFn: api.update,
+    staleTime: Infinity,
+  });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (usageStats: boolean) => api.updateSettings({ usageStats }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const blocked = update.data?.blocked;
+  const checkOff = settings.data?.updateCheck === false;
+  return (
+    <Panel className="mt-3 grid gap-3 p-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium text-primary">
+            Share anonymous usage stats
+          </div>
+          <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
+            With the update check, sends how many times each feature was used
+            per day (like "agent.create.claude: 3") and nothing else: no
+            names, paths, repositories or anything you typed.
+          </p>
+        </div>
+        <Switch
+          data-usage-stats
+          aria-label="Share anonymous usage stats"
+          disabled={
+            save.isPending || settings.data === undefined || !!blocked || checkOff
+          }
+          checked={!blocked && !checkOff && (settings.data?.usageStats ?? true)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      </div>
+      {(blocked || checkOff) && (
+        <p className="text-[12px] text-subtle">
+          Off, because {blocked ?? "Check for updates is off"}.
         </p>
       )}
     </Panel>

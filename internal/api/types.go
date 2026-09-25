@@ -316,6 +316,11 @@ type Settings struct {
 	// AgentBox is out, which is also how installations are counted. On unless
 	// it was turned off; see UpdateStatus for what else can keep it off.
 	UpdateCheck bool `json:"updateCheck"`
+	// UsageStats says whether the update check also sends how many times each
+	// feature was used, by day: the Feature keys and their counts, nothing
+	// else. On unless it was turned off, and never sent while UpdateCheck is
+	// off or something blocks it.
+	UsageStats bool `json:"usageStats"`
 	// MediaRetention is how long a removed agent's media is kept before the
 	// daemon purges it: one of the MediaRetention values.
 	MediaRetention string `json:"mediaRetention"`
@@ -354,6 +359,9 @@ type UpdateSettingsRequest struct {
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`
 	// UpdateCheck turns the daily update check on or off.
 	UpdateCheck *bool `json:"updateCheck,omitempty"`
+	// UsageStats turns the anonymous usage stats on or off. Off also forgets
+	// the counts not sent yet.
+	UsageStats *bool `json:"usageStats,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
 }
@@ -1506,4 +1514,68 @@ type RemoteStatus struct {
 type RemoteConnectRequest struct {
 	Hub   string `json:"hub"`
 	Token string `json:"token"`
+}
+
+// The features anonymous usage stats count (Settings.UsageStats). A key names
+// what was used and nothing about what it was used on: no names, paths,
+// repositories, models or text ever go into one, which is why they are a
+// fixed list rather than made up where they are counted. The daemon counts
+// the first group at its own chokepoints; the app counts the second, the ones
+// only it can see, through POST /v1/usage-stats/{feature}, which takes nothing
+// but a key on this list. The keys go to agentbox.linting.dev as they are, so
+// renaming one splits its history there: add a key rather than reuse one.
+const (
+	FeatureAgentCreateClaude   = "agent.create.claude"
+	FeatureAgentCreateCodex    = "agent.create.codex"
+	FeatureAgentCreateOpenCode = "agent.create.opencode"
+	FeatureAgentCreateByLead   = "agent.create.by_lead"
+	FeatureAgentDestroy        = "agent.destroy"
+	FeatureAgentRetire         = "agent.retire"
+	FeatureAgentFork           = "agent.fork"
+	FeatureAgentSnapshot       = "agent.snapshot"
+	FeatureAgentRestore        = "agent.restore"
+	FeatureAgentTurn           = "agent.turn"
+	FeatureLeadTurnClaude      = "lead.turn.claude"
+	FeatureLeadTurnCodex       = "lead.turn.codex"
+	FeatureLeadTurnOpenCode    = "lead.turn.opencode"
+	FeatureChatModel           = "chat.model.change"
+	FeatureChatEffort          = "chat.effort.change"
+	FeatureChatWindow          = "chat.window.change"
+	FeatureChatMode            = "chat.mode.change"
+	FeatureProjectAdd          = "project.add"
+	FeatureNotesSave           = "notes.save"
+	FeaturePullMerge           = "pr.merge"
+	FeatureQuestionAnswer      = "question.answer"
+	FeatureSecretSet           = "secret.set"
+	FeatureImageBuild          = "image.build"
+	FeatureSettingsChange      = "settings.change"
+
+	FeatureDesktopOpen         = "desktop.open"
+	FeatureTerminalOpen        = "terminal.open"
+	FeatureAndroidOpen         = "android.open"
+	FeatureAgentMediaView      = "media.view.agent"
+	FeatureProjectMediaView    = "media.view.project"
+	FeaturePullList            = "pr.list"
+	FeatureMemoryView          = "memory.view"
+	FeatureTokensView          = "tokens.view"
+	FeatureSettingsEnvironment = "settings.view.environment"
+	FeatureSettingsAccounts    = "settings.view.accounts"
+	FeatureSettingsLead        = "settings.view.lead"
+	FeatureSettingsAgents      = "settings.view.agents"
+	FeatureMenuOpenChat        = "menu.agent.open_chat"
+	FeatureMenuOpenTerminal    = "menu.agent.open_terminal"
+	FeatureMenuLifecycle       = "menu.agent.lifecycle"
+	FeatureMenuRetire          = "menu.agent.retire"
+	FeatureMenuCopyBranch      = "menu.agent.copy_branch"
+	FeatureMenuOpenPullRequest = "menu.agent.open_pr"
+	FeatureMenuDestroy         = "menu.agent.destroy"
+)
+
+// AppFeatures are the keys the app may count through the API.
+var AppFeatures = []string{
+	FeatureDesktopOpen, FeatureTerminalOpen, FeatureAndroidOpen, FeatureAgentMediaView, FeatureProjectMediaView,
+	FeaturePullList, FeatureMemoryView, FeatureTokensView,
+	FeatureSettingsEnvironment, FeatureSettingsAccounts, FeatureSettingsLead, FeatureSettingsAgents,
+	FeatureMenuOpenChat, FeatureMenuOpenTerminal, FeatureMenuLifecycle, FeatureMenuRetire,
+	FeatureMenuCopyBranch, FeatureMenuOpenPullRequest, FeatureMenuDestroy,
 }

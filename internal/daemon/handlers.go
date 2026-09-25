@@ -136,6 +136,7 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 	if err := s.store.AddProject(r.Context(), p); err != nil {
 		return err
 	}
+	s.countFeature(api.FeatureProjectAdd)
 	// Read it back, so the answer carries what the store filled in.
 	if stored, err := s.store.Project(r.Context(), p.Name); err == nil {
 		p = stored
@@ -447,6 +448,7 @@ func (s *Server) setNotes(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	s.countFeature(api.FeatureNotesSave)
 	return writeJSON(w, http.StatusOK, out)
 }
 
@@ -875,6 +877,10 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 			}
 			return nil, err
 		}
+		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode))
+		if byLead {
+			s.countFeature(api.FeatureAgentCreateByLead)
+		}
 		task := strings.TrimSpace(req.Task)
 		model := ""
 		if req.Model != nil {
@@ -916,6 +922,7 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.captureEvent(r.Context(), a.Project, a.Name, "agent_retired", map[string]any{"how": "destroy", "branch": a.Branch}, "")
+	s.countFeature(api.FeatureAgentDestroy)
 	s.refreshAgents(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
@@ -1005,6 +1012,7 @@ func (s *Server) takeSnapshot(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	s.countFeature(api.FeatureAgentSnapshot)
 	return writeJSON(w, http.StatusCreated, toAPISnapshot(sn))
 }
 
@@ -1035,6 +1043,7 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 		if err := m.Restore(ctx, a, req.Snapshot); err != nil {
 			return nil, err
 		}
+		s.countFeature(api.FeatureAgentRestore)
 		m.EnsureBrowser(ctx, a)
 		s.refreshAgents(ctx)
 		return s.describe(ctx, a)
@@ -1055,6 +1064,7 @@ func (s *Server) fork(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return nil, err
 		}
+		s.countFeature(api.FeatureAgentFork)
 		return s.agentReady(ctx, a)
 	})
 }
@@ -1147,6 +1157,7 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) error {
 		if err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log); err != nil {
 			return nil, err
 		}
+		s.countFeature(api.FeatureImageBuild)
 		// A build you made settles an update of the daemon's that failed or
 		// was cancelled.
 		s.setImagePhase(func(w *imageWork) { *w = imageWork{busy: w.busy} })

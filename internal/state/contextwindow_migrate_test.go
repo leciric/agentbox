@@ -6,8 +6,15 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
+
+// modelWindowsMigration is the index of the migration under test: the
+// database is built up to just before it, which later migrations follow.
+func modelWindowsMigration() int {
+	return slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "key = 'claude_model_windows'") })
+}
 
 // An installation that remembered opus at its 200k compact window, before
 // RememberClaudeModelWindow stopped keeping a capped size, forgets it on
@@ -19,12 +26,13 @@ func TestCappedModelWindowsAreForgottenOnUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, m := range migrations[:len(migrations)-1] {
+	at := modelWindowsMigration()
+	for i, m := range migrations[:at] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
 		}
 	}
-	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", len(migrations)-1)); err != nil {
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", at)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`,
@@ -61,12 +69,13 @@ func TestModelWindowsMigrationToleratesOddValues(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, m := range migrations[:len(migrations)-1] {
+		at := modelWindowsMigration()
+		for _, m := range migrations[:at] {
 			if _, err := db.ExecContext(ctx, m); err != nil {
 				t.Fatal(err)
 			}
 		}
-		db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", len(migrations)-1))
+		db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", at))
 		db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`, SettingClaudeModelWindows, value)
 		db.Close()
 		st, err := Open(path)

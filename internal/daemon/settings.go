@@ -131,10 +131,16 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.UsageStats != nil {
+		if err := s.setUsageStats(r.Context(), *req.UsageStats); err != nil {
+			return err
+		}
+	}
 	out, err := s.currentSettings(r)
 	if err != nil {
 		return err
 	}
+	s.countFeature(api.FeatureSettingsChange)
 	return writeJSON(w, http.StatusOK, out)
 }
 
@@ -293,6 +299,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	usageStats, err := s.store.FlagOn(r.Context(), state.SettingUsageStats)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	compactWindow, err := s.store.ClaudeCompactWindow(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -340,6 +350,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		ResumeAfterLimit: resumeAfterLimit,
 		UpdateCheck:      updateCheck,
+		UsageStats:       usageStats,
 		MediaRetention:   mediaRetention,
 
 		ClaudeCompactWindow:        compactWindow,

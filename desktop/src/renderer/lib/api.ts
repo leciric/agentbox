@@ -82,6 +82,7 @@ export const api = {
   settings: () => call<T.Settings>('GET', '/v1/settings'),
   update: () => call<T.UpdateStatus>('GET', '/v1/update'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
+  countFeature: (feature: string) => call<void>('POST', `/v1/usage-stats/${encodeURIComponent(feature)}`),
   tokens: (q: TokenQuery) => call<T.TokenReport>('GET', `/v1/tokens${tokenParams(q)}`),
   claudeLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits'),
   tokenTurns: (q: TokenQuery, limit = 100) => call<T.TokenTurn[]>('GET', `/v1/tokens/turns${tokenParams(q, { limit: String(limit) })}`),

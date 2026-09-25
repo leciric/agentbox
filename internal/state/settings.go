@@ -126,6 +126,10 @@ const (
 	// SettingUpdateCheck says whether the daemon asks once a day whether a
 	// newer AgentBox is out. On until somebody turns it off (FlagOn).
 	SettingUpdateCheck = "update_check"
+	// SettingUsageStats says whether the update check also sends the
+	// feature_usage counts. On until somebody turns it off (FlagOn), and
+	// never sent while SettingUpdateCheck is off.
+	SettingUsageStats = "usage_stats"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a
