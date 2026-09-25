@@ -685,6 +685,10 @@ type PullRequest struct {
 	// HeadSHA is the commit its branch is at. That, not HeadBranch, is what
 	// ties it to an agent: an agent's work is pushed under any branch name.
 	HeadSHA string `json:"headSha,omitempty"`
+	// Author is who opened it: their GitHub login, and avatar when GitHub
+	// sent one.
+	Author       string `json:"author,omitempty"`
+	AuthorAvatar string `json:"authorAvatar,omitempty"`
 	// Agent is the name of this project's agent whose commits it carries,
 	// when there is one; only the project pull requests list sets it.
 	Agent string `json:"agent,omitempty"`

@@ -1,5 +1,12 @@
 [
   {
+    "id": "pulls-list-dark",
+    "description": "A project's pull requests list, with a long GitHub login as one row's author — dark",
+    "query": "pulls=1&theme=dark",
+    "width": 420,
+    "height": 700
+  },
+  {
     "id": "pr-agent-dark",
     "description": "agent-99 open, its row active: a long title, a long branch and a PR badge \u2014 dark, xl width (312px rail)",
     "query": "open=agent-99&theme=dark",

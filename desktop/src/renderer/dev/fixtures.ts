@@ -21,6 +21,7 @@ export const WIDE = {
     'ECONNREFUSED_1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0987654321_connect_to_daemon_socket_failed_no_such_file_or_directory_agentbox_daemon_sock',
   jsonBlob:
     '{"ref":"agentbox/agent-96","project":"agentbox","state":"running","limits":{"cpu":"2","allowance":"400%","memory":"4Gi"},"branch":"agentbox/agent-96-fix-the-agent-rail-overflowing-on-wide-text"}',
+  longLogin: 'a-github-login-long-enough-to-be-a-problem-for-a-narrow-pull-request-row',
 };
 
 const codeSummary = `Found the cause: \`overflow-y-auto\` with no \`overflow-x\` handling.
@@ -339,6 +340,52 @@ export function buildFixtures(): FixtureData {
   ];
 
   return { agents, events, questions, fleet, projects, sections };
+}
+
+// pullRequests is a project's pull requests list, with a long GitHub login to
+// check the author column doesn't widen the row (#pull-request-author).
+export function pullRequests(): T.ProjectPullRequests {
+  return {
+    project: PROJECT,
+    github: 'leciric/agentbox',
+    githubAccount: 'default',
+    fetchedAt: new Date().toISOString(),
+    canMerge: true,
+    canMergeKnown: true,
+    mergeMethods: ['merge', 'squash', 'rebase'],
+    pullRequests: [
+      {
+        number: 78,
+        title: 'A pull request whose title is genuinely long enough to be a problem for a narrow column',
+        state: 'open',
+        checks: 'passing',
+        url: WIDE.longUrl,
+        additions: 120,
+        deletions: 34,
+        comments: 3,
+        updatedAt: new Date().toISOString(),
+        baseBranch: 'main',
+        headBranch: WIDE.branchName,
+        author: WIDE.longLogin,
+        authorAvatar: 'https://avatars.githubusercontent.com/u/1?v=4',
+        agent: 'agent-99',
+      },
+      {
+        number: 65,
+        title: 'Bump a dependency',
+        state: 'merged',
+        checks: 'passing',
+        url: 'https://github.com/leciric/agentbox/pull/65',
+        additions: 4,
+        deletions: 4,
+        comments: 0,
+        updatedAt: new Date(Date.now() - 86_400_000).toISOString(),
+        baseBranch: 'main',
+        headBranch: 'deps/bump-something',
+        author: 'someone',
+      },
+    ],
+  };
 }
 
 // agent12Chat is agent-12's conversation as the credential request left it:

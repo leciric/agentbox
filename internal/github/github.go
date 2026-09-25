@@ -65,6 +65,11 @@ type PullRequest struct {
 	// HeadSHA is the commit its branch is at, which is what ties it to an
 	// agent: the branch it was pushed to can be called anything.
 	HeadSHA string `json:"headSha,omitempty"`
+	// Author is who opened it: their GitHub login, and avatar when GitHub
+	// sent one. Empty when GitHub reports no user for it, which happens for a
+	// pull request whose account was since deleted.
+	Author       string `json:"author,omitempty"`
+	AuthorAvatar string `json:"authorAvatar,omitempty"`
 }
 
 // rawPR is a pull request as GitHub's API shapes it, whichever endpoint sent
@@ -81,7 +86,11 @@ type rawPR struct {
 	Deletions int       `json:"deletions"`
 	UpdatedAt time.Time `json:"updated_at"`
 	MergedAt  *string   `json:"merged_at"`
-	Base      struct {
+	User      *struct {
+		Login     string `json:"login"`
+		AvatarURL string `json:"avatar_url"`
+	} `json:"user"`
+	Base struct {
 		Ref string `json:"ref"`
 	} `json:"base"`
 	Head struct {
@@ -95,6 +104,9 @@ func (pr rawPR) pullRequest() PullRequest {
 		Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.HTMLURL,
 		Draft: pr.Draft, Comments: pr.Comments, Additions: pr.Additions, Deletions: pr.Deletions,
 		UpdatedAt: &pr.UpdatedAt, BaseBranch: pr.Base.Ref, HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA,
+	}
+	if pr.User != nil {
+		out.Author, out.AuthorAvatar = pr.User.Login, pr.User.AvatarURL
 	}
 	if pr.MergedAt != nil && *pr.MergedAt != "" {
 		out.State = "merged"
