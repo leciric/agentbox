@@ -19,7 +19,7 @@ func (s *Store) FeatureUsage(ctx context.Context, before string) ([]string, map[
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var days []string
 	counts := map[string]map[string]int64{}
 	for rows.Next() {

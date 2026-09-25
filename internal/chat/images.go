@@ -109,7 +109,7 @@ func (c *conversation) saveImages(uploads []api.ChatImageUpload) ([]api.ChatImag
 		id := newID()
 		if err := os.WriteFile(filepath.Join(dir, id), datas[i], 0o600); err != nil {
 			for _, img := range images {
-				os.Remove(filepath.Join(dir, img.ID))
+				_ = os.Remove(filepath.Join(dir, img.ID))
 			}
 			return nil, fmt.Errorf("keeping an image: %w", err)
 		}

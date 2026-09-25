@@ -209,7 +209,7 @@ func (m *Manager) ChatChoices(ctx context.Context, ai string, model, effort *str
 	}
 	offered := state.ChoiceValues(raw)
 	if want := strings.TrimSpace(*effort); len(offered) > 0 && !slices.Contains(offered, want) {
-		return fmt.Errorf("Claude Code doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
+		return fmt.Errorf("this agent's Claude Code doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
 	}
 	return nil
 }
@@ -522,7 +522,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	if err := m.Store.AddAgent(ctx, a); err != nil {
 		return state.Agent{}, err
 	}
-	undo = append(undo, func() { m.Store.RemoveAgent(cleanup, a.Project, a.Name) })
+	undo = append(undo, func() { _ = m.Store.RemoveAgent(cleanup, a.Project, a.Name) })
 
 	if a.AI == "claude" {
 		options, err := m.claudeChatDefaults(ctx, pl.project, pl.model, pl.effort, pl.contextWindow)
@@ -548,8 +548,8 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		return fail("worktree", err)
 	}
 	undo = append(undo, func() {
-		pl.repo.RemoveWorktree(a.Worktree)
-		pl.repo.DeleteBranch(a.Branch)
+		_ = pl.repo.RemoveWorktree(a.Worktree)
+		_ = pl.repo.DeleteBranch(a.Branch)
 		deleteAgentRefs(pl.repo, a.Name)
 	})
 	if pl.tree != "" {
@@ -594,7 +594,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	if err != nil {
 		return fail("instance", err)
 	}
-	undo = append(undo, func() { m.Incus.Run(cleanup, "delete", "--force", a.Instance) })
+	undo = append(undo, func() { _, _ = m.Incus.Run(cleanup, "delete", "--force", a.Instance) })
 
 	copied, err := m.Incus.Details(cleanup, a.Instance)
 	if err != nil {
@@ -708,7 +708,7 @@ func (m *Manager) checkImageTool(ctx context.Context, ai string) error {
 	if installed.Components.Codex {
 		return nil
 	}
-	return fmt.Errorf("Codex is %s: run agentbox image build --codex (or use --ai claude)", image.CodexMissing)
+	return fmt.Errorf("this agent's Codex is %s: run agentbox image build --codex (or use --ai claude)", image.CodexMissing)
 }
 
 // OpenCodeReady reports whether an agent could run OpenCode right now: the
@@ -1597,7 +1597,7 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	} else if err := m.keepAgentMedia(ctx, a); err != nil {
 		return err
 	}
-	os.RemoveAll(m.Paths.ChatImages(a.Project, a.Name)) // its conversation goes with the row
+	_ = os.RemoveAll(m.Paths.ChatImages(a.Project, a.Name)) // its conversation goes with the row
 	return m.Store.RemoveAgent(ctx, a.Project, a.Name)
 }
 
@@ -1605,7 +1605,7 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 // (Docker bind mounts, sudo) back to the host user, so git and the host can
 // manage them. It only works while the agent is running.
 func (m *Manager) handBackFiles(ctx context.Context, a state.Agent) {
-	m.Incus.Run(ctx, "exec", a.Instance, "--", "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
+	_, _ = m.Incus.Run(ctx, "exec", a.Instance, "--", "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
 }
 
 // Status is an agent plus its live instance state.
@@ -1671,7 +1671,7 @@ func (m *Manager) Diff(a state.Agent, stat bool, paths ...string) (string, error
 
 func (m *Manager) logf(format string, args ...any) {
 	if m.Log != nil {
-		fmt.Fprintf(m.Log, "==> "+format+"\n", args...)
+		_, _ = fmt.Fprintf(m.Log, "==> "+format+"\n", args...)
 	}
 }
 

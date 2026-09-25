@@ -82,16 +82,16 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls" && r.Method == http.MethodGet:
-			fmt.Fprintf(w, `[
+			_, _ = fmt.Fprintf(w, `[
 				{"number":9,"title":"Reminders page","state":"open","html_url":"https://github.com/acme/hello-stack/pull/9","draft":false,"updated_at":"2026-09-15T10:00:00Z","base":{"ref":"main"},"head":{"ref":"feat/reminders","sha":%q}},
 				{"number":3,"title":"Old work","state":"closed","merged_at":"2026-09-01T10:00:00Z","html_url":"https://github.com/acme/hello-stack/pull/3","base":{"ref":"main"},"head":{"ref":%q,"sha":"aaa"}}
 			]`, head, a.Branch)
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9":
-			w.Write([]byte(`{"additions":5,"deletions":1,"comments":2}`))
+			_, _ = w.Write([]byte(`{"additions":5,"deletions":1,"comments":2}`))
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			w.Write([]byte(`{"total_count":0}`))
+			_, _ = w.Write([]byte(`{"total_count":0}`))
 		case r.URL.Path == "/repos/acme/hello-stack":
-			w.Write([]byte(`{"default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":true,"permissions":{"push":true}}`))
+			_, _ = w.Write([]byte(`{"default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":true,"permissions":{"push":true}}`))
 		default:
 			t.Errorf("unexpected GitHub call: %s %s", r.Method, r.URL.Path)
 		}
@@ -154,11 +154,11 @@ func TestProjectPullRequestsEmptyListIsNotJSONNull(t *testing.T) {
 	githubRepoStub(t, d, repo)
 
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/repos/acme/hello-stack/pulls":
-			w.Write([]byte(`[]`))
-		case r.URL.Path == "/repos/acme/hello-stack":
-			w.Write([]byte(`{"default_branch":"main","permissions":{"push":true}}`))
+		switch r.URL.Path {
+		case "/repos/acme/hello-stack/pulls":
+			_, _ = w.Write([]byte(`[]`))
+		case "/repos/acme/hello-stack":
+			_, _ = w.Write([]byte(`{"default_branch":"main","permissions":{"push":true}}`))
 		default:
 			t.Errorf("unexpected GitHub call: %s %s", r.Method, r.URL.Path)
 		}
@@ -171,7 +171,7 @@ func TestProjectPullRequestsEmptyListIsNotJSONNull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Fatal(err)
@@ -198,19 +198,19 @@ func TestMergePullRequestConfirmsThenMerges(t *testing.T) {
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9" && r.Method == http.MethodGet:
-			w.Write([]byte(`{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"def"}}`))
+			_, _ = w.Write([]byte(`{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"def"}}`))
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			w.Write([]byte(`{"total_count":0}`))
+			_, _ = w.Write([]byte(`{"total_count":0}`))
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9/merge" && r.Method == http.MethodPut:
 			merged = true
 			var body struct {
 				MergeMethod string `json:"merge_method"`
 			}
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			if body.MergeMethod != "squash" {
 				t.Errorf("merge_method = %q, want squash", body.MergeMethod)
 			}
-			w.Write([]byte(`{"sha":"def","merged":true,"message":"Pull Request successfully merged"}`))
+			_, _ = w.Write([]byte(`{"sha":"def","merged":true,"message":"Pull Request successfully merged"}`))
 		default:
 			t.Errorf("unexpected GitHub call: %s %s", r.Method, r.URL.Path)
 		}
@@ -246,9 +246,9 @@ func TestMergePullRequestRejectsADraft(t *testing.T) {
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9" && r.Method == http.MethodGet:
-			w.Write([]byte(`{"number":9,"title":"WIP","state":"open","draft":true,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"def"}}`))
+			_, _ = w.Write([]byte(`{"number":9,"title":"WIP","state":"open","draft":true,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"def"}}`))
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			w.Write([]byte(`{"total_count":0}`))
+			_, _ = w.Write([]byte(`{"total_count":0}`))
 		case strings.HasSuffix(r.URL.Path, "/merge"):
 			t.Error("merged a draft pull request")
 		default:
@@ -278,9 +278,9 @@ func TestMergePullRequestRejectsOneThatIsNotOpen(t *testing.T) {
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9" && r.Method == http.MethodGet:
-			w.Write([]byte(`{"number":9,"title":"Done","state":"closed","merged_at":"2026-09-01T10:00:00Z","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"def"}}`))
+			_, _ = w.Write([]byte(`{"number":9,"title":"Done","state":"closed","merged_at":"2026-09-01T10:00:00Z","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"def"}}`))
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			w.Write([]byte(`{"total_count":0}`))
+			_, _ = w.Write([]byte(`{"total_count":0}`))
 		case strings.HasSuffix(r.URL.Path, "/merge"):
 			t.Error("merged a pull request that was already merged")
 		default:
@@ -311,12 +311,12 @@ func TestMergePullRequestSurfacesGitHubsRefusal(t *testing.T) {
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9" && r.Method == http.MethodGet:
-			w.Write([]byte(`{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"def"}}`))
+			_, _ = w.Write([]byte(`{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"def"}}`))
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			w.Write([]byte(`{"total_count":0}`))
+			_, _ = w.Write([]byte(`{"total_count":0}`))
 		case strings.HasSuffix(r.URL.Path, "/merge"):
 			w.WriteHeader(http.StatusMethodNotAllowed)
-			json.NewEncoder(w).Encode(map[string]string{"message": "At least 1 approving review is required by reviewers with write access."})
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": "At least 1 approving review is required by reviewers with write access."})
 		default:
 			t.Errorf("unexpected GitHub call: %s %s", r.Method, r.URL.Path)
 		}
@@ -411,7 +411,7 @@ func TestPullRequestsNameTheirAccountAndFailure(t *testing.T) {
 		t.Helper()
 		stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(status)
-			fmt.Fprintf(w, `{"message":%q}`, message)
+			_, _ = fmt.Fprintf(w, `{"message":%q}`, message)
 		}))
 		t.Cleanup(stub.Close)
 		d.setGitHub(t, stub.URL)
@@ -551,10 +551,10 @@ func TestPullRequestsThroughAnSSHHostAlias(t *testing.T) {
 
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/repos/acme/hello-stack/pulls" {
-			w.Write([]byte(`[]`))
+			_, _ = w.Write([]byte(`[]`))
 			return
 		}
-		w.Write([]byte(`{"default_branch":"main","permissions":{"push":true}}`))
+		_, _ = w.Write([]byte(`{"default_branch":"main","permissions":{"push":true}}`))
 	}))
 	defer stub.Close()
 	d.setGitHub(t, stub.URL)

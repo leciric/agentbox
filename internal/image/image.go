@@ -290,7 +290,7 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 		return err
 	}
 	fail := func(err error) error {
-		inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+		_, _ = inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
 		return err
 	}
 
@@ -338,12 +338,12 @@ func swapIn(ctx context.Context, inc incus.Client, next string, log io.Writer) e
 	baseLock.Lock()
 	defer baseLock.Unlock()
 	old := Base + "-old"
-	inc.Run(ctx, "delete", "--force", old)
+	_, _ = inc.Run(ctx, "delete", "--force", old)
 	// A new machine has no previous image, so there's nothing to delete after the swap.
 	replaced := false
 	if _, err := inc.Instance(ctx, Base); err == nil {
 		if err := run(ctx, inc, []string{"rename", Base, old}); err != nil {
-			inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+			_, _ = inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
 			return err
 		}
 		replaced = true
@@ -351,7 +351,7 @@ func swapIn(ctx context.Context, inc incus.Client, next string, log io.Writer) e
 	if err := run(ctx, inc, []string{"rename", next, Base}); err != nil {
 		if replaced {
 			// Put the previous one back rather than leave the machine without a base.
-			inc.Run(context.WithoutCancel(ctx), "rename", old, Base)
+			_, _ = inc.Run(context.WithoutCancel(ctx), "rename", old, Base)
 		}
 		return err
 	}
@@ -475,5 +475,5 @@ func run(ctx context.Context, inc incus.Client, commands ...[]string) error {
 
 // stepper writes the headings of a job log.
 func stepper(log io.Writer) func(string, ...any) {
-	return func(format string, args ...any) { fmt.Fprintf(log, "==> "+format+"\n", args...) }
+	return func(format string, args ...any) { _, _ = fmt.Fprintf(log, "==> "+format+"\n", args...) }
 }

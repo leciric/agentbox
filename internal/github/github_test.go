@@ -187,14 +187,14 @@ func stub(t *testing.T, pulls string, checks string) github.Client {
 			if pulls == "" {
 				// What GitHub says about a commit that was never pushed.
 				w.WriteHeader(http.StatusUnprocessableEntity)
-				w.Write([]byte(`{"message":"No commit found for SHA: abc"}`))
+				_, _ = w.Write([]byte(`{"message":"No commit found for SHA: abc"}`))
 				return
 			}
-			w.Write([]byte(pulls))
+			_, _ = w.Write([]byte(pulls))
 		case strings.Contains(r.URL.Path, "/check-runs"):
-			w.Write([]byte(checks))
+			_, _ = w.Write([]byte(checks))
 		case r.URL.Path == "/user":
-			w.Write([]byte(`{"login":"someone"}`))
+			_, _ = w.Write([]byte(`{"login":"someone"}`))
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -277,7 +277,7 @@ func TestPullRequestsWithCommit(t *testing.T) {
 func TestRefusedTokenSaysWhatToDo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"message": "Bad credentials"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Bad credentials"})
 	}))
 	defer srv.Close()
 	_, err := github.Client{Token: "stale", BaseURL: srv.URL}.Login(context.Background())
@@ -299,22 +299,22 @@ func TestPullRequestsListsAndEnrichesOnlyOpenOnes(t *testing.T) {
 	]`
 	var sawDetail, sawChecksForClosed bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/repos/acme/pawly/pulls":
+		switch r.URL.Path {
+		case "/repos/acme/pawly/pulls":
 			if got := r.URL.Query().Get("state"); got != "all" {
 				t.Errorf("state = %q, want all", got)
 			}
-			w.Write([]byte(list))
-		case r.URL.Path == "/repos/acme/pawly/pulls/9":
+			_, _ = w.Write([]byte(list))
+		case "/repos/acme/pawly/pulls/9":
 			sawDetail = true
-			w.Write([]byte(`{"additions":12,"deletions":3,"comments":4}`))
-		case r.URL.Path == "/repos/acme/pawly/pulls/7":
+			_, _ = w.Write([]byte(`{"additions":12,"deletions":3,"comments":4}`))
+		case "/repos/acme/pawly/pulls/7":
 			t.Errorf("fetched detail for a closed pull request")
-		case r.URL.Path == "/repos/acme/pawly/commits/def/check-runs":
-			w.Write([]byte(`{"total_count":1,"check_runs":[{"status":"completed","conclusion":"success"}]}`))
-		case r.URL.Path == "/repos/acme/pawly/commits/abc/check-runs":
+		case "/repos/acme/pawly/commits/def/check-runs":
+			_, _ = w.Write([]byte(`{"total_count":1,"check_runs":[{"status":"completed","conclusion":"success"}]}`))
+		case "/repos/acme/pawly/commits/abc/check-runs":
 			sawChecksForClosed = true
-			w.Write([]byte(`{"total_count":0}`))
+			_, _ = w.Write([]byte(`{"total_count":0}`))
 		default:
 			t.Errorf("unexpected path %s", r.URL.Path)
 		}
@@ -355,7 +355,7 @@ func TestInfoReportsPushAccessAndMergeMethods(t *testing.T) {
 
 	t.Run("known", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":false,"permissions":{"push":true}}`))
+			_, _ = w.Write([]byte(`{"default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":false,"permissions":{"push":true}}`))
 		}))
 		defer srv.Close()
 		info, err := github.Client{Token: "test-token", BaseURL: srv.URL}.Info(ctx, repo)
@@ -372,7 +372,7 @@ func TestInfoReportsPushAccessAndMergeMethods(t *testing.T) {
 
 	t.Run("unknown when GitHub omits permissions", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"default_branch":"main"}`))
+			_, _ = w.Write([]byte(`{"default_branch":"main"}`))
 		}))
 		defer srv.Close()
 		info, err := github.Client{Token: "test-token", BaseURL: srv.URL}.Info(ctx, repo)
@@ -400,9 +400,9 @@ func TestMerge(t *testing.T) {
 			var body struct {
 				MergeMethod string `json:"merge_method"`
 			}
-			json.NewDecoder(r.Body).Decode(&body)
+			_ = json.NewDecoder(r.Body).Decode(&body)
 			gotMethod = body.MergeMethod
-			w.Write([]byte(`{"sha":"abc","merged":true,"message":"Pull Request successfully merged"}`))
+			_, _ = w.Write([]byte(`{"sha":"abc","merged":true,"message":"Pull Request successfully merged"}`))
 		}))
 		defer srv.Close()
 		err := github.Client{Token: "test-token", BaseURL: srv.URL}.Merge(ctx, repo, 9, github.MergeSquash)
@@ -417,7 +417,7 @@ func TestMerge(t *testing.T) {
 	t.Run("refusal explains why", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusMethodNotAllowed)
-			json.NewEncoder(w).Encode(map[string]string{"message": "At least 1 approving review is required by reviewers with write access."})
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": "At least 1 approving review is required by reviewers with write access."})
 		}))
 		defer srv.Close()
 		err := github.Client{Token: "test-token", BaseURL: srv.URL}.Merge(ctx, repo, 9, github.MergeCommit)
@@ -429,7 +429,7 @@ func TestMerge(t *testing.T) {
 	t.Run("a token without write access says so", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]string{"message": "Resource not accessible by personal access token"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": "Resource not accessible by personal access token"})
 		}))
 		defer srv.Close()
 		err := github.Client{Token: "read-only", BaseURL: srv.URL}.Merge(ctx, repo, 9, github.MergeCommit)
@@ -475,7 +475,7 @@ func TestRefusalsAreToldApartByStatus(t *testing.T) {
 					w.Header().Set("X-RateLimit-Remaining", "0")
 				}
 				w.WriteHeader(tc.status)
-				json.NewEncoder(w).Encode(map[string]string{"message": tc.message})
+				_ = json.NewEncoder(w).Encode(map[string]string{"message": tc.message})
 			}))
 			defer srv.Close()
 			_, err := github.Client{Token: "test-token", BaseURL: srv.URL}.PullRequests(ctx, repo)

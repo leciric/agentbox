@@ -12,7 +12,8 @@
     "build": "node scripts/build.mjs",
     "start": "npm run build && electron .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test \"src/**/*.test.ts\"",
+    "lint": "oxlint",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-coverage --test \"src/**/*.test.ts\"",
     "dist": "node scripts/dist.mjs",
     "preview": "node scripts/preview.mjs"
   },
@@ -44,6 +45,7 @@
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "lucide-react": "^1.47.0",
+    "oxlint": "^1.85.0",
     "playwright": "^1.63.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

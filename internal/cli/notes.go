@@ -48,10 +48,10 @@ func newNotesShowCmd(a *app) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if n.Text == "" {
-				fmt.Fprintf(out, "%s has no notes yet. Write some with: agentbox notes edit %s\n", args[0], args[0])
+				_, _ = fmt.Fprintf(out, "%s has no notes yet. Write some with: agentbox notes edit %s\n", args[0], args[0])
 				return nil
 			}
-			fmt.Fprint(out, n.Text)
+			_, _ = fmt.Fprint(out, n.Text)
 			return nil
 		},
 	}
@@ -93,7 +93,7 @@ With the notes piped in, it replaces them with what it reads:
 				text = string(piped)
 			}
 			if strings.TrimSpace(text) == strings.TrimSpace(n.Text) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "%s's notes are unchanged.\n", args[0])
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s's notes are unchanged.\n", args[0])
 				return nil
 			}
 			return saveNotes(cmd, c, args[0], text)
@@ -133,7 +133,7 @@ func saveNotes(cmd *cobra.Command, c *api.Client, project, text string) error {
 		return err
 	}
 	if n.Text == "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "Cleared %s's notes. New agents are told nothing beyond the brief.\n", project)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Cleared %s's notes. New agents are told nothing beyond the brief.\n", project)
 		return nil
 	}
 	lines := strings.Count(strings.TrimRight(n.Text, "\n"), "\n") + 1
@@ -141,7 +141,7 @@ func saveNotes(cmd *cobra.Command, c *api.Client, project, text string) error {
 	if lines == 1 {
 		unit = "line"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Saved %s's notes (%d %s). Every agent of %s has them, and new ones start with them.\n",
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Saved %s's notes (%d %s). Every agent of %s has them, and new ones start with them.\n",
 		project, lines, unit, project)
 	return nil
 }
@@ -158,7 +158,7 @@ func editInEditor(project, text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	path := filepath.Join(dir, project+"-notes.md")
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		return "", err

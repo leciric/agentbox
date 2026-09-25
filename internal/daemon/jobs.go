@@ -83,7 +83,7 @@ func (js *jobs) start(kind, target string, fn func(ctx context.Context, log io.W
 		// Persist before this job's terminal status becomes visible to
 		// anyone (a follower, a lookup, an event), so a client can never see
 		// "failed" or "succeeded" for a job the store still has as running.
-		js.store.FinishJob(context.WithoutCancel(ctx), record)
+		_ = js.store.FinishJob(context.WithoutCancel(ctx), record)
 		j.commitFinish(info)
 		js.events.publish(api.EventJob, info)
 	}()

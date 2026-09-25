@@ -325,11 +325,11 @@ func TestMemoryCapturesPRMerged(t *testing.T) {
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9" && r.Method == http.MethodGet:
-			fmt.Fprintf(w, `{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"feat/reminders","sha":%q}}`, head)
+			_, _ = fmt.Fprintf(w, `{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"feat/reminders","sha":%q}}`, head)
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
-			w.Write([]byte(`{"total_count":0}`))
+			_, _ = w.Write([]byte(`{"total_count":0}`))
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9/merge" && r.Method == http.MethodPut:
-			w.Write([]byte(`{"sha":"def","merged":true,"message":"Pull Request successfully merged"}`))
+			_, _ = w.Write([]byte(`{"sha":"def","merged":true,"message":"Pull Request successfully merged"}`))
 		default:
 			t.Errorf("unexpected GitHub call: %s %s", r.Method, r.URL.Path)
 		}
@@ -369,7 +369,7 @@ func TestMemoryCapturesLeadTurn(t *testing.T) {
 	leadReadyToChat(t, d, "hello-stack")
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
 
-	go d.srv.askForTest(ctx, a, "Should the page paginate?", "building it")
+	go func() { _, _ = d.srv.askForTest(ctx, a, "Should the page paginate?", "building it") }()
 	waitForQuestion(t, d, "hello-stack")
 
 	events := eventsOfType(t, d, "hello-stack", "lead_turn")

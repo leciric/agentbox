@@ -18,7 +18,7 @@ func TestFailedUpgradeRollsBackWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	start := len(migrations) - 1
 	for i, m := range migrations[:start] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
@@ -36,7 +36,7 @@ func TestFailedUpgradeRollsBackWhole(t *testing.T) {
 		`THIS IS NOT SQL`)
 
 	if st, err := Open(path); err == nil {
-		st.Close()
+		_ = st.Close()
 		t.Fatal("Open succeeded with a broken migration")
 	}
 

@@ -43,17 +43,17 @@ func TestLogInputWritesShiftedKeysAndClicksNotScrolls(t *testing.T) {
 	srv.readRequest(20 + 4 + 24) // CreateContext
 	srv.readRequest(8)           // EnableContext
 
-	srv.conn.Write(serverEvent(xKeyPress, 50, 0, 0))   // shift down
-	srv.conn.Write(serverEvent(xKeyPress, 38, 0, 0))   // 'A', shift held
-	srv.conn.Write(serverEvent(xKeyRelease, 50, 0, 0)) // shift up
-	srv.conn.Write(serverEvent(xButtonPress, 1, 10, 20))
-	srv.conn.Write(serverEvent(xButtonPress, 4, 0, 0)) // scroll notch: not a click
+	_, _ = srv.conn.Write(serverEvent(xKeyPress, 50, 0, 0))   // shift down
+	_, _ = srv.conn.Write(serverEvent(xKeyPress, 38, 0, 0))   // 'A', shift held
+	_, _ = srv.conn.Write(serverEvent(xKeyRelease, 50, 0, 0)) // shift up
+	_, _ = srv.conn.Write(serverEvent(xButtonPress, 1, 10, 20))
+	_, _ = srv.conn.Write(serverEvent(xButtonPress, 4, 0, 0)) // scroll notch: not a click
 
 	// Give the reader a moment to consume the events before tearing down;
 	// logInput has no other way to observe "caught up" than reading more.
 	time.Sleep(50 * time.Millisecond)
 	cancel()
-	srv.conn.Close()
+	_ = srv.conn.Close()
 
 	select {
 	case err := <-done:

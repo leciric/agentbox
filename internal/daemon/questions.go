@@ -103,7 +103,7 @@ func (s *Server) ask(instance string) func(http.ResponseWriter, *http.Request) e
 			return r.Context().Err()
 		case <-time.After(askTimeout):
 			q.Status = state.QuestionCancelled
-			s.store.CancelQuestions(context.WithoutCancel(r.Context()), a.Project, a.Name)
+			_ = s.store.CancelQuestions(context.WithoutCancel(r.Context()), a.Project, a.Name)
 			return fmt.Errorf("nobody answered within %s: decide it yourself, and say what you chose", askTimeout)
 		}
 	}

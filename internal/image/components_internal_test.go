@@ -47,9 +47,9 @@ func TestProvisionReadsTheOptions(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		`if [[ $WITH_ANDROID == 1 ]]; then`,  // scrcpy
-		`if [[ $WITH_CODEX == 1 ]]; then`,    // the Codex CLI and its adapter
-		`if [[ $WITH_OPENCODE == 1 ]]; then`, // the OpenCode CLI, its own adapter
+		`if [[ $WITH_ANDROID == 1 ]]; then`,    // scrcpy
+		`if [[ $WITH_CODEX == 1 ]]; then`,      // the Codex CLI and its adapter
+		`if [[ $WITH_OPENCODE == 1 ]]; then`,   // the OpenCode CLI, its own adapter
 		`if [[ $WITH_DEV_CACHES == 1 ]]; then`, // AgentBox's own Go, npm and Electron caches
 	} {
 		if !strings.Contains(script, want) {

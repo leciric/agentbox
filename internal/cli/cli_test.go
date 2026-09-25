@@ -626,12 +626,12 @@ func fakeAnthropic(t *testing.T, accepts ...string) {
 		w.Header().Set("Content-Type", "application/json")
 		for _, good := range accepts {
 			if r.Header.Get("Authorization") == "Bearer "+good {
-				w.Write([]byte(`{"account":{"email_address":"someone@example.com"}}`))
+				_, _ = w.Write([]byte(`{"account":{"email_address":"someone@example.com"}}`))
 				return
 			}
 		}
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."}}`))
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."}}`))
 	}))
 	t.Cleanup(srv.Close)
 	t.Setenv("ANTHROPIC_BASE_URL", srv.URL)

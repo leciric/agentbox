@@ -50,7 +50,7 @@ type xServer struct {
 func newXServer(t *testing.T) (*xRecorder, *xServer) {
 	t.Helper()
 	client, server := net.Pipe()
-	t.Cleanup(func() { client.Close(); server.Close() })
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
 	x := &xRecorder{conn: client, r: bufio.NewReader(client), keysyms: map[byte][]uint32{}}
 	return x, &xServer{t: t, conn: server, r: bufio.NewReader(server)}
 }
@@ -86,8 +86,8 @@ func (s *xServer) serveSetup(recordOpcode byte) {
 	le.PutUint32(body[4:], 0x400) // idBase
 	body[26], body[27] = 8, 10    // minKey, maxKey: two keycodes, 8 and 9… up to 10.
 	head := []byte{1, 0, 0, 0, 0, 0, byte(len(body) / 4), 0}
-	s.conn.Write(head)
-	s.conn.Write(body)
+	_, _ = s.conn.Write(head)
+	_, _ = s.conn.Write(body)
 
 	qe := s.readRequest(8 + pad4(len("RECORD")))
 	_ = qe
@@ -95,7 +95,7 @@ func (s *xServer) serveSetup(recordOpcode byte) {
 	reply[0] = 1
 	reply[8] = 1 // present
 	reply[9] = recordOpcode
-	s.conn.Write(reply)
+	_, _ = s.conn.Write(reply)
 
 	s.readRequest(8) // GetKeyboardMapping
 	count := int(body[27]) - int(body[26]) + 1
@@ -106,7 +106,7 @@ func (s *xServer) serveSetup(recordOpcode byte) {
 	for i := range count {
 		le.PutUint32(gkm[32+i*4:], uint32('a'+i))
 	}
-	s.conn.Write(gkm)
+	_, _ = s.conn.Write(gkm)
 }
 
 func TestXRecorderSetup(t *testing.T) {
@@ -138,19 +138,19 @@ func TestXRecorderSetup(t *testing.T) {
 
 func TestXRecorderSetupRefused(t *testing.T) {
 	client, server := net.Pipe()
-	t.Cleanup(func() { client.Close(); server.Close() })
+	t.Cleanup(func() { _ = client.Close(); _ = server.Close() })
 	x := &xRecorder{conn: client, r: bufio.NewReader(client), keysyms: map[byte][]uint32{}}
 	done := make(chan error, 1)
 	go func() { done <- x.setup() }()
 
 	buf := make([]byte, 12)
-	readFull(bufio.NewReader(server), buf)
+	_, _ = readFull(bufio.NewReader(server), buf)
 	reason := "go away"
 	body := make([]byte, pad4(len(reason)))
 	copy(body, reason)
 	head := []byte{0, byte(len(reason)), 0, 0, 0, 0, byte(len(body) / 4), 0}
-	server.Write(head)
-	server.Write(body)
+	_, _ = server.Write(head)
+	_, _ = server.Write(body)
 
 	select {
 	case err := <-done:
@@ -182,12 +182,12 @@ func TestXRecorderRoundTripSkipsEvents(t *testing.T) {
 	// An unrelated event arrives first (kind 2, KeyPress): neither error (0) nor reply (1).
 	event := make([]byte, 32)
 	event[0] = xKeyPress
-	srv.conn.Write(event)
+	_, _ = srv.conn.Write(event)
 	// Then the real reply.
 	reply := make([]byte, 32)
 	reply[0] = 1
 	reply[9] = 7
-	srv.conn.Write(reply)
+	_, _ = srv.conn.Write(reply)
 
 	select {
 	case r := <-done:
@@ -249,7 +249,7 @@ func TestXRecorderStartDecodesEvents(t *testing.T) {
 	le.PutUint16(ev[22:], 20)
 	junk := reply[64:96]
 	junk[0] = 0xff // outside xKeyPress…xButtonRelease: dropped, not passed to fn
-	srv.conn.Write(reply)
+	_, _ = srv.conn.Write(reply)
 
 	// A RECORD data reply carrying a client's ChangeKeyboardMapping request,
 	// remapping keycode 38 to a new keysym.
@@ -265,7 +265,7 @@ func TestXRecorderStartDecodesEvents(t *testing.T) {
 	creply[1] = recordFromClient
 	le.PutUint32(creply[4:], uint32(len(remapData)/4))
 	copy(creply[32:], remapData)
-	srv.conn.Write(creply)
+	_, _ = srv.conn.Write(creply)
 
 	// A second server event, so fn's second call (which stops the loop) sees
 	// the remap already applied.
@@ -276,7 +276,7 @@ func TestXRecorderStartDecodesEvents(t *testing.T) {
 	ev2 := reply2[32:64]
 	ev2[0] = xButtonPress
 	ev2[1] = 38
-	srv.conn.Write(reply2)
+	_, _ = srv.conn.Write(reply2)
 
 	select {
 	case err := <-done:
@@ -310,7 +310,7 @@ func TestXRecorderStartRefused(t *testing.T) {
 	srv.readRequest(8)
 	reply := make([]byte, 32)
 	reply[0], reply[1] = 0, 3
-	srv.conn.Write(reply)
+	_, _ = srv.conn.Write(reply)
 	select {
 	case err := <-done:
 		if err == nil {
@@ -331,7 +331,7 @@ func TestXRecorderRoundTripError(t *testing.T) {
 	srv.readRequest(4)
 	reply := make([]byte, 32)
 	reply[0], reply[1] = 0, 5 // an X error, code 5
-	srv.conn.Write(reply)
+	_, _ = srv.conn.Write(reply)
 
 	select {
 	case err := <-done:

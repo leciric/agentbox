@@ -9,23 +9,23 @@ import (
 func TestTailBuffer(t *testing.T) {
 	b := &tailBuffer{max: 10}
 	for i := 0; i < 100; i++ {
-		io.WriteString(b, "line\n")
+		_, _ = io.WriteString(b, "line\n")
 	}
-	io.WriteString(b, "last ")
-	io.WriteString(b, "é")
+	_, _ = io.WriteString(b, "last ")
+	_, _ = io.WriteString(b, "é")
 	// The last 10 bytes start inside a line, so the tail starts at the next.
 	if got := b.String(); got != "last é" || b.total != 507 {
 		t.Errorf("String() = %q, total %d", got, b.total)
 	}
 	// A cut inside a character doesn't hand back half of it.
 	b = &tailBuffer{max: 3}
-	io.WriteString(b, "éé")
+	_, _ = io.WriteString(b, "éé")
 	if b.String() != "é" {
 		t.Errorf("String() = %q", b.String())
 	}
 	// Short output comes back whole.
 	b = &tailBuffer{max: 10}
-	io.WriteString(b, "a\nb")
+	_, _ = io.WriteString(b, "a\nb")
 	if b.String() != "a\nb" {
 		t.Errorf("String() = %q", b.String())
 	}

@@ -66,8 +66,8 @@ func SendUsage(ctx context.Context, base string, req Request, days []UsageDay) e
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("usage stats: %s", resp.Status)
 	}

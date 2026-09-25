@@ -247,10 +247,10 @@ func (w ClaudeWindows) DefaultContextWindow(model, value string, installation in
 		return "", err
 	}
 	windows := w.ContextWindows(model, installation)
-	switch {
-	case n == 0 || n == windows[0] || n == ClaudeShortWindow:
+	switch n {
+	case 0, windows[0], ClaudeShortWindow:
 		return "", nil
-	case n == ClaudeFullWindow:
+	case ClaudeFullWindow:
 		if windows[len(windows)-1] < ClaudeFullWindow {
 			return "", fmt.Errorf("%s has no 1M context window: it only has %s", modelName(model), FormatContextWindow(windows[len(windows)-1]))
 		}

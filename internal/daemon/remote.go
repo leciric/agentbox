@@ -62,7 +62,7 @@ func (s *Server) remoteHandler() http.Handler {
 	routes := s.routes()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/shutdown" || r.URL.Path == "/v1/remote" {
-			writeJSON(w, http.StatusForbidden, api.Error{Error: fmt.Sprintf("%s %s works only on the machine itself", r.Method, r.URL.Path)})
+			_ = writeJSON(w, http.StatusForbidden, api.Error{Error: fmt.Sprintf("%s %s works only on the machine itself", r.Method, r.URL.Path)})
 			return
 		}
 		routes.ServeHTTP(w, r)

@@ -64,7 +64,7 @@ func (s *Store) AddTokenRows(ctx context.Context, rows []TokenRow) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, r := range rows {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO token_usage
 			(project, agent, ai, session_id, turn, kind, model, at,
@@ -131,7 +131,7 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []TokenTotal
 	for rows.Next() {
 		var t TokenTotal
@@ -155,7 +155,7 @@ func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]Toke
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []TokenRow
 	for rows.Next() {
 		var r TokenRow
@@ -191,7 +191,7 @@ func (s *Store) TokenBuckets(ctx context.Context, f TokenFilter, width time.Dura
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []TokenBucket
 	for rows.Next() {
 		var b TokenBucket

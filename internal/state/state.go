@@ -541,7 +541,7 @@ func Open(path string) (*Store, error) {
 	}
 	s := &Store{db: db}
 	if err := s.migrate(context.Background()); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return s, nil
@@ -573,7 +573,7 @@ func (s *Store) migrate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	// Read it again under the write lock: another process may have migrated
 	// the database between the read above and taking the lock.
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
@@ -900,7 +900,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var projects []Project
 	for rows.Next() {
 		var p Project
@@ -1002,7 +1002,7 @@ func (s *Store) RenameClaudeAccount(ctx context.Context, old, name string, move 
 	if err != nil {
 		return done, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	rows, err := tx.QueryContext(ctx, `SELECT name, claude_account, claude_accounts FROM projects ORDER BY name`)
 	if err != nil {
@@ -1017,7 +1017,7 @@ func (s *Store) RenameClaudeAccount(ctx context.Context, old, name string, move 
 		var p project
 		var allowed string
 		if err := rows.Scan(&p.name, &p.account, &allowed); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return done, err
 		}
 		p.allowed = splitAccounts(allowed)
@@ -1041,7 +1041,7 @@ func (s *Store) RenameClaudeAccount(ctx context.Context, old, name string, move 
 		p.allowed = renamed
 		changed = append(changed, p)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return done, err
 	}
@@ -1060,12 +1060,12 @@ func (s *Store) RenameClaudeAccount(ctx context.Context, old, name string, move 
 	for rows.Next() {
 		var project, agent string
 		if err := rows.Scan(&project, &agent); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return done, err
 		}
 		done.Agents = append(done.Agents, project+"/"+agent)
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return done, err
 	}
@@ -1452,14 +1452,14 @@ func (s *Store) RenameGitHubAccount(ctx context.Context, old, name string, move 
 	if err != nil {
 		return done, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	collect := func(query string, scan func(*sql.Rows) (string, error)) ([]string, error) {
 		rows, err := tx.QueryContext(ctx, query, old)
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		var out []string
 		for rows.Next() {
 			v, err := scan(rows)
@@ -1575,7 +1575,7 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var agents []Agent
 	for rows.Next() {
 		var a Agent

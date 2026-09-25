@@ -62,7 +62,7 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		}
 		offered := state.ChoiceValues(menu)
 		if want != "" && len(offered) > 0 && !slices.Contains(offered, want) {
-			return fmt.Errorf("Claude Code doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
+			return fmt.Errorf("this agent's Claude Code doesn't offer the effort %q: it offers %s", want, strings.Join(offered, ", "))
 		}
 		if err := s.store.SetSetting(r.Context(), state.SettingDefaultClaudeEffort, want); err != nil {
 			return err

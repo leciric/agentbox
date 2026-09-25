@@ -273,8 +273,8 @@ func (s *Server) reply(id json.RawMessage, result any, rpcErr *rpcError) {
 	defer s.mu.Unlock()
 	out := message{JSONRPC: "2.0", ID: id, Result: result, Error: rpcErr}
 	if data, err := json.Marshal(out); err == nil {
-		s.out.Write(data)
-		s.out.WriteByte('\n')
-		s.out.Flush()
+		_, _ = s.out.Write(data)
+		_ = s.out.WriteByte('\n')
+		_ = s.out.Flush()
 	}
 }

@@ -41,7 +41,7 @@ func (s *Store) AgentEvents(ctx context.Context, project string) ([]AgentEvent, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var events []AgentEvent
 	for rows.Next() {
 		var ev AgentEvent

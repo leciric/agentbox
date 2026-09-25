@@ -21,7 +21,7 @@ func newVersionCmd(a *app) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "agentbox %s\n", version)
+			_, _ = fmt.Fprintf(out, "agentbox %s\n", version)
 			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Second)
 			defer cancel()
 			status, err := api.NewClient(a.paths.Socket()).Update(ctx)
@@ -36,9 +36,9 @@ func newVersionCmd(a *app) *cobra.Command {
 
 func printUpdate(out io.Writer, status api.UpdateStatus) {
 	if status.Current != version {
-		fmt.Fprintf(out, "The daemon running is %s: restart it with agentbox daemon stop\n", status.Current)
+		_, _ = fmt.Fprintf(out, "The daemon running is %s: restart it with agentbox daemon stop\n", status.Current)
 	}
 	if u := status.Available; u != nil {
-		fmt.Fprintf(out, "Update available: AgentBox %s, %s\n", u.Version, u.URL)
+		_, _ = fmt.Fprintf(out, "Update available: AgentBox %s, %s\n", u.Version, u.URL)
 	}
 }

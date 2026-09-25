@@ -92,7 +92,7 @@ func (s *Store) queryEvents(ctx context.Context, clause string, args ...any) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var events []Event
 	for rows.Next() {
 		e, err := scanEvent(rows)

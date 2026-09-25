@@ -20,7 +20,7 @@ func store(t *testing.T) (secrets.Store, *state.Store, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 	key := filepath.Join(dir, "config", "secrets.key")
 	return secrets.Store{State: st, KeyPath: key}, st, key
 }

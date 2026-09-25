@@ -51,6 +51,77 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
           GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
 
+  lint:
+    name: Go lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go
+
+      # Pinned to the version this repo's .golangci.yml was written and
+      # checked clean against.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+
+  vulncheck:
+    name: govulncheck
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go
+
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  mod-tidy:
+    name: go mod tidy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - run: go mod tidy
+
+      - name: go.mod and go.sum must already be tidy
+        run: git diff --exit-code go.mod go.sum
+
+  coverage:
+    name: Go coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - run: scripts/check-coverage.sh
+
   # The front end's own tests, on a Mac: they drive a fake limactl, so no VM
   # is made, but they run on the OS they're for. The release workflow ships
   # the Mac app whether or not Apple's signing secret exists, so this runs
@@ -98,6 +169,28 @@ jobs:
       # Packaging the AppImage takes minutes and belongs to the release.
       - run: npm --prefix desktop run build
 
+  desktop-lint:
+    name: Desktop lint
+    runs-on: ubuntu-24.04
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: node
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - run: npm --prefix desktop ci
+
+      - run: npm --prefix desktop run lint
+
   # The Windows front end (D94): agentbox.exe, which runs everything else in a
   # WSL distro, and the relay the app reaches the daemon through. Its tests
   # run the relay end to end against fakewsl, a stand-in for wsl.exe, over a
@@ -127,3 +220,20 @@ jobs:
           wsl --status
           bin/agentbox.exe wsl status
         continue-on-error: true
+
+  # Squash merges use the PR title as the commit message, so it has to be a
+  # conventional commit on its own, independent of what the branch's commits
+  # look like.
+  pr-title:
+    name: PR title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the title is a conventional commit
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ ! "$TITLE" =~ ^(feat|fix|refactor|docs|chore|test|perf|ci)(\(.+\))?!?:\ .+ ]]; then
+            echo "PR title isn't a conventional commit (feat|fix|refactor|docs|chore|test|perf|ci): $TITLE" >&2
+            exit 1
+          fi

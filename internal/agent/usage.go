@@ -195,7 +195,7 @@ func hostMemory() (total, used int64, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var available int64
 	s := bufio.NewScanner(f)
 	for s.Scan() {

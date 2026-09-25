@@ -40,7 +40,7 @@ esac`
 		t.Fatalf("installWallpaper() with no hash reported didn't write: %v, %q", err, first)
 	}
 
-	os.Remove(writes)
+	_ = os.Remove(writes)
 	t.Setenv("HASH", want)
 	m.installWallpaper(context.Background(), a)
 	if _, err := os.ReadFile(writes); !os.IsNotExist(err) {

@@ -35,7 +35,7 @@ Ask about decisions, not about facts you could look up yourself.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.ErrOrStderr(), "Asked the project's chat. Waiting for an answer…")
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Asked the project's chat. Waiting for an answer…")
 			answer, err := c.Ask(cmd.Context(), question, about)
 			if err != nil {
 				return err
@@ -44,7 +44,7 @@ Ask about decisions, not about facts you could look up yourself.`,
 			if answer.AnsweredBy == "user" {
 				who = "the user"
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s answered:\n\n%s\n", who, answer.Answer)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s answered:\n\n%s\n", who, answer.Answer)
 			return nil
 		},
 	}

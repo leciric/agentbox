@@ -74,7 +74,7 @@ func (s *Store) queryArtifacts(ctx context.Context, clause string, args ...any) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Artifact
 	for rows.Next() {
 		var a Artifact

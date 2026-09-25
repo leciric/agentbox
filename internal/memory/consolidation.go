@@ -367,7 +367,8 @@ func titleTokens(title string) map[string]bool {
 }
 
 // singular takes a trailing plural "s" off a word long enough for it to be
-// one. "ss" is left alone: "class" is not a plural of "clas".
+// one. "ss" is left alone: stripping the final "s" of "class" would leave a
+// non-word, so it isn't treated as a plural.
 func singular(word string) string {
 	if len(word) > 3 && strings.HasSuffix(word, "s") && !strings.HasSuffix(word, "ss") {
 		return string(word[:len(word)-1])
@@ -403,7 +404,7 @@ func (s *Store) recordDuplicates(ctx context.Context, project string, pairs []du
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM memory_duplicates WHERE project = ?`, project); err != nil {
 		return err
 	}
@@ -432,7 +433,7 @@ func (s *Store) Duplicates(ctx context.Context, project string) ([]Duplicate, er
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	type ref struct {
 		newer, older string
 		score        int
@@ -625,7 +626,7 @@ func (s *Store) Passes(ctx context.Context, project string, limit int) ([]Pass, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Pass
 	for rows.Next() {
 		var p Pass

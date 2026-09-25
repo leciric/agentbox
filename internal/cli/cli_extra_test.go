@@ -27,17 +27,17 @@ func fakeHub(t *testing.T) string {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/v1/auth/login":
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"token": "hub_tok_1",
 				"user":  map[string]any{"id": "u1", "email": "dev@example.com", "name": "Dev"},
 			})
 		case r.URL.Path == "/v1/environments" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(envs)
+			_ = json.NewEncoder(w).Encode(envs)
 		case r.URL.Path == "/v1/environments" && r.Method == http.MethodPost:
 			var in struct{ Name string }
-			json.NewDecoder(r.Body).Decode(&in)
+			_ = json.NewDecoder(r.Body).Decode(&in)
 			envs = append(envs, map[string]any{"id": "env_1", "name": in.Name})
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"environment": map[string]any{"id": "env_1", "name": in.Name},
 				"token":       "env_tok_1",
 			})

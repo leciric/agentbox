@@ -171,7 +171,7 @@ func keyCombo(combo string) ([]string, error) {
 				return nil, fmt.Errorf("%q isn't a key combination: write it like ctrl+l, with one key each side of the +", stroke)
 			}
 			if strings.ContainsFunc(part, func(r rune) bool {
-				return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_')
+				return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_'
 			}) {
 				return nil, fmt.Errorf("%q isn't a key name: key presses keys (Return, ctrl+l, alt+Tab); to write text, use type", part)
 			}
@@ -190,7 +190,7 @@ func easeInOutQuad(t float64) float64 {
 	if t < 0.5 {
 		return 2 * t * t
 	}
-	return 1 - math.Pow(-2*t+2, 2)/2
+	return 1 - (-2*t+2)*(-2*t+2)/2
 }
 
 // movePath is the points an animated move from (fromX, fromY) to (toX, toY)
@@ -522,8 +522,8 @@ func capture(ctx context.Context, settle bool) ([]byte, Scale, error) {
 		return nil, sc, fmt.Errorf("taking the screenshot: %w", err)
 	}
 	defer func() {
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 	}()
 
 	size := sc.Shown.Width * sc.Shown.Height * 4

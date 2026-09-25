@@ -47,9 +47,9 @@ func (s *Server) servePreview(ctx context.Context) {
 	srv := &http.Server{Handler: http.HandlerFunc(s.preview), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
-		srv.Close()
+		_ = srv.Close()
 	}()
-	go srv.Serve(ln)
+	go func() { _ = srv.Serve(ln) }()
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	s.logf("preview proxy on http://<port>.<agent>.<project>.localhost:%s", port)
 }

@@ -70,7 +70,7 @@ func (s *Store) searchBM25(ctx context.Context, project, query string, limit int
 	if err != nil {
 		return Results{}, err
 	}
-	if some != all && !(len(out.Memories) > 0 && len(out.Events) > 0 && len(out.Reports) > 0) {
+	if some != all && (len(out.Memories) == 0 || len(out.Events) == 0 || len(out.Reports) == 0) {
 		loose, err := s.search(ctx, project, some, limit)
 		if err != nil {
 			return Results{}, err

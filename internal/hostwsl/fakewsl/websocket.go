@@ -21,20 +21,20 @@ func echo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	sum := sha1.Sum([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
-	rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
+	_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
 		base64.StdEncoding.EncodeToString(sum[:]) + "\r\n\r\n")
-	rw.Flush()
+	_ = rw.Flush()
 	for {
 		op, payload, err := readFrame(rw.Reader)
 		if err != nil || op == 0x8 {
 			writeFrame(rw.Writer, 0x8, nil)
-			rw.Flush()
+			_ = rw.Flush()
 			return
 		}
 		writeFrame(rw.Writer, op, payload)
-		rw.Flush()
+		_ = rw.Flush()
 	}
 }
 
@@ -75,16 +75,16 @@ func readFrame(r *bufio.Reader) (byte, []byte, error) {
 }
 
 func writeFrame(w *bufio.Writer, op byte, payload []byte) {
-	w.WriteByte(0x80 | op)
+	_ = w.WriteByte(0x80 | op)
 	switch n := len(payload); {
 	case n < 126:
-		w.WriteByte(byte(n))
+		_ = w.WriteByte(byte(n))
 	case n < 1<<16:
-		w.WriteByte(126)
-		binary.Write(w, binary.BigEndian, uint16(n))
+		_ = w.WriteByte(126)
+		_ = binary.Write(w, binary.BigEndian, uint16(n))
 	default:
-		w.WriteByte(127)
-		binary.Write(w, binary.BigEndian, uint64(n))
+		_ = w.WriteByte(127)
+		_ = binary.Write(w, binary.BigEndian, uint64(n))
 	}
-	w.Write(payload)
+	_, _ = w.Write(payload)
 }

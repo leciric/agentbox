@@ -1319,7 +1319,7 @@ func (c *conversation) run(ad *adapter) {
 		c.mu.Unlock()
 		if ad.proc != nil {
 			ad.proc.Stop()
-			ad.proc.Stdout.Close()
+			_ = ad.proc.Stdout.Close()
 		}
 		return
 	}
@@ -1335,7 +1335,7 @@ func (c *conversation) run(ad *adapter) {
 	// Its output has ended; make sure the process has too.
 	ad.proc.Stop()
 	waitErr := ad.proc.Wait()
-	ad.proc.Stdout.Close()
+	_ = ad.proc.Stdout.Close()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.adapter != ad {
@@ -1544,7 +1544,7 @@ func (c *conversation) nextChoice(ad *adapter) (api.ChatOption, string, bool) {
 	}
 	for _, o := range c.session.Options {
 		option, value, ok := c.wanted(o.ID)
-		if sent, done := ad.tried[o.ID]; ok && !(done && sent == value) {
+		if sent, done := ad.tried[o.ID]; ok && (!done || sent != value) {
 			return option, value, true
 		}
 	}

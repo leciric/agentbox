@@ -18,7 +18,7 @@ func TestRenameGitHubAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	for _, p := range []Project{
 		{Name: "own", Root: "/src/own", ClaudeAccount: "work", GitHubAccount: "work"},
 		{Name: "also", Root: "/src/also", GitHubAccount: "work"},

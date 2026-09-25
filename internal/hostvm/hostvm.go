@@ -232,7 +232,7 @@ func (v *VM) Create(ctx context.Context, size Size) error {
 	if err := os.MkdirAll(filepath.Dir(v.Paths.Socket()), 0o700); err != nil {
 		return err
 	}
-	fmt.Fprintf(v.Log, "==> Making the VM %s (%d CPUs, %s, %s disk) from %s\n", v.Name, size.CPUs, size.Memory, size.Disk, file)
+	_, _ = fmt.Fprintf(v.Log, "==> Making the VM %s (%d CPUs, %s, %s disk) from %s\n", v.Name, size.CPUs, size.Memory, size.Disk, file)
 	return v.limaLog(ctx, "create", "--tty=false", "--name", v.Name, file)
 }
 
@@ -240,7 +240,7 @@ func (v *VM) Start(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Dir(v.Paths.Socket()), 0o700); err != nil {
 		return err
 	}
-	fmt.Fprintf(v.Log, "==> Starting AgentBox's VM (%s)\n", v.Name)
+	_, _ = fmt.Fprintf(v.Log, "==> Starting AgentBox's VM (%s)\n", v.Name)
 	return v.limaLog(ctx, "start", "--tty=false", v.Name)
 }
 
@@ -273,7 +273,7 @@ func (v *VM) up(ctx context.Context) error {
 	case st.Status == "Running":
 		return nil
 	case st.Status == "Broken":
-		return fmt.Errorf("Lima says AgentBox's VM is broken: see limactl list, and %s", filepath.Join(st.Dir, "ha.stderr.log"))
+		return fmt.Errorf("AgentBox's VM is broken, Lima says: see limactl list, and %s", filepath.Join(st.Dir, "ha.stderr.log"))
 	}
 	return v.Start(ctx)
 }
@@ -299,22 +299,22 @@ func (v *VM) lock(ctx context.Context, exclusive bool) (unlock func(), err error
 	for waited := false; ; waited = true {
 		err := syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB)
 		if err == nil {
-			return func() { f.Close() }, nil
+			return func() { _ = f.Close() }, nil
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) {
-			f.Close()
+			_ = f.Close()
 			return nil, fmt.Errorf("locking AgentBox's VM: %w", err)
 		}
 		if !waited {
 			if exclusive {
-				fmt.Fprintln(v.Log, "==> Waiting for the agentbox commands using the VM to finish with it")
+				_, _ = fmt.Fprintln(v.Log, "==> Waiting for the agentbox commands using the VM to finish with it")
 			} else {
-				fmt.Fprintln(v.Log, "==> Waiting for AgentBox's VM: it's being resized")
+				_, _ = fmt.Fprintln(v.Log, "==> Waiting for AgentBox's VM: it's being resized")
 			}
 		}
 		select {
 		case <-ctx.Done():
-			f.Close()
+			_ = f.Close()
 			return nil, ctx.Err()
 		case <-time.After(250 * time.Millisecond):
 		}
@@ -327,7 +327,7 @@ func (v *VM) Digest() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
@@ -353,8 +353,8 @@ func (v *VM) Install(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	fmt.Fprintf(v.Log, "==> Installing %s in the VM as %s\n", v.Binary, vmBinary)
+	defer func() { _ = f.Close() }()
+	_, _ = fmt.Fprintf(v.Log, "==> Installing %s in the VM as %s\n", v.Binary, vmBinary)
 	script := fmt.Sprintf(`set -e; t=%[1]s.new.$$; cat >"$t"; chmod 0755 "$t"; mv -f "$t" %[1]s`, vmBinary)
 	_, err = v.lima(ctx, f, "shell", v.Name, "--", "sudo", "sh", "-c", script)
 	return err
@@ -402,7 +402,7 @@ func (v *VM) Setup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(v.Log, "==> Host setup in the VM: Incus, its storage and network, and the user mapping")
+	_, _ = fmt.Fprintln(v.Log, "==> Host setup in the VM: Incus, its storage and network, and the user mapping")
 	// Incus can't pick the bridge's subnet here: it rules out any subnet where
 	// an address answers a ping, and Lima's user-mode network answers them all.
 	// The VM's only network is Lima's 192.168.5.0/24, so a fixed one is safe.
@@ -423,7 +423,7 @@ func (v *VM) Setup(ctx context.Context) error {
 	if _, err := v.lima(ctx, strings.NewReader(v.profile()), "shell", v.Name, "--", "sudo", "sh", "-c", script); err != nil {
 		return fmt.Errorf("writing the host's settings into the VM: %w", err)
 	}
-	fmt.Fprintln(v.Log, "==> Starting the daemon")
+	_, _ = fmt.Fprintln(v.Log, "==> Starting the daemon")
 	return v.shellLog(ctx, append([]string{"env"}, append(v.forwardEnv(), vmBinary, "daemon", "start")...)...)
 }
 
@@ -484,7 +484,7 @@ func (v *VM) workdir() string {
 	if rel, err := filepath.Rel(v.Home, wd); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
 		return wd
 	}
-	fmt.Fprintf(v.Log, "note: the VM only has your home directory, so this runs in %s instead of %s\n", v.Home, wd)
+	_, _ = fmt.Fprintf(v.Log, "note: the VM only has your home directory, so this runs in %s instead of %s\n", v.Home, wd)
 	return v.Home
 }
 

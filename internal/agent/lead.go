@@ -96,14 +96,14 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		// Left by an interrupted create, or by a lead destroyed without git.
-		repo.RemoveWorktree(a.Worktree)
+		_ = repo.RemoveWorktree(a.Worktree)
 	}
 	if err := m.Store.AddAgent(ctx, a); err != nil {
 		return state.Agent{}, err
 	}
 	undo := func() {
-		repo.RemoveWorktree(a.Worktree)
-		m.Store.RemoveAgent(context.WithoutCancel(ctx), a.Project, a.Name)
+		_ = repo.RemoveWorktree(a.Worktree)
+		_ = m.Store.RemoveAgent(context.WithoutCancel(ctx), a.Project, a.Name)
 	}
 	m.logf("Creating the %s chat: a worktree on %s, detached", p.Name, baseRef)
 	if err := repo.AddWorktreeDetached(a.Worktree, commit); err != nil {
@@ -138,7 +138,7 @@ func (m *Manager) repairLead(ctx context.Context, a state.Agent) (state.Agent, e
 	}
 	if !repo.HasWorktree(a.Worktree) {
 		m.logf("Recreating the %s chat's worktree", a.Project)
-		repo.RemoveWorktree(a.Worktree)
+		_ = repo.RemoveWorktree(a.Worktree)
 		if err := repo.AddWorktreeDetached(a.Worktree, a.BaseCommit); err != nil {
 			return a, fmt.Errorf("recreating the %s chat's worktree: %w", a.Project, err)
 		}
@@ -239,12 +239,12 @@ func (m *Manager) DestroyLead(ctx context.Context, project string) error {
 		return err
 	}
 	if _, repo, err := m.project(ctx, project); err == nil {
-		repo.RemoveWorktree(a.Worktree)
+		_ = repo.RemoveWorktree(a.Worktree)
 	} else {
-		os.RemoveAll(a.Worktree)
+		_ = os.RemoveAll(a.Worktree)
 	}
-	os.RemoveAll(m.Paths.LeadHome(project))
-	os.RemoveAll(m.Paths.ChatImages(project, a.Name))
+	_ = os.RemoveAll(m.Paths.LeadHome(project))
+	_ = os.RemoveAll(m.Paths.ChatImages(project, a.Name))
 	return m.Store.RemoveAgent(ctx, a.Project, a.Name)
 }
 
