@@ -64,8 +64,8 @@ const (
 	// count like "4". Unlike the settings above, "" is not "AgentBox's own
 	// default" but a real choice — every core, no limit — so this key is read
 	// with SettingValue, which says whether it was ever set at all. An
-	// installation that has never chosen is seeded from the host's core count
-	// when the daemon starts (see agent.DefaultLimits).
+	// installation that has never chosen is seeded with 2 cores, or fewer on a
+	// one-core host, when the daemon starts (see agent.DefaultLimits).
 	SettingDefaultCPU = "default_cpu"
 	// SettingDefaultCPUAllowance is the share of the CPUs a new agent gets
 	// (Incus limits.cpu.allowance): "50%", or "25ms/100ms". "" is all of it.

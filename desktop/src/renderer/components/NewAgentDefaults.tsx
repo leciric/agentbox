@@ -332,8 +332,8 @@ export function NewAgentResources() {
         <ResourceField
           id="default-cpu"
           label="CPU cores"
-          placeholder="every core"
-          hint={`How many cores the agent sees and can use, even when the host is idle.${cores ? ` This host has ${cores}.` : ''}`}
+          placeholder="2"
+          hint={`How many cores the agent sees and can use, even when the host is idle. 2 by default.${cores ? ` This host has ${cores}.` : ''}`}
           value={settings.data?.defaultCPU ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultCPU) => save.mutate({ defaultCPU })}
