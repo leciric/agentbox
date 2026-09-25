@@ -9,6 +9,7 @@ import (
 )
 
 func TestJUnitCountsCountsTestCases(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		xml  string
 		want *TestCounts
@@ -49,11 +50,11 @@ func TestJUnitCountsCountsTestCases(t *testing.T) {
 	}
 }
 
-// TestDockSizeMatchesBrowserScript keeps dockHeight and dockMargin in step
-// with browser.sh: a desktop recording's key captions are centred on the dock,
-// so a dock of another size with stale constants would put them off it, over
-// the windows above.
-func TestDockSizeMatchesBrowserScript(t *testing.T) {
+// TestPanelHeightMatchesTheDock keeps panelHeight in step with browser.sh: the
+// recording's key overlay is placed just above the dock, so a taller dock with
+// a stale constant would draw the overlay underneath it.
+func TestPanelHeightMatchesTheDock(t *testing.T) {
+	t.Parallel()
 	script := string(browserScript)
 	size := regexp.MustCompile(`(?m)^panel_size = \S+ (\d+)$`).FindStringSubmatch(script)
 	margin := regexp.MustCompile(`(?m)^panel_margin = \S+ (\d+)$`).FindStringSubmatch(script)

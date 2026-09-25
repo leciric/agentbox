@@ -6,6 +6,7 @@ import (
 )
 
 func TestSlugForBranch(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"Fix: login redirect!":             "fix-login-redirect",
 		"  feat/CSV export  ":              "feat-csv-export",
@@ -26,6 +27,7 @@ func TestSlugForBranch(t *testing.T) {
 }
 
 func TestUniqueBranch(t *testing.T) {
+	t.Parallel()
 	taken := map[string]bool{"agentbox/fix": true, "agentbox/fix-2": true, "agentbox/fix-4": true}
 	if got := uniqueBranch("agentbox/", "fix", func(b string) bool { return taken[b] }); got != "agentbox/fix-3" {
 		t.Errorf("uniqueBranch = %q, want agentbox/fix-3", got)
