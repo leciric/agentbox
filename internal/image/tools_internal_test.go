@@ -177,9 +177,9 @@ func TestToolsScript(t *testing.T) {
 		}
 	}
 	list := filepath.Join(dir, "list")
-	os.WriteFile(list, toolsList([]Tool{{Spec: "claude@2.1.0", Check: "echo claude works"}, {Spec: "npm:@x/y@1.0", Check: "true"}}), 0o644)
+	_ = os.WriteFile(list, toolsList([]Tool{{Spec: "claude@2.1.0", Check: "echo claude works"}, {Spec: "npm:@x/y@1.0", Check: "true"}}), 0o644)
 	run := func(mode string) (string, error) {
-		os.Remove(log)
+		_ = os.Remove(log)
 		cmd := exec.Command(bash, script, mode, "dev", list)
 		cmd.Env = append(os.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
 		out, err := cmd.CombinedOutput()
@@ -199,7 +199,7 @@ func TestToolsScript(t *testing.T) {
 	if err != nil || !strings.Contains(out, "claude works") {
 		t.Errorf("verify: %v\n%s", err, out)
 	}
-	os.WriteFile(list, toolsList([]Tool{{Spec: "claude@2.1.0", Check: "false"}}), 0o644)
+	_ = os.WriteFile(list, toolsList([]Tool{{Spec: "claude@2.1.0", Check: "false"}}), 0o644)
 	if out, err := run("verify"); err == nil || !strings.Contains(out, "claude@2.1.0 doesn't work") {
 		t.Errorf("a failing check passed: %v\n%s", err, out)
 	}

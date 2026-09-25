@@ -127,20 +127,20 @@ func claudeAccountForProject(cmd *cobra.Command, c *api.Client, name, account st
 		}
 		if set {
 			if p.ClaudeAccount == "" {
-				fmt.Fprintf(out, "New agents of %s use this machine's default Claude Code account\n", p.Name)
+				_, _ = fmt.Fprintf(out, "New agents of %s use this machine's default Claude Code account\n", p.Name)
 			} else {
-				fmt.Fprintf(out, "New agents of %s use the Claude Code account %q\n", p.Name, p.ClaudeAccount)
+				_, _ = fmt.Fprintf(out, "New agents of %s use the Claude Code account %q\n", p.Name, p.ClaudeAccount)
 			}
 		}
 		if allowed != nil {
 			printAllowed(out, p)
 		}
-		fmt.Fprintln(out, "Agents that already exist keep the account they were created with.")
+		_, _ = fmt.Fprintln(out, "Agents that already exist keep the account they were created with.")
 		return nil
 	}
 	defer printAllowed(out, p)
 	if p.ClaudeAccount != "" {
-		fmt.Fprintf(out, "%s: new agents use the Claude Code account %q\n", p.Name, p.ClaudeAccount)
+		_, _ = fmt.Fprintf(out, "%s: new agents use the Claude Code account %q\n", p.Name, p.ClaudeAccount)
 		return nil
 	}
 	def, err := defaultClaudeAccount(cmd, c)
@@ -148,10 +148,10 @@ func claudeAccountForProject(cmd *cobra.Command, c *api.Client, name, account st
 		return err
 	}
 	if def == "" {
-		fmt.Fprintf(out, "%s: no Claude Code account picked, and none is stored (agentbox auth claude)\n", p.Name)
+		_, _ = fmt.Fprintf(out, "%s: no Claude Code account picked, and none is stored (agentbox auth claude)\n", p.Name)
 		return nil
 	}
-	fmt.Fprintf(out, "%s: new agents use this machine's default Claude Code account, %q\n", p.Name, def)
+	_, _ = fmt.Fprintf(out, "%s: new agents use this machine's default Claude Code account, %q\n", p.Name, def)
 	return nil
 }
 
@@ -162,8 +162,8 @@ func claudeAccountForAgent(cmd *cobra.Command, c *api.Client, ref, account strin
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "%s now uses the Claude Code account %q\n", ag.Ref, ag.ClaudeAccount)
-		fmt.Fprintln(out, "Claude Code picks the new token up the next time it starts: /exit in its window, then start it again.")
+		_, _ = fmt.Fprintf(out, "%s now uses the Claude Code account %q\n", ag.Ref, ag.ClaudeAccount)
+		_, _ = fmt.Fprintln(out, "Claude Code picks the new token up the next time it starts: /exit in its window, then start it again.")
 		return nil
 	}
 	ag, err := c.Agent(cmd.Context(), ref)
@@ -171,19 +171,19 @@ func claudeAccountForAgent(cmd *cobra.Command, c *api.Client, ref, account strin
 		return err
 	}
 	if ag.ClaudeAccount == "" {
-		fmt.Fprintf(out, "%s runs %s, so it has no Claude Code account\n", ag.Ref, ag.AI)
+		_, _ = fmt.Fprintf(out, "%s runs %s, so it has no Claude Code account\n", ag.Ref, ag.AI)
 		return nil
 	}
-	fmt.Fprintf(out, "%s uses the Claude Code account %q\n", ag.Ref, ag.ClaudeAccount)
+	_, _ = fmt.Fprintf(out, "%s uses the Claude Code account %q\n", ag.Ref, ag.ClaudeAccount)
 	return nil
 }
 
 func printAllowed(out io.Writer, p api.Project) {
 	if len(p.ClaudeAccounts) == 0 {
-		fmt.Fprintf(out, "%s may use every Claude Code account\n", p.Name)
+		_, _ = fmt.Fprintf(out, "%s may use every Claude Code account\n", p.Name)
 		return
 	}
-	fmt.Fprintf(out, "%s may use the Claude Code accounts %s\n", p.Name, strings.Join(p.ClaudeAccounts, ", "))
+	_, _ = fmt.Fprintf(out, "%s may use the Claude Code accounts %s\n", p.Name, strings.Join(p.ClaudeAccounts, ", "))
 }
 
 // defaultClaudeAccount is the account new agents get when nothing else names one.

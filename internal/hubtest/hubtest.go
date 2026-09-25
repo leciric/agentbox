@@ -64,7 +64,7 @@ func New(t *testing.T) *Hub {
 		h.mu.Lock()
 		for _, e := range h.envs {
 			if e.session != nil {
-				e.session.Close()
+				_ = e.session.Close()
 			}
 		}
 		h.mu.Unlock()
@@ -96,7 +96,7 @@ func (h *Hub) handler() http.Handler {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func fail(w http.ResponseWriter, status int, msg string) {
@@ -192,7 +192,7 @@ func (h *Hub) deleteEnvironment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e.session != nil {
-		e.session.Close()
+		_ = e.session.Close()
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -214,7 +214,7 @@ func (h *Hub) connect(w http.ResponseWriter, r *http.Request) {
 	conn.SetReadLimit(-1)
 	session, err := yamux.Client(websocket.NetConn(r.Context(), conn, websocket.MessageBinary), hubapi.TunnelConfig())
 	if err != nil {
-		conn.CloseNow()
+		_ = conn.CloseNow()
 		return
 	}
 	proxy := &httputil.ReverseProxy{

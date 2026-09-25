@@ -85,7 +85,7 @@ agent that still exists never expires, however old.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), settings.MediaRetention)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), settings.MediaRetention)
 			return nil
 		},
 	}
@@ -96,7 +96,7 @@ func printSaved(cmd *cobra.Command, item api.MediaItem) {
 	if item.Size > 0 {
 		what += ", " + humanBytes(item.Size)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Saved %q (%s) as %s\n", item.Name, what, item.ID)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Saved %q (%s) as %s\n", item.Name, what, item.ID)
 }
 
 func newMediaListCmd(a *app) *cobra.Command {
@@ -154,14 +154,14 @@ nothing: it lists its own.`,
 			}
 			out := cmd.OutOrStdout()
 			if len(items) == 0 {
-				fmt.Fprintln(out, "No media yet")
+				_, _ = fmt.Fprintln(out, "No media yet")
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 			if whole {
-				fmt.Fprintln(w, "ID\tAGENT\tKIND\tNAME\tFROM\tSIZE\tCREATED")
+				_, _ = fmt.Fprintln(w, "ID\tAGENT\tKIND\tNAME\tFROM\tSIZE\tCREATED")
 			} else {
-				fmt.Fprintln(w, "ID\tKIND\tNAME\tFROM\tSIZE\tCREATED")
+				_, _ = fmt.Fprintln(w, "ID\tKIND\tNAME\tFROM\tSIZE\tCREATED")
 			}
 			for _, item := range items {
 				from, size := "agent", "-"
@@ -172,10 +172,10 @@ nothing: it lists its own.`,
 					size = humanBytes(item.Size)
 				}
 				if whole {
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, mediaAgent(item), item.Kind, item.Name, from, size, ago(item.CreatedAt))
+					_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, mediaAgent(item), item.Kind, item.Name, from, size, ago(item.CreatedAt))
 					continue
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Kind, item.Name, from, size, ago(item.CreatedAt))
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", item.ID, item.Kind, item.Name, from, size, ago(item.CreatedAt))
 			}
 			return w.Flush()
 		},
@@ -255,7 +255,7 @@ neither the cursor nor the overlay sees it.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Recording %q%s. Run agentbox media record stop when you're done (it stops by itself after %s)\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Recording %q%s. Run agentbox media record stop when you're done (it stops by itself after %s)\n",
 				status.Name, recordInput(status.Input), time.Duration(status.LimitSeconds)*time.Second)
 			return nil
 		},
@@ -311,10 +311,10 @@ func newRecordStatusCmd(a *app) *cobra.Command {
 				return err
 			}
 			if !status.Recording {
-				fmt.Fprintln(cmd.OutOrStdout(), "Not recording")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Not recording")
 				return nil
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Recording %q%s since %s\n", status.Name, recordInput(status.Input), ago(*status.StartedAt))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Recording %q%s since %s\n", status.Name, recordInput(status.Input), ago(*status.StartedAt))
 			return nil
 		},
 	}
@@ -427,7 +427,7 @@ func newMediaOpenCmd(a *app) *cobra.Command {
 				return err
 			}
 			if item.Kind == "note" {
-				fmt.Fprintln(cmd.OutOrStdout(), item.Text)
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), item.Text)
 				return nil
 			}
 			path := item.Path
@@ -437,7 +437,7 @@ func newMediaOpenCmd(a *app) *cobra.Command {
 			if err := exec.Command("xdg-open", path).Start(); err != nil {
 				return fmt.Errorf("opening %s: %w", path, err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Opened %s\n", path)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Opened %s\n", path)
 			return nil
 		},
 	}
@@ -460,7 +460,7 @@ func newMediaRmCmd(a *app) *cobra.Command {
 			if err := c.DeleteMedia(cmd.Context(), item.ID); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Deleted %q\n", item.Name)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted %q\n", item.Name)
 			return nil
 		},
 	}
@@ -520,7 +520,7 @@ It asks first; --yes answers for you, for scripts.`,
 					return err
 				}
 				if len(items) == 0 {
-					fmt.Fprintln(out, "No media matches")
+					_, _ = fmt.Fprintln(out, "No media matches")
 					return nil
 				}
 				var bytes int64
@@ -538,7 +538,7 @@ It asks first; --yes answers for you, for scripts.`,
 					return err
 				}
 				if !ok {
-					fmt.Fprintln(out, "Nothing deleted")
+					_, _ = fmt.Fprintln(out, "Nothing deleted")
 					return nil
 				}
 			}
@@ -560,7 +560,7 @@ It asks first; --yes answers for you, for scripts.`,
 			if result.Bytes > 0 {
 				freed = ", freed " + humanBytes(result.Bytes)
 			}
-			fmt.Fprintf(out, "Deleted %d item(s)%s\n", result.Deleted, freed)
+			_, _ = fmt.Fprintf(out, "Deleted %d item(s)%s\n", result.Deleted, freed)
 			return nil
 		},
 	}
@@ -588,7 +588,7 @@ func describeAllMedia(n int, kind, agent string) string {
 // confirmPrompt asks before something destructive happens, and takes silence,
 // or anything but yes, for no.
 func confirmPrompt(cmd *cobra.Command, question string) (bool, error) {
-	fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s [y/N] ", question)
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false, err
@@ -617,7 +617,7 @@ func newMediaExportCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Exported %d item(s) to %s\n", result.Items, result.Dir)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Exported %d item(s) to %s\n", result.Items, result.Dir)
 			return nil
 		},
 	}

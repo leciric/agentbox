@@ -163,16 +163,16 @@ func serveFakeAgentAPI(t *testing.T, socket string, calls chan<- string) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/v1/self/memory/reports":
-			json.NewEncoder(w).Encode(api.AgentReport{ID: "rep_test", Status: "partial", RemainingIssues: []string{"Pagination"}})
+			_ = json.NewEncoder(w).Encode(api.AgentReport{ID: "rep_test", Status: "partial", RemainingIssues: []string{"Pagination"}})
 		case r.URL.Path == "/v1/self/memory/artifacts":
-			json.NewEncoder(w).Encode(api.MemoryArtifact{ID: "art_test", Path: "x"})
+			_ = json.NewEncoder(w).Encode(api.MemoryArtifact{ID: "art_test", Path: "x"})
 		case r.URL.Path == "/v1/self":
-			json.NewEncoder(w).Encode(api.Self{Ref: "pawly/agent-01", Agent: "agent-01", Project: "pawly"})
+			_ = json.NewEncoder(w).Encode(api.Self{Ref: "pawly/agent-01", Agent: "agent-01", Project: "pawly"})
 		case r.URL.Path == "/v1/self/memory/tasks" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode([]api.Task{{ID: "task_1", Agent: "agent-01", Status: "active", Goal: "Fix login"}})
+			_ = json.NewEncoder(w).Encode([]api.Task{{ID: "task_1", Agent: "agent-01", Status: "active", Goal: "Fix login"}})
 		case strings.HasPrefix(r.URL.Path, "/v1/self/memory/tasks/") && r.Method == http.MethodPatch:
 			var in api.UpdateTaskRequest
-			json.NewDecoder(r.Body).Decode(&in)
+			_ = json.NewDecoder(r.Body).Decode(&in)
 			out := api.Task{ID: "task_1", Agent: "agent-01", Goal: "Fix login", Status: "active"}
 			if in.Status != nil {
 				out.Status = *in.Status
@@ -180,14 +180,14 @@ func serveFakeAgentAPI(t *testing.T, socket string, calls chan<- string) {
 			if in.Detail != nil {
 				out.Detail = *in.Detail
 			}
-			json.NewEncoder(w).Encode(out)
+			_ = json.NewEncoder(w).Encode(out)
 		case r.URL.Path == "/v1/self/credential":
-			json.NewEncoder(w).Encode(api.Question{ID: "q1", Answer: "use work", Status: "answered"})
+			_ = json.NewEncoder(w).Encode(api.Question{ID: "q1", Answer: "use work", Status: "answered"})
 		default:
-			json.NewEncoder(w).Encode(api.MemorySearchResults{})
+			_ = json.NewEncoder(w).Encode(api.MemorySearchResults{})
 		}
 	})
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
 }

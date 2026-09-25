@@ -27,13 +27,13 @@ func setupToken(cmd *cobra.Command, a *app) (string, error) {
 	go readCodes(cmd, codes)
 
 	return m.SetupToken(cmd.Context(), agent.SetupTokenEvents{
-		Status: func(detail string) { fmt.Fprintln(out, detail) },
+		Status: func(detail string) { _, _ = fmt.Fprintln(out, detail) },
 		Browser: func(url string) {
-			fmt.Fprintf(out, "\nApprove the login here:\n  %s\n\nWaiting for you to approve it…\n", url)
+			_, _ = fmt.Fprintf(out, "\nApprove the login here:\n  %s\n\nWaiting for you to approve it…\n", url)
 			openBrowser(cmd, url)
 		},
 		Paste: func(url string) {
-			fmt.Fprintf(out, "\nIf that page can't reach this machine, approve this one instead and paste the code it gives you:\n  %s\n", url)
+			_, _ = fmt.Fprintf(out, "\nIf that page can't reach this machine, approve this one instead and paste the code it gives you:\n  %s\n", url)
 		},
 	}, codes)
 }
@@ -57,13 +57,13 @@ func openBrowser(cmd *cobra.Command, url string) {
 	open := exec.CommandContext(cmd.Context(), "xdg-open", url)
 	open.Stdout, open.Stderr = nil, nil
 	if err := open.Start(); err == nil {
-		go open.Wait()
+		go func() { _ = open.Wait() }()
 		return
 	}
 	if browser := os.Getenv("BROWSER"); browser != "" {
 		fallback := exec.CommandContext(cmd.Context(), browser, url)
 		if err := fallback.Start(); err == nil {
-			go fallback.Wait()
+			go func() { _ = fallback.Wait() }()
 		}
 	}
 }

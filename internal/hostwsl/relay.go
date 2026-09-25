@@ -61,7 +61,7 @@ type Relay struct {
 func (r *Relay) Serve(ctx context.Context, ln net.Listener) error {
 	go func() {
 		<-ctx.Done()
-		ln.Close()
+		_ = ln.Close()
 	}()
 	for {
 		c, err := ln.Accept()
@@ -76,20 +76,20 @@ func (r *Relay) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 func (r *Relay) handle(ctx context.Context, c net.Conn) {
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	stream, err := r.open(ctx)
 	if err != nil {
 		refuse(c, err.Error())
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 	status := make([]byte, 1)
-	stream.SetReadDeadline(time.Now().Add(30 * time.Second))
+	_ = stream.SetReadDeadline(time.Now().Add(30 * time.Second))
 	if _, err := io.ReadFull(stream, status); err != nil {
 		refuse(c, fmt.Sprintf("the relay to %s didn't answer: %v", r.Distro.Name, err))
 		return
 	}
-	stream.SetReadDeadline(time.Time{})
+	_ = stream.SetReadDeadline(time.Time{})
 	if status[0] != bridgeOK {
 		refuse(c, "the AgentBox daemon isn't running in "+r.Distro.Name)
 		return
@@ -111,7 +111,7 @@ func (r *Relay) open(ctx context.Context) (net.Conn, error) {
 	}
 	stream, err := r.session.Open()
 	if err != nil {
-		r.session.Close()
+		_ = r.session.Close()
 		return nil, fmt.Errorf("the relay to %s failed: %v%s", r.Distro.Name, err, r.stderr.suffix())
 	}
 	return stream, nil
@@ -141,12 +141,12 @@ func (r *Relay) start(ctx context.Context) (*yamux.Session, error) {
 	}
 	s, err := yamux.Client(&stdio{Reader: stdout, WriteCloser: stdin, cmd: cmd}, yamuxConfig())
 	if err != nil {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		return nil, err
 	}
 	go func() {
-		cmd.Wait()
-		s.Close()
+		_ = cmd.Wait()
+		_ = s.Close()
 	}()
 	return s, nil
 }
@@ -158,9 +158,9 @@ func refuse(c net.Conn, msg string) {
 	body := fmt.Sprintf(`{"error":%q}`, msg)
 	// Read what the client sends while answering, so it isn't cut off
 	// mid-request, and give it a moment to read the answer before closing.
-	c.SetDeadline(time.Now().Add(5 * time.Second))
-	go io.Copy(io.Discard, c)
-	fmt.Fprintf(c, "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n%s: %s\r\nConnection: close\r\nContent-Length: %d\r\n\r\n%s",
+	_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+	go func() { _, _ = io.Copy(io.Discard, c) }()
+	_, _ = fmt.Fprintf(c, "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n%s: %s\r\nConnection: close\r\nContent-Length: %d\r\n\r\n%s",
 		relayHeader, relayNotListened, len(body), body)
 	time.Sleep(50 * time.Millisecond)
 }
@@ -171,7 +171,7 @@ func pipe(a, b net.Conn) {
 	wg.Add(2)
 	cp := func(dst, src net.Conn) {
 		defer wg.Done()
-		io.Copy(dst, src)
+		_, _ = io.Copy(dst, src)
 		// Half-close where the connection can; otherwise close it, which
 		// ends the other copy too.
 		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
@@ -179,7 +179,7 @@ func pipe(a, b net.Conn) {
 				return
 			}
 		}
-		dst.Close()
+		_ = dst.Close()
 	}
 	go cp(a, b)
 	go cp(b, a)
@@ -196,7 +196,7 @@ type stdio struct {
 func (s *stdio) Close() error {
 	err := s.WriteCloser.Close()
 	if s.cmd != nil && s.cmd.Process != nil {
-		s.cmd.Process.Kill()
+		_ = s.cmd.Process.Kill()
 	}
 	return err
 }
@@ -239,7 +239,7 @@ func Bridge(rw io.ReadWriteCloser, socket string) error {
 	if err != nil {
 		return err
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	for {
 		stream, err := s.Accept()
 		if err != nil {
@@ -249,13 +249,13 @@ func Bridge(rw io.ReadWriteCloser, socket string) error {
 			return err
 		}
 		go func() {
-			defer stream.Close()
+			defer func() { _ = stream.Close() }()
 			conn, err := net.DialTimeout("unix", socket, 5*time.Second)
 			if err != nil {
-				stream.Write([]byte{bridgeNoDaemon})
+				_, _ = stream.Write([]byte{bridgeNoDaemon})
 				return
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 			if _, err := stream.Write([]byte{bridgeOK}); err != nil {
 				return
 			}

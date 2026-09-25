@@ -60,15 +60,15 @@ func githubAccountForProject(cmd *cobra.Command, c *api.Client, name, account st
 			return err
 		}
 		if p.GitHubAccount == "" {
-			fmt.Fprintf(out, "New agents of %s use this machine's default GitHub account\n", p.Name)
+			_, _ = fmt.Fprintf(out, "New agents of %s use this machine's default GitHub account\n", p.Name)
 		} else {
-			fmt.Fprintf(out, "New agents of %s use the GitHub account %q\n", p.Name, p.GitHubAccount)
+			_, _ = fmt.Fprintf(out, "New agents of %s use the GitHub account %q\n", p.Name, p.GitHubAccount)
 		}
-		fmt.Fprintln(out, "Agents that already exist keep the account they were created with.")
+		_, _ = fmt.Fprintln(out, "Agents that already exist keep the account they were created with.")
 		return nil
 	}
 	if p.GitHubAccount != "" {
-		fmt.Fprintf(out, "%s: new agents use the GitHub account %q\n", p.Name, p.GitHubAccount)
+		_, _ = fmt.Fprintf(out, "%s: new agents use the GitHub account %q\n", p.Name, p.GitHubAccount)
 		return nil
 	}
 	def, err := defaultGitHubAccountName(cmd, c)
@@ -76,10 +76,10 @@ func githubAccountForProject(cmd *cobra.Command, c *api.Client, name, account st
 		return err
 	}
 	if def == "" {
-		fmt.Fprintf(out, "%s: no GitHub account picked, and none is stored (agentbox auth github)\n", p.Name)
+		_, _ = fmt.Fprintf(out, "%s: no GitHub account picked, and none is stored (agentbox auth github)\n", p.Name)
 		return nil
 	}
-	fmt.Fprintf(out, "%s: new agents use this machine's default GitHub account, %q\n", p.Name, def)
+	_, _ = fmt.Fprintf(out, "%s: new agents use this machine's default GitHub account, %q\n", p.Name, def)
 	return nil
 }
 
@@ -91,11 +91,11 @@ func githubAccountForAgent(cmd *cobra.Command, c *api.Client, ref, account strin
 			return err
 		}
 		if ag.GitHubAccount == "" {
-			fmt.Fprintf(out, "%s now uses its project's GitHub account (or none, when its project has none)\n", ag.Ref)
+			_, _ = fmt.Fprintf(out, "%s now uses its project's GitHub account (or none, when its project has none)\n", ag.Ref)
 		} else {
-			fmt.Fprintf(out, "%s now uses the GitHub account %q\n", ag.Ref, ag.GitHubAccount)
+			_, _ = fmt.Fprintf(out, "%s now uses the GitHub account %q\n", ag.Ref, ag.GitHubAccount)
 		}
-		fmt.Fprintln(out, "A new shell picks it up, and so does the AI tool the next time it starts: /exit in its window, then start it again.")
+		_, _ = fmt.Fprintln(out, "A new shell picks it up, and so does the AI tool the next time it starts: /exit in its window, then start it again.")
 		return nil
 	}
 	ag, err := c.Agent(cmd.Context(), ref)
@@ -103,9 +103,9 @@ func githubAccountForAgent(cmd *cobra.Command, c *api.Client, ref, account strin
 		return err
 	}
 	if ag.GitHubAccount == "" {
-		fmt.Fprintf(out, "%s has no GitHub account (agentbox auth github)\n", ag.Ref)
+		_, _ = fmt.Fprintf(out, "%s has no GitHub account (agentbox auth github)\n", ag.Ref)
 		return nil
 	}
-	fmt.Fprintf(out, "%s uses the GitHub account %q\n", ag.Ref, ag.GitHubAccount)
+	_, _ = fmt.Fprintf(out, "%s uses the GitHub account %q\n", ag.Ref, ag.GitHubAccount)
 	return nil
 }

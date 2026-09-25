@@ -54,19 +54,19 @@ func (g *slowGitHub) serve(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case isCommit && known:
-		w.Write([]byte(byCommit))
+		_, _ = w.Write([]byte(byCommit))
 	case isCommit:
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		fmt.Fprintf(w, `{"message":"No commit found for SHA: %s"}`, commit)
+		_, _ = fmt.Fprintf(w, `{"message":"No commit found for SHA: %s"}`, commit)
 	case strings.HasSuffix(r.URL.Path, "/check-runs"):
-		w.Write([]byte(`{"total_count":0}`))
+		_, _ = w.Write([]byte(`{"total_count":0}`))
 	case strings.Contains(r.URL.Path, "/pulls/"):
-		w.Write([]byte(`{"additions":1,"deletions":0,"comments":0}`))
+		_, _ = w.Write([]byte(`{"additions":1,"deletions":0,"comments":0}`))
 	case strings.HasSuffix(r.URL.Path, "/pulls"):
 		time.Sleep(delay)
-		w.Write([]byte(list))
+		_, _ = w.Write([]byte(list))
 	default:
-		w.Write([]byte(`{"default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":true,"permissions":{"push":true}}`))
+		_, _ = w.Write([]byte(`{"default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":true,"permissions":{"push":true}}`))
 	}
 }
 
@@ -311,7 +311,7 @@ func TestFleetMatchesAgentsAgainstOneList(t *testing.T) {
 
 	// A new commit is a new question.
 	four := commitOn(t, agents["agent-03"], "four.txt")
-	d.client.Fleet(context.Background(), "hello-stack")
+	_, _ = d.client.Fleet(context.Background(), "hello-stack")
 	waitFor(t, "a lookup of the new commit", func() bool {
 		return gh.count("/repos/acme/hello-stack/commits/"+four+"/pulls") == 1
 	})
@@ -412,13 +412,15 @@ func TestPullRequestRefreshAnnouncesWhatMoved(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	events := make(chan api.PullsChange, 32)
-	go d.client.Events(ctx, func(ev api.Event) error {
-		var change api.PullsChange
-		if ev.Type == api.EventPulls && json.Unmarshal(ev.Data, &change) == nil {
-			events <- change
-		}
-		return nil
-	})
+	go func() {
+		_ = d.client.Events(ctx, func(ev api.Event) error {
+			var change api.PullsChange
+			if ev.Type == api.EventPulls && json.Unmarshal(ev.Data, &change) == nil {
+				events <- change
+			}
+			return nil
+		})
+	}()
 	// The stream has to be there before the first request, or the event it
 	// causes has nobody to reach.
 	waitFor(t, "the event stream", func() bool { return d.srv.events.subscribers() > 0 })
@@ -566,7 +568,7 @@ func TestAgentChangesMeasuresEveryAgent(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		running.Add(-1)
 		var files int
-		fmt.Sscanf(a.Name, "agent-%d", &files)
+		_, _ = fmt.Sscanf(a.Name, "agent-%d", &files)
 		return api.AgentChanges{Files: files}
 	})
 	for i, changes := range out {

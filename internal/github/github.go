@@ -168,7 +168,7 @@ func (c Client) do(ctx context.Context, method, path string, body, out any) erro
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode >= 300 {
 		return apiError(path, res)
 	}
@@ -194,7 +194,11 @@ func apiError(path string, res *http.Response) error {
 		Message string `json:"message"`
 	}
 	data, _ := io.ReadAll(res.Body)
-	json.Unmarshal(data, &body)
+	if err := json.Unmarshal(data, &body); err != nil {
+		// Not every non-2xx response is JSON (a proxy's error page, for
+		// example); fall back to the raw body as the message.
+		body.Message = strings.TrimSpace(string(data))
+	}
 	switch {
 	case res.StatusCode == http.StatusUnauthorized:
 		if body.Message != "" {

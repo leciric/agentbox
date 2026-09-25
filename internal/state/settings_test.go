@@ -13,7 +13,7 @@ func TestSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	ctx := context.Background()
 
 	// A setting nobody has touched reads as empty, not as an error: that's

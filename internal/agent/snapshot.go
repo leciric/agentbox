@@ -68,17 +68,17 @@ func (m *Manager) takeSnapshot(ctx context.Context, a state.Agent, name string, 
 	if consistent && running {
 		// Freeze the machine, then record the worktree again, so both halves match exactly.
 		if _, err := m.Incus.Run(ctx, "pause", a.Instance); err != nil {
-			repo.DeleteRef(ref)
+			_ = repo.DeleteRef(ref)
 			return Snapshot{}, err
 		}
-		defer m.Incus.Run(context.WithoutCancel(ctx), "resume", a.Instance)
+		defer func() { _, _ = m.Incus.Run(context.WithoutCancel(ctx), "resume", a.Instance) }()
 		if commit, err = gitrepo.SnapshotWorktree(a.Worktree, ref, message); err != nil {
-			repo.DeleteRef(ref)
+			_ = repo.DeleteRef(ref)
 			return Snapshot{}, fmt.Errorf("snapshotting the worktree: %w", err)
 		}
 	}
 	if _, err := m.Incus.Run(ctx, "snapshot", "create", a.Instance, name); err != nil {
-		repo.DeleteRef(ref)
+		_ = repo.DeleteRef(ref)
 		return Snapshot{}, err
 	}
 	head, _ := repo.ResolveCommit(commit + "^")
@@ -215,7 +215,7 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 		if _, err := m.takeSnapshot(ctx, src, name, false); err != nil {
 			return state.Agent{}, err
 		}
-		defer m.DeleteSnapshot(context.WithoutCancel(ctx), src, name)
+		defer func() { _ = m.DeleteSnapshot(context.WithoutCancel(ctx), src, name) }()
 	}
 	tree, err := repo.ResolveRef(snapshotRef(src.Name, name))
 	if err != nil {
@@ -260,7 +260,7 @@ func deleteAgentRefs(repo gitrepo.Repo, agent string) {
 	for _, prefix := range []string{"refs/agentbox/snapshots/" + agent + "/", "refs/agentbox/pre-restore/" + agent + "/"} {
 		refs, _ := repo.Refs(prefix)
 		for _, ref := range refs {
-			repo.DeleteRef(ref)
+			_ = repo.DeleteRef(ref)
 		}
 	}
 }

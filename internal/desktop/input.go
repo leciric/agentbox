@@ -38,9 +38,9 @@ func LogInput(ctx context.Context, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	stop := context.AfterFunc(ctx, func() { x.Close() })
+	stop := context.AfterFunc(ctx, func() { _ = x.Close() })
 	defer stop()
-	defer x.Close()
+	defer func() { _ = x.Close() }()
 	return logInput(ctx, x, w)
 }
 

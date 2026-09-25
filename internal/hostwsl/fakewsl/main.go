@@ -66,7 +66,7 @@ func say(format string, a ...any) {
 		for i, c := range u {
 			b[2*i], b[2*i+1] = byte(c), byte(c>>8)
 		}
-		os.Stdout.Write(b)
+		_, _ = os.Stdout.Write(b)
 		return
 	}
 	fmt.Print(s)
@@ -103,8 +103,8 @@ func run(args []string) int {
 		if _, err := os.Stat(args[3]); err != nil {
 			return fail("fakewsl: %v", err)
 		}
-		os.MkdirAll(filepath.Join(root(), "distros"), 0o755)
-		os.WriteFile(marker(args[1]), []byte("2"), 0o644)
+		_ = os.MkdirAll(filepath.Join(root(), "distros"), 0o755)
+		_ = os.WriteFile(marker(args[1]), []byte("2"), 0o644)
 		return 0
 	case "--terminate":
 		return 0
@@ -176,7 +176,7 @@ func execute(command []string) int {
 		command = command[1:]
 		for len(command) > 0 && strings.Contains(command[0], "=") {
 			k, v, _ := strings.Cut(command[0], "=")
-			os.Setenv(k, v)
+			_ = os.Setenv(k, v)
 			command = command[1:]
 		}
 	}
@@ -191,7 +191,7 @@ func execute(command []string) int {
 		return 0
 	case command[0] == "sh" && len(command) == 6 && command[1] == "-c" && strings.Contains(command[2], `cat >"$t"`):
 		// Distro.writeFile: stdin into a file, in one rename.
-		os.MkdirAll(filepath.Dir(command[4]), 0o755)
+		_ = os.MkdirAll(filepath.Dir(command[4]), 0o755)
 		b, _ := io.ReadAll(os.Stdin)
 		if err := os.WriteFile(command[4]+".new", b, 0o755); err != nil {
 			return fail("%v", err)
@@ -252,7 +252,7 @@ func bridge(args []string) int {
 		deadline := time.Now().Add(wait)
 		for {
 			if c, err := net.Dial("unix", socket); err == nil {
-				c.Close()
+				_ = c.Close()
 				return 0
 			}
 			if time.Now().After(deadline) {
@@ -276,29 +276,29 @@ type stdio struct {
 // that echoes the frames it gets, which is enough to see HTTP and a
 // long-lived upgraded connection through the relay.
 func serve(ctx context.Context, socket string) error {
-	os.Remove(socket)
+	_ = os.Remove(socket)
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(socket)
+	defer func() { _ = os.Remove(socket) }()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"version":"fake"}`)
+		_, _ = fmt.Fprint(w, `{"version":"fake"}`)
 	})
 	mux.HandleFunc("POST /v1/echo", func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		w.Write(bytes.ToUpper(b))
+		_, _ = w.Write(bytes.ToUpper(b))
 	})
 	mux.HandleFunc("GET /v1/echo", echo)
 	srv := &http.Server{Handler: mux}
 	mux.HandleFunc("POST /v1/shutdown", func(w http.ResponseWriter, r *http.Request) {
-		go srv.Close()
+		go func() { _ = srv.Close() }()
 	})
 	go func() {
 		<-ctx.Done()
-		srv.Close()
+		_ = srv.Close()
 	}()
 	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err

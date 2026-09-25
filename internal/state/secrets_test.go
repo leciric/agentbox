@@ -16,7 +16,7 @@ func openStore(t *testing.T) *state.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 	return st
 }
 

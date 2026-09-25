@@ -54,7 +54,7 @@ func TestAnImageReachesTheToolAndOutlivesTheDaemon(t *testing.T) {
 	waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
 
 	var req acp.PromptRequest
-	json.Unmarshal(f.called(acp.MethodSessionPrompt)[0], &req)
+	_ = json.Unmarshal(f.called(acp.MethodSessionPrompt)[0], &req)
 	if len(req.Prompt) != 2 || req.Prompt[0].Type != "text" || req.Prompt[0].Text != "what's in this?" {
 		t.Fatalf("the prompt = %+v, want the text and then the image", req.Prompt)
 	}
@@ -116,7 +116,7 @@ func TestAMessageOfOnlyImages(t *testing.T) {
 	}
 	waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
 	var req acp.PromptRequest
-	json.Unmarshal(f.called(acp.MethodSessionPrompt)[0], &req)
+	_ = json.Unmarshal(f.called(acp.MethodSessionPrompt)[0], &req)
 	if len(req.Prompt) != 1 || req.Prompt[0].Type != "image" {
 		t.Errorf("the prompt = %+v, want the image alone", req.Prompt)
 	}
@@ -137,7 +137,7 @@ func TestImagesThatAreRefused(t *testing.T) {
 		images []api.ChatImageUpload
 		want   string
 	}{
-		"a type the model can't read": {[]api.ChatImageUpload{{MimeType: "image/bmp", Data: good.Data}}, "PNG, JPEG, GIF or WebP"},
+		"a type the model can't read":     {[]api.ChatImageUpload{{MimeType: "image/bmp", Data: good.Data}}, "PNG, JPEG, GIF or WebP"},
 		"a type that isn't what it holds": {[]api.ChatImageUpload{{MimeType: "image/jpeg", Data: good.Data}}, "holds image/png"},
 		"not base64":                      {[]api.ChatImageUpload{{MimeType: "image/png", Data: "%%%"}}, "base64"},
 		"too big":                         {[]api.ChatImageUpload{{MimeType: "image/png", Data: base64.StdEncoding.EncodeToString(big)}}, "over the 3.8 MiB"},
@@ -207,7 +207,7 @@ func TestAnImageSentDuringATurn(t *testing.T) {
 	close(release)
 	waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
 	var req acp.SteerRequest
-	json.Unmarshal(f.called(acp.MethodSessionSteer)[0], &req)
+	_ = json.Unmarshal(f.called(acp.MethodSessionSteer)[0], &req)
 	if len(req.Prompt) != 2 || req.Prompt[1].Type != "image" || req.Prompt[1].Data != up.Data {
 		t.Errorf("the steered prompt has %d blocks, want the text and the image", len(req.Prompt))
 	}

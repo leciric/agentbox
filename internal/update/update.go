@@ -81,7 +81,7 @@ func Check(ctx context.Context, base string, req Request) (Latest, error) {
 	if err != nil {
 		return Latest{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return Latest{}, fmt.Errorf("update check: %s", resp.Status)
 	}

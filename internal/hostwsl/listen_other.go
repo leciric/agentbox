@@ -18,7 +18,7 @@ func listenPrivate() (net.Listener, string, error) {
 	path := filepath.Join(dir, "relay.sock")
 	ln, err := net.Listen("unix", path)
 	if err != nil {
-		os.RemoveAll(dir)
+		_ = os.RemoveAll(dir)
 		return nil, "", err
 	}
 	return &removing{Listener: ln, dir: dir}, path, nil
@@ -31,7 +31,7 @@ type removing struct {
 
 func (r *removing) Close() error {
 	err := r.Listener.Close()
-	os.RemoveAll(r.dir)
+	_ = os.RemoveAll(r.dir)
 	return err
 }
 

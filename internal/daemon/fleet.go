@@ -109,7 +109,7 @@ func agentChanges(agents []state.Agent, measure func(state.Agent) api.AgentChang
 			return nil
 		})
 	}
-	g.Wait()
+	_ = g.Wait()
 	return out
 }
 

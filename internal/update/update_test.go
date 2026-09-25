@@ -26,7 +26,7 @@ func TestCheckSendsExactlyTheFourFields(t *testing.T) {
 			t.Errorf("request carried credentials: %v", r.Header)
 		}
 		got = r.URL.Query()
-		w.Write([]byte(`{"version":"0.17.0","url":"https://github.com/leciric/agentbox/releases/tag/v0.17.0"}`))
+		_, _ = w.Write([]byte(`{"version":"0.17.0","url":"https://github.com/leciric/agentbox/releases/tag/v0.17.0"}`))
 	}))
 	defer srv.Close()
 
@@ -60,7 +60,7 @@ func TestNewRequestSendsTheHostsOS(t *testing.T) {
 func TestCheckFailsOnAnythingButAnAnswer(t *testing.T) {
 	for name, handler := range map[string]http.HandlerFunc{
 		"an error status": func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "down", http.StatusBadGateway) },
-		"not JSON":        func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("<html>")) },
+		"not JSON":        func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>")) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			srv := httptest.NewServer(handler)

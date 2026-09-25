@@ -24,7 +24,7 @@ func (s *Server) browserSocketPath(instance, service string) string {
 
 func (s *Server) removeBrowserSockets(instance string) {
 	for _, service := range agent.HostServices {
-		os.Remove(s.browserSocketPath(instance, service))
+		_ = os.Remove(s.browserSocketPath(instance, service))
 	}
 }
 
@@ -83,21 +83,21 @@ func (s *Server) vncView(w http.ResponseWriter, r *http.Request, dial func(conte
 	if err != nil {
 		return err
 	}
-	defer vnc.Close()
+	defer func() { _ = vnc.Close() }()
 
 	// The socket is only reachable by this user, so any origin (the desktop app's) is fine.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return nil // Accept has already written the response
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	stream := websocket.NetConn(ctx, conn, websocket.MessageBinary)
 	go func() {
-		io.Copy(stream, vnc)
+		_, _ = io.Copy(stream, vnc)
 		cancel()
 	}()
-	io.Copy(vnc, stream)
+	_, _ = io.Copy(vnc, stream)
 	return nil
 }

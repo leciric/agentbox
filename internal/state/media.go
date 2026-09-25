@@ -118,7 +118,7 @@ func (s *Store) queryMedia(ctx context.Context, clause string, args ...any) ([]M
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var items []Media
 	for rows.Next() {
 		var m Media

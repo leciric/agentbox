@@ -126,7 +126,7 @@ func writeClaudeMeta(path string, m claudeMeta) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	os.Remove(tmp)
+	_ = os.Remove(tmp)
 	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
 		return err
 	}
@@ -303,7 +303,7 @@ func CheckClaudeToken(ctx context.Context, token string) Validity {
 	if err != nil {
 		return Validity{State: TokenUnknown, CheckedAt: now, Detail: "couldn't reach Anthropic: " + err.Error()}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:

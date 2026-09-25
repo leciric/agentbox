@@ -98,12 +98,12 @@ func (m *Manager) SetupToken(ctx context.Context, ev SetupTokenEvents, codes <-c
 	if err != nil {
 		return "", fmt.Errorf("running %s setup-token: %w", claude, err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 	// Claude Code has no more to say once it has printed the token, and waits
 	// for a keypress on some paths, so the login ends when this returns.
 	defer func() {
-		cmd.Process.Kill()
-		cmd.Wait()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 	}()
 
 	done := make(chan struct{})
@@ -129,7 +129,7 @@ func (m *Manager) loginHome() (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	return home, func() { os.RemoveAll(home) }, nil
+	return home, func() { _ = os.RemoveAll(home) }, nil
 }
 
 // browserHook is a $BROWSER that writes down the URL instead of opening it:
@@ -181,7 +181,7 @@ func typeCodes(done <-chan struct{}, ptmx io.Writer, codes <-chan string) {
 			if !ok {
 				return
 			}
-			io.WriteString(ptmx, code+"\r")
+			_, _ = io.WriteString(ptmx, code+"\r")
 		}
 	}
 }

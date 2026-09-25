@@ -104,18 +104,18 @@ func renderTokens(w io.Writer, r api.TokenReport, oneAgent bool) error {
 		span = "since " + r.Since.Local().Format("Jan 2 15:04")
 	}
 	if len(r.Agents) == 0 {
-		fmt.Fprintf(w, "Nothing spent %s.\n", span)
+		_, _ = fmt.Fprintf(w, "Nothing spent %s.\n", span)
 		return nil
 	}
-	fmt.Fprintf(w, "%s tokens %s, %s estimated at API prices.\n\n", humanTokens(r.Total), span, usd(r.CostUSD))
+	_, _ = fmt.Fprintf(w, "%s tokens %s, %s estimated at API prices.\n\n", humanTokens(r.Total), span, usd(r.CostUSD))
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(tw, "AGENT\tTOKENS\tCACHE READ\tCACHE WRITE\tINPUT\tOUTPUT\tCOST\tTURNS\tPEAK CONTEXT\tLAST")
+	_, _ = fmt.Fprintln(tw, "AGENT\tTOKENS\tCACHE READ\tCACHE WRITE\tINPUT\tOUTPUT\tCOST\tTURNS\tPEAK CONTEXT\tLAST")
 	for _, a := range r.Agents {
 		name := a.Ref
 		if !a.Exists {
 			name += " (gone)"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", name, humanTokens(a.Total), humanTokens(a.CacheRead),
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\n", name, humanTokens(a.Total), humanTokens(a.CacheRead),
 			humanTokens(a.CacheWrite), humanTokens(a.Input), humanTokens(a.Output), usd(a.CostUSD), a.Turns,
 			humanTokens(a.MaxContext), a.LastAt.Local().Format("Jan 2 15:04"))
 		if oneAgent || len(a.Models) > 1 {
@@ -124,7 +124,7 @@ func renderTokens(w io.Writer, r api.TokenReport, oneAgent bool) error {
 				if model == "" {
 					model = "(unnamed model)"
 				}
-				fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\t\n", model, humanTokens(m.Total), humanTokens(m.CacheRead),
+				_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\t\n", model, humanTokens(m.Total), humanTokens(m.CacheRead),
 					humanTokens(m.CacheWrite), humanTokens(m.Input), humanTokens(m.Output), usd(m.CostUSD))
 			}
 		}
@@ -139,7 +139,7 @@ func renderLimits(w io.Writer, limits []api.ClaudeLimit, now time.Time) {
 	if len(limits) == 0 {
 		return
 	}
-	fmt.Fprintln(w, "Claude usage limits, as the last chat on each account reported them:")
+	_, _ = fmt.Fprintln(w, "Claude usage limits, as the last chat on each account reported them:")
 	for _, l := range limits {
 		parts := make([]string, 0, len(l.Windows))
 		for _, win := range l.Windows {
@@ -153,14 +153,14 @@ func renderLimits(w io.Writer, limits []api.ClaudeLimit, now time.Time) {
 		if l.Status != "" && l.Status != "allowed" {
 			status = " · " + strings.ReplaceAll(l.Status, "_", " ")
 		}
-		fmt.Fprintf(w, "  %s: %s%s · as of %s\n", l.Account, strings.Join(parts, ", "), status, l.At.Local().Format("Jan 2 15:04"))
+		_, _ = fmt.Fprintf(w, "  %s: %s%s · as of %s\n", l.Account, strings.Join(parts, ", "), status, l.At.Local().Format("Jan 2 15:04"))
 	}
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w)
 }
 
 func renderTokenTurns(w io.Writer, lines []api.TokenTurn, showAgent bool) error {
 	if len(lines) == 0 {
-		fmt.Fprintln(w, "Nothing in the ledger yet.")
+		_, _ = fmt.Fprintln(w, "Nothing in the ledger yet.")
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
@@ -168,7 +168,7 @@ func renderTokenTurns(w io.Writer, lines []api.TokenTurn, showAgent bool) error 
 	if showAgent {
 		header = "AGENT\t" + header
 	}
-	fmt.Fprintln(tw, header)
+	_, _ = fmt.Fprintln(tw, header)
 	for _, l := range lines {
 		row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", l.At.Local().Format("Jan 2 15:04:05"), l.Kind, l.Model,
 			humanTokens(l.Total), humanTokens(l.CacheRead), humanTokens(l.CacheWrite), humanTokens(l.Input),
@@ -176,7 +176,7 @@ func renderTokenTurns(w io.Writer, lines []api.TokenTurn, showAgent bool) error 
 		if showAgent {
 			row = l.Project + "/" + l.Agent + "\t" + row
 		}
-		fmt.Fprintln(tw, row)
+		_, _ = fmt.Fprintln(tw, row)
 	}
 	return tw.Flush()
 }

@@ -72,7 +72,7 @@ func (s *Store) Sections(ctx context.Context) ([]Section, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanSections(rows)
 }
 
@@ -118,7 +118,7 @@ func (s *Store) AddSection(ctx context.Context, name string, now time.Time) (Sec
 	if err != nil {
 		return Section{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var last int
 	if err := tx.QueryRowContext(ctx, `SELECT coalesce(max(position), 0) FROM project_sections`).Scan(&last); err != nil {
 		return Section{}, err
@@ -164,7 +164,7 @@ func (s *Store) RemoveSection(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	res, err := tx.ExecContext(ctx, `DELETE FROM project_sections WHERE id = ?`, id)
 	if err != nil {
 		return err
@@ -188,7 +188,7 @@ func (s *Store) SetProjectLayout(ctx context.Context, l Layout) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	sections, err := sectionsTx(ctx, tx)
 	if err != nil {
@@ -291,7 +291,7 @@ func projectPlacesTx(ctx context.Context, tx *sql.Tx) ([]projectPlace, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var places []projectPlace
 	for rows.Next() {
 		var p projectPlace
@@ -313,7 +313,7 @@ func sectionsTx(ctx context.Context, tx *sql.Tx) ([]Section, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	return scanSections(rows)
 }
 
@@ -358,7 +358,7 @@ func (s *Store) renumberProjects(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := renumber(ctx, tx); err != nil {
 		return err
 	}

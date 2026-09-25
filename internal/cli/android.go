@@ -36,14 +36,14 @@ func printAndroid(cmd *cobra.Command, st api.AndroidStatus) {
 	out := cmd.OutOrStdout()
 	switch {
 	case st.Booted:
-		fmt.Fprintf(out, "The emulator is running: %s\n", st.Device)
+		_, _ = fmt.Fprintf(out, "The emulator is running: %s\n", st.Device)
 	case st.Running:
-		fmt.Fprintln(out, "The emulator is starting")
+		_, _ = fmt.Fprintln(out, "The emulator is starting")
 	default:
-		fmt.Fprintln(out, "The emulator isn't running")
+		_, _ = fmt.Fprintln(out, "The emulator isn't running")
 	}
 	if !st.Available {
-		fmt.Fprintf(out, "This machine can't run emulators yet: %s\n", st.Problem)
+		_, _ = fmt.Fprintf(out, "This machine can't run emulators yet: %s\n", st.Problem)
 	}
 }
 
@@ -80,7 +80,7 @@ func newAndroidStartCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.ErrOrStderr(), "Starting the emulator; Android takes about 20 seconds to boot…")
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Starting the emulator; Android takes about 20 seconds to boot…")
 			status, err := c.StartAndroid(cmd.Context(), ref, req)
 			if err != nil {
 				return err
@@ -145,7 +145,7 @@ paths are relative to the current directory; on the host, to the agent's worktre
 			if err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), result.Output)
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), result.Output)
 			return nil
 		},
 	}
@@ -192,7 +192,7 @@ func newAndroidRecordStartCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Recording %q. Run agentbox android record stop when you're done (it stops by itself after %s)\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Recording %q. Run agentbox android record stop when you're done (it stops by itself after %s)\n",
 				status.Name, time.Duration(status.LimitSeconds)*time.Second)
 			return nil
 		},

@@ -238,7 +238,7 @@ func (c Client) WaitReady(ctx context.Context, name string, timeout time.Duratio
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// Fails for a "degraded" system too, which is fine for agents.
-	c.Run(ctx, "exec", name, "--", "systemctl", "is-system-running", "--wait")
+	_, _ = c.Run(ctx, "exec", name, "--", "systemctl", "is-system-running", "--wait")
 	for {
 		inst, err := c.Instance(ctx, name)
 		if err == nil && inst.IPv4() != "" {

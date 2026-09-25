@@ -34,7 +34,7 @@ func newTopCmd(a *app) *cobra.Command {
 					return err
 				}
 				if watch {
-					fmt.Fprint(out, "\x1b[H\x1b[2J")
+					_, _ = fmt.Fprint(out, "\x1b[H\x1b[2J")
 				}
 				if err := renderTop(out, usage); err != nil {
 					return err
@@ -52,11 +52,11 @@ func newTopCmd(a *app) *cobra.Command {
 
 func renderTop(w io.Writer, u api.Usage) error {
 	host := u.Host
-	fmt.Fprintf(w, "HOST   CPU %.0f%% of %d cores   MEMORY %s / %s   DISK POOL %s used, %s free\n\n",
+	_, _ = fmt.Fprintf(w, "HOST   CPU %.0f%% of %d cores   MEMORY %s / %s   DISK POOL %s used, %s free\n\n",
 		host.CPU, host.Cores, humanBytes(host.MemUsed), humanBytes(host.MemTotal),
 		humanBytes(host.PoolUsed), humanBytes(host.PoolTotal-host.PoolUsed))
 	if len(u.Agents) == 0 {
-		fmt.Fprintln(w, "No agents.")
+		_, _ = fmt.Fprintln(w, "No agents.")
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
@@ -64,7 +64,7 @@ func renderTop(w io.Writer, u api.Usage) error {
 	// close this agent is to its own ceiling — the one that decides whether it
 	// is the agent that needs more room. OF HOST is what it is costing the
 	// machine everything else is sharing.
-	fmt.Fprintln(tw, "AGENT\tSTATE\tCPU\tOF LIMIT\tOF HOST\tMEMORY\tPROCESSES")
+	_, _ = fmt.Fprintln(tw, "AGENT\tSTATE\tCPU\tOF LIMIT\tOF HOST\tMEMORY\tPROCESSES")
 	for _, a := range u.Agents {
 		ofLimit := "-" // uncapped: there is no limit to be a fraction of
 		if a.Limits.CPU != "" && a.Cores > 0 {
@@ -78,7 +78,7 @@ func renderTop(w io.Writer, u api.Usage) error {
 		if a.Limits.Memory != "" {
 			memory = humanBytes(a.Memory) + " / " + a.Limits.Memory
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%.0f%%\t%s\t%s\t%s\t%d\n", a.Ref, a.State, a.CPU, ofLimit, ofHost, memory, a.Processes)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%.0f%%\t%s\t%s\t%s\t%d\n", a.Ref, a.State, a.CPU, ofLimit, ofHost, memory, a.Processes)
 	}
 	return tw.Flush()
 }

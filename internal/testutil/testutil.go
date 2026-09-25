@@ -36,12 +36,12 @@ func IsolateGit() (cleanup func(), err error) {
 	}
 	for k, v := range gitEnv(filepath.Join(dir, "gitconfig")) {
 		if err := os.Setenv(k, v); err != nil {
-			os.RemoveAll(dir)
+			_ = os.RemoveAll(dir)
 			return nil, err
 		}
 	}
 	gitIsolated = true
-	return func() { os.RemoveAll(dir) }, nil
+	return func() { _ = os.RemoveAll(dir) }, nil
 }
 
 func gitEnv(config string) map[string]string {

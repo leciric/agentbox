@@ -68,7 +68,7 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 	// and a process left behind would hold a login open for nothing.
 	defer func() {
 		proc.Stop()
-		proc.Stdout.Close()
+		_ = proc.Stdout.Close()
 	}()
 
 	h := &asideHandler{}

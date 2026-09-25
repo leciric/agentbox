@@ -36,7 +36,7 @@ func (s *Server) version(w http.ResponseWriter, _ *http.Request) error {
 }
 
 func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "stopping"})
+	_ = writeJSON(w, http.StatusOK, map[string]string{"status": "stopping"})
 	go s.stop()
 	return nil
 }
@@ -412,7 +412,7 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-	io.WriteString(w, text)
+	_, _ = io.WriteString(w, text)
 	return nil
 }
 
@@ -898,7 +898,7 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 				s.leadAsked(a)
 			}
 			if _, err := s.chat.Send(a, task); err != nil {
-				fmt.Fprintf(log, "the agent was made, but its task couldn't be sent: %v\n", err)
+				_, _ = fmt.Fprintf(log, "the agent was made, but its task couldn't be sent: %v\n", err)
 			}
 		}
 		// The thread in the project chat's rail opens on this, so an agent the
@@ -973,7 +973,7 @@ func (s *Server) diff(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	io.WriteString(w, text)
+	_, _ = io.WriteString(w, text)
 	return nil
 }
 
@@ -1468,7 +1468,7 @@ func (s *Server) jobLog(w http.ResponseWriter, r *http.Request) error {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
-		j.follow(r.Context(), 0, func(line string) error {
+		_, _ = j.follow(r.Context(), 0, func(line string) error {
 			if _, err := io.WriteString(w, line+"\n"); err != nil {
 				return err
 			}
@@ -1485,7 +1485,7 @@ func (s *Server) jobLog(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	for _, line := range lines {
-		io.WriteString(w, line+"\n")
+		_, _ = io.WriteString(w, line+"\n")
 	}
 	return nil
 }

@@ -56,14 +56,14 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
 				if _, err := c.CancelChat(ctx, ref); err != nil {
 					return err
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), "Stopped the running turn")
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Stopped the running turn")
 				return nil
 			}
 			if clear {
 				if err := c.ClearChat(ctx, ref); err != nil {
 					return err
 				}
-				fmt.Fprintln(cmd.ErrOrStderr(), "Started a new conversation")
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Started a new conversation")
 			}
 			if len(set) > 0 {
 				if err := setChatOptions(cmd, c, ref, set); err != nil {
@@ -81,7 +81,7 @@ chat asks you here if this is a terminal; otherwise, answer in the app.`,
 				return err
 			}
 			if len(thread.Items) == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "No messages yet. Send one with: agentbox chat %s \"<message>\"\n", ref)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No messages yet. Send one with: agentbox chat %s \"<message>\"\n", ref)
 				return nil
 			}
 			p := newChatPrinter(cmd.OutOrStdout())
@@ -119,11 +119,11 @@ func newInterfaceCmd(a *app) *cobra.Command {
 			}
 			switch {
 			case ag.AI == "none":
-				fmt.Fprintf(cmd.OutOrStdout(), "%s has no AI tool, only a shell\n", ag.Ref)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s has no AI tool, only a shell\n", ag.Ref)
 			case ag.Interface == "chat":
-				fmt.Fprintf(cmd.OutOrStdout(), "%s uses the chat: the app's Chat tab, or agentbox chat %s\n", ag.Ref, ag.Ref)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s uses the chat: the app's Chat tab, or agentbox chat %s\n", ag.Ref, ag.Ref)
 			default:
-				fmt.Fprintf(cmd.OutOrStdout(), "%s uses %s's command line: agentbox shell %s\n", ag.Ref, describeAI(ag.AI, false), ag.Ref)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s uses %s's command line: agentbox shell %s\n", ag.Ref, describeAI(ag.AI, false), ag.Ref)
 			}
 			return nil
 		},
@@ -180,7 +180,7 @@ func setChatOptions(cmd *cobra.Command, c *api.Client, ref string, settings []st
 			}
 			return fmt.Errorf("%w (choices: %s)", err, strings.Join(choices, ", "))
 		}
-		fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", option.Name, value)
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s: %s\n", option.Name, value)
 	}
 	return nil
 }
@@ -255,7 +255,7 @@ func followTurn(cmd *cobra.Command, c *api.Client, ref, message string) error {
 			}
 			asked[it.ID] = true
 			if in == nil {
-				fmt.Fprintf(stderr, "  ? %s: answer in the app\n", it.Permission.Title)
+				_, _ = fmt.Fprintf(stderr, "  ? %s: answer in the app\n", it.Permission.Title)
 			} else if err := askPermission(ctx, c, ref, it, in, stderr); err != nil {
 				return err
 			}
@@ -278,7 +278,7 @@ func followTurn(cmd *cobra.Command, c *api.Client, ref, message string) error {
 				return detachFromTurn(stderr, ref)
 			}
 			if err != nil {
-				fmt.Fprintf(stderr, "(the event stream ended: %v; checking every 2 s)\n", err)
+				_, _ = fmt.Fprintf(stderr, "(the event stream ended: %v; checking every 2 s)\n", err)
 			}
 			streamErr = nil
 		case <-ctx.Done():
@@ -289,27 +289,27 @@ func followTurn(cmd *cobra.Command, c *api.Client, ref, message string) error {
 }
 
 func detachFromTurn(w io.Writer, ref string) error {
-	fmt.Fprintf(w, "\nStopped following: the turn keeps running. Stop it with: agentbox chat %s --stop\n", ref)
+	_, _ = fmt.Fprintf(w, "\nStopped following: the turn keeps running. Stop it with: agentbox chat %s --stop\n", ref)
 	return exitCodeError(130)
 }
 
 func askPermission(ctx context.Context, c *api.Client, ref string, it api.ChatItem, in *bufio.Reader, w io.Writer) error {
 	perm := it.Permission
-	fmt.Fprintf(w, "\n  ? %s\n", perm.Title)
+	_, _ = fmt.Fprintf(w, "\n  ? %s\n", perm.Title)
 	for i, o := range perm.Options {
-		fmt.Fprintf(w, "    %d. %s\n", i+1, o.Name)
+		_, _ = fmt.Fprintf(w, "    %d. %s\n", i+1, o.Name)
 	}
 	for {
-		fmt.Fprintf(w, "  Choose 1-%d: ", len(perm.Options))
+		_, _ = fmt.Fprintf(w, "  Choose 1-%d: ", len(perm.Options))
 		line, err := in.ReadString('\n')
 		if err != nil {
 			return err
 		}
 		if n, err := strconv.Atoi(strings.TrimSpace(line)); err == nil && n >= 1 && n <= len(perm.Options) {
 			if _, err := c.AnswerChat(ctx, ref, it.ID, perm.Options[n-1].ID); err != nil {
-				fmt.Fprintf(w, "  %v\n", err) // answered in the app meanwhile, or the turn ended
+				_, _ = fmt.Fprintf(w, "  %v\n", err) // answered in the app meanwhile, or the turn ended
 			}
-			fmt.Fprintln(w)
+			_, _ = fmt.Fprintln(w)
 			return nil
 		}
 	}
@@ -355,7 +355,7 @@ func (p *chatPrinter) item(it api.ChatItem) {
 		p.once(it.ID, "\n› "+it.Text+deliveryNote(it.Delivery)+"\n\n")
 	case "assistant":
 		if n := p.printed[it.ID]; n < len(it.Text) {
-			fmt.Fprint(p.out, it.Text[n:])
+			_, _ = fmt.Fprint(p.out, it.Text[n:])
 			p.printed[it.ID] = len(it.Text)
 		}
 		if !it.Streaming {
@@ -392,7 +392,7 @@ func deliveryNote(delivery string) string {
 func (p *chatPrinter) once(key, text string) {
 	if !p.shown[key] {
 		p.shown[key] = true
-		fmt.Fprint(p.out, text)
+		_, _ = fmt.Fprint(p.out, text)
 	}
 }
 

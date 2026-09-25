@@ -40,18 +40,18 @@ func (s *Server) serveLeadAPI(project string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	os.Remove(path)
+	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		return err
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return err
 	}
 	srv := &http.Server{Handler: s.leadRoutes(project)}
 	s.leadAPIs[project] = srv
-	go srv.Serve(ln)
+	go func() { _ = srv.Serve(ln) }()
 	return nil
 }
 
@@ -61,9 +61,9 @@ func (s *Server) stopLeadAPI(project string) {
 	delete(s.leadAPIs, project)
 	s.mu.Unlock()
 	if srv != nil {
-		srv.Close()
+		_ = srv.Close()
 	}
-	os.Remove(s.leadSocketPath(project))
+	_ = os.Remove(s.leadSocketPath(project))
 }
 
 func (s *Server) closeLeadAPIs() {
@@ -118,7 +118,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/questions/{id}/answer", withProject(s.leadAnswerQuestion))
 	mux.HandleFunc("POST /v1/project/questions/{id}/escalate", withProject(s.leadEscalateQuestion))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusForbidden, api.Error{Error: "a project's chat can only reach its own project"})
+		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "a project's chat can only reach its own project"})
 	})
 	return mux
 }

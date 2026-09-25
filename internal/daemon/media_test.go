@@ -110,7 +110,7 @@ func TestMediaFilesAreServedWithRanges(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(body)
 	}
@@ -290,10 +290,12 @@ func TestBulkDeleteMediaByIDs(t *testing.T) {
 	events := make(chan api.Event, 64)
 	eventsCtx, stopEvents := context.WithCancel(ctx)
 	defer stopEvents()
-	go d.client.Events(eventsCtx, func(ev api.Event) error {
-		events <- ev
-		return nil
-	})
+	go func() {
+		_ = d.client.Events(eventsCtx, func(ev api.Event) error {
+			events <- ev
+			return nil
+		})
+	}()
 	waitFor(t, "an event subscriber", func() bool { return d.srv.events.subscribers() > 0 })
 
 	got, err := d.client.DeleteAgentMedia(ctx, a.Ref(), api.DeleteMediaRequest{IDs: []string{one.ID, two.ID, "never-existed"}})

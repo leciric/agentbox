@@ -67,9 +67,9 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 			if err != nil {
 				return err
 			}
-			defer os.Remove(f.Name())
+			defer func() { _ = os.Remove(f.Name()) }()
 			if _, err := f.Write(hostsetup.Script); err != nil {
-				f.Close()
+				_ = f.Close()
 				return err
 			}
 			if err := f.Close(); err != nil {
@@ -103,9 +103,9 @@ func newHostCheckCmd(a *app) *cobra.Command {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			for _, check := range status.Checks {
 				mark := map[string]string{api.SetupOK: "✓", api.SetupMissing: "✗", api.SetupOutdated: "!", api.SetupOptional: "–", api.SetupWarn: "!", api.SetupUpdating: "↻"}[check.Status]
-				fmt.Fprintf(w, "%s\t%s\t%s\n", mark, check.Title, check.Detail)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", mark, check.Title, check.Detail)
 				if check.Status != api.SetupOK && check.Status != api.SetupUpdating && check.Fix != "" {
-					fmt.Fprintf(w, "\t\tfix: %s\n", check.Fix)
+					_, _ = fmt.Fprintf(w, "\t\tfix: %s\n", check.Fix)
 				}
 			}
 			if err := w.Flush(); err != nil {

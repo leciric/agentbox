@@ -115,15 +115,15 @@ func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 	case !st.Exists:
 		return ErrNotCreated
 	case st.Status == "Broken":
-		return fmt.Errorf("Lima says AgentBox's VM is broken, so it can't be resized: see limactl list")
+		return fmt.Errorf("AgentBox's VM is broken, Lima says, so it can't be resized: see limactl list")
 	}
 	if (cpus == 0 || cpus == st.CPUs) && (memory == 0 || memory == st.Memory) {
-		fmt.Fprintf(v.Log, "AgentBox's VM already has %d CPUs and %s of memory.\n", st.CPUs, sizeWords(st.Memory))
+		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM already has %d CPUs and %s of memory.\n", st.CPUs, sizeWords(st.Memory))
 		return nil
 	}
 	running := st.Status == "Running"
 	if running {
-		fmt.Fprintln(v.Log, "==> Stopping AgentBox's VM, and every agent in it")
+		_, _ = fmt.Fprintln(v.Log, "==> Stopping AgentBox's VM, and every agent in it")
 		if err := v.Stop(ctx); err != nil {
 			return err
 		}
@@ -140,7 +140,7 @@ func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 	} else {
 		memory = st.Memory
 	}
-	fmt.Fprintf(v.Log, "==> Giving the VM %d CPUs and %s of memory\n", cpus, sizeWords(memory))
+	_, _ = fmt.Fprintf(v.Log, "==> Giving the VM %d CPUs and %s of memory\n", cpus, sizeWords(memory))
 	if err := v.limaLog(ctx, append(args, v.Name)...); err != nil {
 		if running {
 			// Put back what was running, at the size it had.
@@ -149,7 +149,7 @@ func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 		return err
 	}
 	if !running {
-		fmt.Fprintln(v.Log, "The VM is stopped: it has the new size when it next starts.")
+		_, _ = fmt.Fprintln(v.Log, "The VM is stopped: it has the new size when it next starts.")
 		return nil
 	}
 	if err := v.Start(ctx); err != nil {
@@ -164,8 +164,8 @@ func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 // restartDaemon stops the VM's daemon, if one runs, and starts it again with
 // the host's settings.
 func (v *VM) restartDaemon(ctx context.Context) error {
-	fmt.Fprintln(v.Log, "==> Starting the daemon")
+	_, _ = fmt.Fprintln(v.Log, "==> Starting the daemon")
 	// A daemon that isn't running has nothing to stop.
-	v.shellLog(ctx, vmBinary, "daemon", "stop")
+	_ = v.shellLog(ctx, vmBinary, "daemon", "stop")
 	return v.shellLog(ctx, append([]string{"env"}, append(v.forwardEnv(), vmBinary, "daemon", "start")...)...)
 }

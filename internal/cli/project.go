@@ -35,15 +35,15 @@ func newAddCmd(a *app) *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Added project %s\n\n", p.Name)
+			_, _ = fmt.Fprintf(out, "Added project %s\n\n", p.Name)
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintf(w, "  root\t%s\n", p.Root)
-			fmt.Fprintf(w, "  branch\t%s (new agents start here)\n", p.Branch)
-			fmt.Fprintf(w, "  env files\t%s\n", describeEnvFiles(p.EnvFiles))
-			fmt.Fprintf(w, "  claude account\t%s\n", cmpOrDefault("claude", p.ClaudeAccount))
-			fmt.Fprintf(w, "  github account\t%s\n", cmpOrDefault("github", p.GitHubAccount))
+			_, _ = fmt.Fprintf(w, "  root\t%s\n", p.Root)
+			_, _ = fmt.Fprintf(w, "  branch\t%s (new agents start here)\n", p.Branch)
+			_, _ = fmt.Fprintf(w, "  env files\t%s\n", describeEnvFiles(p.EnvFiles))
+			_, _ = fmt.Fprintf(w, "  claude account\t%s\n", cmpOrDefault("claude", p.ClaudeAccount))
+			_, _ = fmt.Fprintf(w, "  github account\t%s\n", cmpOrDefault("github", p.GitHubAccount))
 			if p.Android {
-				fmt.Fprintf(w, "  android\tdetected: its agents can run their own emulator (agentbox android start)\n")
+				_, _ = fmt.Fprintf(w, "  android\tdetected: its agents can run their own emulator (agentbox android start)\n")
 			}
 			return w.Flush()
 		},
@@ -113,7 +113,7 @@ for the next one.`,
 				}
 				for _, p := range projects {
 					if p.Name == args[0] {
-						fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentModelWords(p.AgentModel))
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentModelWords(p.AgentModel))
 						return nil
 					}
 				}
@@ -131,7 +131,7 @@ for the next one.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentModelWords(p.AgentModel))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentModelWords(p.AgentModel))
 			return nil
 		},
 	}
@@ -179,7 +179,7 @@ exist keep the branch they were made on.`,
 				}
 				for _, p := range projects {
 					if p.Name == args[0] {
-						fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, branchPrefixWords(p.BranchPrefix))
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, branchPrefixWords(p.BranchPrefix))
 						return nil
 					}
 				}
@@ -189,7 +189,7 @@ exist keep the branch they were made on.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, branchPrefixWords(p.BranchPrefix))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, branchPrefixWords(p.BranchPrefix))
 			return nil
 		},
 	}
@@ -218,13 +218,13 @@ func newProjectsCmd(a *app) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if len(projects) == 0 {
-				fmt.Fprintln(out, "No projects yet. Add one with: agentbox add <path>")
+				_, _ = fmt.Fprintln(out, "No projects yet. Add one with: agentbox add <path>")
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "PROJECT\tCLAUDE ACCOUNT\tGITHUB ACCOUNT\tROOT")
+			_, _ = fmt.Fprintln(w, "PROJECT\tCLAUDE ACCOUNT\tGITHUB ACCOUNT\tROOT")
 			for _, p := range projects {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, orDash(p.ClaudeAccount), orDash(p.GitHubAccount), p.Root)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, orDash(p.ClaudeAccount), orDash(p.GitHubAccount), p.Root)
 			}
 			return w.Flush()
 		},
@@ -244,7 +244,7 @@ func newRemoveCmd(a *app) *cobra.Command {
 			if err := c.RemoveProject(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed project %s\n", args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed project %s\n", args[0])
 			return nil
 		},
 	}
@@ -280,7 +280,7 @@ blocked until it gets an answer, so its question always wakes the chat.`,
 				}
 				for _, p := range projects {
 					if p.Name == args[0] {
-						fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, finishNoticeWords(p.FinishNotices))
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, finishNoticeWords(p.FinishNotices))
 						return nil
 					}
 				}
@@ -290,7 +290,7 @@ blocked until it gets an answer, so its question always wakes the chat.`,
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, finishNoticeWords(p.FinishNotices))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, finishNoticeWords(p.FinishNotices))
 			return nil
 		},
 	}
@@ -335,7 +335,7 @@ The default is 80.`,
 				return err
 			}
 			show := func(p api.Project) {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, rolloverWords(p.RolloverThreshold))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, rolloverWords(p.RolloverThreshold))
 			}
 			if len(args) == 1 {
 				projects, err := c.Projects(cmd.Context())
@@ -354,7 +354,7 @@ The default is 80.`,
 				if err := c.RolloverChat(cmd.Context(), args[0]); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: the chat was consolidated into the project's memory and carried on in a fresh session\n", args[0])
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: the chat was consolidated into the project's memory and carried on in a fresh session\n", args[0])
 				return nil
 			}
 			percent := 0
@@ -399,7 +399,7 @@ The default is 4,000 tokens, and a worker agent gets a quarter of it.`,
 				return err
 			}
 			show := func(p api.Project) {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %d tokens a context, %d for one agent\n",
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %d tokens a context, %d for one agent\n",
 					p.Name, p.ContextBudget, p.ContextBudget/4)
 			}
 			if len(args) == 1 {
@@ -470,7 +470,7 @@ The default is 200.`,
 				return err
 			}
 			show := func(p api.Project) {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, consolidationWords(p.Consolidation))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, consolidationWords(p.Consolidation))
 			}
 			if len(args) == 1 {
 				projects, err := c.Projects(cmd.Context())
@@ -482,7 +482,7 @@ The default is 200.`,
 						show(p)
 						state, err := c.ProjectMemory(p.Name).Consolidation(cmd.Context())
 						if err == nil {
-							fmt.Fprint(cmd.OutOrStdout(), describeConsolidation(state))
+							_, _ = fmt.Fprint(cmd.OutOrStdout(), describeConsolidation(state))
 						}
 						return nil
 					}
@@ -495,7 +495,7 @@ The default is 200.`,
 					return err
 				}
 				for _, p := range passes {
-					fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", args[0], passWords(p))
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", args[0], passWords(p))
 				}
 				return nil
 			}
@@ -548,7 +548,7 @@ The default is cheap.`,
 				return err
 			}
 			show := func(p api.Project) {
-				fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, consolidationModelWords(p.ConsolidationModel))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, consolidationModelWords(p.ConsolidationModel))
 			}
 			if len(args) == 1 {
 				projects, err := c.Projects(cmd.Context())
@@ -642,7 +642,7 @@ func newBriefCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(cmd.OutOrStdout(), text)
+			_, _ = fmt.Fprint(cmd.OutOrStdout(), text)
 			return nil
 		},
 	}

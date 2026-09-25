@@ -33,19 +33,19 @@ func (s *Server) serveAgentAPI(instance string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	os.Remove(path)
+	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		return err
 	}
 	// Only root (Incus' proxy) and this user can connect.
 	if err := os.Chmod(path, 0o600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return err
 	}
 	srv := &http.Server{Handler: s.inAgentRoutes(instance)}
 	s.agentAPIs[instance] = srv
-	go srv.Serve(ln)
+	go func() { _ = srv.Serve(ln) }()
 	return nil
 }
 
@@ -55,9 +55,9 @@ func (s *Server) stopAgentAPI(instance string) {
 	delete(s.agentAPIs, instance)
 	s.mu.Unlock()
 	if srv != nil {
-		srv.Close()
+		_ = srv.Close()
 	}
-	os.Remove(s.agentSocketPath(instance))
+	_ = os.Remove(s.agentSocketPath(instance))
 }
 
 func (s *Server) closeAgentAPIs() {
@@ -75,7 +75,7 @@ func (s *Server) closeAgentAPIs() {
 func (s *Server) inAgentRoutes(instance string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/version", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, api.VersionInfo{Version: Version}) // not the host's groups
+		_ = writeJSON(w, http.StatusOK, api.VersionInfo{Version: Version}) // not the host's groups
 	})
 	mux.HandleFunc("GET /v1/self", func(w http.ResponseWriter, r *http.Request) {
 		a, err := s.store.AgentByInstance(r.Context(), instance)
@@ -88,7 +88,7 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, api.Self{
+		_ = writeJSON(w, http.StatusOK, api.Self{
 			Ref:      info.Ref,
 			Project:  info.Project,
 			Agent:    info.Name,
@@ -138,7 +138,7 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	}
 	// Nothing else: an agent must not reach projects, other agents or the daemon itself.
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusForbidden, api.Error{Error: "not available inside an agent"})
+		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "not available inside an agent"})
 	})
 	return mux
 }

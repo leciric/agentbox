@@ -34,7 +34,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return nil // Accept has already written the response
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(1 << 20)
 
 	ctx, cancel := context.WithCancel(r.Context())
@@ -44,13 +44,13 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	ptmx, err := pty.StartWithSize(cmd, size)
 	if err != nil {
-		conn.Close(websocket.StatusInternalError, err.Error())
+		_ = conn.Close(websocket.StatusInternalError, err.Error())
 		return nil
 	}
 	defer func() {
 		cancel()
-		ptmx.Close()
-		cmd.Wait()
+		_ = ptmx.Close()
+		_ = cmd.Wait()
 	}()
 
 	go func() {
@@ -77,7 +77,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 		if typ == websocket.MessageText {
 			var resize api.TerminalResize
 			if json.Unmarshal(data, &resize) == nil && resize.Cols > 0 && resize.Rows > 0 {
-				pty.Setsize(ptmx, &pty.Winsize{Cols: resize.Cols, Rows: resize.Rows})
+				_ = pty.Setsize(ptmx, &pty.Winsize{Cols: resize.Cols, Rows: resize.Rows})
 			}
 			continue
 		}
@@ -85,7 +85,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 			break
 		}
 	}
-	conn.Close(websocket.StatusNormalClosure, "")
+	_ = conn.Close(websocket.StatusNormalClosure, "")
 	return nil
 }
 

@@ -100,7 +100,7 @@ func (m *Manager) startMedia(a state.Agent, kind, name, source string) (*pending
 	}}, nil
 }
 
-func (p *pendingMedia) discard() { os.RemoveAll(p.dir) }
+func (p *pendingMedia) discard() { _ = os.RemoveAll(p.dir) }
 
 // saveMedia records the item. file is its file or directory inside p.dir, or ""
 // for a note.
@@ -221,7 +221,7 @@ ffmpeg -loglevel error -f x11grab -i :99 -frames:v 1 -y ` + tmp
 	if _, err := m.agentShell(ctx, a, script); err != nil {
 		return fmt.Errorf("taking the screenshot: %w", err)
 	}
-	defer m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "rm", "-f", tmp)
+	defer func() { _, _ = m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "rm", "-f", tmp) }()
 	_, err := m.Incus.Run(ctx, "file", "pull", a.Instance+tmp, file)
 	return err
 }
@@ -234,7 +234,7 @@ func (m *Manager) withPage(ctx context.Context, a state.Agent, page BrowserPage,
 	if err != nil {
 		return fmt.Errorf("connecting to the browser: %w", err)
 	}
-	defer conn.CloseNow()
+	defer func() { _ = conn.CloseNow() }()
 	conn.SetReadLimit(128 << 20)
 	return fn(ctx, &devtoolsSession{conn: conn})
 }
@@ -475,7 +475,9 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	p.item.CreatedAt = st.StartedAt
 	file := filepath.Join(p.dir, fileName(st.Name, "recording", ".mp4"))
 	remote := a.Instance + home + "/" + agentStateDir
-	defer m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "sh", "-c", "rm -f "+home+"/"+agentStateDir+"/recording.* "+home+"/"+agentStateDir+"/input.*")
+	defer func() {
+		_, _ = m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "sh", "-c", "rm -f "+home+"/"+agentStateDir+"/recording.* "+home+"/"+agentStateDir+"/input.*")
+	}()
 	if _, err := m.Incus.Run(ctx, "file", "pull", remote+"/recording.mp4", file); err != nil {
 		p.discard()
 		return state.Media{}, err
@@ -568,7 +570,7 @@ func (m *Manager) AddNote(ctx context.Context, a state.Agent, text, name, source
 	}
 	p.item.Text = text
 	item, err := m.saveMedia(ctx, p, "", MediaMeta{})
-	os.Remove(p.dir) // a note has no file
+	_ = os.Remove(p.dir) // a note has no file
 	return item, err
 }
 
@@ -691,7 +693,7 @@ func (m *Manager) ExportMedia(ctx context.Context, a state.Agent, dir string) (s
 			return "", 0, err
 		}
 		var meta MediaMeta
-		json.Unmarshal([]byte(item.Meta), &meta)
+		_ = json.Unmarshal([]byte(item.Meta), &meta)
 		link := name
 		if meta.Entry != "" {
 			link = name + "/" + meta.Entry
@@ -781,7 +783,7 @@ func pngSize(file string) (int, int) {
 	if err != nil {
 		return 0, 0
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	cfg, err := png.DecodeConfig(f)
 	if err != nil {
 		return 0, 0
@@ -798,7 +800,7 @@ func junitCounts(file string) *TestCounts {
 	if err != nil {
 		return nil
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var counts *TestCounts
 	inCase, outcome := false, ""
 	decoder := xml.NewDecoder(f)
@@ -846,7 +848,7 @@ func fileSHA256(file string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
@@ -880,13 +882,13 @@ func copyPath(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	return out.Close()

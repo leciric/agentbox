@@ -84,8 +84,8 @@ func (f *fakeTool) launch(_ context.Context, _ state.Agent, status func(string))
 	var once sync.Once
 	stop := func() {
 		once.Do(func() {
-			fromTool.Close()
-			toTool.Close()
+			_ = fromTool.Close()
+			_ = toTool.Close()
 			close(exited)
 		})
 	}
@@ -109,7 +109,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		var req struct {
 			ConfigID string `json:"configId"`
 		}
-		json.Unmarshal(params, &req)
+		_ = json.Unmarshal(params, &req)
 		during(method, req.ConfigID)
 	}
 	switch method {
@@ -148,7 +148,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 			ConfigID string `json:"configId"`
 			Value    string `json:"value"`
 		}
-		json.Unmarshal(params, &req)
+		_ = json.Unmarshal(params, &req)
 		if f.strictModel && req.ConfigID == "model" && !slices.ContainsFunc(f.options(), func(o map[string]any) bool {
 			if o["id"] != "model" {
 				return false
@@ -173,7 +173,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 			return
 		}
 		var req acp.PromptRequest
-		json.Unmarshal(params, &req)
+		_ = json.Unmarshal(params, &req)
 		go func() { reply(turn(f, req.SessionID, req.Prompt[0].Text), nil) }()
 	case acp.MethodSessionSteer:
 		if !f.steering {
@@ -189,7 +189,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 			return
 		}
 		var req acp.SteerRequest
-		json.Unmarshal(params, &req)
+		_ = json.Unmarshal(params, &req)
 		text := req.Prompt[0].Text
 		f.mu.Lock()
 		f.steered = append(f.steered, text)
@@ -246,7 +246,7 @@ func (f *fakeTool) connection() *acp.Conn {
 }
 
 func (f *fakeTool) update(sessionID, update string) {
-	f.connection().Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": sessionID, "update": json.RawMessage(update)})
+	_ = f.connection().Notify(acp.MethodSessionUpdate, map[string]any{"sessionId": sessionID, "update": json.RawMessage(update)})
 }
 
 // ask requests permission for a tool call and returns the option chosen, or "cancelled".
@@ -360,7 +360,7 @@ func openStore(t *testing.T) *state.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 	return st
 }
 

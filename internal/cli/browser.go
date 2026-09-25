@@ -45,16 +45,16 @@ func printBrowser(cmd *cobra.Command, status api.BrowserStatus) error {
 		if status.Display {
 			// The desktop outlives Chromium: the app still shows it, and the
 			// dock on it can start a browser again.
-			fmt.Fprintln(out, "The browser isn't running, but the desktop is")
+			_, _ = fmt.Fprintln(out, "The browser isn't running, but the desktop is")
 			return nil
 		}
-		fmt.Fprintln(out, "The browser isn't running")
+		_, _ = fmt.Fprintln(out, "The browser isn't running")
 		return nil
 	}
-	fmt.Fprintf(out, "The browser is running (%s)\n", status.Version)
+	_, _ = fmt.Fprintf(out, "The browser is running (%s)\n", status.Version)
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	for _, p := range status.Pages {
-		fmt.Fprintf(w, "  %s\t%s\n", p.URL, p.Title)
+		_, _ = fmt.Fprintf(w, "  %s\t%s\n", p.URL, p.Title)
 	}
 	return w.Flush()
 }
