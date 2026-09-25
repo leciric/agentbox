@@ -406,7 +406,7 @@ type Agent struct {
 	// or cli, its own command line in the terminal.
 	Interface string `json:"interface"`
 	Chat      string `json:"chat,omitempty"` // the chat session's state, while this daemon has one
-	State     string `json:"state"`          // running, stopped, paused, incomplete or missing
+	State     string `json:"state"`          // running, stopped, paused, initializing, incomplete or missing
 	IP        string `json:"ip"`
 	// Limits is what its machine is capped at, read from Incus rather than
 	// remembered: the machine is the truth, and it can be changed from

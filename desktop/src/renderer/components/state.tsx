@@ -1,5 +1,5 @@
 import { Bot, LoaderCircle, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
-import { useMood, type Mood } from '../lib/agentStatus';
+import { type Mood, useMood } from '../lib/agentStatus';
 import { cn } from '../lib/utils';
 import { AgentCharacter, hasCharacter } from './AgentCharacter';
 import { Badge, type BadgeVariant } from './ui/badge';
@@ -8,6 +8,7 @@ const agentVariants: Record<string, BadgeVariant> = {
   running: 'success',
   paused: 'warning',
   stopped: 'default',
+  initializing: 'info',
   incomplete: 'danger',
   missing: 'danger',
 };
@@ -16,6 +17,7 @@ const dotColors: Record<string, string> = {
   running: 'bg-emerald-400',
   paused: 'bg-amber-400',
   stopped: 'bg-faint',
+  initializing: 'bg-sky-400',
   incomplete: 'bg-rose-400',
   missing: 'bg-rose-400',
 };
