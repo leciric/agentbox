@@ -11,6 +11,8 @@
 //   ?theme=light            the light appearance (default: dark)
 //   ?folded=1               the rail folded to 56px (default: open)
 //   ?open=agent-99          the named agent's thread open (ref suffix only)
+//   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
+//                           credential request (the only chat fixture there is)
 //   ?vm=create|lima         a Mac's first screen in the middle: the VM to set up,
 //                           or Lima to install first
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
@@ -28,7 +30,8 @@ import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { VMSize } from '../components/VMSize';
-import { buildFixtures, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
+import { Timeline } from '../components/chat/Timeline';
+import { agent12Chat, buildFixtures, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -38,8 +41,12 @@ localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' 
 const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's data-rail-thread
 const vm = params.get('vm');
 
+const chat = params.get('chat');
+const fixtures = buildFixtures();
+const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
+
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
-seedQueryClient(queryClient, buildFixtures());
+seedQueryClient(queryClient, fixtures);
 
 const view: View = { kind: 'project', project: PROJECT };
 
@@ -56,7 +63,11 @@ function Preview() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)', color: 'var(--color-zinc-600)', padding: 24, font: '13px var(--font-sans)' }}>
-        {vm === 'resize' ? (
+        {chatAgent ? (
+          <div className="mx-auto max-w-3xl px-2 pt-2">
+            <Timeline agent={chatAgent} thread={agent12Chat()} />
+          </div>
+        ) : vm === 'resize' ? (
           <div style={{ maxWidth: 720 }}>
             <VMSize
               busy={false}

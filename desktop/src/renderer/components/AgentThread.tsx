@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { CornerUpLeft, GitPullRequest, LoaderCircle, Send } from 'lucide-react';
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api } from '../lib/api';
@@ -89,16 +89,39 @@ export function AgentThread({
   events: T.AgentEvent[];
   questions: Map<string, T.Question>;
 }) {
+  // What is still waiting on you goes first, above the history, and is
+  // scrolled to when the thread opens: at the end of a thread that opens on a
+  // task and a couple of long summaries, it was below the fold with nothing
+  // pointing at it, and an agent blocked on it looked like it had asked for
+  // nothing.
+  const waiting = events.filter((ev) => ev.kind === A.AgentAsked && isWaiting(ev.question ? questions.get(ev.question) : undefined));
+  const history = events.filter((ev) => !waiting.includes(ev));
+  const first = useRef<HTMLDivElement>(null);
+  const hasWaiting = waiting.length > 0;
+  useEffect(() => {
+    if (hasWaiting) first.current?.scrollIntoView({ block: 'nearest' });
+  }, [hasWaiting]);
   return (
     <div className="ml-4 border-l border-line pb-2 pl-2.5 pr-1 pt-0.5" data-thread={agent}>
+      {hasWaiting && (
+        <div ref={first} className="mb-1.5 grid gap-1.5" data-thread-waiting>
+          {waiting.map((ev) => (
+            <EventCard key={ev.id} event={ev} question={ev.question ? questions.get(ev.question) : undefined} />
+          ))}
+        </div>
+      )}
       <div className="grid gap-1.5">
-        {events.map((ev) => (
+        {history.map((ev) => (
           <EventCard key={ev.id} event={ev} question={ev.question ? questions.get(ev.question) : undefined} />
         ))}
       </div>
       <ReplyBox agent={agent} name={name} running={running} />
     </div>
   );
+}
+
+function isWaiting(q: T.Question | undefined): boolean {
+  return q?.status === 'pending' || q?.status === 'escalated';
 }
 
 const kindLabels: Record<string, string> = {

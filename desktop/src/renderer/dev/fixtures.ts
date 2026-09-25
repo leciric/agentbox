@@ -40,6 +40,14 @@ And a URL: ${WIDE.longUrl}
 \`${WIDE.longErrorString}\`
 `;
 
+const agent12Task = `In desktop/src/renderer/components/Sidebar.tsx, add a "+" button in the Projects header that calls onAddProject (the same action as the "Add your first project" button), next to "New section". Take before and after screenshots, commit on agentbox/agent-12, push it and open a pull request against main.`;
+
+const agent12Done = `The code change is done: a Plus "New project" button in the Sidebar's Projects header calls onAddProject, next to "New section", whose icon is now FolderTree so the two don't both read as "add". Checked with \`npx tsc --noEmit\` and the preview harness, before and after screenshots in /tmp/pr-shots/.
+
+Pushing failed: origin is git@github.com:leciric/agentbox-private.git, SSH host key verification fails for github.com from this machine, and the GH_TOKEN here (luisflorido-stf) can't see the repository over HTTPS ("Repository not found"), so there's no branch on GitHub and no pull request yet.`;
+
+const agent12Stuck = `I don't have a request_credential tool: the memory server here lists search_memory, report, my_task and update_my_task only, so I can't ask for a GitHub account the way the brief says. The branch is committed and unchanged; it still needs a push from an account that can reach leciric/agentbox-private, and the pull request after it.`;
+
 function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
   return {
     project: PROJECT,
@@ -78,6 +86,7 @@ export interface FixtureData {
 // module load.
 export function buildFixtures(): FixtureData {
   const agents: T.Agent[] = [
+    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12' }),
     agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account' }),
     agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret' }),
     agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text' }),
@@ -150,7 +159,48 @@ export function buildFixtures(): FixtureData {
     },
   );
 
+  // agent-12 as the real one stood when its card didn't show: a task, two
+  // finishes with long summaries, and then a GitHub request it is blocked on,
+  // newest first as the daemon returns them. The card is the fourth event of
+  // a thread that opens scrolled to the top.
+  events.push(
+    { id: 'e12d', project: PROJECT, agent: 'agent-12', ref: `${PROJECT}/agent-12`, kind: 'asked', question: '27322c8f', at: new Date(Date.now() - 60_000).toISOString() },
+    {
+      id: 'e12c',
+      project: PROJECT,
+      agent: 'agent-12',
+      ref: `${PROJECT}/agent-12`,
+      kind: 'finished',
+      summary: agent12Stuck,
+      changes: { files: 1, insertions: 12, deletions: 3, dirty: false },
+      at: new Date(Date.now() - 110_000).toISOString(),
+    },
+    {
+      id: 'e12b',
+      project: PROJECT,
+      agent: 'agent-12',
+      ref: `${PROJECT}/agent-12`,
+      kind: 'finished',
+      summary: agent12Done,
+      cut: true,
+      changes: { files: 1, insertions: 12, deletions: 3, dirty: false },
+      at: new Date(Date.now() - 2_200_000).toISOString(),
+    },
+    { id: 'e12a', project: PROJECT, agent: 'agent-12', ref: `${PROJECT}/agent-12`, kind: 'created', summary: agent12Task, at: new Date(Date.now() - 2_400_000).toISOString() },
+  );
+
   const questions: T.Question[] = [
+    {
+      id: '27322c8f',
+      project: PROJECT,
+      agent: 'agent-12',
+      ref: `${PROJECT}/agent-12`,
+      kind: 'github',
+      question:
+        '`git push -u origin agentbox/agent-12` to git@github.com:leciric/agentbox-private.git fails with "Host key verification failed" over SSH, and the current GH_TOKEN (account luisflorido-stf) can\'t resolve this repo over HTTPS either ("Repository not found"). I need a GitHub account that can push to leciric/agentbox-private so I can push this branch and open a PR.',
+      status: 'escalated',
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+    },
     {
       id: 'q2',
       project: PROJECT,
@@ -253,6 +303,42 @@ export function buildFixtures(): FixtureData {
   return { agents, events, questions, fleet, projects, sections };
 }
 
+// agent12Chat is agent-12's conversation as the credential request left it:
+// told to push again, the push failing, and the request_credential call it is
+// blocked on, spinning until you answer it.
+export function agent12Chat(): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const tool = (id: string, ago: number, t: T.ChatTool): T.ChatItem => ({ id, turn: 'u1', kind: 'tool', tool: t, createdAt: at(ago), updatedAt: at(ago) });
+  return {
+    agent: `${PROJECT}/agent-12`,
+    seq: 1,
+    session: { state: 'working', tool: 'claude', turnStartedAt: at(90_000), options: [], commands: [] },
+    items: [
+      { id: 'u1', turn: 'u1', kind: 'user', text: 'Push again. If it fails on GitHub auth, ask for an account with request_credential.', createdAt: at(90_000), updatedAt: at(90_000) },
+      tool('t1', 80_000, {
+        callId: 't1',
+        name: 'Bash',
+        title: 'git push -u origin agentbox/agent-12',
+        kind: 'execute',
+        status: 'failed',
+        command: 'git push -u origin agentbox/agent-12',
+        output: 'Host key verification failed.\nfatal: Could not read from remote repository.',
+      }),
+      tool('t2', 75_000, {
+        callId: 't2',
+        name: 'Bash',
+        title: 'gh repo view leciric/agentbox-private',
+        kind: 'execute',
+        status: 'failed',
+        command: 'gh repo view leciric/agentbox-private',
+        output: 'GraphQL: Could not resolve to a Repository with the name \'leciric/agentbox-private\'.',
+      }),
+      { id: 'a1', turn: 'u1', kind: 'assistant', text: "Both routes fail on auth, so I'm asking for a GitHub account that can push to leciric/agentbox-private.", createdAt: at(65_000), updatedAt: at(65_000) },
+      tool('t3', 60_000, { callId: 't3', name: 'mcp__memory__request_credential', title: 'mcp__memory__request_credential', kind: 'other', status: 'in_progress' }),
+    ],
+  };
+}
+
 // seedQueryClient primes every query AgentRail and Sidebar read, at
 // staleTime: Infinity (set by the caller's QueryClient), so nothing refetches
 // through the stub bridge below.
@@ -317,7 +403,15 @@ function fakeVM() {
 // throw outside Electron's preload.
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
-    request: async () => ({ status: 200, body: '{}', contentType: 'application/json' }),
+    request: async (method: string, path: string) => {
+      // Answering a credential request gives back the question, answered, the
+      // way the daemon does, so the rail and the chat can both be seen to
+      // settle.
+      const answered = method === 'POST' && /\/questions\/([^/]+)\/credential$/.exec(path);
+      const question = answered && buildFixtures().questions.find((q) => q.id === decodeURIComponent(answered[1]));
+      const body = question ? { ...question, status: 'answered', answeredBy: 'user', answer: 'You have the GitHub account "default" now.' } : {};
+      return { status: 200, body: JSON.stringify(body), contentType: 'application/json' };
+    },
     connection: async () => ({ state: 'connected' }),
     onConnection: () => () => {},
     onEvent: () => () => {},

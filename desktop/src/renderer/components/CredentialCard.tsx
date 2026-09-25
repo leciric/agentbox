@@ -38,11 +38,42 @@ export function CredentialCard({ question }: { question: T.Question }) {
   );
 }
 
+// waitingCredential is the credential request an agent is blocked on, if it
+// is: the newest of its own still waiting. An agent waits on one call at a
+// time, so this is the request behind the call that is spinning.
+export function waitingCredential(questions: T.Question[] | undefined, agent: string): T.Question | undefined {
+  return (questions ?? [])
+    .filter((q) => q.agent === agent && q.kind && (q.status === 'pending' || q.status === 'escalated'))
+    .toSorted((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+}
+
+// ChatCredentialCard is the same card in the agent's own conversation, under
+// the request_credential call it is blocked on, where you are looking while
+// it waits. It reads the project's questions under the rail's key, so an
+// answer from either place settles both.
+export function ChatCredentialCard({ agentRef }: { agentRef: string }) {
+  const [project, agent] = agentRef.split('/');
+  const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project) });
+  const question = waitingCredential(questions.data, agent);
+  if (!question) return null;
+  return (
+    <div className="mb-3 max-w-xl rounded-xl border border-amber-400/25 bg-amber-400/[0.04] px-3.5 py-2.5" data-chat-credential={question.id}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-amber-300/90">Waiting on you</p>
+      <CredentialCard question={question} />
+    </div>
+  );
+}
+
 function CredentialAnswer({ question }: { question: T.Question }) {
   const [refusing, setRefusing] = useState(false);
   const [reason, setReason] = useState('');
+  const queryClient = useQueryClient();
   const answer = useMutation({
     mutationFn: (req: T.AnswerCredentialRequest) => api.answerCredential(question.project, question.id, req),
+    // The card is in the rail and in the agent's chat at once: both read this
+    // list, so the answer settles both now rather than when the event lands.
+    onSuccess: (answered) =>
+      queryClient.setQueryData<T.Question[]>(['questions', question.project], (list) => list?.map((q) => (q.id === answered.id ? answered : q))),
   });
   const refuse = () => answer.mutate({ refuse: true, reason: reason.trim() || undefined });
 

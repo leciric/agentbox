@@ -89,5 +89,26 @@
     "query": "open=agent-94&theme=light",
     "width": 1100,
     "height": 900
+  },
+  {
+    "id": "credential-agent-12-dark",
+    "description": "agent-12 as it really stood: a GitHub request after a task and two long finishes, thread opened \u2014 dark, 1280x800",
+    "query": "open=agent-12&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "credential-agent-12-chat-dark",
+    "description": "agent-12's own chat, blocked in request_credential: the card under the spinning call \u2014 dark, 1280x800",
+    "query": "chat=agent-12&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "credential-agent-12-chat-light",
+    "description": "The same chat card, light",
+    "query": "chat=agent-12&theme=light",
+    "width": 1280,
+    "height": 800
   }
 ]

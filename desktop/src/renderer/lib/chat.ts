@@ -89,6 +89,7 @@ export type Row =
   | { type: 'thinking'; key: string }
   | { type: 'note'; key: string; item: T.ChatItem }
   | { type: 'subagent'; key: string; item: T.ChatItem; children: T.ChatItem[] }
+  | { type: 'credential'; key: string; item: T.ChatItem }
   | { type: 'changes'; key: string; files: ChangedFile[] };
 
 interface Turn {
@@ -123,6 +124,12 @@ function turnsOf(items: T.ChatItem[]): Turn[] {
 export const isWork = (it: T.ChatItem) => it.kind === 'tool' || it.kind === 'thought' || (it.kind === 'permission' && !!it.permission?.outcome);
 const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error';
 const isAside = (it: T.ChatItem) => it.kind === 'aside';
+
+// isCredentialRequest is the agent calling request_credential (D95), under
+// whatever name its tool gives an MCP call: mcp__memory__request_credential
+// in Claude Code, memory.request_credential or the like elsewhere.
+export const isCredentialRequest = (it: T.ChatItem) =>
+  it.kind === 'tool' && /request_credential/.test(`${it.tool?.name ?? ''} ${it.tool?.title ?? ''}`);
 
 // What the timeline leaves out, whatever its kind: the prose AgentBox writes a
 // project's chat when one of its agents finishes or asks. That is addressed to
@@ -188,6 +195,13 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
       if (!open && it !== final && !isNote(it) && !isAside(it)) continue;
       if (isWork(it)) {
         group.push(it);
+        // A credential request the agent is still blocked on gets its card
+        // right under the call, where the spinner is: it is the one thing in
+        // the conversation waiting on you.
+        if (isCredentialRequest(it) && isActive(it)) {
+          endGroup(running);
+          rows.push({ type: 'credential', key: `credential:${it.id}`, item: it });
+        }
         continue;
       }
       endGroup(false);
