@@ -80,6 +80,16 @@ npm --prefix desktop run dist             # bin/agentbox with the version in des
 
 `bin/` is gitignored: rebuild after pulling.
 
+The slowest packages (`internal/daemon`, `internal/chat`, `internal/agent`) run their independent
+tests with `t.Parallel()`, and `internal/state` and `internal/memory` migrate a template database
+once per test binary rather than once per test, so testing one of those packages on its own is far
+faster than it was. On a machine with few cores — an AgentBox agent's own machine, 3 cores by
+default — that same per-package parallelism stacks with `go test`'s own package-level parallelism
+(`-p`, which also defaults to the core count) when testing everything at once, and oversubscribes
+the machine badly: `go test ./...` got *slower*, not faster. `go test ./... -p 1` avoids it — one
+package at a time, each using every core internally — and was faster than before this change on a
+3-core machine in testing.
+
 Every push to `main` and every pull request runs [CI](.github/workflows/ci.yml): `go vet ./...` and
 `go test ./...`, and the desktop app's `typecheck` and `build`. It doesn't package the AppImage, which
 takes minutes and belongs to a release, and it can't run the Incus tests — those are behind the
