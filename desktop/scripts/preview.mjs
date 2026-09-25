@@ -113,7 +113,6 @@ async function capture(baseUrl, outDir) {
     for (const s of scenarios) {
       const page = await browser.newPage({ viewport: { width: s.width, height: s.height }, reducedMotion: s.reducedMotion ?? 'no-preference' });
       await page.goto(`${baseUrl}/dev/preview.html?${s.query}`, { waitUntil: 'networkidle' });
-      if (s.query.includes('open=')) await page.waitForSelector('[data-thread]', { timeout: 3_000 }).catch(() => {});
       // Animations (the avatars') are stopped at their start, so a shot is the
       // same every time and a before/after diff shows changes, not timing.
       await page.screenshot({ path: join(outDir, `${s.id}.png`), animations: 'disabled' });

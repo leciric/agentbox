@@ -1,13 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, GitBranch, PanelRight, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { avatarMood, chatLabel, isAsking, rank, settled, type Mood } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
-import { AgentThread, eventsByAgent, latestLine, markSeen, unreadCount, useSeen } from './AgentThread';
 import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
 import { Tip } from './ui/tooltip';
@@ -15,19 +14,18 @@ import { Tip } from './ui/tooltip';
 // AgentRail is a project's agents, kept visible beside whatever you're looking
 // at: the lead's chat, an agent's own view, or the Agents tab behind it.
 //
-// One row per agent, and that row is two things at once. Clicking it opens the
-// agent, the way it always did — status, how busy it is, its pull request.
-// Opening the chevron unfolds its thread: what it has reported, a question with
-// the box to answer it in, and a box to write back. They are one list on
-// purpose: an agent and what it last said are the same thing to look at, and
-// two rails of the same agents side by side was one rail too many.
+// One row per agent: its name, its status and when it last reported, its pull
+// request, its branch and how busy its machine is. Clicking it opens the agent.
+// What the agents report and ask isn't read here: a question the lead passes
+// on comes back in the lead's reply, a credential request is a card in the
+// lead's chat and in the agent's own, and the avatar waves while either waits.
 //
 // The agents still at something — working, waiting on you, starting, or with
 // a machine that needs a look — are on top. The rest, idle, paused or stopped,
 // are folded under "Finished" at the bottom, closed unless you open it: a
 // project that has run for a while has more agents that are done than ones
 // that aren't, and those are not what you open the rail to find. The section
-// opens by itself while the agent you're on, or the thread you opened, is in it.
+// opens by itself while the agent you're on is in it.
 export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
   const enabled = project !== null;
@@ -45,68 +43,56 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
     enabled,
     refetchInterval: 30_000,
   });
-  // What the agents reported, and the questions behind the ones that asked.
-  // The questions are read live rather than copied into the events: a question
-  // is escalated and then answered after the event recording it was written.
+  // When each agent last reported, for the time on its row, and whether it
+  // has a question waiting on you, for its avatar.
   const events = useQuery({ queryKey: ['agentEvents', project], queryFn: () => api.agentEvents(project as string), enabled });
   const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project as string), enabled });
   // The lead's own state, for its avatar: whether it's mid-turn or asking.
   const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
   const history = useCpuHistory(usage.data);
-  const seen = useSeen();
   const [folded, setFolded] = useFolded();
-  const [openRef, setOpenRef] = useState<string | null>(null);
   const [showFinished, setShowFinished] = useShowFinished();
 
-  const byAgent = eventsByAgent(events.data ?? []);
-  const byId = new Map((questions.data ?? []).map((q) => [q.id, q]));
-  // An open thread counts as read, and stays read while new events land in it.
-  const openEvents = openRef ? byAgent.get(openRef) : undefined;
-  const openLatest = openEvents?.at(-1)?.at;
-  useEffect(() => {
-    if (openRef && openLatest) markSeen(openRef, openLatest);
-  }, [openRef, openLatest]);
+  // The events arrive newest first, so the first one seen is each agent's last.
+  const lastReport = new Map<string, string>();
+  for (const ev of events.data ?? []) if (!lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
 
   if (!project) return null;
   const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
-  const moving = mine.filter((a) => !settled(a));
-  const finished = mine.filter(settled);
-  const finishedOpen = showFinished || finished.some((a) => a.ref === openRef || (view.kind === 'agent' && view.ref === a.ref));
+  const asking = (agent: T.Agent) => isAsking(questions.data, agent.ref);
+  // An agent with a question waiting on you stays on top, whatever its chat is doing.
+  const moving = mine.filter((a) => !settled(a) || asking(a));
+  const finished = mine.filter((a) => settled(a) && !asking(a));
+  const finishedOpen = showFinished || finished.some((a) => view.kind === 'agent' && view.ref === a.ref);
   const prs = new Map((fleet.data?.agents ?? []).map((a) => [a.ref, a.pr]));
   const onLead = view.kind === 'project';
   const leadMood = avatarMood({ state: 'running', chat: lead.data?.chat });
-  const mood = (agent: T.Agent) => avatarMood(agent, isAsking(questions.data, agent.ref));
-  const open = (ref: string) => {
-    setFolded(false);
-    setOpenRef(ref);
-  };
+  const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
 
-  const icon = (agent: T.Agent) => {
-    const unread = unreadCount(byAgent.get(agent.ref) ?? [], seen[agent.ref]);
-    return (
-      <Tip key={agent.ref} label={`${agent.title || agent.name}${unread > 0 ? ` — ${unread} new` : ''}`}>
-        <button aria-label={agent.title || agent.name} data-rail-icon={agent.ref} className="relative rounded-xl p-0.5 transition hover:bg-surface-strong" onClick={() => open(agent.ref)}>
-          <AgentAvatar ai={agent.ai} mood={mood(agent)} state={agent.state} seed={agent.ref} />
-          {unread > 0 && <span className="absolute right-0 top-0 size-2 rounded-full bg-brand-400 ring-2 ring-ink" />}
-        </button>
-      </Tip>
-    );
-  };
+  const icon = (agent: T.Agent) => (
+    <Tip key={agent.ref} label={agent.title || agent.name}>
+      <button
+        aria-label={agent.title || agent.name}
+        data-rail-icon={agent.ref}
+        className="relative rounded-xl p-0.5 transition hover:bg-surface-strong"
+        onClick={() => onSelect({ kind: 'agent', ref: agent.ref })}
+      >
+        <AgentAvatar ai={agent.ai} mood={mood(agent)} state={agent.state} seed={agent.ref} />
+      </button>
+    </Tip>
+  );
   const row = (agent: T.Agent) => (
     <AgentRow
       key={agent.ref}
       agent={agent}
       active={view.kind === 'agent' && view.ref === agent.ref}
-      open={openRef === agent.ref}
       sample={usage.data?.agents.find((u) => u.ref === agent.ref)}
       cpuHistory={history.get(agent.ref) ?? []}
       pr={prs.get(agent.ref)}
-      events={byAgent.get(agent.ref) ?? []}
-      unread={unreadCount(byAgent.get(agent.ref) ?? [], seen[agent.ref])}
-      questions={byId}
+      at={lastReport.get(agent.ref)}
+      asking={asking(agent)}
       mood={mood(agent)}
       onSelect={() => onSelect({ kind: 'agent', ref: agent.ref })}
-      onToggle={() => (openRef === agent.ref ? setOpenRef(null) : open(agent.ref))}
     />
   );
 
@@ -165,10 +151,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
             aria-label="Hide the agents"
             data-rail-fold
             className="rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary"
-            onClick={() => {
-              setFolded(true);
-              setOpenRef(null);
-            }}
+            onClick={() => setFolded(true)}
           >
             <PanelRight className="size-3.5" />
           </button>
@@ -224,111 +207,73 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
 function AgentRow({
   agent,
   active,
-  open,
   sample,
   cpuHistory,
   pr,
-  events,
-  unread,
-  questions,
+  at,
+  asking,
   mood,
   onSelect,
-  onToggle,
 }: {
   agent: T.Agent;
   active: boolean;
-  open: boolean;
   sample?: T.AgentUsage;
   cpuHistory: number[];
   pr?: T.PullRequest;
-  events: T.AgentEvent[];
-  unread: number;
-  questions: Map<string, T.Question>;
+  at?: string;
+  asking: boolean;
   mood: Mood;
   onSelect: () => void;
-  onToggle: () => void;
 }) {
-  const status = chatLabel(agent);
-  const latest = latestLine(events, questions);
-  const at = events.at(-1)?.at;
+  // A question or a credential request waiting on you is said in words too,
+  // not only by the avatar: the agent is usually mid-turn, blocked on it, so
+  // its chat alone would call it working. Opening the agent shows a credential
+  // request's card; a question comes back in the lead's reply.
+  const status: ReturnType<typeof chatLabel> = asking && agent.chat !== 'waiting' ? { text: 'Asks you something', tone: 'urgent' } : chatLabel(agent);
+  // The row is a button that opens the agent, with the pull request badge over
+  // it: a link inside a button is neither valid HTML nor clickable on its own.
   return (
-    <div className={cn('rounded-xl', open && 'bg-surface-faint ring-1 ring-inset ring-line')}>
-      {/* The row is a button that opens the agent, with the chevron and the pull
-          request badge over it: a button and a link inside a button are neither
-          valid HTML nor clickable on their own. */}
-      <div className="relative">
-        <button
-          data-agent={agent.ref}
-          onClick={onSelect}
-          className={cn('group relative flex w-full items-center gap-2.5 rounded-xl py-2 pl-2.5 pr-7 text-left transition-colors xl:py-2.5', active ? 'bg-surface-strong' : 'hover:bg-surface')}
-        >
-          {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
-          <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
-          <span className={cn('min-w-0 flex-1', pr && 'pr-11')}>
-            <span className={cn('block truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
-            <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
-              {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
-              {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
-              <span
-                className={cn(
-                  'shrink-0',
-                  status.tone === 'urgent' && 'font-medium text-amber-300',
-                  status.tone === 'error' && 'font-medium text-rose-300',
-                  status.tone === 'live' && 'chat-shine font-medium',
-                  status.tone === 'muted' && 'text-subtle',
-                )}
-              >
-                {status.text}
-              </span>
-              {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
-            </span>
-            {/* What it last reported, which is what the thread below opens on.
-                An agent that has reported nothing shows its branch instead —
-                there is nothing to say about it yet, and the branch is what you
-                would otherwise go looking for. */}
-            {latest ? (
-              <span className="mt-1 flex items-center gap-1.5">
-                <span className={cn('min-w-0 flex-1 truncate text-[11px]', latest.urgent ? 'font-medium text-amber-300' : 'text-subtle')} data-rail-latest>
-                  {latest.text}
-                </span>
-                {unread > 0 && !open && (
-                  <span className="shrink-0 rounded-full bg-brand-500/25 px-1.5 text-[10px] font-medium tabular-nums text-brand-200" data-rail-unread>
-                    {unread}
-                  </span>
-                )}
-              </span>
-            ) : (
-              <span className="mt-1 hidden items-center gap-1 font-mono text-[10.5px] text-faint xl:flex">
-                <GitBranch className="size-3 shrink-0" />
-                <span className="truncate">{agent.branch}</span>
-              </span>
-            )}
-            {sample && agent.state === 'running' && (
-              <span className="mt-1.5 hidden items-center gap-2 xl:flex">
-                <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
-                <span className="font-mono text-[10px] tabular-nums text-subtle">
-                  {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)}
-                </span>
-              </span>
-            )}
-          </span>
-        </button>
-        {pr && <PullRequestBadge pr={pr} />}
-        {events.length > 0 && (
-          <Tip label={open ? 'Close the thread' : `What ${agent.name} reported`}>
-            <button
-              data-rail-thread={agent.ref}
-              aria-label={open ? `Close ${agent.name}'s thread` : `Open ${agent.name}'s thread`}
-              aria-expanded={open}
-              className="absolute bottom-0 right-0 top-0 flex w-7 items-center justify-center rounded-r-xl text-faint transition hover:bg-surface-raised hover:text-secondary"
-              onClick={onToggle}
+    <div className="relative">
+      <button
+        data-agent={agent.ref}
+        onClick={onSelect}
+        className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', active ? 'bg-surface-strong' : 'hover:bg-surface')}
+      >
+        {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
+        <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
+        <span className={cn('min-w-0 flex-1', pr && 'pr-11')}>
+          <span className={cn('block truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
+          <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
+            {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
+            {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
+            <span
+              className={cn(
+                'shrink-0',
+                status.tone === 'urgent' && 'font-medium text-amber-300',
+                status.tone === 'error' && 'font-medium text-rose-300',
+                status.tone === 'live' && 'chat-shine font-medium',
+                status.tone === 'muted' && 'text-subtle',
+              )}
             >
-              <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
-            </button>
-          </Tip>
-        )}
-      </div>
-      {open && <AgentThread agent={agent.ref} name={agent.name} running={agent.state === 'running'} events={events} questions={questions} />}
+              {status.text}
+            </span>
+            {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
+          </span>
+          <span className="mt-1 flex items-center gap-1 font-mono text-[10.5px] text-faint" data-rail-branch>
+            <GitBranch className="size-3 shrink-0" />
+            <span className="min-w-0 truncate">{agent.branch}</span>
+          </span>
+          {sample && agent.state === 'running' && (
+            <span className="mt-1.5 hidden items-center gap-2 xl:flex">
+              <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
+              <span className="font-mono text-[10px] tabular-nums text-subtle">
+                {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)}
+              </span>
+            </span>
+          )}
+        </span>
+      </button>
+      {pr && <PullRequestBadge pr={pr} />}
     </div>
   );
 }
@@ -382,7 +327,7 @@ function PullRequestBadge({ pr }: { pr: T.PullRequest }) {
           void window.agentbox.openExternal(pr.url);
         }}
         className={cn(
-          'absolute right-7 top-2 flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[10.5px] ring-1 ring-inset transition',
+          'absolute right-2 top-2 flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[10.5px] ring-1 ring-inset transition',
           pr.state === 'merged'
             ? 'bg-violet-400/10 text-violet-300 ring-violet-400/25 hover:bg-violet-400/20'
             : 'bg-surface-raised text-muted ring-line-strong hover:bg-surface-vivid hover:text-primary',

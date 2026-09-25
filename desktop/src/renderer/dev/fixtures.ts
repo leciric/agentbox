@@ -202,8 +202,7 @@ export function buildFixtures(): FixtureData {
 
   // agent-12 as the real one stood when its card didn't show: a task, two
   // finishes with long summaries, and then a GitHub request it is blocked on,
-  // newest first as the daemon returns them. The card is the fourth event of
-  // a thread that opens scrolled to the top.
+  // newest first as the daemon returns them.
   events.push(
     { id: 'e12d', project: PROJECT, agent: 'agent-12', ref: `${PROJECT}/agent-12`, kind: 'asked', question: '27322c8f', at: new Date(Date.now() - 60_000).toISOString() },
     {

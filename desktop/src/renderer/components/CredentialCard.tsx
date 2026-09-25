@@ -69,9 +69,9 @@ export function ChatCredentialCard({ agentRef }: { agentRef: string }) {
 }
 
 // ProjectCredentialCards are the credential requests waiting in a project,
-// in its chat, where you are: the same card as the agent's thread and chat,
-// under the agent that asked, and answered through the same route, so an
-// answer or a cancellation anywhere settles all three.
+// in its chat, where you are: the same card as the agent's own chat, under
+// the agent that asked, and answered through the same route, so an answer or
+// a cancellation in either settles both.
 //
 // None of this is the lead's conversation. The cards are drawn from the
 // project's questions, never written into the chat, and what is typed in them
