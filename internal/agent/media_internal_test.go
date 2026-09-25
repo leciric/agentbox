@@ -49,19 +49,21 @@ func TestJUnitCountsCountsTestCases(t *testing.T) {
 	}
 }
 
-// TestPanelHeightMatchesTheDock keeps panelHeight in step with browser.sh: the
-// recording's key overlay is placed just above the dock, so a taller dock with
-// a stale constant would draw the overlay underneath it.
-func TestPanelHeightMatchesTheDock(t *testing.T) {
+// TestDockSizeMatchesBrowserScript keeps dockHeight and dockMargin in step
+// with browser.sh: a desktop recording's key captions are centred on the dock,
+// so a dock of another size with stale constants would put them off it, over
+// the windows above.
+func TestDockSizeMatchesBrowserScript(t *testing.T) {
 	script := string(browserScript)
 	size := regexp.MustCompile(`(?m)^panel_size = \S+ (\d+)$`).FindStringSubmatch(script)
 	margin := regexp.MustCompile(`(?m)^panel_margin = \S+ (\d+)$`).FindStringSubmatch(script)
 	if size == nil || margin == nil {
 		t.Fatalf("browser.sh has no panel_size and panel_margin to read: %q, %q", size, margin)
 	}
-	height, _ := strconv.Atoi(size[1])
-	below, _ := strconv.Atoi(margin[1])
-	if got := height + below; got != panelHeight {
-		t.Errorf("the dock takes %d px along the bottom (%d + %d), panelHeight is %d", got, height, below, panelHeight)
+	if height, _ := strconv.Atoi(size[1]); height != dockHeight {
+		t.Errorf("the dock is %d px tall, dockHeight is %d", height, dockHeight)
+	}
+	if below, _ := strconv.Atoi(margin[1]); below != dockMargin {
+		t.Errorf("the dock sits %d px above the bottom, dockMargin is %d", below, dockMargin)
 	}
 }

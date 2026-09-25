@@ -240,9 +240,10 @@ func newRecordStartCmd(a *app) *cobra.Command {
 		Long: `Start recording the agent's display.
 
 With --input desktop the recording also shows how it was driven: the mouse
-cursor, and the keys and buttons as an overlay along the bottom. Use it for a
-flow driven through the desktop, with xdotool; Playwright's input is
-synthesized inside Chromium, where neither the cursor nor the overlay sees it.`,
+cursor, a ripple where it clicks, and the keys pressed as a caption over the
+dock, drawn onto the video when it stops. Use it for a flow driven through the
+desktop, with xdotool; Playwright's input is synthesized inside Chromium, where
+neither the cursor nor the overlay sees it.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := optionalRef(args)

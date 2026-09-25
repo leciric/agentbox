@@ -66,8 +66,8 @@ apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugi
 
 step "Browser and media: a display with a VNC server, a small desktop, Chromium and ffmpeg"
 apt-get install -y -q --no-install-recommends tigervnc-standalone-server chromium \
-  openbox tint2 pcmanfm xfce4-terminal xdotool screenkey x11-utils x11-xserver-utils \
-  xwallpaper adwaita-icon-theme librsvg2-common fonts-liberation fonts-noto-color-emoji ffmpeg
+  openbox tint2 pcmanfm xfce4-terminal xdotool x11-utils x11-xserver-utils \
+  xwallpaper adwaita-icon-theme librsvg2-common fonts-liberation fonts-dejavu-core fonts-noto-color-emoji ffmpeg
 
 SCRCPY_VERSION=v4.1
 SCRCPY_SHA256=ad56ae8bfeedf41e824945c11dbf55fcb092b3e615b9b486f48a50e30d389635

@@ -16,7 +16,8 @@ import (
 // and StopRecording generate, against a display of this machine's own rather
 // than an agent's, and checks that what comes out shows the pointer moving and
 // the keys pressed. It needs :99 up with a desktop on it, as browser.sh leaves
-// it, and ffmpeg, xdotool and screenkey:
+// it, and ffmpeg and xdotool; it builds the agentbox binary that logs the
+// input and draws it:
 //
 //	Xvnc :99 -geometry 1440x900 -depth 24 -rfbport 5900 -localhost -SecurityTypes None &
 //	DISPLAY=:99 openbox & DISPLAY=:99 tint2 & DISPLAY=:99 xfce4-terminal &
@@ -31,6 +32,11 @@ func TestDesktopRecordingShowsTheCursorAndTheKeys(t *testing.T) {
 		home = keep
 	}
 	dir := filepath.Join(home, agentStateDir)
+	bin := t.TempDir()
+	if out, err := exec.Command("go", "build", "-o", filepath.Join(bin, "agentbox"), "agentbox/cmd/agentbox").CombinedOutput(); err != nil {
+		t.Fatalf("building agentbox: %v\n%s", err, out)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	st := recordingState{Target: "display", Input: RecordInputDesktop, Name: "desktop input", Source: "user", StartedAt: time.Now().UTC(), Limit: 30}
 	start, err := startRecordingScript(st)
@@ -39,8 +45,8 @@ func TestDesktopRecordingShowsTheCursorAndTheKeys(t *testing.T) {
 	}
 	runShell(t, home, start)
 
-	if _, err := os.Stat(filepath.Join(dir, "screenkey.pid")); err != nil {
-		t.Fatalf("screenkey left no pid: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "input.pid")); err != nil {
+		t.Fatalf("the input log left no pid: %v", err)
 	}
 	// Drive the display the way the desktop tools do: XTEST, which is what
 	// makes a recording worth this mode at all.
@@ -57,22 +63,28 @@ func TestDesktopRecordingShowsTheCursorAndTheKeys(t *testing.T) {
 	if info, err := os.Stat(video); err != nil || info.Size() == 0 {
 		t.Fatalf("no video: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "screenkey.pid")); !os.IsNotExist(err) {
-		t.Errorf("stopping left screenkey's pid file behind: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "input.pid")); !os.IsNotExist(err) {
+		t.Errorf("stopping left the input log's pid file behind: %v", err)
 	}
 	// The bracket keeps the pattern from matching the shell running pgrep.
-	if out := runShell(t, home, "pgrep -f 'bin/[s]creenkey' || true"); strings.TrimSpace(out) != "" {
-		t.Errorf("screenkey is still running after the recording stopped: %s", out)
+	if out := runShell(t, home, "pgrep -f '[d]esktop input-log' || true"); strings.TrimSpace(out) != "" {
+		t.Errorf("the input log is still running after the recording stopped: %s", out)
+	}
+	events, _ := os.ReadFile(filepath.Join(dir, "recording.events"))
+	for _, want := range []string{`"key":"x"`, `"key":"s","mods":["ctrl"]`, `"button":1,"x":900,"y":500`} {
+		if !strings.Contains(string(events), want) {
+			t.Errorf("the input log has no %s:\n%s", want, events)
+		}
 	}
 
 	// The typing is in the last second and the pointer was still at the top
-	// left in the first, so both the overlay band and the spot the cursor
-	// moved to differ between the two frames.
+	// left in the first, so both the key caption over the dock and the spot
+	// the cursor moved to differ between the two frames.
 	first, last := filepath.Join(home, "first.png"), filepath.Join(home, "last.png")
 	runShell(t, home, "ffmpeg -loglevel error -i "+video+" -frames:v 1 -y "+first)
 	runShell(t, home, "ffmpeg -loglevel error -sseof -1.5 -i "+video+" -frames:v 1 -y "+last)
 	for _, region := range []struct{ name, crop string }{
-		{"the key overlay", "1440:64:0:808"},
+		{"the key caption", "400:40:520:842"},
 		{"the mouse cursor", "60:60:880:480"},
 	} {
 		if same(t, home, first, last, region.crop) {
@@ -101,7 +113,7 @@ func requireDisplay(t *testing.T) {
 	if _, err := os.Stat("/tmp/.X11-unix/X99"); err != nil {
 		t.Skip("no display on :99")
 	}
-	for _, tool := range []string{"ffmpeg", "ffprobe", "xdotool", "screenkey"} {
+	for _, tool := range []string{"ffmpeg", "ffprobe", "xdotool", "go"} {
 		if _, err := exec.LookPath(tool); err != nil {
 			t.Skipf("%s isn't installed", tool)
 		}

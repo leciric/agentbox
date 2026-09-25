@@ -85,7 +85,7 @@ func CheckHost(u User) error {
 
 // Version changes whenever provision.sh changes what agents get, so Setup can
 // ask you to rebuild a base image made by an older AgentBox.
-const Version = "2026.09.25.1"
+const Version = "2026.09.25.2"
 
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.
