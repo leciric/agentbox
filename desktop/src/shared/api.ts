@@ -537,6 +537,17 @@ export interface ClaudeLoginCodeRequest {
   code: string;
 }
 
+export interface RenameClaudeAccountRequest {
+  name: string;
+}
+
+export interface RenamedClaudeAccount {
+  old: string;
+  name: string;
+  projects: string[];
+  agents: string[];
+}
+
 export interface GitHubTokenRequest {
   token: string;
   account?: string;

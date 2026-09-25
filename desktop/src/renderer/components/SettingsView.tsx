@@ -15,6 +15,7 @@ import {
   Monitor,
   Moon,
   PartyPopper,
+  Pencil,
   RefreshCw,
   ShieldCheck,
   SquareTerminal,
@@ -1009,7 +1010,7 @@ function savedAtLabel(savedAt: string): string {
 // the account their project picked, and otherwise the default one. A token
 // Anthropic no longer accepts is badged rejected, so a dead login shows here
 // rather than as a 401 inside an agent.
-function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
+export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
   const queryClient = useQueryClient();
   const [pasting, setPasting] = useState(false);
   const refresh = async () => {
@@ -1017,6 +1018,37 @@ function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
     await queryClient.invalidateQueries({ queryKey: ["auth"] });
     await queryClient.invalidateQueries({ queryKey: ["projects"] });
   };
+  // The account being renamed, and the name it is getting.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const startRename = (name: string) => {
+    rename.reset();
+    setRenaming(name);
+    setNewName(name);
+  };
+  const rename = useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      api.renameClaudeAccount(from, to),
+    onSuccess: async (got) => {
+      setRenaming(null);
+      const carried = [
+        got.projects.length > 0 &&
+          `${got.projects.length} project${got.projects.length === 1 ? "" : "s"}`,
+        got.agents.length > 0 &&
+          `${got.agents.length} agent${got.agents.length === 1 ? "" : "s"}`,
+      ].filter(Boolean);
+      toast(`Renamed "${got.old}" to "${got.name}"`, {
+        description:
+          (carried.length > 0 ? `${carried.join(" and ")} moved with it. ` : "") +
+          "Agents on it keep the same token, so nothing needs a restart.",
+      });
+      await Promise.all([
+        refresh(),
+        queryClient.invalidateQueries({ queryKey: ["agents"] }),
+        queryClient.invalidateQueries({ queryKey: ["claudeLimits"] }),
+      ]);
+    },
+  });
   const makeDefault = useMutation({
     mutationFn: (name: string) => api.setDefaultClaudeAccount(name),
     onSuccess: async (_, name) => {
@@ -1035,7 +1067,7 @@ function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
       await refresh();
     },
   });
-  const error = makeDefault.error ?? remove.error;
+  const error = makeDefault.error ?? remove.error ?? rename.error;
 
   return (
     <div className="grid gap-3">
@@ -1048,9 +1080,49 @@ function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
               className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface-faint py-1.5 pl-3 pr-1.5"
             >
               <KeyRound className="size-3.5 shrink-0 text-subtle" />
-              <span className="truncate font-mono text-[12.5px] text-secondary">
-                {acc.name}
-              </span>
+              {renaming === acc.name ? (
+                <form
+                  className="flex min-w-0 items-center gap-1"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const to = newName.trim();
+                    if (to === acc.name) setRenaming(null);
+                    else rename.mutate({ from: acc.name, to });
+                  }}
+                >
+                  <Input
+                    aria-label={`New name for ${acc.name}`}
+                    value={newName}
+                    onChange={(event) => setNewName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setRenaming(null);
+                    }}
+                    disabled={rename.isPending}
+                    autoFocus
+                    className="h-7 w-32 font-mono text-[12.5px]"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={rename.isPending || newName.trim() === ""}
+                  >
+                    Rename
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={rename.isPending}
+                    onClick={() => setRenaming(null)}
+                  >
+                    Cancel
+                  </Button>
+                </form>
+              ) : (
+                <span className="truncate font-mono text-[12.5px] text-secondary">
+                  {acc.name}
+                </span>
+              )}
               {acc.default && <Badge variant="brand">default</Badge>}
               {acc.valid === "rejected" && (
                 <Badge variant="danger">rejected</Badge>
@@ -1070,6 +1142,15 @@ function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                     Make default
                   </Button>
                 )}
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`Rename ${acc.name}`}
+                  disabled={rename.isPending}
+                  onClick={() => startRename(acc.name)}
+                >
+                  <Pencil />
+                </Button>
                 <Button
                   size="icon-sm"
                   variant="ghost"

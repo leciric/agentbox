@@ -85,7 +85,7 @@ account (agentbox claude-account), and otherwise the default one.`,
 	}
 	cmd.Flags().BoolVar(&fromStdin, "token-stdin", false, "read the token from stdin")
 	cmd.Flags().StringVar(&account, "account", "", `store it under this name (default "`+credentials.DefaultAccount+`")`)
-	cmd.AddCommand(newAuthClaudeListCmd(a), newAuthClaudeDefaultCmd(a), newAuthClaudeRemoveCmd(a))
+	cmd.AddCommand(newAuthClaudeListCmd(a), newAuthClaudeDefaultCmd(a), newAuthClaudeRenameCmd(a), newAuthClaudeRemoveCmd(a))
 	return cmd
 }
 
@@ -135,6 +135,38 @@ func newAuthClaudeDefaultCmd(a *app) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "New agents use the Claude Code account %q unless their project picks another one\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newAuthClaudeRenameCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rename <account> <new-name>",
+		Short: "Give a stored Claude Code account another name",
+		Long: `Everything that names the account follows it: the machine's default, each
+project's account and allowed accounts, each agent's account and each project
+chat's, and its usage-limit reading. The token stays the same, so agents on
+the account keep running without a restart. A name another account already
+has is refused.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			got, err := c.RenameClaudeAccount(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "Renamed the Claude Code account %q to %q\n", got.Old, got.Name)
+			if len(got.Projects) > 0 {
+				fmt.Fprintf(out, "Projects carried over: %s\n", strings.Join(got.Projects, ", "))
+			}
+			if len(got.Agents) > 0 {
+				fmt.Fprintf(out, "Agents carried over: %s. They keep the same token, so none needs a restart.\n", strings.Join(got.Agents, ", "))
+			}
 			return nil
 		},
 	}
