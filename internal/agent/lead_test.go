@@ -255,6 +255,15 @@ func TestLeadNameIsReserved(t *testing.T) {
 // dies before saying anything useful. Found on a real machine after 0.3.0.
 func TestLeadChatCommandLetsItsToolsFindThemselves(t *testing.T) {
 	ctx := context.Background()
+	// Pinned rather than read from the ambient environment: toolEnv falls
+	// back to $HOME only when no XDG_*_HOME is set, and a login manager can
+	// set those from the passwd database's home, which need not agree with
+	// an overridden $HOME. Clearing them keeps the two in lockstep here.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, name := range []string{"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"} {
+		t.Setenv(name, "")
+	}
 	f := leadFixture(t)
 	a, err := f.m.EnsureLead(ctx, "hello-stack")
 	if err != nil {
@@ -293,10 +302,6 @@ func TestLeadChatCommandLetsItsToolsFindThemselves(t *testing.T) {
 		t.Errorf("HOME = %q, want the lead's own", env["HOME"])
 	}
 	// And enough for a tool installed with mise to find itself anyway.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home directory to derive the tool directories from")
-	}
 	for _, name := range []string{"MISE_DATA_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_STATE_DIR"} {
 		if env[name] == "" {
 			t.Errorf("%s isn't set: a mise shim would fail with the lead's HOME", name)
