@@ -34,6 +34,7 @@ const tokenScreen = "\x1b[32m✓ Long-lived authentication token created success
 const wantToken = "sk-ant-oat01-aBcD3f_GhIjKlMnOpQrStUvWxYz0123456789-abcdefghijklmnopqrstuvwxyz_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789AA"
 
 func TestLoginURL(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ out, want string }{
 		"a real 80-column screen": {realOutput, wantURL},
 		// Without hyperlinks there is only the text, and a wide pty is what
@@ -59,6 +60,7 @@ func TestLoginURL(t *testing.T) {
 }
 
 func TestSetupTokenIn(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ out, want string }{
 		"the token screen": {tokenScreen, wantToken},
 		"before the token": {realOutput, ""},
@@ -80,6 +82,7 @@ func TestSetupTokenIn(t *testing.T) {
 // whatever has arrived — and half of one, saved, is a login that fails much
 // later inside an agent. It is only a token once something follows it.
 func TestSetupTokenInWaitsForTheWholeToken(t *testing.T) {
+	t.Parallel()
 	cut := strings.Index(tokenScreen, wantToken) + len(wantToken) - 30
 	if got := setupTokenIn(tokenScreen[:cut]); got != "" {
 		t.Errorf("setupTokenIn of a half-read token = %q, want %q", got, "")
@@ -90,6 +93,7 @@ func TestSetupTokenInWaitsForTheWholeToken(t *testing.T) {
 }
 
 func TestCleanTerminal(t *testing.T) {
+	t.Parallel()
 	got := cleanTerminal(realOutput)
 	for _, escape := range []string{"\x1b", "\x07", "\r"} {
 		if strings.Contains(got, escape) {

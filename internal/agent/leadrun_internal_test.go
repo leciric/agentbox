@@ -7,6 +7,7 @@ import (
 )
 
 func TestTailBuffer(t *testing.T) {
+	t.Parallel()
 	b := &tailBuffer{max: 10}
 	for i := 0; i < 100; i++ {
 		io.WriteString(b, "line\n")
@@ -32,6 +33,7 @@ func TestTailBuffer(t *testing.T) {
 }
 
 func TestLimitWriterStopsAtItsMax(t *testing.T) {
+	t.Parallel()
 	var sink strings.Builder
 	w := &limitWriter{w: &sink, max: 8}
 	if _, err := w.Write([]byte("12345")); err != nil {

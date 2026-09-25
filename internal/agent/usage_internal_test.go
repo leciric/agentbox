@@ -7,6 +7,7 @@ import (
 )
 
 func TestAgentMemoryLeavesOutCaches(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "lxc.payload.ab-app-agent-01")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

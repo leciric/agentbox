@@ -29,6 +29,7 @@ func recapStore(t *testing.T) (*state.Store, *memory.Store) {
 // conversation: what the project is doing, the narrative of the conversation
 // so far, and what is still open.
 func TestLeadRecap(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st, mem := recapStore(t)
 	m := &Manager{Store: st}
@@ -106,6 +107,7 @@ func TestLeadRecap(t *testing.T) {
 // than the lead's, picked out by what this agent was asked to do, and said to
 // be a summary so the agent searches rather than assuming it has everything.
 func TestAgentBriefCarriesWhatTheProjectKnows(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	st, mem := recapStore(t)
 	m := &Manager{Store: st}

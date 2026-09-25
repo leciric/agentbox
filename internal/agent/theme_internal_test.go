@@ -9,6 +9,7 @@ import (
 )
 
 func TestThemeFileTakesOnlyRealColours(t *testing.T) {
+	t.Parallel()
 	// Everything a colour could be that isn't a colour. browser.sh pastes
 	// these into a tint2 config and an openbox themerc, so each one has to
 	// come out as AgentBox's own value instead.
@@ -46,6 +47,7 @@ func TestThemeFileTakesOnlyRealColours(t *testing.T) {
 }
 
 func TestThemeFileKeepsAWholePalette(t *testing.T) {
+	t.Parallel()
 	got := string(DesktopTheme{
 		Name: "everforest", Mode: "light",
 		Background: "#fdf6e3", Surface: "#f4f0d9", Foreground: "#5c6a72",
@@ -94,6 +96,7 @@ func read(t *testing.T, path string) string {
 }
 
 func TestBrowserScriptPaintsTheDesktopInTheThemesColours(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	tokyoNight := DesktopTheme{
 		Name: "tokyo-night", Mode: "dark",
@@ -152,6 +155,7 @@ func TestBrowserScriptPaintsTheDesktopInTheThemesColours(t *testing.T) {
 // With no palette in the agent — every agent whose binary predates this — the
 // desktop is AgentBox's own, exactly as it was.
 func TestBrowserScriptFallsBackToAgentBoxsColours(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	runBrowserTheme(t, home, nil)
 	tint2 := read(t, filepath.Join(home, ".config", "tint2", "tint2rc"))
@@ -166,6 +170,7 @@ func TestBrowserScriptFallsBackToAgentBoxsColours(t *testing.T) {
 // change goes through the same write_config as everything else, so it can't be
 // the one exception that overwrites an agent's own dock.
 func TestAThemeChangeKeepsTheAgentsOwnEdits(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	runBrowserTheme(t, home, nil)
 

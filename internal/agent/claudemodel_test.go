@@ -31,6 +31,7 @@ func settingsOf(t *testing.T, raw []byte) map[string]any {
 // would hand agents back their permission prompts and the lead a shell on the
 // host — neither of which shows up until something goes wrong.
 func TestWithClaudeModelKeepsEverythingElse(t *testing.T) {
+	t.Parallel()
 	existing := []byte(`{"skipDangerousModePermissionPrompt":true,"permissions":{"deny":["Bash","Write"]},"includeCoAuthoredBy":false}`)
 	merged, err := withClaudeModel(existing, "claude-fable-5-1")
 	if err != nil {
@@ -53,6 +54,7 @@ func TestWithClaudeModelKeepsEverythingElse(t *testing.T) {
 }
 
 func TestWithClaudeModelStartsFromNothing(t *testing.T) {
+	t.Parallel()
 	for _, existing := range [][]byte{nil, {}, []byte("  \n")} {
 		merged, err := withClaudeModel(existing, "opus[1m]")
 		if err != nil {
@@ -72,6 +74,7 @@ func TestWithClaudeModelStartsFromNothing(t *testing.T) {
 // Claude Code fall through to its next source, which for a resumed session is
 // the model that session was last on.
 func TestWithClaudeModelLeavesNoKeyForNoChoice(t *testing.T) {
+	t.Parallel()
 	for _, model := range []string{"", "default"} {
 		merged, err := withClaudeModel([]byte(`{"model":"claude-fable-5-1","skipDangerousModePermissionPrompt":true}`), model)
 		if err != nil {
@@ -90,6 +93,7 @@ func TestWithClaudeModelLeavesNoKeyForNoChoice(t *testing.T) {
 // TestWithClaudeModelSkipsAnUnchangedFile keeps a chat that starts on the model
 // it already had from writing into an agent's machine every time.
 func TestWithClaudeModelSkipsAnUnchangedFile(t *testing.T) {
+	t.Parallel()
 	if merged, err := withClaudeModel([]byte(`{"model":"opus","x":1}`), "opus"); merged != nil || err != nil {
 		t.Errorf("withClaudeModel(same model) = %s, %v", merged, err)
 	}
@@ -102,6 +106,7 @@ func TestWithClaudeModelSkipsAnUnchangedFile(t *testing.T) {
 // can't parse is one it can't merge into, and writing a fresh one over it is
 // exactly the clobber this is all here to avoid.
 func TestWithClaudeModelRefusesUnreadableSettings(t *testing.T) {
+	t.Parallel()
 	for _, existing := range []string{`{"model":`, `["not","an","object"]`, `"a string"`} {
 		if _, err := withClaudeModel([]byte(existing), "opus"); err == nil {
 			t.Errorf("withClaudeModel(%q) = nil error, want a refusal rather than an overwrite", existing)
@@ -112,6 +117,7 @@ func TestWithClaudeModelRefusesUnreadableSettings(t *testing.T) {
 // TestPrepareLeadChatModelMergesInPlace runs the host path for real, on the
 // settings configureLead actually writes.
 func TestPrepareLeadChatModelMergesInPlace(t *testing.T) {
+	t.Parallel()
 	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
 	a := state.Agent{Project: "hello-stack", Name: state.LeadName, Role: state.RoleLead, AI: "claude"}
 	path := filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile)
@@ -187,6 +193,7 @@ func fakeIncus(t *testing.T, script string) incus.Client {
 // whatever model their own configuration already names, and this only ever
 // dispatches to their own config file, never to Claude Code's channel.
 func TestPrepareChatModelOnlyClaudeCodeHasAModel(t *testing.T) {
+	t.Parallel()
 	for _, ai := range []string{"codex", "opencode"} {
 		m := &Manager{
 			Paths: paths.Paths{Data: t.TempDir()},
@@ -210,6 +217,7 @@ func TestPrepareChatModelOnlyClaudeCodeHasAModel(t *testing.T) {
 // configure wrote at creation, or an agent made before the window changed
 // would never pick it up (D83).
 func TestPrepareChatModelWritesCodexAndOpenCodeConfig(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Captures what WriteFile sent on stdin, keyed by the path it targeted —
 	// see incus.Client.WriteFile: exec NAME -T -- sh -c SCRIPT sh PATH UID:GID MODE.
@@ -263,6 +271,7 @@ exit 0
 // the caller, which turns it into a notice in the chat. Starting on the wrong
 // model in silence is the failure this whole path is guarding against.
 func TestPrepareLeadChatModelReportsUnreadableSettings(t *testing.T) {
+	t.Parallel()
 	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
 	a := state.Agent{Project: "hello-stack", Name: state.LeadName, Role: state.RoleLead, AI: "claude"}
 	path := filepath.Join(m.Paths.LeadHome(a.Project), claudeSettingsFile)
@@ -287,6 +296,7 @@ func TestPrepareLeadChatModelReportsUnreadableSettings(t *testing.T) {
 // without carrying the model across, choosing one for a project's chat would
 // survive until its next message and then quietly vanish from the file.
 func TestConfigureLeadKeepsTheChosenModel(t *testing.T) {
+	t.Parallel()
 	policy := leadSettings()
 	carryClaudeModel([]byte(`{"model":"claude-fable-5-1","autoCompactWindow":200000,"permissions":{"deny":[]}}`), policy)
 	raw, err := json.Marshal(policy)
@@ -322,6 +332,7 @@ func TestConfigureLeadKeepsTheChosenModel(t *testing.T) {
 // independently, a write happens only when one of them changed, and every key
 // AgentBox doesn't own is kept as it was.
 func TestWithClaudeChatMergesBoth(t *testing.T) {
+	t.Parallel()
 	existing := []byte(`{"model":"sonnet","skipDangerousModePermissionPrompt":true}`)
 	merged, err := withClaudeChat(existing, "sonnet", 200_000)
 	if err != nil {
@@ -349,6 +360,7 @@ func TestWithClaudeChatMergesBoth(t *testing.T) {
 // env beside whatever else is there, a second merge writes nothing, and an env
 // that isn't an object is refused rather than overwritten.
 func TestWithClaudeEnvMergesTheSubagentLimits(t *testing.T) {
+	t.Parallel()
 	existing := []byte(`{"model":"sonnet","env":{"FOO":"bar","CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS":"20"}}`)
 	merged, err := withClaudeEnv(existing, subagentLimits)
 	if err != nil {
@@ -386,6 +398,7 @@ func TestWithClaudeEnvMergesTheSubagentLimits(t *testing.T) {
 // limits do (D83), so Bash and MCP tool output can't refill the context the
 // desktop subagent and the compact window were built to hold down.
 func TestWithClaudeEnvMergesTheOutputCaps(t *testing.T) {
+	t.Parallel()
 	existing := []byte(`{"model":"sonnet","env":{"FOO":"bar","BASH_MAX_OUTPUT_LENGTH":"30000"}}`)
 	merged, err := withClaudeEnv(existing, outputCaps)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 )
 
 func TestJUnitCountsCountsTestCases(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		xml  string
 		want *TestCounts
@@ -53,6 +54,7 @@ func TestJUnitCountsCountsTestCases(t *testing.T) {
 // recording's key overlay is placed just above the dock, so a taller dock with
 // a stale constant would draw the overlay underneath it.
 func TestPanelHeightMatchesTheDock(t *testing.T) {
+	t.Parallel()
 	script := string(browserScript)
 	size := regexp.MustCompile(`(?m)^panel_size = \S+ (\d+)$`).FindStringSubmatch(script)
 	margin := regexp.MustCompile(`(?m)^panel_margin = \S+ (\d+)$`).FindStringSubmatch(script)

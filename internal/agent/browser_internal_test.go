@@ -14,6 +14,7 @@ import (
 // not anything listens inside the agent, so only the RFB greeting says the
 // display is really there.
 func TestDisplayUpReadsTheVNCGreeting(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		serve func(net.Conn)
 		want  bool

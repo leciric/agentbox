@@ -11,6 +11,7 @@ import (
 // much as the values — a bare key placed after a [table] header is silently
 // read as belonging to that table instead of the document root.
 func TestCodexConfigFor(t *testing.T) {
+	t.Parallel()
 	servers := []mcpServer{
 		{"playwright", "/home/dev/.local/share/mise/shims/playwright-mcp", []string{"--cdp-endpoint", BrowserDevTools}, false},
 		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},

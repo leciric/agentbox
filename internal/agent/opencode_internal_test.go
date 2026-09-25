@@ -13,6 +13,7 @@ import (
 // for every tool; only the shape of the file differs. OpenCode's is JSON, with
 // the command and its arguments as one argv array.
 func TestOpenCodeConfig(t *testing.T) {
+	t.Parallel()
 	servers := []mcpServer{
 		{"playwright", "/home/dev/.local/share/mise/shims/playwright-mcp", []string{"--cdp-endpoint", BrowserDevTools}, false},
 		{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false},
@@ -72,6 +73,7 @@ func TestOpenCodeConfig(t *testing.T) {
 // The adapter that runs OpenCode for the chat is OpenCode itself, behind a
 // subcommand — which is what ChatAdapter.Args exists for.
 func TestOpenCodeIsItsOwnAdapter(t *testing.T) {
+	t.Parallel()
 	adapter, ok := ChatAdapters["opencode"]
 	if !ok {
 		t.Fatal("no chat adapter for OpenCode")

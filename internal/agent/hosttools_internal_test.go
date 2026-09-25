@@ -15,6 +15,7 @@ import (
 // with "not a valid shim" and takes the adapter down with it. Found on a real
 // machine after 0.3.0, which is why each of these is pinned.
 func TestIsShim(t *testing.T) {
+	t.Parallel()
 	for path, want := range map[string]bool{
 		"/home/you/.local/share/mise/shims/claude-agent-acp":        true,
 		"/home/you/.local/share/mise/shims/node":                    true,
@@ -32,6 +33,7 @@ func TestIsShim(t *testing.T) {
 }
 
 func TestDeshimLeavesRealBinariesAlone(t *testing.T) {
+	t.Parallel()
 	real := "/home/you/.local/share/mise/installs/claude/latest/claude"
 	if got := deshim(real); got != real {
 		t.Errorf("deshim(%q) = %q, want it unchanged", real, got)
@@ -95,6 +97,7 @@ func TestInstallEnvAlwaysHasTheSystemDirectories(t *testing.T) {
 }
 
 func TestNodeArchIsOneNodePublishes(t *testing.T) {
+	t.Parallel()
 	if arch := nodeArch(); arch != "x64" && arch != "arm64" {
 		t.Errorf("nodeArch() = %q, which nodejs.org has no tarball for", arch)
 	}
@@ -104,6 +107,7 @@ func TestNodeArchIsOneNodePublishes(t *testing.T) {
 // installed has to be told apart from the pinned one, or the chat stays on
 // that Claude Code forever.
 func TestAdapterVersionReadsWhatIsInstalled(t *testing.T) {
+	t.Parallel()
 	m := &Manager{Paths: paths.Paths{Data: t.TempDir()}}
 	if v := m.adapterVersion(); v != "" {
 		t.Fatalf("adapterVersion() with nothing installed = %q, want \"\"", v)
