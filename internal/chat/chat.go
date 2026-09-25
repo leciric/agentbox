@@ -77,6 +77,11 @@ type Manager struct {
 	// genuine finish (the model stopping on its own) from a turn merely cut
 	// short by a limit or a cancellation.
 	Finished func(a state.Agent, result api.ChatTurnResult)
+	// LeadIdle, when set, is called when a project's lead finishes a turn and
+	// has nothing else to run, so the daemon can compact it before its prompt
+	// cache expires (idlerollover.go in the daemon). Off the lock, in a
+	// goroutine of its own.
+	LeadIdle func(a state.Agent)
 	// AuthFailed, when set, is called when a turn failed because the agent's
 	// AI tool was refused by its provider: an expired or revoked login. The
 	// daemon marks the account rejected, so a dead token is named where it is
@@ -1709,6 +1714,12 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	// project's chat that this agent finished.
 	if c.m.Finished != nil && !c.agent.IsLead() {
 		go c.m.Finished(c.agent, *result)
+	}
+	// A lead is idle from here, and its prompt cache starts running out. The
+	// daemon checks again when it acts: a message drain is still handing the
+	// tool starts a turn this can't see yet.
+	if c.m.LeadIdle != nil && c.agent.IsLead() && c.turn == nil {
+		go c.m.LeadIdle(c.agent)
 	}
 }
 

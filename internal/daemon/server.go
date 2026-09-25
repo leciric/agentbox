@@ -69,6 +69,9 @@ type Server struct {
 	// reason, and for one more: the real one starts an AI tool, which a test
 	// must never do by forgetting to say otherwise.
 	askAside func(ctx context.Context, a state.Agent, model, ask string) (answer, ranOn string, err error)
+	// idleAfter schedules an idle rollover: time.AfterFunc when nil, a test's
+	// clock otherwise.
+	idleAfter func(d time.Duration, f func()) interface{ Stop() bool }
 
 	waiting *waiters // agents waiting for an answer to a question
 
@@ -80,6 +83,7 @@ type Server struct {
 	previewIPs   map[string]previewTarget // agents' addresses, cached for the preview proxy
 	claudeLogins map[string]*claudeLogin  // in-app Claude Code logins, by job
 	distilling   map[string]bool          // projects with a distillation running, by name
+	idleTimers   map[string]idleTimer     // leads' pending idle rollovers, by project (idlerollover.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
 	remoteStop   context.CancelFunc
@@ -124,6 +128,7 @@ func New(cfg Config) (*Server, error) {
 			s.captureLeadTurn(ev)
 		},
 		Finished:   s.agentFinished,
+		LeadIdle:   s.leadIdle,
 		AuthFailed: s.claudeAuthFailed,
 		Limits:     s.claudeLimited,
 		Logf:       s.logf,
