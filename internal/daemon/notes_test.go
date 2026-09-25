@@ -10,17 +10,17 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/notes"
-	"agentbox/internal/testutil"
 )
 
 // A project's notes are one markdown file, and what they say is folded into
 // the brief every agent of the project is given — including the lead's, which
 // is rebuilt when they change.
 func TestProjectNotesReachEveryBrief(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,10 +84,11 @@ func TestProjectNotesReachEveryBrief(t *testing.T) {
 // The lead adds what it learns through its own socket, and only ever adds:
 // what the user wrote stays exactly as they left it.
 func TestLeadAppendsToProjectNotes(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.client.SetNotes(ctx, "hello-stack", "Squash before merging.\n"); err != nil {
@@ -127,10 +128,11 @@ func TestLeadAppendsToProjectNotes(t *testing.T) {
 // name one by (D82), and every change goes the same way an append does: the
 // briefs of the agents that already exist are rewritten under them.
 func TestLeadEditsAndRemovesNotes(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	creds := credentials.Store{Dir: d.paths.Credentials()}

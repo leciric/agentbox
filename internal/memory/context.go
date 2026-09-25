@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -309,7 +310,7 @@ func (s *Store) BuildContext(ctx context.Context, req ContextRequest) (Context, 
 	if corpus > 0 {
 		built.Stats.Ratio = float64(built.Stats.Tokens) / float64(corpus)
 	}
-	recordContextBuild(built.Stats)
+	s.recordContextBuild(built.Stats)
 	// Every memory the budget kept is about to be spent as some model's
 	// context, which is what "referenced" means: it is what keeps importance
 	// decay off the memories a project is actually reading (D76). A build is
@@ -784,10 +785,18 @@ func (s *Store) corpusTokens(ctx context.Context, project string) (int, error) {
 // measures itself against. They start empty when the daemon does. It is
 // package-level because a Store is a thin wrapper made fresh per call site
 // over one database handle — memory.New(db) in the daemon's every request and
-// in the brief writer — and the counters have to outlive those.
+// in the brief writer — and the counters have to outlive those. They are kept
+// per database as well as per project, which in the daemon is one database,
+// so that two in one process — tests' daemons running side by side — don't
+// count each other's builds.
 var builds struct {
 	sync.Mutex
-	byProject map[string]*projectBuilds
+	byProject map[buildsKey]*projectBuilds
+}
+
+type buildsKey struct {
+	db      *sql.DB
+	project string
 }
 
 type projectBuilds struct {
@@ -812,16 +821,17 @@ type ContextAccount struct {
 	Recent []ContextStats `json:"recent,omitempty"`
 }
 
-func recordContextBuild(st ContextStats) {
+func (s *Store) recordContextBuild(st ContextStats) {
 	builds.Lock()
 	defer builds.Unlock()
 	if builds.byProject == nil {
-		builds.byProject = map[string]*projectBuilds{}
+		builds.byProject = map[buildsKey]*projectBuilds{}
 	}
-	p := builds.byProject[st.Project]
+	key := buildsKey{s.db, st.Project}
+	p := builds.byProject[key]
 	if p == nil {
 		p = &projectBuilds{}
-		builds.byProject[st.Project] = p
+		builds.byProject[key] = p
 	}
 	p.builds++
 	p.tokens += st.Tokens
@@ -830,10 +840,10 @@ func recordContextBuild(st ContextStats) {
 }
 
 // ContextBuilds is the accounting for one project.
-func ContextBuilds(project string) ContextAccount {
+func (s *Store) ContextBuilds(project string) ContextAccount {
 	builds.Lock()
 	defer builds.Unlock()
-	p := builds.byProject[project]
+	p := builds.byProject[buildsKey{s.db, project}]
 	if p == nil {
 		return ContextAccount{}
 	}

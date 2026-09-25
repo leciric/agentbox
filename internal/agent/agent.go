@@ -86,23 +86,38 @@ func (m *Manager) claudeChatDefaults(ctx context.Context, p state.Project, model
 		return nil, err
 	}
 	options := map[string]string{"model": chosenModel, "effort": chosenEffort}
+	w, err := m.Store.ClaudeWindows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	installation, err := m.Store.ClaudeCompactWindow(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if window != nil {
 		// The context window (D91) is checked against the model it will run
 		// on, so "1m" for Haiku is refused here rather than ignored later.
-		// Nobody choosing is the installation's compact window.
-		w, err := m.Store.ClaudeWindows(ctx)
-		if err != nil {
-			return nil, err
-		}
-		installation, err := m.Store.ClaudeCompactWindow(ctx)
-		if err != nil {
-			return nil, err
-		}
 		chosen, err := w.ContextWindowChoice(w.NormalizeClaudeModel(chosenModel), *window, installation)
 		if err != nil {
 			return nil, err
 		}
 		options[state.ChatOptionContextWindow] = chosen
+		return options, nil
+	}
+	// Nobody chose for this agent: the window new agents start with in
+	// Settings, where "" is the installation's compact window. It was checked
+	// against the agents' default model when it was set, but this agent may
+	// run on another — the project's, or one the lead picked — and a model
+	// without that window gets the compact window instead of a refusal, since
+	// nobody asked for this one.
+	def, err := m.Store.Setting(ctx, state.SettingDefaultAgentContextWindow)
+	if err != nil {
+		return nil, err
+	}
+	if def != "" {
+		if chosen, err := w.ContextWindowChoice(w.NormalizeClaudeModel(chosenModel), def, installation); err == nil {
+			options[state.ChatOptionContextWindow] = chosen
+		}
 	}
 	return options, nil
 }

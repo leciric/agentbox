@@ -29,6 +29,17 @@ The app is a pnpm monorepo: `pnpm install` at the root, `pnpm dev` in `apps/web`
 
 AgentBox does not set the project up for you. Work it out the way a new developer would: read the README, package scripts, compose files and `.env.example`, then install dependencies and start whatever the task needs.
 
+## Testing your change
+
+- **While you iterate, test only what you changed**: the package, test file or test you touched, not
+  the whole suite after every edit.
+- **Run the full suite once, before you finish.** Leave to CI what this machine can't run, like tests
+  behind a build tag that need a VM or a device, and say that you did.
+- **Show a user-facing change working on your desktop**, in the real app, through the desktop
+  subagent, and keep the proof with `agentbox media`. Make that quick: build the app and launch it
+  unpacked (for Electron, the build plus `electron .`) rather than packaging an installer, unless
+  packaging is what you changed.
+
 ## When a credential is missing
 
 When something fails on auth — a push or `gh` answering "Repository not found", 403 or "permission
@@ -114,18 +125,18 @@ The user opens your servers from the host at `http://10.239.149.25:<port>`, or a
 This machine has its own Chromium on a virtual display, alongside a small desktop with a file manager and a terminal. The user can watch it in AgentBox and take over at any time, using the Desktop tab.
 
 - Start it with `agentbox browser start`. `agentbox browser open <url>` opens a page, and `agentbox browser status` lists the open pages.
-- Your AI tool has the Playwright MCP server connected to this browser. Start the browser first, then use the browser tools: what you do there is what the user sees.
 - Inside this machine, your servers are at `http://localhost:<port>`.
-- Playwright's screenshot tool no longer returns an image into this conversation — read a page with `browser_snapshot`'s accessibility tree instead, and ask the desktop subagent when you need to actually see it. To keep proof, use `agentbox media screenshot` (below): it saves the page for the user without putting the image in this conversation.
+- **Test and show a UI on the desktop**, web pages included: drive it with the desktop tools below, the way the user would, with the real mouse and keyboard. What you do there is what the user sees.
+- Your AI tool also has the Playwright MCP server connected to this browser, as the fallback for what the desktop can't do: reading the DOM, or waiting on an element. Its screenshot tool doesn't return an image into this conversation — read a page with `browser_snapshot`'s accessibility tree instead. To keep proof, use `agentbox media screenshot` (below): it saves the page for the user without putting the image in this conversation.
 
 ### The desktop tools
 
 There is also a `desktop` MCP server: a real mouse, keyboard and screenshots of the whole display, not only of a page. It needs the browser started too, since that is what starts the display.
 
-**If you're Claude Code, the desktop tools aren't yours: they belong to your `desktop` subagent.** Hand it the job with your Agent tool — an exact goal, and what to report back — and you get words back, while its screenshots go with it when it answers. It runs on Haiku; ask for Sonnet when what it has to judge is subtle. Other AI tools have the server directly: take a `screenshot` before you click, since coordinates from a stale one click the wrong thing, and give them in the display's real pixels, which the screenshot tells you.
+**If you're Claude Code, the desktop tools aren't yours: they belong to your `desktop` subagent.** Hand it the job with your Agent tool — an exact goal, and what to report back — and you get words back, while its screenshots go with it when it answers. It runs on Haiku; ask for Sonnet when what it has to judge is subtle. Other AI tools have the server directly: take a `screenshot` to start, and after that each action answers with a screenshot of what it led to, so there is no need to take another; coordinates are in the screenshot's pixels.
 
-- **Use Playwright for anything inside a web page.** It sees the DOM, so it can wait for an element and click it by name; the desktop tools only see pixels.
-- **Use the desktop tools for everything outside the page**: the file manager, the terminal, the panel, native dialogs (file pickers, print, permission prompts) and anything in a window Playwright can't reach.
+- **Use the desktop tools by default**, inside a web page and outside it: pages and apps, the file manager, the terminal, the panel, native dialogs (file pickers, print, permission prompts).
+- **Fall back to Playwright only for what pixels can't tell you**: the DOM, an element's exact text or attributes, or waiting until an element appears.
 - **Use them for recordings too.** Playwright's input never moves the real cursor, so a recording made with it shows things changing with no pointer anywhere. The desktop tools move the actual mouse, so the user sees where you clicked.
 
 ## Media: show your work

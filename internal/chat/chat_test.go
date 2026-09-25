@@ -2023,3 +2023,61 @@ func TestHaikuHasNoContextWindowChoice(t *testing.T) {
 		t.Error("Haiku was given the 1M window")
 	}
 }
+
+// TestTheLeadStartsOnTheLeadDefaults: a lead's chat whose composer chose
+// nothing runs on the model and window in Settings → Lead, read when its
+// adapter starts, and a choice made in its composer still wins. An agent's
+// chat never reads them.
+func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {
+	store := openStore(t)
+	ctx := context.Background()
+	for key, value := range map[string]string{
+		state.SettingDefaultLeadModel:         "sonnet",
+		state.SettingDefaultLeadContextWindow: "1000000",
+	} {
+		if err := store.SetSetting(ctx, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lead := state.Agent{Project: "hello", Name: state.LeadName, Role: state.RoleLead, AI: "claude", Worktree: "/work/hello"}
+	m, _ := newManager(t, store, newFakeTool(answerHello))
+	type launch struct {
+		model  string
+		window int64
+	}
+	var mu sync.Mutex
+	launches := map[string][]launch{}
+	m.Prepare = func(_ context.Context, a state.Agent, model string, window int64) error {
+		mu.Lock()
+		defer mu.Unlock()
+		launches[a.Name] = append(launches[a.Name], launch{model, window})
+		return nil
+	}
+	for _, a := range []state.Agent{lead, testAgent} {
+		if _, err := m.Send(a, "hi"); err != nil {
+			t.Fatal(err)
+		}
+		waitThread(t, m, a, "the first turn", turnsEnded(1))
+	}
+	mu.Lock()
+	if got := launches[lead.Name]; len(got) != 1 || got[0] != (launch{"sonnet", 1_000_000}) {
+		t.Errorf("the lead started on %+v, want sonnet at 1M", got)
+	}
+	if got := launches[testAgent.Name]; len(got) != 1 || got[0] != (launch{"", 200_000}) {
+		t.Errorf("an agent started on %+v, want nothing of the lead's", got)
+	}
+	mu.Unlock()
+
+	// Chosen in the lead's own composer, the window is the lead's and not
+	// the default's.
+	if _, err := m.SetOption(ctx, lead, state.ChatOptionContextWindow, "200k"); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.Chat(ctx, lead.Project, lead.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Options[state.ChatOptionContextWindow] != "200000" {
+		t.Errorf("the lead's own choice was stored as %+v", stored.Options)
+	}
+}

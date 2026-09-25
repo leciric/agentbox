@@ -306,7 +306,7 @@ func TestContextAccounting(t *testing.T) {
 		t.Errorf("ratio = %v, want tokens over corpus = %v", st.Ratio, want)
 	}
 
-	account := memory.ContextBuilds("accounted")
+	account := s.ContextBuilds("accounted")
 	if account.Builds != 1 || account.Tokens != st.Tokens {
 		t.Errorf("the accounting is %+v after one build of %d tokens", account, st.Tokens)
 	}
@@ -316,7 +316,7 @@ func TestContextAccounting(t *testing.T) {
 	if _, err := s.BuildContext(ctx, memory.ContextRequest{Project: "accounted", Query: "indexes"}); err != nil {
 		t.Fatal(err)
 	}
-	if account = memory.ContextBuilds("accounted"); account.Builds != 2 || account.Recent[0].Query != "indexes" {
+	if account = s.ContextBuilds("accounted"); account.Builds != 2 || account.Recent[0].Query != "indexes" {
 		t.Errorf("the accounting doesn't have the newest build first: %+v", account)
 	}
 }

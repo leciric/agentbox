@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"agentbox/internal/api"
-	"agentbox/internal/testutil"
 )
 
 // addProjects adds one project per name, each its own repository, and returns
@@ -14,7 +13,7 @@ import (
 func addProjects(t *testing.T, d testDaemon, names ...string) {
 	t.Helper()
 	for _, name := range names {
-		repo := testutil.FixtureRepo(t, "hello-stack")
+		repo := d.fixtureRepo(t, "hello-stack")
 		if _, err := d.client.AddProject(context.Background(), api.AddProjectRequest{Path: repo, Name: name}); err != nil {
 			t.Fatal(err)
 		}
@@ -46,6 +45,7 @@ func projectOrder(t *testing.T, d testDaemon) string {
 // projects into it, reorder both, collapse it, and delete it without losing a
 // project.
 func TestSectionsOrganiseTheProjectsList(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	addProjects(t, d, "apples", "mangoes", "pears")
@@ -135,6 +135,7 @@ func TestSectionsOrganiseTheProjectsList(t *testing.T) {
 // A project added while the sidebar was being dragged is neither lost nor
 // allowed to corrupt the order.
 func TestProjectLayoutToleratesAProjectAddedMeanwhile(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	addProjects(t, d, "apples", "mangoes")
@@ -176,6 +177,7 @@ func TestProjectLayoutToleratesAProjectAddedMeanwhile(t *testing.T) {
 }
 
 func TestSectionRoutesRefuseNonsense(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	if _, err := d.client.AddSection(ctx, "  "); err == nil {
@@ -197,6 +199,7 @@ func TestSectionRoutesRefuseNonsense(t *testing.T) {
 // transaction that reads before it writes is where SQLite would otherwise
 // fail one of them outright rather than make it wait (see Open's _txlock).
 func TestConcurrentLayoutAndSectionWritesAllLand(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	addProjects(t, d, "apples", "mangoes", "pears")

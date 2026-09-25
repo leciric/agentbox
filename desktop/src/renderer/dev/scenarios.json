@@ -161,6 +161,13 @@
     "height": 900
   },
   {
+    "id": "settings-defaults-dark",
+    "description": "Settings' Lead and New agents defaults: a model and a context window each \u2014 dark",
+    "query": "defaults=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "avatars-asking-dark",
     "description": "Avatars, waiting on the user (a question, a permission, a credential request): waving, on an amber tile \u2014 each AI tool at 40px and blown up, dark",
     "query": "avatars=asking&theme=dark",
@@ -216,5 +223,19 @@
     "width": 1280,
     "height": 900,
     "reducedMotion": "reduce"
+  },
+  {
+    "id": "resources-dark",
+    "description": "Resource limits' copy: Home's host stats, Settings' defaults for new agents, an agent's limits editor \u2014 dark",
+    "query": "resources=1&theme=dark",
+    "width": 1280,
+    "height": 1400
+  },
+  {
+    "id": "resources-light",
+    "description": "Resource limits' copy: Home's host stats, Settings' defaults for new agents, an agent's limits editor \u2014 light",
+    "query": "resources=1&theme=light",
+    "width": 1280,
+    "height": 1400
   }
 ]

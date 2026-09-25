@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"agentbox/internal/api"
-	"agentbox/internal/testutil"
 )
 
 // baseIncus stands in for a project that has a base and, beside it, the base
@@ -46,10 +45,11 @@ exit 0
 // The app's one question about a base is "can I undo the last save?", so the
 // answer has to come back with the base itself rather than from a second route.
 func TestBaseAPIReportsAndRevertsTheSaveBefore(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, baseIncus(root))
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,10 +88,11 @@ func TestBaseAPIReportsAndRevertsTheSaveBefore(t *testing.T) {
 // Dropping what a save kept is the other half: it gives the disk back without
 // touching the base the project is actually on.
 func TestRemovePreviousBaseAPI(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, baseIncus(root))
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -176,6 +176,8 @@ export const api = {
   saveGitHubToken: (token: string, account?: string) => call<{ user: string }>('POST', '/v1/auth/github', { token, account } satisfies T.GitHubTokenRequest),
   removeGitHubAccount: (account: string) => call<void>('DELETE', `/v1/auth/github/${encodeURIComponent(account)}`),
   setDefaultGitHubAccount: (account: string) => call<void>('POST', `/v1/auth/github/${encodeURIComponent(account)}/default`),
+  renameGitHubAccount: (account: string, name: string) =>
+    call<T.RenamedGitHubAccount>('POST', `/v1/auth/github/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameGitHubAccountRequest),
 
   projectChat: (project: string) => call<T.ProjectChat>('GET', `/v1/projects/${encodeURIComponent(project)}/lead`),
   resetProjectChat: (project: string) => call<void>('DELETE', `/v1/projects/${encodeURIComponent(project)}/lead`),

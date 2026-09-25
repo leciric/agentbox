@@ -63,6 +63,9 @@ else
   # Files the image left owned by the placeholder's group, and anything usermod
   # skipped because it sits outside the home directory it moved.
   chown -R "$USER_UID:$USER_GID" "/home/$USER_NAME"
+  # provision.sh's Go module cache for AgentBox's development caches, outside the
+  # home directory so its path stays the same.
+  if [[ -d /var/cache/agentbox ]]; then chown -R "$USER_UID:$USER_GID" /var/cache/agentbox; fi
   # Older usermod leaves these behind; rootless Docker inside the agent reads them.
   for f in /etc/subuid /etc/subgid; do
     if [[ -f "$f" ]]; then sed -i "s/^$PLACEHOLDER:/$USER_NAME:/" "$f"; fi

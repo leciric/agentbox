@@ -139,7 +139,7 @@ function ClaudeAccountsPicker({ project }: { project: T.Project }) {
 
 // GitHubAccountPicker chooses which stored GitHub login this project's new
 // agents get. Agents that already exist keep the token they were created with.
-function GitHubAccountPicker({ project }: { project: T.Project }) {
+export function GitHubAccountPicker({ project }: { project: T.Project }) {
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const accounts = auth.data?.githubAccounts ?? [];
@@ -175,11 +175,21 @@ function GitHubAccountPicker({ project }: { project: T.Project }) {
         onChange={(value) => pick.mutate(value)}
       >
         <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
-        {accounts.filter((account) => allowed(project, account.name)).map((account) => (
+        {/* Every stored account: the project's allow-list is for Claude Code
+            accounts, and filtering these by it left only Default (and the
+            picked account showing as "Select…") on a project that has one. */}
+        {accounts.map((account) => (
           <SelectOption key={account.name} value={account.name}>
             {account.name}
           </SelectOption>
         ))}
+        {/* An account the project picked and that was removed since: it is
+            still what the project names, so it shows rather than "Select…". */}
+        {project.githubAccount && !accounts.some((a) => a.name === project.githubAccount) && (
+          <SelectOption value={project.githubAccount} disabled>
+            {project.githubAccount} (removed)
+          </SelectOption>
+        )}
       </Select>
       <span className="text-xs text-subtle">New agents only</span>
       {pick.error && <span className="text-xs text-rose-300">{errorMessage(pick.error)}</span>}

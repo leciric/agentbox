@@ -7,12 +7,14 @@
 #
 # Usage: provision.sh <user> <uid> <gid>
 #
-# Two parts of the image are optional, and off unless internal/image asks for
+# Some parts of the image are optional, and off unless internal/image asks for
 # them (image.Options). Each is a download most agents never need, so a plain
 # build stays small:
 #   AGENTBOX_WITH_ANDROID=1  scrcpy, which mirrors an Android emulator's screen
 #   AGENTBOX_WITH_CODEX=1    the Codex CLI and its ACP adapter
 #   AGENTBOX_WITH_OPENCODE=1 the OpenCode CLI, which is its own ACP adapter
+#   AGENTBOX_WITH_DEV_CACHES=1 the Go, npm and Electron caches of AgentBox's own
+#                            repository, for agents that work on AgentBox itself
 #
 # AGENTBOX_DEBIAN_MIRROR is a Debian mirror to download Debian's packages from
 # instead of deb.debian.org, for a connection on which deb.debian.org is slow.
@@ -20,7 +22,7 @@
 set -euo pipefail
 USER_NAME=$1 USER_UID=$2 USER_GID=$3
 WITH_ANDROID=${AGENTBOX_WITH_ANDROID:-0} WITH_CODEX=${AGENTBOX_WITH_CODEX:-0}
-WITH_OPENCODE=${AGENTBOX_WITH_OPENCODE:-0}
+WITH_OPENCODE=${AGENTBOX_WITH_OPENCODE:-0} WITH_DEV_CACHES=${AGENTBOX_WITH_DEV_CACHES:-0}
 DEBIAN_MIRROR=${AGENTBOX_DEBIAN_MIRROR:-}
 export DEBIAN_FRONTEND=noninteractive
 
@@ -51,7 +53,8 @@ step "Base packages"
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
   ca-certificates curl wget gnupg git tmux sudo build-essential jq ripgrep unzip xz-utils \
-  procps iproute2 iputils-ping less nano python3 python3-venv openssh-client
+  procps iproute2 iputils-ping less nano python3 python3-venv openssh-client \
+  libarchive-tools
 
 step "Docker"
 install -m 0755 -d /etc/apt/keyrings
@@ -98,6 +101,8 @@ chmod 0440 /etc/sudoers.d/90-agentbox
 cat >/etc/profile.d/agentbox.sh <<'EOF'
 export LANG=C.UTF-8
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+# Temporary files, and so every test's t.TempDir(), go to the tmpfs on /t.
+export TMPDIR=/t
 # Credentials AgentBox writes when it creates the agent.
 if [ -f "$HOME/.config/agentbox/env" ]; then . "$HOME/.config/agentbox/env"; fi
 EOF
@@ -105,6 +110,13 @@ EOF
 # Debian mounts a tmpfs on /tmp at boot, which would hide worktrees and
 # repositories that Incus mounts under /tmp.
 systemctl mask tmp.mount
+# Temporary files go to a tmpfs of their own instead, which makes tests that
+# write many small files faster. Its path is short on purpose: a unix socket's
+# path can't be longer than 107 bytes, and tests make sockets in t.TempDir().
+# The directory is there without the mount too, so TMPDIR works before the
+# first boot mounts it, while this script runs.
+install -d -m 1777 /t
+echo 'tmpfs /t tmpfs mode=1777,nosuid,nodev 0 0' >>/etc/fstab
 
 # Every tool is pinned: two builds of the same image version then install the
 # same thing, and a release that breaks agents can't arrive on its own. These
@@ -151,6 +163,35 @@ fi
 # internal/agent/agent.go), at the XDG paths OpenCode reads them from.
 if [[ $WITH_OPENCODE == 1 ]]; then
   as_user 'mkdir -p ~/.local/share/opencode ~/.config/opencode'
+fi
+
+DEV_CACHES_REPO=https://github.com/leciric/agentbox
+# The Go module cache sits outside the home directory, at a path that doesn't
+# name the user, because personalise.sh moves the home directory: Go's build
+# cache keys a dependency's compiled package on the directory it was built
+# from, and a moved module cache would miss every entry this step makes.
+DEV_GOMODCACHE=/var/cache/agentbox/go-mod
+if [[ $WITH_DEV_CACHES == 1 ]]; then
+  step "AgentBox's development caches: Go's modules and build cache, npm's cache and Electron"
+  install -d -o "$USER_UID" -g "$USER_GID" "$DEV_GOMODCACHE"
+  as_user "go env -w GOMODCACHE=$DEV_GOMODCACHE"
+  # A cache is worth having rather than necessary: if GitHub or a registry
+  # fails here, the image is still good, and agents download what they need.
+  # The clone's mise.toml goes, so the pinned tools above do the work rather
+  # than the versions it asks mise to install. `go test -run '^$'` compiles
+  # every test binary, and so their dependencies and the standard library,
+  # without running a test. npm ci fills ~/.npm; Electron has no postinstall,
+  # and downloads itself the first time it runs, so its install.js is run to
+  # put that download in ~/.cache/electron.
+  if ! as_user "set -e; dir=\$(mktemp -d); trap 'rm -rf \$dir' EXIT
+      git clone -q --depth 1 $DEV_CACHES_REPO \$dir; cd \$dir; rm -f mise.toml
+      go mod download; go test -count=1 -run '^\$' ./... >/dev/null || echo 'go test failed: the build cache is only partly filled'
+      npm --prefix desktop ci --no-audit --no-fund --loglevel=error
+      node desktop/node_modules/electron/install.js"; then
+    echo "==> Warning: AgentBox's development caches are incomplete; agents will download what's missing" >&2
+  fi
+else
+  skip "AgentBox's development caches" "they are off"
 fi
 
 step "Versions"

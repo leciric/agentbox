@@ -331,10 +331,10 @@ func TestWaitForIsCapped(t *testing.T) {
 // never scaled up: a small display comes back as it is.
 func TestScaledTo(t *testing.T) {
 	for _, c := range []struct{ in, want Size }{
-		{Size{1440, 900}, Size{1280, 800}},
-		{Size{1280, 800}, Size{1280, 800}},
+		{Size{1440, 900}, Size{1024, 640}},
 		{Size{1024, 768}, Size{1024, 768}},
-		{Size{1920, 1080}, Size{1280, 720}},
+		{Size{800, 600}, Size{800, 600}},
+		{Size{1920, 1080}, Size{1024, 576}},
 	} {
 		if got := scaledTo(c.in); got != c.want {
 			t.Errorf("scaledTo(%v) = %v, want %v", c.in, got, c.want)
@@ -370,5 +370,54 @@ func TestMatchWindow(t *testing.T) {
 	}
 	if _, err := matchWindow(nil, "anything"); err == nil || !strings.Contains(err.Error(), "no windows open") {
 		t.Errorf("matching against an empty desktop = %v", err)
+	}
+}
+
+// Coordinates are given in the screenshot's pixels: what a model aimed at in a
+// 1024×640 image of a 1440×900 display is where it lands, and a point read
+// back from the display is where it was in the image.
+func TestScaleConvertsScreenshotPixels(t *testing.T) {
+	sc := Scale{Real: Size{1440, 900}, Shown: Size{1024, 640}}
+	x, y, err := sc.ToReal(100, 193)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x != 141 || y != 271 {
+		t.Errorf("(100, 193) in the screenshot is (%d, %d) on the display, want (141, 271)", x, y)
+	}
+	if bx, by := sc.ToShown(x, y); bx != 100 || by != 193 {
+		t.Errorf("back again it is (%d, %d), want (100, 193)", bx, by)
+	}
+	for _, p := range [][2]int{{1024, 10}, {10, 640}, {-1, 10}} {
+		if _, _, err := sc.ToReal(p[0], p[1]); err == nil {
+			t.Errorf("(%d, %d) is outside a 1024×640 screenshot, and was accepted", p[0], p[1])
+		}
+	}
+	// A display small enough to be shown as it is converts nothing.
+	same := Scale{Real: Size{800, 600}, Shown: Size{800, 600}}
+	if x, y, _ := same.ToReal(799, 599); x != 799 || y != 599 {
+		t.Errorf("an unscaled display moved (799, 599) to (%d, %d)", x, y)
+	}
+}
+
+// type's optional point has to be told apart from (0, 0), and screenshot is
+// true unless it is said to be false.
+func TestDecodeArgs(t *testing.T) {
+	in, err := decodeArgs([]byte(`{"text":"hi","x":0,"y":0,"screenshot":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !in.hasX || !in.hasY || in.X != 0 || in.Y != 0 || in.Text != "hi" {
+		t.Errorf("decoded %+v: want a point at (0, 0) and the text", in)
+	}
+	if in.Screenshot == nil || *in.Screenshot {
+		t.Errorf("screenshot false decoded as %v", in.Screenshot)
+	}
+	in, err = decodeArgs([]byte(`{"text":"hi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in.hasX || in.hasY || in.Screenshot != nil {
+		t.Errorf("decoded %+v: nothing but the text was given", in)
 	}
 }
