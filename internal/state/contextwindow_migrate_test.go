@@ -39,13 +39,13 @@ func TestCappedModelWindowsAreForgottenOnUpgrade(t *testing.T) {
 		SettingClaudeModelWindows, `{"opus":200000,"default":200000,"sonnet":1000000,"claude-fable-5-1":1000000}`); err != nil {
 		t.Fatal(err)
 	}
-	db.Close()
+	_ = db.Close()
 
 	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	w, err := st.ClaudeWindows(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -75,9 +75,9 @@ func TestModelWindowsMigrationToleratesOddValues(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", at))
-		db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`, SettingClaudeModelWindows, value)
-		db.Close()
+		_, _ = db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", at))
+		_, _ = db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`, SettingClaudeModelWindows, value)
+		_ = db.Close()
 		st, err := Open(path)
 		if err != nil {
 			t.Fatalf("%s: %v", value, err)
@@ -85,6 +85,6 @@ func TestModelWindowsMigrationToleratesOddValues(t *testing.T) {
 		if _, err := st.ClaudeWindows(ctx); err != nil {
 			t.Errorf("%s: %v", value, err)
 		}
-		st.Close()
+		_ = st.Close()
 	}
 }

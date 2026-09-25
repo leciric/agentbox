@@ -16,6 +16,22 @@ import (
 	"agentbox/internal/testutil"
 )
 
+// unsetenv removes an environment variable for the test, restoring whatever
+// it was (set or not) afterwards. Unlike t.Setenv(name, ""), which still
+// leaves the variable present in os.Environ(), this is for code that only
+// checks whether a variable was set at all, not what it was set to.
+func unsetenv(t *testing.T, name string) {
+	t.Helper()
+	if old, ok := os.LookupEnv(name); ok {
+		t.Cleanup(func() { _ = os.Setenv(name, old) })
+	} else {
+		t.Cleanup(func() { _ = os.Unsetenv(name) })
+	}
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // leadFixture is a project whose Claude Code login exists, so the lead can be
 // created. No incus binary is set: a lead must never reach for one.
 func leadFixture(t *testing.T) fixture {
@@ -255,6 +271,23 @@ func TestLeadNameIsReserved(t *testing.T) {
 // dies before saying anything useful. Found on a real machine after 0.3.0.
 func TestLeadChatCommandLetsItsToolsFindThemselves(t *testing.T) {
 	ctx := context.Background()
+	// Pinned rather than read from the ambient environment: toolEnv falls
+	// back to $HOME only when no XDG_*_HOME is set, and a login manager can
+	// set those from the passwd database's home, which need not agree with
+	// an overridden $HOME. Clearing them keeps the two in lockstep here.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	for _, name := range []string{"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"} {
+		t.Setenv(name, "")
+	}
+	// toolEnv passes an existing MISE_*_DIR straight through, unlike the
+	// XDG_*_HOME vars above, which it only reads with os.Getenv: a merely
+	// empty value still counts as "already chosen" (os.Environ() carries
+	// "MISE_DATA_DIR=" either way), so these need unsetting outright, not
+	// just blanking, or a host that already ran mise leaks its real dirs in.
+	for _, name := range []string{"MISE_DATA_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_STATE_DIR"} {
+		unsetenv(t, name)
+	}
 	f := leadFixture(t)
 	a, err := f.m.EnsureLead(ctx, "hello-stack")
 	if err != nil {
@@ -293,10 +326,6 @@ func TestLeadChatCommandLetsItsToolsFindThemselves(t *testing.T) {
 		t.Errorf("HOME = %q, want the lead's own", env["HOME"])
 	}
 	// And enough for a tool installed with mise to find itself anyway.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home directory to derive the tool directories from")
-	}
 	for _, name := range []string{"MISE_DATA_DIR", "MISE_CONFIG_DIR", "MISE_CACHE_DIR", "MISE_STATE_DIR"} {
 		if env[name] == "" {
 			t.Errorf("%s isn't set: a mise shim would fail with the lead's HOME", name)

@@ -87,7 +87,7 @@ func endsWell(lines []string, open []bool, k int) bool {
 	}
 	// A table is whole when what follows it isn't another row — a blank line
 	// inside the cut, or the line the cut fell on.
-	return !(isTableRow(line) && last+1 < len(lines) && isTableRow(strings.TrimSpace(lines[last+1])))
+	return !isTableRow(line) || last+1 >= len(lines) || !isTableRow(strings.TrimSpace(lines[last+1]))
 }
 
 // cutLine cuts one long line to max runes, at the end of a sentence when that

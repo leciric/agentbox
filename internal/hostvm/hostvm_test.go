@@ -39,7 +39,7 @@ func newFake(t *testing.T) (*VM, string) {
 	for _, kv := range os.Environ() {
 		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "AGENTBOX_") {
 			t.Setenv(name, "")
-			os.Unsetenv(name)
+			_ = os.Unsetenv(name)
 		}
 	}
 	// Resolved, as New resolves the home directory: macOS's temporary
@@ -58,7 +58,7 @@ func newFake(t *testing.T) (*VM, string) {
 	}
 	t.Setenv("FAKE_DIR", dir)
 	home := filepath.Join(dir, "home")
-	os.MkdirAll(home, 0o755)
+	_ = os.MkdirAll(home, 0o755)
 	vm := &VM{
 		Limactl: lima,
 		Name:    "agentbox",
@@ -116,7 +116,7 @@ func TestState(t *testing.T) {
 	list := `{"name":"other","status":"Running"}
 {"name":"agentbox","status":"Stopped","dir":"/x/agentbox","cpus":4,"memory":8589934592,"disk":107374182400,"arch":"aarch64"}
 `
-	os.WriteFile(filepath.Join(dir, "list"), []byte(list), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "list"), []byte(list), 0o644)
 	st, err = vm.State(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestUp(t *testing.T) {
 	if err := vm.Up(context.Background()); !errors.Is(err, ErrNotCreated) {
 		t.Fatalf("a VM that doesn't exist: got %v", err)
 	}
-	os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Stopped"}`+"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Stopped"}`+"\n"), 0o644)
 	if err := vm.Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -147,8 +147,8 @@ func TestUp(t *testing.T) {
 // that matches is left alone.
 func TestReady(t *testing.T) {
 	vm, dir := newFake(t)
-	os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running"}`+"\n"), 0o644)
-	os.WriteFile(filepath.Join(dir, "digest"), []byte("0000\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "list"), []byte(`{"name":"agentbox","status":"Running"}`+"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "digest"), []byte("0000\n"), 0o644)
 	if err := vm.Ready(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -157,9 +157,9 @@ func TestReady(t *testing.T) {
 		t.Fatalf("the binary wasn't installed: %q, %v", got, err)
 	}
 
-	os.Remove(filepath.Join(dir, "installed"))
+	_ = os.Remove(filepath.Join(dir, "installed"))
 	want, _ := vm.Digest()
-	os.WriteFile(filepath.Join(dir, "digest"), []byte(want+"\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "digest"), []byte(want+"\n"), 0o644)
 	if err := vm.Ready(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestForwardDoNotTrack(t *testing.T) {
 func TestWorkdir(t *testing.T) {
 	vm, dir := newFake(t)
 	inside := filepath.Join(vm.Home, "code", "app")
-	os.MkdirAll(inside, 0o755)
+	_ = os.MkdirAll(inside, 0o755)
 	t.Chdir(inside)
 	if got := vm.workdir(); got != inside {
 		t.Errorf("under the home directory: got %s", got)
@@ -207,7 +207,7 @@ func TestWorkdir(t *testing.T) {
 		t.Errorf("outside it: got %s, want %s", got, vm.Home)
 	}
 	sibling := vm.Home + "-other"
-	os.MkdirAll(sibling, 0o755)
+	_ = os.MkdirAll(sibling, 0o755)
 	t.Chdir(sibling)
 	if got := vm.workdir(); got != vm.Home {
 		t.Errorf("a sibling that shares the home's prefix: got %s", got)
@@ -216,7 +216,7 @@ func TestWorkdir(t *testing.T) {
 
 func TestSetup(t *testing.T) {
 	vm, dir := newFake(t)
-	os.WriteFile(filepath.Join(vm.Home, ".gitconfig"), []byte("[user]\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(vm.Home, ".gitconfig"), []byte("[user]\n"), 0o644)
 	if err := vm.Setup(context.Background()); err != nil {
 		t.Fatal(err)
 	}

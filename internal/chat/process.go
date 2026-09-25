@@ -38,11 +38,11 @@ func StartCommand(cmd *exec.Cmd) (*Process, error) {
 	cmd.Stderr = stderr
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Start(); err != nil {
-		stdout.Close()
-		w.Close()
+		_ = stdout.Close()
+		_ = w.Close()
 		return nil, err
 	}
-	w.Close()
+	_ = w.Close()
 
 	done := make(chan struct{})
 	var waitErr error
@@ -56,11 +56,11 @@ func StartCommand(cmd *exec.Cmd) (*Process, error) {
 		Stdout: stdout,
 		Stop: func() {
 			once.Do(func() {
-				stdin.Close()
+				_ = stdin.Close()
 				select {
 				case <-done:
 				case <-time.After(3 * time.Second):
-					cmd.Process.Kill()
+					_ = cmd.Process.Kill()
 					<-done
 				}
 			})

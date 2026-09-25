@@ -38,12 +38,19 @@ func LogInput(ctx context.Context, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	stop := context.AfterFunc(ctx, func() { x.Close() })
+	stop := context.AfterFunc(ctx, func() { _ = x.Close() })
 	defer stop()
-	defer x.Close()
+	defer func() { _ = x.Close() }()
+	return logInput(ctx, x, w)
+}
+
+// logInput is LogInput against an xRecorder already connected, which is what
+// makes it testable without a real display: a test drives x's protocol
+// directly rather than dialing one.
+func logInput(ctx context.Context, x *xRecorder, w io.Writer) error {
 	enc := json.NewEncoder(w)
 	held := map[string]bool{}
-	err = x.start(func(in rawInput) bool {
+	err := x.start(func(in rawInput) bool {
 		now := float64(time.Now().UnixMicro()) / 1e6
 		switch in.kind {
 		case xButtonPress:

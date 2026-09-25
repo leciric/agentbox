@@ -71,7 +71,7 @@ func dialX(display string) (*xRecorder, error) {
 	}
 	x := &xRecorder{conn: conn, r: bufio.NewReader(conn), keysyms: map[byte][]uint32{}}
 	if err := x.setup(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, err
 	}
 	return x, nil

@@ -230,13 +230,13 @@ func serveFakeLeadAPI(t *testing.T, socket string, calls chan<- string) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v1/project/memory/memories":
-			json.NewEncoder(w).Encode(api.Memory{ID: "mem_test"})
+			_ = json.NewEncoder(w).Encode(api.Memory{ID: "mem_test"})
 		case "/v1/project/notes/edit", "/v1/project/notes/remove":
 			var req api.EditNoteRequest
-			json.NewDecoder(r.Body).Decode(&req)
+			_ = json.NewDecoder(r.Body).Decode(&req)
 			// The entry is the user's own, so the tools have something to
 			// warn about: a change to their text is theirs to be told about.
-			json.NewEncoder(w).Encode(api.NoteChange{
+			_ = json.NewEncoder(w).Encode(api.NoteChange{
 				Notes:   api.Notes{Text: "the notes as they now are\n"},
 				Was:     "- 2026-09-18: " + req.Match,
 				Now:     req.Text,
@@ -244,19 +244,19 @@ func serveFakeLeadAPI(t *testing.T, socket string, calls chan<- string) {
 			})
 		case "/v1/project/memory/working":
 			var patch api.WorkingMemoryPatch
-			json.NewDecoder(r.Body).Decode(&patch)
+			_ = json.NewDecoder(r.Body).Decode(&patch)
 			out := api.WorkingMemory{}
 			if patch.CurrentTask != nil {
 				out.CurrentTask = *patch.CurrentTask
 			}
-			json.NewEncoder(w).Encode(out)
+			_ = json.NewEncoder(w).Encode(out)
 		default:
-			w.Write([]byte("{}"))
+			_, _ = w.Write([]byte("{}"))
 		}
 	})
 	srv := &http.Server{Handler: mux}
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
 }
 
 // TestAgentDiffIsClippedForTheChat (D87): a diff too long to read whole comes
@@ -383,11 +383,11 @@ func TestCreateAgentNamesTheAgentDefaults(t *testing.T) {
 				t.Fatal(err)
 			}
 			mux := http.NewServeMux()
-			mux.HandleFunc("/v1/project/settings", func(w http.ResponseWriter, _ *http.Request) { json.NewEncoder(w).Encode(tc.settings) })
-			mux.HandleFunc("/v1/project", func(w http.ResponseWriter, _ *http.Request) { json.NewEncoder(w).Encode(tc.project) })
+			mux.HandleFunc("/v1/project/settings", func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(tc.settings) })
+			mux.HandleFunc("/v1/project", func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(tc.project) })
 			srv := &http.Server{Handler: mux}
-			go srv.Serve(ln)
-			t.Cleanup(func() { srv.Close() })
+			go func() { _ = srv.Serve(ln) }()
+			t.Cleanup(func() { _ = srv.Close() })
 
 			var params string
 			for _, tool := range projectTools(context.Background(), api.NewClient(socket)) {

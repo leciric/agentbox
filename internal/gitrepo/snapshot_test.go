@@ -56,7 +56,7 @@ func TestSnapshotAndRestoreWorktree(t *testing.T) {
 	}
 
 	// Break everything: delete and rename files, commit, add junk, change the ignored .env.
-	os.Remove(filepath.Join(wt, "server.mjs"))
+	_ = os.Remove(filepath.Join(wt, "server.mjs"))
 	testutil.Git(t, wt, "mv", "README.md", "README.old")
 	write(t, wt, "message.txt", "broken\n")
 	testutil.Git(t, wt, "add", "-A")

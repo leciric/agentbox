@@ -48,7 +48,7 @@ func TestChatImagesAreKeptAndServed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, resp.Header.Get("Content-Type"), body
 	}

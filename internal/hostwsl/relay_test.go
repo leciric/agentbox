@@ -24,7 +24,7 @@ var fakeDir string
 func TestMain(m *testing.M) {
 	code := m.Run()
 	if fakeDir != "" {
-		os.RemoveAll(fakeDir)
+		_ = os.RemoveAll(fakeDir)
 	}
 	os.Exit(code)
 }
@@ -64,7 +64,7 @@ func fakeDistro(t *testing.T) *Distro {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(sockDir) })
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
 	binary := filepath.Join(root, "agentbox-linux")
 	if err := os.WriteFile(binary, []byte("#!/bin/sh\necho the Linux agentbox\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func (d *Distro) fakeEnv(name string) string {
 func imported(t *testing.T, d *Distro) {
 	t.Helper()
 	tarball := filepath.Join(t.TempDir(), "rootfs.tar.gz")
-	os.WriteFile(tarball, []byte("not really"), 0o644)
+	_ = os.WriteFile(tarball, []byte("not really"), 0o644)
 	t.Setenv("AGENTBOX_WSL_ROOTFS", tarball)
 	if err := d.Import(context.Background()); err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestEnsureBinary(t *testing.T) {
 			t.Fatalf("EnsureBinary #%d = %v, %v; want %v", i+1, got, err, want)
 		}
 	}
-	os.WriteFile(d.Binary, []byte("a new version"), 0o755)
+	_ = os.WriteFile(d.Binary, []byte("a new version"), 0o755)
 	if got, err := d.EnsureBinary(ctx); err != nil || !got {
 		t.Fatalf("after an upgrade: %v, %v", got, err)
 	}
@@ -185,7 +185,7 @@ func TestRelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go io.Copy(io.Discard, outR)
+	go func() { _, _ = io.Copy(io.Discard, outR) }()
 
 	client := &http.Client{Transport: &http.Transport{
 		DialContext: func(context.Context, string, string) (net.Conn, error) { return dialPrivate(path) },
@@ -196,7 +196,7 @@ func TestRelay(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		b, _ := io.ReadAll(resp.Body)
 		return resp, string(b)
 	}
@@ -213,7 +213,7 @@ func TestRelay(t *testing.T) {
 	t.Cleanup(func() {
 		req, _ := http.NewRequest(http.MethodPost, "http://agentbox/v1/shutdown", nil)
 		if resp, err := client.Do(req); err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	})
 	if resp, body := get(); resp.StatusCode != http.StatusOK || body != `{"version":"fake"}` {
@@ -233,7 +233,7 @@ func TestRelay(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			b, _ := io.ReadAll(resp.Body)
 			if string(b) != strings.ToUpper(big) {
 				t.Errorf("echo of %d bytes came back as %d", len(big), len(b))
@@ -247,10 +247,10 @@ func TestRelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	var key [16]byte
 	rand.Read(key[:])
-	fmt.Fprintf(conn, "GET /v1/echo HTTP/1.1\r\nHost: agentbox\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\n\r\n", base64.StdEncoding.EncodeToString(key[:]))
+	_, _ = fmt.Fprintf(conn, "GET /v1/echo HTTP/1.1\r\nHost: agentbox\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\n\r\n", base64.StdEncoding.EncodeToString(key[:]))
 	br := bufio.NewReader(conn)
 	status, _ := br.ReadString('\n')
 	if !strings.Contains(status, "101") {
@@ -264,21 +264,21 @@ func TestRelay(t *testing.T) {
 		for i := range len(msg) {
 			frame = append(frame, msg[i]^byte(i%4+1))
 		}
-		conn.Write(frame)
-		conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		_, _ = conn.Write(frame)
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 		h := make([]byte, 2)
 		if _, err := io.ReadFull(br, h); err != nil {
 			t.Fatal(err)
 		}
 		got := make([]byte, h[1]&0x7f)
-		io.ReadFull(br, got)
+		_, _ = io.ReadFull(br, got)
 		if string(got) != msg {
 			t.Fatalf("websocket echoed %q, want %q", got, msg)
 		}
 	}
 
 	// The relay ends when the app closes its stdin.
-	inW.Close()
+	_ = inW.Close()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -297,7 +297,7 @@ func TestRelayWithoutDistro(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go (&Relay{Distro: d}).Serve(ctx, ln)
+	go func() { _ = (&Relay{Distro: d}).Serve(ctx, ln) }()
 	client := &http.Client{Transport: &http.Transport{
 		DialContext: func(context.Context, string, string) (net.Conn, error) { return dialPrivate(path) },
 	}}
@@ -305,7 +305,7 @@ func TestRelayWithoutDistro(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(string(b), "agentbox wsl init") {
 		t.Fatalf("%s %s", resp.Status, b)

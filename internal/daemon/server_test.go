@@ -81,10 +81,10 @@ type testConfig struct {
 func TestMain(m *testing.M) {
 	// The tests' daemons listen on their own paths.Paths, never on a socket
 	// the developer's shell points at.
-	os.Unsetenv("AGENTBOX_SOCKET")
+	_ = os.Unsetenv("AGENTBOX_SOCKET")
 	// Token checks must not leave the machine: a port nothing listens on
 	// stands in for Anthropic, and a check against it answers "not checked".
-	os.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	_ = os.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	// The daemon runs git itself, so git's isolation from the developer's
 	// configuration has to be the whole process's too.
 	cleanup, err := testutil.IsolateGit()
@@ -426,10 +426,12 @@ func TestFailedCreateJobRollsBack(t *testing.T) {
 	events := make(chan api.Event, 256)
 	eventsCtx, stopEvents := context.WithCancel(ctx)
 	defer stopEvents()
-	go d.client.Events(eventsCtx, func(ev api.Event) error {
-		events <- ev
-		return nil
-	})
+	go func() {
+		_ = d.client.Events(eventsCtx, func(ev api.Event) error {
+			events <- ev
+			return nil
+		})
+	}()
 	waitFor(t, "an event subscriber", func() bool { return d.srv.events.subscribers() > 0 })
 
 	j, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none"})
@@ -567,7 +569,7 @@ func TestReconcileUpdatesEveryReadyAgentsBinary(t *testing.T) {
 	var log bytes.Buffer
 	d.srv.cfg.Log = &log
 	d.srv.cfg.Binary = filepath.Join(root, "agentbox")
-	os.Remove(filepath.Join(root, "incus.log"))
+	_ = os.Remove(filepath.Join(root, "incus.log"))
 
 	d.srv.reconcile(ctx) // what the daemon does when it starts
 
@@ -599,10 +601,12 @@ func TestNewSubscriberGetsEachAgentOnce(t *testing.T) {
 	events := make(chan api.Event, 64)
 	eventsCtx, stopEvents := context.WithCancel(ctx)
 	defer stopEvents()
-	go d.client.Events(eventsCtx, func(ev api.Event) error {
-		events <- ev
-		return nil
-	})
+	go func() {
+		_ = d.client.Events(eventsCtx, func(ev api.Event) error {
+			events <- ev
+			return nil
+		})
+	}()
 	waitFor(t, "an event subscriber", func() bool { return d.srv.events.subscribers() > 0 })
 	d.srv.refreshAgents(ctx) // what the watcher does every two seconds
 
@@ -658,7 +662,7 @@ func TestPreviewProxyReachesAnAgentsPort(t *testing.T) {
 	var sawHost string
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sawHost = r.Host
-		fmt.Fprint(w, "hello from the agent")
+		_, _ = fmt.Fprint(w, "hello from the agent")
 	}))
 	defer app.Close()
 	_, appPort, _ := net.SplitHostPort(app.Listener.Addr().String())
@@ -681,7 +685,7 @@ func TestPreviewProxyReachesAnAgentsPort(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(body)
 	}
@@ -721,7 +725,7 @@ func TestRestartFailsInterruptedJobs(t *testing.T) {
 	if err := st.AddJob(context.Background(), state.Job{ID: "deadbeef", Kind: "create", Target: "hello-stack", Status: api.JobRunning, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	st.Close()
+	_ = st.Close()
 
 	d := startTestDaemon(t, root, fakeIncus)
 	j, err := d.client.Job(context.Background(), "deadbeef")

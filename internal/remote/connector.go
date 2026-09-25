@@ -65,7 +65,7 @@ func (c *Connector) setStatus(connected bool, err error) {
 
 func (c *Connector) logf(format string, args ...any) {
 	if c.Log != nil {
-		fmt.Fprintf(c.Log, time.Now().Format(time.DateTime)+" "+format+"\n", args...)
+		_, _ = fmt.Fprintf(c.Log, time.Now().Format(time.DateTime)+" "+format+"\n", args...)
 	}
 }
 
@@ -112,15 +112,15 @@ func (c *Connector) connect(ctx context.Context) error {
 	conn.SetReadLimit(-1)
 	session, err := yamux.Server(websocket.NetConn(ctx, conn, websocket.MessageBinary), hubapi.TunnelConfig())
 	if err != nil {
-		conn.CloseNow()
+		_ = conn.CloseNow()
 		return err
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 	c.setStatus(true, nil)
 	c.logf("connected to the hub %s", c.Hub)
 	srv := &http.Server{Handler: c.Handler, ReadHeaderTimeout: 30 * time.Second}
-	stop := context.AfterFunc(ctx, func() { session.Close() })
+	stop := context.AfterFunc(ctx, func() { _ = session.Close() })
 	defer stop()
-	srv.Serve(session)
+	_ = srv.Serve(session)
 	return errors.New("the connection to the hub closed")
 }

@@ -85,8 +85,8 @@ func connect(t *testing.T) (*Conn, fakeAgent, *recorder) {
 	rec := &recorder{requests: make(chan func(any, error), 4)}
 	c := NewConn(toClient, fromClient, rec)
 	t.Cleanup(func() {
-		fromAgent.Close()
-		toAgent.Close()
+		_ = fromAgent.Close()
+		_ = toAgent.Close()
 	})
 	return c, newFakeAgent(toAgent, fromAgent), rec
 }
@@ -180,7 +180,7 @@ func TestPendingCallsFailWhenTheAgentExits(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- c.Call(context.Background(), "session/prompt", nil, nil) }()
 	agent.next(t)
-	agent.out.Close()
+	_ = agent.out.Close()
 
 	if err := <-done; !errors.Is(err, ErrClosed) {
 		t.Fatalf("Call() = %v, want ErrClosed", err)

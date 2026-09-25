@@ -82,7 +82,7 @@ func (s *Server) sendUsage(ctx context.Context, install string) {
 	if err := update.SendUsage(ctx, s.cfg.UpdateURL, update.NewRequest(install, Version), report); err != nil {
 		return
 	}
-	s.store.ForgetFeatureUsage(ctx, days[len(days)-1])
+	_ = s.store.ForgetFeatureUsage(ctx, days[len(days)-1])
 }
 
 // setUsageStats is the setting changing. Off forgets the counts not sent yet,

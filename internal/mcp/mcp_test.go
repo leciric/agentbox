@@ -44,7 +44,7 @@ func server() *mcp.Server {
 					var in struct {
 						Text string `json:"text"`
 					}
-					json.Unmarshal(args, &in)
+					_ = json.Unmarshal(args, &in)
 					return "you said " + in.Text, nil
 				},
 			},
@@ -167,7 +167,7 @@ func TestAWaitingCallEndsWhenCancelled(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("a cancelled call went on waiting")
 	}
-	feed.Close()
+	_ = feed.Close()
 	if err := <-served; err != nil {
 		t.Fatal(err)
 	}

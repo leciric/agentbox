@@ -55,7 +55,7 @@ func setup(t *testing.T, inc incus.Client) fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 	if err := st.AddProject(context.Background(), state.Project{Name: "hello-stack", Root: root, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}

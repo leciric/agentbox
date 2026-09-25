@@ -57,10 +57,10 @@ func newBaseSaveCmd(a *app) *cobra.Command {
 			if err := json.Unmarshal(j.Result, &base); err != nil {
 				return fmt.Errorf("reading the job result: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "\nSaved %s as the base for %s in %s.\nNew %s agents start from %s (pass --clean to skip it).\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nSaved %s as the base for %s in %s.\nNew %s agents start from %s (pass --clean to skip it).\n",
 				args[0], project, time.Since(start).Round(100*time.Millisecond), project, base.Snapshot)
 			if was, ok, err := c.Base(cmd.Context(), project); err == nil && ok && was.Previous != nil {
-				fmt.Fprintf(cmd.OutOrStdout(), "The base it replaced, saved from %s, is kept: agentbox base revert %s goes back to it.\n", was.Previous.SavedFrom, project)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "The base it replaced, saved from %s, is kept: agentbox base revert %s goes back to it.\n", was.Previous.SavedFrom, project)
 			}
 			return nil
 		},
@@ -83,15 +83,15 @@ func newBaseShowCmd(a *app) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if !ok {
-				fmt.Fprintf(out, "%s has no saved base: new agents start from %s.\n", args[0], image.SnapshotRef())
+				_, _ = fmt.Fprintf(out, "%s has no saved base: new agents start from %s.\n", args[0], image.SnapshotRef())
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-			fmt.Fprintf(w, "base\t%s\n", base.Snapshot)
-			fmt.Fprintf(w, "saved from\t%s\n", base.SavedFrom)
-			fmt.Fprintf(w, "saved\t%s (%s)\n", base.SavedAt.Local().Format(time.DateTime), ago(base.SavedAt))
+			_, _ = fmt.Fprintf(w, "base\t%s\n", base.Snapshot)
+			_, _ = fmt.Fprintf(w, "saved from\t%s\n", base.SavedFrom)
+			_, _ = fmt.Fprintf(w, "saved\t%s (%s)\n", base.SavedAt.Local().Format(time.DateTime), ago(base.SavedAt))
 			if base.Previous != nil {
-				fmt.Fprintf(w, "previous\t%s, saved from %s (%s)\n", base.Previous.Snapshot, base.Previous.SavedFrom, ago(base.Previous.SavedAt))
+				_, _ = fmt.Fprintf(w, "previous\t%s, saved from %s (%s)\n", base.Previous.Snapshot, base.Previous.SavedFrom, ago(base.Previous.SavedAt))
 			}
 			return w.Flush()
 		},
@@ -115,7 +115,7 @@ func newBaseRevertCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s is back on the base saved from %s (%s).\nThe base that replaced it is gone, and there is nothing left to revert to.\n",
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s is back on the base saved from %s (%s).\nThe base that replaced it is gone, and there is nothing left to revert to.\n",
 				args[0], base.SavedFrom, ago(base.SavedAt))
 			return nil
 		},
@@ -137,13 +137,13 @@ func newBaseRmCmd(a *app) *cobra.Command {
 				if err := c.RemovePreviousBase(cmd.Context(), args[0]); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Dropped what the last save of %s kept. Its base is unchanged, and there is nothing to revert to.\n", args[0])
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Dropped what the last save of %s kept. Its base is unchanged, and there is nothing to revert to.\n", args[0])
 				return nil
 			}
 			if err := c.RemoveBase(cmd.Context(), args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Removed the base for %s: new agents start from %s.\n", args[0], image.SnapshotRef())
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed the base for %s: new agents start from %s.\n", args[0], image.SnapshotRef())
 			return nil
 		},
 	}

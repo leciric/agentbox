@@ -27,7 +27,7 @@ func (s *Store) ChatItems(ctx context.Context, project, agent string) ([]ChatIte
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var items []ChatItem
 	for rows.Next() {
 		var it ChatItem
@@ -69,13 +69,13 @@ func (s *Store) SaveChatItems(ctx context.Context, project, agent string, items 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	stmt, err := tx.PrepareContext(ctx, `INSERT INTO chat_items (project, agent, id, position, data) VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT (project, agent, id) DO UPDATE SET position = excluded.position, data = excluded.data`)
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 	for _, it := range items {
 		if _, err := stmt.ExecContext(ctx, project, agent, it.ID, it.Position, string(it.Data)); err != nil {
 			return err
@@ -122,7 +122,7 @@ func (s *Store) ClearChat(ctx context.Context, project, agent string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_items WHERE project = ? AND agent = ?`, project, agent); err != nil {
 		return err
 	}

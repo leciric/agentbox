@@ -31,7 +31,7 @@ func newSnapshotCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Snapshot %s@%s taken in %s\n", args[0], s.Name, time.Since(start).Round(10*time.Millisecond))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Snapshot %s@%s taken in %s\n", args[0], s.Name, time.Since(start).Round(10*time.Millisecond))
 			return nil
 		},
 	}
@@ -48,7 +48,7 @@ func newSnapshotCmd(a *app) *cobra.Command {
 			if err := c.DeleteSnapshot(cmd.Context(), args[0], args[1]); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Deleted snapshot %s@%s\n", args[0], args[1])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted snapshot %s@%s\n", args[0], args[1])
 			return nil
 		},
 	})
@@ -70,9 +70,9 @@ func newSnapshotsCmd(a *app) *cobra.Command {
 				return err
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "SNAPSHOT\tTAKEN\tBRANCH AT")
+			_, _ = fmt.Fprintln(w, "SNAPSHOT\tTAKEN\tBRANCH AT")
 			for _, s := range snapshots {
-				fmt.Fprintf(w, "%s\t%s (%s)\t%s\n", s.Name, s.CreatedAt.Local().Format(time.DateTime), ago(s.CreatedAt), short(s.Head))
+				_, _ = fmt.Fprintf(w, "%s\t%s (%s)\t%s\n", s.Name, s.CreatedAt.Local().Format(time.DateTime), ago(s.CreatedAt), short(s.Head))
 			}
 			return w.Flush()
 		},
@@ -97,7 +97,7 @@ func newRestoreCmd(a *app) *cobra.Command {
 			if _, err := waitJob(cmd, c, j); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Restored %s to %s in %s\n", args[0], args[1], time.Since(start).Round(100*time.Millisecond))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Restored %s to %s in %s\n", args[0], args[1], time.Since(start).Round(100*time.Millisecond))
 			return nil
 		},
 	}

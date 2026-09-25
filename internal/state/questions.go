@@ -174,7 +174,7 @@ func (s *Store) queryQuestions(ctx context.Context, clause string, args ...any) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var questions []Question
 	for rows.Next() {
 		var q Question

@@ -30,6 +30,24 @@ func TestKeyName(t *testing.T) {
 	}
 }
 
+func TestModifierName(t *testing.T) {
+	for _, c := range []struct {
+		sym  uint32
+		want string
+	}{
+		{0xffe1, "shift"}, {0xffe2, "shift"},
+		{0xffe3, "ctrl"}, {0xffe4, "ctrl"},
+		{0xffe9, "alt"}, {0xffea, "alt"}, {0xffe7, "alt"}, {0xffe8, "alt"}, {0xfe03, "alt"},
+		{0xffeb, "super"}, {0xffec, "super"},
+		{0xffe5, "caps"},
+		{'a', ""}, // an ordinary key is not a modifier
+	} {
+		if got := modifierName(c.sym); got != c.want {
+			t.Errorf("modifierName(%#x) = %q, want %q", c.sym, got, c.want)
+		}
+	}
+}
+
 // typing makes an event for each character of s, 50 ms apart from at.
 func typing(at float64, s string) []InputEvent {
 	var evs []InputEvent

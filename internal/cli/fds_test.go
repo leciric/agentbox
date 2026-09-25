@@ -12,8 +12,8 @@ func TestCloseInheritedFilesMarksDescriptorsCloseOnExec(t *testing.T) {
 	if err := syscall.Pipe(p[:]); err != nil {
 		t.Fatal(err)
 	}
-	defer syscall.Close(p[0])
-	defer syscall.Close(p[1])
+	defer func() { _ = syscall.Close(p[0]) }()
+	defer func() { _ = syscall.Close(p[1]) }()
 
 	closeInheritedFiles()
 	for _, fd := range p {

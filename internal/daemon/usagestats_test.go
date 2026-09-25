@@ -35,7 +35,7 @@ func (f *fakeUsage) start(t *testing.T) string {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		w.Write([]byte(`{"version":"0.16.0","url":"https://github.com/leciric/agentbox/releases/tag/v0.16.0"}`))
+		_, _ = w.Write([]byte(`{"version":"0.16.0","url":"https://github.com/leciric/agentbox/releases/tag/v0.16.0"}`))
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL + "/api/v1/latest"
@@ -74,9 +74,9 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 	}
 	yesterday := usageDay(time.Now().AddDate(0, 0, -1))
 	for range 3 {
-		d.srv.store.CountFeature(ctx, yesterday, api.FeatureAgentCreateClaude)
+		_ = d.srv.store.CountFeature(ctx, yesterday, api.FeatureAgentCreateClaude)
 	}
-	d.srv.store.CountFeature(ctx, usageDay(time.Now().AddDate(0, 0, -40)), api.FeatureAgentDestroy)
+	_ = d.srv.store.CountFeature(ctx, usageDay(time.Now().AddDate(0, 0, -40)), api.FeatureAgentDestroy)
 
 	d.srv.checkForUpdate(ctx)
 	reports := fake.sent()
@@ -107,7 +107,7 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 	if settings, err := patchSettings(t, d, `{"usageStats": false}`); err != nil || settings.UsageStats {
 		t.Fatalf("turning the stats off = %+v, %v", settings.UsageStats, err)
 	}
-	postFeature(d, api.FeaturePullList)
+	_ = postFeature(d, api.FeaturePullList)
 	if left, _, _ := d.srv.store.FeatureUsage(ctx, "9999-12-31"); len(left) != 0 {
 		t.Errorf("with the stats off, kept %v", left)
 	}
@@ -121,11 +121,11 @@ func TestUsageStatsFollowTheUpdateCheck(t *testing.T) {
 	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
 	ctx := context.Background()
 
-	postFeature(d, api.FeatureMemoryView)
+	_ = postFeature(d, api.FeatureMemoryView)
 	if _, err := patchSettings(t, d, `{"updateCheck": false}`); err != nil {
 		t.Fatal(err)
 	}
-	postFeature(d, api.FeatureMemoryView)
+	_ = postFeature(d, api.FeatureMemoryView)
 	if left, _, _ := d.srv.store.FeatureUsage(ctx, "9999-12-31"); len(left) != 0 {
 		t.Errorf("with the update check off, kept %v", left)
 	}
@@ -134,9 +134,9 @@ func TestUsageStatsFollowTheUpdateCheck(t *testing.T) {
 	if _, err := patchSettings(t, d, `{"updateCheck": true}`); err != nil {
 		t.Fatal(err)
 	}
-	d.srv.store.ForgetFeatureUsage(ctx, "") // the settings change was counted
+	_ = d.srv.store.ForgetFeatureUsage(ctx, "") // the settings change was counted
 	t.Setenv("DO_NOT_TRACK", "1")
-	postFeature(d, api.FeatureMemoryView)
+	_ = postFeature(d, api.FeatureMemoryView)
 	if left, _, _ := d.srv.store.FeatureUsage(ctx, "9999-12-31"); len(left) != 0 {
 		t.Errorf("with DO_NOT_TRACK=1, kept %v", left)
 	}

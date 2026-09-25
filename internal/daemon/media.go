@@ -33,7 +33,7 @@ var mediaRoutes = []struct{ method, path, action string }{
 
 func toAPIMedia(item state.Media, hostPath string) api.MediaItem {
 	var meta api.MediaMeta
-	json.Unmarshal([]byte(item.Meta), &meta)
+	_ = json.Unmarshal([]byte(item.Meta), &meta)
 	out := api.MediaItem{
 		ID:        item.ID,
 		Agent:     item.Ref(),
@@ -193,7 +193,7 @@ func (s *Server) mediaFile(w http.ResponseWriter, r *http.Request) error {
 		rel := r.URL.Query().Get("path")
 		if rel == "" {
 			var meta api.MediaMeta
-			json.Unmarshal([]byte(item.Meta), &meta)
+			_ = json.Unmarshal([]byte(item.Meta), &meta)
 			rel = meta.Entry
 		}
 		if rel == "" {
@@ -208,7 +208,7 @@ func (s *Server) mediaFile(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", filepath.Base(file), state.ErrNotFound)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	stat, err := f.Stat()
 	if err != nil {
 		return err

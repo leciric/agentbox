@@ -18,7 +18,7 @@ func recapStore(t *testing.T) (*state.Store, *memory.Store) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 	if err := st.AddProject(context.Background(), state.Project{Name: "pawly", Root: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}

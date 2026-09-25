@@ -55,7 +55,7 @@ func newRemoteCmd(a *app) *cobra.Command {
 			if !st.Connected {
 				return fmt.Errorf("saved the hub, but couldn't connect yet: %s (it keeps trying)", cmp.Or(st.Error, "no answer in 10 seconds"))
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Connected to %s. This machine reconnects by itself, also after restarts.\n", st.Hub)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Connected to %s. This machine reconnects by itself, also after restarts.\n", st.Hub)
 			return nil
 		},
 	}
@@ -78,11 +78,11 @@ func newRemoteCmd(a *app) *cobra.Command {
 			out := cmd.OutOrStdout()
 			switch {
 			case !st.Configured:
-				fmt.Fprintln(out, "Not connected to a hub. Connect with: agentbox remote connect <hub URL> --token <token>")
+				_, _ = fmt.Fprintln(out, "Not connected to a hub. Connect with: agentbox remote connect <hub URL> --token <token>")
 			case st.Connected:
-				fmt.Fprintf(out, "Connected to %s since %s\n", st.Hub, st.Since.Local().Format(time.DateTime))
+				_, _ = fmt.Fprintf(out, "Connected to %s since %s\n", st.Hub, st.Since.Local().Format(time.DateTime))
 			default:
-				fmt.Fprintf(out, "Not connected to %s: %s (it keeps trying)\n", st.Hub, cmp.Or(st.Error, "connecting"))
+				_, _ = fmt.Fprintf(out, "Not connected to %s: %s (it keeps trying)\n", st.Hub, cmp.Or(st.Error, "connecting"))
 			}
 			return nil
 		},
@@ -100,7 +100,7 @@ func newRemoteCmd(a *app) *cobra.Command {
 			if err := c.DisconnectRemote(cmd.Context()); err != nil {
 				return err
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Disconnected from the hub")
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Disconnected from the hub")
 			return nil
 		},
 	}
@@ -169,7 +169,7 @@ func newLoginCmd(a *app) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			url := strings.TrimRight(args[0], "/")
 			if email == "" {
-				fmt.Fprint(cmd.ErrOrStderr(), "Email: ")
+				_, _ = fmt.Fprint(cmd.ErrOrStderr(), "Email: ")
 				line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 				if err != nil && !errors.Is(err, io.EOF) {
 					return err
@@ -198,7 +198,7 @@ func newLoginCmd(a *app) *cobra.Command {
 			if err := a.saveHubs(kept); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Signed in to %s as %s\n", url, session.User.Email)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Signed in to %s as %s\n", url, session.User.Email)
 			return nil
 		},
 	}
@@ -217,7 +217,7 @@ func newLogoutCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			api.HubClient{URL: h.URL, Token: h.Token}.Logout(cmd.Context())
+			_ = api.HubClient{URL: h.URL, Token: h.Token}.Logout(cmd.Context())
 			hubs, _ := a.savedHubs()
 			kept := []savedHub{}
 			for _, other := range hubs {
@@ -228,7 +228,7 @@ func newLogoutCmd(a *app) *cobra.Command {
 			if err := a.saveHubs(kept); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Signed out of %s\n", h.URL)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Signed out of %s\n", h.URL)
 			return nil
 		},
 	}
@@ -252,11 +252,11 @@ func newEnvCmd(a *app) *cobra.Command {
 				return errors.New("not signed in to a hub: agentbox login <hub URL>")
 			}
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "ENVIRONMENT\tSTATE\tHOSTNAME\tVERSION\tLAST SEEN\tHUB")
+			_, _ = fmt.Fprintln(w, "ENVIRONMENT\tSTATE\tHOSTNAME\tVERSION\tLAST SEEN\tHUB")
 			for _, h := range hubs {
 				envs, err := api.HubClient{URL: h.URL, Token: h.Token}.Environments(cmd.Context())
 				if err != nil {
-					fmt.Fprintf(w, "-\t%s\t\t\t\t%s\n", err, h.URL)
+					_, _ = fmt.Fprintf(w, "-\t%s\t\t\t\t%s\n", err, h.URL)
 					continue
 				}
 				for _, e := range envs {
@@ -267,7 +267,7 @@ func newEnvCmd(a *app) *cobra.Command {
 					if !e.LastSeenAt.IsZero() {
 						seen = e.LastSeenAt.Local().Format(time.DateTime)
 					}
-					fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, state, e.Hostname, e.Version, seen, h.URL)
+					_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", e.Name, state, e.Hostname, e.Version, seen, h.URL)
 				}
 			}
 			return w.Flush()
@@ -287,7 +287,7 @@ func newEnvCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Added the environment %s. On the machine it stands for, run:\n\n  agentbox remote connect %s --token %s\n\nThe token isn't shown again.\n", created.Environment.Name, h.URL, created.Token)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Added the environment %s. On the machine it stands for, run:\n\n  agentbox remote connect %s --token %s\n\nThe token isn't shown again.\n", created.Environment.Name, h.URL, created.Token)
 			return nil
 		},
 	}
@@ -304,7 +304,7 @@ func newEnvCmd(a *app) *cobra.Command {
 			if err := (api.HubClient{URL: h.URL, Token: h.Token}).DeleteEnvironment(cmd.Context(), e.ID); err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Deleted the environment %s from %s\n", e.Name, h.URL)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Deleted the environment %s from %s\n", e.Name, h.URL)
 			return nil
 		},
 	}

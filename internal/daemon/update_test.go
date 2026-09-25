@@ -27,7 +27,7 @@ func (f *fakeLatest) start(t *testing.T, version string) string {
 		f.mu.Lock()
 		f.queries = append(f.queries, r.URL.Query())
 		f.mu.Unlock()
-		w.Write([]byte(`{"version":"` + version + `","url":"https://github.com/leciric/agentbox/releases/tag/v` + version + `"}`))
+		_, _ = w.Write([]byte(`{"version":"` + version + `","url":"https://github.com/leciric/agentbox/releases/tag/v` + version + `"}`))
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL

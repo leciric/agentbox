@@ -62,7 +62,7 @@ func skipReason(req api.RetireRequest, st agent.Status, busy bool, last *time.Ti
 	switch {
 	// A sweep never interrupts an agent that is working. Stopping one that is
 	// takes naming it and meaning it.
-	case busy && !(named && req.Force):
+	case busy && (!named || !req.Force):
 		return "it is still working"
 	case !advice.Safe && !req.Force:
 		return advice.Reason

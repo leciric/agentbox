@@ -30,13 +30,13 @@ func TestClaudeAccountsMigrationAllowsEverything(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `INSERT INTO projects (name, root, created_at, claude_account) VALUES ('old', '/src/old', 1, 'work')`); err != nil {
 		t.Fatal(err)
 	}
-	db.Close()
+	_ = db.Close()
 
 	st, err := Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	p, err := st.Project(ctx, "old")
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestSetProjectClaudeAccounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	if err := st.AddProject(ctx, Project{Name: "pawly", Root: "/src/pawly", ClaudeAccount: "work", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestRenameClaudeAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	for _, p := range []Project{
 		{Name: "own", Root: "/src/own", ClaudeAccount: "work", GitHubAccount: "work"},
 		{Name: "listed", Root: "/src/listed", ClaudeAccount: "client", ClaudeAccounts: []string{"client", "work", "spare"}},

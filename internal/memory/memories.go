@@ -198,7 +198,7 @@ func (s *Store) queryMemories(ctx context.Context, clause string, args ...any) (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Memory
 	for rows.Next() {
 		m, err := scanMemory(rows)

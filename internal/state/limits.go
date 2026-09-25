@@ -31,7 +31,7 @@ func (s *Store) ClaudeLimits(ctx context.Context) ([]ClaudeLimitReading, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []ClaudeLimitReading
 	for rows.Next() {
 		var r ClaudeLimitReading
