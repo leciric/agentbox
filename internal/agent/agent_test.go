@@ -78,13 +78,13 @@ func setup(t *testing.T, inc incus.Client) fixture {
 	}
 }
 
-// TestCreateUsesTheProjectsBranchPrefix makes an agent in a project that
-// names its branches thiago/agentbox/, in a repository where agent-01 is taken
-// by a local branch and agent-02 by a colleague's pushed one.
-func TestCreateUsesTheProjectsBranchPrefix(t *testing.T) {
+// TestCreateNamesTheBranchAfterTheWork makes an agent in a project that names
+// its branches thiago/agentbox/, in a repository where the branch its title
+// asks for is taken by a local branch, and its -2 by a colleague's pushed one.
+func TestCreateNamesTheBranchAfterTheWork(t *testing.T) {
 	f := setup(t, fakeIncus(t, `case "$1" in
   query) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
-  copy) git -C "$ROOT" rev-parse --verify --quiet refs/heads/thiago/agentbox/agent-03 >/dev/null &&
+  copy) git -C "$ROOT" rev-parse --verify --quiet refs/heads/thiago/agentbox/fix-login-redirect-3 >/dev/null &&
         echo "Error: simulated copy failure, with the branch made" >&2; exit 1 ;;
 esac`))
 	root := f.repo.Root
@@ -93,18 +93,38 @@ esac`))
 	if err := f.st.SetProjectBranchPrefix(ctx, "hello-stack", "thiago/agentbox/"); err != nil {
 		t.Fatal(err)
 	}
-	testutil.Git(t, root, "branch", "thiago/agentbox/agent-01")
+	testutil.Git(t, root, "branch", "thiago/agentbox/fix-login-redirect")
 	testutil.Git(t, root, "remote", "add", "origin", "https://example.invalid/repo.git")
-	testutil.Git(t, root, "update-ref", "refs/remotes/origin/thiago/agentbox/agent-02", "main")
+	testutil.Git(t, root, "update-ref", "refs/remotes/origin/thiago/agentbox/fix-login-redirect-2", "main")
 	// Another prefix's branches don't take a name in this one.
-	testutil.Git(t, root, "branch", "agentbox/agent-03")
+	testutil.Git(t, root, "branch", "agentbox/fix-login-redirect-3")
 
-	_, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none"})
+	_, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", Title: "Fix: login redirect!"})
 	if err == nil || !strings.Contains(err.Error(), "with the branch made") {
-		t.Fatalf("Create() error = %v, want the copy to find thiago/agentbox/agent-03", err)
+		t.Fatalf("Create() error = %v, want the copy to find thiago/agentbox/fix-login-redirect-3", err)
 	}
-	if !strings.Contains(err.Error(), "hello-stack/agent-03") {
-		t.Errorf("Create() should skip agent-01 and agent-02, whose branches exist here and on origin: %v", err)
+	// The machine and worktree are still named agent-NN.
+	if !strings.Contains(err.Error(), "hello-stack/agent-01") {
+		t.Errorf("Create() should name the agent agent-01 whatever its branch: %v", err)
+	}
+}
+
+func TestCreateTakesTheBranchAskedFor(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  query) echo '["/1.0/instances/agentbox-base/snapshots/ready"]' ;;
+  copy) git -C "$ROOT" rev-parse --verify --quiet refs/heads/agentbox/csv-export >/dev/null &&
+        echo "Error: simulated copy failure, with the branch made" >&2; exit 1 ;;
+esac`))
+	t.Setenv("ROOT", f.repo.Root)
+	ctx := context.Background()
+	_, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", Branch: "csv-export", Title: "Something else", Task: "And another"})
+	if err == nil || !strings.Contains(err.Error(), "with the branch made") {
+		t.Fatalf("Create() error = %v, want the copy to find agentbox/csv-export", err)
+	}
+	for _, bad := range []string{"CSV-Export", "csv_export", "feat/csv", "-csv", "csv--export", strings.Repeat("a", agent.MaxBranchSlugLen+1)} {
+		if _, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", Branch: bad}); err == nil || !strings.Contains(err.Error(), "invalid branch") {
+			t.Errorf("Create(Branch: %q) error = %v, want it refused", bad, err)
+		}
 	}
 }
 
@@ -118,23 +138,24 @@ esac`))
 	}
 	testutil.Git(t, f.repo.Root, "branch", "agentbox/agent-01") // left over by an earlier agent
 
+	// With no title and no task, the branch falls back to the agent's name.
 	_, err := f.m.Create(context.Background(), "hello-stack", agent.CreateOptions{AI: "none", CopyEnv: true})
 	if err == nil || !strings.Contains(err.Error(), "simulated copy failure") {
 		t.Fatalf("Create() error = %v, want the simulated failure", err)
 	}
-	if !strings.Contains(err.Error(), "hello-stack/agent-02") {
-		t.Errorf("Create() should skip agent-01, whose branch exists: %v", err)
+	if !strings.Contains(err.Error(), "hello-stack/agent-01") {
+		t.Errorf("Create() should still be agent-01, its branch stepping around the old one: %v", err)
 	}
 	if agents, _ := f.st.Agents(context.Background(), ""); len(agents) != 0 {
 		t.Errorf("agents left after rollback: %+v", agents)
 	}
-	if f.repo.BranchExists("agentbox/agent-02") {
-		t.Error("branch agentbox/agent-02 left after rollback")
+	if f.repo.BranchExists("agentbox/agent-01-2") {
+		t.Error("branch agentbox/agent-01-2 left after rollback")
 	}
 	if !f.repo.BranchExists("agentbox/agent-01") {
 		t.Error("rollback deleted the unrelated agentbox/agent-01 branch")
 	}
-	if _, err := os.Stat(f.m.Paths.Worktree("hello-stack", "agent-02")); !os.IsNotExist(err) {
+	if _, err := os.Stat(f.m.Paths.Worktree("hello-stack", "agent-01")); !os.IsNotExist(err) {
 		t.Errorf("worktree left after rollback (stat: %v)", err)
 	}
 }

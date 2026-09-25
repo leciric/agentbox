@@ -173,6 +173,30 @@ func (m *Manager) conversation(a state.Agent) (*conversation, error) {
 	return c, nil
 }
 
+// RenameClaudeAccount follows a Claude Code account to its new name in every
+// conversation held, the running sessions' own accounts included. The token
+// is the same, so a session carries on untouched; this is only so that what
+// it reports next — a usage-limit reading, a refused token — is filed under
+// the name the account has now, not one that no longer exists.
+func (m *Manager) RenameClaudeAccount(old, name string) {
+	m.mu.Lock()
+	convs := make([]*conversation, 0, len(m.convs))
+	for _, c := range m.convs {
+		convs = append(convs, c)
+	}
+	m.mu.Unlock()
+	for _, c := range convs {
+		c.mu.Lock()
+		if c.agent.ClaudeAccount == old {
+			c.agent.ClaudeAccount = name
+		}
+		if c.adapter != nil && c.adapter.account == old {
+			c.adapter.account = name
+		}
+		c.mu.Unlock()
+	}
+}
+
 func (m *Manager) existing(ref string) *conversation {
 	m.mu.Lock()
 	defer m.mu.Unlock()

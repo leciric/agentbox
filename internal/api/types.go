@@ -54,8 +54,8 @@ type Project struct {
 	// every agent of this project gets unless one is named for it, and "auto"
 	// asks the project's chat to choose per task.
 	AgentModel string `json:"agentModel"`
-	// BranchPrefix comes before an agent's name in the branch it is created
-	// on: "agentbox/" (the default) makes agentbox/agent-01. It may be empty,
+	// BranchPrefix comes before the slug in the branch an agent is created
+	// on: "agentbox/" (the default) makes agentbox/fix-login. It may be empty,
 	// or nested like "thiago/agentbox/". Existing agents keep their branches.
 	BranchPrefix string `json:"branchPrefix"`
 	// MediaRetentionDays is how long media whose agent is gone survives
@@ -388,10 +388,15 @@ type WorktreeFiles struct {
 type CreateAgentRequest struct {
 	// Task, when set, is sent to the agent as its first message once it is
 	// ready. A project's chat uses it to hand work over in one step.
-	Task      string `json:"task,omitempty"`
-	Project   string `json:"project"`
-	Name      string `json:"name,omitempty"`
-	Title     string `json:"title,omitempty"`
+	Task    string `json:"task,omitempty"`
+	Project string `json:"project"`
+	Name    string `json:"name,omitempty"`
+	Title   string `json:"title,omitempty"`
+	// Branch is the slug the agent's branch is named with, after the
+	// project's prefix: lowercase kebab-case, like "fix-login-redirect".
+	// Empty makes one from Title, then Task, then the agent's name; a
+	// branch already taken gets -2, -3… appended.
+	Branch    string `json:"branch,omitempty"`
 	AI        string `json:"ai"`
 	Interface string `json:"interface,omitempty"` // chat (the default) or cli
 	// Autonomous starts the AI tool without permission prompts, the agent's
@@ -1302,6 +1307,23 @@ type ClaudeTokenRequest struct {
 	Token string `json:"token"`
 	// Account names the login; empty means the account called "default".
 	Account string `json:"account,omitempty"`
+}
+
+// RenameClaudeAccountRequest gives a stored Claude Code account another name.
+type RenameClaudeAccountRequest struct {
+	Name string `json:"name"`
+}
+
+// RenamedClaudeAccount is what a rename carried over to the new name. The
+// token is the same, so the agents on it keep running: nothing needs a restart.
+type RenamedClaudeAccount struct {
+	Old  string `json:"old"`
+	Name string `json:"name"`
+	// Projects are the projects whose own account or allow-list named it.
+	Projects []string `json:"projects"`
+	// Agents are the agents on it, by project/name, the projects' chats
+	// included.
+	Agents []string `json:"agents"`
 }
 
 // ClaudeLoginRequest starts an in-app Claude Code login: AgentBox runs

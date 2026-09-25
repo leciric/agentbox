@@ -40,9 +40,24 @@ func (m *Manager) EnsureAgentAPI(ctx context.Context, a state.Agent) error {
 		}
 	}
 	if m.Binary != "" {
-		if _, err := m.Incus.Run(ctx, "file", "push", m.Binary, a.Instance+AgentBinaryPath, "--mode", "0755"); err != nil {
-			return err
-		}
+		return m.pushBinary(ctx, a.Instance)
+	}
+	return nil
+}
+
+// pushBinary replaces the agent's agentbox binary with the daemon's. `incus
+// file push` opens its target for writing, which a running agent refuses with
+// "text file busy": the agent's MCP servers run from that binary. So it pushes
+// beside it and renames it into place, which leaves the running processes on
+// the old file and starts every new one on the new.
+func (m *Manager) pushBinary(ctx context.Context, instance string) error {
+	next := AgentBinaryPath + ".new"
+	if _, err := m.Incus.Run(ctx, "file", "push", m.Binary, instance+next, "--mode", "0755"); err != nil {
+		return err
+	}
+	if _, err := m.Incus.Run(ctx, "exec", instance, "--", "mv", "-f", next, AgentBinaryPath); err != nil {
+		m.Incus.Run(context.WithoutCancel(ctx), "exec", instance, "--", "rm", "-f", next)
+		return err
 	}
 	return nil
 }

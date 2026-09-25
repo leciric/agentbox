@@ -19,6 +19,8 @@
 //                           or Lima to install first
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
+//   ?accounts=1             Settings' Claude Code accounts, with a rename the
+//                           dev bridge answers (fixtures.ts)
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -27,8 +29,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import type * as T from '../../shared/api';
+import { Toaster } from 'sonner';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
+import { ClaudeAccounts } from '../components/SettingsView';
 import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
@@ -45,6 +49,7 @@ document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's data-rail-thread
 const vm = params.get('vm');
+const accounts = params.get('accounts') === '1';
 
 const chat = params.get('chat');
 const fixtures = buildFixtures();
@@ -63,6 +68,21 @@ function Preview() {
     if (!openAgent) return;
     document.querySelector<HTMLButtonElement>(`[data-rail-thread="${PROJECT}/${openAgent}"]`)?.click();
   }, []);
+
+  if (accounts) {
+    // Alone: a rename refetches projects and agents, which the dev bridge
+    // answers with nothing, so the sidebar and rail would have none to show.
+    return (
+      <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }}>
+        <ClaudeAccounts
+          accounts={[
+            { name: 'default', default: true, savedAt: '2026-08-01T10:00:00Z', valid: 'valid' },
+            { name: 'work', default: false, savedAt: '2026-09-12T10:00:00Z' },
+          ]}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
@@ -118,6 +138,7 @@ createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={queryClient}>
     <TooltipProvider delayDuration={250}>
       <Preview />
+      <Toaster position="bottom-right" />
     </TooltipProvider>
   </QueryClientProvider>,
 );

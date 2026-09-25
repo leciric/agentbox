@@ -435,14 +435,24 @@ function fakeVM() {
 // throw outside Electron's preload.
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
-    request: async (method: string, path: string) => {
+    request: async (method: string, path: string, body?: unknown) => {
+      // Renaming a Claude account answers with what it carried over (the
+      // ?accounts=1 scenario), and refuses a name one of the fixtures has.
+      const rename = method === 'POST' ? /^\/v1\/auth\/claude\/([^/]+)\/rename$/.exec(path) : null;
+      if (rename) {
+        const name = (body as { name: string }).name;
+        if (['default', 'work'].includes(name))
+          return { status: 400, body: JSON.stringify({ error: `there is already a Claude Code account named "${name}": remove it first, or pick another name` }), contentType: 'application/json' };
+        const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
+        return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
+      }
       // Answering a credential request gives back the question, answered, the
       // way the daemon does, so the rail and the chat can both be seen to
       // settle.
       const answered = method === 'POST' && /\/questions\/([^/]+)\/credential$/.exec(path);
       const question = answered && buildFixtures().questions.find((q) => q.id === decodeURIComponent(answered[1]));
-      const body = question ? { ...question, status: 'answered', answeredBy: 'user', answer: 'You have the GitHub account "default" now.' } : {};
-      return { status: 200, body: JSON.stringify(body), contentType: 'application/json' };
+      const reply = question ? { ...question, status: 'answered', answeredBy: 'user', answer: 'You have the GitHub account "default" now.' } : {};
+      return { status: 200, body: JSON.stringify(reply), contentType: 'application/json' };
     },
     connection: async () => ({ state: 'connected' }),
     onConnection: () => () => {},

@@ -155,8 +155,8 @@ func newProjectBranchPrefixCmd(a *app) *cobra.Command {
 		Use:   "branch-prefix <project> [<prefix>]",
 		Short: "What this project's agents' branches start with",
 		Long: `Shows or sets what this project's new agents' branches start with, before the
-agent's name. A project starts on agentbox/, which puts agent-01 on the branch
-agentbox/agent-01.
+slug named after its work. A project starts on agentbox/, which puts an agent
+titled "Fix login" on the branch agentbox/fix-login.
 
 In a repository you share with others, a prefix of your own keeps your agents'
 branches out of theirs:

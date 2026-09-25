@@ -416,6 +416,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/auth/claude/login/{job}/code", s.claudeLoginCode)
 	h("DELETE /v1/auth/claude/{account}", s.removeClaudeAccount)
 	h("POST /v1/auth/claude/{account}/default", s.setDefaultClaudeAccount)
+	h("POST /v1/auth/claude/{account}/rename", s.renameClaudeAccount)
 	h("POST /v1/auth/github", s.saveGitHubToken)
 	h("DELETE /v1/auth/github/{account}", s.removeGitHubAccount)
 	h("POST /v1/auth/github/{account}/default", s.setDefaultGitHubAccount)

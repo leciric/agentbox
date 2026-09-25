@@ -395,6 +395,13 @@ func (c *Client) RemoveClaudeAccount(ctx context.Context, account string) error 
 	return c.do(ctx, http.MethodDelete, "/v1/auth/claude/"+url.PathEscape(account), nil, nil)
 }
 
+// RenameClaudeAccount gives a stored Claude Code account another name, and
+// carries every project and agent on it over to that name.
+func (c *Client) RenameClaudeAccount(ctx context.Context, account, name string) (RenamedClaudeAccount, error) {
+	var out RenamedClaudeAccount
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/claude/"+url.PathEscape(account)+"/rename", RenameClaudeAccountRequest{Name: name}, &out)
+}
+
 func (c *Client) SetDefaultClaudeAccount(ctx context.Context, account string) error {
 	return c.do(ctx, http.MethodPost, "/v1/auth/claude/"+url.PathEscape(account)+"/default", nil, nil)
 }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, ChevronRight, CircleArrowUp, FolderPlus, GripVertical, House, ListChecks, ListPlus, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, ListChecks, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 import type { ComponentType, DragEvent, KeyboardEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -268,13 +268,22 @@ export function Sidebar({
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label="Projects">
         <div className="flex items-center gap-1 px-2.5 pb-1.5">
           <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">Projects</span>
+          <Tip label="New project">
+            <button
+              aria-label="New project"
+              className="ml-auto rounded-md p-1 text-subtle transition hover:bg-surface-strong hover:text-primary"
+              onClick={onAddProject}
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </Tip>
           <Tip label="New section">
             <button
               aria-label="New section"
-              className="ml-auto rounded-md p-1 text-subtle transition hover:bg-surface-strong hover:text-primary"
+              className="rounded-md p-1 text-subtle transition hover:bg-surface-strong hover:text-primary"
               onClick={() => setNaming('')}
             >
-              <ListPlus className="size-3.5" />
+              <FolderTree className="size-3.5" />
             </button>
           </Tip>
         </div>

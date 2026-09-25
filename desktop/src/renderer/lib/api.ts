@@ -254,6 +254,8 @@ export const api = {
     call<void>('POST', `/v1/auth/claude/login/${encodeURIComponent(job)}/code`, { code } satisfies T.ClaudeLoginCodeRequest),
   removeClaudeAccount: (account: string) => call<void>('DELETE', `/v1/auth/claude/${encodeURIComponent(account)}`),
   setDefaultClaudeAccount: (account: string) => call<void>('POST', `/v1/auth/claude/${encodeURIComponent(account)}/default`),
+  renameClaudeAccount: (account: string, name: string) =>
+    call<T.RenamedClaudeAccount>('POST', `/v1/auth/claude/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameClaudeAccountRequest),
   setup: () => call<T.SetupStatus>('GET', '/v1/setup'),
   image: () => call<{ ready: boolean; snapshot: string }>('GET', '/v1/image'),
   buildImage: (req: T.BuildImageRequest = {}) => call<T.Job>('POST', '/v1/image/build', req),

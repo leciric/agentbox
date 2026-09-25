@@ -152,6 +152,7 @@ export interface CreateAgentRequest {
   project: string;
   name?: string;
   title?: string;
+  branch?: string;
   ai: string;
   interface?: string;
   autonomous?: boolean;
@@ -534,6 +535,17 @@ export interface ClaudeLogin {
 
 export interface ClaudeLoginCodeRequest {
   code: string;
+}
+
+export interface RenameClaudeAccountRequest {
+  name: string;
+}
+
+export interface RenamedClaudeAccount {
+  old: string;
+  name: string;
+  projects: string[];
+  agents: string[];
 }
 
 export interface GitHubTokenRequest {

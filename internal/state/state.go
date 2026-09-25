@@ -580,8 +580,8 @@ type Project struct {
 	// the project's chat choose per task. See DirectAgentModel and
 	// LeadPicksModel, which say what each of the three means where it is read.
 	AgentModel string
-	// BranchPrefix comes before an agent's name in the branch it is created
-	// on: agentbox/ makes agentbox/agent-01. It may be empty, or have several
+	// BranchPrefix comes before the slug in the branch an agent is created on
+	// (agent.branchFor): agentbox/ makes agentbox/fix-login. It may be empty, or have several
 	// components, like thiago/agentbox/. Agents keep the branch they were
 	// created on when it changes.
 	BranchPrefix string
@@ -944,6 +944,116 @@ func (s *Store) SetProjectClaudeAccounts(ctx context.Context, name, account stri
 		return fmt.Errorf("project %q: %w", name, ErrNotFound)
 	}
 	return nil
+}
+
+// ClaudeAccountRename is what renaming a Claude Code account carried over.
+type ClaudeAccountRename struct {
+	// Projects are the projects whose own account or allow-list named it.
+	Projects []string
+	// Agents are the agents on it, by project/name, the projects' chats
+	// included.
+	Agents []string
+}
+
+// RenameClaudeAccount carries every reference to a Claude Code account over to
+// its new name, in one transaction: each project's own account and allow-list,
+// each agent's account (the leads' too), and the account's usage-limit
+// reading. A reading already filed under the new name belongs to an account
+// that no longer exists, and is replaced. The token ledger names no account,
+// so it has nothing to carry. move, when not nil, runs inside the transaction
+// — it is where the credentials store renames the token — and an error from
+// it undoes the whole rename.
+func (s *Store) RenameClaudeAccount(ctx context.Context, old, name string, move func() error) (ClaudeAccountRename, error) {
+	var done ClaudeAccountRename
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return done, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `SELECT name, claude_account, claude_accounts FROM projects ORDER BY name`)
+	if err != nil {
+		return done, err
+	}
+	type project struct {
+		name, account string
+		allowed       []string
+	}
+	var changed []project
+	for rows.Next() {
+		var p project
+		var allowed string
+		if err := rows.Scan(&p.name, &p.account, &allowed); err != nil {
+			rows.Close()
+			return done, err
+		}
+		p.allowed = splitAccounts(allowed)
+		if p.account != old && !slices.Contains(p.allowed, old) {
+			continue
+		}
+		if p.account == old {
+			p.account = name
+		}
+		// The new name was free, but an allow-list may still name a removed
+		// account of that name: it keeps one entry, where the old one was.
+		var renamed []string
+		for _, a := range p.allowed {
+			if a == old {
+				a = name
+			}
+			if !slices.Contains(renamed, a) {
+				renamed = append(renamed, a)
+			}
+		}
+		p.allowed = renamed
+		changed = append(changed, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return done, err
+	}
+	for _, p := range changed {
+		if _, err := tx.ExecContext(ctx, `UPDATE projects SET claude_account = ?, claude_accounts = ? WHERE name = ?`,
+			p.account, strings.Join(p.allowed, ","), p.name); err != nil {
+			return done, err
+		}
+		done.Projects = append(done.Projects, p.name)
+	}
+
+	rows, err = tx.QueryContext(ctx, `SELECT project, name FROM agents WHERE claude_account = ? ORDER BY project, name`, old)
+	if err != nil {
+		return done, err
+	}
+	for rows.Next() {
+		var project, agent string
+		if err := rows.Scan(&project, &agent); err != nil {
+			rows.Close()
+			return done, err
+		}
+		done.Agents = append(done.Agents, project+"/"+agent)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return done, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agents SET claude_account = ? WHERE claude_account = ?`, name, old); err != nil {
+		return done, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM claude_limits WHERE account = ?`, name); err != nil {
+		return done, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE claude_limits SET account = ? WHERE account = ?`, name, old); err != nil {
+		return done, err
+	}
+	if move != nil {
+		if err := move(); err != nil {
+			return ClaudeAccountRename{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return ClaudeAccountRename{}, err
+	}
+	return done, nil
 }
 
 func splitAccounts(s string) []string {
