@@ -101,7 +101,7 @@ jobs:
       # Published by the publish job, once the Mac app is built too: a Mac build
       # that fails leaves nothing published, and running the workflow again
       # finds the tag on this commit and carries on.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: desktop/dist/release/${{ inputs.tag }}/
@@ -152,7 +152,7 @@ jobs:
           shasum -a 256 * >SHA256SUMS-mac
           cat SHA256SUMS-mac
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac
           path: mac/
