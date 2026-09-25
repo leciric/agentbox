@@ -9,6 +9,7 @@ import { limitTone, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
 
 export function TopBar({
@@ -99,16 +100,7 @@ export function TopBar({
               detail={`of ${humanBytes(host.memTotal)}`}
               fraction={host.memUsed / host.memTotal}
             />
-            {host.poolTotal > 0 && (
-              <Meter
-                className="hidden lg:flex"
-                icon={HardDrive}
-                label="Storage pool"
-                text={humanBytes(host.poolUsed)}
-                detail={`of ${humanBytes(host.poolTotal)}`}
-                fraction={host.poolUsed / host.poolTotal}
-              />
-            )}
+            {host.poolTotal > 0 && <StoragePoolMeter host={host} />}
           </>
         )}
         <Tip label={connection.error ?? (connection.state === 'connected' ? 'Connected to the AgentBox daemon' : 'Connecting to the daemon…')}>
@@ -154,14 +146,107 @@ function Meter({
       >
         <Icon className="size-3.5 text-subtle" />
         <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
-        <span className="h-1 w-8 overflow-hidden rounded-full bg-surface-strong">
-          <span
-            className={cn('block h-full rounded-full', percent > 85 ? 'bg-rose-400' : percent > 65 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400')}
-            style={{ width: `${Math.max(percent, 4)}%` }}
-          />
-        </span>
+        <MeterBar percent={percent} />
       </span>
     </Tip>
+  );
+}
+
+// MeterBar is the small filled pill every meter in the top bar shares: amber
+// past 65%, rose past 85%.
+function MeterBar({ percent, className }: { percent: number; className?: string }) {
+  return (
+    <span className={cn('h-1 w-8 overflow-hidden rounded-full bg-surface-strong', className)}>
+      <span
+        className={cn('block h-full rounded-full', percent > 85 ? 'bg-rose-400' : percent > 65 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400')}
+        style={{ width: `${Math.max(percent, 4)}%` }}
+      />
+    </span>
+  );
+}
+
+// StoragePoolMeter is the "Storage pool" indicator: what Meter would show,
+// but clicking it opens a popover breaking the total down by what's using it.
+// The breakdown is only computed while the popover is open — disk usage is
+// cheap to poll as a total (Usage.PoolSpace, a single Incus query already
+// fetched for the meter itself) but not to break down, since that walks every
+// worktree and media directory on the host and queries Incus once per machine
+// and saved base.
+function StoragePoolMeter({ host }: { host: T.HostUsage }) {
+  const diskUsage = useQuery({ queryKey: ['diskUsage'], queryFn: api.diskUsage, enabled: false });
+  const percent = Math.max(0, Math.min(1, host.poolUsed / host.poolTotal)) * 100;
+  const text = humanBytes(host.poolUsed);
+  const detail = `of ${humanBytes(host.poolTotal)}`;
+  return (
+    <Popover onOpenChange={(open) => open && diskUsage.refetch()}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
+          aria-label={`Storage pool: ${text} ${detail}`}
+        >
+          <HardDrive className="size-3.5 text-subtle" />
+          <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
+          <MeterBar percent={percent} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80">
+        <DiskUsageBreakdown poolUsed={host.poolUsed} poolTotal={host.poolTotal} query={diskUsage} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DiskUsageBreakdown({
+  poolUsed,
+  poolTotal,
+  query,
+}: {
+  poolUsed: number;
+  poolTotal: number;
+  query: ReturnType<typeof useQuery<T.DiskUsage>>;
+}) {
+  return (
+    <div className="grid gap-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-medium text-primary">Storage pool</span>
+        <span className="font-mono text-[11px] tabular-nums text-tertiary">
+          {humanBytes(poolUsed)} of {humanBytes(poolTotal)}
+        </span>
+      </div>
+      {query.isPending ? (
+        <span className="py-1 text-[12px] text-muted">Measuring what's on disk…</span>
+      ) : query.isError ? (
+        <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
+      ) : (
+        <>
+          <div className="grid max-h-72 gap-3 overflow-y-auto pr-1">
+            {query.data.categories.map((cat) => (
+              <div key={cat.label} className="grid gap-1">
+                <div className="flex items-center justify-between text-[12px] text-secondary">
+                  <span className="font-medium">{cat.label}</span>
+                  <span className="font-mono tabular-nums text-tertiary">{humanBytes(cat.bytes)}</span>
+                </div>
+                {cat.items && cat.items.length > 0 && (
+                  <div className="grid gap-0.5 border-l border-line pl-2.5">
+                    {cat.items.map((item) => (
+                      <div key={item.label} className="flex items-center justify-between gap-3 text-[11.5px] text-muted">
+                        <span className="min-w-0 truncate">{item.label}</span>
+                        <span className="shrink-0 font-mono tabular-nums text-faint">{humanBytes(item.bytes)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t border-line pt-2 text-[12px] font-medium text-primary">
+            <span>Total</span>
+            <span className="font-mono tabular-nums">{humanBytes(query.data.total)}</span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

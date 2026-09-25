@@ -305,6 +305,15 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	for _, c := range models {
 		contextWindows[c.Value] = windows.ContextWindows(windows.NormalizeClaudeModel(c.Value), compactWindow)
 	}
+	// And the models the two roles default to, which Settings looks up here
+	// even before any chat has remembered the adapter's menu: without them a
+	// fresh installation's opus fell back to the first window alone, and
+	// Settings offered it no 1M.
+	for _, m := range []string{state.DefaultClaudeModel, model, leadModel} {
+		if _, ok := contextWindows[m]; m != "" && !ok {
+			contextWindows[m] = windows.ContextWindows(windows.NormalizeClaudeModel(m), compactWindow)
+		}
+	}
 	mediaRetention, err := s.store.MediaRetention(r.Context())
 	if err != nil {
 		return api.Settings{}, err

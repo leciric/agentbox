@@ -1096,6 +1096,26 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusOK, toAPIUsage(host, agents))
 }
 
+func toAPIDiskUsage(u agent.DiskUsage) api.DiskUsage {
+	out := api.DiskUsage{Total: u.Total, Categories: make([]api.DiskUsageCategory, 0, len(u.Categories))}
+	for _, c := range u.Categories {
+		cat := api.DiskUsageCategory{Label: c.Label, Bytes: c.Bytes, Items: make([]api.DiskUsageItem, 0, len(c.Items))}
+		for _, it := range c.Items {
+			cat.Items = append(cat.Items, api.DiskUsageItem{Label: it.Label, Bytes: it.Bytes})
+		}
+		out.Categories = append(out.Categories, cat)
+	}
+	return out
+}
+
+func (s *Server) diskUsage(w http.ResponseWriter, r *http.Request) error {
+	usage, err := s.manager(nil).DiskUsage(r.Context())
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, toAPIDiskUsage(usage))
+}
+
 func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) error {
 	ready, err := image.Ready(r.Context(), s.cfg.Incus)
 	if err != nil {
