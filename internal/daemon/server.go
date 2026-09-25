@@ -436,6 +436,7 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/media/{id}", s.deleteMedia)
 
 	h("GET /v1/usage", s.usage)
+	h("GET /v1/usage/disk", s.diskUsage)
 	h("GET /v1/image", s.imageStatus)
 	h("POST /v1/image/build", s.buildImage)
 	h("GET /v1/auth", s.authStatus)

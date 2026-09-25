@@ -741,6 +741,11 @@ func (c *Client) Usage(ctx context.Context, interval time.Duration) (Usage, erro
 	return out, c.do(ctx, http.MethodGet, "/v1/usage?interval="+url.QueryEscape(interval.String()), nil, &out)
 }
 
+func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
+	var out DiskUsage
+	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)
+}
+
 func (c *Client) ImageReady(ctx context.Context) (bool, error) {
 	var out struct {
 		Ready bool `json:"ready"`

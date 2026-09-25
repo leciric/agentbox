@@ -253,6 +253,22 @@ export interface Usage {
   agents: AgentUsage[];
 }
 
+export interface DiskUsageItem {
+  label: string;
+  bytes: number;
+}
+
+export interface DiskUsageCategory {
+  label: string;
+  bytes: number;
+  items?: DiskUsageItem[];
+}
+
+export interface DiskUsage {
+  total: number;
+  categories: DiskUsageCategory[];
+}
+
 export interface ClaudeAccount {
   name: string;
   default: boolean;
