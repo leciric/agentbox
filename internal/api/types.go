@@ -610,8 +610,11 @@ type PullRequest struct {
 	// branch.
 	BaseBranch string `json:"baseBranch,omitempty"`
 	HeadBranch string `json:"headBranch,omitempty"`
-	// Agent is the name of this project's agent behind HeadBranch, when
-	// there is one; only the project pull requests list sets it.
+	// HeadSHA is the commit its branch is at. That, not HeadBranch, is what
+	// ties it to an agent: an agent's work is pushed under any branch name.
+	HeadSHA string `json:"headSha,omitempty"`
+	// Agent is the name of this project's agent whose commits it carries,
+	// when there is one; only the project pull requests list sets it.
 	Agent string `json:"agent,omitempty"`
 }
 

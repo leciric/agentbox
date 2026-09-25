@@ -180,9 +180,15 @@ func stub(t *testing.T, pulls string, checks string) github.Client {
 			t.Errorf("Authorization = %q", got)
 		}
 		switch {
-		case strings.Contains(r.URL.Path, "/pulls"):
-			if head := r.URL.Query().Get("head"); head != "acme:agentbox/agent-01" {
-				t.Errorf("head = %q", head)
+		case strings.HasSuffix(r.URL.Path, "/pulls"):
+			if r.URL.Path != "/repos/acme/pawly/commits/abc/pulls" {
+				t.Errorf("asked %s, want the pull requests of commit abc", r.URL.Path)
+			}
+			if pulls == "" {
+				// What GitHub says about a commit that was never pushed.
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				w.Write([]byte(`{"message":"No commit found for SHA: abc"}`))
+				return
 			}
 			w.Write([]byte(pulls))
 		case strings.Contains(r.URL.Path, "/check-runs"):
@@ -197,57 +203,73 @@ func stub(t *testing.T, pulls string, checks string) github.Client {
 	return github.Client{Token: "test-token", BaseURL: srv.URL}
 }
 
-func TestPullRequestFor(t *testing.T) {
+func TestPullRequestsWithCommit(t *testing.T) {
 	ctx := context.Background()
 	repo := github.Repo{Owner: "acme", Name: "pawly"}
-	const open = `[{"number":7,"title":"Reminders page","state":"open","html_url":"https://github.com/acme/pawly/pull/7","draft":true,"comments":2,"updated_at":"2026-09-14T10:00:00Z","head":{"sha":"abc"}}]`
+	const open = `[{"number":7,"title":"Reminders page","state":"open","html_url":"https://github.com/acme/pawly/pull/7","draft":true,"comments":2,"updated_at":"2026-09-14T10:00:00Z","head":{"ref":"feat/reminders","sha":"abc"}}]`
 
 	t.Run("checks all green", func(t *testing.T) {
-		pr, err := stub(t, open, `{"total_count":2,"check_runs":[{"status":"completed","conclusion":"success"},{"status":"completed","conclusion":"success"}]}`).
-			PullRequestFor(ctx, repo, "agentbox/agent-01")
-		if err != nil || pr == nil {
-			t.Fatalf("PullRequestFor() = %+v, %v", pr, err)
+		prs, err := stub(t, open, `{"total_count":2,"check_runs":[{"status":"completed","conclusion":"success"},{"status":"completed","conclusion":"success"}]}`).
+			PullRequestsWithCommit(ctx, repo, "abc")
+		if err != nil || len(prs) != 1 {
+			t.Fatalf("PullRequestsWithCommit() = %+v, %v", prs, err)
 		}
-		if pr.Number != 7 || pr.State != "open" || !pr.Draft || pr.Checks != "passing" || pr.Comments != 2 {
-			t.Errorf("PullRequestFor() = %+v", pr)
+		pr := prs[0]
+		if pr.Number != 7 || pr.State != "open" || !pr.Draft || pr.Checks != "passing" || pr.Comments != 2 || pr.HeadSHA != "abc" || pr.HeadBranch != "feat/reminders" {
+			t.Errorf("PullRequestsWithCommit() = %+v", pr)
 		}
 	})
 
 	t.Run("one failure makes it failing", func(t *testing.T) {
-		pr, _ := stub(t, open, `{"total_count":2,"check_runs":[{"status":"completed","conclusion":"success"},{"status":"completed","conclusion":"failure"}]}`).
-			PullRequestFor(ctx, repo, "agentbox/agent-01")
-		if pr.Checks != "failing" {
+		prs, _ := stub(t, open, `{"total_count":2,"check_runs":[{"status":"completed","conclusion":"success"},{"status":"completed","conclusion":"failure"}]}`).
+			PullRequestsWithCommit(ctx, repo, "abc")
+		if pr := prs[0]; pr.Checks != "failing" {
 			t.Errorf("Checks = %q, want failing", pr.Checks)
 		}
 	})
 
 	t.Run("anything still running is pending", func(t *testing.T) {
-		pr, _ := stub(t, open, `{"total_count":2,"check_runs":[{"status":"in_progress"},{"status":"completed","conclusion":"success"}]}`).
-			PullRequestFor(ctx, repo, "agentbox/agent-01")
-		if pr.Checks != "pending" {
+		prs, _ := stub(t, open, `{"total_count":2,"check_runs":[{"status":"in_progress"},{"status":"completed","conclusion":"success"}]}`).
+			PullRequestsWithCommit(ctx, repo, "abc")
+		if pr := prs[0]; pr.Checks != "pending" {
 			t.Errorf("Checks = %q, want pending", pr.Checks)
 		}
 	})
 
 	t.Run("no checks is not a failure", func(t *testing.T) {
-		pr, _ := stub(t, open, `{"total_count":0,"check_runs":[]}`).PullRequestFor(ctx, repo, "agentbox/agent-01")
-		if pr.Checks != "" {
+		prs, _ := stub(t, open, `{"total_count":0,"check_runs":[]}`).PullRequestsWithCommit(ctx, repo, "abc")
+		if pr := prs[0]; pr.Checks != "" {
 			t.Errorf("Checks = %q, want empty", pr.Checks)
 		}
 	})
 
 	t.Run("a merged pull request says so", func(t *testing.T) {
 		merged := strings.Replace(open, `"state":"open"`, `"state":"closed","merged_at":"2026-09-14T11:00:00Z"`, 1)
-		pr, _ := stub(t, merged, `{"total_count":0}`).PullRequestFor(ctx, repo, "agentbox/agent-01")
-		if pr.State != "merged" {
+		prs, _ := stub(t, merged, `{"total_count":0}`).PullRequestsWithCommit(ctx, repo, "abc")
+		if pr := prs[0]; pr.State != "merged" {
 			t.Errorf("State = %q, want merged", pr.State)
 		}
 	})
 
-	t.Run("a branch with no pull request is not an error", func(t *testing.T) {
-		pr, err := stub(t, `[]`, `{}`).PullRequestFor(ctx, repo, "agentbox/agent-01")
-		if err != nil || pr != nil {
-			t.Errorf("PullRequestFor() = %+v, %v; want nil, nil", pr, err)
+	t.Run("a commit with no pull request is not an error", func(t *testing.T) {
+		prs, err := stub(t, `[]`, `{}`).PullRequestsWithCommit(ctx, repo, "abc")
+		if err != nil || len(prs) != 0 {
+			t.Errorf("PullRequestsWithCommit() = %+v, %v; want none, nil", prs, err)
+		}
+	})
+
+	t.Run("a commit GitHub never saw is not an error", func(t *testing.T) {
+		prs, err := stub(t, "", `{}`).PullRequestsWithCommit(ctx, repo, "abc")
+		if err != nil || len(prs) != 0 {
+			t.Errorf("PullRequestsWithCommit() = %+v, %v; want none, nil", prs, err)
+		}
+	})
+
+	t.Run("the most recently updated comes first", func(t *testing.T) {
+		two := `[{"number":1,"state":"closed","updated_at":"2026-09-01T10:00:00Z","head":{"sha":"old"}},{"number":2,"state":"open","updated_at":"2026-09-20T10:00:00Z","head":{"sha":"abc"}}]`
+		prs, _ := stub(t, two, `{"total_count":0}`).PullRequestsWithCommit(ctx, repo, "abc")
+		if len(prs) != 2 || prs[0].Number != 2 {
+			t.Errorf("PullRequestsWithCommit() = %+v, want #2 first", prs)
 		}
 	})
 }

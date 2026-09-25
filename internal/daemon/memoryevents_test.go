@@ -314,11 +314,13 @@ func TestMemoryCapturesPRMerged(t *testing.T) {
 	}
 	githubRepoStub(t, d, repo)
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
+	// Pushed under a name of its own: the agent is found by its commit.
+	head := commitOn(t, a, "reminders.txt")
 
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9" && r.Method == http.MethodGet:
-			fmt.Fprintf(w, `{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":%q,"sha":"def"}}`, a.Branch)
+			fmt.Fprintf(w, `{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"feat/reminders","sha":%q}}`, head)
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
 			w.Write([]byte(`{"total_count":0}`))
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9/merge" && r.Method == http.MethodPut:
@@ -343,7 +345,7 @@ func TestMemoryCapturesPRMerged(t *testing.T) {
 		t.Errorf("pr_merged event's agent = %q, want agent-01", e.Agent)
 	}
 	p := payloadOf(t, e)
-	if p["number"] != float64(9) || p["branch"] != a.Branch {
+	if p["number"] != float64(9) || p["branch"] != "feat/reminders" {
 		t.Errorf("pr_merged payload = %+v", p)
 	}
 }

@@ -73,19 +73,18 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 	}
 	githubRepoStub(t, d, repo)
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
-	// The link comes from the stored branch, named after the work, never from
-	// the agent's name.
-	if a.Branch != "agentbox/reminders-page" {
-		t.Fatalf("the agent's branch is %q, want agentbox/reminders-page", a.Branch)
-	}
+	// The link comes from the agent's commits, never from a branch name: its
+	// work went up as feat/reminders, and an old pull request from a branch
+	// named like the agent's is somebody else's.
+	head := commitOn(t, a, "reminders.txt")
 
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls" && r.Method == http.MethodGet:
 			fmt.Fprintf(w, `[
-				{"number":9,"title":"Reminders page","state":"open","html_url":"https://github.com/acme/hello-stack/pull/9","draft":false,"updated_at":"2026-09-15T10:00:00Z","base":{"ref":"main"},"head":{"ref":%q,"sha":"def"}},
-				{"number":3,"title":"Old work","state":"closed","merged_at":"2026-09-01T10:00:00Z","html_url":"https://github.com/acme/hello-stack/pull/3","base":{"ref":"main"},"head":{"ref":"agentbox/agent-99","sha":"aaa"}}
-			]`, a.Branch)
+				{"number":9,"title":"Reminders page","state":"open","html_url":"https://github.com/acme/hello-stack/pull/9","draft":false,"updated_at":"2026-09-15T10:00:00Z","base":{"ref":"main"},"head":{"ref":"feat/reminders","sha":%q}},
+				{"number":3,"title":"Old work","state":"closed","merged_at":"2026-09-01T10:00:00Z","html_url":"https://github.com/acme/hello-stack/pull/3","base":{"ref":"main"},"head":{"ref":%q,"sha":"aaa"}}
+			]`, head, a.Branch)
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9":
 			w.Write([]byte(`{"additions":5,"deletions":1,"comments":2}`))
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
@@ -115,7 +114,7 @@ func TestProjectPullRequestsListsAndLinksTheAgentBehindOne(t *testing.T) {
 	}
 	old := out.PullRequests[1]
 	if old.Agent != "" {
-		t.Errorf("a pull request from an unknown branch got linked to an agent: %+v", old)
+		t.Errorf("an old pull request from a branch of the same name got linked to the agent: %+v", old)
 	}
 }
 
