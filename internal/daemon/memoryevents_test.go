@@ -13,7 +13,6 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
-	"agentbox/internal/testutil"
 )
 
 // eventsOfType waits for at least one event of a type to reach a project's
@@ -41,10 +40,10 @@ func payloadOf(t *testing.T, e memory.Event) map[string]any {
 // Creating an agent is one of the daemon's own chokepoints: nothing an agent
 // says is needed for the project to remember it exists.
 func TestMemoryCapturesAgentCreated(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
-	t.Setenv("INCUS_INSTANCES", `[{"name":"ab-hello-stack-agent-01","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]`)
-	d := startTestDaemon(t, t.TempDir(), recordingIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	d := startTestDaemon(t, t.TempDir(), recordingIncus, testConfig{instances: runningAgent01})
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -100,9 +99,10 @@ func slicesContain(list []string, want string) bool {
 // Retiring an agent, however it happens, is the other half of the lifecycle:
 // the project should stop counting it among who is active.
 func TestMemoryCapturesAgentRetired(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -134,9 +134,10 @@ func TestMemoryCapturesAgentRetired(t *testing.T) {
 // A genuine finish is a finish notice's payload, kept: the same diff stat, and
 // a link to the report the agent filed, if it filed one.
 func TestMemoryCapturesAgentFinishedWithItsReport(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -187,9 +188,10 @@ func TestMemoryCapturesAgentFinishedWithItsReport(t *testing.T) {
 // The chain a question travels — asked, answered or escalated — is worth its
 // own trail, independent of whatever the agent that asked it goes on to do.
 func TestMemoryCapturesQuestionEvents(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -251,9 +253,10 @@ func TestMemoryCapturesQuestionEvents(t *testing.T) {
 // Notes are the one thing every agent's brief carries, so a change to them is
 // worth a row of its own.
 func TestMemoryCapturesNotesChanged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.client.SetNotes(ctx, "hello-stack", "Squash before merging.\n"); err != nil {
@@ -273,6 +276,7 @@ func TestMemoryCapturesNotesChanged(t *testing.T) {
 // A screenshot or recording already lands in media; the project's memory
 // should carry a reference to it, not a copy.
 func TestMemoryCapturesArtifactForNewMedia(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	a := addTestAgent(t, d)
@@ -306,19 +310,22 @@ func TestMemoryCapturesArtifactForNewMedia(t *testing.T) {
 // Merging a pull request is a chokepoint the daemon drives itself, unlike one
 // opened on GitHub directly, which is why it — and not "opened" — is captured.
 func TestMemoryCapturesPRMerged(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
 	githubRepoStub(t, d, repo)
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
+	// Pushed under a name of its own: the agent is found by its commit.
+	head := commitOn(t, a, "reminders.txt")
 
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9" && r.Method == http.MethodGet:
-			fmt.Fprintf(w, `{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":%q,"sha":"def"}}`, a.Branch)
+			fmt.Fprintf(w, `{"number":9,"title":"Reminders page","state":"open","draft":false,"html_url":"https://github.com/acme/hello-stack/pull/9","base":{"ref":"main"},"head":{"ref":"feat/reminders","sha":%q}}`, head)
 		case strings.HasSuffix(r.URL.Path, "/check-runs"):
 			w.Write([]byte(`{"total_count":0}`))
 		case r.URL.Path == "/repos/acme/hello-stack/pulls/9/merge" && r.Method == http.MethodPut:
@@ -328,7 +335,7 @@ func TestMemoryCapturesPRMerged(t *testing.T) {
 		}
 	}))
 	defer stub.Close()
-	t.Setenv("AGENTBOX_GITHUB_API", stub.URL)
+	d.setGitHub(t, stub.URL)
 
 	if _, err := d.client.MergePullRequest(ctx, "hello-stack", 9, "squash"); err != nil {
 		t.Fatal(err)
@@ -343,7 +350,7 @@ func TestMemoryCapturesPRMerged(t *testing.T) {
 		t.Errorf("pr_merged event's agent = %q, want agent-01", e.Agent)
 	}
 	p := payloadOf(t, e)
-	if p["number"] != float64(9) || p["branch"] != a.Branch {
+	if p["number"] != float64(9) || p["branch"] != "feat/reminders" {
 		t.Errorf("pr_merged payload = %+v", p)
 	}
 }
@@ -352,9 +359,10 @@ func TestMemoryCapturesPRMerged(t *testing.T) {
 // (it skips the lead deliberately), so this is captured off the same Publish
 // stream every chat item already goes through.
 func TestMemoryCapturesLeadTurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}

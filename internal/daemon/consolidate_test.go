@@ -10,7 +10,6 @@ import (
 	"agentbox/internal/chat"
 	"agentbox/internal/memory"
 	"agentbox/internal/state"
-	"agentbox/internal/testutil"
 )
 
 // consolidationProject is a daemon with one project, and the lead the
@@ -19,7 +18,7 @@ import (
 func consolidationProject(t *testing.T) (testDaemon, state.Agent) {
 	t.Helper()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	if _, err := d.client.AddProject(context.Background(), api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(context.Background(), api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	return d, state.Agent{Project: "hello-stack", Name: state.LeadName, Role: state.RoleLead}
@@ -60,6 +59,7 @@ const distillationAnswer = `{
 // the model says becomes memories, and the next check reads nothing it has
 // already folded in.
 func TestDistillationTriggeredByWatermark(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := consolidationProject(t)
 	store := d.srv.memory()
@@ -176,6 +176,7 @@ func TestDistillationTriggeredByWatermark(t *testing.T) {
 // recorded failure: no memories, and a watermark that hasn't moved, so the
 // same window is read again when there is a session that can read it.
 func TestFailedDistillationKeepsWatermark(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := consolidationProject(t)
 	if _, err := d.client.SetConsolidation(ctx, "hello-stack", 20); err != nil {
@@ -211,6 +212,7 @@ func TestFailedDistillationKeepsWatermark(t *testing.T) {
 // Off means off: neither half runs, and the on-demand route says so rather
 // than quietly doing nothing.
 func TestConsolidationCanBeSwitchedOff(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, lead := consolidationProject(t)
 	fill(t, d, "hello-stack", 30, time.Now().Add(-24*time.Hour))
@@ -240,6 +242,7 @@ func TestConsolidationCanBeSwitchedOff(t *testing.T) {
 // The setting is a project setting like the others: a default, a round trip
 // through the API, an off, and a refusal for what makes no sense.
 func TestConsolidationSettingRoundTrips(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, _ := consolidationProject(t)
 	p, err := d.client.Project(ctx, "hello-stack")
@@ -269,6 +272,7 @@ func TestConsolidationSettingRoundTrips(t *testing.T) {
 // The mechanical pass on demand, and the numbers the app will show a
 // compression ratio from, over the memory routes.
 func TestConsolidationRoutes(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d, _ := consolidationProject(t)
 	m := d.client.ProjectMemory("hello-stack")

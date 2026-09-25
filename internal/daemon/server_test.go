@@ -8,12 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -48,28 +52,94 @@ type testDaemon struct {
 	srv    *Server
 	client *api.Client
 	paths  paths.Paths
+	root   string
+	// instances is the file the fake incus scripts answer `list` from.
+	instances string
+	// gitHub is where the daemon's GitHub API root forwards to; setGitHub
+	// points it at a test's stub.
+	gitHub *atomic.Pointer[url.URL]
 }
 
-func startTestDaemon(t *testing.T, root, script string) testDaemon {
-	t.Helper()
-	t.Setenv("AGENTBOX_SOCKET", "")
-	t.Setenv("INCUS_LOG", filepath.Join(root, "incus.log"))
+// testConfig is what a test sets about its daemon and its fake incus. None of
+// it goes through the environment, which is the whole process's, so tests
+// that start daemons can run in parallel.
+type testConfig struct {
+	// env is exported to the fake incus script, which reads it as it runs:
+	// COPY_DELAY, COPY_FAILS, INCUS_FILES.
+	env map[string]string
+	// instances is what `incus list` answers in the scripts that read
+	// $INCUS_INSTANCES; setInstances changes it later.
+	instances string
+	// previewAddr is Config.PreviewAddr; empty turns the proxy off.
+	previewAddr string
+	// updateURL is Config.UpdateURL; empty is a port nothing listens on.
+	updateURL string
+}
+
+// TestMain sets what every test's daemon needs the same way, once, before any
+// test runs, so no test has to set the environment while another runs.
+func TestMain(m *testing.M) {
+	// The tests' daemons listen on their own paths.Paths, never on a socket
+	// the developer's shell points at.
+	os.Unsetenv("AGENTBOX_SOCKET")
 	// Token checks must not leave the machine: a port nothing listens on
 	// stands in for Anthropic, and a check against it answers "not checked".
-	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
-	if os.Getenv("AGENTBOX_PREVIEW_ADDR") == "" {
-		t.Setenv("AGENTBOX_PREVIEW_ADDR", "off")
+	os.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	// The daemon runs git itself, so git's isolation from the developer's
+	// configuration has to be the whole process's too.
+	cleanup, err := testutil.IsolateGit()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
+}
+
+func startTestDaemon(t *testing.T, root, script string, config ...testConfig) testDaemon {
+	t.Helper()
+	var tc testConfig
+	if len(config) > 0 {
+		tc = config[0]
 	}
 	p := paths.Paths{Config: filepath.Join(root, "config"), Data: filepath.Join(root, "data")}
-	bin := filepath.Join(root, "incus")
-	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
+	instances := filepath.Join(root, "instances.json")
+	if err := os.WriteFile(instances, []byte(cmp.Or(tc.instances, "[]")), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	env := map[string]string{"INCUS_LOG": filepath.Join(root, "incus.log"), "INCUS_INSTANCES_FILE": instances}
+	for k, v := range tc.env {
+		env[k] = v
+	}
+	var exports strings.Builder
+	for k, v := range env {
+		fmt.Fprintf(&exports, "export %s='%s'\n", k, strings.ReplaceAll(v, "'", `'\''`))
+	}
+	bin := filepath.Join(root, "incus")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+exports.String()+script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// GitHub is a stub of this daemon's own, forwarding to wherever the test
+	// points it, and failing every request until it does: nothing reaches the real one.
+	gitHub := new(atomic.Pointer[url.URL])
+	gh := httptest.NewServer(&httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
+		if u := gitHub.Load(); u != nil {
+			r.SetURL(u)
+		}
+	}, ErrorLog: log.New(io.Discard, "", 0)})
+	t.Cleanup(gh.Close)
 	// The update check must not leave the machine either. Tests run as a
 	// "dev" build, which never checks; the ones about the check change the
-	// version and put a fake server in AGENTBOX_UPDATE_URL.
-	updateURL := cmp.Or(os.Getenv("AGENTBOX_UPDATE_URL"), "http://127.0.0.1:1")
-	srv, err := New(Config{Paths: p, Incus: incus.Client{Bin: bin}, User: image.User{Name: "dev", UID: 1000, GID: 1000}, UpdateURL: updateURL})
+	// version and give the daemon a fake server.
+	srv, err := New(Config{
+		Paths:       p,
+		Incus:       incus.Client{Bin: bin},
+		User:        image.User{Name: "dev", UID: 1000, GID: 1000},
+		UpdateURL:   cmp.Or(tc.updateURL, "http://127.0.0.1:1"),
+		PreviewAddr: cmp.Or(tc.previewAddr, "off"),
+		GitHubAPI:   gh.URL,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,10 +158,50 @@ func startTestDaemon(t *testing.T, root, script string) testDaemon {
 		if err := <-done; err != nil {
 			t.Errorf("Run() = %v", err)
 		}
+		// A lead's chat still launching writes on after Run has returned.
+		srv.chat.Wait()
 	})
 	c := api.NewClient(p.Socket())
 	waitFor(t, "the daemon to answer", func() bool { return c.Ping(context.Background()) == nil })
-	return testDaemon{srv: srv, client: c, paths: p}
+	// The sweeps' first passes are over nothing yet, and have to stay that
+	// way: one that ran late would find what the test had just made.
+	srv.firstSweeps.Wait()
+	return testDaemon{srv: srv, client: c, paths: p, root: root, instances: instances, gitHub: gitHub}
+}
+
+// fixtureRepo is testutil.FixtureRepo under the daemon's root rather than a
+// t.TempDir of its own. A TempDir made after the daemon started is removed
+// before it stops — cleanups run last first — and the daemon writes into a
+// project's repository: a lead's worktree is registered in its .git.
+func (d testDaemon) fixtureRepo(t *testing.T, name string) string {
+	t.Helper()
+	repos := filepath.Join(d.root, "repos")
+	if err := os.MkdirAll(repos, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp(repos, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return testutil.FixtureRepoIn(t, dir, name)
+}
+
+// setGitHub points the daemon's GitHub at a test's stub.
+func (d testDaemon) setGitHub(t *testing.T, stubURL string) {
+	t.Helper()
+	u, err := url.Parse(stubURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.gitHub.Store(u)
+}
+
+// setInstances changes what the fake incus answers `list` with.
+func (d testDaemon) setInstances(t *testing.T, instances string) {
+	t.Helper()
+	if err := os.WriteFile(d.instances, []byte(instances), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {
@@ -105,9 +215,10 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 }
 
 func TestProjectsAPI(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 
 	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo})
 	if err != nil {
@@ -139,9 +250,10 @@ func TestProjectsAPI(t *testing.T) {
 }
 
 func TestClaudeAccountsAPI(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -196,9 +308,10 @@ func TestClaudeAccountsAPI(t *testing.T) {
 // writing tokens directly, since SaveGitHubToken checks them against GitHub
 // over the network before storing them, which this test doesn't want to need.
 func TestGitHubAccountsAPI(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -255,6 +368,7 @@ func TestGitHubAccountsAPI(t *testing.T) {
 // refused before the project exists rather than leaving it on the wrong
 // account.
 func TestAddProjectPicksItsAccounts(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
@@ -273,7 +387,7 @@ func TestAddProjectPicksItsAccounts(t *testing.T) {
 		{req: api.AddProjectRequest{GitHubAccount: "nope"}, want: `no GitHub account named "nope"`},
 	} {
 		req := tc.req
-		req.Path = testutil.FixtureRepo(t, "hello-stack")
+		req.Path = d.fixtureRepo(t, "hello-stack")
 		req.Name = "refused"
 		_, err := d.client.AddProject(ctx, req)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -285,7 +399,7 @@ func TestAddProjectPicksItsAccounts(t *testing.T) {
 	}
 
 	p, err := d.client.AddProject(ctx, api.AddProjectRequest{
-		Path: testutil.FixtureRepo(t, "hello-stack"), Name: "pawly", ClaudeAccount: "work", GitHubAccount: "work",
+		Path: d.fixtureRepo(t, "hello-stack"), Name: "pawly", ClaudeAccount: "work", GitHubAccount: "work",
 	})
 	if err != nil || p.ClaudeAccount != "work" || p.GitHubAccount != "work" {
 		t.Fatalf("AddProject() = %+v, %v", p, err)
@@ -295,17 +409,17 @@ func TestAddProjectPicksItsAccounts(t *testing.T) {
 		t.Errorf("Project() = %+v, %v", stored, err)
 	}
 	// Nothing chosen still means the machine's default account.
-	plain, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack"), Name: "plain"})
+	plain, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack"), Name: "plain"})
 	if err != nil || plain.ClaudeAccount != "" || plain.GitHubAccount != "" {
 		t.Errorf("AddProject() with no accounts = %+v, %v", plain, err)
 	}
 }
 
 func TestFailedCreateJobRollsBack(t *testing.T) {
-	t.Setenv("COPY_FAILS", "1")
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{env: map[string]string{"COPY_FAILS": "1"}})
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -364,11 +478,11 @@ func TestFailedCreateJobRollsBack(t *testing.T) {
 }
 
 func TestCancelJobRollsBack(t *testing.T) {
-	t.Setenv("COPY_DELAY", "1")
+	t.Parallel()
 	root := t.TempDir()
-	d := startTestDaemon(t, root, fakeIncus)
+	d := startTestDaemon(t, root, fakeIncus, testConfig{env: map[string]string{"COPY_DELAY": "1"}})
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -405,7 +519,7 @@ esac`
 func addTestAgent(t *testing.T, d testDaemon) state.Agent {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: testutil.FixtureRepo(t, "hello-stack")}); err != nil {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
 		t.Fatal(err)
 	}
 	a := state.Agent{
@@ -436,6 +550,7 @@ exit 0
 // A daemon started on a new build must hand that build to every running
 // agent, even though each one is running the old binary as its MCP servers.
 func TestReconcileUpdatesEveryReadyAgentsBinary(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	d := startTestDaemon(t, root, busyBinaryIncus)
 	ctx := context.Background()
@@ -476,6 +591,7 @@ func TestReconcileUpdatesEveryReadyAgentsBinary(t *testing.T) {
 }
 
 func TestNewSubscriberGetsEachAgentOnce(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	addTestAgent(t, d)
@@ -509,6 +625,7 @@ func TestNewSubscriberGetsEachAgentOnce(t *testing.T) {
 }
 
 func TestInAgentAPIOnlyDescribesItsAgent(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -537,6 +654,7 @@ func TestInAgentAPIOnlyDescribesItsAgent(t *testing.T) {
 }
 
 func TestPreviewProxyReachesAnAgentsPort(t *testing.T) {
+	t.Parallel()
 	var sawHost string
 	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		sawHost = r.Host
@@ -545,8 +663,7 @@ func TestPreviewProxyReachesAnAgentsPort(t *testing.T) {
 	defer app.Close()
 	_, appPort, _ := net.SplitHostPort(app.Listener.Addr().String())
 
-	t.Setenv("AGENTBOX_PREVIEW_ADDR", "127.0.0.1:0")
-	d := startTestDaemon(t, t.TempDir(), strings.ReplaceAll(oneAgentIncus, "10.1.2.3", "127.0.0.1"))
+	d := startTestDaemon(t, t.TempDir(), strings.ReplaceAll(oneAgentIncus, "10.1.2.3", "127.0.0.1"), testConfig{previewAddr: "127.0.0.1:0"})
 	addTestAgent(t, d)
 	info, err := d.client.Preview(context.Background())
 	if err != nil || info.Addr == "" {
@@ -581,7 +698,7 @@ func TestPreviewProxyReachesAnAgentsPort(t *testing.T) {
 }
 
 func TestRefusesSocketPathsTooLongForUnixSockets(t *testing.T) {
-	t.Setenv("AGENTBOX_SOCKET", "")
+	t.Parallel()
 	root := filepath.Join(t.TempDir(), strings.Repeat("d", 100))
 	p := paths.Paths{Config: filepath.Join(root, "config"), Data: filepath.Join(root, "data")}
 	srv, err := New(Config{Paths: p, Incus: incus.Client{Bin: "false"}})
@@ -594,6 +711,7 @@ func TestRefusesSocketPathsTooLongForUnixSockets(t *testing.T) {
 }
 
 func TestRestartFailsInterruptedJobs(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	p := paths.Paths{Config: filepath.Join(root, "config"), Data: filepath.Join(root, "data")}
 	st, err := state.Open(p.StateDB())
@@ -625,6 +743,7 @@ func TestRestartFailsInterruptedJobs(t *testing.T) {
 // page says so where the login is set up, and the account carries it to the
 // app, which badges it.
 func TestSetupReportsARejectedClaudeToken(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	if err := d.client.SaveClaudeToken(ctx, api.ClaudeTokenRequest{Token: "sk-ant-oat01-example"}); err != nil {

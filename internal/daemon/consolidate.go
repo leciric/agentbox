@@ -47,6 +47,7 @@ const consolidationMinGap = 10 * time.Minute
 // that is restarted often still gets there.
 func (s *Server) sweepMemories(ctx context.Context) {
 	s.consolidateAll(ctx)
+	s.firstSweeps.Done()
 	ticker := time.NewTicker(consolidationInterval)
 	defer ticker.Stop()
 	for {

@@ -8,7 +8,6 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
-	"agentbox/internal/testutil"
 )
 
 // The task graph's wiring to the agent lifecycle (D77).
@@ -42,9 +41,10 @@ func taskOf(t *testing.T, d testDaemon, project, id string) memory.Task {
 // An agent made with a task is a row in the plan, not only a line in the
 // history: something has to be able to say "that is still open".
 func TestAgentCreatedWritesItsTaskDown(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +79,10 @@ func TestAgentCreatedWritesItsTaskDown(t *testing.T) {
 // A project's chat that wrote the work down before handing it over should get
 // one task, not two: the agent's creation links to what is already there.
 func TestAgentCreatedLinksATaskTheChatAlreadyWrote(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -121,9 +122,10 @@ func TestAgentCreatedLinksATaskTheChatAlreadyWrote(t *testing.T) {
 // leave it open are the point: a worker that stopped halfway must not have
 // its work marked done because its turn ended.
 func TestAgentFinishedClosesItsTaskFromItsReport(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := testutil.FixtureRepo(t, "hello-stack")
+	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +174,7 @@ func TestAgentFinishedClosesItsTaskFromItsReport(t *testing.T) {
 // A worker may say how its own task is going, and may not write work down for
 // anybody else or move the plan about: curating it needs every agent in view.
 func TestAgentMayOnlyUpdateItsOwnTask(t *testing.T) {
+	t.Parallel()
 	mine := memory.Task{ID: "task_mine", Agent: "agent-01", Goal: "Paginate the reminders list"}
 	yours := memory.Task{ID: "task_yours", Agent: "agent-02", Goal: "Index the count query"}
 
@@ -207,6 +210,7 @@ func TestAgentMayOnlyUpdateItsOwnTask(t *testing.T) {
 // The whole surface, end to end: the project's chat curates the plan, the
 // agent reads it and says how its own is going, and the refusals are refusals.
 func TestTaskGraphOnAllThreeSurfaces(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
 	a := addTestAgent(t, d)
@@ -289,6 +293,7 @@ func TestTaskGraphOnAllThreeSurfaces(t *testing.T) {
 // The trust split is also a routing fact: the routes that restructure the plan
 // are not served inside an agent at all.
 func TestTaskRoutesAnAgentGets(t *testing.T) {
+	t.Parallel()
 	inAgent := map[string]bool{}
 	for _, route := range memoryRoutes {
 		inAgent[route.action] = route.inAgent

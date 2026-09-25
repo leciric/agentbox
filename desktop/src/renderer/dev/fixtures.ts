@@ -402,10 +402,17 @@ export function leadChat(): T.ChatThread {
   };
 }
 
+// devState is what the dev bridge serves for the projects and the stored
+// accounts, and what picking a project's GitHub account or renaming one
+// changes, so a scenario that refetches them after a change (?github=1) sees
+// what the daemon would have answered.
+const devState: { projects: T.Project[]; auth?: T.AuthStatus } = { projects: [] };
+
 // seedQueryClient primes every query AgentRail and Sidebar read, at
 // staleTime: Infinity (set by the caller's QueryClient), so nothing refetches
 // through the stub bridge below.
 export function seedQueryClient(queryClient: QueryClient, data: FixtureData): void {
+  devState.projects = structuredClone(data.projects);
   queryClient.setQueryData(['agents'], data.agents);
   queryClient.setQueryData(['usage'], { host: { cpu: 0, cores: 1, memUsed: 0, memTotal: 0, poolUsed: 0, poolTotal: 0 }, agents: [] });
   queryClient.setQueryData(['fleet', PROJECT], data.fleet);
@@ -418,7 +425,7 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['setup'], { ready: true });
   queryClient.setQueryData(['target'], { kind: 'local' });
   queryClient.setQueryData(['hubs'], []);
-  queryClient.setQueryData(['auth'], {
+  devState.auth = {
     claude: true,
     codex: false,
     opencode: false,
@@ -428,7 +435,8 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
       { name: 'default', default: true, savedAt: new Date().toISOString(), login: 'leciric-work' },
       { name: 'personal-account-with-a-long-name', default: false, savedAt: new Date().toISOString(), login: 'a-github-login-that-is-long-too' },
     ],
-  } satisfies T.AuthStatus);
+  } satisfies T.AuthStatus;
+  queryClient.setQueryData(['auth'], devState.auth);
 }
 
 // fakeVM prints what `agentbox vm resize` prints, a line at a time, so the
@@ -533,6 +541,30 @@ export function installDevBridge(): void {
         if (['default', 'work'].includes(name))
           return { status: 400, body: JSON.stringify({ error: `there is already a Claude Code account named "${name}": remove it first, or pick another name` }), contentType: 'application/json' };
         const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
+        return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
+      }
+      if (method === 'GET' && path === '/v1/projects') return { status: 200, body: JSON.stringify(devState.projects), contentType: 'application/json' };
+      if (method === 'GET' && path === '/v1/auth') return { status: 200, body: JSON.stringify(devState.auth), contentType: 'application/json' };
+      // Picking a project's GitHub account, and renaming one (?github=1),
+      // change what the two above answer, the way the daemon's would.
+      const patched = method === 'PATCH' ? /^\/v1\/projects\/([^/]+)$/.exec(path) : null;
+      const req = body as Partial<T.UpdateProjectRequest> | undefined;
+      if (patched && req?.githubAccount !== undefined) {
+        const project = devState.projects.find((p) => p.name === decodeURIComponent(patched[1]))!;
+        project.githubAccount = req.githubAccount;
+        return { status: 200, body: JSON.stringify(project), contentType: 'application/json' };
+      }
+      const renameGitHub = method === 'POST' ? /^\/v1\/auth\/github\/([^/]+)\/rename$/.exec(path) : null;
+      if (renameGitHub && devState.auth) {
+        const old = decodeURIComponent(renameGitHub[1]);
+        const name = (body as { name: string }).name;
+        const accounts = devState.auth.githubAccounts;
+        if (accounts.some((a) => a.name === name))
+          return { status: 400, body: JSON.stringify({ error: `there is already a GitHub account named "${name}": remove it first, or pick another name` }), contentType: 'application/json' };
+        devState.auth = { ...devState.auth, githubAccounts: accounts.map((a) => (a.name === old ? { ...a, name } : a)).sort((a, b) => a.name.localeCompare(b.name)) };
+        const projects = devState.projects.filter((p) => p.githubAccount === old);
+        for (const p of projects) p.githubAccount = name;
+        const got = { old, name, projects: projects.map((p) => p.name), agents: [`${PROJECT}/agent-01`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
       // Answering a credential request gives back the question, answered, the

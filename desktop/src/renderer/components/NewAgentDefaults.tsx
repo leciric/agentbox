@@ -325,15 +325,15 @@ export function NewAgentResources() {
         </div>
       </div>
       <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-        What a new agent's machine may take. Leave a box empty for no limit. Agents you've already made keep what they have — change one on its Overview
-        tab.
+        Each limit is per agent, not a pool shared by all of them: three agents at 4 cores on an 8-core host each see 4, and share the host's 8. Empty means
+        no limit. Changes apply to new agents only — change an existing one on its Overview tab.
       </p>
       <div className="mt-3.5 grid gap-4 sm:grid-cols-3">
         <ResourceField
           id="default-cpu"
           label="CPU cores"
           placeholder="every core"
-          hint={`It sees exactly this many, so make -j$(nproc) sizes itself to it. ${cores ? `${cores} on this host.` : ''}`}
+          hint={`How many cores the agent sees and can use, even when the host is idle.${cores ? ` This host has ${cores}.` : ''}`}
           value={settings.data?.defaultCPU ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultCPU) => save.mutate({ defaultCPU })}
@@ -342,7 +342,7 @@ export function NewAgentResources() {
           id="default-cpu-allowance"
           label="CPU share"
           placeholder="all of it"
-          hint="50% only counts when the host is busy. 25ms/100ms is a ceiling even when it's idle."
+          hint="50% only matters when agents compete for the CPU. 25ms/100ms is a hard ceiling, a quarter of one core, even on an idle host."
           value={settings.data?.defaultCPUAllowance ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultCPUAllowance) => save.mutate({ defaultCPUAllowance })}
@@ -351,7 +351,7 @@ export function NewAgentResources() {
           id="default-memory"
           label="Memory"
           placeholder="all of it"
-          hint="A hard ceiling, like 8GiB. The kernel enforces it by killing processes inside the agent."
+          hint="A hard ceiling, like 8GiB. Past it, the kernel kills processes inside the agent."
           value={settings.data?.defaultMemory ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultMemory) => save.mutate({ defaultMemory })}

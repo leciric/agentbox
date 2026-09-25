@@ -559,6 +559,17 @@ export interface GitHubTokenRequest {
   account?: string;
 }
 
+export interface RenameGitHubAccountRequest {
+  name: string;
+}
+
+export interface RenamedGitHubAccount {
+  old: string;
+  name: string;
+  projects: string[];
+  agents: string[];
+}
+
 export interface Secret {
   name: string;
   scope: string;
@@ -585,6 +596,7 @@ export interface PullRequest {
   updatedAt?: string;
   baseBranch?: string;
   headBranch?: string;
+  headSha?: string;
   agent?: string;
 }
 
@@ -1006,6 +1018,23 @@ export interface ProjectChat {
   chat: string;
 }
 
+export interface ChatCache {
+  project: string;
+  idleSince?: string;
+  ttlSeconds?: number;
+  ttlSource?: string;
+  dueAt?: string;
+  expiresAt?: string;
+  contextUsed?: number;
+  due: boolean;
+}
+
+export interface ChatCacheChoice {
+  compact: boolean;
+  text?: string;
+  images?: ChatImageUpload[];
+}
+
 export interface MemoryEvent {
   id: string;
   project: string;
@@ -1379,6 +1408,7 @@ export const AgentModelAuto = "auto";
 export const ConsolidationModelCheap = "cheap";
 export const ConsolidationModelChat = "";
 export const EventChat = "chat";
+export const EventChatCache = "chat.cache";
 export const EventQuestion = "question";
 export const EventAgentEvent = "agent.event";
 export const AgentCreated = "created";
