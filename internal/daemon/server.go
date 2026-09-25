@@ -42,6 +42,12 @@ type Config struct {
 	// UpdateURL is where the daily update check asks; empty is
 	// update.DefaultURL.
 	UpdateURL string
+	// PreviewAddr is where the preview proxy listens: empty is
+	// defaultPreviewAddr, and "off" turns the proxy off.
+	PreviewAddr string
+	// GitHubAPI is the GitHub API root; empty is github.Client's own, which
+	// AGENTBOX_GITHUB_API can move.
+	GitHubAPI string
 }
 
 type Server struct {
@@ -69,8 +75,16 @@ type Server struct {
 	// reason, and for one more: the real one starts an AI tool, which a test
 	// must never do by forgetting to say otherwise.
 	askAside func(ctx context.Context, a state.Agent, model, ask string) (answer, ranOn string, err error)
+	// idleAfter schedules a lead's cache card: time.AfterFunc when nil, a test's
+	// clock otherwise.
+	idleAfter func(d time.Duration, f func()) interface{ Stop() bool }
 
 	waiting *waiters // agents waiting for an answer to a question
+
+	// firstSweeps is done once the sweeps Run starts have each made their
+	// first pass, the one at startup: what a test waits for, so that pass
+	// can't land in the middle of what it is checking.
+	firstSweeps sync.WaitGroup
 
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
@@ -80,6 +94,7 @@ type Server struct {
 	previewIPs   map[string]previewTarget // agents' addresses, cached for the preview proxy
 	claudeLogins map[string]*claudeLogin  // in-app Claude Code logins, by job
 	distilling   map[string]bool          // projects with a distillation running, by name
+	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
 	remoteStop   context.CancelFunc
@@ -124,6 +139,7 @@ func New(cfg Config) (*Server, error) {
 			s.captureLeadTurn(ev)
 		},
 		Finished:   s.agentFinished,
+		LeadIdle:   s.leadCacheIdle,
 		Idle:       s.leadIdle,
 		AuthFailed: s.claudeAuthFailed,
 		Limits:     s.claudeLimited,
@@ -166,10 +182,20 @@ func (s *Server) Run(ctx context.Context) error {
 	s.reconcile(ctx)
 	s.servePreview(ctx)
 	s.watchTheme(ctx)
-	go s.watch(ctx)
-	go s.sweepMedia(ctx)
-	go s.sweepMemories(ctx)
-	go s.watchUpdates(ctx)
+	// Run's own loops end with it, and it waits for them: deferred after the
+	// store's Close, this runs before it, so none of them outlives the
+	// database or the daemon it reports on. stop first, for a Serve that
+	// failed rather than being stopped.
+	var loops sync.WaitGroup
+	defer func() {
+		stop()
+		loops.Wait()
+	}()
+	s.firstSweeps.Add(2)
+	loops.Go(func() { s.watch(ctx) })
+	loops.Go(func() { s.sweepMedia(ctx) })
+	loops.Go(func() { s.sweepMemories(ctx) })
+	loops.Go(func() { s.watchUpdates(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 
@@ -335,6 +361,8 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
+	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
+	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
 	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
 	h("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
 	h("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
@@ -421,6 +449,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/auth/github", s.saveGitHubToken)
 	h("DELETE /v1/auth/github/{account}", s.removeGitHubAccount)
 	h("POST /v1/auth/github/{account}/default", s.setDefaultGitHubAccount)
+	h("POST /v1/auth/github/{account}/rename", s.renameGitHubAccount)
 	h("GET /v1/setup", s.setup)
 	h("GET /v1/remote", s.getRemote)
 	h("PUT /v1/remote", s.connectRemote)

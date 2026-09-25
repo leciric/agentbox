@@ -72,6 +72,7 @@ foreground = "#a9b1d6"
 // The case almost every machine is in: no Omarchy. The daemon reports no theme
 // and keeps its own colours, and nothing about that is an error.
 func TestThemeWithoutOmarchyIsAgentBoxsOwn(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	d.srv.themes = omarchy.NewWatcher(t.TempDir())
 
@@ -90,6 +91,7 @@ func TestThemeWithoutOmarchyIsAgentBoxsOwn(t *testing.T) {
 // A daemon whose watcher never started at all — no home directory to read —
 // answers the same way rather than falling over.
 func TestThemeWithoutAWatcher(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	d.srv.themes = nil
 	if theme := getTheme(t, d); theme.Available {
@@ -101,6 +103,7 @@ func TestThemeWithoutAWatcher(t *testing.T) {
 }
 
 func TestThemeIsReadAndFollowed(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	installTheme(t, d, t.TempDir(), "tokyo-night", tokyoNight)
 
@@ -130,6 +133,7 @@ func TestThemeIsReadAndFollowed(t *testing.T) {
 // Pinning the app keeps AgentBox's own look on a machine that does have a
 // theme — and the theme is still reported, so the app can offer it back.
 func TestFollowingTheHostsThemeCanBeTurnedOff(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	installTheme(t, d, t.TempDir(), "tokyo-night", tokyoNight)
 
@@ -157,6 +161,7 @@ func TestFollowingTheHostsThemeCanBeTurnedOff(t *testing.T) {
 // no theme at all. That is a choice about AgentBox's own window, so the agents'
 // desktops stay AgentBox's own colours either way.
 func TestTheAppCanBePinnedLight(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	installTheme(t, d, t.TempDir(), "tokyo-night", tokyoNight)
 
@@ -175,6 +180,7 @@ func TestTheAppCanBePinnedLight(t *testing.T) {
 // An appearance nobody offers is refused, rather than stored and puzzled over
 // by every later reader.
 func TestAnUnknownAppearanceIsRefused(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPatch, "/v1/theme", strings.NewReader(`{"appearance":"sepia"}`))
@@ -190,6 +196,7 @@ func TestAnUnknownAppearanceIsRefused(t *testing.T) {
 // which is what dark means now. An installation that turned it off keeps the
 // look it chose.
 func TestTheOldFollowFlagReadsAsDark(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	installTheme(t, d, t.TempDir(), "tokyo-night", tokyoNight)
 	if err := d.srv.store.SetSetting(context.Background(), state.SettingAppearance, "0"); err != nil {
@@ -202,6 +209,7 @@ func TestTheOldFollowFlagReadsAsDark(t *testing.T) {
 
 // The app is told, so its window restyles without polling for it.
 func TestAThemeChangeIsPublished(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	home := t.TempDir()
 	installTheme(t, d, home, "tokyo-night", tokyoNight)

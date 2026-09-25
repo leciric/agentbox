@@ -236,7 +236,7 @@ function InterfacePicker({ agent }: { agent: T.Agent }) {
 // all three of its keys to a running instance, so nothing restarts. A memory
 // ceiling below what the agent is already using comes back refused — the
 // daemon won't let the kernel kill the agent's work to enforce it.
-function LimitsEditor({ agent }: { agent: T.Agent }) {
+export function LimitsEditor({ agent }: { agent: T.Agent }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ cpu: agent.limits.cpu, cpuAllowance: agent.limits.allowance, memory: agent.limits.memory });
@@ -255,7 +255,7 @@ function LimitsEditor({ agent }: { agent: T.Agent }) {
   if (!open) {
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line-faint pt-3">
-        <span className="text-[13px] text-subtle">Limits</span>
+        <span className="text-[13px] text-subtle">This agent's limits</span>
         <span className="text-[13px] text-secondary" data-agent-limits>
           {limitWords(agent.limits)}
         </span>
@@ -284,10 +284,10 @@ function LimitsEditor({ agent }: { agent: T.Agent }) {
       }}
     >
       <div className="grid grid-cols-3 gap-3">
-        <Field label="CPU cores" htmlFor="limits-cpu" hint="Empty: every core">
+        <Field label="CPU cores" htmlFor="limits-cpu" hint="Cores it sees and can use">
           <Input id="limits-cpu" autoFocus className="h-8 font-mono text-[12.5px]" placeholder="every core" value={form.cpu} onChange={(e) => setForm({ ...form, cpu: e.target.value })} />
         </Field>
-        <Field label="CPU share" htmlFor="limits-allowance" hint="50%, or 25ms/100ms">
+        <Field label="CPU share" htmlFor="limits-allowance" hint="50%: only when agents compete. 25ms/100ms: hard ceiling">
           <Input
             id="limits-allowance"
             className="h-8 font-mono text-[12.5px]"
@@ -296,7 +296,7 @@ function LimitsEditor({ agent }: { agent: T.Agent }) {
             onChange={(e) => setForm({ ...form, cpuAllowance: e.target.value })}
           />
         </Field>
-        <Field label="Memory" htmlFor="limits-memory" hint="A hard ceiling">
+        <Field label="Memory" htmlFor="limits-memory" hint="Hard ceiling: past it, processes are killed">
           <Input id="limits-memory" className="h-8 font-mono text-[12.5px]" placeholder="all of it" value={form.memory} onChange={(e) => setForm({ ...form, memory: e.target.value })} />
         </Field>
       </div>
@@ -309,7 +309,7 @@ function LimitsEditor({ agent }: { agent: T.Agent }) {
         <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
           Cancel
         </Button>
-        <span className="text-xs text-subtle">Applies while the agent runs. Empty removes a limit.</span>
+        <span className="text-xs text-subtle">For this agent only, applied while it runs. Empty means no limit.</span>
       </div>
     </form>
   );

@@ -56,6 +56,20 @@
     "height": 800
   },
   {
+    "id": "windows-wsl-setup-dark",
+    "description": "Windows' first screen: AgentBox's WSL distro to set up, while every attempt at the daemon fails \u2014 dark, xl width",
+    "query": "wsl=create&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "windows-no-wsl-light",
+    "description": "Windows' first screen without WSL 2: wsl --install first \u2014 light, lg width",
+    "query": "wsl=nowsl&theme=light",
+    "width": 1024,
+    "height": 800
+  },
+  {
     "id": "vm-resize-dark",
     "description": "Settings' panel for the Mac VM's CPUs and memory \u2014 dark",
     "query": "vm=resize&theme=dark",
@@ -138,5 +152,26 @@
     "query": "chat=compaction&theme=light",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "settings-defaults-dark",
+    "description": "Settings' Lead and New agents defaults: a model and a context window each \u2014 dark",
+    "query": "defaults=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "resources-dark",
+    "description": "Resource limits' copy: Home's host stats, Settings' defaults for new agents, an agent's limits editor \u2014 dark",
+    "query": "resources=1&theme=dark",
+    "width": 1280,
+    "height": 1400
+  },
+  {
+    "id": "resources-light",
+    "description": "Resource limits' copy: Home's host stats, Settings' defaults for new agents, an agent's limits editor \u2014 light",
+    "query": "resources=1&theme=light",
+    "width": 1280,
+    "height": 1400
   }
 ]

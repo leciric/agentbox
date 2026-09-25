@@ -358,3 +358,52 @@ func TestDescribeRun(t *testing.T) {
 		}
 	}
 }
+
+// TestCreateAgentNamesTheAgentDefaults: create_agent says what an agent left
+// without a model or a window gets — the Agents section of Settings, never the
+// Lead's, which is the model the lead reading it runs on and easy to assume.
+func TestCreateAgentNamesTheAgentDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings api.Settings
+		project  api.Project
+		want     []string
+	}{
+		{"nothing chosen", api.Settings{DefaultLeadModel: "haiku"}, api.Project{},
+			[]string{"Leave this out for opus", "Leave this out for 200k"}},
+		{"chosen in Settings", api.Settings{DefaultClaudeModel: "sonnet", DefaultAgentContextWindow: "1000000", DefaultLeadModel: "haiku"}, api.Project{},
+			[]string{"Leave this out for sonnet", "Leave this out for 1m"}},
+		{"chosen for the project", api.Settings{DefaultClaudeModel: "sonnet"}, api.Project{AgentModel: "claude-fable-5-1"},
+			[]string{"Leave this out for claude-fable-5-1, the model this project's settings name"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			socket := filepath.Join(t.TempDir(), "lead.sock")
+			ln, err := net.Listen("unix", socket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mux := http.NewServeMux()
+			mux.HandleFunc("/v1/project/settings", func(w http.ResponseWriter, _ *http.Request) { json.NewEncoder(w).Encode(tc.settings) })
+			mux.HandleFunc("/v1/project", func(w http.ResponseWriter, _ *http.Request) { json.NewEncoder(w).Encode(tc.project) })
+			srv := &http.Server{Handler: mux}
+			go srv.Serve(ln)
+			t.Cleanup(func() { srv.Close() })
+
+			var params string
+			for _, tool := range projectTools(context.Background(), api.NewClient(socket)) {
+				if tool.Name == "create_agent" {
+					raw, _ := json.Marshal(tool.Schema)
+					params = string(raw)
+				}
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(params, want) {
+					t.Errorf("create_agent doesn't say %q:\n%s", want, params)
+				}
+			}
+			if strings.Contains(params, "haiku") {
+				t.Error("create_agent names the lead's default model as the agents'")
+			}
+		})
+	}
+}

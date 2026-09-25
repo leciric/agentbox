@@ -19,8 +19,28 @@ import (
 // lives on the overview, a page that spans every project.
 const (
 	// SettingDefaultClaudeModel is the "model" chat option new Claude Code
-	// agents are seeded with. Empty means DefaultClaudeModel.
+	// agents are seeded with. Empty means DefaultClaudeModel. It is the
+	// agents' half of Settings: the lead's chat has its own,
+	// SettingDefaultLeadModel. The key keeps its old name because it has
+	// always been the agents' — the lead never read it — so splitting the two
+	// moved nothing.
 	SettingDefaultClaudeModel = "default_claude_model"
+	// SettingDefaultAgentContextWindow is the context window (D91) new Claude
+	// Code agents start with: "" for the installation's compact window, which
+	// is what every agent had before this setting, or ClaudeFullWindow as a
+	// count of tokens for the model's whole window. Like the model it is
+	// applied once, at creation.
+	SettingDefaultAgentContextWindow = "default_agent_context_window"
+	// SettingDefaultLeadModel is the model a project's lead chats on when its
+	// composer hasn't chosen one. Empty means Claude Code's own default, which
+	// is what every lead ran on before this setting existed. Unlike the
+	// agents' default it isn't copied into the chat: a lead is made once and
+	// lives as long as its project, so a change here reaches it the next time
+	// its adapter starts.
+	SettingDefaultLeadModel = "default_lead_model"
+	// SettingDefaultLeadContextWindow is SettingDefaultAgentContextWindow for
+	// the lead's chat, read the way SettingDefaultLeadModel is.
+	SettingDefaultLeadContextWindow = "default_lead_context_window"
 	// SettingClaudeModelChoices is the model menu the Claude Code adapter last
 	// advertised, as JSON. AgentBox never invents a model list here — it
 	// arrives over ACP, per account — so this remembers the real one between
@@ -163,6 +183,30 @@ func ValidClaudeCompactWindow(n int64) error {
 // a choice of its own (D91); a stored "opus[1m]" still works, and reads as
 // "opus" (ClaudeWindows.NormalizeClaudeModel).
 const DefaultClaudeModel = "opus"
+
+// DefaultContextWindow checks a context window chosen as a default in
+// Settings, for the chats of a role whose default model is model, and gives
+// the value to store: "" for the installation's compact window — "200k", as
+// people write it — or ClaudeFullWindow for the model's whole window, which a
+// model without one, like Haiku, can't have. Anything else isn't a default a
+// role can hold: the windows between are the compact window's own setting.
+func (w ClaudeWindows) DefaultContextWindow(model, value string, installation int64) (string, error) {
+	n, err := ParseContextWindow(value)
+	if err != nil {
+		return "", err
+	}
+	windows := w.ContextWindows(model, installation)
+	switch {
+	case n == 0 || n == windows[0] || n == ClaudeShortWindow:
+		return "", nil
+	case n == ClaudeFullWindow:
+		if windows[len(windows)-1] < ClaudeFullWindow {
+			return "", fmt.Errorf("%s has no 1M context window: it only has %s", modelName(model), FormatContextWindow(windows[len(windows)-1]))
+		}
+		return strconv.FormatInt(ClaudeFullWindow, 10), nil
+	}
+	return "", fmt.Errorf("a default context window is 200k or 1m; %s isn't", FormatContextWindow(n))
+}
 
 // DefaultClaudeEffort is how hard a new Claude Code agent thinks when you
 // haven't chosen: high, one step below the most (D83). Thinking is billed as

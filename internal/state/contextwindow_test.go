@@ -119,3 +119,32 @@ func TestContextWindowChoiceIsValidatedAgainstTheModel(t *testing.T) {
 		t.Error("a window that isn't one was accepted")
 	}
 }
+
+func TestDefaultContextWindowIsCheckedAgainstTheModel(t *testing.T) {
+	var w state.ClaudeWindows
+	for _, tc := range []struct{ model, value, want string }{
+		{"opus", "", ""},
+		{"opus", "200k", ""},
+		{"opus", "1m", "1000000"},
+		{"default", "1M", "1000000"},
+		{"haiku", "200k", ""},
+	} {
+		if got, err := w.DefaultContextWindow(tc.model, tc.value, 200_000); err != nil || got != tc.want {
+			t.Errorf("DefaultContextWindow(%q, %q) = %q, %v; want %q", tc.model, tc.value, got, err, tc.want)
+		}
+	}
+	// The window the installation compacts at is the short choice, whatever
+	// it has been set to.
+	if got, err := w.DefaultContextWindow("opus", "300k", 300_000); err != nil || got != "" {
+		t.Errorf("the installation's 300k = %q, %v; want it stored as the compact window", got, err)
+	}
+	for _, tc := range []struct{ model, value string }{
+		{"haiku", "1m"},
+		{"opus", "500k"},
+		{"opus", "lots"},
+	} {
+		if got, err := w.DefaultContextWindow(tc.model, tc.value, 200_000); err == nil {
+			t.Errorf("DefaultContextWindow(%q, %q) = %q, want it refused", tc.model, tc.value, got)
+		}
+	}
+}

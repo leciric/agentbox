@@ -11,6 +11,7 @@ import (
 // whole when it is short and cut when it isn't — and nothing at all when the
 // message was never a summary.
 func TestSummaryOf(t *testing.T) {
+	t.Parallel()
 	prose := "Added pagination to the reminders list, twenty a page, with the page in the query " +
 		"string. The API already took limit and offset, so nothing changed server side. Two " +
 		"snapshot tests covered the old unpaginated list; I updated them rather than adding new " +
@@ -43,6 +44,7 @@ func TestSummaryOf(t *testing.T) {
 // pasting one into the lead's chat would cost more context than the read_agent
 // call the notice is meant to save.
 func TestSummaryOfCutsALongOne(t *testing.T) {
+	t.Parallel()
 	got, cut := summaryOf(longReport())
 	if !cut {
 		t.Fatal("a 500-line report went through uncut")
@@ -62,6 +64,7 @@ func TestSummaryOfCutsALongOne(t *testing.T) {
 // reads as complete, so the cut backs off to where the text still means what
 // it says.
 func TestShortenStopsBeforeWhatWouldMislead(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		text string
@@ -135,6 +138,7 @@ func TestShortenStopsBeforeWhatWouldMislead(t *testing.T) {
 
 // Whatever the agent wrote, the notice has to stay inside the cap.
 func TestShortenNeverExceedsTheCap(t *testing.T) {
+	t.Parallel()
 	texts := []string{
 		longReport(),
 		strings.Repeat("x", 5000),
@@ -154,6 +158,7 @@ func TestShortenNeverExceedsTheCap(t *testing.T) {
 // The agent's words are quoted so a heading inside them can't be read as part
 // of the notice around them.
 func TestQuote(t *testing.T) {
+	t.Parallel()
 	got := quote("I changed the notice.\n\n## Testing\ngo test ./... passes.")
 	want := "> I changed the notice.\n>\n> ## Testing\n> go test ./... passes."
 	if got != want {

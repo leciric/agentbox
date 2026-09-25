@@ -380,3 +380,67 @@ func TestRenameClaudeAccount(t *testing.T) {
 		t.Errorf("a refused rename touched work's token: %q", token)
 	}
 }
+
+func TestRenameGitHubAccount(t *testing.T) {
+	s := store(t)
+	// "default" is the default without a marker saying so: renaming it must
+	// not hand the default to "alpha", which sorts first.
+	if err := s.SaveGitHubToken("", "gho_first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveGitHubLogin("default", "leciric"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveGitHubToken("alpha", "gho_alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RenameGitHubAccount("default", "personal"); err != nil {
+		t.Fatal(err)
+	}
+	if def, _ := s.DefaultGitHubAccount(); def != "personal" {
+		t.Errorf("after the rename the default is %q, want personal", def)
+	}
+	if token, _ := s.GitHubToken("personal"); token != "gho_first" {
+		t.Errorf("personal's token = %q", token)
+	}
+	if login, _ := s.GitHubLogin("personal"); login != "leciric" {
+		t.Errorf("personal's login = %q: it should move with the token", login)
+	}
+	if ok, _ := s.HasGitHubAccount("default"); ok {
+		t.Error("the old name still holds a token")
+	}
+
+	// A renamed account that isn't the default leaves the default alone, and
+	// a login left behind under the new name by a removed account goes.
+	if err := os.WriteFile(s.GitHubLoginPath("work"), []byte("someone-else\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RenameGitHubAccount("alpha", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if def, _ := s.DefaultGitHubAccount(); def != "personal" {
+		t.Errorf("renaming another account moved the default to %q", def)
+	}
+	if login, _ := s.GitHubLogin("work"); login != "" {
+		t.Errorf("work's login = %q, want none: alpha had none", login)
+	}
+
+	for _, c := range []struct{ old, name, want string }{
+		{"work", "personal", "already"},
+		{"work", "work", "already called"},
+		{"nobody", "someone", "no GitHub account"},
+		{"work", "Bad Name", "account"},
+	} {
+		err := s.RenameGitHubAccount(c.old, c.name)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("RenameGitHubAccount(%q, %q) = %v, want an error about %q", c.old, c.name, err, c.want)
+		}
+	}
+	if token, _ := s.GitHubToken("work"); token != "gho_alpha" {
+		t.Errorf("a refused rename touched work's token: %q", token)
+	}
+	// Claude Code accounts are a separate namespace.
+	if accounts, _ := s.ClaudeAccounts(); len(accounts) != 0 {
+		t.Errorf("ClaudeAccounts() = %+v", accounts)
+	}
+}
