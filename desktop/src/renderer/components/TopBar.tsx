@@ -6,8 +6,10 @@ import { api } from '../lib/api';
 import { useConnection } from '../lib/events';
 import type * as T from '../../shared/api';
 import { limitTone, windowNow } from '../lib/tokens';
+import { pickMeter } from '../lib/usageMeter';
 import { cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
 
 export function TopBar({
@@ -86,7 +88,7 @@ export function TopBar({
             <span className="hidden sm:inline">Finish setup</span>
           </button>
         )}
-        <ClaudeMeter />
+        <UsageMeter view={view} agents={agents.data ?? []} />
         {host && (
           <>
             <Meter className="hidden sm:flex" icon={Cpu} label="Host CPU" text={`${host.cpu.toFixed(0)}%`} detail={`${host.cores} cores`} fraction={host.cpu / 100} />
@@ -98,16 +100,7 @@ export function TopBar({
               detail={`of ${humanBytes(host.memTotal)}`}
               fraction={host.memUsed / host.memTotal}
             />
-            {host.poolTotal > 0 && (
-              <Meter
-                className="hidden lg:flex"
-                icon={HardDrive}
-                label="Storage pool"
-                text={humanBytes(host.poolUsed)}
-                detail={`of ${humanBytes(host.poolTotal)}`}
-                fraction={host.poolUsed / host.poolTotal}
-              />
-            )}
+            {host.poolTotal > 0 && <StoragePoolMeter host={host} />}
           </>
         )}
         <Tip label={connection.error ?? (connection.state === 'connected' ? 'Connected to the AgentBox daemon' : 'Connecting to the daemon…')}>
@@ -153,36 +146,146 @@ function Meter({
       >
         <Icon className="size-3.5 text-subtle" />
         <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
-        <span className="h-1 w-8 overflow-hidden rounded-full bg-surface-strong">
-          <span
-            className={cn('block h-full rounded-full', percent > 85 ? 'bg-rose-400' : percent > 65 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400')}
-            style={{ width: `${Math.max(percent, 4)}%` }}
-          />
-        </span>
+        <MeterBar percent={percent} />
       </span>
     </Tip>
   );
 }
 
-// ClaudeMeter is how much of the default Claude account's five-hour window is
-// used (D85), beside the host's own meters: the limit every agent on the
-// account shares. It is what the last chat on that account was told, so the
-// tooltip says when that was, and a window that has reset since shows no
-// number rather than one that describes a window that is over.
-function ClaudeMeter() {
+// MeterBar is the small filled pill every meter in the top bar shares: amber
+// past 65%, rose past 85%.
+function MeterBar({ percent, className }: { percent: number; className?: string }) {
+  return (
+    <span className={cn('h-1 w-8 overflow-hidden rounded-full bg-surface-strong', className)}>
+      <span
+        className={cn('block h-full rounded-full', percent > 85 ? 'bg-rose-400' : percent > 65 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400')}
+        style={{ width: `${Math.max(percent, 4)}%` }}
+      />
+    </span>
+  );
+}
+
+// StoragePoolMeter is the "Storage pool" indicator: what Meter would show,
+// but clicking it opens a popover breaking the total down by what's using it.
+// The breakdown is only computed while the popover is open — disk usage is
+// cheap to poll as a total (Usage.PoolSpace, a single Incus query already
+// fetched for the meter itself) but not to break down, since that walks every
+// worktree and media directory on the host and queries Incus once per machine
+// and saved base.
+function StoragePoolMeter({ host }: { host: T.HostUsage }) {
+  const diskUsage = useQuery({ queryKey: ['diskUsage'], queryFn: api.diskUsage, enabled: false });
+  const percent = Math.max(0, Math.min(1, host.poolUsed / host.poolTotal)) * 100;
+  const text = humanBytes(host.poolUsed);
+  const detail = `of ${humanBytes(host.poolTotal)}`;
+  return (
+    <Popover onOpenChange={(open) => open && diskUsage.refetch()}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
+          aria-label={`Storage pool: ${text} ${detail}`}
+        >
+          <HardDrive className="size-3.5 text-subtle" />
+          <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
+          <MeterBar percent={percent} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80">
+        <DiskUsageBreakdown poolUsed={host.poolUsed} poolTotal={host.poolTotal} query={diskUsage} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DiskUsageBreakdown({
+  poolUsed,
+  poolTotal,
+  query,
+}: {
+  poolUsed: number;
+  poolTotal: number;
+  query: ReturnType<typeof useQuery<T.DiskUsage>>;
+}) {
+  return (
+    <div className="grid gap-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-medium text-primary">Storage pool</span>
+        <span className="font-mono text-[11px] tabular-nums text-tertiary">
+          {humanBytes(poolUsed)} of {humanBytes(poolTotal)}
+        </span>
+      </div>
+      {query.isPending ? (
+        <span className="py-1 text-[12px] text-muted">Measuring what's on disk…</span>
+      ) : query.isError ? (
+        <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
+      ) : (
+        <>
+          <div className="grid max-h-72 gap-3 overflow-y-auto pr-1">
+            {query.data.categories.map((cat) => (
+              <div key={cat.label} className="grid gap-1">
+                <div className="flex items-center justify-between text-[12px] text-secondary">
+                  <span className="font-medium">{cat.label}</span>
+                  <span className="font-mono tabular-nums text-tertiary">{humanBytes(cat.bytes)}</span>
+                </div>
+                {cat.items && cat.items.length > 0 && (
+                  <div className="grid gap-0.5 border-l border-line pl-2.5">
+                    {cat.items.map((item) => (
+                      <div key={item.label} className="flex items-center justify-between gap-3 text-[11.5px] text-muted">
+                        <span className="min-w-0 truncate">{item.label}</span>
+                        <span className="shrink-0 font-mono tabular-nums text-faint">{humanBytes(item.bytes)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t border-line pt-2 text-[12px] font-medium text-primary">
+            <span>Total</span>
+            <span className="font-mono tabular-nums">{humanBytes(query.data.total)}</span>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// UsageMeter is how much of a Claude account's five-hour window is used (D85),
+// beside the host's own meters: the limit every agent on the account shares.
+// The account is the one what's open spends — the agent's, the project's, or
+// on Home the machine's default (pickMeter) — and the tooltip names it above
+// every account's readings. A reading is what the last chat on that account
+// was told, so the tooltip says when that was, and a window that has reset
+// since shows no number rather than one that describes a window that is over.
+function UsageMeter({ view, agents }: { view: View; agents: T.Agent[] }) {
   const limits = useQuery({ queryKey: ['claudeLimits'], queryFn: api.claudeLimits, refetchInterval: 30_000 });
-  const account = limits.data?.[0];
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const agent = view.kind === 'agent' ? agents.find((a) => a.ref === view.ref) : undefined;
+  const projectName = view.kind === 'project' ? view.project : view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
+  const project = projectName ? projects.data?.find((p) => p.name === projectName) : undefined;
+  const pick = pickMeter({ limits: limits.data ?? [], project, agent });
+  const account = pick.reading;
   const five = account?.windows.find((w) => w.name === 'five_hour') ?? account?.windows[0];
   if (!account || !five) return null;
   const now = windowNow(five);
   const tone = limitTone(now);
   const percent = now === null ? 0 : Math.max(0, Math.min(1, now)) * 100;
   return (
-    <Tip label={<LimitsTip limits={limits.data ?? []} />}>
+    <Tip
+      label={
+        <span className="grid gap-2">
+          <span className="text-muted">
+            Showing <span className="font-medium text-primary">{account.account}</span>, {pick.whose}
+          </span>
+          <LimitsTip limits={limits.data ?? []} shown={account.account} />
+        </span>
+      }
+    >
       <span
         className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 md:flex"
-        aria-label={`Claude ${five.label} window: ${now === null ? 'reset since the last reading' : `${Math.round(percent)}% used`}`}
+        aria-label={`Claude account ${account.account}, ${five.label} window: ${now === null ? 'reset since the last reading' : `${Math.round(percent)}% used`}`}
         data-claude-meter={now === null ? 'reset' : Math.round(percent)}
+        data-claude-account={account.account}
       >
         <Gauge className="size-3.5 text-subtle" />
         <span className="font-mono text-[11px] tabular-nums text-tertiary">{now === null ? '5h —' : `5h ${Math.round(percent)}%`}</span>
@@ -197,13 +300,13 @@ function ClaudeMeter() {
   );
 }
 
-function LimitsTip({ limits }: { limits: T.ClaudeLimit[] }) {
+function LimitsTip({ limits, shown }: { limits: T.ClaudeLimit[]; shown: string }) {
   return (
     <span className="grid gap-2">
       {limits.map((l) => (
         <span key={l.account} className="grid gap-0.5">
           <span className="font-medium text-primary">
-            Claude · {l.account}
+            {l.account === shown ? '▸ ' : ''}Claude · {l.account}
             {l.default ? ' (default)' : ''}
           </span>
           {l.windows.map((w) => {

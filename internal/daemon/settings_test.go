@@ -198,3 +198,29 @@ func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
 		t.Error("a 500k default window was accepted")
 	}
 }
+
+// Settings offers both roles 200k and 1M on opus, and on Claude Code's own
+// default — before any chat has remembered the adapter's menu, and after a
+// session compacting at 200k reported that as its size.
+func TestOpusOffersItsWholeWindowInSettings(t *testing.T) {
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	if err := d.srv.store.RememberClaudeModelWindow(ctx, "opus", 200_000, 200_000); err != nil {
+		t.Fatal(err)
+	}
+	out, err := patchSettings(t, d, `{"defaultLeadModel":"opus"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []string{"opus", "default"} {
+		if got := out.ClaudeContextWindows[model]; len(got) != 2 || got[1] != state.ClaudeFullWindow {
+			t.Errorf("claudeContextWindows[%q] = %v, want 200k and 1M", model, got)
+		}
+	}
+	if _, err := patchSettings(t, d, `{"defaultAgentContextWindow":"1m","defaultLeadContextWindow":"1m"}`); err != nil {
+		t.Errorf("1M on opus for both roles: %v", err)
+	}
+	if _, err := patchSettings(t, d, `{"defaultLeadModel":"","defaultLeadContextWindow":"1m"}`); err != nil {
+		t.Errorf("1M on Claude Code's default for the lead: %v", err)
+	}
+}

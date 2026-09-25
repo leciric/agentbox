@@ -213,6 +213,26 @@ func (c Client) PoolSpace(ctx context.Context, pool string) (used, total int64, 
 	return r.Space.Used, r.Space.Total, nil
 }
 
+// VolumeUsage returns the bytes an instance's own storage volume uses on the
+// pool. Unlike Instances' State.Memory/CPU, this comes from the volume itself
+// rather than the running instance, so it works for a stopped instance too —
+// a saved base, most of the time.
+func (c Client) VolumeUsage(ctx context.Context, pool, instance string) (int64, error) {
+	out, err := c.Run(ctx, "query", "/1.0/storage-pools/"+pool+"/volumes/container/"+instance+"/state")
+	if err != nil {
+		return 0, err
+	}
+	var r struct {
+		Usage struct {
+			Used int64 `json:"used"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		return 0, fmt.Errorf("parsing volume state of %s: %w", instance, err)
+	}
+	return r.Usage.Used, nil
+}
+
 // WaitReady waits for an instance to finish booting and get an IPv4 address.
 func (c Client) WaitReady(ctx context.Context, name string, timeout time.Duration) (Instance, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)

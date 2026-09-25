@@ -45,6 +45,10 @@
 //   ?resources=1            the resource limits' copy: Home's host stats,
 //                           Settings' defaults for new agents, and an agent's
 //                           limits editor, open
+//   ?usage=1                the top bar's usage meter against two Claude
+//                           accounts: on Home (the default account), on a
+//                           project that uses the other one, on a Claude
+//                           agent, and on a Codex agent (no meter)
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -66,6 +70,7 @@ import { AgentAvatar, aiLabel } from '../components/state';
 import { Panel } from '../components/ui/card';
 import type { Mood } from '../lib/agentStatus';
 import { Sidebar } from '../components/Sidebar';
+import { TopBar } from '../components/TopBar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { VMSize } from '../components/VMSize';
@@ -92,6 +97,7 @@ const moodState: Record<Mood, string> = { working: 'running', asking: 'running',
 const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const resources = params.get('resources') === '1';
+const usage = params.get('usage') === '1';
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -133,6 +139,11 @@ if (github) {
   p.claudeAccounts = ['work'];
   p.githubAccount = 'personal-account-with-a-long-name';
 }
+if (usage) {
+  // Two accounts: the machine's default, and "work", which the project uses.
+  fixtures.projects.find((p) => p.name === PROJECT)!.claudeAccount = 'work';
+  fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!.claudeAccount = 'work';
+}
 const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat}`) : undefined;
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
@@ -144,7 +155,43 @@ if (resources) {
   queryClient.setQueryData(['settings'], { ...(queryClient.getQueryData(['settings']) ?? {}), hostCores: 8, hostMemory: 31 * GiB, defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
 }
 
+if (usage) {
+  const at = new Date(Date.now() - 12 * 60_000).toISOString();
+  const resets = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+  queryClient.setQueryData(['claudeLimits'], [
+    { account: 'personal', default: true, at, status: 'allowed', windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.23, resetsAt: resets(3) },
+      { name: 'seven_day', label: 'Weekly', utilization: 0.41, resetsAt: resets(80) },
+    ] },
+    { account: 'work', default: false, at, status: 'allowed_warning', windows: [
+      { name: 'five_hour', label: '5-hour', utilization: 0.88, resetsAt: resets(1) },
+      { name: 'seven_day', label: 'Weekly', utilization: 0.52, resetsAt: resets(40) },
+    ] },
+  ] satisfies T.ClaudeLimit[]);
+}
+
 const view: View = openAgent ? { kind: 'agent', ref: `${PROJECT}/${openAgent}` } : { kind: 'project', project: PROJECT };
+
+// UsagePreview stands the top bar up once per kind of view, so each one's
+// meter can be compared, and hovered for its tooltip.
+function UsagePreview() {
+  const views: [string, View][] = [
+    ['Home', { kind: 'home' }],
+    [`Project ${PROJECT}, on "work"`, { kind: 'project', project: PROJECT }],
+    ['Claude agent-99, on "work"', { kind: 'agent', ref: `${PROJECT}/agent-99` }],
+    ['Codex agent-96: nothing known, no meter', { kind: 'agent', ref: `${PROJECT}/agent-96` }],
+  ];
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
+      {views.map(([label, v]) => (
+        <section key={label} data-usage-view={v.kind === 'agent' ? v.ref.split('/')[1] : v.kind}>
+          <h3 style={{ padding: '14px 20px 4px', color: 'var(--ab-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 11 }}>{label}</h3>
+          <TopBar view={v} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        </section>
+      ))}
+    </div>
+  );
+}
 
 // AvatarRow is one mood's row of avatars: each AI tool at the rail's 40px
 // and blown up.
@@ -199,6 +246,7 @@ function Preview() {
   }, []);
 
   if (github) return <GitHubPreview />;
+  if (usage) return <UsagePreview />;
 
   if (resources) {
     return (
