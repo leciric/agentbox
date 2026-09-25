@@ -258,5 +258,13 @@
     "query": "folded=1&theme=dark",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "usage-meter-dark",
+    "description": "The top bar's usage meter with two Claude accounts: Home shows the default, a project and its Claude agent their own, a Codex agent none; the project's tooltip open",
+    "query": "usage=1&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "hover": "[data-usage-view=project] [data-claude-meter]"
   }
 ]
