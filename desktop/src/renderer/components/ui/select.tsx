@@ -35,7 +35,7 @@ function collectOptions(children: ReactNode): Option[] {
 }
 
 // A list worth searching: below this, a search box is noise (see OptionMenu
-// and NewAgentDefaults, which use the same threshold for the model menu).
+// and DefaultModel, which use the same threshold for the model menu).
 const searchThreshold = 8;
 
 // Select replaces the native <select> with a Menu-based combobox that matches

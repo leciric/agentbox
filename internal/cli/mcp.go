@@ -13,6 +13,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/mcp"
+	"agentbox/internal/state"
 )
 
 // newMCPCmd gives a project's chat its tools. It speaks the Model Context
@@ -85,7 +86,18 @@ func choiceOf(description string, values ...string) map[string]any {
 func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]any, leadPicksModel, openCodeReady bool) {
 	var models, efforts, openCodeModels []string
 	var openCode bool
+	// The defaults an agent created with none of these gets, named in the
+	// descriptions below: Settings → Agents, with AgentBox's own defaults
+	// under them. The lead's own defaults are another section of Settings and
+	// never reach its agents.
+	defaultModel, defaultWindow := state.DefaultClaudeModel, "200k"
 	if settings, err := c.ProjectSettings(ctx); err == nil {
+		if settings.DefaultClaudeModel != "" {
+			defaultModel = settings.DefaultClaudeModel
+		}
+		if n, err := state.ParseContextWindow(settings.DefaultAgentContextWindow); err == nil && n > 0 {
+			defaultWindow = strings.ToLower(state.FormatContextWindow(n))
+		}
 		for _, choice := range settings.ClaudeModelChoices {
 			models = append(models, choice.Value)
 		}
@@ -101,8 +113,12 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// thing at greater length; this is what a model reads at the moment it
 	// fills the tool call in.
 	var auto bool
+	defaultFrom := "the model new agents start on in AgentBox's Settings → Agents"
 	if p, err := c.ProjectSelf(ctx); err == nil {
 		auto = p.AgentModel == api.AgentModelAuto
+		if p.AgentModel != "" && !auto {
+			defaultModel, defaultFrom = p.AgentModel, "the model this project's settings name for its agents"
+		}
 	}
 
 	// Before any chat has started there is no remembered menu, and AgentBox
@@ -114,8 +130,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	}
 	model := "the model this agent runs on: " + named + ". A model Claude Code won't accept is refused when the agent " +
 		"starts, and the agent says so in its own chat instead of quietly running on something else, so don't guess one. " +
-		"Leave this out to use the model chosen for new agents in AgentBox's settings, and AgentBox's own default " +
-		"(opus) when nothing is chosen there."
+		"Leave this out for " + defaultModel + ", " + defaultFrom + "."
 	if auto {
 		model = "the model this agent runs on: " + named + ". This project asks you to choose one for every agent you create, " +
 			"from how hard the task is: the cheapest model on that list that can do a mechanical or small job (a rename, a config " +
@@ -123,7 +138,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 			"design work, or a bug whose cause nobody has found. Say which you chose, and why, in one line as you create the agent. " +
 			"Never choose Fable unless the user has asked for it, for this agent or for this project. A model Claude Code won't " +
 			"accept is refused when the agent starts, and the agent says so in its own chat, so don't guess one. Leaving this out " +
-			"doesn't fail: the agent falls back to the model new agents start on in AgentBox's settings."
+			"doesn't fail: the agent falls back to " + defaultModel + ", the model new agents start on in AgentBox's Settings → Agents."
 	}
 	// The AI tool itself, offered only when an agent could really run the
 	// other one: OpenCode has to be in the base image and have a login, and
@@ -159,9 +174,10 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	}
 	params["effort"] = effort
 	params["context_window"] = str("where this agent's chat compacts, \"200k\" or \"1m\" — a Claude Code setting, checked " +
-		"against the model: Haiku has no 1M window, and asking for one is refused. Leave this out for 200k (the installation's " +
-		"compact window), which is right for nearly every task: past it, every step of the agent resends the whole " +
-		"conversation, so 1M costs up to five times as much per step late in a long task. Choose 1m only for work that " +
+		"against the model: Haiku has no 1M window, and asking for one is refused. Leave this out for " + defaultWindow +
+		", the window new agents start with in AgentBox's Settings → Agents (an agent whose model has no 1M window gets 200k). " +
+		"200k (the installation's compact window) is right for nearly every task: past it, every step of the agent resends the " +
+		"whole conversation, so 1M costs up to five times as much per step late in a long task. Choose 1m only for work that " +
 		"really needs a very large codebase or log in view at once.")
 	return params, auto, openCode
 }

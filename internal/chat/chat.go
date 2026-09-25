@@ -872,7 +872,7 @@ func (c *conversation) modelFromRememberedMenu(id string) (api.ChatOption, bool)
 	// that as an empty value would leave the composer's button blank; "default"
 	// is what an untouched session actually reports (see the live probe in
 	// D45), so that's the honest stand-in until a session has really started.
-	value := c.stored.Options["model"]
+	value := c.storedOption("model")
 	if value == "" && slices.ContainsFunc(choices, func(ch api.ChatOptionChoice) bool { return ch.Value == "default" }) {
 		value = "default"
 	}

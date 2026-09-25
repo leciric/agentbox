@@ -469,6 +469,62 @@ function fakeVM() {
   };
 }
 
+// defaultsSettings are Settings for the ?defaults=1 scenario: an account whose
+// menu has Opus, Sonnet and Haiku, agents on Sonnet at 1M and the lead left on
+// Claude Code's own default. The dev bridge answers PATCH /v1/settings against
+// it, refusing Haiku at 1M the way the daemon does.
+let defaultsSettings = {
+  defaultClaudeModel: 'sonnet',
+  defaultAgentContextWindow: '1000000',
+  defaultLeadModel: '',
+  defaultLeadContextWindow: '',
+  claudeModelChoices: [
+    { value: 'default', name: 'Default (recommended)', description: 'Opus 5.5 with 1M context' },
+    { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5 for everyday tasks' },
+    { value: 'haiku', name: 'Haiku', description: 'Haiku 4.5 for quick answers' },
+  ],
+  claudeContextWindows: { default: [200_000, 1_000_000], opus: [200_000, 1_000_000], sonnet: [200_000, 1_000_000], haiku: [200_000] },
+  claudeMenuKnown: true,
+  defaultClaudeEffort: '',
+  claudeEffortChoices: [],
+  openCodeModelChoices: [],
+  openCodeReady: false,
+  defaultCPU: '4',
+  defaultCPUAllowance: '',
+  defaultMemory: '8GiB',
+  hostCores: 16,
+  hostMemory: 32 * 1024 ** 3,
+  resumeAfterLimit: true,
+  claudeCompactWindow: 200_000,
+  updateCheck: true,
+  defaultClaudeCompactWindow: 200_000,
+} as T.Settings;
+
+function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
+  const next = { ...defaultsSettings };
+  const window = (v: string) => (/^1m$|^1000000$/i.test(v) ? '1000000' : '');
+  if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
+  if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
+  if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
+  if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
+  for (const [model, win] of [
+    [next.defaultClaudeModel || 'opus', next.defaultAgentContextWindow],
+    [next.defaultLeadModel || 'default', next.defaultLeadContextWindow],
+  ]) {
+    if (win && !(next.claudeContextWindows[model] ?? []).includes(1_000_000))
+      return { status: 400, body: JSON.stringify({ error: `${model} has no 1M context window: it only has 200k` }), contentType: 'application/json' };
+  }
+  // A new object each time, as a real response is: React Query ignores data
+  // that is the same object it already holds.
+  defaultsSettings = next;
+  return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
+}
+
+// seedDefaults puts defaultsSettings where the Settings components read them.
+export function seedDefaults(queryClient: QueryClient): void {
+  queryClient.setQueryData(['settings'], defaultsSettings);
+}
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -476,6 +532,7 @@ function fakeVM() {
 export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
+      if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       // Renaming a Claude account answers with what it carried over (the
       // ?accounts=1 scenario), and refuses a name one of the fixtures has.
       const rename = method === 'POST' ? /^\/v1\/auth\/claude\/([^/]+)\/rename$/.exec(path) : null;

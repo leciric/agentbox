@@ -154,6 +154,13 @@
     "height": 900
   },
   {
+    "id": "settings-defaults-dark",
+    "description": "Settings' Lead and New agents defaults: a model and a context window each \u2014 dark",
+    "query": "defaults=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "resources-dark",
     "description": "Resource limits' copy: Home's host stats, Settings' defaults for new agents, an agent's limits editor \u2014 dark",
     "query": "resources=1&theme=dark",
