@@ -75,6 +75,8 @@
       "icon": "build/icon.png",
       "artifactName": "AgentBox-${version}-mac-${arch}.${ext}",
       "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "extraResources": [
         {
           "from": "../bin/agentbox",

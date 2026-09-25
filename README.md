@@ -247,9 +247,10 @@ brew install lima
 
 Download `AgentBox-<version>-mac-arm64.dmg` (Apple silicon) or `AgentBox-<version>-mac-x64.dmg`
 (Intel), open it and drag AgentBox into Applications. A release built without an Apple signing
-certificate is unsigned, and macOS refuses to open it the first time: open it once, then press
-**Open Anyway** next to AgentBox in **System Settings → Privacy & Security**, or clear the quarantine
-with `xattr -dr com.apple.quarantine /Applications/AgentBox.app`.
+certificate is unsigned for now, and macOS refuses to open it the first time: **right-click
+AgentBox in Applications and choose Open**, then **Open** again in the dialog; or press **Open
+Anyway** next to AgentBox in **System Settings → Privacy & Security** after a first failed launch;
+or clear the quarantine yourself with `xattr -dr com.apple.quarantine /Applications/AgentBox.app`.
 
 The app's first screen is **Set up AgentBox's Linux VM**. It downloads Debian 13, makes the VM,
 installs AgentBox and Incus in it, and starts the daemon, in a few minutes and without asking for a

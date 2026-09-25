@@ -49,9 +49,16 @@ if (args.includes('--win')) {
   run('node', [join(root, 'scripts', 'build.mjs')]);
   // One architecture at a time: both binaries go to the fixed paths the
   // package copies from, so each .dmg gets its own pair.
+  // Without a real certificate (CSC_LINK), sign ad hoc instead of leaving the
+  // app unsigned: on Apple silicon, macOS's kernel refuses to run a Mach-O
+  // binary that carries no signature at all, so a fully unsigned build never
+  // launches there. "-" is electron-builder's identity for ad hoc signing;
+  // hardenedRuntime plus build/entitlements.mac.plist works the same way
+  // whether the identity behind it is ad hoc or Apple's.
+  const identityArgs = process.env.CSC_LINK ? [] : ['-c.mac.identity=-'];
   for (const a of archs) {
     goBuild('agentbox', { GOOS: 'darwin', GOARCH: goArch[a], CGO_ENABLED: '0' });
     goBuild('agentbox-linux', { GOOS: 'linux', GOARCH: goArch[a], CGO_ENABLED: '0' });
-    run('npx', ['electron-builder', '--mac', 'dmg', 'zip', `--${a}`, '--publish', 'never']);
+    run('npx', ['electron-builder', '--mac', 'dmg', 'zip', `--${a}`, '--publish', 'never', ...identityArgs]);
   }
 }

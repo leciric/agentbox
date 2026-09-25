@@ -107,32 +107,15 @@ jobs:
           path: desktop/dist/release/${{ inputs.tag }}/
           if-no-files-found: error
 
-  # A job-level `if` can't read secrets.* directly, so this hands the macos job
-  # a plain output to gate on instead.
-  check-secrets:
-    name: Check for Apple's signing secret
-    runs-on: ubuntu-24.04
-    outputs:
-      mac-enabled: ${{ steps.check.outputs.mac-enabled }}
-    steps:
-      - name: Check whether Apple's signing secret is set
-        id: check
-        run: |
-          if [ -n "${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}" ]; then
-            echo "mac-enabled=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "mac-enabled=false" >>"$GITHUB_OUTPUT"
-          fi
-
   # The Mac app, built on a Mac (electron-builder makes .dmg files only there),
-  # for Apple silicon and Intel, from the tag the job above pushed. It's signed
-  # and notarized when the repository has Apple's credentials as secrets; without
-  # them, this job doesn't run at all — there's no unsigned Mac app in a release
-  # until the secret exists, and publish doesn't wait on it.
+  # for Apple silicon and Intel, from the tag the release job above pushed.
+  # It's signed and notarized when the repository has Apple's credentials as
+  # secrets; without them, it's ad hoc signed instead of left unsigned (see
+  # desktop/scripts/dist.mjs) and shipped anyway, since an unsigned Mac app
+  # doesn't even launch on Apple silicon.
   macos:
     name: Mac app
-    needs: [release, check-secrets]
-    if: needs.check-secrets.outputs.mac-enabled == 'true'
+    needs: release
     runs-on: macos-15
     env:
       TAG: ${{ inputs.tag }}
@@ -155,8 +138,7 @@ jobs:
       - name: Build the Mac app
         run: |
           if [ -z "$CSC_LINK" ]; then
-            echo "::warning::No signing certificate: building an unsigned app"
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "::warning::No signing certificate: building an ad hoc signed, unnotarized app"
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
           fi
           npm --prefix desktop run dist -- --mac --arm64 --x64
@@ -176,10 +158,10 @@ jobs:
           path: mac/
           if-no-files-found: error
 
-  # Everything at once: once release has succeeded, and macos has either
-  # succeeded or didn't run (no signing secret) — but not if macos ran and
-  # failed. Needs `always()`, since a skipped macos would otherwise skip this
-  # job too.
+  # Everything at once: once release and macos have both succeeded. `skipped`
+  # is only there for when release itself fails, which skips macos too; that
+  # case is already excluded by needs.release.result == 'success'. Needs
+  # `always()`, since a skipped macos would otherwise skip this job too.
   publish:
     name: Publish
     needs: [release, macos]

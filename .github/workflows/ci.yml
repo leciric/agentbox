@@ -51,33 +51,12 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
           GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
 
-  # A job-level `if` can't read secrets.* directly, so this hands the macos job
-  # a plain output to gate on instead. There's nothing Mac-specific about this
-  # secret — it's release.yml's signing certificate — but its presence is the
-  # signal that a Mac runner is worth spending here too.
-  check-secrets:
-    name: Check for Apple's signing secret
-    runs-on: ubuntu-24.04
-    outputs:
-      mac-enabled: ${{ steps.check.outputs.mac-enabled }}
-    steps:
-      - name: Check whether Apple's signing secret is set
-        id: check
-        run: |
-          if [ -n "${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}" ]; then
-            echo "mac-enabled=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "mac-enabled=false" >>"$GITHUB_OUTPUT"
-          fi
-
   # The front end's own tests, on a Mac: they drive a fake limactl, so no VM
-  # is made, but they run on the OS they're for. Runs only once the release
-  # workflow's Mac build is turned on too (see check-secrets above); until
-  # then this job would only ever test code that isn't shipped for a Mac yet.
+  # is made, but they run on the OS they're for. The release workflow ships
+  # the Mac app whether or not Apple's signing secret exists, so this runs
+  # unconditionally too.
   macos:
     name: Go on macOS
-    needs: check-secrets
-    if: needs.check-secrets.outputs.mac-enabled == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
