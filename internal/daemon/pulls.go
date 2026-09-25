@@ -611,6 +611,7 @@ func toAPIPullRequests(prs []github.PullRequest) []api.PullRequest {
 			Number: pr.Number, Title: pr.Title, State: pr.State, Checks: pr.Checks, URL: pr.URL,
 			Draft: pr.Draft, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments,
 			UpdatedAt: pr.UpdatedAt, BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch, HeadSHA: pr.HeadSHA,
+			Author: pr.Author, AuthorAvatar: pr.AuthorAvatar,
 		}
 	}
 	return out

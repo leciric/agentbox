@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, GitBranch, GitMerge, GitPullRequest, MessageSquare } from 'lucide-react';
+import { ExternalLink, GitBranch, GitMerge, GitPullRequest, MessageSquare, User } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -293,6 +293,16 @@ function PullRequestRow({
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
+        {pr.author && (
+          <span className="flex min-w-0 items-center gap-1.5">
+            {pr.authorAvatar ? (
+              <img src={pr.authorAvatar} alt="" className="size-4 shrink-0 rounded-full" />
+            ) : (
+              <User className="size-3.5 shrink-0" />
+            )}
+            <span className="min-w-0 truncate">{pr.author}</span>
+          </span>
+        )}
         {((pr.additions ?? 0) > 0 || (pr.deletions ?? 0) > 0) && (
           <span className="flex items-center gap-1.5">
             <GitBranch className="size-3.5" />

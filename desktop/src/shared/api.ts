@@ -615,6 +615,8 @@ export interface PullRequest {
   baseBranch?: string;
   headBranch?: string;
   headSha?: string;
+  author?: string;
+  authorAvatar?: string;
   agent?: string;
 }
 

@@ -49,6 +49,8 @@
 //                           accounts: on Home (the default account), on a
 //                           project that uses the other one, on a Claude
 //                           agent, and on a Codex agent (no meter)
+//   ?pulls=1                a project's pull requests list, with a long
+//                           GitHub login on one row
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -65,6 +67,7 @@ import { HomeView } from '../components/HomeView';
 import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../components/NewAgentDefaults';
 import { LimitsEditor } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectView';
+import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { ClaudeAccounts, GitHubAccounts } from '../components/SettingsView';
 import { AgentAvatar, aiLabel } from '../components/state';
 import { Panel } from '../components/ui/card';
@@ -79,7 +82,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, seedDefaults, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -98,6 +101,7 @@ const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const resources = params.get('resources') === '1';
 const usage = params.get('usage') === '1';
+const pulls = params.get('pulls') === '1';
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -149,6 +153,7 @@ const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${cha
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
+if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
@@ -247,6 +252,14 @@ function Preview() {
 
   if (github) return <GitHubPreview />;
   if (usage) return <UsagePreview />;
+
+  if (pulls) {
+    return (
+      <div style={{ maxWidth: 420, padding: 24, font: '13px var(--font-sans)' }}>
+        <PullRequestsPanel project={PROJECT} onSelect={() => {}} onOpenAccount={() => {}} />
+      </div>
+    );
+  }
 
   if (resources) {
     return (
