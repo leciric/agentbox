@@ -103,9 +103,17 @@ func (s *Store) ClaudeWindows(ctx context.Context) (ClaudeWindows, error) {
 }
 
 // RememberClaudeModelWindow keeps the window a session on model reported, and
-// is a no-op when it is already known.
-func (s *Store) RememberClaudeModelWindow(ctx context.Context, model string, size int64) error {
-	if model == "" || size <= 0 {
+// is a no-op when it is already known. compact is the autoCompactWindow the
+// session was started with, 0 for none.
+//
+// Claude Code reports a session's size capped at its compact window: a session
+// on opus that compacts at 200k says its window is 200000, whatever opus's
+// own is. So a size equal to the compact window says nothing about the model
+// and isn't kept — remembering it is how an account's opus came to offer only
+// 200k. A size below the compact window is the model's own, which is shorter
+// than the cap, and a size above it can only be the model's own.
+func (s *Store) RememberClaudeModelWindow(ctx context.Context, model string, size, compact int64) error {
+	if model == "" || size <= 0 || (compact > 0 && size == compact) {
 		return nil
 	}
 	w, err := s.ClaudeWindows(ctx)

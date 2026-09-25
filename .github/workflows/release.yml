@@ -26,7 +26,7 @@ jobs:
       # main, never the branch the workflow was started from: a release is a
       # commit that landed. fetch-depth 0 brings the tags, to see whether this
       # one already exists.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -49,11 +49,11 @@ jobs:
 
       # Go and Node come from mise.toml, so a release is built on the versions
       # the repository names.
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           install_args: go node
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/go-build
@@ -61,7 +61,7 @@ jobs:
           key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
           restore-keys: go-${{ runner.os }}-
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.npm
@@ -101,7 +101,7 @@ jobs:
       # Published by the publish job, once the Mac app is built too: a Mac build
       # that fails leaves nothing published, and running the workflow again
       # finds the tag on this commit and carries on.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: desktop/dist/release/${{ inputs.tag }}/
@@ -125,11 +125,11 @@ jobs:
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
 
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           install_args: go node
 
@@ -152,7 +152,7 @@ jobs:
           shasum -a 256 * >SHA256SUMS-mac
           cat SHA256SUMS-mac
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac
           path: mac/
@@ -171,11 +171,11 @@ jobs:
       TAG: ${{ inputs.tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: out
           merge-multiple: true
