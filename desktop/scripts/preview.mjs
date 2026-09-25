@@ -14,9 +14,10 @@
 // and scenarios.json) — it was added after AgentRail's overflow fix, so it can
 // diff any two points after that, not further back.
 //
-// Playwright drives a real Chromium, downloaded separately from the one
-// `agentbox browser` manages: run `npx playwright install chromium` once if
-// launching it fails.
+// Playwright drives the system's Chromium at /usr/bin/chromium when there is
+// one, as in every agent's machine, so it needn't download its own (658 MB).
+// Elsewhere it uses Playwright's own: run `npx playwright install chromium`
+// once if launching it fails.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:net';
@@ -106,7 +107,8 @@ function removeWorktree(desktop) {
 async function capture(baseUrl, outDir) {
   const { chromium } = await import('playwright');
   mkdirSync(outDir, { recursive: true });
-  const browser = await chromium.launch();
+  const systemChromium = '/usr/bin/chromium';
+  const browser = await chromium.launch(existsSync(systemChromium) ? { executablePath: systemChromium } : {});
   try {
     for (const s of scenarios) {
       const page = await browser.newPage({ viewport: { width: s.width, height: s.height } });

@@ -79,14 +79,16 @@ const (
 	// either from an OpenCode chat's ACP session or from `opencode models`
 	// (internal/opencode), and its values are OpenCode's "provider/model" ids.
 	SettingOpenCodeModelChoices = "opencode_model_choices"
-	// SettingImageAndroid, SettingImageCodex and SettingImageOpenCode are the
+	// SettingImageAndroid, SettingImageCodex, SettingImageOpenCode and
+	// SettingImageDevCaches are the
 	// optional components the base image is built with, stored as flags. They
 	// belong to the installation for the same reason the model does: there is
 	// one base image, and every project's agents are copied from it. All are
 	// off until someone turns them on, so a first build is the small one.
-	SettingImageAndroid  = "image_android"
-	SettingImageCodex    = "image_codex"
-	SettingImageOpenCode = "image_opencode"
+	SettingImageAndroid   = "image_android"
+	SettingImageCodex     = "image_codex"
+	SettingImageOpenCode  = "image_opencode"
+	SettingImageDevCaches = "image_dev_caches"
 	// SettingAppearance is what AgentBox wears: api.AppearanceFollow (the
 	// desktop theme this machine is running, in its own window and on every
 	// agent's desktop), or api.AppearanceLight or api.AppearanceDark for its

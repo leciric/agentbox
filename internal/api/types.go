@@ -1294,6 +1294,9 @@ type ImageComponents struct {
 	Codex bool `json:"codex"`
 	// OpenCode adds the OpenCode CLI, which is its own ACP adapter.
 	OpenCode bool `json:"opencode"`
+	// DevCaches fills the Go, npm and Electron caches from AgentBox's own
+	// repository, for agents that work on AgentBox itself.
+	DevCaches bool `json:"devCaches"`
 }
 
 // ImageBuild describes the base image build: the version it would produce, the
@@ -1321,7 +1324,7 @@ type ImageDownload struct {
 	Purpose string `json:"purpose"` // one sentence on why an agent has it
 	MB      int    `json:"mb"`      // approximate download size in megabytes
 	// Option is the component that fetches it: empty for every build,
-	// otherwise "android", "codex" or "opencode".
+	// otherwise "android", "codex", "opencode" or "dev-caches".
 	Option string `json:"option,omitempty"`
 }
 
@@ -1329,9 +1332,10 @@ type ImageDownload struct {
 // component keeps what the installation already chose, so rebuilding never
 // silently drops one someone turned on.
 type BuildImageRequest struct {
-	Android  *bool `json:"android,omitempty"`
-	Codex    *bool `json:"codex,omitempty"`
-	OpenCode *bool `json:"opencode,omitempty"`
+	Android   *bool `json:"android,omitempty"`
+	Codex     *bool `json:"codex,omitempty"`
+	OpenCode  *bool `json:"opencode,omitempty"`
+	DevCaches *bool `json:"devCaches,omitempty"`
 }
 
 const (

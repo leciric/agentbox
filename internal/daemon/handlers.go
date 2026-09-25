@@ -1152,6 +1152,7 @@ func (s *Server) chooseImageComponents(ctx context.Context, req api.BuildImageRe
 		{req.Android, &components.Android, state.SettingImageAndroid},
 		{req.Codex, &components.Codex, state.SettingImageCodex},
 		{req.OpenCode, &components.OpenCode, state.SettingImageOpenCode},
+		{req.DevCaches, &components.DevCaches, state.SettingImageDevCaches},
 	} {
 		if c.want == nil {
 			continue

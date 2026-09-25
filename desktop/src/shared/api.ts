@@ -498,6 +498,7 @@ export interface ImageComponents {
   android: boolean;
   codex: boolean;
   opencode: boolean;
+  devCaches: boolean;
 }
 
 export interface ImageBuild {
@@ -519,6 +520,7 @@ export interface BuildImageRequest {
   android?: boolean;
   codex?: boolean;
   opencode?: boolean;
+  devCaches?: boolean;
 }
 
 export interface ClaudeTokenRequest {
