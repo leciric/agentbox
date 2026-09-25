@@ -34,6 +34,7 @@ func patchSettings(t *testing.T, d testDaemon, body string) (api.Settings, error
 // daemon seeds a concrete value once, and never writes over what was chosen —
 // including a choice of no limit, which a re-seed would silently undo.
 func TestResourceDefaultsAreSeededThenChosen(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 
@@ -73,6 +74,7 @@ func TestResourceDefaultsAreSeededThenChosen(t *testing.T) {
 // TestSettingsRefuseLimitsThatDontMeanWhatTheySay checks a bad default is
 // refused where it is typed, rather than when the next agent is built.
 func TestSettingsRefuseLimitsThatDontMeanWhatTheySay(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	for _, c := range []struct{ body, want string }{
 		{`{"defaultCPU":"0-3"}`, "pin the agent to those exact cores"},
@@ -94,6 +96,7 @@ func TestSettingsRefuseLimitsThatDontMeanWhatTheySay(t *testing.T) {
 // chosen: it is the setting whose useful state is the one you get without
 // touching it, and only turning it off is a choice worth storing.
 func TestResumeAfterLimitIsOnUntilItIsTurnedOff(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 
 	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
@@ -120,6 +123,7 @@ func TestResumeAfterLimitIsOnUntilItIsTurnedOff(t *testing.T) {
 // the menu, so the app can't tell from the choices alone that Claude Code
 // hasn't sent the account's own yet, and says so from this.
 func TestClaudeMenuIsKnownOnceAnAdapterSentOne(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
 

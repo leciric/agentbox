@@ -305,7 +305,7 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			return writeJSON(w, http.StatusOK, built)
 
 		case "context-stats":
-			return writeJSON(w, http.StatusOK, apiContextAccount(memory.ContextBuilds(who.project)))
+			return writeJSON(w, http.StatusOK, apiContextAccount(m.ContextBuilds(who.project)))
 
 		case "tasks":
 			filter, err := taskFilter(r)
