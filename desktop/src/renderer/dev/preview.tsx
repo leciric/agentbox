@@ -19,6 +19,8 @@
 //                           or Lima to install first
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
+//   ?chat=compaction        a project chat's timeline with compaction cards,
+//                           done, failed and running with a held message
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
 // See scenarios.json for the set scripts/preview.mjs captures.
@@ -40,7 +42,7 @@ import { VMSize } from '../components/VMSize';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
-import { agent12Chat, buildFixtures, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -88,7 +90,11 @@ function Preview() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)', color: 'var(--color-zinc-600)', padding: 24, font: '13px var(--font-sans)' }}>
-        {chat === 'lead' ? (
+        {chat === 'compaction' ? (
+          <div style={{ maxWidth: 720 }}>
+            <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={compactionThread()} />
+          </div>
+        ) : chat === 'lead' ? (
           <div style={{ height: '100%', margin: -24 }}>
             <ChatTab
               agent={leadAgentFrom(fixtures.projects.find((p) => p.name === PROJECT)!, { ref: `${PROJECT}/lead`, started: true } as T.ProjectChat)}

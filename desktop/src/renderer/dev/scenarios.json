@@ -124,5 +124,19 @@
     "query": "chat=lead&theme=light",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "chat-compaction-dark",
+    "description": "Compaction cards in a project chat: done, failed with a long error, and running with a held message \u2014 dark",
+    "query": "chat=compaction&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "chat-compaction-light",
+    "description": "Same as chat-compaction-dark, light appearance",
+    "query": "chat=compaction&theme=light",
+    "width": 1280,
+    "height": 900
   }
 ]
