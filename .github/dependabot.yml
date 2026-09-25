@@ -19,6 +19,11 @@ updates:
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
+    # @types/node follows the Node that mise.toml's `lts` resolves to, 24 for
+    # now: its next major is only for when lts moves on.
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
