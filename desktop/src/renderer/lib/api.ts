@@ -1,14 +1,13 @@
 // Typed calls to the daemon's HTTP API, sent through the main process.
 import type { ApiResponse } from '../../preload';
-import * as T from '../../shared/api';
-import { errorMessage } from './utils';
+import * as T from '../../shared/api.ts';
+import { errorMessage } from './utils.ts';
 
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
+  readonly status: number;
+  constructor(message: string, status: number) {
     super(message);
+    this.status = status;
   }
 }
 
