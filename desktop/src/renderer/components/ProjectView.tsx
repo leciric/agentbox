@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Brain, Check, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, NotebookPen, Plus, SlidersHorizontal, Trash, Users } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { countFeature, projectTabFeatures } from '../lib/usageStats';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { ChatHeaderControls } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -296,6 +297,7 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
   const brief = useQuery({ queryKey: ['brief', name], queryFn: () => api.brief(name), enabled: section === 'brief' && showBrief });
   const [removing, setRemoving] = useState(false);
   const [tab, setTab] = useState<ProjectTab>('chat');
+  useEffect(() => countFeature(projectTabFeatures[tab]), [tab, name]);
   const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), enabled: tab === 'chat' });
   const project = projects.data?.find((p) => p.name === name);
   const mine = agents.data?.filter((a) => a.project === name) ?? [];

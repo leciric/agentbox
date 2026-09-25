@@ -27,6 +27,7 @@ import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
+import { agentTabFeatures, countFeature } from '../lib/usageStats';
 import { cn, errorMessage } from '../lib/utils';
 import { AndroidTab } from './AndroidTab';
 import { BrowserTab } from './BrowserTab';
@@ -67,6 +68,9 @@ export function AgentView({
   const hasAndroid = projects.data?.some((p) => p.name === agent?.project && p.android) || android.data?.running === true;
   const [destroying, setDestroying] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
+  // A tab opened on purpose, by its tab, a link or the agent's menu; the one
+  // an agent opens on by itself isn't counted.
+  useEffect(() => countFeature(tab && agentTabFeatures[tab]), [tab, agentRef]);
 
   const replace = (updated: T.Agent) =>
     queryClient.setQueryData<T.Agent[]>(['agents'], (list) => list?.map((a) => (a.ref === updated.ref ? updated : a)));

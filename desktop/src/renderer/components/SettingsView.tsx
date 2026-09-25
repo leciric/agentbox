@@ -30,6 +30,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type * as T from "../../shared/api";
 import { api } from "../lib/api";
+import { countFeature, settingsSectionFeatures } from "../lib/usageStats";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
@@ -718,6 +719,7 @@ function SettingsTabs({
 }) {
   type Section = "environment" | "accounts" | "lead" | "agents";
   const [section, setSection] = useState<Section>("environment");
+  useEffect(() => countFeature(settingsSectionFeatures[section]), [section]);
   const environmentSteps = steps.filter((s) => environmentIds.has(s.id));
   const accountSteps = steps.filter((s) => accountIds.has(s.id));
   // On a Mac, the VM everything runs in, whose size can be changed here.
@@ -806,6 +808,7 @@ function SettingsTabs({
             <SettingsGroup title="This app" className="mt-8">
               <Appearance />
               <UpdateCheck />
+              <UsageStats />
             </SettingsGroup>
           </TabsContent>
 
@@ -920,6 +923,58 @@ function UpdateCheck() {
           >
             See what's new
           </button>
+        </SettingNote>
+      )}
+    </SettingRow>
+  );
+}
+
+// UsageStats rides on the update check: the same request's day, carrying how
+// many times each feature was used (internal/daemon/usagestats.go). Its one
+// line is the whole of what it sends; keep it in step with the README's
+// "Update check" section. It can't be on while the check is off or blocked,
+// and says which, rather than a switch that does nothing.
+function UsageStats() {
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const update = useQuery({
+    queryKey: ["update"],
+    queryFn: api.update,
+    staleTime: Infinity,
+  });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (usageStats: boolean) => api.updateSettings({ usageStats }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const blocked = update.data?.blocked;
+  const checkOff = settings.data?.updateCheck === false;
+  return (
+    <SettingRow
+      label="Share anonymous usage stats"
+      description={
+        <>
+          With the update check, sends how many times each feature was used
+          per day (like "agent.create.claude: 3") and nothing else: no names,
+          paths, repositories or anything you typed.
+        </>
+      }
+      control={
+        <Switch
+          data-usage-stats
+          aria-label="Share anonymous usage stats"
+          disabled={
+            save.isPending || settings.data === undefined || !!blocked || checkOff
+          }
+          checked={!blocked && !checkOff && (settings.data?.usageStats ?? true)}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    >
+      {(blocked || checkOff) && (
+        <SettingNote>
+          Off, because {blocked ?? "Check for updates is off"}.
         </SettingNote>
       )}
     </SettingRow>

@@ -63,6 +63,11 @@ var tsConstants = [][2]string{
 	{"TaskOpen", TaskOpen}, {"TaskActive", TaskActive}, {"TaskBlocked", TaskBlocked},
 	{"TaskDone", TaskDone}, {"TaskAbandoned", TaskAbandoned},
 	{"TokensTurn", TokensTurn}, {"TokensBackground", TokensBackground}, {"TokensCompaction", TokensCompaction}, {"TokensConsolidation", TokensConsolidation},
+	{"FeatureDesktopOpen", FeatureDesktopOpen}, {"FeatureTerminalOpen", FeatureTerminalOpen}, {"FeatureAndroidOpen", FeatureAndroidOpen}, {"FeatureAgentMediaView", FeatureAgentMediaView},
+	{"FeatureProjectMediaView", FeatureProjectMediaView}, {"FeaturePullList", FeaturePullList}, {"FeatureMemoryView", FeatureMemoryView}, {"FeatureTokensView", FeatureTokensView},
+	{"FeatureSettingsEnvironment", FeatureSettingsEnvironment}, {"FeatureSettingsAccounts", FeatureSettingsAccounts}, {"FeatureSettingsLead", FeatureSettingsLead}, {"FeatureSettingsAgents", FeatureSettingsAgents},
+	{"FeatureMenuOpenChat", FeatureMenuOpenChat}, {"FeatureMenuOpenTerminal", FeatureMenuOpenTerminal}, {"FeatureMenuLifecycle", FeatureMenuLifecycle}, {"FeatureMenuRetire", FeatureMenuRetire},
+	{"FeatureMenuCopyBranch", FeatureMenuCopyBranch}, {"FeatureMenuOpenPullRequest", FeatureMenuOpenPullRequest}, {"FeatureMenuDestroy", FeatureMenuDestroy},
 }
 
 func TestTypeScriptTypesAreUpToDate(t *testing.T) {

@@ -90,6 +90,11 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		if err != nil {
 			return err
 		}
+		if a.IsLead() {
+			s.countFeature(agentFeature(a.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode))
+		} else {
+			s.countFeature(api.FeatureAgentTurn)
+		}
 		return writeJSON(w, http.StatusAccepted, item)
 	}
 }
@@ -163,6 +168,7 @@ func (s *Server) setChatOption(from agentFrom) func(http.ResponseWriter, *http.R
 		if err != nil {
 			return err
 		}
+		s.countChatOption(session, r.PathValue("option"))
 		return writeJSON(w, http.StatusOK, session)
 	}
 }

@@ -501,6 +501,16 @@ var migrations = []string{
 		SELECT COALESCE(json_group_object(w.key, w.value), '{}') FROM json_each(settings.value) AS w
 		WHERE w.type = 'integer' AND w.value >= 1000000
 	) WHERE key = 'claude_model_windows' AND json_valid(value) AND json_type(value) = 'object'`,
+
+	// How many times each feature was used on a UTC day, kept until the
+	// update check has sent it (SettingUsageStats). A feature is one of the
+	// api.Feature keys and nothing else.
+	`CREATE TABLE feature_usage (
+		day     TEXT NOT NULL,
+		feature TEXT NOT NULL,
+		count   INTEGER NOT NULL,
+		PRIMARY KEY (day, feature)
+	) WITHOUT ROWID`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
