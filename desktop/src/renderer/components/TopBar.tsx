@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { useConnection } from '../lib/events';
 import type * as T from '../../shared/api';
 import { limitTone, windowNow } from '../lib/tokens';
+import { pickMeter } from '../lib/usageMeter';
 import { cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { Tip } from './ui/tooltip';
@@ -86,7 +87,7 @@ export function TopBar({
             <span className="hidden sm:inline">Finish setup</span>
           </button>
         )}
-        <ClaudeMeter />
+        <UsageMeter view={view} agents={agents.data ?? []} />
         {host && (
           <>
             <Meter className="hidden sm:flex" icon={Cpu} label="Host CPU" text={`${host.cpu.toFixed(0)}%`} detail={`${host.cores} cores`} fraction={host.cpu / 100} />
@@ -164,25 +165,42 @@ function Meter({
   );
 }
 
-// ClaudeMeter is how much of the default Claude account's five-hour window is
-// used (D85), beside the host's own meters: the limit every agent on the
-// account shares. It is what the last chat on that account was told, so the
-// tooltip says when that was, and a window that has reset since shows no
-// number rather than one that describes a window that is over.
-function ClaudeMeter() {
+// UsageMeter is how much of a Claude account's five-hour window is used (D85),
+// beside the host's own meters: the limit every agent on the account shares.
+// The account is the one what's open spends — the agent's, the project's, or
+// on Home the machine's default (pickMeter) — and the tooltip names it above
+// every account's readings. A reading is what the last chat on that account
+// was told, so the tooltip says when that was, and a window that has reset
+// since shows no number rather than one that describes a window that is over.
+function UsageMeter({ view, agents }: { view: View; agents: T.Agent[] }) {
   const limits = useQuery({ queryKey: ['claudeLimits'], queryFn: api.claudeLimits, refetchInterval: 30_000 });
-  const account = limits.data?.[0];
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const agent = view.kind === 'agent' ? agents.find((a) => a.ref === view.ref) : undefined;
+  const projectName = view.kind === 'project' ? view.project : view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
+  const project = projectName ? projects.data?.find((p) => p.name === projectName) : undefined;
+  const pick = pickMeter({ limits: limits.data ?? [], project, agent });
+  const account = pick.reading;
   const five = account?.windows.find((w) => w.name === 'five_hour') ?? account?.windows[0];
   if (!account || !five) return null;
   const now = windowNow(five);
   const tone = limitTone(now);
   const percent = now === null ? 0 : Math.max(0, Math.min(1, now)) * 100;
   return (
-    <Tip label={<LimitsTip limits={limits.data ?? []} />}>
+    <Tip
+      label={
+        <span className="grid gap-2">
+          <span className="text-muted">
+            Showing <span className="font-medium text-primary">{account.account}</span>, {pick.whose}
+          </span>
+          <LimitsTip limits={limits.data ?? []} shown={account.account} />
+        </span>
+      }
+    >
       <span
         className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 md:flex"
-        aria-label={`Claude ${five.label} window: ${now === null ? 'reset since the last reading' : `${Math.round(percent)}% used`}`}
+        aria-label={`Claude account ${account.account}, ${five.label} window: ${now === null ? 'reset since the last reading' : `${Math.round(percent)}% used`}`}
         data-claude-meter={now === null ? 'reset' : Math.round(percent)}
+        data-claude-account={account.account}
       >
         <Gauge className="size-3.5 text-subtle" />
         <span className="font-mono text-[11px] tabular-nums text-tertiary">{now === null ? '5h —' : `5h ${Math.round(percent)}%`}</span>
@@ -197,13 +215,13 @@ function ClaudeMeter() {
   );
 }
 
-function LimitsTip({ limits }: { limits: T.ClaudeLimit[] }) {
+function LimitsTip({ limits, shown }: { limits: T.ClaudeLimit[]; shown: string }) {
   return (
     <span className="grid gap-2">
       {limits.map((l) => (
         <span key={l.account} className="grid gap-0.5">
           <span className="font-medium text-primary">
-            Claude · {l.account}
+            {l.account === shown ? '▸ ' : ''}Claude · {l.account}
             {l.default ? ' (default)' : ''}
           </span>
           {l.windows.map((w) => {
