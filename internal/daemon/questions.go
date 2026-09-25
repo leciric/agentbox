@@ -281,9 +281,9 @@ func (s *Server) tellLead(ctx context.Context, project, notice string, act bool)
 		return
 	}
 	if act {
-		// The notice is about to start a turn, so this is one of the two
-		// moments a full session can be replaced (D73). A notice that arrives
-		// while that runs waits for it, and lands in the fresh session.
+		// The notice is about to start a turn, so this is a moment a full
+		// session can be replaced (D73). The notice then waits for that, and
+		// lands in the fresh session.
 		s.rolloverIfNeeded(ctx, lead)
 	}
 	if err := s.chat.Notice(lead, notice, chat.NoticeOptions{Act: act, Hidden: true}); err != nil {

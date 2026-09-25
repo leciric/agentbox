@@ -64,6 +64,38 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
   };
 }
 
+// compactionThread is a project chat that has compacted three times (D73):
+// once cleanly, once without managing to save the conversation, and once
+// still running, with a message the user sent meanwhile held under the card.
+export function compactionThread(): T.ChatThread {
+  const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+  let n = 0;
+  const item = (minutesAgo: number, it: Partial<T.ChatItem> & { kind: string; turn: string }): T.ChatItem => ({ id: `c${++n}`, createdAt: at(minutesAgo), updatedAt: at(minutesAgo), ...it });
+  const done = (minutesAgo: number) => ({ state: 'completed', endedAt: at(minutesAgo) });
+  return {
+    agent: `${PROJECT}/lead`,
+    seq: 1,
+    session: { state: 'ready', tool: 'claude', options: [], commands: [] },
+    items: [
+      item(50, { kind: 'user', turn: 'c1', text: 'Where did we get to with the launch posts?', result: done(49) }),
+      item(49, { kind: 'assistant', turn: 'c1', text: 'All four are written; the Product Hunt one is waiting on the screenshots in PR #3.' }),
+      item(48, { kind: 'compaction', turn: 'c1', text: 'Conversation continued in a fresh session; earlier context was consolidated into project memory.', compaction: { state: 'done' } }),
+      item(30, { kind: 'user', turn: 'c4', text: `Check ${WIDE.longUrl} once more`, result: done(29) }),
+      item(29, { kind: 'assistant', turn: 'c4', text: 'It still answers with the old landing page.' }),
+      item(28, {
+        kind: 'compaction',
+        turn: 'c4',
+        text: "Conversation continued in a fresh session, but its earlier context couldn't be saved to project memory.",
+        compaction: { state: 'failed', error: `the agentbox chat didn't summarise itself: ${WIDE.longErrorString}` },
+      }),
+      item(3, { kind: 'user', turn: 'c7', text: 'Ship the Mac build without the Apple secrets.', result: done(1) }),
+      item(1, { kind: 'assistant', turn: 'c7', text: 'agent-13 is on it; I will tell you when its PR is up.' }),
+      item(0, { kind: 'compaction', turn: 'c7', compaction: { state: 'running', waiting: 1 } }),
+      item(0, { kind: 'aside', turn: 'c7', text: 'And make sure the release notes mention the ad hoc signing.', delivery: 'held' }),
+    ],
+  };
+}
+
 export interface FixtureData {
   agents: T.Agent[];
   events: T.AgentEvent[];

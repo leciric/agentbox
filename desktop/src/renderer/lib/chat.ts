@@ -89,6 +89,7 @@ export type Row =
   | { type: 'thinking'; key: string }
   | { type: 'note'; key: string; item: T.ChatItem }
   | { type: 'subagent'; key: string; item: T.ChatItem; children: T.ChatItem[] }
+  | { type: 'compaction'; key: string; item: T.ChatItem }
   | { type: 'changes'; key: string; files: ChangedFile[] };
 
 interface Turn {
@@ -121,7 +122,9 @@ function turnsOf(items: T.ChatItem[]): Turn[] {
 }
 
 export const isWork = (it: T.ChatItem) => it.kind === 'tool' || it.kind === 'thought' || (it.kind === 'permission' && !!it.permission?.outcome);
-const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error';
+// A compaction's card ([D73]) reads like a notice: it marks where the session
+// changed, so a settled turn's fold never hides it.
+const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction';
 const isAside = (it: T.ChatItem) => it.kind === 'aside';
 
 // What the timeline leaves out, whatever its kind: the prose AgentBox writes a
@@ -197,6 +200,10 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
       }
       if (it.kind === 'subagent') {
         rows.push({ type: 'subagent', key: it.id, item: it, children: children.get(it.id) ?? [] });
+        continue;
+      }
+      if (it.kind === 'compaction') {
+        rows.push({ type: 'compaction', key: it.id, item: it });
         continue;
       }
       rows.push(it.kind === 'assistant' ? { type: 'assistant', key: it.id, item: it, final: settled && it === final } : { type: 'note', key: it.id, item: it });

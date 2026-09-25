@@ -862,6 +862,7 @@ export interface ChatItem {
   permission?: ChatPermission;
   result?: ChatTurnResult;
   subagent?: ChatSubagent;
+  compaction?: ChatCompaction;
   parent?: string;
   createdAt: string;
   updatedAt: string;
@@ -909,6 +910,12 @@ export interface ChatSubagent {
   name: string;
   task: string;
   state: string;
+}
+
+export interface ChatCompaction {
+  state: string;
+  waiting?: number;
+  error?: string;
 }
 
 export interface ChatTurnResult {

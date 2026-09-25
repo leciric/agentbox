@@ -15,6 +15,8 @@
 //                           or Lima to install first
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
+//   ?chat=compaction        a project chat's timeline with compaction cards,
+//                           done, failed and running with a held message
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -28,7 +30,8 @@ import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { VMSize } from '../components/VMSize';
-import { buildFixtures, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
+import { Timeline } from '../components/chat/Timeline';
+import { buildFixtures, compactionThread, installDevBridge, PROJECT, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -37,9 +40,11 @@ document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's data-rail-thread
 const vm = params.get('vm');
+const chat = params.get('chat');
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
-seedQueryClient(queryClient, buildFixtures());
+const fixtures = buildFixtures();
+seedQueryClient(queryClient, fixtures);
 
 const view: View = { kind: 'project', project: PROJECT };
 
@@ -56,7 +61,11 @@ function Preview() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)', color: 'var(--color-zinc-600)', padding: 24, font: '13px var(--font-sans)' }}>
-        {vm === 'resize' ? (
+        {chat === 'compaction' ? (
+          <div style={{ maxWidth: 720 }}>
+            <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={compactionThread()} />
+          </div>
+        ) : vm === 'resize' ? (
           <div style={{ maxWidth: 720 }}>
             <VMSize
               busy={false}
