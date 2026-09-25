@@ -3,9 +3,11 @@ package state_test
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,8 +15,51 @@ import (
 	"agentbox/internal/state"
 )
 
+// template is every test's starting point: state.Open runs the whole
+// migrations list, which this package's tests otherwise pay for hundreds of
+// times over. Built once per test binary and copied into place, so open()
+// only ever runs the PRAGMA user_version check that tells state.Open there is
+// nothing left to migrate.
+var template = sync.OnceValues(func() (string, error) {
+	dir, err := os.MkdirTemp("", "agentbox-state-template")
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "template.db")
+	st, err := state.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer st.Close()
+	// Folds the WAL back into the main file, so copying that file alone
+	// (open, below) carries everything the template has.
+	if _, err := st.DB().Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return "", err
+	}
+	return path, nil
+})
+
 func open(t *testing.T, path string) *state.Store {
 	t.Helper()
+	// A path that already exists is a reopen of a database a test built
+	// itself (TestReopenKeepsData): only a brand new path gets the template,
+	// since copying over it here would erase what the test put there.
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		tmpl, err := template()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(tmpl)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	st, err := state.Open(path)
 	if err != nil {
 		t.Fatal(err)

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,11 +15,47 @@ import (
 	"agentbox/internal/state"
 )
 
+// template is every test's starting point: state.Open runs the whole
+// migrations list (package memory's tables among them, D72), which this
+// package's tests otherwise pay for hundreds of times over. Built once per
+// test binary and copied into place, so open() only ever runs the PRAGMA
+// user_version check that tells state.Open there is nothing left to migrate.
+var template = sync.OnceValues(func() (string, error) {
+	dir, err := os.MkdirTemp("", "agentbox-memory-template")
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "template.db")
+	st, err := state.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer st.Close()
+	// Folds the WAL back into the main file, so copying that file alone
+	// (open, below) carries everything the template has.
+	if _, err := st.DB().Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return "", err
+	}
+	return path, nil
+})
+
 // open gives each test its own state database, migrated the way the daemon
 // migrates the real one, and a memory store on the handle it opened.
 func open(t *testing.T) *memory.Store {
 	t.Helper()
-	st, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	tmpl, err := template()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(tmpl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "state.db")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := state.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
