@@ -51,7 +51,18 @@ import { Switch } from "./ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { VMSize } from "./VMSize";
 
-type Status = "ok" | "missing" | "outdated" | "optional" | "warn" | "checking";
+type Status =
+  | "ok"
+  | "missing"
+  | "outdated"
+  | "optional"
+  | "warn"
+  | "updating"
+  | "checking";
+
+// usable is done, as far as the wizard goes: a base image whose agent tools
+// the daemon is updating in the background is still the one agents use.
+const usable = (status: Status) => status === "ok" || status === "updating";
 
 // A step is one thing to get right, whether the daemon checks it (Incus, the
 // base image) or the app does (its own command-line tool, GitHub).
@@ -248,7 +259,10 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
           <Button
             variant={statusOf("image") === "ok" ? "secondary" : "primary"}
             disabled={
-              build.isPending || statusOf("incus") !== "ok" || imageJob !== null
+              build.isPending ||
+              statusOf("incus") !== "ok" ||
+              statusOf("image") === "updating" ||
+              imageJob !== null
             }
             onClick={() => build.mutate()}
           >
@@ -266,6 +280,17 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
         {imageJob && (
           <JobProgress
             jobId={imageJob}
+            onDone={() =>
+              void queryClient.invalidateQueries({ queryKey: ["setup"] })
+            }
+          />
+        )}
+        {/* The daemon's own work on the image: updating the agent tools, or
+            the rebuild after that failed. */}
+        {!imageJob && check("image")?.job && (
+          <JobProgress
+            key={check("image")?.job}
+            jobId={check("image")?.job ?? ""}
             onDone={() =>
               void queryClient.invalidateQueries({ queryKey: ["setup"] })
             }
@@ -350,7 +375,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
   // the last required step doesn't pull the wizard out from under you.
   const [page, setPage] = useState<"wizard" | "tabs" | null>(null);
   const loaded = setup.data !== undefined && cli.data !== undefined;
-  const settled = loaded && steps.every((s) => s.optional || s.status === "ok");
+  const settled = loaded && steps.every((s) => s.optional || usable(s.status));
   useEffect(() => {
     if (page === null && loaded) setPage(settled ? "tabs" : "wizard");
   }, [page, loaded, settled]);
@@ -407,7 +432,7 @@ function SetupWizard({
   onSettings: () => void;
   onHome?: () => void;
 }) {
-  const blocked = steps.findIndex((s) => !s.optional && s.status !== "ok");
+  const blocked = steps.findIndex((s) => !s.optional && !usable(s.status));
   const ready = blocked === -1;
   // The last screen is the wizard's own: everything required is done.
   const last = steps.length;
@@ -417,8 +442,8 @@ function SetupWizard({
   // you were when it stopped being done.
   const at = Math.min(index, limit);
   const step = at === last ? undefined : steps[at];
-  const stuck = step !== undefined && !step.optional && step.status !== "ok";
-  const doneCount = steps.filter((s) => s.status === "ok").length;
+  const stuck = step !== undefined && !step.optional && !usable(step.status);
+  const doneCount = steps.filter((s) => usable(s.status)).length;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -497,6 +522,8 @@ function SetupWizard({
                       ) : (
                         <Badge>optional</Badge>
                       )
+                    ) : step.status === "updating" ? (
+                      <Badge>updating</Badge>
                     ) : (
                       step.status !== "ok" &&
                       step.status !== "checking" && (
@@ -616,6 +643,8 @@ function StepIcon({ status, small }: { status: Status; small?: boolean }) {
     return <LoaderCircle className={cn(size, "animate-spin text-subtle")} />;
   if (status === "ok")
     return <CircleCheck className={cn(size, "text-emerald-400")} />;
+  if (status === "updating")
+    return <LoaderCircle className={cn(size, "animate-spin text-sky-400")} />;
   if (status === "optional")
     return <CircleDashed className={cn(size, "text-subtle")} />;
   return <TriangleAlert className={cn(size, "text-amber-300")} />;
@@ -1939,6 +1968,7 @@ function ChecklistStep({
           !ok &&
             !step.optional &&
             step.status !== "checking" &&
+            step.status !== "updating" &&
             "border-amber-400/15",
         )}
       >
@@ -1958,6 +1988,8 @@ function ChecklistStep({
                 ) : (
                   <Badge>optional</Badge>
                 )
+              ) : step.status === "updating" ? (
+                <Badge>updating</Badge>
               ) : (
                 !ok &&
                 step.status !== "checking" && (

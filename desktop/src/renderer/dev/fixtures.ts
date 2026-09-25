@@ -459,7 +459,7 @@ export function leadChat(): T.ChatThread {
 // accounts, and what picking a project's GitHub account or renaming one
 // changes, so a scenario that refetches them after a change (?github=1) sees
 // what the daemon would have answered.
-const devState: { projects: T.Project[]; auth?: T.AuthStatus } = { projects: [] };
+const devState: { projects: T.Project[]; auth?: T.AuthStatus; jobLog?: string; job?: T.Job; setup?: T.SetupStatus; cli?: unknown } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
 // staleTime: Infinity (set by the caller's QueryClient), so nothing refetches
@@ -580,6 +580,53 @@ export function seedDefaults(queryClient: QueryClient): void {
   queryClient.setQueryData(['settings'], defaultsSettings);
 }
 
+// seedImageUpdate is Setup while the daemon updates the base image's agent
+// tools in place (?setup=updating): every check ready but the image's, which
+// is updating, with the job doing it and its log.
+const imageToolsJob = 'job-image-tools';
+const imageToolsLog = `==> Copying agentbox-base/ready to agentbox-base-next
+==> Installing claude@2.1.280
+mise claude@2.1.280 ✓ installed
+==> Checking every tool
+`;
+export function seedImageUpdate(queryClient: QueryClient): void {
+  const ok = (id: string, title: string, detail: string, required = true): T.SetupCheck => ({ id, title, detail, required, status: 'ok' });
+  const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false };
+  const setup = {
+    ready: true,
+    checks: [
+      ok('incus', 'Incus', 'installed, and you can use it'),
+      {
+        id: 'image',
+        title: 'Base image',
+        required: true,
+        status: 'updating',
+        job: imageToolsJob,
+        fix: 'agentbox image build',
+        detail: "Updating agent tools… (installing claude@2.1.280). Agents keep using the current image until it's done",
+      },
+      ok('claude', 'Claude Code', 'signed in as default', false),
+      ok('github', 'GitHub', 'signed in as leciric', false),
+    ],
+    image: { version: '2026.09.25.1', components: none, installed: none, downloads: [], hint: '' },
+  } as T.SetupStatus;
+  // Setup and the command-line tool's status are polled, so the bridge answers
+  // with them too.
+  devState.setup = setup;
+  devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };
+  queryClient.setQueryData(['setup'], setup);
+  queryClient.setQueryData(['cli'], devState.cli);
+  devState.job = {
+    id: imageToolsJob,
+    kind: 'image-tools',
+    target: 'agentbox-base/ready',
+    status: 'running',
+    createdAt: new Date(Date.now() - 42_000).toISOString(),
+  };
+  devState.jobLog = imageToolsLog;
+  queryClient.setQueryData(['job', imageToolsJob], devState.job);
+}
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -598,6 +645,9 @@ export function installDevBridge(): void {
         const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
+      if (method === 'GET' && devState.setup && path === '/v1/setup') return { status: 200, body: JSON.stringify(devState.setup), contentType: 'application/json' };
+      if (method === 'GET' && devState.job && path === `/v1/jobs/${devState.job.id}`) return { status: 200, body: JSON.stringify(devState.job), contentType: 'application/json' };
+      if (method === 'GET' && /^\/v1\/jobs\/[^/]+\/log$/.test(path)) return { status: 200, body: devState.jobLog ?? '', contentType: 'text/plain' };
       if (method === 'GET' && path === '/v1/projects') return { status: 200, body: JSON.stringify(devState.projects), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/auth') return { status: 200, body: JSON.stringify(devState.auth), contentType: 'application/json' };
       // Picking a project's GitHub account, and renaming one (?github=1),
@@ -635,7 +685,7 @@ export function installDevBridge(): void {
     onEvent: () => () => {},
     info: async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'darwin' }),
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
-    cli: { status: async () => ({}), install: async () => ({}) },
+    cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
     hostSetup: { status: async () => ({}), run: async () => ({ restarted: false }), onOutput: () => () => {} },
     vm: fakeVM(),
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },

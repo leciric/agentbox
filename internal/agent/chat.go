@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/image"
 	"agentbox/internal/state"
 )
 
@@ -23,15 +24,15 @@ type ChatAdapter struct {
 	// job. Claude Code and Codex have adapters of their own and need none;
 	// OpenCode speaks ACP itself, behind its `acp` subcommand.
 	Args []string
-	// Package is mise's name for the adapter, with the version AgentBox uses.
-	// The base image installs the same versions (provision.sh).
+	// Package is mise's name for the adapter, with the version AgentBox uses:
+	// the one the base image pins (internal/image/tools.txt).
 	Package string
 }
 
 var ChatAdapters = map[string]ChatAdapter{
-	"claude":   {Tool: "Claude Code", Command: "claude-agent-acp", Package: "npm:@agentclientprotocol/claude-agent-acp@0.81.0"},
-	"codex":    {Tool: "Codex", Command: "codex-acp", Package: "npm:@agentclientprotocol/codex-acp@1.11.0"},
-	"opencode": {Tool: "OpenCode", Command: "opencode", Args: []string{"acp"}, Package: "npm:opencode-ai@1.18.31"},
+	"claude":   {Tool: "Claude Code", Command: "claude-agent-acp", Package: image.Pin("npm:@agentclientprotocol/claude-agent-acp")},
+	"codex":    {Tool: "Codex", Command: "codex-acp", Package: image.Pin("npm:@agentclientprotocol/codex-acp")},
+	"opencode": {Tool: "OpenCode", Command: "opencode", Args: []string{"acp"}, Package: image.Pin("npm:opencode-ai")},
 }
 
 // installTimeout bounds installing an adapter in an agent whose machine doesn't have it.

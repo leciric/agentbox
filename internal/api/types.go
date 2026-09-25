@@ -1310,10 +1310,13 @@ const EventMedia = "media"
 type SetupCheck struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Status   string `json:"status"` // ok, missing, outdated, optional or warn
+	Status   string `json:"status"` // ok, missing, outdated, optional, warn or updating
 	Required bool   `json:"required"`
 	Detail   string `json:"detail,omitempty"`
 	Fix      string `json:"fix,omitempty"` // a command that fixes it
+	// Job is the background job the daemon is fixing it with by itself, whose
+	// log the app can follow: only while one runs.
+	Job string `json:"job,omitempty"`
 }
 
 type SetupStatus struct {
@@ -1385,6 +1388,10 @@ const (
 	// SetupWarn is something present and usable, but with a caveat worth
 	// reading — unlike missing, it never blocks the setup wizard.
 	SetupWarn = "warn"
+	// SetupUpdating is something usable that the daemon is bringing up to date
+	// by itself, in the background (SetupCheck.Job): the base image while its
+	// agent tools move on. Like ok, it doesn't block the setup wizard.
+	SetupUpdating = "updating"
 )
 
 type ClaudeTokenRequest struct {

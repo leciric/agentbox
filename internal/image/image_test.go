@@ -157,3 +157,76 @@ func TestBuildReplacesThePreviousImage(t *testing.T) {
 		t.Errorf("the previous image should be renamed away, swapped and only then deleted:\n%s", strings.Join(commands, "\n"))
 	}
 }
+
+// A build records the tools it put in, so a later AgentBox can move them on
+// in place.
+func TestBuildRecordsTheTools(t *testing.T) {
+	inc := fakeIncus(t, "")
+	if err := image.Build(t.Context(), inc.Client, host, image.Options{Components: image.Components{Codex: true}}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	tools := image.ToolsFor(image.Components{Codex: true})
+	inc.ran(t, "user.agentbox.tools-version="+image.ToolsVersion(tools)+"|")
+	inc.ran(t, "user.agentbox.tools="+image.Pin("go")+" ")
+	inc.ran(t, " "+image.Pin("codex")+" ")
+}
+
+// updatePlan is the plan for a base image whose Claude Code is older than the
+// one tools.txt pins.
+func updatePlan(t *testing.T) image.Plan {
+	t.Helper()
+	var specs []string
+	for _, tool := range image.ToolsFor(image.Components{}) {
+		spec := tool.Spec
+		if tool.Name() == "claude" {
+			spec = "claude@0.0.1"
+		}
+		specs = append(specs, spec)
+	}
+	plan := image.PlanFor(true, image.Installed{Version: image.Version, ToolsVersion: "0123456789ab", Tools: specs}, image.Components{})
+	if plan.Action != image.NeedsTools {
+		t.Fatalf("PlanFor = %+v", plan)
+	}
+	return plan
+}
+
+const baseAndNext = `  list) echo '[{"name":"agentbox-base"},{"name":"agentbox-base-next","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]' ;;`
+
+func TestUpdateToolsInPlace(t *testing.T) {
+	inc := fakeIncus(t, baseAndNext)
+	var log bytes.Buffer
+	if err := image.UpdateTools(t.Context(), inc.Client, host, updatePlan(t), &log); err != nil {
+		t.Fatalf("UpdateTools() = %v\n%s", err, log.String())
+	}
+	copied := inc.ran(t, "copy|agentbox-base/ready|agentbox-base-next|")
+	installed := inc.ran(t, "/root/tools.sh|install|dev|/root/tools.list|")
+	verified := inc.ran(t, "/root/tools.sh|verify|dev|/root/tools.current|")
+	recorded := inc.ran(t, "user.agentbox.tools-version="+image.ToolsVersion(image.ToolsFor(image.Components{}))+"|")
+	ready := inc.ran(t, "snapshot|create|agentbox-base-next|ready")
+	swapped := inc.ran(t, "rename|agentbox-base-next|agentbox-base")
+	if !(copied < installed && installed < verified && verified < recorded && recorded < ready && ready < swapped) {
+		t.Errorf("the update ran out of order:\n%s", strings.Join(inc.commands(t), "\n"))
+	}
+	if !strings.Contains(log.String(), "Installing "+image.Pin("claude")+"\n") {
+		t.Errorf("the update should install Claude Code alone:\n%s", log.String())
+	}
+	// Nothing was removed from tools.txt, and an update is not a build.
+	inc.neverRan(t, "|remove|")
+	inc.neverRan(t, "init|")
+	inc.neverRan(t, "provision.sh")
+}
+
+// A tool that doesn't work after the update leaves the base as it was.
+func TestUpdateToolsKeepsTheBaseWhenACheckFails(t *testing.T) {
+	inc := fakeIncus(t, baseAndNext+"\n  exec) case \"$*\" in *verify*) exit 1 ;; esac ;;")
+	err := image.UpdateTools(t.Context(), inc.Client, host, updatePlan(t), &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("UpdateTools() succeeded with a failing check")
+	}
+	verified := inc.ran(t, "/root/tools.sh|verify|")
+	if at(inc.commands(t)[verified:], "delete|--force|agentbox-base-next") < 0 {
+		t.Errorf("the copy should be deleted after the failed check:\n%s", strings.Join(inc.commands(t), "\n"))
+	}
+	inc.neverRan(t, "rename|")
+	inc.neverRan(t, "snapshot|create|")
+}

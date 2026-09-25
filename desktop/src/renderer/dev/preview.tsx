@@ -42,6 +42,9 @@
 //                           that limits its Claude Code accounts, beside
 //                           Settings' GitHub accounts with a rename the dev
 //                           bridge answers
+//   ?setup=updating         Settings while the daemon updates the base image's
+//                           agent tools in place: the image check updating,
+//                           with its job's log (fixtures.ts)
 //   ?resources=1            the resource limits' copy: Home's host stats,
 //                           Settings' defaults for new agents, and an agent's
 //                           limits editor, open
@@ -68,7 +71,7 @@ import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../compon
 import { LimitsEditor } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectView';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
-import { ClaudeAccounts, GitHubAccounts } from '../components/SettingsView';
+import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { AgentAvatar, aiLabel } from '../components/state';
 import { Panel } from '../components/ui/card';
 import type { Mood } from '../lib/agentStatus';
@@ -82,7 +85,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedImageUpdate, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -102,6 +105,7 @@ const github = params.get('github') === '1';
 const resources = params.get('resources') === '1';
 const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
+const imageUpdate = params.get('setup') === 'updating';
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -154,6 +158,7 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: In
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
+if (imageUpdate) seedImageUpdate(queryClient);
 if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
@@ -273,6 +278,14 @@ function Preview() {
             <LimitsEditor agent={{ ...fixtures.agents[0], limits: { cpu: '4', allowance: '', memory: '8GiB' } }} />
           </Panel>
         </div>
+      </div>
+    );
+  }
+
+  if (imageUpdate) {
+    return (
+      <div style={{ height: '100vh' }}>
+        <SettingsView />
       </div>
     );
   }

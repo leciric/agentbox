@@ -502,6 +502,7 @@ export interface SetupCheck {
   required: boolean;
   detail?: string;
   fix?: string;
+  job?: string;
 }
 
 export interface SetupStatus {
@@ -1422,6 +1423,7 @@ export const SetupOK = "ok";
 export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";
 export const SetupOptional = "optional";
+export const SetupUpdating = "updating";
 export const InAgentSocket = "/run/agentbox.sock";
 export const LeadName = "lead";
 export const AgentModelAuto = "auto";

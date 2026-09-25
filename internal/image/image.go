@@ -84,7 +84,9 @@ func CheckHost(u User) error {
 }
 
 // Version changes whenever provision.sh changes what agents get, so Setup can
-// ask you to rebuild a base image made by an older AgentBox.
+// ask you to rebuild a base image made by an older AgentBox. The pinned agent
+// tools aren't part of it: they are in tools.txt, and their own version
+// (ToolsVersion) moves them on in place, without a rebuild.
 const Version = "2026.09.25.2"
 
 // CodexMissing is what Setup and agent creation say about an image built
@@ -101,6 +103,10 @@ const (
 	codexKey     = "user.agentbox.with-codex"
 	opencodeKey  = "user.agentbox.with-opencode"
 	devCachesKey = "user.agentbox.with-dev-caches"
+	// The tools version and the tools themselves, as specs separated by
+	// spaces: UpdateTools needs to know which ones moved on.
+	toolsVersionKey = "user.agentbox.tools-version"
+	toolsKey        = "user.agentbox.tools"
 )
 
 // Installed is what the base image on this machine was built with.
@@ -113,6 +119,11 @@ type Installed struct {
 	// right answer for the rebuild prompt either way: its version no longer
 	// matches, so Setup already asks for a rebuild.
 	Components Components
+	// ToolsVersion is the version of the agent tools in it, or "" for an
+	// image from before tools were versioned apart from it; Tools are their
+	// specs, like "claude@2.1.280".
+	ToolsVersion string
+	Tools        []string
 }
 
 // InstalledBuild reads what the base image was built with.
@@ -129,6 +140,8 @@ func InstalledBuild(ctx context.Context, inc incus.Client) (Installed, error) {
 			OpenCode:  config[opencodeKey] == "1",
 			DevCaches: config[devCachesKey] == "1",
 		},
+		ToolsVersion: config[toolsVersionKey],
+		Tools:        strings.Fields(config[toolsKey]),
 	}, nil
 }
 
@@ -267,13 +280,15 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 	step("Snapshotting the image as %s, before it is made yours", Generic)
 	// The components are recorded next to the version, so Setup can ask for a
 	// rebuild when you turn one on, the same way a version bump does.
+	// So are the tools, so a later AgentBox can move them on in place.
 	if err := run(ctx, inc,
-		[]string{"config", "set", next,
+		append([]string{"config", "set", next,
 			versionKey + "=" + Version,
 			androidKey + "=" + envFlag(opts.Components.Android),
 			codexKey + "=" + envFlag(opts.Components.Codex),
 			opencodeKey + "=" + envFlag(opts.Components.OpenCode),
 			devCachesKey + "=" + envFlag(opts.Components.DevCaches)},
+			recordTools(ToolsFor(opts.Components))...),
 		[]string{"snapshot", "create", next, Generic},
 	); err != nil {
 		return fail(err)
@@ -289,18 +304,30 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 		return fail(err)
 	}
 
-	step("Replacing the previous %s", Base)
+	return swapIn(ctx, inc, next, log)
+}
+
+// swapIn replaces the base image with next, which is ready: until the rename,
+// agents are made from the previous one, and no moment is without a base but
+// the one between the two renames.
+func swapIn(ctx context.Context, inc incus.Client, next string, log io.Writer) error {
+	stepper(log)("Replacing the previous %s", Base)
 	old := Base + "-old"
 	inc.Run(ctx, "delete", "--force", old)
 	// A new machine has no previous image, so there's nothing to delete after the swap.
 	replaced := false
 	if _, err := inc.Instance(ctx, Base); err == nil {
 		if err := run(ctx, inc, []string{"rename", Base, old}); err != nil {
-			return fail(err)
+			inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+			return err
 		}
 		replaced = true
 	}
 	if err := run(ctx, inc, []string{"rename", next, Base}); err != nil {
+		if replaced {
+			// Put the previous one back rather than leave the machine without a base.
+			inc.Run(context.WithoutCancel(ctx), "rename", old, Base)
+		}
 		return err
 	}
 	if !replaced {
@@ -336,8 +363,18 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 
 	step("Installing Docker, mise, Go, Node.js, pnpm, Claude Code, the GitHub CLI, the browser and media tools, with %s", components.Summary())
 	step("Downloading about %d MB; %s", TotalMB(DownloadsFor(components)), DownloadsHint)
-	if err := inc.WriteFile(ctx, next, "/root/provision.sh", provision, 0, 0, 0o700); err != nil {
-		return err
+	for _, f := range []struct {
+		path    string
+		content []byte
+		mode    os.FileMode
+	}{
+		{"/root/provision.sh", provision, 0o700},
+		{"/root/tools.sh", toolsScript, 0o700},
+		{"/root/tools.list", toolsList(ToolsFor(components)), 0o600},
+	} {
+		if err := inc.WriteFile(ctx, next, f.path, f.content, 0, 0, f.mode); err != nil {
+			return err
+		}
 	}
 	// The components reach provision.sh as environment variables rather than
 	// arguments, so a script run by hand in an instance defaults to neither.
@@ -355,7 +392,7 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 		return fmt.Errorf("provisioning %s: %w", next, err)
 	}
 	return run(ctx, inc,
-		[]string{"exec", next, "--", "sh", "-c", "rm /root/provision.sh && " + scrubMachineID},
+		[]string{"exec", next, "--", "sh", "-c", "rm /root/provision.sh /root/tools.sh /root/tools.list && " + scrubMachineID},
 		[]string{"stop", next},
 	)
 }

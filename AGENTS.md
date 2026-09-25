@@ -124,8 +124,22 @@ nothing should:** it holds software we may not redistribute (Claude Code first o
 GPL packages would need their source published with it. Built on the user's machine, each tool is
 the user's own install.
 
-**Changing `provision.sh` means bumping `image.Version` in [`image.go`](internal/image/image.go)**,
-which is what tells Setup the installed image is outdated and asks for a rebuild. The
+Two versions say what a base image has, and each is recorded on it:
+
+- **The agent tools** — Go, Node.js, pnpm, Claude Code, the GitHub CLI, Codex, OpenCode, the ACP
+  adapters, the Playwright MCP server: everything mise installs — are pinned in
+  [`tools.txt`](internal/image/tools.txt), one a line with the command that proves it works. **To
+  move one on, change its line there and nothing else**: don't bump `image.Version`. The tools
+  version is a hash of those lines, so it can't be forgotten. A daemon that finds its base image
+  with other tools updates them in place, in the background, on start (`image.UpdateTools`, driven
+  from `internal/daemon/imagetools.go`): it copies the base, installs only what changed with mise,
+  checks every tool, and swaps the copy in. Setup shows "Updating agent tools…" meanwhile, and
+  agents keep being made from the old base until the swap. If that fails, the daemon rebuilds the
+  image in the background instead, and only asks you when the rebuild fails too.
+  `internal/agent/chat.go` takes the ACP adapters' versions from the same file.
+- **Everything else in the image** is `provision.sh`. **Changing it means bumping `image.Version`
+  in [`image.go`](internal/image/image.go)**, which is what tells Setup the installed image is
+  outdated and asks for a rebuild — as does turning an optional component on or off. The
 [Base image](.github/workflows/base-image.yml) workflow builds the image on every change to
 `internal/image/`, the way a new machine does, and publishes nothing.
 
