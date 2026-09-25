@@ -289,6 +289,12 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 // startRecordingScript is what runs inside the agent to start a recording, and
 // what the integration test runs against a display of its own.
 func startRecordingScript(st recordingState) (string, error) {
+	// started waits until the recorder is running, so a recorder that can't
+	// start is caught here rather than at stop. ffmpeg creates its file once it
+	// has opened the display and the encoder, about 150 ms in, so it is waited
+	// for rather than a fixed second; scrcpy may take longer to connect to the
+	// device before it writes anything, so it keeps the second.
+	started := "sleep 1"
 	var recorder string
 	switch st.Target {
 	case "display":
@@ -302,6 +308,8 @@ func startRecordingScript(st recordingState) (string, error) {
 		recorder = fmt.Sprintf(`[ -e /tmp/.X11-unix/X99 ] || { echo "the display isn't running: start the browser first" >&2; exit 1; }
 %[2]ssetsid ffmpeg -loglevel error -f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' \
   -c:v libx264 -preset veryfast -crf 28 -pix_fmt yuv420p -movflags +faststart "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`, st.Limit, overlay)
+		started = `i=0
+while [ ! -e "$dir/recording.mp4" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 0.05; i=$((i + 1)); done`
 	case "android":
 		// The device's own screen, at its resolution, rather than the display showing it.
 		recorder = fmt.Sprintf(`[ -x %[1]s ] || { echo "the emulator isn't running: start it with agentbox android start" >&2; exit 1; }
@@ -323,9 +331,9 @@ rm -f "$dir"/recording.*
 %[2]s
 echo $! >"$dir/recording.pid"
 printf '%%s' %[3]s >"$dir/recording.json"
-sleep 1
+%[5]s
 kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null || { echo "the recording didn't start:" >&2; cat "$dir/recording.log" >&2; stop_overlay; rm -f "$dir"/recording.*; exit 1; }`,
-		agentStateDir, recorder, shellQuote(string(encoded)), screenkeyStop), nil
+		agentStateDir, recorder, shellQuote(string(encoded)), screenkeyStop, started), nil
 }
 
 // Recording inputs: how the flow being recorded is driven, which decides
