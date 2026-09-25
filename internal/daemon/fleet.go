@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -156,10 +155,14 @@ func changesOf(a state.Agent) api.AgentChanges {
 func (s *Server) projectMedia(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	project := r.PathValue("project")
-	p, err := s.store.Project(ctx, project)
+	if _, err := s.store.Project(ctx, project); err != nil {
+		return err
+	}
+	retention, err := s.store.MediaRetention(ctx)
 	if err != nil {
 		return err
 	}
+	period, forever, _ := state.MediaRetentionPeriod(retention)
 	items, err := s.store.ProjectMedia(ctx, project)
 	if err != nil {
 		return err
@@ -184,10 +187,10 @@ func (s *Server) projectMedia(w http.ResponseWriter, r *http.Request) error {
 			// Its agent is gone: it was kept, not deleted, at destroy time.
 			item.AgentGone = true
 		}
-		if !it.OrphanedAt.IsZero() {
+		if !it.OrphanedAt.IsZero() && !forever {
 			// Matches Store.ExpiredMedia's own arithmetic, so what's shown here
 			// is exactly when the sweeper will remove the item.
-			expires := it.OrphanedAt.Add(time.Duration(p.MediaRetentionDays) * 24 * time.Hour)
+			expires := it.OrphanedAt.Add(period)
 			item.ExpiresAt = &expires
 		}
 		out = append(out, item)

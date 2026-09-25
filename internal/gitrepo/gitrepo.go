@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -245,6 +246,53 @@ func (r Repo) HasWorktree(path string) bool {
 func (r Repo) DeleteBranch(branch string) error {
 	_, err := run(r.Root, "branch", "--quiet", "-D", branch)
 	return err
+}
+
+// IsAncestor reports whether commit is reachable from rev: everything commit
+// has, rev has too. A rev that doesn't resolve contains nothing.
+func (r Repo) IsAncestor(commit, rev string) bool {
+	_, err := run(r.Root, "merge-base", "--is-ancestor", commit, rev)
+	return err == nil
+}
+
+// MergedInto reports whether branch's commit is in one of targets, taken
+// both as the local branch and as every remote's copy of it as last fetched:
+// a pull request merged on GitHub is in origin/main before anyone pulls it.
+func (r Repo) MergedInto(branch string, targets ...string) bool {
+	tip, err := r.ResolveCommit("refs/heads/" + branch)
+	if err != nil {
+		return false
+	}
+	for _, target := range targets {
+		if target == "" || target == "HEAD" || target == branch {
+			continue
+		}
+		refs, _ := run(r.Root, "for-each-ref", "--format=%(refname)", "refs/heads/"+target, "refs/remotes/*/"+target)
+		for _, ref := range strings.Fields(refs) {
+			if r.IsAncestor(tip, ref) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// OnRemote reports whether some remote has branch, as last fetched, at the
+// very commit the local branch is at: deleting the local one loses nothing.
+func (r Repo) OnRemote(branch string) bool {
+	tip, err := r.ResolveCommit("refs/heads/" + branch)
+	if err != nil {
+		return false
+	}
+	out, _ := run(r.Root, "for-each-ref", "--format=%(objectname)", "refs/remotes/*/"+branch)
+	return slices.Contains(strings.Fields(out), tip)
+}
+
+// Pushed reports whether commit is in some remote's branch as last fetched,
+// so that nothing up to it lives only in this repository.
+func (r Repo) Pushed(commit string) bool {
+	out, err := run(r.Root, "for-each-ref", "--count=1", "--format=%(refname)", "--contains", commit, "refs/remotes")
+	return err == nil && out != ""
 }
 
 // EnvFiles lists gitignored env files in the main checkout, like .env or

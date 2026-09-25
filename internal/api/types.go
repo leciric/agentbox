@@ -58,10 +58,6 @@ type Project struct {
 	// on: "agentbox/" (the default) makes agentbox/fix-login. It may be empty,
 	// or nested like "thiago/agentbox/". Existing agents keep their branches.
 	BranchPrefix string `json:"branchPrefix"`
-	// MediaRetentionDays is how long media whose agent is gone survives
-	// before the daemon sweeps it away; 30 by default. Media of an agent
-	// that still exists never expires, however old.
-	MediaRetentionDays int `json:"mediaRetentionDays"`
 	// FinishNotices is what happens when one of this project's agents
 	// finishes: "chat" (tell the project's chat, and let it decide what
 	// happens next), "off" (record it in the chat's history, without
@@ -201,8 +197,6 @@ type UpdateProjectRequest struct {
 	// BranchPrefix is what the project's new agents' branches are named with,
 	// before the agent's name: "" for none. It must make a valid branch name.
 	BranchPrefix *string `json:"branchPrefix,omitempty"`
-	// MediaRetentionDays sets how long kept media survives its agent.
-	MediaRetentionDays *int `json:"mediaRetentionDays,omitempty"`
 	// FinishNotices is what a finishing agent does to the project's chat:
 	// chat, off or lead.
 	FinishNotices *string `json:"finishNotices,omitempty"`
@@ -322,6 +316,9 @@ type Settings struct {
 	// AgentBox is out, which is also how installations are counted. On unless
 	// it was turned off; see UpdateStatus for what else can keep it off.
 	UpdateCheck bool `json:"updateCheck"`
+	// MediaRetention is how long a removed agent's media is kept before the
+	// daemon purges it: one of the MediaRetention values.
+	MediaRetention string `json:"mediaRetention"`
 	// DefaultClaudeCompactWindow is what ClaudeCompactWindow is when nobody
 	// chose, so a client can offer to go back to it.
 	DefaultClaudeCompactWindow int64 `json:"defaultClaudeCompactWindow"`
@@ -357,7 +354,19 @@ type UpdateSettingsRequest struct {
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`
 	// UpdateCheck turns the daily update check on or off.
 	UpdateCheck *bool `json:"updateCheck,omitempty"`
+	// MediaRetention is one of the MediaRetention values.
+	MediaRetention *string `json:"mediaRetention,omitempty"`
 }
+
+// How long a removed agent's media is kept (Settings.MediaRetention).
+// Immediately deletes it with the agent; forever never purges it.
+const (
+	MediaRetentionImmediately = "immediately"
+	MediaRetentionDay         = "1d"
+	MediaRetentionWeek        = "7d"
+	MediaRetentionMonth       = "30d"
+	MediaRetentionForever     = "forever"
+)
 
 // Limits are the resource limits on an agent's machine, as Incus applies them.
 // Empty means no limit.
@@ -848,7 +857,8 @@ type RetireRequest struct {
 	// Agents names the ones to retire; empty means every idle one.
 	Agents []string `json:"agents,omitempty"`
 	// Force retires an agent whose work isn't committed. Its branch is kept
-	// either way, but uncommitted changes in a destroyed worktree are lost.
+	// unless merged or pushed, but uncommitted changes in a destroyed
+	// worktree are lost.
 	Force bool `json:"force,omitempty"`
 	// DryRun says what would happen without doing it.
 	DryRun bool `json:"dryRun,omitempty"`

@@ -118,18 +118,22 @@ export interface FixtureData {
 // module load.
 export function buildFixtures(): FixtureData {
   const agents: T.Agent[] = [
-    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12' }),
-    agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account' }),
-    agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret' }),
+    agent({ ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', branch: 'agentbox/agent-12', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-94`, title: 'Needs a GitHub account', chat: 'waiting' }),
+    agent({ ref: `${PROJECT}/agent-95`, title: 'Needs a secret', chat: 'waiting' }),
     // An agent in each of the avatars' moods (avatarMood), across the three
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
     agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'codex', chat: 'running' }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
-    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex' }),
+    agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
-    agent({ ref: `${PROJECT}/agent-93`, title: 'Stopped for the night', ai: 'opencode', state: 'stopped' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
+    // Done with, one way or another: the rail's Finished section, with agent-97
+    // above, which finished and sits idle.
+    agent({ ref: `${PROJECT}/agent-93`, title: 'Stopped for the night', ai: 'opencode', state: 'stopped' }),
+    agent({ ref: `${PROJECT}/agent-91`, title: 'Rename the settings keys', state: 'stopped' }),
+    agent({ ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused' }),
   ];
 
   const events: T.AgentEvent[] = [
@@ -299,7 +303,6 @@ export function buildFixtures(): FixtureData {
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
-      mediaRetentionDays: 30,
       finishNotices: 'all',
       rolloverThreshold: 0,
       contextBudget: 0,
@@ -321,7 +324,6 @@ export function buildFixtures(): FixtureData {
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
-      mediaRetentionDays: 30,
       finishNotices: 'all',
       rolloverThreshold: 0,
       contextBudget: 0,
@@ -484,6 +486,7 @@ let defaultsSettings = {
   defaultAgentContextWindow: '1000000',
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
+  mediaRetention: '1d',
   claudeModelChoices: [
     { value: 'default', name: 'Default (recommended)', description: 'Opus 5.5 with 1M context' },
     { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5 for everyday tasks' },

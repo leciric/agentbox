@@ -491,8 +491,9 @@ var migrations = []string{
 	`ALTER TABLE questions ADD COLUMN secret_name TEXT NOT NULL DEFAULT ''`,
 }
 
-// DefaultMediaRetentionDays is how long kept media survives its agent when a
-// project hasn't set its own period.
+// DefaultMediaRetentionDays is what projects.media_retention_days reads as
+// when it is zero. Nothing reads that column any more: how long media is kept
+// is SettingMediaRetention, the installation's.
 const DefaultMediaRetentionDays = 30
 
 type Store struct {
@@ -595,9 +596,9 @@ type Project struct {
 	// components, like thiago/agentbox/. Agents keep the branch they were
 	// created on when it changes.
 	BranchPrefix string
-	// MediaRetentionDays is how long media whose agent is gone survives
-	// before the daemon sweeps it away. Media of an agent that still exists
-	// never expires, however old.
+	// MediaRetentionDays is what the project once said about how long media
+	// whose agent is gone survives. It is no longer read: SettingMediaRetention
+	// replaced it, for the whole installation.
 	MediaRetentionDays int
 	// FinishNotices is what happens when one of this project's agents
 	// finishes: FinishNoticesChat (tell the chat, and let it decide),
