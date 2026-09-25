@@ -189,6 +189,13 @@
     "height": 900
   },
   {
+    "id": "avatars-transition-dark",
+    "description": "The avatars walking from mood to mood on a timer, easing between poses (a still shot is its first mood, working) \u2014 dark",
+    "query": "avatars=transition&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "avatars-all-dark",
     "description": "Every avatar mood at the rail's 40px, beside a rail with an agent in each mood \u2014 dark",
     "query": "avatars=all&theme=dark",
