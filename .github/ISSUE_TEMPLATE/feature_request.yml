@@ -1,0 +1,31 @@
+name: Idea or feature request
+description: Suggest something AgentBox could do. Talk it through here before you build it.
+title: "[Idea]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        AgentBox is young and its scope is kept deliberately tight, so not every good idea will be taken up.
+        If you'd like to build it yourself, say so: agreeing on the shape first saves a pull request that can't be merged.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you'd like
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead

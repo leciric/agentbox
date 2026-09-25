@@ -1,0 +1,659 @@
+@import "tailwindcss";
+
+/* AgentBox's own look, and the only place its colours are written down.
+   Everything below reaches a colour through one of these, so the app can wear
+   another palette at runtime: when the daemon reports that this machine is
+   running an Omarchy theme, and the setting says to follow it, lib/theme.ts
+   sets these same properties on <html>, where an inline style wins over this
+   rule. Nothing else in the app knows a theme exists.
+
+   Custom properties, rather than rewriting the @theme block, because Tailwind
+   resolves @theme at build time: --color-brand-400 below is what every
+   bg-brand-400 in the app compiles to, and pointing it at a variable is what
+   makes the value changeable after the build.
+
+   The same properties are what makes the app light or dark. :root is dark,
+   which is AgentBox's own look and its default; the block after it is light,
+   and applies when lib/theme.ts puts data-appearance="light" on <html>. That
+   is the one mechanism — there is no dark: variant anywhere in the app, and no
+   colour written as a zinc, slate or neutral utility. A component asks for the
+   role it wants (text-muted, bg-surface-raised, border-line) and gets the
+   value the current mode gives that role. */
+:root {
+  --ab-brand-300: #c4b5fd;
+  --ab-brand-400: #a78bfa;
+  --ab-brand-500: #8b5cf6;
+  --ab-brand-600: #7c3aed;
+  --ab-ink: #07070b;
+  /* The two washes across the top of the window, and the selection: an
+     accent's alpha forms, because a colour-mix of a runtime variable is the
+     only way to tint them with one. */
+  --ab-wash-near: rgb(139 92 246 / 0.13);
+  --ab-wash-far: rgb(56 189 248 / 0.07);
+  --ab-selection: rgb(139 92 246 / 0.35);
+  /* The brand's companion hues, which its gradients run through after the
+     accent: Tailwind's indigo-500, indigo-600 and sky-400 by default. A theme
+     gives one accent, so under a theme these become shades of it. */
+  --ab-brand-mid: #6366f1;
+  --ab-brand-deep: #4f46e5;
+  --ab-brand-far: #38bdf8;
+
+  /* Text, from the loudest to the quietest. Dark is Tailwind's zinc ramp read
+     downwards (50 to 700); light reads the same ramp upwards, so every role
+     keeps its place in the order and only the direction of the contrast
+     changes. */
+  --ab-title: #fafafa;
+  --ab-primary: #f4f4f5;
+  --ab-secondary: #e4e4e7;
+  --ab-tertiary: #d4d4d8;
+  --ab-muted: #a1a1aa;
+  --ab-subtle: #71717a;
+  --ab-faint: #52525b;
+  --ab-ghost: #3f3f46;
+
+  /* Surfaces that sit on the window: a tint of the opposite of the ink, so a
+     panel lifts off the background in the dark and settles into it in the
+     light. Four steps, from the barest tint to a control that is clearly its
+     own thing. */
+  --ab-surface-faint: rgb(255 255 255 / 0.03);
+  --ab-surface: rgb(255 255 255 / 0.05);
+  --ab-surface-raised: rgb(255 255 255 / 0.065);
+  --ab-surface-strong: rgb(255 255 255 / 0.09);
+  --ab-surface-vivid: rgb(255 255 255 / 0.14);
+
+  /* Lines: borders, rings and dividers, in the same four steps plus a heavy
+     one for a control drawn over an image. Light needs more of them than dark
+     does — a 6% line reads on black and disappears on white — so these are
+     not the surface steps reused. */
+  --ab-line-faint: rgb(255 255 255 / 0.05);
+  --ab-line: rgb(255 255 255 / 0.065);
+  --ab-line-strong: rgb(255 255 255 / 0.1);
+  --ab-line-vivid: rgb(255 255 255 / 0.15);
+  --ab-line-heavy: rgb(255 255 255 / 0.25);
+
+  /* Layers that are not a tint of the ink but a depth against it: the chrome
+     down either side, a well an input or a block of code sits in, a deeper
+     well for a log, the menus and dialogs that float over everything, and the
+     scrim behind them. In the light these invert: a rail is lighter than the
+     page it is beside, not darker. */
+  --ab-rail: rgb(0 0 0 / 0.25);
+  --ab-sunken: rgb(0 0 0 / 0.3);
+  --ab-well: rgb(0 0 0 / 0.42);
+  --ab-overlay: rgb(24 24 27 / 0.95);
+  --ab-modal: rgb(9 9 11 / 0.95);
+  --ab-scrim: rgb(0 0 0 / 0.62);
+  --ab-gloss: rgb(255 255 255 / 0.25);
+  /* Three surfaces with a colour of their own rather than a tint of the ink,
+     because each is a room you sit inside rather than a card on a page: the
+     chat behind the conversation, the composer floating on it, and the stage a
+     terminal, a browser or an Android screen is framed in. */
+  --ab-chat: #09090d;
+  --ab-composer: #131318;
+  --ab-stage: #0a0a0f;
+  /* The banner on the composer's top edge, in its three tones. */
+  --ab-attached-warning: #1d1810;
+  --ab-attached-danger: #1f1014;
+  --ab-attached-neutral: #111116;
+  /* The .panel component: the gradient down a card and the shadow under it.
+     Light casts a real shadow where dark only hints at one, because a card on
+     a pale window is told apart by its edge rather than by its fill. */
+  --ab-panel-top: rgb(255 255 255 / 0.035);
+  --ab-panel-bottom: rgb(255 255 255 / 0.015);
+  --ab-panel-shadow:
+    0 1px 0 rgb(255 255 255 / 0.04) inset,
+    0 18px 40px -24px rgb(0 0 0 / 0.8);
+  /* What a thing that floats casts. Dark can afford near-black, because it is
+     already nearly black; light cannot, and a 90%-black drop shadow under a
+     menu on a white page is a bruise. Written as properties because these are
+     inside arbitrary shadow-[...] utilities, which have no colour of their
+     own to swap. */
+  --ab-shadow-deep: rgb(0 0 0 / 0.9);
+  --ab-shadow-soft: rgb(0 0 0 / 0.4);
+
+  /* A control painted the other way round from the window: the light button on
+     a dark app, and the dark one on a light app. */
+  --ab-inverted: #f4f4f5;
+  --ab-inverted-hover: #ffffff;
+  --ab-on-inverted: #18181b;
+  /* Text on a bright fill — an amber button, a brand one — which is the same
+     near-black whichever way round the window is. */
+  --ab-on-bright: #09090b;
+
+  /* The status hues. A status colour doesn't move with the theme (a running
+     agent is the same green under every wallpaper), but it does have to stay
+     legible, and a 300 that reads on black is invisible on white. So the light
+     mode below darkens each of these by about three steps of its ramp, and
+     every text-amber-300 in the app follows without being touched. */
+  --ab-emerald-200: #a7f3d0;
+  --ab-emerald-300: #6ee7b7;
+  --ab-emerald-400: #34d399;
+  --ab-amber-50: #fffbeb;
+  --ab-amber-100: #fef3c7;
+  --ab-amber-200: #fde68a;
+  --ab-amber-300: #fcd34d;
+  --ab-amber-400: #fbbf24;
+  --ab-rose-100: #ffe4e6;
+  --ab-rose-200: #fecdd3;
+  --ab-rose-300: #fda4af;
+  --ab-rose-400: #fb7185;
+  --ab-sky-50: #f0f9ff;
+  --ab-sky-200: #bae6fd;
+  --ab-sky-300: #7dd3fc;
+  --ab-sky-400: #38bdf8;
+  --ab-violet-300: #c4b5fd;
+  --ab-violet-400: #a78bfa;
+
+  /* The terminal's palette, read by lib/terminals.ts rather than by a class:
+     xterm.js is a canvas, and takes its colours as strings. */
+  --ab-term-background: #0a0a0f;
+  --ab-term-foreground: #e4e4e7;
+  --ab-term-black: #18181b;
+  --ab-term-bright-black: #52525b;
+  --ab-term-blue: #818cf8;
+  --ab-term-bright-blue: #a5b4fc;
+  --ab-term-magenta: #c084fc;
+  --ab-term-bright-magenta: #d8b4fe;
+  --ab-term-cyan: #67e8f9;
+  --ab-term-green: #6ee7b7;
+  --ab-term-yellow: #fcd34d;
+  --ab-term-red: #fb7185;
+}
+
+/* Light. The app is the same app: every role keeps its meaning and only its
+   value changes, so a panel is still a step away from the window and muted
+   text is still quieter than primary. The window is near-white, surfaces are a
+   tint of near-black over it (a panel settles rather than lifts), and the rail,
+   the wells and the menus go the other way and become white. */
+:root[data-appearance="light"] {
+  --ab-ink: #f4f4f6;
+  --ab-wash-near: rgb(139 92 246 / 0.1);
+  --ab-wash-far: rgb(56 189 248 / 0.08);
+  --ab-selection: rgb(139 92 246 / 0.28);
+
+  --ab-title: #09090b;
+  --ab-primary: #18181b;
+  --ab-secondary: #27272a;
+  --ab-tertiary: #3f3f46;
+  --ab-muted: #52525b;
+  --ab-subtle: #71717a;
+  --ab-faint: #a1a1aa;
+  --ab-ghost: #c4c4c8;
+
+  --ab-surface-faint: rgb(9 9 11 / 0.035);
+  --ab-surface: rgb(9 9 11 / 0.05);
+  --ab-surface-raised: rgb(9 9 11 / 0.07);
+  --ab-surface-strong: rgb(9 9 11 / 0.1);
+  --ab-surface-vivid: rgb(9 9 11 / 0.16);
+
+  --ab-line-faint: rgb(9 9 11 / 0.08);
+  --ab-line: rgb(9 9 11 / 0.11);
+  --ab-line-strong: rgb(9 9 11 / 0.16);
+  --ab-line-vivid: rgb(9 9 11 / 0.24);
+  --ab-line-heavy: rgb(9 9 11 / 0.38);
+
+  --ab-rail: rgb(255 255 255 / 0.58);
+  --ab-sunken: rgb(255 255 255 / 0.85);
+  --ab-well: rgb(255 255 255 / 0.7);
+  --ab-overlay: rgb(255 255 255 / 0.97);
+  --ab-modal: rgb(255 255 255 / 0.98);
+  --ab-scrim: rgb(9 9 11 / 0.4);
+  --ab-gloss: rgb(255 255 255 / 0.6);
+  --ab-chat: #fafafb;
+  --ab-composer: #ffffff;
+  /* The stage does not turn over: it frames another machine's screen — a
+     terminal, a browser, an Android emulator — and a pale mount around a dark
+     desktop is a worse frame than a dark one, in either mode. The terminal
+     inside it does turn over (--ab-term-* below). */
+  --ab-attached-warning: #fef6e7;
+  --ab-attached-danger: #fdeef0;
+  --ab-attached-neutral: #f4f4f6;
+  --ab-panel-top: rgb(255 255 255 / 0.85);
+  --ab-panel-bottom: rgb(255 255 255 / 0.6);
+  --ab-panel-shadow:
+    0 1px 0 rgb(255 255 255 / 0.9) inset,
+    0 10px 26px -18px rgb(9 9 11 / 0.35);
+  --ab-shadow-deep: rgb(9 9 11 / 0.24);
+  --ab-shadow-soft: rgb(9 9 11 / 0.12);
+
+  --ab-inverted: #27272a;
+  --ab-inverted-hover: #18181b;
+  --ab-on-inverted: #fafafa;
+
+  --ab-emerald-200: #047857;
+  --ab-emerald-300: #059669;
+  --ab-emerald-400: #059669;
+  --ab-amber-50: #451a03;
+  --ab-amber-100: #78350f;
+  --ab-amber-200: #b45309;
+  --ab-amber-300: #b45309;
+  --ab-amber-400: #d97706;
+  --ab-rose-100: #881337;
+  --ab-rose-200: #9f1239;
+  --ab-rose-300: #be123c;
+  --ab-rose-400: #e11d48;
+  --ab-sky-50: #082f49;
+  --ab-sky-200: #0369a1;
+  --ab-sky-300: #0284c7;
+  --ab-sky-400: #0284c7;
+  --ab-violet-300: #6d28d9;
+  --ab-violet-400: #7c3aed;
+
+  --ab-term-background: #fbfbfd;
+  --ab-term-foreground: #27272a;
+  --ab-term-black: #d4d4d8;
+  --ab-term-bright-black: #a1a1aa;
+  --ab-term-blue: #4f46e5;
+  --ab-term-bright-blue: #6366f1;
+  --ab-term-magenta: #9333ea;
+  --ab-term-bright-magenta: #a855f7;
+  --ab-term-cyan: #0e7490;
+  --ab-term-green: #047857;
+  --ab-term-yellow: #a16207;
+  --ab-term-red: #be123c;
+}
+
+@theme {
+  --font-sans: "Inter Variable", "Inter", "Noto Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, monospace;
+
+  --color-brand-300: var(--ab-brand-300);
+  --color-brand-400: var(--ab-brand-400);
+  --color-brand-500: var(--ab-brand-500);
+  --color-brand-600: var(--ab-brand-600);
+  --color-ink: var(--ab-ink);
+  --color-indigo-500: var(--ab-brand-mid);
+  --color-indigo-600: var(--ab-brand-deep);
+
+  /* The semantic layer: every neutral in the app is one of these. */
+  --color-title: var(--ab-title);
+  --color-primary: var(--ab-primary);
+  --color-secondary: var(--ab-secondary);
+  --color-tertiary: var(--ab-tertiary);
+  --color-muted: var(--ab-muted);
+  --color-subtle: var(--ab-subtle);
+  --color-faint: var(--ab-faint);
+  --color-ghost: var(--ab-ghost);
+
+  --color-surface-faint: var(--ab-surface-faint);
+  --color-surface: var(--ab-surface);
+  --color-surface-raised: var(--ab-surface-raised);
+  --color-surface-strong: var(--ab-surface-strong);
+  --color-surface-vivid: var(--ab-surface-vivid);
+
+  --color-line-faint: var(--ab-line-faint);
+  --color-line: var(--ab-line);
+  --color-line-strong: var(--ab-line-strong);
+  --color-line-vivid: var(--ab-line-vivid);
+  --color-line-heavy: var(--ab-line-heavy);
+
+  --color-rail: var(--ab-rail);
+  --color-sunken: var(--ab-sunken);
+  --color-well: var(--ab-well);
+  --color-overlay: var(--ab-overlay);
+  --color-modal: var(--ab-modal);
+  --color-scrim: var(--ab-scrim);
+  --color-gloss: var(--ab-gloss);
+
+  --color-chat: var(--ab-chat);
+  --color-composer: var(--ab-composer);
+  --color-stage: var(--ab-stage);
+  --color-terminal: var(--ab-term-background);
+  --color-attached-warning: var(--ab-attached-warning);
+  --color-attached-danger: var(--ab-attached-danger);
+  --color-attached-neutral: var(--ab-attached-neutral);
+
+  --color-inverted: var(--ab-inverted);
+  --color-inverted-hover: var(--ab-inverted-hover);
+  --color-on-inverted: var(--ab-on-inverted);
+  --color-on-bright: var(--ab-on-bright);
+
+  /* The status hues keep Tailwind's names, and take their value from the mode:
+     see the note beside --ab-emerald-200 above. */
+  --color-emerald-200: var(--ab-emerald-200);
+  --color-emerald-300: var(--ab-emerald-300);
+  --color-emerald-400: var(--ab-emerald-400);
+  --color-amber-50: var(--ab-amber-50);
+  --color-amber-100: var(--ab-amber-100);
+  --color-amber-200: var(--ab-amber-200);
+  --color-amber-300: var(--ab-amber-300);
+  --color-amber-400: var(--ab-amber-400);
+  --color-rose-100: var(--ab-rose-100);
+  --color-rose-200: var(--ab-rose-200);
+  --color-rose-300: var(--ab-rose-300);
+  --color-rose-400: var(--ab-rose-400);
+  --color-sky-50: var(--ab-sky-50);
+  --color-sky-200: var(--ab-sky-200);
+  --color-sky-300: var(--ab-sky-300);
+  --color-sky-400: var(--ab-sky-400);
+  --color-violet-300: var(--ab-violet-300);
+  --color-violet-400: var(--ab-violet-400);
+
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-pop-in: pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-slide-up: slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-glow: glow 2.4s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -48%) scale(0.97);
+    }
+  }
+  @keyframes slide-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  @keyframes glow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ab-emerald-400) 45%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 4px transparent;
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: -200% 0;
+    }
+    to {
+      background-position: 200% 0;
+    }
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  :root[data-appearance="light"] {
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    background-color: var(--color-ink);
+    background-image:
+      radial-gradient(900px 520px at -8% -12%, var(--ab-wash-near), transparent 62%),
+      radial-gradient(720px 420px at 108% -6%, var(--ab-wash-far), transparent 60%);
+    color: var(--ab-primary);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--ab-selection);
+  }
+
+  /* The scrollbars and the focus ring: the two people notice last and
+     complain about first, and the two with no class of their own to convert. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ab-line-vivid) transparent;
+  }
+
+  :focus-visible {
+    outline-color: var(--ab-brand-400);
+  }
+}
+
+@layer components {
+  .panel {
+    border: 1px solid var(--ab-line);
+    background: linear-gradient(180deg, var(--ab-panel-top), var(--ab-panel-bottom));
+    box-shadow: var(--ab-panel-shadow);
+  }
+
+  .brand-gradient {
+    background-image: linear-gradient(135deg, var(--color-brand-400), var(--ab-brand-mid) 55%, var(--ab-brand-far));
+  }
+
+  .text-gradient {
+    background-image: linear-gradient(120deg, var(--ab-title) 20%, var(--color-brand-300) 60%, var(--ab-brand-far));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, var(--ab-surface-faint), var(--ab-surface-strong), var(--ab-surface-faint));
+    background-size: 200% 100%;
+    animation: var(--animate-shimmer);
+  }
+}
+
+.xterm .xterm-viewport {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ab-line-vivid) transparent;
+}
+
+/* noVNC's canvas container fills the Desktop tab. */
+[data-browser-view] > div {
+  background: transparent !important;
+}
+
+/* The chat's Markdown, spaced like t3code's. */
+.chat-markdown {
+  overflow-wrap: anywhere;
+}
+
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown p,
+.chat-markdown ul,
+.chat-markdown ol,
+.chat-markdown blockquote,
+.chat-markdown .chat-codeblock,
+.chat-markdown .chat-markdown-table {
+  margin: 0.65rem 0;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  margin: 1.25rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ab-title);
+}
+
+.chat-markdown h1 {
+  font-size: 1.25rem;
+}
+
+.chat-markdown h2 {
+  font-size: 1.125rem;
+}
+
+.chat-markdown h3 {
+  font-size: 1rem;
+}
+
+.chat-markdown h4,
+.chat-markdown h5,
+.chat-markdown h6 {
+  font-size: 0.875rem;
+}
+
+.chat-markdown ul {
+  padding-left: 1.25rem;
+  list-style-type: disc;
+}
+
+.chat-markdown ol {
+  padding-left: 1.4rem;
+  list-style-type: decimal;
+}
+
+.chat-markdown ul ul {
+  list-style-type: circle;
+}
+
+.chat-markdown li + li {
+  margin-top: 0.25rem;
+}
+
+.chat-markdown li > ul,
+.chat-markdown li > ol {
+  margin: 0.25rem 0;
+}
+
+.chat-markdown li::marker {
+  color: var(--ab-subtle);
+}
+
+.chat-markdown strong {
+  font-weight: 600;
+  color: var(--ab-title);
+}
+
+.chat-markdown a {
+  color: var(--color-brand-300);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ab-brand-300) 35%, transparent);
+  text-underline-offset: 2px;
+}
+
+.chat-markdown a:hover {
+  text-decoration-color: currentColor;
+}
+
+.chat-markdown hr {
+  margin: 1rem 0;
+  border-color: var(--ab-line-strong);
+}
+
+.chat-markdown blockquote {
+  border-left: 2px solid var(--ab-line-vivid);
+  padding-left: 0.8rem;
+  color: var(--ab-muted);
+}
+
+.chat-markdown :not(pre) > code {
+  border: 1px solid var(--ab-line-strong);
+  border-radius: 0.375rem;
+  background: var(--ab-surface);
+  padding: 0.08rem 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  color: var(--ab-secondary);
+}
+
+.chat-codeblock {
+  overflow: hidden;
+  border: 1px solid var(--ab-line);
+  border-radius: 0.75rem;
+  background: var(--ab-well);
+}
+
+.chat-codeblock pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.7rem 0.9rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--ab-tertiary);
+  overflow-wrap: normal;
+}
+
+.chat-markdown-table {
+  overflow-x: auto;
+}
+
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  overflow-wrap: normal;
+}
+
+.chat-markdown th,
+.chat-markdown td {
+  padding: 0.45rem 0.75rem;
+  text-align: left;
+}
+
+.chat-markdown thead th {
+  border-bottom: 1px solid var(--ab-line-strong);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--ab-secondary);
+}
+
+.chat-markdown tbody td {
+  border-bottom: 1px solid var(--ab-line-faint);
+}
+
+/* Blocks of a streaming message fade in rather than pop. */
+@media (prefers-reduced-motion: no-preference) {
+  .chat-markdown[data-streaming] > * {
+    transition: opacity 600ms ease-out;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+
+/* A label with a highlight sweeping across it: what's happening right now. */
+.chat-shine {
+  color: transparent;
+  background-image:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--ab-title) 90%, transparent), transparent),
+    linear-gradient(var(--ab-subtle), var(--ab-subtle));
+  background-size:
+    4.5rem 100%,
+    100% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: chat-shine 2.2s linear infinite;
+}
+
+@keyframes chat-shine {
+  from {
+    background-position:
+      -4.5rem 0,
+      0 0;
+  }
+  to {
+    background-position:
+      calc(100% + 4.5rem) 0,
+      0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-shine {
+    animation: none;
+    background: none;
+    color: var(--ab-muted);
+  }
+}

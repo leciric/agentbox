@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # Go's version comes from mise.toml, so CI and a checkout can't drift.
+      # ttyd and pnpm are the host's tools, and nothing here needs them.
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: go
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - run: go vet ./...
+
+      # The Incus tests are behind the `integration` build tag, so no ordinary
+      # build sees them and this runner can't run them. Vetting them with the
+      # tag at least keeps them compiling against the code they test.
+      - run: go vet -tags integration ./...
+
+      - run: go test ./...
+
+      # On a Mac, agentbox is the front end of AgentBox's Linux VM
+      # (internal/hostvm), and the VM runs the arm64 Linux build: both have to
+      # keep compiling, whatever this runner is.
+      - name: Build for a Mac and its VM
+        run: |
+          GOOS=darwin GOARCH=arm64 go vet ./cmd/agentbox ./internal/hostvm ./internal/paths
+          GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
+          GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
+
+  # The front end's own tests, on a Mac: they drive a fake limactl, so no VM
+  # is made, but they run on the OS they're for.
+  macos:
+    name: Go on macOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: go
+
+      - run: go test ./internal/hostvm ./internal/paths
+
+  desktop:
+    name: Desktop
+    runs-on: ubuntu-24.04
+    env:
+      # Nothing here launches Electron — only typecheck and bundle — so skip the
+      # ~100 MB runtime npm would otherwise fetch on install. The release
+      # workflow, which packages the AppImage, does not set this.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: node
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - run: npm --prefix desktop ci
+
+      - run: npm --prefix desktop run typecheck
+
+      # The main process, the preload script and the renderer, into out/.
+      # Packaging the AppImage takes minutes and belongs to the release.
+      - run: npm --prefix desktop run build
+
+  # The Windows front end (D94): agentbox.exe, which runs everything else in a
+  # WSL distro, and the relay the app reaches the daemon through. Its tests
+  # run the relay end to end against fakewsl, a stand-in for wsl.exe, over a
+  # real named pipe — which wine can't do, so this is the only place it runs.
+  # GitHub's Windows runners have no nested virtualisation, so no WSL 2 and no
+  # real distro: that part is checked by hand (see PR #94).
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: go
+
+      - run: go vet ./cmd/agentbox ./internal/hostos ./internal/hostwsl/...
+
+      - run: go test ./internal/hostos ./internal/hostwsl/...
+
+      - run: go build -o bin/agentbox.exe ./cmd/agentbox
+
+      - run: bin/agentbox.exe --version
+
+      # What the runner has of WSL, for the log: nothing here depends on it.
+      - run: |
+          wsl --status
+          bin/agentbox.exe wsl status
+        continue-on-error: true

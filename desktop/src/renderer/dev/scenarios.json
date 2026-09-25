@@ -1,0 +1,72 @@
+[
+  {
+    "id": "pr-agent-dark",
+    "description": "Stack trace in a code block, long PR title, PR badge \u2014 dark, xl width (312px rail)",
+    "query": "open=agent-99&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "question-agent-dark",
+    "description": "Compressed JSON payload, escalation URL and a long context path in a question \u2014 dark, xl width",
+    "query": "open=agent-98&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "longpath-agent-dark",
+    "description": "Code block, inline code, a markdown link and a long path in a summary \u2014 dark, xl width",
+    "query": "open=agent-97&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "longpath-agent-below-xl-dark",
+    "description": "Same as longpath-agent-dark, below the xl breakpoint (268px rail)",
+    "query": "open=agent-97&theme=dark",
+    "width": 1100,
+    "height": 900
+  },
+  {
+    "id": "folded-dark",
+    "description": "Rail folded to 56px",
+    "query": "folded=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "pr-agent-light",
+    "description": "Same as pr-agent-dark, light appearance",
+    "query": "open=agent-99&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "mac-vm-setup-dark",
+    "description": "A Mac's first screen: AgentBox's Linux VM to set up \u2014 dark, xl width",
+    "query": "vm=create&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "mac-vm-lima-light",
+    "description": "A Mac's first screen without Lima: brew install lima first \u2014 light, lg width",
+    "query": "vm=lima&theme=light",
+    "width": 1024,
+    "height": 800
+  },
+  {
+    "id": "vm-resize-dark",
+    "description": "Settings' panel for the Mac VM's CPUs and memory \u2014 dark",
+    "query": "vm=resize&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "vm-resize-light",
+    "description": "Settings' panel for the Mac VM's CPUs and memory \u2014 light",
+    "query": "vm=resize&theme=light",
+    "width": 1280,
+    "height": 900
+  }
+]

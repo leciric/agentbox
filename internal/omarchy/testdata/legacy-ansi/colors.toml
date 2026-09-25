@@ -1,0 +1,6 @@
+# A theme from before Omarchy's semantic palette: ANSI names only.
+[colors.primary]
+color0 = '#101014'
+color4 = '#5f87d7'
+color7 = '#d0d0d0'
+color8 = '#585858'
