@@ -18,6 +18,7 @@ import { Notice } from "./components/ui/card";
 import { api } from "./lib/api";
 import { resetChatEvents } from "./lib/chat";
 import { onMedia, useConnection } from "./lib/events";
+import { setupCard } from "./lib/setup";
 import { kindInfo } from "./lib/media";
 import { useHostTheme } from "./lib/theme";
 
@@ -50,17 +51,10 @@ export function App() {
     queryFn: () => window.agentbox.hostSetup.status(),
     enabled:
       (info.data?.platform === "darwin" || info.data?.platform === "win32") &&
-      connection.state === "disconnected",
+      connection.state !== "connected",
     refetchInterval: 3_000,
   });
-  const vmToSetUp =
-    connection.state === "disconnected" && hostSetup.data?.vm?.problem
-      ? hostSetup.data.vm
-      : null;
-  const wslToSetUp =
-    connection.state === "disconnected" && hostSetup.data?.wsl?.problem
-      ? hostSetup.data.wsl
-      : null;
+  const setup = setupCard(connection, hostSetup.data);
   const seen = useRef<string | null>(null);
   const queryClient = useQueryClient();
   // AgentBox wears the theme of the desktop it runs on, unless that is turned
@@ -192,13 +186,13 @@ export function App() {
         />
         <div className="flex min-h-0 min-w-0 flex-1">
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {vmToSetUp ? (
+            {setup?.kind === "vm" ? (
               <div className="px-4 pt-4 md:px-6">
-                <VMSetup vm={vmToSetUp} />
+                <VMSetup vm={setup.vm} />
               </div>
-            ) : wslToSetUp ? (
+            ) : setup?.kind === "wsl" ? (
               <div className="px-4 pt-4 md:px-6">
-                <WSLSetup wsl={wslToSetUp} />
+                <WSLSetup wsl={setup.wsl} />
               </div>
             ) : (
               connection.state === "disconnected" && (

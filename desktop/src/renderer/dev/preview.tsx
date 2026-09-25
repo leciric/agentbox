@@ -21,6 +21,10 @@
 //                           resize streams made-up output
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
+//   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
+//                           make, or WSL to install first. The connection keeps
+//                           failing underneath, as it does there, and the card
+//                           has to stay put through it (lib/setup.ts)
 //   ?accounts=1             Settings' Claude Code accounts, with a rename the
 //                           dev bridge answers (fixtures.ts)
 // See scenarios.json for the set scripts/preview.mjs captures.
@@ -28,8 +32,9 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles.css';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import type { ConnectionState, HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
 import { Toaster } from 'sonner';
 import type { View } from '../App';
@@ -39,6 +44,8 @@ import { Sidebar } from '../components/Sidebar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { VMSize } from '../components/VMSize';
+import { WSLSetup } from '../components/WSLSetup';
+import { setupCard } from '../lib/setup';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
@@ -51,7 +58,33 @@ document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"; matches AgentRail's data-rail-thread
 const vm = params.get('vm');
+const wsl = params.get('wsl');
 const accounts = params.get('accounts') === '1';
+
+const windowsBeforeSetup: HostSetupStatus = {
+  pkexec: null,
+  user: 'leandro',
+  running: false,
+  resizing: false,
+  vm: null,
+  wsl:
+    wsl === 'nowsl'
+      ? { wsl: '', name: 'AgentBox', user: '', exists: false, problem: "WSL 2 isn't installed: run wsl --install --no-distribution" }
+      : { wsl: '2.4.13.0', name: 'AgentBox', user: '', exists: false, problem: "AgentBox's WSL distro isn't set up: run agentbox wsl init" },
+};
+
+// FailingConnection goes through what the app sees before the distro exists,
+// every attempt at the daemon failing, and shows the card App would.
+function FailingConnection() {
+  const [connection, setConnection] = useState<ConnectionState>({ state: 'connecting' });
+  useEffect(() => {
+    const error = "the AgentBox daemon isn't running";
+    const timer = setInterval(() => setConnection((c) => (c.state === 'connecting' ? { state: 'disconnected', error } : { state: 'connecting', error })), 400);
+    return () => clearInterval(timer);
+  }, []);
+  const card = setupCard(connection, windowsBeforeSetup);
+  return <div style={{ maxWidth: 720 }}>{card?.kind === 'wsl' && <WSLSetup wsl={card.wsl} />}</div>;
+}
 
 const chat = params.get('chat');
 const fixtures = buildFixtures();
@@ -107,6 +140,8 @@ function Preview() {
           <div className="mx-auto max-w-3xl px-2 pt-2">
             <Timeline agent={chatAgent} thread={agent12Chat()} />
           </div>
+        ) : wsl ? (
+          <FailingConnection />
         ) : vm === 'resize' ? (
           <div style={{ maxWidth: 720 }}>
             <VMSize

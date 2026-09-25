@@ -196,7 +196,7 @@ export async function stopVM(): Promise<void> {
   }
 }
 
-let lastWSL: { at: number; value: WSLStatus } | undefined;
+let lastWSL: { at: number; value: WSLStatus; parsed: boolean } | undefined;
 
 export function wslStatus(): Promise<WSLStatus | null> {
   if (!onWindows) return Promise.resolve(null);
@@ -209,9 +209,18 @@ export function wslStatus(): Promise<WSLStatus | null> {
       { timeout: 30_000, windowsHide: true },
       (err, stdout, stderr) => {
         let value: WSLStatus;
+        let parsed = true;
         try {
           value = JSON.parse(stdout) as WSLStatus;
         } catch {
+          parsed = false;
+          // A probe that failed says nothing new about the distro: keep the
+          // last answer that did, or the card switches to "install WSL" and
+          // back whenever wsl.exe is slow or busy booting it.
+          if (lastWSL?.parsed) {
+            lastWSL = { ...lastWSL, at: Date.now() };
+            return resolve(lastWSL.value);
+          }
           value = {
             wsl: "",
             name: "AgentBox",
@@ -224,7 +233,7 @@ export function wslStatus(): Promise<WSLStatus | null> {
             ).replace(/^error: /, ""),
           };
         }
-        lastWSL = { at: Date.now(), value };
+        lastWSL = { at: Date.now(), value, parsed };
         resolve(value);
       },
     );
