@@ -150,6 +150,7 @@ func TestClaudeMenuIsKnownOnceAnAdapterSentOne(t *testing.T) {
 // AgentBox's own default, leads on Claude Code's, both at the compact window —
 // and choosing one role's never moves the other's.
 func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	// An installation from before the split chose a model for its agents.

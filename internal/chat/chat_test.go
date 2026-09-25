@@ -2094,6 +2094,7 @@ func TestHaikuHasNoContextWindowChoice(t *testing.T) {
 // adapter starts, and a choice made in its composer still wins. An agent's
 // chat never reads them.
 func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	for key, value := range map[string]string{

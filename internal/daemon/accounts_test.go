@@ -51,6 +51,7 @@ func addProjectAllowingEvery(t *testing.T, d testDaemon, repo string) {
 // account it was given allowed, or the machine's default when it was given
 // none, rather than an empty list, which still allows every account.
 func TestNewProjectAllowsItsOwnAccount(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}
@@ -429,6 +430,7 @@ func TestRenameClaudeAccount(t *testing.T) {
 // project over, keeps the machine default on the same account, and refuses a
 // name that is taken or invalid without touching anything.
 func TestRenameGitHubAccount(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	creds := credentials.Store{Dir: d.paths.Credentials()}

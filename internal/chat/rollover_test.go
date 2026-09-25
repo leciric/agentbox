@@ -242,6 +242,7 @@ func TestCompactWaitsForARunningTurn(t *testing.T) {
 // The card is up before the consolidation starts and says it runs, so the user
 // sees the compaction as it happens rather than only once it is over.
 func TestTheCompactionCardRunsLive(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, rec := newManager(t, store, f)
@@ -283,6 +284,7 @@ func TestTheCompactionCardRunsLive(t *testing.T) {
 // the session being thrown away: it waits under the card, and becomes the
 // fresh session's first turn once the roll is done.
 func TestAMessageSentMidCompactionGoesToTheFreshSession(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -353,6 +355,7 @@ func TestAMessageSentMidCompactionGoesToTheFreshSession(t *testing.T) {
 // Idle is the daemon's cue to compact without anyone waiting: it fires once a
 // turn has ended with nothing following it.
 func TestIdleFiresWhenATurnEnds(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -377,6 +380,7 @@ func TestIdleFiresWhenATurnEnds(t *testing.T) {
 // A card a previous daemon left running can't be finished by this one: it is
 // shown as failed, the way a turn left running is.
 func TestARunningCardFromAnotherDaemonFails(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)

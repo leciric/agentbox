@@ -6,6 +6,7 @@ import (
 )
 
 func TestPromptCacheTTLOf(t *testing.T) {
+	t.Parallel()
 	for doc, want := range map[string]time.Duration{
 		``:                         0,
 		`not json`:                 0,
