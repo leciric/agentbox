@@ -370,7 +370,7 @@ request is how we count active installations.
 **What is sent** is one HTTPS request with four query parameters, and nothing else:
 
 ```
-GET https://agentbox.linting.dev/api/v1/latest?install=<uuid>&version=0.16.0&os=linux&arch=amd64
+GET https://agentbox.linting.dev/api/v1/latest?install=<uuid>&version=0.1.0&os=linux&arch=amd64
 ```
 
 - `install`: a random UUID, made the first time the check runs and kept in AgentBox's own database

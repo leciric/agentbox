@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=AgentBox
+Comment=Isolated machines for AI coding agents
+Exec=agentbox-desktop %U
+Icon=agentbox-desktop
+Terminal=false
+Categories=Development;
+StartupNotify=true
+StartupWMClass=agentbox-desktop

@@ -1,7 +1,7 @@
 {
   "name": "agentbox-desktop",
   "private": true,
-  "version": "0.16.0",
+  "version": "0.1.0",
   "description": "AgentBox desktop app: a client of the AgentBox daemon",
   "author": "AgentBox",
   "license": "MIT",
