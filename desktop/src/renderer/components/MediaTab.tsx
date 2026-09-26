@@ -426,25 +426,28 @@ export function MediaCard({
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-well">
         <Thumbnail item={item} />
-        {/* In Select mode the tick takes the kind badge's corner, so it never
-            collides with the agent's label on the other side. */}
-        <span className="absolute left-2 top-2">
-          {selecting ? (
-            <Tick checked={selected === true} />
-          ) : (
-            <Badge variant={kindVariant[item.kind]} className="bg-black/60 backdrop-blur">
-              <info.icon />
-              {info.one}
-            </Badge>
+        {/* In Select mode the tick takes the kind badge's corner. The two sit
+            in one row, so a long agent label shortens instead of covering the
+            kind badge. */}
+        <span className="absolute inset-x-2 top-2 flex items-start justify-between gap-2">
+          <span className="shrink-0">
+            {selecting ? (
+              <Tick checked={selected === true} />
+            ) : (
+              <Badge variant={kindVariant[item.kind]} className="bg-black/60 backdrop-blur">
+                <info.icon />
+                {info.one}
+              </Badge>
+            )}
+          </span>
+          {label && (
+            <span className="flex min-w-0 justify-end" data-media-agent={item.agentName}>
+              <Badge className="block min-w-0 truncate bg-black/70 backdrop-blur" title={label}>
+                {label}
+              </Badge>
+            </span>
           )}
         </span>
-        {label && (
-          <span className="absolute right-2 top-2 max-w-[70%]" data-media-agent={item.agentName}>
-            <Badge className="truncate bg-black/70 backdrop-blur" title={label}>
-              {label}
-            </Badge>
-          </span>
-        )}
         {item.kind === 'recording' && item.meta.duration ? (
           <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-primary">{clock(item.meta.duration)}</span>
         ) : null}
