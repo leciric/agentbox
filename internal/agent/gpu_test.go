@@ -12,19 +12,19 @@ import (
 )
 
 // gpuQueryIncus is fakeIncus that answers "query" with an instance that
-// already carries an agentbox-gpu device, and "config device remove" and
-// "config device add" the way loggingIncus's underlying script does: it just
-// needs to exist and exit clean, since the calls themselves are what's
-// checked.
+// already carries an agentbox-gpu device and nvidia.runtime=true, and
+// "config device remove"/"config device add"/"config set" the way
+// loggingIncus's underlying script does: it just needs to exist and exit
+// clean, since the calls themselves are what's checked.
 const gpuQueryIncus = `case "$1" in
-  query) echo '{"devices":{"agentbox-gpu":{"type":"gpu"}}}' ;;
+  query) echo '{"config":{"nvidia.runtime":"true"},"devices":{"agentbox-gpu":{"type":"gpu"}}}' ;;
 esac
 exit 0
 `
 
-// gpuNoDeviceIncus answers "query" with no devices at all.
+// gpuNoDeviceIncus answers "query" with no devices and no config at all.
 const gpuNoDeviceIncus = `case "$1" in
-  query) echo '{"devices":{}}' ;;
+  query) echo '{"config":{},"devices":{}}' ;;
 esac
 exit 0
 `
@@ -36,29 +36,63 @@ func TestApplyGPUAddsTheDeviceOnlyWhenMissing(t *testing.T) {
 	if err := m.ApplyGPU(context.Background(), "ab-p-a1", true, status); err != nil {
 		t.Fatal(err)
 	}
-	oneCall(t, calls(), "config device add ab-p-a1 agentbox-gpu gpu")
+	oneCall(t, calls(), "config device add ab-p-a1 agentbox-gpu gpu mode=0666")
 }
 
-func TestApplyGPUAddsTheNVIDIARuntimeFlag(t *testing.T) {
+func TestApplyGPUAddsTheDeviceWithAModeEveryUserCanOpen(t *testing.T) {
+	// mode=0666, not a gid, because a device added while the agent already
+	// runs isn't handed to a group its shell was ever in — the same reason
+	// android.go's /dev/kvm device uses mode=0666 instead of the kvm group.
+	inc, calls := loggingIncus(t, gpuNoDeviceIncus)
+	m := &agent.Manager{Incus: inc}
+	status := agent.GPUStatus{Kind: agent.GPUAMD, Node: "/dev/dri/renderD128"}
+	if err := m.ApplyGPU(context.Background(), "ab-p-a1", true, status); err != nil {
+		t.Fatal(err)
+	}
+	call := oneCall(t, calls(), "config device add ab-p-a1 agentbox-gpu gpu")
+	if !strings.Contains(call, "mode=0666") {
+		t.Errorf("call = %q, want mode=0666", call)
+	}
+}
+
+func TestApplyGPUSetsNvidiaRuntimeAsInstanceConfigNotADeviceProperty(t *testing.T) {
 	inc, calls := loggingIncus(t, gpuNoDeviceIncus)
 	m := &agent.Manager{Incus: inc}
 	status := agent.GPUStatus{Kind: agent.GPUNvidia, Node: "/dev/nvidia0"}
 	if err := m.ApplyGPU(context.Background(), "ab-p-a1", true, status); err != nil {
 		t.Fatal(err)
 	}
-	oneCall(t, calls(), "config device add ab-p-a1 agentbox-gpu gpu nvidia.runtime=true")
+	device := oneCall(t, calls(), "config device add ab-p-a1 agentbox-gpu")
+	if strings.Contains(device, "nvidia.runtime") {
+		t.Errorf("nvidia.runtime is an instance config key, not a device property: %q", device)
+	}
+	oneCall(t, calls(), "config set ab-p-a1 nvidia.runtime=true")
 }
 
-func TestApplyGPULeavesAnExistingDeviceAlone(t *testing.T) {
-	inc, calls := loggingIncus(t, gpuQueryIncus)
+func TestApplyGPUDoesNotSetNvidiaRuntimeOnAnAMDHost(t *testing.T) {
+	inc, calls := loggingIncus(t, gpuNoDeviceIncus)
 	m := &agent.Manager{Incus: inc}
 	status := agent.GPUStatus{Kind: agent.GPUAMD, Node: "/dev/dri/renderD128"}
 	if err := m.ApplyGPU(context.Background(), "ab-p-a1", true, status); err != nil {
 		t.Fatal(err)
 	}
 	for _, call := range calls() {
+		if strings.Contains(call, "nvidia.runtime") {
+			t.Errorf("no call should mention nvidia.runtime on an AMD host: %q", call)
+		}
+	}
+}
+
+func TestApplyGPULeavesAnExistingDeviceAndRuntimeFlagAlone(t *testing.T) {
+	inc, calls := loggingIncus(t, gpuQueryIncus)
+	m := &agent.Manager{Incus: inc}
+	status := agent.GPUStatus{Kind: agent.GPUNvidia, Node: "/dev/nvidia0"}
+	if err := m.ApplyGPU(context.Background(), "ab-p-a1", true, status); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range calls() {
 		if strings.HasPrefix(call, "config") {
-			t.Errorf("nothing should have run against an instance that already has the device: %q", call)
+			t.Errorf("nothing should have run against an instance already matching on: %q", call)
 		}
 	}
 }
@@ -70,6 +104,16 @@ func TestApplyGPURemovesTheDeviceWhenTurnedOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	oneCall(t, calls(), "config device remove ab-p-a1 agentbox-gpu")
+}
+
+func TestApplyGPUClearsTheRuntimeFlagWhenTurnedOff(t *testing.T) {
+	inc, calls := loggingIncus(t, gpuQueryIncus)
+	m := &agent.Manager{Incus: inc}
+	status := agent.GPUStatus{Kind: agent.GPUNvidia, Node: "/dev/nvidia0"}
+	if err := m.ApplyGPU(context.Background(), "ab-p-a1", false, status); err != nil {
+		t.Fatal(err)
+	}
+	oneCall(t, calls(), "config set ab-p-a1 nvidia.runtime=false")
 }
 
 // TestRecomputeGPURemovesTheDeviceFromEveryAgent exercises RecomputeGPU

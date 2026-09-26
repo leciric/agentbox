@@ -77,41 +77,83 @@ func gpuOn(ctx context.Context, m *Manager) (bool, GPUStatus, error) {
 }
 
 // gpuDeviceArgs is the tail of `incus config device add <instance>
-// agentbox-gpu ...` for status: Incus's own gpu device type, which already
-// knows how to find and pass through a GPU, unlike kvm's or the Android SDK's
-// unix-char/disk devices. nvidia.runtime=true on an NVIDIA host asks Incus to
-// run the container through the NVIDIA container runtime, so its driver
-// libraries and CUDA/EGL/Vulkan loaders land inside the agent alongside the
-// device node — without it, the agent would get /dev/nvidia0 but none of the
-// userspace that talks to it.
-func gpuDeviceArgs(status GPUStatus) []string {
-	args := []string{"gpu"}
-	if status.Kind == GPUNvidia {
-		args = append(args, "nvidia.runtime=true")
+// agentbox-gpu ...`: Incus's own gpu device type, which already knows how to
+// find and pass through a GPU, unlike kvm's or the Android SDK's
+// unix-char/disk devices. mode=0666, the same as android.go's /dev/kvm
+// device and for the same reason: Incus only gives a newly added device's
+// group to processes started after the add, so an agent already running when
+// the setting turns on would otherwise get a device node its shell's group
+// can't open.
+func gpuDeviceArgs() []string {
+	return []string{"gpu", "mode=0666"}
+}
+
+// nvidiaRuntimeKey is an instance config key, not a gpu device property (an
+// early version of this code set it as one, which Incus silently ignores):
+// it asks Incus to run the container through the NVIDIA container runtime, so
+// its driver libraries and CUDA/EGL/Vulkan loaders land inside the agent
+// alongside the device node the gpu device adds — without it, the agent
+// would get /dev/nvidia0 but none of the userspace that talks to it. Incus
+// only reads this key when the container starts, so it has no effect on one
+// already running until it is restarted.
+const nvidiaRuntimeKey = "nvidia.runtime"
+
+// gpuCreateSteps is the tail of Create's own steps list when status is on and
+// this new instance should get it: unlike ApplyGPU, these run before
+// "start", so nvidia.runtime — which Incus only reads at start — takes
+// effect from the agent's first boot instead of needing the restart
+// ApplyGPU's toggle does on one already running. hasDevice is whether the
+// copy this instance was made from already carries agentbox-gpu (copying
+// another agent brings its devices along, same as limitSteps and
+// configuredCPUSteps check).
+func gpuCreateSteps(instance string, status GPUStatus, hasDevice bool) [][]string {
+	var steps [][]string
+	if !hasDevice {
+		steps = append(steps, append([]string{"config", "device", "add", instance, gpuDevice}, gpuDeviceArgs()...))
 	}
-	return args
+	if status.Kind == GPUNvidia {
+		steps = append(steps, []string{"config", "set", instance, nvidiaRuntimeKey + "=true"})
+	}
+	return steps
 }
 
 // ApplyGPU adds or removes instance's agentbox-gpu device to match on, the
 // same idempotent add-if-missing/remove-if-present shape prepareAndroid uses
-// for /dev/kvm. Incus applies a device change to a running container as well
-// as a stopped one, but some drivers only hand the device to processes
-// started after the change, so an agent already using its GPU (an emulator,
-// a Chromium already running) may need to be restarted to pick up a change
-// made while it runs.
+// for /dev/kvm, and sets or clears nvidia.runtime alongside it on an NVIDIA
+// host. Incus applies a device change to a running container as well as a
+// stopped one, but some drivers only hand the device to processes started
+// after the change, so an agent already using its GPU (an emulator, a
+// Chromium already running) may need to be restarted to pick up a change
+// made while it runs — nvidia.runtime doubly so, since Incus only applies it
+// at start regardless.
 func (m *Manager) ApplyGPU(ctx context.Context, instance string, on bool, status GPUStatus) error {
-	devices, err := m.Incus.Devices(ctx, instance)
+	details, err := m.Incus.Details(ctx, instance)
 	if err != nil {
 		return err
 	}
-	_, has := devices[gpuDevice]
+	_, has := details.Devices[gpuDevice]
 	switch {
 	case on && !has:
-		args := append([]string{"config", "device", "add", instance, gpuDevice}, gpuDeviceArgs(status)...)
-		_, err = m.Incus.Run(ctx, args...)
+		args := append([]string{"config", "device", "add", instance, gpuDevice}, gpuDeviceArgs()...)
+		if _, err := m.Incus.Run(ctx, args...); err != nil {
+			return err
+		}
 	case !on && has:
-		_, err = m.Incus.Run(ctx, "config", "device", "remove", instance, gpuDevice)
+		if _, err := m.Incus.Run(ctx, "config", "device", "remove", instance, gpuDevice); err != nil {
+			return err
+		}
 	}
+	if status.Kind != GPUNvidia {
+		return nil
+	}
+	want := "false"
+	if on {
+		want = "true"
+	}
+	if details.Config[nvidiaRuntimeKey] == want {
+		return nil
+	}
+	_, err = m.Incus.Run(ctx, "config", "set", instance, nvidiaRuntimeKey+"="+want)
 	return err
 }
 

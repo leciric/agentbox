@@ -44,24 +44,51 @@ func TestHostGPUFindsWhicheverDeviceIsThere(t *testing.T) {
 	}
 }
 
-func TestGPUDeviceArgsAddsTheNVIDIARuntimeOnlyForNVIDIA(t *testing.T) {
-	cases := []struct {
-		status GPUStatus
-		want   []string
-	}{
-		{GPUStatus{Kind: GPUAMD, Node: "/dev/dri/renderD128"}, []string{"gpu"}},
-		{GPUStatus{Kind: GPUNvidia, Node: "/dev/nvidia0"}, []string{"gpu", "nvidia.runtime=true"}},
+// TestGPUDeviceArgsUsesAModeNotNvidiaRuntime checks gpuDeviceArgs is the same
+// regardless of GPU kind, and never carries nvidia.runtime: that key belongs
+// to instance config (ApplyGPU and Create's build set it with `config set`),
+// not to the gpu device itself, which Incus would silently ignore it on.
+func TestGPUDeviceArgsUsesAModeNotNvidiaRuntime(t *testing.T) {
+	want := []string{"gpu", "mode=0666"}
+	got := gpuDeviceArgs()
+	if len(got) != len(want) {
+		t.Fatalf("gpuDeviceArgs() = %v, want %v", got, want)
 	}
-	for _, c := range cases {
-		got := gpuDeviceArgs(c.status)
-		if len(got) != len(c.want) {
-			t.Fatalf("gpuDeviceArgs(%+v) = %v, want %v", c.status, got, c.want)
+	for i := range got {
+		if got[i] != want[i] {
+			t.Fatalf("gpuDeviceArgs() = %v, want %v", got, want)
 		}
-		for i := range got {
-			if got[i] != c.want[i] {
-				t.Fatalf("gpuDeviceArgs(%+v) = %v, want %v", c.status, got, c.want)
-			}
-		}
+	}
+}
+
+// TestGPUCreateStepsSetsNvidiaRuntimeBeforeStart checks Create's own steps
+// builder: the device add always carries mode=0666, nvidia.runtime is a
+// separate "config set" step (not folded into the device args, which Incus
+// would silently ignore it on), and an instance copied from another agent
+// that already has the device only gets the runtime step, not a second add.
+func TestGPUCreateStepsSetsNvidiaRuntimeBeforeStart(t *testing.T) {
+	amd := GPUStatus{Kind: GPUAMD, Node: "/dev/dri/renderD128"}
+	nvidia := GPUStatus{Kind: GPUNvidia, Node: "/dev/nvidia0"}
+
+	steps := gpuCreateSteps("ab-p-a1", amd, false)
+	if len(steps) != 1 || strings.Join(steps[0], " ") != "config device add ab-p-a1 agentbox-gpu gpu mode=0666" {
+		t.Fatalf("gpuCreateSteps(amd, false) = %v", steps)
+	}
+
+	steps = gpuCreateSteps("ab-p-a1", nvidia, false)
+	if len(steps) != 2 {
+		t.Fatalf("gpuCreateSteps(nvidia, false) = %v, want 2 steps", steps)
+	}
+	if strings.Join(steps[0], " ") != "config device add ab-p-a1 agentbox-gpu gpu mode=0666" {
+		t.Fatalf("gpuCreateSteps(nvidia, false)[0] = %v", steps[0])
+	}
+	if strings.Join(steps[1], " ") != "config set ab-p-a1 nvidia.runtime=true" {
+		t.Fatalf("gpuCreateSteps(nvidia, false)[1] = %v", steps[1])
+	}
+
+	steps = gpuCreateSteps("ab-p-a1", nvidia, true)
+	if len(steps) != 1 || strings.Join(steps[0], " ") != "config set ab-p-a1 nvidia.runtime=true" {
+		t.Fatalf("gpuCreateSteps(nvidia, true) = %v, want only the runtime step", steps)
 	}
 }
 
