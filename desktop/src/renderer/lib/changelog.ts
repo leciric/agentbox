@@ -8,13 +8,20 @@ export interface ChangelogSection {
   body: string;
 }
 
+// A version heading is either hand-written, `## 0.5.0`, or release-please's
+// own shape, `## [0.6.0](https://.../compare/v0.5.0...v0.6.0) (2026-09-26)`:
+// a markdown link in place of the plain version, followed by a date in
+// parentheses. Either way, only the version itself is kept.
+const heading = /^## (?:\[([^\]]+)\]\([^)]*\)|(\S+))/;
+
 export function parseChangelog(raw: string): ChangelogSection[] {
   const sections: ChangelogSection[] = [];
   let current: ChangelogSection | undefined;
   for (const line of raw.split('\n')) {
-    const heading = /^## (.+)$/.exec(line);
-    if (heading) {
-      current = { version: heading[1].trim(), body: '' };
+    const match = heading.exec(line);
+    if (match) {
+      const version = match[1] ?? match[2];
+      current = { version, body: '' };
       sections.push(current);
       continue;
     }

@@ -3,37 +3,6 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
-## Unreleased
-
-### Added
-
-- A shared agent budget, off by default: every agent draws on one pool of memory, swap and CPU, so what idle agents aren't using goes to busy ones while your desktop keeps the rest. Settings suggests a size from this computer's memory, cores and swap, and sets it up with your password once (`agentbox host budget`); `agentbox limits --shared-budget` does the same from a terminal. It isn't offered on a Mac or on Windows yet.
-- **Nesting**, a per-project switch in the project's settings under "Testing AgentBox itself", off
-  by default: its new agents get a real Incus daemon of their own, so agents working on AgentBox
-  can test limits, the GPU, image builds and agent creation for real. It needs a base image built
-  with `agentbox image build --incus`, a new optional component. (#71)
-- **A Setup warning when agent storage isn't btrfs or zfs.** Setup and `agentbox host check` now
-  say when the storage pool agents are created on uses another driver, such as `dir`, meaning every
-  agent is a full copy of the base image instead of an instant snapshot.
-
-### Changed
-
-- The top bar's Claude meter shows how long is left in the five-hour window beside what's used, as
-  `3h · 21%`, or in minutes in its last hour (`48m · 21%`), and counts down as it goes. (#74)
-
-### Fixed
-
-- **`git@github.com:` remotes work again inside an agent.** An agent's shell, chat and terminal share
-  one GitHub token, but git itself never used it: an SSH remote failed to fetch or push, since agents
-  get no SSH key. Attaching a GitHub account now also configures the agent's `~/.gitconfig` with a
-  credential helper for the token and rewrites `git@github.com:`/`ssh://git@github.com/` remotes to
-  HTTPS — kept current at create, start and whenever the account changes, and removed again once the
-  agent has none.
-- **Agent worktrees no longer disappear when another agent runs `git worktree prune`.** Each
-  agent's worktree, and the lead's, is now locked when it's created and relocked when the daemon
-  starts, so `git worktree prune` run inside one agent's machine — where every other agent's
-  worktree path doesn't exist — leaves their entries alone instead of deleting them.
-
 ## 0.5.0
 
 ### Added

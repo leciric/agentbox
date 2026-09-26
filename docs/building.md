@@ -33,33 +33,19 @@ the `integration`-tagged Incus tests themselves, only vet them.
 
 ## Releasing
 
-Model a release on [v0.3.2](https://github.com/leciric/agentbox/releases/tag/v0.3.2) (a fix) or
-[v0.3.0](https://github.com/leciric/agentbox/releases/tag/v0.3.0) (features):
+Releasing means merging a pull request, not running a script.
+[release-please](https://github.com/googleapis/release-please) watches every push to `main` and
+keeps a single open "release PR" bumping `version` in `desktop/package.json` and
+`desktop/package-lock.json`'s two root `version` fields, and rewriting `CHANGELOG.md` from the pull
+requests merged since the last release — every PR's title is a changelog line, so title it for a
+user reading the changelog.
 
-1. Get the changes onto `main`, and run `go test ./...` there.
-2. Bump the version: `version` in `desktop/package.json`, and the two root `version` fields in
-   `desktop/package-lock.json`. A patch for fixes, a minor for features.
-3. Write `.github/releases/v<version>.md` — what changed, `## Downloads` (the three packaged
-   files), for a fix `## What went wrong`, and `## Known limitations`.
-4. Commit as `chore(release): <version>` and land it on `main`.
-5. Cut the release, either:
-   - the [Release workflow](../.github/workflows/release.yml) from the Actions tab, with
-     `v<version>` as the tag — it builds `main`, tags the commit it built, and publishes the
-     release; or
-   - `scripts/release.sh` locally, when the Actions tab isn't an option — it needs `gh` logged
-     in, pushes `main` itself, and tags whatever `HEAD` is once the build finishes, so **nothing
-     should be committed while it runs**. `scripts/release.sh --dry-run` does everything except
-     the push and the release, leaving the built files in
-     `desktop/dist/release/v<version>/`.
-
-Both paths run the same check-and-build script,
-[`scripts/release-build.sh`](../scripts/release-build.sh), so a release means one thing wherever
-it's cut: nothing uncommitted, release notes that exist and have no `TODO`, a version matching
-the tag asked for, a version not already released, and — once built — a command-line tool that
-reports that version. It produces
+Merging that PR is the release: the [Release workflow](../.github/workflows/release.yml) tags the
+merge commit, opens a draft GitHub release, and builds
 `AgentBox-<version>-x86_64.AppImage`, `AgentBox-<version>-amd64.deb`,
-`AgentBox-<version>-x64.pacman`, `agentbox-<version>-linux-amd64` and `SHA256SUMS`.
-
-The [Release workflow](../.github/workflows/release.yml) additionally checks the tag's format,
-confirms it matches `desktop/package.json`'s version, and refuses to move a tag that already
-points at another commit — a published tag never moves. The whole build takes a few minutes.
+`AgentBox-<version>-x64.pacman`, the Windows installer and portable `.exe`, the command-line tool
+for Linux, macOS and (as the front end of the Mac's Linux VM) `darwin`, and the Mac app when the
+repository has Apple's signing secrets. Only once every build has succeeded does it upload the
+assets, write `SHA256SUMS`, and take the release off draft — a failed build leaves it a draft,
+visible to collaborators only, until a rerun gets everything green. The whole build takes a few
+minutes.

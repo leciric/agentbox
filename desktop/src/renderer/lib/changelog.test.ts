@@ -52,3 +52,26 @@ test('sectionsFrom falls back to every released section when the running version
     ['0.4.0', '0.3.0'],
   );
 });
+
+test('parseChangelog reads release-please\'s heading, a linked version followed by a date', () => {
+  const releasePlease = `# Changelog
+
+## [0.6.0](https://github.com/leciric/agentbox/compare/v0.5.0...v0.6.0) (2026-09-27)
+
+### Added
+
+- A thing 0.6.0 added.
+
+## 0.5.0
+
+### Added
+
+- A thing 0.5.0 added.
+`;
+  const sections = parseChangelog(releasePlease);
+  assert.deepEqual(
+    sections.map((s) => s.version),
+    ['0.6.0', '0.5.0'],
+  );
+  assert.match(sections[0].body, /A thing 0.6.0 added/);
+});

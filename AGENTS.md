@@ -69,11 +69,11 @@ without a Mac.
   cites earlier decisions by number (D1–D92); their records aren't in this repository.
 - **Explain a feature worth explaining** in its pull request: what it does, what was checked, where
   the code is, and what it still can't do.
-- **Every change adds a line to [`CHANGELOG.md`](CHANGELOG.md)'s `## Unreleased` section**, under
-  Added, Changed or Fixed, in the same pull request — a user-facing sentence, not a description of
-  the code. Tests-, CI- and docs-only changes are exempt; CI's Changelog check enforces this on
-  anything touching `internal/`, `cmd/` or `desktop/src/`, and is skippable with a `no-changelog`
-  label when a PR genuinely doesn't need one.
+- **[`CHANGELOG.md`](CHANGELOG.md) is generated, not written.** release-please (D95) turns the
+  conventional-commit PR titles since the last release into it, so a PR's title is its changelog
+  line: write it for a user reading the changelog, not for `git log`. `feat:` becomes an Added
+  entry, `fix:`/`perf:` a Fixed one, `refactor:` a Changed one; `test:`, `ci:`, `docs:` and `chore:`
+  don't show up at all. See Releasing below for how this plays out.
 
 ## Build and test
 
@@ -234,27 +234,42 @@ Conventional commits: `feat: ...`, `fix: ...`, `refactor: ...`, `docs: ...`, and
 
 ## Releasing
 
-Model a release on [v0.1.0](https://github.com/leciric/agentbox/releases/tag/v0.1.0), the first
-public one: this repository's history starts from a single commit, so there are no earlier releases
-here to link to or to diff against — the old ones, back to 0.3.x, are only on
+Releasing means merging a pull request, not running a script. [release-please](https://github.com/googleapis/release-please)
+(D95, `.github/workflows/release.yml`, configured in `.github/release-please-config.json` and
+`.release-please-manifest.json`) watches every push to `main` and keeps a single open "release PR"
+matching what's landed since the last release: it bumps `version` in `desktop/package.json` and the
+two root `version` fields in `desktop/package-lock.json`, and rewrites `CHANGELOG.md` from the
+conventional-commit PR titles since then, patch or minor depending on whether any of them was a
+`feat:`.
+
+1. Get the changes onto `main` — each PR's title is what ends up in the changelog, so title it for a
+   user, not for `git log` (see Conventions above).
+2. Find the current release PR (`gh pr list --search "head:release-please--branches--main"`, or the
+   pinned one release-please comments on). Read `CHANGELOG.md`'s diff on it and fix anything that
+   reads like a commit message instead of a changelog line — release-please only groups by type, it
+   doesn't rewrite prose.
+3. CI does not run on the release PR itself: release-please opens and updates it with
+   `GITHUB_TOKEN`, and a bot's own push can't trigger a workflow. Close it and reopen it (its branch
+   doesn't need to change) to get a CI run before merging.
+4. Merge it. That push to `main` is what the release workflow is waiting for: it tags the merge
+   commit, opens the GitHub release as a draft with release-please's own generated notes, then builds
+   `AgentBox-<version>-x86_64.AppImage`, `AgentBox-<version>-amd64.deb`, `AgentBox-<version>-x64.pacman`,
+   the Windows `AgentBox-<version>-x64-setup.exe` and `AgentBox-<version>-x64-portable.exe`, the
+   command-line tool for `linux-amd64`, `linux-arm64`, `darwin-arm64` and `darwin-amd64`
+   (`agentbox-<version>-<os>-<arch>`), and the Mac app when the repository has Apple's signing
+   secrets (`AgentBox-<version>-mac-{arm64,x64}.dmg`/`.zip`, signed and notarized; without the
+   secrets that job is skipped and the release goes out without it — add them later and the next
+   release picks them up on its own). Only once every build has succeeded does it upload the assets,
+   write `SHA256SUMS`, and take the release off draft (D49, D92, D94, D95).
+
+The build jobs check and build through the same script every part runs, `scripts/release-build.sh`,
+so what a release has to pass is one thing wherever it's checked: nothing uncommitted, and a version
+that matches the tag release-please made. If a build fails, the release stays a draft — visible to
+collaborators, not published — until a rerun of the workflow gets every job green; nothing about the
+version or the tag changes in between, so a rerun just picks up where it left off.
+
+Model release notes' prose on [v0.1.0](https://github.com/leciric/agentbox/releases/tag/v0.1.0), the
+first public one: this repository's history starts from a single commit, so there are no earlier
+releases here to link to or to diff against — the old ones, back to 0.3.x, are only on
 [leciric/agentbox-private](https://github.com/leciric/agentbox-private), which nothing here should
 link to.
-
-1. Get the changes onto `main`, and run `go test ./...` there.
-2. Bump the version, a patch for fixes and a minor for features: `version` in `desktop/package.json`, and the two root `version` fields in `desktop/package-lock.json`.
-3. Move `CHANGELOG.md`'s `## Unreleased` section into a new `## <version>` section below it,
-   leaving `## Unreleased` empty (Added/Changed/Fixed) at the top.
-4. Write `.github/releases/v<version>.md` in the shape of
-   [v0.1.0](https://github.com/leciric/agentbox/releases/tag/v0.1.0), starting from what
-   `CHANGELOG.md`'s new `## <version>` section now says:
-   - It opens with what changed, in bold. A fix says which versions had the bug.
-   - `## Downloads` lists the files a release carries.
-   - A fix explains `## What went wrong`: the cause, and what changed.
-   - `## Known limitations` lists new ones and links to the releases that list the rest.
-   - It links to the README or to GitHub releases, never to `docs/`, which no longer exists.
-5. Commit as `chore(release): <version>`, and land that commit on `main`.
-6. Run the **Release** workflow from the [Actions tab](https://github.com/leciric/agentbox/actions/workflows/release.yml), with `v<version>` as the tag. It builds `main`, tags the commit it built, and publishes the notes with `AgentBox-<version>-x86_64.AppImage`, `AgentBox-<version>-amd64.deb`, `AgentBox-<version>-x64.pacman`, the Windows `AgentBox-<version>-x64-setup.exe` and `AgentBox-<version>-x64-portable.exe`, the command-line tool for `linux-amd64`, `linux-arm64`, `darwin-arm64` and `darwin-amd64` (`agentbox-<version>-<os>-<arch>`), and `SHA256SUMS` (D49, D92, D94). A `check-secrets` job checks whether the repository has Apple's signing secret, since a job-level `if` can't read `secrets.*` directly; the Mac app only builds, on a Mac runner, when that secret is there, signed and notarized, and its `AgentBox-<version>-mac-{arm64,x64}.dmg`/`.zip` with `SHA256SUMS-mac` are only published then too. Without the secret, the Mac job is skipped and publishing goes ahead without it — add the secret later and the next release picks it up on its own. The build takes a few minutes; if the Mac job runs and fails, nothing is published, and running the workflow again carries on from the tag it pushed.
-
-The workflow and the local script check and build through the same script, `scripts/release-build.sh`, so a release means one thing wherever it is made: nothing uncommitted, notes that exist and have no `TODO`, a version that matches the tag asked for, a version that isn't released yet, and a built command-line tool that reports the version. The workflow also refuses to move a tag that already points at another commit — a published tag doesn't move.
-
-`scripts/release.sh` stays as the local alternative, for a release the Actions tab can't make. It needs `gh` logged in, pushes `main` itself, and tags whatever `HEAD` is when the build finishes: **don't commit while it runs.** `scripts/release.sh --dry-run` does everything except the push and the release, and leaves the three files in `desktop/dist/release/v<version>/`.
