@@ -14,6 +14,14 @@
 # Docker's firewall policy from blocking the Incus bridge.
 set -euo pipefail
 
+# Whether this is an agent whose base image was built with Incus in it
+# (agentbox image build --incus, nesting.go), rather than a real host: its own
+# idmap only covers so much, and a slow storage pool is what it needs rather
+# than a warning nobody but this container's own agent would see. provision.sh
+# writes the marker when it installs Incus for exactly this reason.
+nested=no
+[[ -e /etc/agentbox-nested-incus ]] && nested=yes
+
 # Where the Incus daemon listens for local clients, and what the incus command
 # connects to when INCUS_SOCKET isn't set. It is Incus' own var path rather than
 # a packaging choice: Debian's incus.socket unit is
@@ -143,8 +151,18 @@ EOF
 # highest range it finds, so it's only 1000000 when nothing ends past that; and
 # Incus maps each large range of root's to the container's ID 0, so a second
 # one overlaps the first and no container starts.
+#
+# A nested agent (provision.sh's --incus, nesting.go) is different: its own
+# idmap doesn't cover a real host's billion IDs, so it starts with a smaller
+# range of its own, sized to what its own container actually has room for.
+# Adding the usual billion-ID range on top would be the same two-ranges
+# problem the size check above already guards against on a real host, so
+# there $nested only relaxes the threshold to "any range at all" — not the
+# range itself, which stays whatever provision.sh gave it.
 give_root_a_range() {
-  awk -F: '$1 == "root" && $3 >= 1000000000 { found = 1 } END { exit !found }' "$1" ||
+  local min=1000000000
+  [[ $nested == yes ]] && min=2
+  awk -F: -v min="$min" '$1 == "root" && $3 >= min { found = 1 } END { exit !found }' "$1" ||
     echo 'root:1000000:1000000000' >>"$1"
 }
 
@@ -248,8 +266,22 @@ if ! incus storage show default >/dev/null 2>&1; then
   if [[ "$(findmnt -no FSTYPE -T /var/lib)" == btrfs ]] && command -v btrfs >/dev/null; then
     # A subvolume on the existing btrfs filesystem: no fixed size, instant CoW snapshots.
     [[ -d /var/lib/incus-pool ]] || btrfs subvolume create /var/lib/incus-pool
-    incus storage create default btrfs source=/var/lib/incus-pool ||
-      incus storage create default btrfs size=60GiB
+    if [[ $nested == yes ]]; then
+      incus storage create default btrfs source=/var/lib/incus-pool ||
+        incus storage create default btrfs size=60GiB ||
+        incus storage create default dir
+    else
+      incus storage create default btrfs source=/var/lib/incus-pool ||
+        incus storage create default btrfs size=60GiB
+    fi
+  elif [[ $nested == yes ]]; then
+    # A loopback-backed btrfs image needs its own block device (losetup),
+    # which a nested agent (provision.sh's --incus) has no access to: the
+    # pool is a directory here, silently, the way it already is on a real
+    # host whose btrfs fails outright — a real host's own failed loop device
+    # is worth seeing, not papering over with a slower pool it never asked for.
+    incus storage create default btrfs size=60GiB ||
+      incus storage create default dir
   else
     incus storage create default btrfs size=60GiB
   fi

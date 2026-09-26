@@ -35,6 +35,9 @@ type Data struct {
 	Secrets []string
 	Android bool // the project builds an Android app
 	GitHub  bool // AgentBox shares a GitHub token with agents
+	// Nesting is whether the project turned nesting on: the agent runs a real
+	// Incus daemon of its own, inside its own container.
+	Nesting bool
 	// VM is set when AgentBox runs in a Linux VM on another OS: WSL 2 on
 	// Windows (package hostwsl, D94), or the VM it makes on a Mac (package
 	// hostvm, D92). The agent's address is then inside that VM, which the

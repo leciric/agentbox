@@ -15,11 +15,12 @@ func TestComponentsEnv(t *testing.T) {
 		components Components
 		want       []string
 	}{
-		{Components{}, []string{"AGENTBOX_WITH_ANDROID=0", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=0"}},
-		{Components{Android: true}, []string{"AGENTBOX_WITH_ANDROID=1", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=0"}},
-		{Components{Android: true, Codex: true}, []string{"AGENTBOX_WITH_ANDROID=1", "AGENTBOX_WITH_CODEX=1", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=0"}},
-		{Components{OpenCode: true}, []string{"AGENTBOX_WITH_ANDROID=0", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=1", "AGENTBOX_WITH_DEV_CACHES=0"}},
-		{Components{DevCaches: true}, []string{"AGENTBOX_WITH_ANDROID=0", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=1"}},
+		{Components{}, []string{"AGENTBOX_WITH_ANDROID=0", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=0", "AGENTBOX_WITH_INCUS=0"}},
+		{Components{Android: true}, []string{"AGENTBOX_WITH_ANDROID=1", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=0", "AGENTBOX_WITH_INCUS=0"}},
+		{Components{Android: true, Codex: true}, []string{"AGENTBOX_WITH_ANDROID=1", "AGENTBOX_WITH_CODEX=1", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=0", "AGENTBOX_WITH_INCUS=0"}},
+		{Components{OpenCode: true}, []string{"AGENTBOX_WITH_ANDROID=0", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=1", "AGENTBOX_WITH_DEV_CACHES=0", "AGENTBOX_WITH_INCUS=0"}},
+		{Components{DevCaches: true}, []string{"AGENTBOX_WITH_ANDROID=0", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=1", "AGENTBOX_WITH_INCUS=0"}},
+		{Components{Incus: true}, []string{"AGENTBOX_WITH_ANDROID=0", "AGENTBOX_WITH_CODEX=0", "AGENTBOX_WITH_OPENCODE=0", "AGENTBOX_WITH_DEV_CACHES=0", "AGENTBOX_WITH_INCUS=1"}},
 	} {
 		if got := c.components.Env(); !slices.Equal(got, c.want) {
 			t.Errorf("Components%+v.Env() = %v, want %v", c.components, got, c.want)
@@ -51,6 +52,7 @@ func TestProvisionReadsTheOptions(t *testing.T) {
 		`if [[ $WITH_CODEX == 1 ]]; then`,      // the Codex CLI and its adapter
 		`if [[ $WITH_OPENCODE == 1 ]]; then`,   // the OpenCode CLI, its own adapter
 		`if [[ $WITH_DEV_CACHES == 1 ]]; then`, // AgentBox's own Go, npm and Electron caches
+		`if [[ $WITH_INCUS == 1 ]]; then`,      // Incus itself
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("provision.sh has no %q", want)
@@ -136,7 +138,7 @@ func TestDownloadsFor(t *testing.T) {
 		}
 	}
 	// The default build is the small one, and each option adds only its own.
-	small, both := TotalMB(plain), TotalMB(DownloadsFor(Components{Android: true, Codex: true, OpenCode: true, DevCaches: true}))
+	small, both := TotalMB(plain), TotalMB(DownloadsFor(Components{Android: true, Codex: true, OpenCode: true, DevCaches: true, Incus: true}))
 	if both != all || small >= both {
 		t.Errorf("totals: default %d MB, both options %d MB, everything %d MB", small, both, all)
 	}
@@ -157,11 +159,11 @@ func TestDownloadsFor(t *testing.T) {
 			t.Errorf("two downloads are called %q", d.Name)
 		}
 		seen[d.Name] = true
-		if d.Option != "" && !slices.Contains([]string{OptionAndroid, OptionCodex, OptionOpenCode, OptionDevCaches}, d.Option) {
+		if d.Option != "" && !slices.Contains([]string{OptionAndroid, OptionCodex, OptionOpenCode, OptionDevCaches, OptionIncus}, d.Option) {
 			t.Errorf("%q has the unknown option %q", d.Name, d.Option)
 		}
 	}
-	for _, option := range []string{OptionAndroid, OptionCodex, OptionOpenCode, OptionDevCaches} {
+	for _, option := range []string{OptionAndroid, OptionCodex, OptionOpenCode, OptionDevCaches, OptionIncus} {
 		if !slices.ContainsFunc(Downloads, func(d Download) bool { return d.Option == option }) {
 			t.Errorf("no download belongs to the %q option", option)
 		}

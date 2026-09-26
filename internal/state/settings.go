@@ -98,6 +98,11 @@ const (
 	SettingImageCodex     = "image_codex"
 	SettingImageOpenCode  = "image_opencode"
 	SettingImageDevCaches = "image_dev_caches"
+	// SettingImageIncus is whether the base image is built with Incus itself,
+	// so a project that turns on nesting (Project.Nesting) has something to
+	// nest: an agent can then run a real Incus daemon of its own inside its
+	// container, to test AgentBox features that touch agent machines.
+	SettingImageIncus = "image_incus"
 	// SettingAppearance is what AgentBox wears: api.AppearanceFollow (the
 	// desktop theme this machine is running, in its own window and on every
 	// agent's desktop), or api.AppearanceLight or api.AppearanceDark for its
