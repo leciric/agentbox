@@ -1360,7 +1360,15 @@ func TestSendDuringTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitThread(t, m, testAgent, "the turn to start", func(th api.ChatThread) bool { return th.Session.State == api.ChatRunning })
+	// Wait for the "Counting." chunk itself, not just the running state: the
+	// state turns Running as soon as the turn is created, before the tool has
+	// actually been sent the prompt or answered with anything. Sending the
+	// aside as soon as the state flips can race the chunk's arrival and land
+	// before it, which the assertion below (and the feature it protects) never
+	// allows for a real turn.
+	waitThread(t, m, testAgent, "the turn to start", func(th api.ChatThread) bool {
+		return th.Session.State == api.ChatRunning && find(th, "assistant", 0).Text == "Counting."
+	})
 
 	aside, err := m.Send(testAgent, "Actually, stop at ten")
 	if err != nil {

@@ -11,6 +11,11 @@ import { build as vite } from 'vite';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 rmSync(join(root, 'out'), { recursive: true, force: true });
 
+// The What's new view renders CHANGELOG.md bundled in, not fetched: copy it in
+// before Vite runs, so it's inlined into the renderer's JS like any other
+// import, with nothing read from disk once the app is built.
+copyFileSync(join(root, '../CHANGELOG.md'), join(root, 'src/renderer/changelog.md'));
+
 // fs.cpSync's fast path corrupts files on a Mac's virtiofs-mounted worktree
 // (leaves them empty and unreadable), while a plain read/write copy works.
 function copyRecursive(from, to) {

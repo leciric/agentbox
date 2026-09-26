@@ -34,6 +34,7 @@ import { countFeature, settingsSectionFeatures } from "../lib/usageStats";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
+import { WhatsNewDialog } from "./WhatsNewDialog";
 import {
   CompactWindow,
   DefaultContextWindow,
@@ -810,6 +811,7 @@ function SettingsTabs({
               <Appearance />
               <UpdateCheck />
               <UsageStats />
+              {info && <WhatsNewRow version={info.version} />}
             </SettingsGroup>
           </TabsContent>
 
@@ -979,6 +981,25 @@ function UsageStats() {
           Off, because {blocked ?? "Check for updates is off"}.
         </SettingNote>
       )}
+    </SettingRow>
+  );
+}
+
+// WhatsNewRow opens the same dialog App shows once after an update, so it can
+// be read again any time.
+function WhatsNewRow({ version }: { version: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <SettingRow
+      label="What's new"
+      description="What changed in this version of AgentBox, and the ones before it."
+      control={
+        <Button variant="secondary" onClick={() => setOpen(true)}>
+          Show
+        </Button>
+      }
+    >
+      <WhatsNewDialog open={open} onOpenChange={setOpen} version={version} />
     </SettingRow>
   );
 }
