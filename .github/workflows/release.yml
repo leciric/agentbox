@@ -39,8 +39,8 @@ jobs:
     name: release-please
     runs-on: ubuntu-24.04
     outputs:
-      release_created: ${{ steps.release.outputs['desktop--release_created'] }}
-      tag_name: ${{ steps.release.outputs['desktop--tag_name'] }}
+      release_created: ${{ steps.release.outputs['.--release_created'] }}
+      tag_name: ${{ steps.release.outputs['.--tag_name'] }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
