@@ -369,13 +369,21 @@ func (c Client) PoolSpace(ctx context.Context, pool string) (used, total int64, 
 
 // PoolDriver returns a storage pool's driver, e.g. "btrfs", "zfs" or "dir".
 func (c Client) PoolDriver(ctx context.Context, pool string) (string, error) {
-	out, err := c.Run(ctx, "query", "/1.0/storage-pools/"+pool)
-	if err != nil {
-		return "", err
+	path := "/1.0/storage-pools/" + pool
+	if !c.cli() {
+		var driver string
+		err := c.do(ctx, []string{"query", path}, func(s incusclient.InstanceServer) error {
+			p, _, err := s.GetStoragePool(pool)
+			if err == nil {
+				driver = p.Driver
+			}
+			return err
+		})
+		return driver, err
 	}
 	var r struct{ Driver string }
-	if err := json.Unmarshal([]byte(out), &r); err != nil {
-		return "", fmt.Errorf("parsing pool %s: %w", pool, err)
+	if err := c.query(ctx, path, &r, "pool "+pool); err != nil {
+		return "", err
 	}
 	return r.Driver, nil
 }
@@ -428,17 +436,4 @@ func (c Client) WaitReady(ctx context.Context, name string, timeout time.Duratio
 		case <-time.After(time.Second):
 		}
 	}
-}
-
-// Run runs incus with args and returns its stdout.
-//
-// Deprecated: callers move to the operations above, one package at a time;
-// this goes when the last one has.
-func (c Client) Run(ctx context.Context, args ...string) (string, error) { return c.run(ctx, args...) }
-
-// RunInput is Run with stdin.
-//
-// Deprecated: as Run.
-func (c Client) RunInput(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
-	return c.runInput(ctx, stdin, args...)
 }

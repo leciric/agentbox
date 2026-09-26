@@ -175,6 +175,8 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(body, &post)
 		f.profiles[post.Name] = &api.Profile{Name: post.Name}
 		reply(w, nil)
+	case path == "/storage-pools/default":
+		reply(w, api.StoragePool{Name: "default", Driver: "btrfs"})
 	case path == "/storage-pools/default/resources":
 		reply(w, api.ResourcesStoragePool{Space: api.ResourcesStoragePoolSpace{Used: 3, Total: 10}})
 	case path == "/storage-pools/default/volumes/container/agent-01/state":
@@ -255,6 +257,9 @@ func TestAPIReads(t *testing.T) {
 	}
 	if used, total, err := c.PoolSpace(ctx, "default"); err != nil || used != 3 || total != 10 {
 		t.Fatalf("PoolSpace = %d, %d, %v", used, total, err)
+	}
+	if driver, err := c.PoolDriver(ctx, "default"); err != nil || driver != "btrfs" {
+		t.Fatalf("PoolDriver = %q, %v", driver, err)
 	}
 	if used, err := c.VolumeUsage(ctx, "default", "agent-01"); err != nil || used != 7 {
 		t.Fatalf("VolumeUsage = %d, %v", used, err)
