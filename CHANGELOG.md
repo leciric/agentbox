@@ -20,6 +20,11 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 
 ### Fixed
 
+- **Agent worktrees no longer disappear when another agent runs `git worktree prune`.** Each
+  agent's worktree, and the lead's, is now locked when it's created and relocked when the daemon
+  starts, so `git worktree prune` run inside one agent's machine — where every other agent's
+  worktree path doesn't exist — leaves their entries alone instead of deleting them.
+
 ## 0.5.0
 
 ### Added

@@ -290,6 +290,9 @@ func (s *Server) reconcile(ctx context.Context) {
 	}
 	m := s.manager(s.cfg.Log)
 	for _, a := range agents {
+		if err := m.LockAgentWorktree(ctx, a); err != nil {
+			s.logf("lock worktree for %s: %v", a.Ref(), err)
+		}
 		if a.IsLead() {
 			continue // no machine, so no in-agent API and nothing to bring up
 		}

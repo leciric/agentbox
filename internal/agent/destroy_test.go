@@ -19,7 +19,7 @@ import (
 func destroyFixture(t *testing.T, f fixture) state.Agent {
 	t.Helper()
 	worktree := f.m.Paths.Worktree("hello-stack", "agent-01")
-	if err := f.repo.AddWorktree(worktree, "agentbox/agent-01", "HEAD"); err != nil {
+	if err := f.repo.AddWorktree(worktree, "agentbox/agent-01", "HEAD", "test"); err != nil {
 		t.Fatal(err)
 	}
 	a := state.Agent{
