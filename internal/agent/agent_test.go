@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/image"
@@ -19,6 +20,71 @@ import (
 	"agentbox/internal/state"
 	"agentbox/internal/testutil"
 )
+
+// creatingAgent puts an agent stuck in state.AgentCreating into the store,
+// without going through build(): List has to tell these apart by whether a
+// create job is still running for the project, not by anything on the agent
+// row itself.
+func creatingAgent(t *testing.T, f fixture, name string) {
+	t.Helper()
+	if err := f.st.AddAgent(context.Background(), state.Agent{
+		Project: "hello-stack", Name: name, Instance: "ab-hello-stack-" + name,
+		Branch: "agentbox/" + name, Worktree: filepath.Join(t.TempDir(), name),
+		Status: state.AgentCreating, CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestListInitializingWhileCreateJobRuns shows a new agent as "initializing",
+// not "incomplete", while its create job is still running.
+func TestListInitializingWhileCreateJobRuns(t *testing.T) {
+	f := setup(t, fakeIncus(t, `[ "$1" = list ] && echo '[]'; exit 0`))
+	ctx := context.Background()
+	creatingAgent(t, f, "agent-01")
+	if err := f.st.AddJob(ctx, state.Job{ID: "job-1", Kind: "create", Target: "hello-stack", Status: api.JobRunning, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	statuses, err := f.m.List(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].State != "initializing" {
+		t.Fatalf("List() = %+v, want one agent state \"initializing\"", statuses)
+	}
+}
+
+// TestListIncompleteOnceTheCreateJobIsGone shows an agent left in
+// state.AgentCreating as "incomplete" once nothing is still making it: the
+// job finished (failed, or a previous daemon died mid-create and
+// FailRunningJobs marked it failed on start), so no running create job for
+// the project matches it anymore.
+func TestListIncompleteOnceTheCreateJobIsGone(t *testing.T) {
+	f := setup(t, fakeIncus(t, `[ "$1" = list ] && echo '[]'; exit 0`))
+	ctx := context.Background()
+	creatingAgent(t, f, "agent-01")
+
+	statuses, err := f.m.List(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].State != "incomplete" {
+		t.Fatalf("List() = %+v, want one agent state \"incomplete\"", statuses)
+	}
+
+	// A finished (failed) create job for the same project doesn't count either.
+	if err := f.st.AddJob(ctx, state.Job{ID: "job-1", Kind: "create", Target: "hello-stack", Status: api.JobFailed, CreatedAt: time.Now(), FinishedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err = f.m.List(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].State != "incomplete" {
+		t.Fatalf("List() with a failed job = %+v, want still \"incomplete\"", statuses)
+	}
+}
 
 func TestParseRef(t *testing.T) {
 	project, name, err := agent.ParseRef("pawly/agent-01")

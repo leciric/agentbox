@@ -53,6 +53,16 @@ func (s *Store) Jobs(ctx context.Context, limit int) ([]Job, error) {
 	return s.queryJobs(ctx, `ORDER BY created_at DESC LIMIT ?`, limit)
 }
 
+// HasRunningJob says whether a job of this kind, on this target, is still
+// running: an agent's create job, watched to tell an unfinished create still
+// under way from one that died with the daemon (see AgentCreating).
+func (s *Store) HasRunningJob(ctx context.Context, kind, target string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM jobs WHERE kind = ? AND target = ? AND status = ?`,
+		kind, target, "running").Scan(&n)
+	return n > 0, err
+}
+
 // FailRunningJobs marks jobs left running by a previous daemon as failed.
 func (s *Store) FailRunningJobs(ctx context.Context, reason string, at time.Time) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `UPDATE jobs SET status = 'failed', error = ?, finished_at = ? WHERE status = 'running'`,

@@ -54,7 +54,7 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
                 Pause the agent while snapshotting
               </Label>
             </div>
-            <Button type="submit" variant="primary" className="ml-auto" disabled={take.isPending || agent.state === 'incomplete'}>
+            <Button type="submit" variant="primary" className="ml-auto" disabled={take.isPending || agent.state === 'incomplete' || agent.state === 'initializing'}>
               {take.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
               Take snapshot
             </Button>
