@@ -34,6 +34,8 @@ export interface UpdateProjectRequest {
   claudeAccount?: string;
   claudeAccounts?: string[];
   githubAccount?: string;
+  moveClaudeAgents?: boolean;
+  moveGitHubAgents?: boolean;
   autonomy?: string;
   agentModel?: string;
   branchPrefix?: string;
