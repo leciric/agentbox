@@ -159,6 +159,12 @@ const (
 	// SettingKeepFreeCPU is how many cores SettingNeverFreezeCPU keeps free
 	// for the host, as a count. Empty means DefaultKeepFreeCPU.
 	SettingKeepFreeCPU = "keep_free_cpu"
+	// SettingGPUForAgents says whether the daemon passes the host's GPU into
+	// every agent's container, as an Incus gpu device (D-gpu): only offered
+	// where agent.HostGPU finds one, and off until somebody turns it on, so an
+	// installation that has never touched it keeps every agent exactly as
+	// unaccelerated as it was before this setting existed.
+	SettingGPUForAgents = "gpu_for_agents"
 	// SettingAutoStopIdle says whether the daemon stops a running or paused
 	// agent once it has gone SettingIdleTime with nothing happening: no chat
 	// turn in progress, no running job, no pending question or credential

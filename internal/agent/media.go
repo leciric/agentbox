@@ -276,7 +276,13 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 	if st.Input == RecordInputDesktop && st.Target != "display" {
 		return RecordingStatus{}, fmt.Errorf("--input desktop records the display, not %s", st.Target)
 	}
-	script, err := startRecordingScript(st)
+	devices, err := m.Incus.Devices(ctx, a.Instance)
+	if err != nil {
+		return RecordingStatus{}, err
+	}
+	_, hasGPU := devices[gpuDevice]
+	enc := recordingEncoder(HostGPU(), hasGPU)
+	script, err := startRecordingScript(st, enc)
 	if err != nil {
 		return RecordingStatus{}, err
 	}
@@ -288,7 +294,7 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 
 // startRecordingScript is what runs inside the agent to start a recording, and
 // what the integration test runs against a display of its own.
-func startRecordingScript(st recordingState) (string, error) {
+func startRecordingScript(st recordingState, enc videoEncoder) (string, error) {
 	// started waits until the recorder is running, so a recorder that can't
 	// start is caught here rather than at stop. ffmpeg creates its file once it
 	// has opened the display and the encoder, about 150 ms in, so it is waited
@@ -303,16 +309,17 @@ func startRecordingScript(st recordingState) (string, error) {
 		// pass is quick and near lossless, since it is encoded again then,
 		// and ffmpeg logs at info for the line that says when its first frame
 		// was taken, which places every logged event on the video.
-		overlay, level, quality := "", "error", "-preset veryfast -crf 28"
+		overlay, level, fast := "", "error", false
 		if st.Input == RecordInputDesktop {
-			overlay, level, quality = inputLogStart(st.Limit)+"\n", "info -nostats", "-preset ultrafast -crf 16"
+			overlay, level, fast = inputLogStart(st.Limit)+"\n", "info -nostats", true
 		}
 		// draw_mouse is x11grab's default, and Xvnc serves the pointer through
 		// XFIXES, so the cursor lands in the frames; it is spelled out here
 		// because the whole point of desktop input is seeing it.
 		recorder = fmt.Sprintf(`[ -e /tmp/.X11-unix/X99 ] || { echo "the display isn't running: start the browser first" >&2; exit 1; }
-%[2]ssetsid ffmpeg -hide_banner -loglevel %[3]s -f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' \
-  -c:v libx264 %[4]s -pix_fmt yuv420p -movflags +faststart "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`, st.Limit, overlay, level, quality)
+%[2]ssetsid ffmpeg -hide_banner -loglevel %[3]s %[5]s-f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2%[6]s' \
+  -c:v %[7]s %[4]s %[8]s-movflags +faststart "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`,
+			st.Limit, overlay, level, enc.codecArgs(fast), enc.Input, enc.Filter, enc.Codec, enc.pixelFormat())
 		started = `i=0
 while [ ! -e "$dir/recording.mp4" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 0.05; i=$((i + 1)); done`
 	case "android":

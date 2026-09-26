@@ -345,6 +345,17 @@ type Settings struct {
 	NeverFreezeCPU bool `json:"neverFreezeCPU"`
 	// KeepFreeCPU is how many cores are kept free for the host; DefaultKeepFreeCPU when nobody chose.
 	KeepFreeCPU int `json:"keepFreeCPU"`
+	// GPUAvailable and GPUKind are what agent.HostGPU found on this machine:
+	// whether it has a GPU to give agents at all, and "amd" or "nvidia" for
+	// the description shown beside the switch. GPUForAgents is only offered
+	// when GPUAvailable is true.
+	GPUAvailable bool   `json:"gpuAvailable"`
+	GPUKind      string `json:"gpuKind"`
+	// GPUForAgents turns passing the host's GPU into every agent's container
+	// on or off, as an Incus gpu device: applied to the agents you already
+	// have, as well as the next one, the moment it changes. Off unless it was
+	// turned on.
+	GPUForAgents bool `json:"gpuForAgents"`
 	// AutoStopIdle and IdleTimeSeconds are "auto-stop idle agents": while on,
 	// the daemon stops a running or paused agent once it has gone
 	// IdleTimeSeconds with no chat turn in progress, no running job, no
@@ -396,6 +407,8 @@ type UpdateSettingsRequest struct {
 	NeverFreezeCPU *bool `json:"neverFreezeCPU,omitempty"`
 	// KeepFreeCPU is how many cores NeverFreezeCPU keeps free, at least 0.
 	KeepFreeCPU *int `json:"keepFreeCPU,omitempty"`
+	// GPUForAgents turns "GPU for agents" on or off.
+	GPUForAgents *bool `json:"gpuForAgents,omitempty"`
 	// AutoStopIdle turns "auto-stop idle agents" on or off.
 	AutoStopIdle *bool `json:"autoStopIdle,omitempty"`
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle

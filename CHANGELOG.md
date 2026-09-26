@@ -7,6 +7,8 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 
 ### Added
 
+- **GPU for agents** (Settings → Every agent): passes the host's GPU into every agent, off by default and only offered when the host has one. Chromium and Electron in an agent render on it, the Android emulator uses it, and recordings encode with VAAPI or NVENC. (#66)
+
 ### Changed
 
 ### Fixed

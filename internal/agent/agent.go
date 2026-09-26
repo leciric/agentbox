@@ -615,6 +615,13 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	)
 	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config)...)
 	steps = append(steps, configuredCPUSteps(a.Instance, pl.limits.CPU, copied.Config)...)
+	if on, status, err := gpuOn(ctx, m); err != nil {
+		return fail("instance", err)
+	} else if on {
+		if _, has := copied.Devices[gpuDevice]; !has {
+			steps = append(steps, append([]string{"config", "device", "add", a.Instance, gpuDevice}, gpuDeviceArgs(status)...))
+		}
+	}
 	steps = append(steps, []string{"start", a.Instance})
 	for _, args := range steps {
 		if err := incusStep(args...); err != nil {

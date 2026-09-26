@@ -39,7 +39,7 @@ func TestDesktopRecordingShowsTheCursorAndTheKeys(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	st := recordingState{Target: "display", Input: RecordInputDesktop, Name: "desktop input", Source: "user", StartedAt: time.Now().UTC(), Limit: 30}
-	start, err := startRecordingScript(st)
+	start, err := startRecordingScript(st, videoEncoder{Codec: "libx264"})
 	if err != nil {
 		t.Fatal(err)
 	}

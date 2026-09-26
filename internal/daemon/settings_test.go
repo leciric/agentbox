@@ -262,3 +262,45 @@ func TestOpusOffersItsWholeWindowInSettings(t *testing.T) {
 		t.Errorf("1M on Claude Code's default for the lead: %v", err)
 	}
 }
+
+// TestGPUForAgentsPersistsAndReapplies checks the setting round-trips through
+// Settings and that turning it on or off recomputes it against every agent
+// rather than only the next one created (RecomputeGPU), the same way
+// NeverFreezeCPU does for the CPU budget. This machine's own container has no
+// GPU device, so agent.HostGPU reports GPUAvailable false regardless of the
+// flag — exactly the case a host without one is meant to see — and the flag
+// itself, which Settings stores independently of that, still has to survive
+// being read back.
+func TestGPUForAgentsPersistsAndReapplies(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+
+	out, err := patchSettings(t, d, `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.GPUForAgents {
+		t.Errorf("GPU for agents should start off: %+v", out)
+	}
+
+	on := true
+	out, err = patchSettings(t, d, `{"gpuForAgents":true}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.GPUForAgents {
+		t.Errorf("GPU for agents after turning it on = %+v", out)
+	}
+	if value, err := d.srv.store.Flag(ctx, state.SettingGPUForAgents); err != nil || value != on {
+		t.Errorf("the stored flag = %v, %v; want %v", value, err, on)
+	}
+
+	out, err = patchSettings(t, d, `{"gpuForAgents":false}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.GPUForAgents {
+		t.Errorf("GPU for agents after turning it off = %+v", out)
+	}
+}

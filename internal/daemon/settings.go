@@ -147,6 +147,16 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.GPUForAgents != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingGPUForAgents, *req.GPUForAgents); err != nil {
+			return err
+		}
+		// Reaches the agents you already have at once, the same as toggling
+		// the CPU budget above.
+		if err := s.manager(nil).RecomputeGPU(r.Context()); err != nil {
+			return err
+		}
+	}
 	if req.IdleTimeSeconds != nil {
 		if *req.IdleTimeSeconds < 60 {
 			return fmt.Errorf("idle time is at least 60 seconds; %d isn't", *req.IdleTimeSeconds)
@@ -393,6 +403,11 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	gpuForAgents, err := s.manager(nil).GPUForAgents(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
+	gpu := agent.HostGPU()
 	autoStopIdle, idleTime, err := s.store.AutoStopIdle(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -429,6 +444,9 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		NeverFreezeCPU: neverFreezeCPU,
 		KeepFreeCPU:    keepFreeCPU,
 
+		GPUAvailable:    gpu.Kind != "",
+		GPUKind:         gpu.Kind,
+		GPUForAgents:    gpuForAgents,
 		AutoStopIdle:    autoStopIdle,
 		IdleTimeSeconds: int(idleTime / time.Second),
 	}, nil
