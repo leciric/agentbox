@@ -8,12 +8,16 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 ### Added
 
 - **GPU for agents** (Settings → Every agent): passes the host's GPU into every agent, off by default and only offered when the host has one. Chromium and Electron in an agent render on it, the Android emulator uses it, and recordings encode with VAAPI or NVENC when the agent can, and with libx264 as before when it can't. (#66)
+- A shared agent budget, off by default: every agent draws on one pool of memory, swap and CPU, so what idle agents aren't using goes to busy ones while your desktop keeps the rest. Settings suggests a size from this computer's memory, cores and swap, and sets it up with your password once (`agentbox host budget`); `agentbox limits --shared-budget` does the same from a terminal. It isn't offered on a Mac or on Windows yet.
 - **Nesting**, a per-project switch in the project's settings under "Testing AgentBox itself", off
   by default: its new agents get a real Incus daemon of their own, so agents working on AgentBox
   can test limits, the GPU, image builds and agent creation for real. It needs a base image built
   with `agentbox image build --incus`, a new optional component. (#71)
 
 ### Changed
+
+- The top bar's Claude meter shows how long is left in the five-hour window beside what's used, as
+  `3h · 21%`, or in minutes in its last hour (`48m · 21%`), and counts down as it goes. (#74)
 
 ### Fixed
 

@@ -405,7 +405,7 @@ func (m *Manager) SetLimits(ctx context.Context, a state.Agent, want LimitChoice
 		}
 	}
 
-	steps := limitSteps(a.Instance, next, details.Config)
+	steps := limitSteps(a.Instance, next, details.Config, m.budgetOn(ctx))
 	if want.CPU != nil {
 		// A choice made here is the new answer to ConfiguredCPU from now on,
 		// not only the new limits.cpu — the two only differ once "never
@@ -427,14 +427,13 @@ func (m *Manager) SetLimits(ctx context.Context, a state.Agent, want LimitChoice
 // is always brought to CPUPriority, including on a machine made before
 // AgentBox set it, so editing an agent's limits is enough to put it behind the
 // desktop. limits.memory.swap follows the memory limit the same way: off
-// (MemorySwap) whenever there is one, and cleared when there isn't.
-func limitSteps(instance string, want Limits, have map[string]string) [][]string {
+// (MemorySwap) whenever there is one, and cleared when there isn't — or on,
+// inside the shared budget, which caps all agents' swap together
+// (agentSwapValue).
+func limitSteps(instance string, want Limits, have map[string]string, shared bool) [][]string {
 	set := []string{"config", "set", instance}
 	var unset [][]string
-	swap := ""
-	if want.Memory != "" {
-		swap = MemorySwap
-	}
+	swap := agentSwapValue(want.Memory, shared)
 	for _, field := range []struct{ key, value string }{
 		{limitCPU, want.CPU},
 		{limitCPUAllowance, want.Allowance},

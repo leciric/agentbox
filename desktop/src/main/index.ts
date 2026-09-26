@@ -9,7 +9,7 @@ import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopStartingDaemon } from './daemon';
 import { EventStream } from './events';
-import { hostSetupStatus, onMac, runHostSetup, stopVM } from './hostsetup';
+import { hostSetupStatus, onMac, runBudgetSetup, runHostSetup, stopVM } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { Streams } from './streams';
@@ -143,6 +143,10 @@ ipcMain.handle('hostsetup:run', async () => {
   const restarted = await restartDaemon().catch(() => false);
   return { restarted };
 });
+
+// The shared agent budget's cgroup, made as root through pkexec for the same
+// reason: the daemon runs as you. Settings asks the daemon again afterwards.
+ipcMain.handle('hostsetup:budget', () => runBudgetSetup());
 
 // On Windows the daemon only knows the WSL distro's paths: the picker starts in
 // the distro, where projects belong, and what it picks is given in Linux terms.

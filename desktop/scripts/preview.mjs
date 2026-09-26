@@ -19,7 +19,7 @@
 // Elsewhere it uses Playwright's own: run `npx playwright install chromium`
 // once if launching it fails.
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -54,7 +54,10 @@ function freePort() {
 // startVite serves dev/preview.html for the tree at cwd (the working tree, or
 // a worktree's desktop/ directory), and resolves once it's actually
 // answering — vite prints "ready" before its HTTP server necessarily is.
+// The What's new view imports CHANGELOG.md from where build.mjs copies it,
+// so it's copied in here too: a fresh checkout doesn't have it.
 async function startVite(cwd, port) {
+  copyFileSync(join(cwd, '../CHANGELOG.md'), join(cwd, 'src/renderer/changelog.md'));
   const bin = join(cwd, 'node_modules/.bin/vite');
   const proc = spawn(bin, ['--config', 'vite.config.mts', '--port', String(port), '--strictPort'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';

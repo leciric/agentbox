@@ -125,6 +125,8 @@ const bridge = {
     status: (): Promise<HostSetupStatus> => ipcRenderer.invoke('hostsetup:status'),
     run: (): Promise<{ restarted: boolean }> => ipcRenderer.invoke('hostsetup:run'),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
+    // `agentbox host budget` as root: the shared agent budget's cgroup.
+    budget: (): Promise<void> => ipcRenderer.invoke('hostsetup:budget'),
   },
   // On a Mac, `agentbox vm resize`: new CPUs and memory (like 12GiB) for
   // AgentBox's VM, which restarts it and stops every agent. resize resolves

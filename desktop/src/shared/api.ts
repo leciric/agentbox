@@ -115,6 +115,31 @@ export interface Settings {
   gpuForAgents: boolean;
   autoStopIdle: boolean;
   idleTimeSeconds: number;
+  sharedBudget: SharedBudget;
+}
+
+export interface SharedBudget {
+  on: boolean;
+  memory: string;
+  swap: string;
+  cpu: number;
+  chosen: boolean;
+  suggested: SharedBudgetSize;
+  why: string;
+  hostSwap: number;
+  hostSwapKind: string;
+  unsupported?: string;
+  notReady?: string;
+  setupCommand: string;
+  problem?: string;
+  inside: number;
+  pending: number;
+}
+
+export interface SharedBudgetSize {
+  memory: string;
+  swap: string;
+  cpu: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -136,6 +161,10 @@ export interface UpdateSettingsRequest {
   gpuForAgents?: boolean;
   autoStopIdle?: boolean;
   idleTimeSeconds?: number;
+  sharedBudget?: boolean;
+  sharedBudgetMemory?: string;
+  sharedBudgetSwap?: string;
+  sharedBudgetCPU?: number;
 }
 
 export interface Limits {

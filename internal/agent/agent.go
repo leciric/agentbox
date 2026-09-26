@@ -616,7 +616,8 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		[]string{"config", "device", "add", a.Instance, "worktree", "disk", "source=" + a.Worktree, "path=" + a.Worktree},
 		[]string{"config", "device", "add", a.Instance, "gitdir", "disk", "source=" + pl.repo.GitDir, "path=" + pl.repo.GitDir},
 	)
-	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config)...)
+	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config, m.budgetOn(ctx))...)
+	steps = append(steps, budgetSteps(a.Instance, m.budgetOn(ctx), copied.Config)...)
 	steps = append(steps, configuredCPUSteps(a.Instance, pl.limits.CPU, copied.Config)...)
 	if on, status, err := gpuOn(ctx, m); err != nil {
 		return fail("instance", err)
@@ -1531,6 +1532,11 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 			return inst, err
 		}
 	default:
+		// A machine only changes cgroup when it starts: this is when an
+		// agent moves into the shared budget, or out of it.
+		if err := m.ensureBudgetPlacement(ctx, a.Instance); err != nil {
+			return inst, err
+		}
 		if _, err := m.Incus.Run(ctx, "start", a.Instance); err != nil {
 			return inst, err
 		}

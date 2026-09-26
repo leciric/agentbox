@@ -176,6 +176,9 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		// leaving it stuck until the next sweep.
 		go s.stopIdleAgents(s.background(), time.Now())
 	}
+	if err := s.updateSharedBudget(r.Context(), req); err != nil {
+		return err
+	}
 	if req.UpdateCheck != nil {
 		if err := s.setUpdateCheck(r.Context(), *req.UpdateCheck); err != nil {
 			return err
@@ -412,6 +415,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	sharedBudget, err := s.sharedBudget(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
@@ -449,6 +456,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		GPUForAgents:    gpuForAgents,
 		AutoStopIdle:    autoStopIdle,
 		IdleTimeSeconds: int(idleTime / time.Second),
+
+		SharedBudget: sharedBudget,
 	}, nil
 }
 
