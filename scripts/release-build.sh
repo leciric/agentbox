@@ -1,35 +1,36 @@
 #!/usr/bin/env bash
-# Checks a release and builds it, for the version in desktop/package.json: the
-# AppImage, the .deb and the .pacman (the app, with the command-line tool
-# inside each), the Windows installer and portable .exe (D94), the command-line
-# tool alone (for Linux on x86-64 and arm64, and for macOS, where it is the
-# front end of AgentBox's Linux VM), and their checksums, in
-# desktop/dist/release/v<version>/. The Windows build runs on Linux, and needs
-# wine for the installer's uninstaller. The Mac app is built by the release
-# workflow's macos job, on a Mac, and never goes through this script.
+# Builds a release, for the version in desktop/package.json: the AppImage, the
+# .deb and the .pacman (the app, with the command-line tool inside each), the
+# Windows installer and portable .exe (D94), the command-line tool alone (for
+# Linux on x86-64 and arm64, and for macOS, where it is the front end of
+# AgentBox's Linux VM), and their checksums, in desktop/dist/release/v<version>/.
+# The Windows build runs on Linux, and needs wine for the installer's
+# uninstaller. The Mac app is built by the release workflow's macos job, on a
+# Mac, and never goes through this script.
 #
-# It publishes nothing. scripts/release.sh and .github/workflows/release.yml
-# both call it, so what a release is — and what it has to pass — has one
-# definition wherever the release is made.
+# It publishes nothing. .github/workflows/release.yml calls it for every part,
+# so what a release is — and what it has to pass — has one definition wherever
+# the release is made. release-please (D95) makes the release itself, as a
+# draft, and its own commit bumps desktop/package.json and CHANGELOG.md before
+# this ever runs: there is no local equivalent of this script that also tags
+# and pushes, since release-please owns both.
 #
-#   scripts/release-build.sh [--tag v0.7.1] [--check | --linux | --windows]
+#   scripts/release-build.sh --tag v0.7.1 [--check | --linux | --windows]
 #
 # --tag is the tag the caller means to publish: the build refuses to produce
 # anything else, so a workflow run can't be given the wrong version by hand.
 #
 # With no part given, it checks and builds everything (Linux then Windows) and
-# writes SHA256SUMS over the lot, the way scripts/release.sh wants it in one
-# call. The release workflow instead runs the three parts as separate jobs, in
-# parallel: --check once, then --linux and --windows alongside each other and
-# the Mac app, each part writing only what it built to desktop/dist/release/,
-# without a checksum file — the workflow's publish job sums the merged result
-# once every part has finished.
+# writes SHA256SUMS over the lot. The release workflow instead runs the three
+# parts as separate jobs, in parallel: --check once, then --linux and
+# --windows alongside each other and the Mac app, each part writing only what
+# it built to desktop/dist/release/, without a checksum file — the workflow's
+# publish job sums the merged result once every part has finished.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 version=$(node -p "require('$root/desktop/package.json').version")
 tag=v$version
-notes=$root/.github/releases/$tag.md
 out=$root/desktop/dist/release/$tag
 
 want=
@@ -44,14 +45,14 @@ done
 
 [ -z "$want" ] || [ "$want" = "$tag" ] || { echo "asked to release $want, but desktop/package.json is $version, which releases as $tag" >&2; exit 1; }
 
+# release-please's own commit lands the version bump and the changelog, so the
+# checkout is already clean and $tag already exists, as a draft release, by
+# the time this runs. The only thing left to check is that the tag this job
+# was asked to build still points at what it built from.
 check() {
   [ -z "$(git -C "$root" status --porcelain)" ] || { echo "the checkout has uncommitted changes: commit them, so the release matches a commit" >&2; exit 1; }
-  [ -f "$notes" ] || { echo "no release notes in $notes" >&2; exit 1; }
-  ! grep -q 'TODO' "$notes" || { echo "$notes still has a TODO" >&2; exit 1; }
-  if gh release view "$tag" >/dev/null 2>&1; then
-    echo "$tag is already released" >&2
-    exit 1
-  fi
+  is_draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null) || { echo "$tag has no GitHub release yet" >&2; exit 1; }
+  [ "$is_draft" = "true" ] || { echo "$tag is already published: a published release doesn't get rebuilt" >&2; exit 1; }
 }
 
 build_linux() {

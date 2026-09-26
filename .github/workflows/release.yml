@@ -1,59 +1,69 @@
 name: Release
 
+# release-please (D95) watches every push to main: it keeps a "release PR"
+# up to date, bumping desktop/package.json and desktop/package-lock.json's two
+# root version fields and rewriting CHANGELOG.md from the conventional commits
+# (squash-merged PR titles) since the last release, grouped by
+# .github/release-please-config.json's changelog-sections. Merging that PR is
+# what releasing means now: the merge is itself a push to main, so the same
+# workflow run that updates the release PR also notices, on the next run,
+# that a release was just made — release-please tags the merge commit and
+# opens the GitHub release as a draft, and this workflow's build jobs take it
+# from there, uploading assets and only then taking the draft off. A run
+# where release-please only updated the PR skips every build job, `if:` its
+# release_created output.
+#
+# release-please pushes its tag with GITHUB_TOKEN, which GitHub doesn't let
+# trigger other workflows — irrelevant here, since the build jobs are steps of
+# this same run, not a workflow the tag push would have to trigger.
+#
+# CI (ci.yml) does not run on the release PR itself, since release-please
+# opens and updates it with GITHUB_TOKEN too, whose own pushes don't trigger
+# workflows either: close it and reopen it (no need to touch its branch) to
+# get a CI run on it before merging.
+
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: The tag to release, such as v0.7.1. It has to match the version in desktop/package.json.
-        required: true
-        type: string
+  push:
+    branches: [main]
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  # Checks run once, then the tag is pushed once, before any build starts: the
-  # linux, windows and macos jobs below all build from that tag, in parallel,
-  # instead of one after another. A rerun finds the tag already on this commit
-  # and carries on from it, the way the old single job did.
+  release-please:
+    name: release-please
+    runs-on: ubuntu-24.04
+    outputs:
+      release_created: ${{ steps.release.outputs['desktop--release_created'] }}
+      tag_name: ${{ steps.release.outputs['desktop--tag_name'] }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # A quick sanity check before the build jobs below spend minutes each:
+  # the tag release-please made is there, its release is still a draft, and
+  # the checkout is clean.
   checks:
     name: Checks
+    needs: release-please
+    if: needs.release-please.outputs.release_created
     runs-on: ubuntu-24.04
     env:
-      TAG: ${{ inputs.tag }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      # main, never the branch the workflow was started from: a release is a
-      # commit that landed. fetch-depth 0 brings the tags, to see whether this
-      # one already exists.
       - uses: actions/checkout@v7
         with:
-          ref: main
-          fetch-depth: 0
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - name: Check the tag
-        run: |
-          case "$TAG" in
-            v[0-9]*) ;;
-            *) echo "::error::$TAG doesn't look like a release tag (v<major>.<minor>.<patch>)"; exit 1 ;;
-          esac
-          head=$(git rev-parse HEAD)
-          if at=$(git rev-parse -q --verify "refs/tags/$TAG^{commit}"); then
-            if [ "$at" != "$head" ]; then
-              echo "::error::$TAG is already at $at, and main is at $head. A tag that was published doesn't move: land a new version and release that instead."
-              exit 1
-            fi
-            echo "$TAG already exists, at main's head."
-          fi
-          echo "Releasing $TAG from main at $head."
-
-      # Go and Node come from mise.toml, so a release is built on the versions
-      # the repository names. Node alone would do for the checks, but the
-      # cache key below is shared with the build jobs.
       - uses: jdx/mise-action@v4
         with:
           install_args: go node
@@ -61,28 +71,19 @@ jobs:
       - name: Check the release
         run: scripts/release-build.sh --tag "$TAG" --check
 
-      - name: Tag the commit to release
-        run: |
-          if git rev-parse -q --verify "refs/tags/$TAG^{commit}" >/dev/null; then
-            echo "$TAG is already there."
-            exit 0
-          fi
-          git tag "$TAG" "$(git rev-parse HEAD)"
-          git push origin "refs/tags/$TAG"
-
   # The AppImage, the .deb, the .pacman and the command-line tool for Linux
   # (amd64, arm64) and macOS (arm64, amd64) — all plain cross-compiles, so they
   # don't need to wait on the Mac job.
   linux:
     name: Linux build
-    needs: checks
+    needs: [release-please, checks]
     runs-on: ubuntu-24.04
     env:
-      TAG: ${{ inputs.tag }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: jdx/mise-action@v4
         with:
@@ -120,7 +121,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: linux
-          path: desktop/dist/release/${{ inputs.tag }}/
+          path: desktop/dist/release/${{ needs.release-please.outputs.tag_name }}/
           if-no-files-found: error
 
   # The Windows installer and portable .exe. electron-builder makes these on
@@ -128,14 +129,14 @@ jobs:
   # which the Linux job above no longer has to install.
   windows:
     name: Windows build
-    needs: checks
+    needs: [release-please, checks]
     runs-on: ubuntu-24.04
     env:
-      TAG: ${{ inputs.tag }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: jdx/mise-action@v4
         with:
@@ -177,21 +178,20 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: windows
-          path: desktop/dist/release/${{ inputs.tag }}/
+          path: desktop/dist/release/${{ needs.release-please.outputs.tag_name }}/
           if-no-files-found: error
 
   # The Mac app, built on a Mac (electron-builder makes .dmg files only there),
-  # for Apple silicon and Intel, from the tag the checks job above pushed.
-  # It's signed and notarized when the repository has Apple's credentials as
-  # secrets; without them, it's ad hoc signed instead of left unsigned (see
+  # for Apple silicon and Intel, from the tag release-please made. It's signed
+  # and notarized when the repository has Apple's credentials as secrets;
+  # without them, it's ad hoc signed instead of left unsigned (see
   # desktop/scripts/dist.mjs) and shipped anyway, since an unsigned Mac app
   # doesn't even launch on Apple silicon.
   macos:
     name: Mac app
-    needs: checks
+    needs: [release-please, checks]
     runs-on: macos-15
     env:
-      TAG: ${{ inputs.tag }}
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
       CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -200,7 +200,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: jdx/mise-action@v4
         with:
@@ -218,7 +218,7 @@ jobs:
 
       - name: Collect it
         run: |
-          version=${TAG#v}
+          version=$(node -p "require('./desktop/package.json').version")
           mkdir -p mac
           cp desktop/dist/AgentBox-"$version"-mac-*.dmg desktop/dist/AgentBox-"$version"-mac-*.zip mac/
           cd mac
@@ -231,27 +231,31 @@ jobs:
           path: mac/
           if-no-files-found: error
 
-  # Everything at once: once linux, windows and macos have all succeeded.
-  # `skipped` is only there for when checks itself fails, which skips all
-  # three builds too; that case is already excluded by the two `== 'success'`
-  # checks below. Needs `always()`, since a skipped macos would otherwise skip
-  # this job too.
+  # Everything at once: once linux, windows and macos have all succeeded,
+  # upload their assets to the draft release release-please made and take it
+  # off draft. `skipped` is only there for when checks itself fails, which
+  # skips all three builds too; that case is already excluded by the two
+  # `== 'success'` checks below. Needs `always()`, since a skipped macos would
+  # otherwise skip this job too. Nothing is published if any build fails: the
+  # release stays a draft, visible to collaborators only, until a rerun of
+  # this workflow gets all three green.
   publish:
     name: Publish
-    needs: [linux, windows, macos]
+    needs: [release-please, linux, windows, macos]
     if: >-
       always() &&
+      needs.release-please.outputs.release_created &&
       needs.linux.result == 'success' &&
       needs.windows.result == 'success' &&
       (needs.macos.result == 'success' || needs.macos.result == 'skipped')
     runs-on: ubuntu-24.04
     env:
-      TAG: ${{ inputs.tag }}
+      TAG: ${{ needs.release-please.outputs.tag_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: actions/download-artifact@v8
         with:
@@ -274,11 +278,8 @@ jobs:
           path: out
           merge-multiple: true
 
-      - name: Publish the release
+      - name: Upload the assets and publish the release
         run: |
-          version=${TAG#v}
-          gh release create "$TAG" \
-            --title "AgentBox $version" \
-            --notes-file ".github/releases/$TAG.md" \
-            out/*
+          gh release upload "$TAG" out/* --clobber
+          gh release edit "$TAG" --draft=false
           gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | "  \(.name)  \(.size) bytes")'
