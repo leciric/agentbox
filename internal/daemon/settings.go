@@ -214,17 +214,38 @@ func (s *Server) updateRoleDefaults(ctx context.Context, roles []roleDefaults) e
 // way the Claude Code settings are: "" is a real choice there (no limit at
 // all), so an unset key and a cleared one have to be different things, and the
 // app's inputs have to show a number rather than the word "default".
+//
+// The memory ceiling is also given, once, to an installation seeded before
+// there was one, whose default_memory the daemon itself wrote as "". That ""
+// was never shown to anyone as a choice — the field was empty from the start,
+// with nothing to clear — so it is taken as the old seed rather than a
+// decision. Agents that already exist keep what they have: this only changes
+// what the next one is made with.
 func (s *Server) seedResourceDefaults(ctx context.Context) error {
-	defaults := agent.DefaultLimits(agent.HostCores())
+	defaults := agent.DefaultLimits(agent.HostCores(), agent.HostMemory())
 	seeded := false
 	for _, field := range []struct{ key, value string }{
 		{state.SettingDefaultCPU, defaults.CPU},
 		{state.SettingDefaultCPUAllowance, defaults.Allowance},
 		{state.SettingDefaultMemory, defaults.Memory},
 	} {
-		_, set, err := s.store.SettingValue(ctx, field.key)
+		value, set, err := s.store.SettingValue(ctx, field.key)
 		if err != nil {
 			return err
+		}
+		if field.key == state.SettingDefaultMemory {
+			_, memorySeeded, err := s.store.SettingValue(ctx, state.SettingDefaultMemorySeeded)
+			if err != nil {
+				return err
+			}
+			if !memorySeeded {
+				if err := s.store.SetSetting(ctx, state.SettingDefaultMemorySeeded, "1"); err != nil {
+					return err
+				}
+				// Set before this build, to "" by the old seed: the new one
+				// replaces it. Set to a size: that was chosen, and stays.
+				set = set && value != ""
+			}
 		}
 		if set {
 			continue
@@ -235,8 +256,8 @@ func (s *Server) seedResourceDefaults(ctx context.Context) error {
 		seeded = true
 	}
 	if seeded {
-		s.logf("new agents are capped at %s, of this host's %d cores; change it on the overview, or per agent with agentbox limits",
-			defaults.Describe(), agent.HostCores())
+		s.logf("new agents are capped at %s, of this host's %d cores and %s; change it in Settings, or per agent with agentbox limits",
+			defaults.Describe(), agent.HostCores(), agent.HumanBytes(agent.HostMemory()))
 	}
 	return nil
 }
@@ -347,6 +368,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		DefaultMemory:       limits.Memory,
 		HostCores:           agent.HostCores(),
 		HostMemory:          agent.HostMemory(),
+		SeedMemory:          agent.DefaultMemory(agent.HostMemory()),
 
 		ResumeAfterLimit: resumeAfterLimit,
 		UpdateCheck:      updateCheck,

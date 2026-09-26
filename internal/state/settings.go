@@ -71,8 +71,16 @@ const (
 	// (Incus limits.cpu.allowance): "50%", or "25ms/100ms". "" is all of it.
 	SettingDefaultCPUAllowance = "default_cpu_allowance"
 	// SettingDefaultMemory is the memory ceiling on a new agent's machine,
-	// like "8GiB". "" is no ceiling.
+	// like "8GiB". "" is no ceiling, and read with SettingValue like the CPU
+	// default. An installation that has never chosen is seeded with 8GiB, or
+	// half the host's memory when that is less (see agent.DefaultMemory).
 	SettingDefaultMemory = "default_memory"
+	// SettingDefaultMemorySeeded records that SettingDefaultMemory was seeded
+	// with a ceiling. Before it was, every installation was seeded with "",
+	// and a stored "" can't say whether the user chose it or the daemon wrote
+	// it; this key is how the daemon gives those installations the ceiling
+	// once, and never again.
+	SettingDefaultMemorySeeded = "default_memory_seeded"
 	// SettingOpenCodeModelChoices is the model menu OpenCode last advertised,
 	// as JSON, remembered for the same reason as the Claude Code menus: which
 	// models OpenCode can run depends on which providers the login has keys
