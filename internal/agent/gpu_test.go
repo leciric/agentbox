@@ -171,6 +171,7 @@ func TestCreateSkipsTheGPUDeviceWithoutAHostGPU(t *testing.T) {
     esac ;;
 esac
 exit 0`)
+	agent.WithoutHostGPU(t)
 	f := setup(t, inc)
 	ctx := context.Background()
 	if err := f.st.SetFlag(ctx, state.SettingGPUForAgents, true); err != nil {
