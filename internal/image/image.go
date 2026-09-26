@@ -180,7 +180,7 @@ var kernelModules = []string{
 
 // EnsureProfile creates the Incus profile that lets agents run Docker.
 func EnsureProfile(ctx context.Context, inc incus.Client) error {
-	if _, err := inc.Run(ctx, "profile", "show", Profile); err == nil {
+	if ok, _ := inc.HasProfile(ctx, Profile); ok {
 		return nil
 	}
 	// Containers can't load kernel modules, so Incus loads Docker's on the host when an agent starts.
@@ -190,15 +190,14 @@ func EnsureProfile(ctx context.Context, inc incus.Client) error {
 			modules = append(modules, m)
 		}
 	}
-	if _, err := inc.Run(ctx, "profile", "create", Profile); err != nil {
+	if err := inc.CreateProfile(ctx, Profile); err != nil {
 		return err
 	}
-	_, err := inc.Run(ctx, "profile", "set", Profile,
+	return inc.SetProfileConfig(ctx, Profile,
 		"security.nesting=true",
 		"security.syscalls.intercept.mknod=true",
 		"security.syscalls.intercept.setxattr=true",
 		"linux.kernel_modules="+strings.Join(modules, ","))
-	return err
 }
 
 // Components are the parts of the base image that are only in it if you ask.
@@ -303,7 +302,7 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 		return err
 	}
 	fail := func(err error) error {
-		_, _ = inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+		_ = inc.Delete(context.WithoutCancel(ctx), next)
 		return err
 	}
 
@@ -315,16 +314,18 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 	// The components are recorded next to the version, so Setup can ask for a
 	// rebuild when you turn one on, the same way a version bump does.
 	// So are the tools, so a later AgentBox can move them on in place.
-	if err := run(ctx, inc,
-		append([]string{"config", "set", next,
-			versionKey + "=" + Version,
-			androidKey + "=" + envFlag(opts.Components.Android),
-			codexKey + "=" + envFlag(opts.Components.Codex),
-			opencodeKey + "=" + envFlag(opts.Components.OpenCode),
-			devCachesKey + "=" + envFlag(opts.Components.DevCaches),
-			incusKey + "=" + envFlag(opts.Components.Incus)},
-			recordTools(ToolsFor(opts.Components))...),
-		[]string{"snapshot", "create", next, Generic},
+	if err := all(
+		func() error {
+			return inc.SetConfig(ctx, next, append([]string{
+				versionKey + "=" + Version,
+				androidKey + "=" + envFlag(opts.Components.Android),
+				codexKey + "=" + envFlag(opts.Components.Codex),
+				opencodeKey + "=" + envFlag(opts.Components.OpenCode),
+				devCachesKey + "=" + envFlag(opts.Components.DevCaches),
+				incusKey + "=" + envFlag(opts.Components.Incus)},
+				recordTools(ToolsFor(opts.Components))...)...)
+		},
+		func() error { return inc.CreateSnapshot(ctx, next, Generic) },
 	); err != nil {
 		return fail(err)
 	}
@@ -335,7 +336,7 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 	}
 
 	step("Snapshotting it as %s", SnapshotRef())
-	if err := run(ctx, inc, []string{"snapshot", "create", next, Snapshot}); err != nil {
+	if err := inc.CreateSnapshot(ctx, next, Snapshot); err != nil {
 		return fail(err)
 	}
 
@@ -352,27 +353,27 @@ func swapIn(ctx context.Context, inc incus.Client, next string, log io.Writer) e
 	baseLock.Lock()
 	defer baseLock.Unlock()
 	old := Base + "-old"
-	_, _ = inc.Run(ctx, "delete", "--force", old)
+	_ = inc.Delete(ctx, old)
 	// A new machine has no previous image, so there's nothing to delete after the swap.
 	replaced := false
 	if _, err := inc.Instance(ctx, Base); err == nil {
-		if err := run(ctx, inc, []string{"rename", Base, old}); err != nil {
-			_, _ = inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+		if err := inc.Rename(ctx, Base, old); err != nil {
+			_ = inc.Delete(context.WithoutCancel(ctx), next)
 			return err
 		}
 		replaced = true
 	}
-	if err := run(ctx, inc, []string{"rename", next, Base}); err != nil {
+	if err := inc.Rename(ctx, next, Base); err != nil {
 		if replaced {
 			// Put the previous one back rather than leave the machine without a base.
-			_, _ = inc.Run(context.WithoutCancel(ctx), "rename", old, Base)
+			_ = inc.Rename(context.WithoutCancel(ctx), old, Base)
 		}
 		return err
 	}
 	if !replaced {
 		return nil
 	}
-	return run(ctx, inc, []string{"delete", "--force", old})
+	return inc.Delete(ctx, old)
 }
 
 // DebianMirror is the Debian mirror a local build downloads Debian's packages
@@ -387,12 +388,12 @@ func DebianMirror() string {
 func buildLocally(ctx context.Context, inc incus.Client, next string, u User, components Components, log io.Writer) error {
 	step := stepper(log)
 	step("Creating %s from %s", next, Source)
-	if err := run(ctx, inc,
-		[]string{"init", Source, next, "--profile", "default", "--profile", Profile},
+	if err := all(
+		func() error { return inc.Init(ctx, Source, next, "default", Profile) },
 		// The host's map from the start, so Incus never has to shift the
 		// instance's files: agents copied from it use the same map.
-		[]string{"config", "set", next, "raw.idmap=" + IDMap(u)},
-		[]string{"start", next},
+		func() error { return inc.SetConfig(ctx, next, "raw.idmap="+IDMap(u)) },
+		func() error { return inc.Start(ctx, next) },
 	); err != nil {
 		return err
 	}
@@ -430,20 +431,23 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("provisioning %s: %w", next, err)
 	}
-	return run(ctx, inc,
-		[]string{"exec", next, "--", "sh", "-c", "rm /root/provision.sh /root/tools.sh /root/tools.list && " + scrubMachineID},
-		[]string{"stop", next},
+	return all(
+		func() error {
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/tools.sh /root/tools.list && "+scrubMachineID)
+			return err
+		},
+		func() error { return inc.Stop(ctx, next) },
 	)
 }
 
 // personaliseFor turns the user-agnostic image into this machine's: the host
 // user in place of the placeholder, and the host's ID map.
 func personaliseFor(ctx context.Context, inc incus.Client, next string, u User, log io.Writer) error {
-	if err := run(ctx, inc,
+	if err := all(
 		// Set before it starts: Incus shifts the filesystem once here, rather
 		// than for every agent copied from the image afterwards.
-		[]string{"config", "set", next, "raw.idmap=" + IDMap(u)},
-		[]string{"start", next},
+		func() error { return inc.SetConfig(ctx, next, "raw.idmap="+IDMap(u)) },
+		func() error { return inc.Start(ctx, next) },
 	); err != nil {
 		return err
 	}
@@ -459,10 +463,13 @@ func personaliseFor(ctx context.Context, inc incus.Client, next string, u User, 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("making %s yours: %w", next, err)
 	}
-	return run(ctx, inc,
+	return all(
 		// Booting to personalise it gave it a machine-id of its own again.
-		[]string{"exec", next, "--", "sh", "-c", "rm -f /root/personalise.sh && " + scrubMachineID},
-		[]string{"stop", next},
+		func() error {
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm -f /root/personalise.sh && "+scrubMachineID)
+			return err
+		},
+		func() error { return inc.Stop(ctx, next) },
 	)
 }
 
@@ -474,13 +481,13 @@ func remove(ctx context.Context, inc incus.Client, name string) error {
 		}
 		return err
 	}
-	_, err := inc.Run(ctx, "delete", "--force", name)
-	return err
+	return inc.Delete(ctx, name)
 }
 
-func run(ctx context.Context, inc incus.Client, commands ...[]string) error {
-	for _, args := range commands {
-		if _, err := inc.Run(ctx, args...); err != nil {
+// all takes steps one after another, and stops at the first that fails.
+func all(steps ...func() error) error {
+	for _, step := range steps {
+		if err := step(); err != nil {
 			return err
 		}
 	}

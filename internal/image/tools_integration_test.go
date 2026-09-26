@@ -78,7 +78,7 @@ func TestUpdateToolsOnIncus(t *testing.T) {
 	if !strings.Contains(log.String(), "Checking every tool") {
 		t.Errorf("the update never checked the tools:\n%s", log.String())
 	}
-	if list, _ := inc.Run(ctx, "list", "--format", "csv", "--columns", "n"); strings.Contains(list, image.Base+"-next") || strings.Contains(list, image.Base+"-old") {
+	if list, _ := names(ctx, inc); strings.Contains(list, image.Base+"-next") || strings.Contains(list, image.Base+"-old") {
 		t.Errorf("the update left instances behind:\n%s", list)
 	}
 }
@@ -110,7 +110,17 @@ func TestUpdateToolsKeepsTheBaseOnIncus(t *testing.T) {
 	if ok, err := image.Ready(ctx, inc); err != nil || !ok {
 		t.Errorf("no ready base image after the failed update: %v", err)
 	}
-	if list, _ := inc.Run(ctx, "list", "--format", "csv", "--columns", "n"); strings.Contains(list, image.Base+"-next") {
+	if list, _ := names(ctx, inc); strings.Contains(list, image.Base+"-next") {
 		t.Errorf("the failed update left its copy:\n%s", list)
 	}
+}
+
+// names lists every instance's name, one a line.
+func names(ctx context.Context, inc incus.Client) (string, error) {
+	all, err := inc.Instances(ctx)
+	var list []string
+	for _, i := range all {
+		list = append(list, i.Name)
+	}
+	return strings.Join(list, "\n"), err
 }
