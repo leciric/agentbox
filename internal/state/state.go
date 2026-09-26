@@ -547,6 +547,11 @@ var migrations = []string{
 	// TokenBuckets leave those out of the average rather than dividing by
 	// zero.
 	`ALTER TABLE token_usage ADD COLUMN generation_ms INTEGER NOT NULL DEFAULT 0`,
+
+	// Whether this project's agents get nesting: a real Incus daemon of their
+	// own, for testing AgentBox features that touch agent machines. Off for
+	// every project before this column, since it costs isolation.
+	`ALTER TABLE projects ADD COLUMN nesting INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -693,6 +698,12 @@ type Project struct {
 	// list of projects in no section — from 1. Zero means nobody has placed
 	// it by hand, and it sorts last in its list, by name.
 	Position int
+	// Nesting is whether this project's agents run a real Incus daemon of
+	// their own, inside their own container, so they can test AgentBox
+	// features that touch agent machines (limits, GPU, image builds) for
+	// real. Off by default: it costs isolation, and needs the base image
+	// built with Incus (image.Components.Incus).
+	Nesting bool
 }
 
 // How much a project's chat does on its own.
@@ -844,7 +855,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix`
+const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -914,10 +925,10 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
-		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix)
+		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting)
 	return err
 }
 
@@ -944,7 +955,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		var allowed string
 		if err := rows.Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Section, &p.Position); err != nil {
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -1210,6 +1221,19 @@ func (s *Store) SetProjectBranchPrefix(ctx context.Context, name, prefix string)
 	return nil
 }
 
+// SetProjectNesting turns this project's agents' nesting on or off: whether
+// they run a real Incus daemon of their own, inside their own container.
+func (s *Store) SetProjectNesting(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET nesting = ? WHERE name = ?`, on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectMediaRetentionDays sets how long this project keeps media whose
 // agent is gone before the daemon sweeps it away.
 func (s *Store) SetProjectMediaRetentionDays(ctx context.Context, name string, days int) error {
@@ -1329,7 +1353,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Section, &p.Position)
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
