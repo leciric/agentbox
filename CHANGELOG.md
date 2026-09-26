@@ -7,6 +7,7 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 
 ### Added
 
+- **GPU for agents** (Settings → Every agent): passes the host's GPU into every agent, off by default and only offered when the host has one. Chromium and Electron in an agent render on it, the Android emulator uses it, and recordings encode with VAAPI or NVENC when the agent can, and with libx264 as before when it can't. (#66)
 - **Nesting**, a per-project switch in the project's settings under "Testing AgentBox itself", off
   by default: its new agents get a real Incus daemon of their own, so agents working on AgentBox
   can test limits, the GPU, image builds and agent creation for real. It needs a base image built

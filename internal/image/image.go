@@ -88,7 +88,7 @@ func CheckHost(u User) error {
 // ask you to rebuild a base image made by an older AgentBox. The pinned agent
 // tools aren't part of it: they are in tools.txt, and their own version
 // (ToolsVersion) moves them on in place, without a rebuild.
-const Version = "2026.09.26.1"
+const Version = "2026.09.26.2"
 
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.

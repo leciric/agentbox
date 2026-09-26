@@ -718,3 +718,44 @@ export function OpenCodeInImage() {
     </SettingRow>
   );
 }
+
+// GPUForAgents passes this host's GPU into every agent's container, as an
+// Incus gpu device, so its browser, Electron, Playwright and Android emulator
+// render on it instead of software (SwiftShader or llvmpipe). Only shown when
+// this host actually has one to give — a Mesa DRM render node or an NVIDIA
+// device — which Settings reports as gpuAvailable/gpuKind. Off by default,
+// and like NeverFreezeCPU it reaches the agents you already have as well as
+// the next one, the moment it changes.
+export function GPUForAgents() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (gpuForAgents: boolean) => api.updateSettings({ gpuForAgents }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  if (settings.data && !settings.data.gpuAvailable) return null;
+
+  const nvidia = settings.data?.gpuKind === 'nvidia';
+  const kind = nvidia ? 'its NVIDIA GPU' : 'its GPU';
+  const restart = nvidia
+    ? " Existing agents need a restart to pick up the NVIDIA driver runtime: it's part of how their container starts, not something Incus can add to one already running."
+    : '';
+
+  return (
+    <SettingRow
+      label="GPU for agents"
+      description={`Passes this host's ${kind} into every agent's container, so its browser, Chromium, Electron and Android emulator render on it instead of software. A recording of an agent's display also encodes on it when it's on.${restart}`}
+      control={
+        <Switch
+          data-gpu-for-agents
+          aria-label="GPU for agents"
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.gpuForAgents ?? false}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}

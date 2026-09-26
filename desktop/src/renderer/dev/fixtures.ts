@@ -693,6 +693,9 @@ let defaultsSettings = {
   defaultClaudeCompactWindow: 200_000,
   neverFreezeCPU: false,
   keepFreeCPU: 1,
+  gpuAvailable: true,
+  gpuKind: 'amd',
+  gpuForAgents: false,
   autoStopIdle: false,
   idleTimeSeconds: 2 * 60 * 60,
 } as T.Settings;
@@ -706,6 +709,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
   if (req.neverFreezeCPU !== undefined) next.neverFreezeCPU = req.neverFreezeCPU;
   if (req.keepFreeCPU !== undefined) next.keepFreeCPU = req.keepFreeCPU;
+  if (req.gpuForAgents !== undefined) next.gpuForAgents = req.gpuForAgents;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
   for (const [model, win] of [
