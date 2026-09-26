@@ -30,7 +30,7 @@ var template = sync.OnceValues(func() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 	// Folds the WAL back into the main file, so copying that file alone
 	// (open, below) carries everything the template has.
 	if _, err := st.DB().Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {

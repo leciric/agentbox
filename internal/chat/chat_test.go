@@ -39,7 +39,7 @@ import (
 // only touches flags it was actually given.
 func TestMain(m *testing.M) {
 	if f := flag.Lookup("test.parallel"); f != nil {
-		flag.Set("test.parallel", strconv.Itoa(runtime.GOMAXPROCS(0)*4))
+		_ = flag.Set("test.parallel", strconv.Itoa(runtime.GOMAXPROCS(0)*4))
 	}
 	os.Exit(m.Run())
 }
