@@ -81,6 +81,12 @@ if [[ $WITH_INCUS == 1 ]]; then
   # covers regardless of host (only the agent user's own uid, 1000, is
   # pinned outside the automatic range — see image.IDMap), replaces it.
   sed -i 's/^root:.*/root:100000:65536/' /etc/subuid /etc/subgid
+  # host-setup.sh reads this to tell a nested agent from a real host: a real
+  # host's own small range still gets the billion-ID one added (that's what
+  # a real host's own idmap can actually back), and a real host's own failed
+  # btrfs pool is a real problem to see, not one to paper over with a
+  # silent, slower directory pool. Neither is true here.
+  touch /etc/agentbox-nested-incus
   # Off until a project turns nesting on: `incus admin init` runs then
   # (agent.EnsureNesting), not at boot, so an agent without it spends nothing.
   systemctl disable --now incus.socket incus >/dev/null 2>&1 || true
