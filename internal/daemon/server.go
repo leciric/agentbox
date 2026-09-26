@@ -105,6 +105,9 @@ type Server struct {
 		running bool
 		last    time.Time
 	}
+
+	terminalMu       sync.Mutex
+	terminalActivity map[string]time.Time // last input typed into a terminal, by ref (autostopidle.go)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -116,20 +119,21 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		cfg:          cfg,
-		store:        store,
-		events:       newBroker(),
-		agentAPIs:    map[string]*http.Server{},
-		leadAPIs:     map[string]*http.Server{},
-		waiting:      newWaiters(),
-		lastStates:   map[string]api.AgentChange{},
-		previewIPs:   map[string]previewTarget{},
-		claudeLogins: map[string]*claudeLogin{},
-		distilling:   map[string]bool{},
-		leadWaits:    map[string]bool{},
-		pulls:        newPullsCache(),
-		files:        newFilesCache(),
-		updates:      updates{now: make(chan struct{}, 1)},
+		cfg:              cfg,
+		store:            store,
+		events:           newBroker(),
+		agentAPIs:        map[string]*http.Server{},
+		leadAPIs:         map[string]*http.Server{},
+		waiting:          newWaiters(),
+		lastStates:       map[string]api.AgentChange{},
+		previewIPs:       map[string]previewTarget{},
+		claudeLogins:     map[string]*claudeLogin{},
+		distilling:       map[string]bool{},
+		leadWaits:        map[string]bool{},
+		pulls:            newPullsCache(),
+		files:            newFilesCache(),
+		updates:          updates{now: make(chan struct{}, 1)},
+		terminalActivity: map[string]time.Time{},
 	}
 	s.chat = &chat.Manager{
 		Store:   store,
@@ -192,11 +196,12 @@ func (s *Server) Run(ctx context.Context) error {
 		stop()
 		loops.Wait()
 	}()
-	s.firstSweeps.Add(2)
+	s.firstSweeps.Add(3)
 	loops.Go(func() { s.watch(ctx) })
 	loops.Go(func() { s.sweepMedia(ctx) })
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
+	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)

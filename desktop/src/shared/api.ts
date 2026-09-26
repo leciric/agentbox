@@ -106,6 +106,8 @@ export interface Settings {
   defaultClaudeCompactWindow: number;
   neverFreezeCPU: boolean;
   keepFreeCPU: number;
+  autoStopIdle: boolean;
+  idleTimeSeconds: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -124,6 +126,8 @@ export interface UpdateSettingsRequest {
   mediaRetention?: string;
   neverFreezeCPU?: boolean;
   keepFreeCPU?: number;
+  autoStopIdle?: boolean;
+  idleTimeSeconds?: number;
 }
 
 export interface Limits {

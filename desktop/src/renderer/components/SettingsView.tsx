@@ -35,6 +35,7 @@ import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import {
+  AutoStopIdle,
   CompactWindow,
   DefaultContextWindow,
   DefaultModel,
@@ -853,6 +854,7 @@ function SettingsTabs({
             >
               <ResumeAfterLimit />
               <NeverFreezeCPU />
+              <AutoStopIdle />
               <CompactWindow />
               <MediaRetention />
             </SettingsGroup>

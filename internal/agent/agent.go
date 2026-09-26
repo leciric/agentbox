@@ -1461,6 +1461,11 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 			return inst, err
 		}
 	}
+	if inst.Status != "Running" {
+		if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
+			m.logf("clearing when %s was paused: %v", a.Ref(), err)
+		}
+	}
 	if inst, err = m.Incus.WaitReady(ctx, a.Instance, readyTimeout); err != nil {
 		return inst, err
 	}
@@ -1493,15 +1498,27 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 	return nil
 }
 
-// Pause freezes every process in the agent. It keeps its memory but uses no CPU.
+// Pause freezes every process in the agent. It keeps its memory but uses no
+// CPU. PausedAt is set to now, so "auto-stop idle agents" counts it as idle
+// from this moment rather than from whatever it was last doing before.
 func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
-	_, err := m.Incus.Run(ctx, "pause", a.Instance)
-	return err
+	if _, err := m.Incus.Run(ctx, "pause", a.Instance); err != nil {
+		return err
+	}
+	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
+		m.logf("recording when %s was paused: %v", a.Ref(), err)
+	}
+	return nil
 }
 
 func (m *Manager) Resume(ctx context.Context, a state.Agent) error {
-	_, err := m.Incus.Run(ctx, "resume", a.Instance)
-	return err
+	if _, err := m.Incus.Run(ctx, "resume", a.Instance); err != nil {
+		return err
+	}
+	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
+		m.logf("clearing when %s was paused: %v", a.Ref(), err)
+	}
+	return nil
 }
 
 type DestroyOptions struct {

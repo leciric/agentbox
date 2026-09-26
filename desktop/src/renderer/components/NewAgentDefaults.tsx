@@ -511,6 +511,72 @@ export function NeverFreezeCPU() {
   );
 }
 
+// idleTimes are the presets offered for how long an agent may go idle before
+// "auto-stop idle agents" stops it.
+const idleTimes = [30 * 60, 60 * 60, 2 * 60 * 60, 4 * 60 * 60, 8 * 60 * 60];
+
+function idleTimeWords(seconds: number): string {
+  const hours = seconds / 3600;
+  if (hours >= 1 && hours === Math.trunc(hours)) return `${hours}h`;
+  const minutes = seconds / 60;
+  return `${minutes}m`;
+}
+
+// AutoStopIdle stops a running or paused agent, keeping its worktree and
+// branch, once nothing has happened on it — no chat turn, no job, no waiting
+// question or credential request, no terminal input, no recording — for as
+// long as the idle time below. Off by default, so an agent left alone
+// overnight isn't stopped unless you asked for that.
+export function AutoStopIdle() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const on = settings.data?.autoStopIdle ?? false;
+  const fallback = 2 * 60 * 60;
+  const idleTime = settings.data?.idleTimeSeconds ?? fallback;
+
+  return (
+    <SettingRow
+      label="Auto-stop idle agents"
+      description="Stops a running or paused agent once nothing has happened on it for this long: no chat turn, no job, no waiting question or credential request, no terminal input and no recording. Keeps its worktree and branch, like stopping it by hand."
+      control={
+        <Switch
+          data-auto-stop-idle
+          aria-label="Auto-stop idle agents"
+          disabled={save.isPending || settings.data === undefined}
+          checked={on}
+          onCheckedChange={(autoStopIdle) => save.mutate({ autoStopIdle })}
+        />
+      }
+    >
+      {on && (
+        <div className="max-w-40">
+          <Select
+            data-idle-time
+            aria-label="Idle time"
+            disabled={save.isPending || settings.data === undefined}
+            value={String(idleTime)}
+            onChange={(next) => save.mutate({ idleTimeSeconds: Number(next) })}
+          >
+            {idleTimes.map((n) => (
+              <SelectOption key={n} value={String(n)}>
+                {idleTimeWords(n)}
+                {n === fallback ? ' (default)' : ''}
+              </SelectOption>
+            ))}
+            {!idleTimes.includes(idleTime) && <SelectOption value={String(idleTime)}>{idleTimeWords(idleTime)}</SelectOption>}
+          </Select>
+        </div>
+      )}
+    </SettingRow>
+  );
+}
+
 // compactWindows are the points a chat can be set to compact at: Claude Code's
 // own bounds (100k to 1M) at the steps worth choosing between. Codex shares
 // them; OpenCode has no such setting at all (D83).
