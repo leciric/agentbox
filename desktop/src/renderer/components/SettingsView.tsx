@@ -1095,6 +1095,8 @@ function savedAtLabel(savedAt: string): string {
 // rather than as a 401 inside an agent.
 export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
   const queryClient = useQueryClient();
+  const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const notDefault = (projects.data ?? []).filter((p) => p.claudeAccount);
   const [pasting, setPasting] = useState(false);
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ["setup"] });
@@ -1154,6 +1156,13 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
 
   return (
     <div className="grid gap-3">
+      {accounts.length > 0 && (
+        <p className="text-[12.5px] text-subtle">
+          The default only reaches projects set to "Default".
+          {notDefault.length > 0 &&
+            ` The rest: ${notDefault.map((p) => p.name).join(", ")}.`}
+        </p>
+      )}
       {accounts.length > 0 && (
         <ul className="grid gap-1.5" aria-label="Claude Code accounts">
           {accounts.map((acc) => (
@@ -1564,6 +1573,8 @@ function ClaudeTokenForm({
 // default one.
 export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   const queryClient = useQueryClient();
+  const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const notDefault = (projects.data ?? []).filter((p) => p.githubAccount);
   const [token, setToken] = useState("");
   const [account, setAccount] = useState("");
   const refresh = async () => {
@@ -1637,6 +1648,13 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
 
   return (
     <div className="grid gap-3">
+      {accounts.length > 0 && (
+        <p className="text-[12.5px] text-subtle">
+          The default only reaches projects set to "Default".
+          {notDefault.length > 0 &&
+            ` The rest: ${notDefault.map((p) => p.name).join(", ")}.`}
+        </p>
+      )}
       {accounts.length > 0 && (
         <ul className="grid gap-1.5" aria-label="GitHub accounts">
           {accounts.map((acc) => (

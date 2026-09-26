@@ -364,6 +364,58 @@ func TestProjectAccountMovesItsChat(t *testing.T) {
 	}
 }
 
+// TestUpdateProjectMovesAgentsOnlyWhenAsked checks the other half of a
+// project-wide account change: changing the project's account moves only its
+// chat by itself (TestProjectAccountMovesItsChat); MoveClaudeAgents is what
+// catches an agent that's still on the account being replaced up to the new
+// one, and leaving it unset keeps today's behavior of not touching it.
+func TestUpdateProjectMovesAgentsOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), readyOneAgentIncus)
+	ctx := context.Background()
+	creds := credentials.Store{Dir: d.paths.Credentials()}
+	for _, name := range []string{"default", "work"} {
+		if err := creds.SaveClaudeToken(name, "sk-ant-oat01-"+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addProjectAllowingEvery(t, d, d.fixtureRepo(t, "hello-stack"))
+	def := "default"
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{ClaudeAccount: &def}); err != nil {
+		t.Fatal(err)
+	}
+	lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
+	job, err := lead.CreateProjectAgent(ctx, api.CreateAgentRequest{Title: "Reminders page", Task: "add it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.client.FollowJobLog(ctx, job.ID, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := d.client.Agents(ctx, "hello-stack")
+	if err != nil || len(agents) != 1 || agents[0].ClaudeAccount != "default" {
+		t.Fatalf("Agents() before the move = %+v, %v, want one agent on default", agents, err)
+	}
+
+	// Asking to move: the agent, still on the account being replaced, follows.
+	work := "work"
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{ClaudeAccount: &work, MoveClaudeAgents: true}); err != nil {
+		t.Fatal(err)
+	}
+	if agents, err = d.client.Agents(ctx, "hello-stack"); err != nil || agents[0].ClaudeAccount != "work" {
+		t.Fatalf("Agents() after MoveClaudeAgents = %+v, %v, want the agent moved to work", agents, err)
+	}
+
+	// Without asking: the project moves back, but the agent (now on work,
+	// which isn't being replaced by this change) stays exactly there.
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{ClaudeAccount: &def}); err != nil {
+		t.Fatal(err)
+	}
+	if agents, err = d.client.Agents(ctx, "hello-stack"); err != nil || agents[0].ClaudeAccount != "work" {
+		t.Fatalf("Agents() after the plain change = %+v, %v, want the agent to stay on work", agents, err)
+	}
+}
+
 // TestRenameClaudeAccount: the route renames the token and carries the
 // project over, keeps the machine default on the same account, and refuses a
 // name that is taken or invalid without touching anything.

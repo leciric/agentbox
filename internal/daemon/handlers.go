@@ -214,6 +214,15 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.ClaudeAccount != nil || req.ClaudeAccounts != nil {
 		account, allowed := p.ClaudeAccount, p.ClaudeAccounts
+		mgr := s.manager(nil)
+		// Resolved before the store changes under it: what the project's
+		// agents are actually on now, so moving them means moving them off
+		// this, not off whatever the field literally says (it may be "").
+		var oldResolved string
+		moveAgents := req.ClaudeAccount != nil && req.MoveClaudeAgents
+		if moveAgents {
+			oldResolved, _ = mgr.ClaudeAccountFor(p, "")
+		}
 		if req.ClaudeAccount != nil {
 			account = strings.TrimSpace(*req.ClaudeAccount)
 			if err := s.checkClaudeAccount(account); err != nil {
@@ -240,11 +249,23 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		// token it started with until it next starts.
 		rewriteBrief()
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+		if moveAgents {
+			if newResolved, err := mgr.ClaudeAccountFor(p, ""); err == nil {
+				if err := mgr.MoveAgentsClaudeAccount(r.Context(), p.Name, oldResolved, newResolved); err != nil {
+					s.logf("moving %s's agents to the %s Claude Code account: %v", p.Name, newResolved, err)
+				}
+			}
+		}
 	}
 	if req.GitHubAccount != nil {
 		account := strings.TrimSpace(*req.GitHubAccount)
 		if err := s.checkGitHubAccount(account); err != nil {
 			return err
+		}
+		mgr := s.manager(nil)
+		var oldResolved string
+		if req.MoveGitHubAgents {
+			oldResolved, _ = mgr.GitHubAccountFor(p, "")
 		}
 		if err := s.store.SetProjectGitHubAccount(r.Context(), p.Name, account); err != nil {
 			return err
@@ -255,6 +276,13 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		// here. Dropped the same way as when an account is saved or removed.
 		s.pulls.reset()
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+		if req.MoveGitHubAgents {
+			if newResolved, err := mgr.GitHubAccountFor(p, ""); err == nil {
+				if err := mgr.MoveAgentsGitHubAccount(r.Context(), p.Name, oldResolved, newResolved); err != nil {
+					s.logf("moving %s's agents to the %s GitHub account: %v", p.Name, newResolved, err)
+				}
+			}
+		}
 	}
 	if req.FinishNotices != nil {
 		notices := strings.TrimSpace(*req.FinishNotices)
