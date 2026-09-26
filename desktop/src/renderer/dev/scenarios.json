@@ -232,6 +232,20 @@
     "height": 900
   },
   {
+    "id": "tokens-project-dark",
+    "description": "A project's Tokens tab: headline with average TPS, two agents each with their own average TPS by model, and spend over time — dark",
+    "query": "tokens=1&theme=dark",
+    "width": 980,
+    "height": 1400
+  },
+  {
+    "id": "tokens-agent-dark",
+    "description": "agent-99's own \"What it spent\" card on its Overview tab, with average TPS by model and by turn — dark",
+    "query": "tokens=agent&theme=dark",
+    "width": 640,
+    "height": 820
+  },
+  {
     "id": "agent-info-card-dark",
     "description": "Hovering agent-99's row in the rail: the info card (model, effort, context, avg TPS, accounts, branch, state, uptime, limits, tokens, cost, PR) — dark, xl width",
     "query": "open=agent-99&theme=dark",

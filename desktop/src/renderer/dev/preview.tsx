@@ -54,6 +54,10 @@
 //                           agent, and on a Codex agent (no meter)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
+//   ?tokens=1               a project's Tokens tab: headline (with average
+//                           TPS), by agent and by model, and spend over time
+//   ?tokens=agent           agent-99's own "What it spent" card, on its
+//                           Overview tab
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -71,6 +75,7 @@ import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../compon
 import { LimitsEditor } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectView';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
+import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
 import { AgentAvatar, aiLabel } from '../components/state';
@@ -106,6 +111,7 @@ const github = params.get('github') === '1';
 const resources = params.get('resources') === '1';
 const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
+const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const imageUpdate = params.get('setup') === 'updating';
 
 const windowsBeforeSetup: HostSetupStatus = {
@@ -263,6 +269,22 @@ function Preview() {
     return (
       <div style={{ maxWidth: 420, padding: 24, font: '13px var(--font-sans)' }}>
         <PullRequestsPanel project={PROJECT} onSelect={() => {}} onOpenAccount={() => {}} />
+      </div>
+    );
+  }
+
+  if (tokens === '1') {
+    return (
+      <div style={{ maxWidth: 960, padding: 24, font: '13px var(--font-sans)' }}>
+        <TokensPanel project={PROJECT} onOpenAgent={() => {}} />
+      </div>
+    );
+  }
+
+  if (tokens === 'agent') {
+    return (
+      <div style={{ maxWidth: 640, padding: 24, font: '13px var(--font-sans)' }}>
+        <AgentTokensCard agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
       </div>
     );
   }

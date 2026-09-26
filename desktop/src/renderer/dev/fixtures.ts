@@ -477,42 +477,101 @@ export function agent99Chat(): T.ChatThread {
   };
 }
 
-// agent99Tokens is agent-99's line of the ledger, for its info card's average
-// TPS and spend so far.
+// figures is the four token counters a report, an agent or a model carries,
+// plus their total and the AI tool's cost estimate — every ledger fixture
+// below is built from these, with its own avgTPS beside them (T.TokenCounts
+// itself has no avgTPS: each container that embeds it adds its own).
+function figures(input: number, output: number, cacheRead: number, cacheWrite: number, costUSD: number) {
+  return { input, output, cacheRead, cacheWrite, total: input + output + cacheRead + cacheWrite, costUSD };
+}
+
+// sumModels adds a set of models' figures together, for the agent (or
+// report) row that carries all of them: cost and tokens add up; avgTPS is
+// weighted by each model's own output, the way summing output-over-seconds
+// and only then dividing would come out.
+function sumModels(models: (T.ModelTokens | T.AgentTokens)[]) {
+  const totals = models.reduce(
+    (sum, m) => ({ input: sum.input + m.input, output: sum.output + m.output, cacheRead: sum.cacheRead + m.cacheRead, cacheWrite: sum.cacheWrite + m.cacheWrite, costUSD: sum.costUSD + m.costUSD }),
+    { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costUSD: 0 },
+  );
+  const outputSum = models.reduce((sum, m) => sum + m.output, 0) || 1;
+  const avgTPS = models.reduce((sum, m) => sum + (m.avgTPS ?? 0) * m.output, 0) / outputSum;
+  return { ...figures(totals.input, totals.output, totals.cacheRead, totals.cacheWrite, totals.costUSD), avgTPS };
+}
+
+// agent99Models and agent04Models are what each agent spent, split by model:
+// a subagent on a cheaper model shows up as its own line (Claude Code bills it
+// to the turn that started it), each with its own average tokens per second.
+const agent99Models: T.ModelTokens[] = [
+  { model: 'claude-sonnet-5', avgTPS: 68.2, ...figures(40_000, 180_000, 3_200_000, 120_000, 11.4) },
+  { model: 'claude-haiku-4-5', avgTPS: 142.1, ...figures(5_000, 20_000, 150_000, 8_000, 0.4) },
+];
+const agent04Models: T.ModelTokens[] = [{ model: 'claude-opus-5', avgTPS: 31.5, ...figures(22_000, 60_000, 900_000, 30_000, 6.9) }];
+
+// agentTokens builds one agent's row of a report from its models, the way
+// the daemon sums the ledger's rows into internal/api.AgentTokens.
+function agentTokens(agent: string, title: string, turns: number, maxContext: number, lastAgo: number, models: T.ModelTokens[]): T.AgentTokens {
+  return { project: PROJECT, agent, ref: `${PROJECT}/${agent}`, ai: 'claude', title, exists: true, turns, maxContext, lastAt: new Date(Date.now() - lastAgo).toISOString(), ...sumModels(models), models };
+}
+
+// agent99Tokens is agent-99's line of the ledger alone, for its info card's
+// average TPS and spend so far (?open=agent-99, the agent's own Overview tab).
 export function agent99Tokens(): T.TokenReport {
-  const models: T.ModelTokens[] = [{ model: 'claude-sonnet-5', input: 12_000, output: 48_000, cacheRead: 900_000, cacheWrite: 40_000, total: 1_000_000, costUSD: 3.4, avgTPS: 62.4 }];
-  const agent: T.AgentTokens = {
+  const agent = agentTokens('agent-99', 'PR agent', 42, 3_540_000, 90_000, agent99Models);
+  return { until: new Date().toISOString(), ...sumModels([agent]), agents: [agent], buckets: [], bucketSeconds: 3600 };
+}
+
+// tokenBuckets makes n buckets, step seconds apart ending now, each ramping
+// output up and cost with it, and a slower turn or two (lower avgTPS) midway —
+// enough shape for the spend-over-time chart's bars and tooltips to differ,
+// without claiming to be a real trace.
+function tokenBuckets(n: number, step: number): T.TokenBucket[] {
+  // slots() (TokensPanel.tsx) looks a bucket up by its start floored to a
+  // step-sized boundary since the epoch, the way the daemon's own bucketing
+  // does it (at / w) * w: a start off that grid, however close, is one
+  // slots() never finds, and the chart draws every column empty.
+  const stepMs = step * 1000;
+  const lastStart = Math.floor(Date.now() / stepMs) * stepMs;
+  return Array.from({ length: n }, (_, i) => {
+    const output = 6_000 + i * 2_400 + (i % 3 === 0 ? 3_000 : 0);
+    const total = Math.round(output * 4.6);
+    const avgTPS = i === 3 || i === 4 ? 28 : 55 + i * 4;
+    return { start: new Date(lastStart - (n - 1 - i) * stepMs).toISOString(), avgTPS, ...figures(Math.round(total * 0.02), output, Math.round(total * 0.87), Math.round(total * 0.08), total * 0.0000038) };
+  });
+}
+
+// projectTokenReport is the project's whole ledger (?tokens=1, the project's
+// Tokens tab): two agents on different models, each with its own average
+// TPS, and buckets across a five-hour window for the chart.
+export function projectTokenReport(): T.TokenReport {
+  const agents = [agentTokens('agent-99', 'PR agent', 42, 3_540_000, 90_000, agent99Models), agentTokens('agent-04', 'Fix the agent rail overflowing on wide content', 18, 1_012_000, 40 * 60_000, agent04Models)];
+  const buckets = tokenBuckets(8, 2_250); // 8 columns, 37.5 minutes apart: a five-hour window
+  const since = new Date(Date.now() - 5 * 3_600_000).toISOString();
+  return { until: new Date().toISOString(), since, ...sumModels(agents), agents, buckets, bucketSeconds: 2_250 };
+}
+
+// agent99Turns is agent-99's ledger itself, newest first, for the recent-turns
+// table under its info's "By model": a mix of turns and one background
+// result (no duration, so no TPS of its own).
+function agent99Turns(): T.TokenTurn[] {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const turn = (ago: number, model: string, output: number, generationMS: number, context: number): T.TokenTurn => ({
     project: PROJECT,
     agent: 'agent-99',
-    ref: `${PROJECT}/agent-99`,
     ai: 'claude',
-    title: 'PR agent',
-    exists: true,
-    turns: 14,
-    maxContext: 950_000,
-    lastAt: new Date().toISOString(),
-    input: 12_000,
-    output: 48_000,
-    cacheRead: 900_000,
-    cacheWrite: 40_000,
-    total: 1_000_000,
-    costUSD: 3.4,
-    avgTPS: 62.4,
-    models,
-  };
-  return {
-    until: new Date().toISOString(),
-    input: agent.input,
-    output: agent.output,
-    cacheRead: agent.cacheRead,
-    cacheWrite: agent.cacheWrite,
-    total: agent.total,
-    costUSD: agent.costUSD,
-    avgTPS: agent.avgTPS,
-    agents: [agent],
-    buckets: [],
-    bucketSeconds: 3600,
-  };
+    kind: 'turn',
+    model,
+    at: at(ago),
+    context,
+    generationMS,
+    ...figures(4_000, output, 380_000, 12_000, output * 0.00002),
+  });
+  return [
+    turn(2 * 60_000, 'claude-sonnet-5', 6_200, 88_000, 950_000),
+    turn(9 * 60_000, 'claude-haiku-4-5', 3_100, 22_000, 940_000),
+    { ...turn(18 * 60_000, 'claude-sonnet-5', 0, 0, 900_000), kind: 'background', output: 0, input: 0, cacheRead: 0, cacheWrite: 0, total: 0, generationMS: 0 },
+    turn(34 * 60_000, 'claude-sonnet-5', 5_400, 79_000, 880_000),
+  ];
 }
 
 // devState is what the dev bridge serves for the projects and the stored
@@ -534,6 +593,10 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
   queryClient.setQueryData(['chat', `${PROJECT}/agent-99`], agent99Chat());
   queryClient.setQueryData(['tokens', PROJECT, 'agent-99', 'all'], agent99Tokens());
+  const agent99Recent = agentTokens('agent-99', 'PR agent', 6, 3_540_000, 90_000, [{ model: 'claude-sonnet-5', avgTPS: 71.8, ...figures(6_000, 26_000, 480_000, 18_000, 1.6) }]);
+  queryClient.setQueryData(['tokens', PROJECT, 'agent-99', '5h'], { until: new Date().toISOString(), since: new Date(Date.now() - 5 * 3_600_000).toISOString(), ...sumModels([agent99Recent]), agents: [agent99Recent], buckets: [], bucketSeconds: 600 } satisfies T.TokenReport);
+  queryClient.setQueryData(['tokens', PROJECT, '5h'], projectTokenReport());
+  queryClient.setQueryData(['tokenTurns', PROJECT, 'agent-99', '', 15], agent99Turns());
   queryClient.setQueryData(['projectChat', PROJECT], { project: PROJECT, ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);
