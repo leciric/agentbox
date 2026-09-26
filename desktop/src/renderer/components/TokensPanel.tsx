@@ -4,7 +4,7 @@ import { Fragment, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api, type TokenQuery } from '../lib/api';
-import { humanTokens, limitTone, share, usd, windowNow } from '../lib/tokens';
+import { humanTokens, limitTone, share, tps, usd, windowNow } from '../lib/tokens';
 import { cn, errorMessage, timeAgo, timeUntil } from '../lib/utils';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
@@ -148,9 +148,10 @@ function ClaudeLimits() {
 function Headline({ report }: { report: T.TokenReport }) {
   const fullest = report.agents.reduce<T.AgentTokens | undefined>((best, a) => (!best || a.maxContext > best.maxContext ? a : best), undefined);
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
       <Stat label="Tokens" value={humanTokens(report.total)} hint={`${humanTokens(report.output)} of them written by the model`} />
       <Stat label="Estimated cost" value={usd(report.costUSD)} hint="The AI tool's estimate at API prices" />
+      <Stat label="Avg TPS" value={tps(report.avgTPS ?? 0)} hint="Output tokens per second of generation, over every turn that timed itself" />
       <Stat label="Cache reads" value={share(report.cacheRead, report.total)} hint="Conversation sent again with each step" />
       <Stat
         label="Peak context"
@@ -177,7 +178,7 @@ export function Stat({ label, value, hint }: { label: string; value: string; hin
 
 interface Slot {
   start: number;
-  counts?: T.TokenCounts;
+  counts?: T.TokenBucket;
 }
 
 // slots fills in the stretches the ledger has no bucket for, so the columns
@@ -252,6 +253,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
                 <th className="px-2 py-1.5 text-right font-medium">Tokens</th>
                 <th className="px-2 py-1.5 text-right font-medium">Cache read</th>
                 <th className="px-2 py-1.5 text-right font-medium">Output</th>
+                <th className="px-2 py-1.5 text-right font-medium">Avg TPS</th>
                 <th className="py-1.5 pl-2 pr-3 text-right font-medium">Cost</th>
               </tr>
             </thead>
@@ -264,6 +266,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
                     <td className="px-2 py-1.5 text-right tabular-nums text-secondary">{humanTokens(s.counts!.total)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-tertiary">{humanTokens(s.counts!.cacheRead)}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-tertiary">{humanTokens(s.counts!.output)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums text-tertiary">{tps(s.counts!.avgTPS ?? 0)}</td>
                     <td className="py-1.5 pl-2 pr-3 text-right tabular-nums text-tertiary">{usd(s.counts!.costUSD)}</td>
                   </tr>
                 ))}
@@ -291,7 +294,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
                         <span className="font-semibold text-title">{total ? `${humanTokens(total)} tokens` : 'Nothing spent'}</span>
                         {s.counts && (
                           <span className="text-muted">
-                            {share(s.counts.cacheRead, total)} cache reads · {usd(s.counts.costUSD)}
+                            {share(s.counts.cacheRead, total)} cache reads · {tps(s.counts.avgTPS ?? 0)} · {usd(s.counts.costUSD)}
                           </span>
                         )}
                         <span className="text-faint">{slotLabel(s.start, report.bucketSeconds)}</span>
@@ -351,6 +354,7 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
               <th className="py-1.5 pl-3 pr-2 font-medium">Agent</th>
               <th className="px-2 py-1.5 font-medium">Tokens</th>
               <th className="px-2 py-1.5 text-right font-medium">Cache read</th>
+              <th className="px-2 py-1.5 text-right font-medium">Avg TPS</th>
               <th className="px-2 py-1.5 text-right font-medium">Cost</th>
               <th className="py-1.5 pl-2 pr-3 text-right font-medium" title="The fullest its context was when a turn ended: what each call of that turn carried">
                 Peak context
@@ -410,12 +414,13 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
                       </div>
                     </td>
                     <td className="px-2 py-2 text-right align-top tabular-nums text-tertiary">{humanTokens(a.cacheRead)}</td>
+                    <td className="px-2 py-2 text-right align-top tabular-nums text-tertiary">{tps(a.avgTPS ?? 0)}</td>
                     <td className="px-2 py-2 text-right align-top tabular-nums text-secondary">{usd(a.costUSD)}</td>
                     <td className="py-2 pl-2 pr-3 text-right align-top tabular-nums text-tertiary">{a.maxContext ? humanTokens(a.maxContext) : '—'}</td>
                   </tr>
                   {expanded && (
                     <tr className="bg-surface-faint">
-                      <td colSpan={5} className="px-3 pb-3 pt-1">
+                      <td colSpan={6} className="px-3 pb-3 pt-1">
                         {/* w-0 min-w-full: the detail takes the row's width
                             instead of lending its own to the table, which
                             would push the numbers above out of view. */}
@@ -460,7 +465,9 @@ export function ModelBreakdown({ models }: { models: T.ModelTokens[] }) {
           <li key={m.model || 'unnamed'} className="min-w-0">
             <div className="flex items-baseline justify-between gap-2 text-[12px]">
               <span className="truncate font-mono text-[11.5px] text-secondary">{m.model || 'unnamed model'}</span>
-              <span className="shrink-0 tabular-nums text-muted">{humanTokens(m.total)}</span>
+              <span className="shrink-0 tabular-nums text-muted">
+                {humanTokens(m.total)} · {tps(m.avgTPS ?? 0)}
+              </span>
             </div>
             <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-strong" aria-hidden>
               <div className="h-full rounded-full bg-brand-400" style={{ width: `${Math.max((m.total / Math.max(total, 1)) * 100, 2)}%` }} />
@@ -493,6 +500,7 @@ export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number
                 <th className="px-2 py-1 font-medium">Kind</th>
                 <th className="px-2 py-1 font-medium">Model</th>
                 <th className="px-2 py-1 text-right font-medium">Tokens</th>
+                <th className="px-2 py-1 text-right font-medium">TPS</th>
                 <th className="px-2 py-1 text-right font-medium">Cost</th>
                 <th className="py-1 pl-2 pr-2.5 text-right font-medium">Context</th>
               </tr>
@@ -512,6 +520,7 @@ export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number
                   <td className="px-2 py-1 text-right tabular-nums text-secondary" title={`${humanTokens(t.cacheRead)} cache read · ${humanTokens(t.cacheWrite)} cache write · ${humanTokens(t.input)} input · ${humanTokens(t.output)} output`}>
                     {t.total ? humanTokens(t.total) : '—'}
                   </td>
+                  <td className="px-2 py-1 text-right tabular-nums text-tertiary">{t.generationMS ? tps((t.output / t.generationMS) * 1000) : '—'}</td>
                   <td className="px-2 py-1 text-right tabular-nums text-tertiary">{usd(t.costUSD)}</td>
                   <td className="py-1 pl-2 pr-2.5 text-right tabular-nums text-tertiary">{t.context ? humanTokens(t.context) : '—'}</td>
                 </tr>
@@ -548,10 +557,11 @@ export function AgentTokensCard({ agent }: { agent: T.Agent }) {
       {all.data && !mine && <p className="text-[13px] text-subtle">Nothing yet: its chat hasn't finished a turn since AgentBox started keeping the ledger.</p>}
       {mine && (
         <div className="grid grid-cols-1 gap-4" data-agent-tokens={agent.ref}>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <Stat label="Tokens" value={humanTokens(mine.total)} hint={`${share(mine.cacheRead, mine.total)} of them cache reads`} />
             <Stat label="Last 5 hours" value={lately ? humanTokens(lately.total) : '0'} hint={lately ? usd(lately.costUSD) : 'Nothing spent'} />
             <Stat label="Estimated cost" value={usd(mine.costUSD)} hint="At API prices" />
+            <Stat label="Avg TPS" value={tps(mine.avgTPS ?? 0)} hint="Output tokens per second of generation" />
             <Stat label="Peak context" value={mine.maxContext ? humanTokens(mine.maxContext) : '—'} hint={`${mine.turns} turns`} />
           </div>
           <ModelBreakdown models={mine.models} />

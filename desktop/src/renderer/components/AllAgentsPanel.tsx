@@ -119,7 +119,7 @@ function AgentFleetRow({
   const quiet = agent.state === 'stopped' || agent.state === 'paused';
 
   return (
-    <AgentContextMenu agent={agent} onSelect={onOpen}>
+    <AgentContextMenu agent={agent} infoSide="bottom" onSelect={onOpen}>
     <button
       type="button"
       data-agent={agent.ref}

@@ -88,6 +88,48 @@ func TestTokenReport(t *testing.T) {
 	}
 }
 
+// TestTokenReportTPS: avgTPS is output over generation seconds, summed across
+// rows before dividing rather than averaging each row's own rate, and a row
+// with no generation time doesn't lower it.
+func TestTokenReportTPS(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	// A minute back: a row stamped at this very instant can land after the
+	// report's own "now" once both are rounded, and drop out of it.
+	now := time.Now().Add(-time.Minute)
+	add := func(turn, model string, output, generationMS int64) {
+		t.Helper()
+		if err := d.srv.store.AddTokenRows(ctx, []state.TokenRow{{
+			Project: "acme", Agent: "agent-24", AI: "claude", Turn: turn, Kind: state.TokensTurn,
+			Model: model, At: now, Output: output, GenerationMS: generationMS,
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("t1", "claude-sonnet-5", 200, 2_000) // 100 tok/s
+	add("t2", "claude-sonnet-5", 300, 3_000) // 100 tok/s
+	add("t3", "claude-sonnet-5", 1_000, 0)   // no duration: left out
+
+	report, err := getTokens(t, d, "project=acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Agents) != 1 {
+		t.Fatalf("agents = %+v", report.Agents)
+	}
+	agent := report.Agents[0]
+	if agent.AvgTPS != 100 || report.AvgTPS != 100 {
+		t.Errorf("avg TPS = agent %v, report %v, want 100 (500 output / 5s), the undurationed turn left out", agent.AvgTPS, report.AvgTPS)
+	}
+	if len(agent.Models) != 1 || agent.Models[0].AvgTPS != 100 {
+		t.Errorf("model TPS = %+v", agent.Models)
+	}
+	if len(report.Buckets) != 1 || report.Buckets[0].AvgTPS != 100 {
+		t.Errorf("bucket TPS = %+v", report.Buckets)
+	}
+}
+
 func TestParseSince(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)

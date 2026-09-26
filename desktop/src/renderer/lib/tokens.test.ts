@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { humanTokens, limitTone, share, usd, windowNow } from './tokens.ts';
+import { humanTokens, limitTone, share, tps, usd, windowNow } from './tokens.ts';
 
 test('humanTokens picks the largest unit that keeps a number readable', () => {
   assert.equal(humanTokens(999), '999');
@@ -41,6 +41,12 @@ test('windowNow is null once the reset has passed', () => {
 test('windowNow treats an unparsable reset as still running', () => {
   const now = Date.parse('2026-01-01T00:00:00Z');
   assert.equal(windowNow({ utilization: 0.4, resetsAt: 'not-a-date' }, now), 0.4);
+});
+
+test('tps shows a dash for a stretch nothing timed, not "0 tok/s"', () => {
+  assert.equal(tps(0), '—');
+  assert.equal(tps(4.2), '4.2 tok/s');
+  assert.equal(tps(123.4), '123 tok/s');
 });
 
 test('limitTone thresholds match the top bar', () => {

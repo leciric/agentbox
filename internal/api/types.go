@@ -1668,6 +1668,7 @@ const (
 	FeatureSettingsAgents      = "settings.view.agents"
 	FeatureMenuOpenChat        = "menu.agent.open_chat"
 	FeatureMenuOpenTerminal    = "menu.agent.open_terminal"
+	FeatureMenuInfo            = "menu.agent.info"
 	FeatureMenuLifecycle       = "menu.agent.lifecycle"
 	FeatureMenuRetire          = "menu.agent.retire"
 	FeatureMenuCopyBranch      = "menu.agent.copy_branch"
@@ -1680,6 +1681,6 @@ var AppFeatures = []string{
 	FeatureDesktopOpen, FeatureTerminalOpen, FeatureAndroidOpen, FeatureAgentMediaView, FeatureProjectMediaView,
 	FeaturePullList, FeatureMemoryView, FeatureTokensView,
 	FeatureSettingsEnvironment, FeatureSettingsAccounts, FeatureSettingsLead, FeatureSettingsAgents,
-	FeatureMenuOpenChat, FeatureMenuOpenTerminal, FeatureMenuLifecycle, FeatureMenuRetire,
+	FeatureMenuOpenChat, FeatureMenuOpenTerminal, FeatureMenuInfo, FeatureMenuLifecycle, FeatureMenuRetire,
 	FeatureMenuCopyBranch, FeatureMenuOpenPullRequest, FeatureMenuDestroy,
 }

@@ -137,14 +137,33 @@ func TestWorkBetweenTurnsIsBooked(t *testing.T) {
 
 func TestTokenRows(t *testing.T) {
 	base := state.TokenRow{Project: "p", Agent: "a", Kind: state.TokensTurn}
-	// A cost with no tokens is one row under the session's model.
-	rows := tokenRows(base, nil, "opus", 0.2)
-	if len(rows) != 1 || rows[0].Model != "opus" || !near(rows[0].CostUSD, 0.2) {
+	// A cost with no tokens is one row under the session's model, carrying
+	// the generation time too.
+	rows := tokenRows(base, nil, "opus", 0.2, 4_000)
+	if len(rows) != 1 || rows[0].Model != "opus" || !near(rows[0].CostUSD, 0.2) || rows[0].GenerationMS != 4_000 {
 		t.Errorf("tokenRows(no tokens) = %+v", rows)
 	}
 	// Nothing at all is no row.
-	if rows := tokenRows(base, nil, "opus", 0); rows != nil {
+	if rows := tokenRows(base, nil, "opus", 0, 0); rows != nil {
 		t.Errorf("tokenRows(nothing) = %+v", rows)
+	}
+}
+
+// TestGenerationMS: a turn that streamed more than one chunk is timed from
+// its first to its last, and one that streamed nothing (or only one, at the
+// same instant) falls back to its own start.
+func TestGenerationMS(t *testing.T) {
+	now := time.Now()
+	streamed := &turn{startedAt: now, firstOutputAt: now, lastOutputAt: now.Add(3 * time.Second)}
+	if got := generationMS(streamed); got != 3_000 {
+		t.Errorf("streamed turn = %dms, want 3000", got)
+	}
+	silent := &turn{startedAt: now.Add(-2 * time.Second)}
+	if got := generationMS(silent); got < 1_900 || got > 2_500 {
+		t.Errorf("silent turn = %dms, want ~2000 (its own start to now)", got)
+	}
+	if got := generationMS(&turn{}); got != 0 {
+		t.Errorf("a turn timed by nothing = %dms, want 0", got)
 	}
 }
 

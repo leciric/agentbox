@@ -44,6 +44,9 @@ type TokenCounts struct {
 type ModelTokens struct {
 	Model string `json:"model"`
 	TokenCounts
+	// AvgTPS is output tokens per second of generation, averaged over every
+	// turn this model answered that timed itself; 0 when none did.
+	AvgTPS float64 `json:"avgTPS,omitempty"`
 }
 
 // AgentTokens is one agent's spend over a report's stretch of time.
@@ -64,6 +67,9 @@ type AgentTokens struct {
 	MaxContext int64     `json:"maxContext"`
 	LastAt     time.Time `json:"lastAt"`
 	TokenCounts
+	// AvgTPS is output tokens per second of generation, averaged over every
+	// turn of this agent's that timed itself; 0 when none did.
+	AvgTPS float64       `json:"avgTPS,omitempty"`
 	Models []ModelTokens `json:"models"` // busiest first
 }
 
@@ -71,6 +77,8 @@ type AgentTokens struct {
 type TokenBucket struct {
 	Start time.Time `json:"start"`
 	TokenCounts
+	// AvgTPS is TokenReport's own field, for this stretch alone.
+	AvgTPS float64 `json:"avgTPS,omitempty"`
 }
 
 // TokenReport is the ledger summed over a stretch of time, for every project,
@@ -79,6 +87,9 @@ type TokenReport struct {
 	Since *time.Time `json:"since,omitempty"` // nil for since the ledger began
 	Until time.Time  `json:"until"`
 	TokenCounts
+	// AvgTPS is output tokens per second of generation, averaged over every
+	// turn this report covers that timed itself; 0 when none did.
+	AvgTPS float64       `json:"avgTPS,omitempty"`
 	Agents []AgentTokens `json:"agents"` // most expensive first
 	// Buckets is the spend over time, BucketSeconds each, oldest first. A
 	// stretch nothing was spent in has no bucket.
@@ -98,6 +109,9 @@ type TokenTurn struct {
 	At      time.Time `json:"at"`
 	// Context is how full the session's context was when the turn ended.
 	Context int64 `json:"context"`
+	// GenerationMS is how long this turn took to generate; 0 when nothing
+	// timed it.
+	GenerationMS int64 `json:"generationMS,omitempty"`
 	TokenCounts
 }
 

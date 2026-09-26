@@ -93,6 +93,46 @@ func TestTokenLedger(t *testing.T) {
 	}
 }
 
+// TestTokenLedgerTPS: TokenTotals and TokenBuckets sum a duration's output
+// tokens and milliseconds only from rows that timed themselves, so an old row
+// with no duration is left out of the average rather than dragging it down.
+func TestTokenLedgerTPS(t *testing.T) {
+	ctx := context.Background()
+	st := open(t, filepath.Join(t.TempDir(), "state.db"))
+	base := time.Date(2026, 9, 21, 18, 0, 0, 0, time.UTC)
+	rows := []state.TokenRow{
+		{Project: "acme", Agent: "agent-24", AI: "claude", Turn: "t1", Kind: state.TokensTurn,
+			Model: "claude-sonnet-5", At: base, Output: 200, GenerationMS: 2_000},
+		{Project: "acme", Agent: "agent-24", AI: "claude", Turn: "t2", Kind: state.TokensTurn,
+			Model: "claude-sonnet-5", At: base.Add(time.Minute), Output: 300, GenerationMS: 3_000},
+		// No duration, as an old row written before this column existed would
+		// have none: its output isn't counted either.
+		{Project: "acme", Agent: "agent-24", AI: "claude", Turn: "t3", Kind: state.TokensTurn,
+			Model: "claude-sonnet-5", At: base.Add(2 * time.Minute), Output: 1_000},
+	}
+	for _, r := range rows {
+		if err := st.AddTokenRows(ctx, []state.TokenRow{r}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	totals, err := st.TokenTotals(ctx, state.TokenFilter{Project: "acme", Agent: "agent-24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(totals) != 1 || totals[0].TPSOutput != 500 || totals[0].TPSGenerationMS != 5_000 {
+		t.Errorf("agent-24's totals = %+v, want 500 output over 5000ms, the undurationed row left out", totals)
+	}
+
+	buckets, err := st.TokenBuckets(ctx, state.TokenFilter{Project: "acme", Agent: "agent-24"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(buckets) != 1 || buckets[0].TPSOutput != 500 || buckets[0].TPSGenerationMS != 5_000 {
+		t.Errorf("agent-24's buckets = %+v, want the same 500 over 5000ms", buckets)
+	}
+}
+
 func TestClaudeCompactWindow(t *testing.T) {
 	ctx := context.Background()
 	st := open(t, filepath.Join(t.TempDir(), "state.db"))

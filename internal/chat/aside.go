@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
@@ -115,6 +116,7 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 		ranOn = set
 	}
 
+	started := time.Now()
 	var res acp.PromptResponse
 	err = conn.Call(ctx, acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: session.SessionID,
@@ -122,11 +124,12 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 	}, &res)
 	// A session nothing else will use still spent its tokens on this project:
 	// a distillation is billed to the account like any turn, so it goes in
-	// the ledger under the chat that asked for it.
+	// the ledger under the chat that asked for it. It heads no turn, so its
+	// whole round trip is what's timed.
 	if rows := tokenRows(state.TokenRow{
 		Project: a.Project, Agent: a.Name, AI: a.AI, Session: session.SessionID,
 		Turn: newID(), Kind: state.TokensConsolidation, At: m.now(),
-	}, res.ByModel(ranOn), ranOn, h.cost()); len(rows) > 0 {
+	}, res.ByModel(ranOn), ranOn, h.cost(), time.Since(started).Milliseconds()); len(rows) > 0 {
 		go m.recordTokens(rows)
 	}
 	if err != nil {

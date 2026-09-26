@@ -86,6 +86,15 @@ func addCounts(a, b api.TokenCounts) api.TokenCounts {
 	return counts(a.Input+b.Input, a.Output+b.Output, a.CacheRead+b.CacheRead, a.CacheWrite+b.CacheWrite, a.CostUSD+b.CostUSD)
 }
 
+// avgTPS is output tokens per second of generation, from sums of only the
+// rows that timed themselves — never dividing by a duration nobody measured.
+func avgTPS(output, generationMS int64) float64 {
+	if generationMS <= 0 {
+		return 0
+	}
+	return float64(output) / (float64(generationMS) / 1000)
+}
+
 // byCost orders spend most expensive first, and by tokens where the cost is
 // the same — as it is for a tool that reports none.
 func byCost(a, b api.TokenCounts) int {
@@ -128,6 +137,11 @@ func (s *Server) tokenReport(w http.ResponseWriter, r *http.Request) error {
 		since := f.Since
 		report.Since = &since
 	}
+	// TPSOutput and TPSGenerationMS aren't part of api.AgentTokens itself —
+	// only the average they make is — so they're summed alongside it here,
+	// one entry per report.Agents.
+	var agentTPS []state.TokenTotal
+	var reportOutput, reportGenMS int64
 	index := map[string]int{}
 	for _, t := range totals {
 		ref := t.Project + "/" + t.Agent
@@ -138,6 +152,7 @@ func (s *Server) tokenReport(w http.ResponseWriter, r *http.Request) error {
 				Project: t.Project, Agent: t.Agent, Ref: ref, AI: t.AI, Title: a.Title, Exists: exists,
 				Models: []api.ModelTokens{},
 			})
+			agentTPS = append(agentTPS, state.TokenTotal{})
 			i = len(report.Agents) - 1
 			index[ref] = i
 		}
@@ -149,16 +164,23 @@ func (s *Server) tokenReport(w http.ResponseWriter, r *http.Request) error {
 		if t.LastAt.After(at.LastAt) {
 			at.LastAt = t.LastAt
 		}
-		at.Models = append(at.Models, api.ModelTokens{Model: t.Model, TokenCounts: c})
+		at.Models = append(at.Models, api.ModelTokens{Model: t.Model, TokenCounts: c, AvgTPS: avgTPS(t.TPSOutput, t.TPSGenerationMS)})
+		agentTPS[i].TPSOutput += t.TPSOutput
+		agentTPS[i].TPSGenerationMS += t.TPSGenerationMS
+		reportOutput += t.TPSOutput
+		reportGenMS += t.TPSGenerationMS
 		report.TokenCounts = addCounts(report.TokenCounts, c)
 	}
 	for i := range report.Agents {
+		report.Agents[i].AvgTPS = avgTPS(agentTPS[i].TPSOutput, agentTPS[i].TPSGenerationMS)
 		slices.SortFunc(report.Agents[i].Models, func(a, b api.ModelTokens) int { return byCost(a.TokenCounts, b.TokenCounts) })
 	}
+	report.AvgTPS = avgTPS(reportOutput, reportGenMS)
 	slices.SortFunc(report.Agents, func(a, b api.AgentTokens) int { return byCost(a.TokenCounts, b.TokenCounts) })
 	for _, b := range buckets {
 		report.Buckets = append(report.Buckets, api.TokenBucket{
 			Start: b.Start, TokenCounts: counts(b.Input, b.Output, b.CacheRead, b.CacheWrite, b.CostUSD),
+			AvgTPS: avgTPS(b.TPSOutput, b.TPSGenerationMS),
 		})
 	}
 	return writeJSON(w, http.StatusOK, report)
@@ -185,7 +207,7 @@ func (s *Server) tokenTurns(w http.ResponseWriter, r *http.Request) error {
 	for _, row := range rows {
 		out = append(out, api.TokenTurn{
 			Project: row.Project, Agent: row.Agent, AI: row.AI, Session: row.Session, Turn: row.Turn,
-			Kind: row.Kind, Model: row.Model, At: row.At, Context: row.Context,
+			Kind: row.Kind, Model: row.Model, At: row.At, Context: row.Context, GenerationMS: row.GenerationMS,
 			TokenCounts: counts(row.Input, row.Output, row.CacheRead, row.CacheWrite, row.CostUSD),
 		})
 	}

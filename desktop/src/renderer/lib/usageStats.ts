@@ -20,6 +20,7 @@ export type AppFeature =
   | typeof T.FeatureSettingsAgents
   | typeof T.FeatureMenuOpenChat
   | typeof T.FeatureMenuOpenTerminal
+  | typeof T.FeatureMenuInfo
   | typeof T.FeatureMenuLifecycle
   | typeof T.FeatureMenuRetire
   | typeof T.FeatureMenuCopyBranch

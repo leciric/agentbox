@@ -16,6 +16,10 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 - Changing a project's Claude Code or GitHub account asks whether to move its agents still on the old one too, in the app and with `--move-agents` on the CLI. Settings says which projects don't follow the default account. (#65)
 - A `CHANGELOG.md`, and a "What's new" view (Settings → This app, also shown once after an
   update) that renders it from the running version down.
+- Hovering an agent row, or its context menu's new "Info" item, shows its model, effort, context
+  window, average tokens per second, Claude and GitHub accounts, AI tool, branch, state, uptime,
+  CPU/memory limits, tokens and cost so far, and its pull request.
+- The Tokens tab shows average tokens per second, per model, per agent, and over time.
 
 ### Changed
 

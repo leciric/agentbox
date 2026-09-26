@@ -538,6 +538,15 @@ var migrations = []string{
 	// PausedAt, for "auto-stop idle agents": 0 means never paused, or resumed
 	// or started since.
 	`ALTER TABLE agents ADD COLUMN paused_at INTEGER NOT NULL DEFAULT 0`,
+
+	// A turn's own generation time (D96-ish, average TPS): from the first to
+	// the last streamed assistant chunk the adapter sent, or, when it sent
+	// none, from when the turn started to when it ended. 0 for every row
+	// written before this migration, and for a row a hidden prompt or a
+	// background result wrote with nothing to time it by; TokenTotals and
+	// TokenBuckets leave those out of the average rather than dividing by
+	// zero.
+	`ALTER TABLE token_usage ADD COLUMN generation_ms INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

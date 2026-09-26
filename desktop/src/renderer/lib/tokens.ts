@@ -18,6 +18,15 @@ export function usd(v: number): string {
   return `$${v.toFixed(2)}`;
 }
 
+// tps is an average tokens-per-second reading (state.TokenTotal.TPSOutput /
+// TPSGenerationMS, as a rate): "—" for 0, which is never a turn that was slow
+// but a stretch with nothing that timed itself to average.
+export function tps(n: number): string {
+  if (!n) return '—';
+  if (n >= 100) return `${Math.round(n)} tok/s`;
+  return `${n.toFixed(1)} tok/s`;
+}
+
 // share is a fraction as a percentage a person reads: never "0%" for something
 // that did happen.
 export function share(part: number, whole: number): string {
