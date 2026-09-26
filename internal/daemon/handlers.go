@@ -1453,8 +1453,14 @@ func (s *Server) refreshClaudeTokens(creds credentials.Store) {
 		if !creds.ClaudeValidity(a.Name).Stale() {
 			continue
 		}
+		s.bgChecks.Add(1)
 		go func(name string) {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer s.bgChecks.Done()
+			// Tied to the daemon's own run, not context.Background(): a check
+			// left running past Run's return would still write its answer
+			// beside the token afterwards, racing whatever comes next for that
+			// directory - a test's cleanup among it.
+			ctx, cancel := context.WithTimeout(s.runCtx, 30*time.Second)
 			defer cancel()
 			v, err := creds.CheckClaudeAccount(ctx, name)
 			if err != nil {

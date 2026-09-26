@@ -69,6 +69,11 @@ without a Mac.
   cites earlier decisions by number (D1–D92); their records aren't in this repository.
 - **Explain a feature worth explaining** in its pull request: what it does, what was checked, where
   the code is, and what it still can't do.
+- **Every change adds a line to [`CHANGELOG.md`](CHANGELOG.md)'s `## Unreleased` section**, under
+  Added, Changed or Fixed, in the same pull request — a user-facing sentence, not a description of
+  the code. Tests-, CI- and docs-only changes are exempt; CI's Changelog check enforces this on
+  anything touching `internal/`, `cmd/` or `desktop/src/`, and is skippable with a `no-changelog`
+  label when a PR genuinely doesn't need one.
 
 ## Build and test
 
@@ -203,15 +208,18 @@ link to.
 
 1. Get the changes onto `main`, and run `go test ./...` there.
 2. Bump the version, a patch for fixes and a minor for features: `version` in `desktop/package.json`, and the two root `version` fields in `desktop/package-lock.json`.
-3. Write `.github/releases/v<version>.md` in the shape of
-   [v0.1.0](https://github.com/leciric/agentbox/releases/tag/v0.1.0):
+3. Move `CHANGELOG.md`'s `## Unreleased` section into a new `## <version>` section below it,
+   leaving `## Unreleased` empty (Added/Changed/Fixed) at the top.
+4. Write `.github/releases/v<version>.md` in the shape of
+   [v0.1.0](https://github.com/leciric/agentbox/releases/tag/v0.1.0), starting from what
+   `CHANGELOG.md`'s new `## <version>` section now says:
    - It opens with what changed, in bold. A fix says which versions had the bug.
    - `## Downloads` lists the files a release carries.
    - A fix explains `## What went wrong`: the cause, and what changed.
    - `## Known limitations` lists new ones and links to the releases that list the rest.
    - It links to the README or to GitHub releases, never to `docs/`, which no longer exists.
-4. Commit as `chore(release): <version>`, and land that commit on `main`.
-5. Run the **Release** workflow from the [Actions tab](https://github.com/leciric/agentbox/actions/workflows/release.yml), with `v<version>` as the tag. It builds `main`, tags the commit it built, and publishes the notes with `AgentBox-<version>-x86_64.AppImage`, `AgentBox-<version>-amd64.deb`, `AgentBox-<version>-x64.pacman`, the Windows `AgentBox-<version>-x64-setup.exe` and `AgentBox-<version>-x64-portable.exe`, the command-line tool for `linux-amd64`, `linux-arm64`, `darwin-arm64` and `darwin-amd64` (`agentbox-<version>-<os>-<arch>`), and `SHA256SUMS` (D49, D92, D94). A `check-secrets` job checks whether the repository has Apple's signing secret, since a job-level `if` can't read `secrets.*` directly; the Mac app only builds, on a Mac runner, when that secret is there, signed and notarized, and its `AgentBox-<version>-mac-{arm64,x64}.dmg`/`.zip` with `SHA256SUMS-mac` are only published then too. Without the secret, the Mac job is skipped and publishing goes ahead without it — add the secret later and the next release picks it up on its own. The build takes a few minutes; if the Mac job runs and fails, nothing is published, and running the workflow again carries on from the tag it pushed.
+5. Commit as `chore(release): <version>`, and land that commit on `main`.
+6. Run the **Release** workflow from the [Actions tab](https://github.com/leciric/agentbox/actions/workflows/release.yml), with `v<version>` as the tag. It builds `main`, tags the commit it built, and publishes the notes with `AgentBox-<version>-x86_64.AppImage`, `AgentBox-<version>-amd64.deb`, `AgentBox-<version>-x64.pacman`, the Windows `AgentBox-<version>-x64-setup.exe` and `AgentBox-<version>-x64-portable.exe`, the command-line tool for `linux-amd64`, `linux-arm64`, `darwin-arm64` and `darwin-amd64` (`agentbox-<version>-<os>-<arch>`), and `SHA256SUMS` (D49, D92, D94). A `check-secrets` job checks whether the repository has Apple's signing secret, since a job-level `if` can't read `secrets.*` directly; the Mac app only builds, on a Mac runner, when that secret is there, signed and notarized, and its `AgentBox-<version>-mac-{arm64,x64}.dmg`/`.zip` with `SHA256SUMS-mac` are only published then too. Without the secret, the Mac job is skipped and publishing goes ahead without it — add the secret later and the next release picks it up on its own. The build takes a few minutes; if the Mac job runs and fails, nothing is published, and running the workflow again carries on from the tag it pushed.
 
 The workflow and the local script check and build through the same script, `scripts/release-build.sh`, so a release means one thing wherever it is made: nothing uncommitted, notes that exist and have no `TODO`, a version that matches the tag asked for, a version that isn't released yet, and a built command-line tool that reports the version. The workflow also refuses to move a tag that already points at another commit — a published tag doesn't move.
 

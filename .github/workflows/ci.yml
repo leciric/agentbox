@@ -221,6 +221,21 @@ jobs:
           bin/agentbox.exe wsl status
         continue-on-error: true
 
+  changelog:
+    name: Changelog
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: scripts/check-changelog.sh
+
   # Squash merges use the PR title as the commit message, so it has to be a
   # conventional commit on its own, independent of what the branch's commits
   # look like.

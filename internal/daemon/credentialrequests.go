@@ -74,14 +74,18 @@ func (s *Server) requestCredentialFor(ctx context.Context, a state.Agent, req ap
 	// An agent waits on one call at a time, so one it made before this is
 	// gone, or about to be: its card would only wait for nothing.
 	s.cancelCredentialRequests(ctx, a.Project, a.Name, "The agent asked again, and that request replaces this one.")
+	// Waiting before the question is stored, where it can be answered (or, here,
+	// cancelled by an agent that asks again): a cancellation that came in
+	// between would find nobody to give it to, and this call would wait out
+	// askTimeout for a resolve that already happened without it.
+	ch := s.waiting.add(q.ID)
+	defer s.waiting.remove(q.ID)
 	if err := s.store.AddQuestion(ctx, q); err != nil {
 		return state.Question{}, err
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "credential_requested", map[string]any{
 		"kind": q.Kind, "name": q.SecretName, "reason": q.Text,
 	}, "")
-	ch := s.waiting.add(q.ID)
-	defer s.waiting.remove(q.ID)
 	s.events.publish(api.EventQuestion, toAPIQuestion(q))
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
 	s.logf("%s asks the user for %s: %s", a.Ref(), credentialWanted(q), q.Text)
