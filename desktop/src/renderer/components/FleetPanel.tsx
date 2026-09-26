@@ -83,7 +83,7 @@ export function FleetPanel({ project, onSelect }: { project: string; onSelect: (
         </div>
       ))}
       {data.agents.map((agent) => (
-        <AgentContextMenu key={agent.ref} agent={agent} pr={agent.pr} onSelect={onSelect}>
+        <AgentContextMenu key={agent.ref} agent={agent} pr={agent.pr} infoSide="bottom" onSelect={onSelect}>
         <button
           type="button"
           onClick={() => onSelect({ kind: 'agent', ref: agent.ref })}

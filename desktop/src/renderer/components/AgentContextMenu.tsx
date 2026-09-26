@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CircleX, GitBranch, GitPullRequest, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
+import * as TooltipPrimitive from '@radix-ui/react-tooltip';
+import { CircleX, GitBranch, GitPullRequest, Info, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -7,29 +8,41 @@ import type { View } from '../App';
 import { lifecycleActions, usesChat } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
 import { countFeature, type AppFeature } from '../lib/usageStats';
+import { AgentInfoCard } from './AgentInfoCard';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
+import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 
 // The actions an agent already offers, wherever it's listed: the rail, the
 // all-agents list, and a project's fleet. One component, so an agent has the
 // same menu everywhere it appears, and every action goes through exactly the
 // API call its own view already uses (AgentView.tsx, FleetPanel.tsx). active
 // says the agent's own view is the one open, which destroying it has to leave.
+//
+// Hovering children shows the same info the "Info" item opens, as a tooltip
+// (infoSide says which way it opens). The tooltip's own trigger is nested
+// inside ContextMenuTrigger's asChild slot, both wrapping children directly,
+// so a real right-click and a real hover each reach the same DOM node: a
+// plain component in between (like this file's own Tip) would swallow
+// ContextMenuTrigger's cloned props instead of forwarding them to children.
 export function AgentContextMenu({
   agent,
   pr,
   active,
+  infoSide = 'right',
   onSelect,
   children,
 }: {
   agent: T.Agent;
   pr?: T.PullRequest;
   active?: boolean;
+  infoSide?: 'top' | 'bottom' | 'left' | 'right';
   onSelect: (view: View) => void;
   children: ReactNode;
 }) {
   const queryClient = useQueryClient();
   const [destroying, setDestroying] = useState(false);
+  const [showingInfo, setShowingInfo] = useState(false);
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['agents'] });
@@ -68,7 +81,16 @@ export function AgentContextMenu({
   return (
     <>
       <ContextMenu>
-        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+        <TooltipPrimitive.Root>
+          <ContextMenuTrigger asChild>
+            <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
+          </ContextMenuTrigger>
+          <TooltipPrimitive.Portal>
+            <TooltipPrimitive.Content side={infoSide} sideOffset={6} className="z-[60] max-w-none animate-fade-in rounded-lg border border-line-strong bg-overlay p-3 text-xs text-secondary shadow-xl backdrop-blur">
+              <AgentInfoCard agent={agent} pr={pr} />
+            </TooltipPrimitive.Content>
+          </TooltipPrimitive.Portal>
+        </TooltipPrimitive.Root>
         <ContextMenuContent>
           {usesChat(agent) && (
             <ContextMenuItem icon={MessageSquare} onSelect={counted(T.FeatureMenuOpenChat, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' }))}>
@@ -77,6 +99,9 @@ export function AgentContextMenu({
           )}
           <ContextMenuItem icon={SquareTerminal} onSelect={counted(T.FeatureMenuOpenTerminal, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'terminal' }))}>
             Open terminal
+          </ContextMenuItem>
+          <ContextMenuItem icon={Info} onSelect={counted(T.FeatureMenuInfo, () => setShowingInfo(true))}>
+            Info
           </ContextMenuItem>
           <ContextMenuSeparator />
           {actions.map((name) => (
@@ -119,6 +144,13 @@ export function AgentContextMenu({
         onOpenChange={setDestroying}
         onDestroyed={() => active && onSelect({ kind: 'project', project: agent.project })}
       />
+
+      <Dialog open={showingInfo} onOpenChange={setShowingInfo}>
+        <DialogContent className="max-w-sm">
+          <DialogTitle className="sr-only">{agent.title || agent.name}, agent info</DialogTitle>
+          <AgentInfoCard agent={agent} pr={pr} />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

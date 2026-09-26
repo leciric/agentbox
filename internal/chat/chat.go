@@ -386,7 +386,7 @@ func (c *conversation) beginTurn(it *api.ChatItem, text string, images []api.Cha
 	// Whatever the turn was waiting for, it is running now: a pending resume
 	// has been overtaken, and the limit isn't what the session is doing.
 	c.endLimit()
-	t := &turn{id: it.ID, text: text, images: images}
+	t := &turn{id: it.ID, text: text, images: images, startedAt: it.CreatedAt}
 	c.turn = t
 	c.tools, c.plan, c.open, c.openMessage = map[string]*api.ChatItem{}, nil, nil, ""
 	started := it.CreatedAt
@@ -1099,6 +1099,28 @@ type turn struct {
 	// later one may either: they'd reach the tool out of the order they were sent.
 	deferred  bool
 	steeredAt time.Time // when it was last given a message, for steerGrace
+	// startedAt is when the turn began, for generationMS's fallback: a turn
+	// whose adapter never streamed text (an error, a tool-only turn) is timed
+	// from here to when its prompt call answers.
+	startedAt time.Time
+	// firstOutputAt and lastOutputAt bracket the assistant text this turn
+	// streamed, for generationMS's own measure of how long it took to
+	// generate: ACP's own messages carry no timing, so this is this turn's
+	// own clock on them as they arrive.
+	firstOutputAt, lastOutputAt time.Time
+}
+
+// generationMS is how long a turn took to generate: from its first to its
+// last streamed assistant chunk, when it streamed any, or from when it
+// started to now otherwise.
+func generationMS(t *turn) int64 {
+	if !t.firstOutputAt.IsZero() && t.lastOutputAt.After(t.firstOutputAt) {
+		return t.lastOutputAt.Sub(t.firstOutputAt).Milliseconds()
+	}
+	if !t.startedAt.IsZero() {
+		return time.Since(t.startedAt).Milliseconds()
+	}
+	return 0
 }
 
 type adapter struct {
@@ -1661,7 +1683,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	defer c.mu.Unlock()
 	// A turn that failed still spent what it spent before it did: its
 	// response is empty, so what is booked is the cost alone.
-	c.book(ad, state.TokensTurn, t.id, &res)
+	c.book(ad, state.TokensTurn, t.id, &res, generationMS(t))
 	if err != nil {
 		c.finishTurn(t, nil, err)
 	} else {
@@ -1910,7 +1932,7 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		// and it goes in the ledger now: there is no turn for it to wait for.
 		// Everything else is booked when its prompt answers.
 		if u.Cost != nil && c.turn == nil && !c.rolling && !h.ad.replaying {
-			c.book(h.ad, state.TokensBackground, newID(), nil)
+			c.book(h.ad, state.TokensBackground, newID(), nil, 0)
 		}
 		if rl := u.Meta.RateLimit; rl != nil && c.m.Limits != nil && !h.ad.replaying {
 			go c.m.Limits(c.sessionAgent(h.ad), *rl)
@@ -1997,6 +2019,13 @@ func (h handler) Request(method string, params json.RawMessage, reply func(any, 
 func (c *conversation) appendText(kind, messageID, text string) {
 	if text == "" {
 		return
+	}
+	if kind == "assistant" && c.turn != nil {
+		now := time.Now()
+		if c.turn.firstOutputAt.IsZero() {
+			c.turn.firstOutputAt = now
+		}
+		c.turn.lastOutputAt = now
 	}
 	it := c.open
 	if it != nil && (it.Kind != kind || (messageID != "" && c.openMessage != "" && messageID != c.openMessage)) {

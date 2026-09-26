@@ -58,9 +58,10 @@ func (s *spend) take() float64 {
 // book writes what the adapter spent on one turn, or on one result of its
 // own: the response's tokens — none, for a turn that failed or a result no
 // prompt asked for — and the cost since the last booking. Nothing is written
-// when there is neither. The conversation is locked; the write happens off
-// the lock.
-func (c *conversation) book(ad *adapter, kind, turn string, res *acp.PromptResponse) {
+// when there is neither. generationMS is how long it took to generate, 0 when
+// nothing timed it (state.TokenRow.GenerationMS). The conversation is locked;
+// the write happens off the lock.
+func (c *conversation) book(ad *adapter, kind, turn string, res *acp.PromptResponse, generationMS int64) {
 	model := optionValueOf(c.session.Options, "model")
 	var spent map[string]acp.Spent
 	if res != nil {
@@ -76,23 +77,23 @@ func (c *conversation) book(ad *adapter, kind, turn string, res *acp.PromptRespo
 		Kind:    kind,
 		At:      c.m.now(),
 		Context: c.session.ContextUsed,
-	}, spent, model, cost)
+	}, spent, model, cost, generationMS)
 	if len(rows) > 0 {
 		go c.m.recordTokens(rows)
 	}
 }
 
 // tokenRows makes a turn's ledger rows: one per model, the busiest first,
-// carrying the turn's whole cost. A turn that reported a cost and no tokens —
-// a failed turn, or a result the session made by itself — is one row under the
-// model the session was on.
-func tokenRows(base state.TokenRow, spent map[string]acp.Spent, fallback string, cost float64) []state.TokenRow {
+// carrying the turn's whole cost and generation time. A turn that reported a
+// cost and no tokens — a failed turn, or a result the session made by itself —
+// is one row under the model the session was on.
+func tokenRows(base state.TokenRow, spent map[string]acp.Spent, fallback string, cost float64, generationMS int64) []state.TokenRow {
 	if len(spent) == 0 {
 		if cost <= 0 {
 			return nil
 		}
 		row := base
-		row.Model, row.CostUSD = fallback, cost
+		row.Model, row.CostUSD, row.GenerationMS = fallback, cost, generationMS
 		return []state.TokenRow{row}
 	}
 	models := make([]string, 0, len(spent))
@@ -117,7 +118,7 @@ func tokenRows(base state.TokenRow, spent map[string]acp.Spent, fallback string,
 		row.Model = model
 		row.Input, row.Output, row.CacheRead, row.CacheWrite = s.Input, s.Output, s.CacheRead, s.CacheWrite
 		if i == 0 {
-			row.CostUSD = cost
+			row.CostUSD, row.GenerationMS = cost, generationMS
 		}
 		rows = append(rows, row)
 	}

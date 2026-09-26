@@ -456,6 +456,65 @@ export function leadChat(): T.ChatThread {
   };
 }
 
+// agent99Chat is agent-99's session as its info card reads it (model, effort,
+// context): nothing it says, since only session.options is read there.
+export function agent99Chat(): T.ChatThread {
+  return {
+    agent: `${PROJECT}/agent-99`,
+    seq: 1,
+    session: {
+      state: 'working',
+      tool: 'claude',
+      options: [
+        { id: 'model', name: 'Model', category: 'model', type: 'select', value: 'claude-sonnet-5', choices: [{ value: 'claude-sonnet-5', name: 'Sonnet' }] },
+        { id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', value: 'high', choices: [{ value: 'high', name: 'High' }] },
+      ],
+      commands: [],
+      contextUsed: 84_000,
+      contextSize: 200_000,
+    },
+    items: [],
+  };
+}
+
+// agent99Tokens is agent-99's line of the ledger, for its info card's average
+// TPS and spend so far.
+export function agent99Tokens(): T.TokenReport {
+  const models: T.ModelTokens[] = [{ model: 'claude-sonnet-5', input: 12_000, output: 48_000, cacheRead: 900_000, cacheWrite: 40_000, total: 1_000_000, costUSD: 3.4, avgTPS: 62.4 }];
+  const agent: T.AgentTokens = {
+    project: PROJECT,
+    agent: 'agent-99',
+    ref: `${PROJECT}/agent-99`,
+    ai: 'claude',
+    title: 'PR agent',
+    exists: true,
+    turns: 14,
+    maxContext: 950_000,
+    lastAt: new Date().toISOString(),
+    input: 12_000,
+    output: 48_000,
+    cacheRead: 900_000,
+    cacheWrite: 40_000,
+    total: 1_000_000,
+    costUSD: 3.4,
+    avgTPS: 62.4,
+    models,
+  };
+  return {
+    until: new Date().toISOString(),
+    input: agent.input,
+    output: agent.output,
+    cacheRead: agent.cacheRead,
+    cacheWrite: agent.cacheWrite,
+    total: agent.total,
+    costUSD: agent.costUSD,
+    avgTPS: agent.avgTPS,
+    agents: [agent],
+    buckets: [],
+    bucketSeconds: 3600,
+  };
+}
+
 // devState is what the dev bridge serves for the projects and the stored
 // accounts, and what picking a project's GitHub account or renaming one
 // changes, so a scenario that refetches them after a change (?github=1) sees
@@ -473,6 +532,8 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
   queryClient.setQueryData(['questions', PROJECT], data.questions);
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
+  queryClient.setQueryData(['chat', `${PROJECT}/agent-99`], agent99Chat());
+  queryClient.setQueryData(['tokens', PROJECT, 'agent-99', 'all'], agent99Tokens());
   queryClient.setQueryData(['projectChat', PROJECT], { project: PROJECT, ref: `${PROJECT}/lead`, started: true, chat: 'running' } satisfies T.ProjectChat);
   queryClient.setQueryData(['projects'], data.projects);
   queryClient.setQueryData(['sections'], data.sections);

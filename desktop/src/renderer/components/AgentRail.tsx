@@ -8,6 +8,7 @@ import { avatarMood, chatLabel, isAsking, rank, settled, type Mood } from '../li
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
+import { AgentInfoCard } from './AgentInfoCard';
 import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
 import { Tip } from './ui/tooltip';
@@ -71,7 +72,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   const mood = (agent: T.Agent) => avatarMood(agent, asking(agent));
 
   const icon = (agent: T.Agent) => (
-    <Tip key={agent.ref} label={agent.title || agent.name}>
+    <Tip key={agent.ref} side="right" className="max-w-none p-3" label={<AgentInfoCard agent={agent} pr={prs.get(agent.ref)} />}>
       <button
         aria-label={agent.title || agent.name}
         data-rail-icon={agent.ref}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
@@ -166,6 +167,7 @@ func (c *conversation) consolidate(ctx context.Context, ad *adapter, ask, kind s
 	sessionID := ad.sessionID
 	c.mu.Unlock()
 
+	started := time.Now()
 	var res acp.PromptResponse
 	err := ad.conn.Call(ctx, acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: sessionID,
@@ -174,7 +176,9 @@ func (c *conversation) consolidate(ctx context.Context, ad *adapter, ask, kind s
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.book(ad, kind, newID(), &res)
+	// This hidden prompt heads no turn to time its streamed text against, so
+	// its whole round trip is what's booked.
+	c.book(ad, kind, newID(), &res, time.Since(started).Milliseconds())
 	answer := ""
 	if c.capture != nil {
 		answer = c.capture.String()

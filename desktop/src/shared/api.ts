@@ -1335,6 +1335,7 @@ export interface ModelTokens {
   cacheWrite: number;
   total: number;
   costUSD: number;
+  avgTPS?: number;
 }
 
 export interface AgentTokens {
@@ -1353,6 +1354,7 @@ export interface AgentTokens {
   cacheWrite: number;
   total: number;
   costUSD: number;
+  avgTPS?: number;
   models: ModelTokens[];
 }
 
@@ -1364,6 +1366,7 @@ export interface TokenBucket {
   cacheWrite: number;
   total: number;
   costUSD: number;
+  avgTPS?: number;
 }
 
 export interface TokenReport {
@@ -1375,6 +1378,7 @@ export interface TokenReport {
   cacheWrite: number;
   total: number;
   costUSD: number;
+  avgTPS?: number;
   agents: AgentTokens[];
   buckets: TokenBucket[];
   bucketSeconds: number;
@@ -1390,6 +1394,7 @@ export interface TokenTurn {
   model?: string;
   at: string;
   context: number;
+  generationMS?: number;
   input: number;
   output: number;
   cacheRead: number;
@@ -1494,6 +1499,7 @@ export const FeatureSettingsLead = "settings.view.lead";
 export const FeatureSettingsAgents = "settings.view.agents";
 export const FeatureMenuOpenChat = "menu.agent.open_chat";
 export const FeatureMenuOpenTerminal = "menu.agent.open_terminal";
+export const FeatureMenuInfo = "menu.agent.info";
 export const FeatureMenuLifecycle = "menu.agent.lifecycle";
 export const FeatureMenuRetire = "menu.agent.retire";
 export const FeatureMenuCopyBranch = "menu.agent.copy_branch";

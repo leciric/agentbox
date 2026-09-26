@@ -232,6 +232,14 @@
     "height": 900
   },
   {
+    "id": "agent-info-card-dark",
+    "description": "Hovering agent-99's row in the rail: the info card (model, effort, context, avg TPS, accounts, branch, state, uptime, limits, tokens, cost, PR) — dark, xl width",
+    "query": "open=agent-99&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "hover": "[data-agent=\"agentbox/agent-99\"]"
+  },
+  {
     "id": "usage-meter-dark",
     "description": "The top bar's usage meter with two Claude accounts: Home shows the default, a project and its Claude agent their own, a Codex agent none; the project's tooltip open",
     "query": "usage=1&theme=dark",

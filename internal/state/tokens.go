@@ -50,6 +50,11 @@ type TokenRow struct {
 	// Context is how many tokens the session's context held when the turn
 	// ended, as the tool last reported it; 0 when it hadn't.
 	Context int64
+	// GenerationMS is how long the turn took to generate: from the first to
+	// the last streamed assistant chunk, or turn start to end when nothing
+	// streamed. 0 when there is nothing to time, or for a row written before
+	// this was added.
+	GenerationMS int64
 }
 
 // Total is every token the row counts.
@@ -68,10 +73,10 @@ func (s *Store) AddTokenRows(ctx context.Context, rows []TokenRow) error {
 	for _, r := range rows {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO token_usage
 			(project, agent, ai, session_id, turn, kind, model, at,
-			 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens, generation_ms)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.Project, r.Agent, r.AI, r.Session, r.Turn, r.Kind, r.Model, r.At.UnixMilli(),
-			r.Input, r.Output, r.CacheRead, r.CacheWrite, r.CostUSD, r.Context); err != nil {
+			r.Input, r.Output, r.CacheRead, r.CacheWrite, r.CostUSD, r.Context, r.GenerationMS); err != nil {
 			return err
 		}
 	}
@@ -119,6 +124,12 @@ type TokenTotal struct {
 	CostUSD                              float64
 	MaxContext                           int64 // the fullest the context was seen at a turn's end
 	LastAt                               time.Time
+	// TPSOutput and TPSGenerationMS are the output tokens and generation time
+	// of only the rows that timed themselves: TPSOutput / (TPSGenerationMS /
+	// 1000) is the average tokens per second, leaving out rows with no
+	// duration rather than dividing by zero or understating the average.
+	TPSOutput       int64
+	TPSGenerationMS int64
 }
 
 // TokenTotals sums the ledger by agent and model, in agent order.
@@ -126,7 +137,8 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx, `SELECT project, agent, MAX(ai), model, COUNT(DISTINCT turn),
 		SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens),
-		SUM(cost_usd), MAX(context_tokens), MAX(at)
+		SUM(cost_usd), MAX(context_tokens), MAX(at),
+		SUM(CASE WHEN generation_ms > 0 THEN output_tokens ELSE 0 END), SUM(generation_ms)
 		FROM token_usage`+where+` GROUP BY project, agent, model ORDER BY project, agent, model`, args...)
 	if err != nil {
 		return nil, err
@@ -137,7 +149,7 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 		var t TokenTotal
 		var last int64
 		if err := rows.Scan(&t.Project, &t.Agent, &t.AI, &t.Model, &t.Turns, &t.Input, &t.Output,
-			&t.CacheRead, &t.CacheWrite, &t.CostUSD, &t.MaxContext, &last); err != nil {
+			&t.CacheRead, &t.CacheWrite, &t.CostUSD, &t.MaxContext, &last, &t.TPSOutput, &t.TPSGenerationMS); err != nil {
 			return nil, err
 		}
 		t.LastAt = time.UnixMilli(last)
@@ -150,7 +162,7 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]TokenRow, error) {
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx, `SELECT project, agent, ai, session_id, turn, kind, model, at,
-		input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens
+		input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens, generation_ms
 		FROM token_usage`+where+` ORDER BY at DESC, id DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
@@ -161,7 +173,7 @@ func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]Toke
 		var r TokenRow
 		var at int64
 		if err := rows.Scan(&r.Project, &r.Agent, &r.AI, &r.Session, &r.Turn, &r.Kind, &r.Model, &at,
-			&r.Input, &r.Output, &r.CacheRead, &r.CacheWrite, &r.CostUSD, &r.Context); err != nil {
+			&r.Input, &r.Output, &r.CacheRead, &r.CacheWrite, &r.CostUSD, &r.Context, &r.GenerationMS); err != nil {
 			return nil, err
 		}
 		r.At = time.UnixMilli(at)
@@ -175,6 +187,10 @@ type TokenBucket struct {
 	Start                                time.Time
 	Input, Output, CacheRead, CacheWrite int64
 	CostUSD                              float64
+	// TPSOutput and TPSGenerationMS are TokenTotal's own fields, for this
+	// stretch alone.
+	TPSOutput       int64
+	TPSGenerationMS int64
 }
 
 // TokenBuckets sums the ledger into buckets width long, oldest first. A
@@ -186,7 +202,8 @@ func (s *Store) TokenBuckets(ctx context.Context, f TokenFilter, width time.Dura
 	}
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx, `SELECT (at / ?) * ? AS start,
-		SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens), SUM(cost_usd)
+		SUM(input_tokens), SUM(output_tokens), SUM(cache_read_tokens), SUM(cache_write_tokens), SUM(cost_usd),
+		SUM(CASE WHEN generation_ms > 0 THEN output_tokens ELSE 0 END), SUM(generation_ms)
 		FROM token_usage`+where+` GROUP BY start ORDER BY start`, append([]any{w, w}, args...)...)
 	if err != nil {
 		return nil, err
@@ -196,7 +213,7 @@ func (s *Store) TokenBuckets(ctx context.Context, f TokenFilter, width time.Dura
 	for rows.Next() {
 		var b TokenBucket
 		var start int64
-		if err := rows.Scan(&start, &b.Input, &b.Output, &b.CacheRead, &b.CacheWrite, &b.CostUSD); err != nil {
+		if err := rows.Scan(&start, &b.Input, &b.Output, &b.CacheRead, &b.CacheWrite, &b.CostUSD, &b.TPSOutput, &b.TPSGenerationMS); err != nil {
 			return nil, err
 		}
 		b.Start = time.UnixMilli(start)
