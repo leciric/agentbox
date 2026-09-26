@@ -101,8 +101,10 @@ jobs:
             fi
             if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
               target=$(gh release view "$tag" --json targetCommitish --jq '.targetCommitish')
-              git tag "$tag" "$target"
-              git push origin "$tag"
+              # Through the API: the checkout is shallow, so the target
+              # commit usually isn't in it.
+              sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$target" --jq '.sha')
+              gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$sha" >/dev/null
             fi
             echo "release_created=true" >>"$GITHUB_OUTPUT"
             echo "tag_name=$tag" >>"$GITHUB_OUTPUT"
@@ -117,7 +119,10 @@ jobs:
   checks:
     name: Checks
     needs: release
-    if: needs.release.outputs.release_created == 'true'
+    # always(): on a manual run release-please is skipped, and a skipped job
+    # anywhere upstream skips everything below it unless the condition says
+    # otherwise.
+    if: always() && needs.release.result == 'success' && needs.release.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
@@ -140,6 +145,7 @@ jobs:
   linux:
     name: Linux build
     needs: [release, checks]
+    if: always() && needs.checks.result == 'success'
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
@@ -193,6 +199,7 @@ jobs:
   windows:
     name: Windows build
     needs: [release, checks]
+    if: always() && needs.checks.result == 'success'
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
@@ -253,6 +260,7 @@ jobs:
   macos:
     name: Mac app
     needs: [release, checks]
+    if: always() && needs.checks.result == 'success'
     runs-on: macos-15
     env:
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
