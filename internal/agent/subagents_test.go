@@ -11,6 +11,7 @@ import (
 // a description, a model, and the desktop server declared inline as a list of
 // one-key maps — the shape its parser insists on ("expected exactly one key").
 func TestDesktopAgentDefinition(t *testing.T) {
+	t.Parallel()
 	def, err := desktopAgent(mcpServer{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false})
 	if err != nil {
 		t.Fatal(err)
@@ -60,6 +61,7 @@ func TestDesktopAgentDefinition(t *testing.T) {
 // subagent has, so it takes that one's place, and runs on Haiku, read-only and
 // bounded.
 func TestExploreAgentDefinition(t *testing.T) {
+	t.Parallel()
 	def, err := exploreAgent()
 	if err != nil {
 		t.Fatal(err)

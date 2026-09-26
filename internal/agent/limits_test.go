@@ -84,9 +84,11 @@ const createScript = `case "$1" in
 esac
 exit 0`
 
-// TestDefaultLimitsIsTwoCores checks the rule a fresh installation is seeded
-// with: two cores, never more than the host actually has.
-func TestDefaultLimitsIsTwoCores(t *testing.T) {
+// TestDefaultLimitsLeaveTheHostTwoCores checks the rule a fresh installation
+// is seeded with: every core but two, never fewer than two, and never more
+// than the host actually has.
+func TestDefaultLimitsLeaveTheHostTwoCores(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		host int
 		want string
@@ -512,6 +514,7 @@ exit 0`)
 // TestParseBytes checks the sizes a memory limit can be written in, since the
 // refusal above compares one against what an agent is using.
 func TestParseBytes(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		in   string
 		want int64

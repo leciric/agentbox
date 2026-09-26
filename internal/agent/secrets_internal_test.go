@@ -11,6 +11,7 @@ import (
 // agent it was given to and reach agents nobody gave it to. Agent snapshots
 // and forks are the other case, and keep it: they are copies of that agent.
 func TestBaseSaveDropsSecrets(t *testing.T) {
+	t.Parallel()
 	script := scrubScript("dev")
 	if !strings.Contains(script, ".config/agentbox/secrets.env") {
 		t.Errorf("base save doesn't delete the secrets file:\n%s", script)

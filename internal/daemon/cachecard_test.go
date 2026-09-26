@@ -16,6 +16,7 @@ import (
 // The card shows a margin before the cache expires: a tenth of it for a
 // short cache, five minutes for a long one.
 func TestCacheCardDelay(t *testing.T) {
+	t.Parallel()
 	for ttl, want := range map[time.Duration]time.Duration{
 		5 * time.Minute: 4*time.Minute + 30*time.Second,
 		time.Hour:       55 * time.Minute,
@@ -27,6 +28,7 @@ func TestCacheCardDelay(t *testing.T) {
 }
 
 func TestWorthACard(t *testing.T) {
+	t.Parallel()
 	for used, want := range map[int64]bool{0: false, 42_000: false, 59_999: false, 60_000: true, 150_000: true} {
 		if got := worthACard(used); got != want {
 			t.Errorf("worthACard(%d) = %v, want %v", used, got, want)
@@ -35,6 +37,7 @@ func TestWorthACard(t *testing.T) {
 }
 
 func TestPastLimits(t *testing.T) {
+	t.Parallel()
 	now := time.Unix(1_790_000_000, 0)
 	later := now.Add(time.Hour).Unix()
 	for _, c := range []struct {

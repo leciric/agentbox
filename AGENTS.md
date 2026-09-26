@@ -85,6 +85,11 @@ npm --prefix desktop run dist             # bin/agentbox with the version in des
 
 `bin/` is gitignored: rebuild after pulling.
 
+The slowest packages (`internal/daemon`, `internal/chat`, `internal/agent`) run their independent
+tests with `t.Parallel()`, and `internal/state` and `internal/memory` migrate a template database
+once per test binary rather than once per test, so testing one of those packages on its own, or
+`go test ./...` as a whole, is far faster than it was.
+
 While you work, test the packages you changed (`go test ./internal/brief/...`), and run
 `go test ./...` once before you finish. To show a change in the app, `npm --prefix desktop start`
 builds it and launches it unpacked, which takes seconds; `dist` packages installers, which takes

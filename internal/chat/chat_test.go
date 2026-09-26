@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +21,28 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
+
+// TestMain raises how many of this package's t.Parallel() tests run at once.
+// They're I/O-bound — a fakeTool talks to the chat over an io.Pipe, and most
+// of a test's time is spent waiting on a channel or a poll loop, not the CPU
+// — so -test.parallel's default of GOMAXPROCS (a small number on an agent
+// machine) caps how many are ever in flight and leaves the machine idle
+// between wake-ups. Four per core is enough to keep the machine busy without
+// running so many at once that another process on the same machine (another
+// package's own tests, say) starves waiting for a share of it — a flat 32
+// measured on a 3-core machine, alongside a concurrent `go test
+// ./internal/daemon/... -race`, made the whole run minutes slower rather
+// than faster. This has to happen here, in TestMain, rather than in an
+// init(): the "test.parallel" flag doesn't exist yet when init() functions
+// run, only once the generated main has called testing.Init(). A -parallel
+// given on the command line still wins, since flag.Parse (inside m.Run)
+// only touches flags it was actually given.
+func TestMain(m *testing.M) {
+	if f := flag.Lookup("test.parallel"); f != nil {
+		_ = flag.Set("test.parallel", strconv.Itoa(runtime.GOMAXPROCS(0)*4))
+	}
+	os.Exit(m.Run())
+}
 
 // fakeTool is an ACP agent inside the test. It answers the chat's requests; a
 // test's turn function sends updates and asks for permission.
@@ -478,6 +504,7 @@ func sameJSON(t *testing.T, what string, got, want any) {
 }
 
 func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(func(f *fakeTool, s, text string) acp.PromptResponse {
 		if text != "Write hello.txt" {
@@ -596,6 +623,7 @@ func TestATurnWithToolCallsAndAPermissionRequest(t *testing.T) {
 }
 
 func TestTheSessionIsResumedByTheNextAdapter(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	m, _ := newManager(t, store, newFakeTool(answerHello))
 	if _, err := m.Send(testAgent, "hi"); err != nil {
@@ -641,6 +669,7 @@ func TestTheSessionIsResumedByTheNextAdapter(t *testing.T) {
 }
 
 func TestCancelStopsTheTurn(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
 		f.update(s, `{"sessionUpdate":"tool_call","toolCallId":"t1","title":"sleep 600","kind":"execute","status":"in_progress"}`)
 		answer := make(chan string, 1)
@@ -675,6 +704,7 @@ func TestCancelStopsTheTurn(t *testing.T) {
 }
 
 func TestTheToolExitingFailsTheTurn(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
 		f.update(s, `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Working on it"}}`)
 		time.Sleep(2 * flushDelay)
@@ -716,6 +746,7 @@ func TestTheToolExitingFailsTheTurn(t *testing.T) {
 }
 
 func TestSettingsAreAppliedToEverySession(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -777,6 +808,7 @@ func TestSettingsAreAppliedToEverySession(t *testing.T) {
 // access, Opus, and the highest thinking effort. The model is stored the way
 // agents made before D91 have it, "opus[1m]", which now reads as "opus".
 func TestNewAgentStartsOnItsDefaults(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -804,6 +836,7 @@ func TestNewAgentStartsOnItsDefaults(t *testing.T) {
 // this itself. The agent still needs to end up asking for Opus 5, even though
 // "opus[1m]" is never a choice this account offers.
 func TestNewAgentAppliesModelDefaultWithoutAnExactChoice(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -831,6 +864,7 @@ func TestNewAgentAppliesModelDefaultWithoutAnExactChoice(t *testing.T) {
 // silence: agents ran for weeks on Sonnet 5 while their menu said Opus,
 // because a refused model was only ever written to the daemon's log.
 func TestModelThatWontApplyIsReported(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -862,6 +896,7 @@ func TestModelThatWontApplyIsReported(t *testing.T) {
 // kept for the overview's default-model control. AgentBox never composes that
 // list: it arrives over ACP and differs per account.
 func TestSessionRemembersTheModelMenu(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -897,6 +932,7 @@ func TestSessionRemembersTheModelMenu(t *testing.T) {
 // never gets written into the remembered menu as though the adapter had sent
 // it (rememberChoices).
 func TestPinnedClaudeModelsAreOfferedButNeverRemembered(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -960,6 +996,7 @@ func findOption(s api.ChatSession, id string) (api.ChatOption, bool) {
 // levels "available for this model", and a model can advertise none at all, so
 // a session that sends no menu leaves the last one alone rather than erasing it.
 func TestSessionRemembersTheEffortMenu(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -1010,6 +1047,7 @@ func TestSessionRemembersTheEffortMenu(t *testing.T) {
 // option defaults to "default" — what an untouched session actually reports —
 // rather than an empty value the composer would show as a blank button.
 func TestModelChoosableBeforeFirstMessage(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -1052,6 +1090,7 @@ func TestModelChoosableBeforeFirstMessage(t *testing.T) {
 // (see modelNamedOutsideMenu). It is stored, and PrepareChatModel puts it in
 // the tool's settings before the next session starts.
 func TestModelChoiceBeforeFirstMessageAcceptsANamedModel(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	remember(t, store, "sonnet", "opus", "haiku")
@@ -1079,6 +1118,7 @@ func TestModelChoiceBeforeFirstMessageAcceptsANamedModel(t *testing.T) {
 // there's no menu to choose from yet, so SetOption still says so plainly
 // instead of accepting a value it can't validate against anything real.
 func TestModelChoiceBeforeFirstMessageNeedsARememberedMenu(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	m := &Manager{Store: store}
@@ -1119,6 +1159,7 @@ func optionValue(s api.ChatSession, id string) string {
 // actually running, so carrying it over would claim a size that was never
 // measured for the model now selected.
 func TestModelChangeClearsStaleContextSize(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	f := newFakeTool(func(f *fakeTool, s, text string) acp.PromptResponse {
@@ -1148,6 +1189,7 @@ func TestModelChangeClearsStaleContextSize(t *testing.T) {
 }
 
 func TestClearStartsOver(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, rec := newManager(t, store, f)
@@ -1181,6 +1223,7 @@ func TestClearStartsOver(t *testing.T) {
 }
 
 func TestATurnLeftRunningByAStoppedDaemonIsSettled(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	now := time.Now()
 	var rows []state.ChatItem
@@ -1214,6 +1257,7 @@ func TestATurnLeftRunningByAStoppedDaemonIsSettled(t *testing.T) {
 // LastMessage is how the daemon learns what an agent did when it finishes,
 // without replaying the whole conversation into the project's chat.
 func TestLastMessage(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(func(f *fakeTool, s, text string) acp.PromptResponse {
 		if text == "sum up" {
 			f.update(s, `{"sessionUpdate":"agent_message_chunk","messageId":"m1","content":{"type":"text","text":"I changed "}}`)
@@ -1254,6 +1298,7 @@ func TestLastMessage(t *testing.T) {
 }
 
 func TestAnAgentWithoutAnAIToolHasNoChat(t *testing.T) {
+	t.Parallel()
 	m, _ := newManager(t, openStore(t), newFakeTool(answerHello))
 	shell := testAgent
 	shell.AI = "none"
@@ -1267,6 +1312,7 @@ func TestAnAgentWithoutAnAIToolHasNoChat(t *testing.T) {
 // configuration before its adapter starts, on every session rather than once,
 // because that file is read only at launch (D45).
 func TestPrepareRunsBeforeEverySessionWithTheStoredModel(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	f := newFakeTool(answerHello)
@@ -1326,6 +1372,7 @@ func TestPrepareRunsBeforeEverySessionWithTheStoredModel(t *testing.T) {
 // not a log line — and the session still starts, because for a model the menu
 // does offer set_config_option applies it anyway.
 func TestPrepareFailureIsSaidInTheChat(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	m, _ := newManager(t, store, newFakeTool(answerHello))
 	m.Prepare = func(context.Context, state.Agent, string, int64) error {
@@ -1347,6 +1394,7 @@ func TestPrepareFailureIsSaidInTheChat(t *testing.T) {
 // A message sent while a turn runs isn't refused: it joins that turn, so the
 // model reads it mid-work and decides for itself what to do about it.
 func TestSendDuringTurn(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	release := make(chan struct{})
 	f := newSteeringTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
@@ -1413,6 +1461,7 @@ func TestSendDuringTurn(t *testing.T) {
 
 // Several messages during one turn all arrive, in the order they were sent.
 func TestSendDuringTurnKeepsOrder(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	release := make(chan struct{})
 	f := newSteeringTool(func(_ *fakeTool, _, _ string) acp.PromptResponse {
@@ -1466,6 +1515,7 @@ func TestSendDuringTurnKeepsOrder(t *testing.T) {
 // as a turn of its own once the running one ends, and the sender is told which
 // happened rather than being left to assume.
 func TestSendDuringTurnWithoutSteering(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		setup func(*fakeTool)
@@ -1475,6 +1525,7 @@ func TestSendDuringTurnWithoutSteering(t *testing.T) {
 		{"no turn was running after all", func(f *fakeTool) { f.steering, f.steerIdle = true, true }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			store := openStore(t)
 			release := make(chan struct{})
 			var prompts []string
@@ -1534,6 +1585,7 @@ func TestSendDuringTurnWithoutSteering(t *testing.T) {
 
 // Stopping a turn still works with a message waiting, and doesn't strand it.
 func TestCancelWithMessageWaiting(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	var prompts []string
 	var mu sync.Mutex
@@ -1582,6 +1634,7 @@ func TestCancelWithMessageWaiting(t *testing.T) {
 // A message the tool never got, on a turn that is then stopped, goes in as its
 // own turn: cancelling ends the work, not the message that was waiting on it.
 func TestCancelSendsWhatWasHeldBack(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	var prompts []string
 	var mu sync.Mutex
@@ -1624,6 +1677,7 @@ func TestCancelSendsWhatWasHeldBack(t *testing.T) {
 // A session that ends with a message still waiting says so: one that was taken
 // and then dropped in silence is worse than one that was refused outright.
 func TestStopLosesWhatWasHeldBackVisibly(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	release := make(chan struct{})
 	f := newFakeTool(func(_ *fakeTool, _, _ string) acp.PromptResponse {
@@ -1664,6 +1718,7 @@ func TestStopLosesWhatWasHeldBackVisibly(t *testing.T) {
 // A message still waiting when AgentBox stops is marked when it comes back: the
 // outbox only ever lived in memory, so nothing will deliver it now.
 func TestHeldBackMessageIsLostAcrossRestart(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	release := make(chan struct{})
 	f := newFakeTool(func(_ *fakeTool, _, _ string) acp.PromptResponse {
@@ -1702,6 +1757,7 @@ func TestHeldBackMessageIsLostAcrossRestart(t *testing.T) {
 // to one by messaging the agent can be told again by the turn that causes, and
 // landing those mid-turn would tighten that into a loop.
 func TestNoticesDoNotJoinTheRunningTurn(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	release := make(chan struct{})
 	f := newSteeringTool(func(_ *fakeTool, _, _ string) acp.PromptResponse {
@@ -1742,6 +1798,7 @@ func TestNoticesDoNotJoinTheRunningTurn(t *testing.T) {
 // shared, so the chat says who refused it and lets the daemon mark the
 // account, rather than every agent on it hitting the same 401 in turn.
 func TestARefusedLoginIsReported(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.promptErr = &acp.Error{Code: acp.CodeInternalError,
 		Message: `API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}`}
@@ -1770,6 +1827,7 @@ func TestARefusedLoginIsReported(t *testing.T) {
 // A turn can fail for a hundred reasons that aren't the login, and sending
 // someone to log in again for one of those wastes their time.
 func TestAnOrdinaryFailureIsNotAReport(t *testing.T) {
+	t.Parallel()
 	f := newFakeTool(answerHello)
 	f.promptErr = &acp.Error{Code: acp.CodeInternalError, Message: "API Error: 529 {\"type\":\"overloaded_error\"}"}
 	m, _ := newManager(t, openStore(t), f)
@@ -1787,6 +1845,7 @@ func TestAnOrdinaryFailureIsNotAReport(t *testing.T) {
 }
 
 func TestAuthFailure(t *testing.T) {
+	t.Parallel()
 	refused := []string{
 		`API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"OAuth access token is invalid."}}`,
 		"OAuth token has expired. Please obtain a new token or refresh your existing token.",
@@ -1818,6 +1877,7 @@ func TestAuthFailure(t *testing.T) {
 // session also lets a model be chosen before it has started, from the menu
 // OpenCode last named.
 func TestOpenCodeSessionKeepsItsOwnModelMenu(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -1848,6 +1908,7 @@ func TestOpenCodeSessionKeepsItsOwnModelMenu(t *testing.T) {
 // the model is still worth choosing: it comes off the menu OpenCode named
 // last, and is applied when the session starts.
 func TestOpenCodeModelChosenBeforeTheSessionStarts(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	a := testAgent
@@ -1881,6 +1942,7 @@ func TestOpenCodeModelChosenBeforeTheSessionStarts(t *testing.T) {
 // message, and that message restarts the adapter on it, resuming the same
 // session rather than starting over.
 func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
@@ -1954,6 +2016,7 @@ func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
 // installation that has no model menu to remember yet, still offers it for
 // its stored model, and a choice made then is what the adapter starts on.
 func TestTheContextWindowIsChosenBeforeTheChatStarts(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	if err := store.SaveChat(ctx, testAgent.Project, testAgent.Name, state.Chat{Options: map[string]string{"model": "opus"}}); err != nil {
@@ -2001,6 +2064,7 @@ func TestTheContextWindowIsChosenBeforeTheChatStarts(t *testing.T) {
 // the adapter, and the picker mustn't go with it, even when the resumed
 // session reports no options of its own.
 func TestTheContextWindowStaysWhileTheAdapterRestarts(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	f := newFakeTool(answerHello)
@@ -2030,6 +2094,7 @@ func TestTheContextWindowStaysWhileTheAdapterRestarts(t *testing.T) {
 
 // TestHaikuHasNoContextWindowChoice: a model with one window gets no control.
 func TestHaikuHasNoContextWindowChoice(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	m, _ := newManager(t, store, newFakeTool(answerHello))
@@ -2054,6 +2119,7 @@ func TestHaikuHasNoContextWindowChoice(t *testing.T) {
 // adapter starts, and a choice made in its composer still wins. An agent's
 // chat never reads them.
 func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	ctx := context.Background()
 	for key, value := range map[string]string{
