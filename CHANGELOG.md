@@ -7,11 +7,10 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 
 ### Added
 
-- Nesting: a project can turn its agents' nesting on (Settings → the project's "Testing AgentBox
-  itself"), giving them a real Incus daemon of their own so agents working on AgentBox can test
-  features that touch agent machines — limits, GPU, image builds — for real. Needs the base image
-  built with `agentbox image build --incus`, a new optional component alongside `--android`,
-  `--codex`, `--opencode` and `--dev-caches`.
+- **Nesting**, a per-project switch in the project's settings under "Testing AgentBox itself", off
+  by default: its new agents get a real Incus daemon of their own, so agents working on AgentBox
+  can test limits, the GPU, image builds and agent creation for real. It needs a base image built
+  with `agentbox image build --incus`, a new optional component. (#71)
 
 ### Changed
 
