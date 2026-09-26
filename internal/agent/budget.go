@@ -381,10 +381,10 @@ func (m *Manager) ApplySharedBudget(ctx context.Context) (pending int, err error
 		inst := instances[i]
 		steps := budgetSteps(a.Instance, on, inst.Config)
 		if swap := agentSwapValue(LimitsOf(inst.ExpandedConfig).Memory, on); swap != inst.Config[limitMemorySwap] && inst.Config[limitMemory] != "" {
-			steps = append(steps, []string{"config", "set", a.Instance, limitMemorySwap + "=" + swap})
+			steps = append(steps, setConfig(a.Instance, limitMemorySwap+"="+swap))
 		}
-		for _, args := range steps {
-			if _, err := m.Incus.Run(ctx, args...); err != nil {
+		for _, step := range steps {
+			if err := step(ctx, m.Incus); err != nil {
 				return pending, placing(err)
 			}
 		}
@@ -445,20 +445,20 @@ func budgetRawLXC(existing, instance string, on bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// budgetSteps are the incus commands that put an instance's raw.lxc where the
+// budgetSteps are the Incus changes that put an instance's raw.lxc where the
 // budget wants it, from have, the instance's own configuration. A copy of
 // another agent, or a project base saved from one, carries that agent's
 // placement, which must never be kept: two machines in one cgroup directory
 // can't both start.
-func budgetSteps(instance string, on bool, have map[string]string) [][]string {
+func budgetSteps(instance string, on bool, have map[string]string) []incusStep {
 	want := budgetRawLXC(have["raw.lxc"], instance, on)
 	switch want {
 	case have["raw.lxc"]:
 		return nil
 	case "":
-		return [][]string{{"config", "unset", instance, "raw.lxc"}}
+		return []incusStep{unsetConfig(instance, "raw.lxc")}
 	default:
-		return [][]string{{"config", "set", instance, "raw.lxc=" + want}}
+		return []incusStep{setConfig(instance, "raw.lxc="+want)}
 	}
 }
 
@@ -470,8 +470,8 @@ func (m *Manager) ensureBudgetPlacement(ctx context.Context, instance string) er
 	if err != nil {
 		return err
 	}
-	for _, args := range budgetSteps(instance, m.budgetOn(ctx), d.Config) {
-		if _, err := m.Incus.Run(ctx, args...); err != nil {
+	for _, step := range budgetSteps(instance, m.budgetOn(ctx), d.Config) {
+		if err := step(ctx, m.Incus); err != nil {
 			return err
 		}
 	}

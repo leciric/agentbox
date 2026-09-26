@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -191,11 +192,32 @@ func TestBudgetRawLXC(t *testing.T) {
 	}
 }
 
+// stepArgs runs steps against a stand-in incus command and returns the
+// command line each one ran.
+func stepArgs(t *testing.T, steps []incusStep) [][]string {
+	t.Helper()
+	log := filepath.Join(t.TempDir(), "log")
+	c := fakeIncus(t, `for a; do printf '%s\037' "$a"; done >> `+log+`; printf '\036' >> `+log)
+	for _, step := range steps {
+		if err := step(context.Background(), c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, _ := os.ReadFile(log)
+	var all [][]string
+	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\036"), "\036") {
+		if line != "" {
+			all = append(all, strings.Split(strings.TrimSuffix(line, "\037"), "\037"))
+		}
+	}
+	return all
+}
+
 func TestBudgetSteps(t *testing.T) {
 	if steps := budgetSteps("i", false, map[string]string{}); steps != nil {
 		t.Errorf("off, nothing there: %v", steps)
 	}
-	steps := budgetSteps("i", true, map[string]string{})
+	steps := stepArgs(t, budgetSteps("i", true, map[string]string{}))
 	if len(steps) != 1 || steps[0][1] != "set" || !strings.HasPrefix(steps[0][3], "raw.lxc=lxc.cgroup.dir.container=agentbox/i\n") {
 		t.Errorf("on: %v", steps)
 	}
@@ -203,15 +225,15 @@ func TestBudgetSteps(t *testing.T) {
 	if steps := budgetSteps("i", true, have); steps != nil {
 		t.Errorf("on, already there: %v", steps)
 	}
-	if steps := budgetSteps("i", false, have); !slices.Equal(steps[0], []string{"config", "unset", "i", "raw.lxc"}) {
+	if steps := stepArgs(t, budgetSteps("i", false, have)); len(steps) != 1 || !slices.Equal(steps[0], []string{"config", "unset", "i", "raw.lxc"}) {
 		t.Errorf("off: %v", steps)
 	}
 }
 
 func TestLimitStepsLetAgentsSwapInsideTheBudget(t *testing.T) {
 	want := Limits{CPU: "2", Memory: "8GiB"}
-	find := func(steps [][]string) string {
-		for _, s := range steps {
+	find := func(steps []incusStep) string {
+		for _, s := range stepArgs(t, steps) {
 			for _, arg := range s {
 				if v, ok := strings.CutPrefix(arg, limitMemorySwap+"="); ok {
 					return v

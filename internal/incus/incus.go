@@ -1,8 +1,16 @@
-// Package incus runs the incus command line.
+// Package incus drives Incus for the daemon.
 //
-// AgentBox shells out rather than linking the Incus Go client: these are the
-// commands proven in the Step 0 spike, errors read the same as in a terminal,
-// and interactive sessions (incus exec -t) get terminal handling for free.
+// It talks to Incus' REST API over the local unix socket, through Incus' own
+// Go client: what the incus command does, without starting one per call. Each
+// operation still knows the command it stands for, which is what its errors
+// name, so they read as they did when AgentBox shelled out, and what runs
+// instead when Bin is set — how tests stand a shell script in for Incus.
+//
+// A few things stay on the command line, where a process is what the caller
+// wants: an interactive shell (ShellCommand in internal/agent, with its
+// terminal handling), a long-lived pipe to an agent's ACP adapter, the image
+// build's scripts, whose output streams into its log, and Init, which reads
+// the user's image remotes. Command and Path are for those.
 package incus
 
 import (
@@ -12,18 +20,22 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
+
+	incusclient "github.com/lxc/incus/v7/client"
+	"github.com/lxc/incus/v7/shared/api"
 )
 
 var ErrNotFound = errors.New("instance not found")
 
 type Client struct {
-	Bin string // path to the incus binary; "incus" when empty
+	// Bin is the incus binary. When it's set, every operation runs it with the
+	// arguments the operation stands for, instead of calling the API: tests set
+	// it to a fake. Command and Path use "incus" when it's empty.
+	Bin string
 }
 
 func (c Client) Path() string {
@@ -33,17 +45,20 @@ func (c Client) Path() string {
 	return c.Bin
 }
 
+// cli reports whether operations run the incus binary instead of the API.
+func (c Client) cli() bool { return c.Bin != "" }
+
 // Command prepares an incus command without running it.
 func (c Client) Command(ctx context.Context, args ...string) *exec.Cmd {
 	return exec.CommandContext(ctx, c.Path(), args...)
 }
 
-// Run runs incus and returns its stdout. Errors carry incus' own message.
-func (c Client) Run(ctx context.Context, args ...string) (string, error) {
-	return c.RunInput(ctx, nil, args...)
+// run runs incus and returns its stdout. Errors carry incus' own message.
+func (c Client) run(ctx context.Context, args ...string) (string, error) {
+	return c.runInput(ctx, nil, args...)
 }
 
-func (c Client) RunInput(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
+func (c Client) runInput(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	cmd := c.Command(ctx, args...)
 	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
@@ -59,6 +74,37 @@ func (c Client) RunInput(ctx context.Context, stdin io.Reader, args ...string) (
 	return stdout.String(), nil
 }
 
+// query runs `incus query path` and decodes its JSON into v; what names what
+// was read, when it can't be parsed.
+func (c Client) query(ctx context.Context, path string, v any, what string) error {
+	out, err := c.run(ctx, "query", path)
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal([]byte(out), v); err != nil {
+		return fmt.Errorf("parsing %s: %w", what, err)
+	}
+	return nil
+}
+
+// Ping checks that Incus answers: the incus command is installed, since
+// terminals and the image build still run it, and the daemon's API answers
+// this process. It is what `incus query /1.0` checked, and fails the same way.
+func (c Client) Ping(ctx context.Context) error {
+	args := []string{"query", "/1.0"}
+	if c.cli() {
+		_, err := c.run(ctx, args...)
+		return err
+	}
+	if _, err := exec.LookPath(c.Path()); err != nil {
+		return c.fail(args, err)
+	}
+	return c.do(ctx, args, func(s incusclient.InstanceServer) error {
+		_, _, err := s.GetServer()
+		return err
+	})
+}
+
 type Instance struct {
 	Name   string         `json:"name"`
 	Status string         `json:"status"` // Running, Stopped, Frozen, ...
@@ -72,19 +118,24 @@ type Instance struct {
 }
 
 type InstanceState struct {
-	Network map[string]struct {
-		Addresses []struct {
-			Family  string `json:"family"`
-			Address string `json:"address"`
-		} `json:"addresses"`
-	} `json:"network"`
-	CPU struct {
+	Network map[string]Network `json:"network"`
+	CPU     struct {
 		Usage int64 `json:"usage"` // nanoseconds of CPU time
 	} `json:"cpu"`
 	Memory struct {
 		Usage int64 `json:"usage"` // bytes
 	} `json:"memory"`
 	Processes int64 `json:"processes"`
+}
+
+// Network is one of an instance's network interfaces.
+type Network struct {
+	Addresses []Address `json:"addresses"`
+}
+
+type Address struct {
+	Family  string `json:"family"`
+	Address string `json:"address"`
 }
 
 type Snapshot struct {
@@ -105,19 +156,52 @@ func (i Instance) IPv4() string {
 	return ""
 }
 
+// Instances lists every instance with its state, in Incus' own order, as
+// `incus list --format json` does.
 func (c Client) Instances(ctx context.Context) ([]Instance, error) {
-	out, err := c.Run(ctx, "list", "--format", "json")
+	args := []string{"list", "--format", "json"}
+	if c.cli() {
+		out, err := c.run(ctx, args...)
+		if err != nil {
+			return nil, err
+		}
+		var instances []Instance
+		if err := json.Unmarshal([]byte(out), &instances); err != nil {
+			return nil, fmt.Errorf("parsing incus list: %w", err)
+		}
+		return instances, nil
+	}
+	var full []api.InstanceFull
+	err := c.do(ctx, args, func(s incusclient.InstanceServer) (err error) {
+		full, err = s.GetInstancesFull(api.InstanceTypeAny)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
-	var instances []Instance
-	if err := json.Unmarshal([]byte(out), &instances); err != nil {
-		return nil, fmt.Errorf("parsing incus list: %w", err)
+	instances := make([]Instance, len(full))
+	for i := range full {
+		instances[i] = instanceOf(&full[i])
 	}
 	return instances, nil
 }
 
+// Instance returns one instance with its state, or ErrNotFound.
 func (c Client) Instance(ctx context.Context, name string) (Instance, error) {
+	if !c.cli() {
+		var full *api.InstanceFull
+		s, err := server(ctx)
+		if err == nil {
+			full, _, err = s.GetInstanceFull(name)
+		}
+		if err != nil {
+			if isNotFound(err) {
+				return Instance{}, errNotFound(name, err)
+			}
+			return Instance{}, c.fail([]string{"list", "--format", "json"}, err)
+		}
+		return instanceOf(full), nil
+	}
 	instances, err := c.Instances(ctx)
 	if err != nil {
 		return Instance{}, err
@@ -130,31 +214,79 @@ func (c Client) Instance(ctx context.Context, name string) (Instance, error) {
 	return Instance{}, fmt.Errorf("%s: %w", name, ErrNotFound)
 }
 
+// instanceOf keeps what Instance holds of what Incus answers: the same fields
+// `incus list --format json` gave, read from the same JSON.
+func instanceOf(full *api.InstanceFull) Instance {
+	inst := Instance{
+		Name:           full.Name,
+		Status:         full.Status,
+		Config:         full.Config,
+		ExpandedConfig: full.ExpandedConfig,
+	}
+	if st := full.State; st != nil {
+		inst.State = &InstanceState{}
+		inst.State.CPU.Usage = st.CPU.Usage
+		inst.State.Memory.Usage = st.Memory.Usage
+		inst.State.Processes = st.Processes
+		if st.Network != nil {
+			inst.State.Network = make(map[string]Network, len(st.Network))
+			for name, network := range st.Network {
+				var n Network
+				for _, addr := range network.Addresses {
+					n.Addresses = append(n.Addresses, Address{Family: addr.Family, Address: addr.Address})
+				}
+				inst.State.Network[name] = n
+			}
+		}
+	}
+	return inst
+}
+
 // HasSnapshot reports whether an instance exists and has the named snapshot.
 func (c Client) HasSnapshot(ctx context.Context, instance, snapshot string) (bool, error) {
-	out, err := c.Run(ctx, "query", "/1.0/instances/"+instance+"/snapshots")
+	path := "/1.0/instances/" + instance + "/snapshots"
+	var names []string
+	var err error
+	if c.cli() {
+		var urls []string
+		err = c.query(ctx, path, &urls, "snapshots of "+instance)
+		for _, u := range urls {
+			names = append(names, strings.TrimPrefix(u, path+"/"))
+		}
+	} else {
+		err = c.do(ctx, []string{"query", path}, func(s incusclient.InstanceServer) (err error) {
+			names, err = s.GetInstanceSnapshotNames(instance)
+			return err
+		})
+	}
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return false, nil
 		}
 		return false, err
 	}
-	var snapshots []string
-	if err := json.Unmarshal([]byte(out), &snapshots); err != nil {
-		return false, fmt.Errorf("parsing snapshots of %s: %w", instance, err)
-	}
-	return slices.Contains(snapshots, "/1.0/instances/"+instance+"/snapshots/"+snapshot), nil
+	return slices.Contains(names, snapshot), nil
 }
 
 // Snapshots lists an instance's snapshots, oldest first.
 func (c Client) Snapshots(ctx context.Context, instance string) ([]Snapshot, error) {
-	out, err := c.Run(ctx, "query", "/1.0/instances/"+instance+"/snapshots?recursion=1")
-	if err != nil {
-		return nil, err
-	}
+	path := "/1.0/instances/" + instance + "/snapshots?recursion=1"
 	var snapshots []Snapshot
-	if err := json.Unmarshal([]byte(out), &snapshots); err != nil {
-		return nil, fmt.Errorf("parsing snapshots of %s: %w", instance, err)
+	if c.cli() {
+		if err := c.query(ctx, path, &snapshots, "snapshots of "+instance); err != nil {
+			return nil, err
+		}
+	} else {
+		err := c.do(ctx, []string{"query", path}, func(s incusclient.InstanceServer) error {
+			all, err := s.GetInstanceSnapshots(instance)
+			for _, snap := range all {
+				snapshots = append(snapshots, Snapshot{Name: snap.Name, CreatedAt: snap.CreatedAt})
+			}
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 	slices.SortFunc(snapshots, func(a, b Snapshot) int { return a.CreatedAt.Compare(b.CreatedAt) })
 	return snapshots, nil
@@ -172,7 +304,22 @@ type Details struct {
 // callers that want both: build and SaveBase each look at the devices a copy
 // brought along and at the limits baked into it.
 func (c Client) Details(ctx context.Context, instance string) (Details, error) {
-	out, err := c.Run(ctx, "query", "/1.0/instances/"+instance)
+	args := []string{"query", "/1.0/instances/" + instance}
+	if !c.cli() {
+		var d Details
+		s, err := server(ctx)
+		if err == nil {
+			var inst *api.Instance
+			if inst, _, err = s.GetInstance(instance); err == nil {
+				d = Details{Config: inst.Config, ExpandedConfig: inst.ExpandedConfig, Devices: inst.Devices}
+			}
+		}
+		if isNotFound(err) {
+			return Details{}, errNotFound(instance, err)
+		}
+		return d, c.fail(args, err)
+	}
+	out, err := c.run(ctx, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return Details{}, fmt.Errorf("%s: %w", instance, ErrNotFound)
@@ -200,28 +347,43 @@ func (c Client) Devices(ctx context.Context, instance string) (map[string]map[st
 
 // PoolSpace returns the used and total bytes of a storage pool.
 func (c Client) PoolSpace(ctx context.Context, pool string) (used, total int64, err error) {
-	out, err := c.Run(ctx, "query", "/1.0/storage-pools/"+pool+"/resources")
-	if err != nil {
-		return 0, 0, err
+	path := "/1.0/storage-pools/" + pool + "/resources"
+	if !c.cli() {
+		err = c.do(ctx, []string{"query", path}, func(s incusclient.InstanceServer) error {
+			r, err := s.GetStoragePoolResources(pool)
+			if err == nil {
+				used, total = int64(r.Space.Used), int64(r.Space.Total)
+			}
+			return err
+		})
+		return used, total, err
 	}
 	var r struct {
 		Space struct{ Used, Total int64 }
 	}
-	if err := json.Unmarshal([]byte(out), &r); err != nil {
-		return 0, 0, fmt.Errorf("parsing pool %s: %w", pool, err)
+	if err := c.query(ctx, path, &r, "pool "+pool); err != nil {
+		return 0, 0, err
 	}
 	return r.Space.Used, r.Space.Total, nil
 }
 
 // PoolDriver returns a storage pool's driver, e.g. "btrfs", "zfs" or "dir".
 func (c Client) PoolDriver(ctx context.Context, pool string) (string, error) {
-	out, err := c.Run(ctx, "query", "/1.0/storage-pools/"+pool)
-	if err != nil {
-		return "", err
+	path := "/1.0/storage-pools/" + pool
+	if !c.cli() {
+		var driver string
+		err := c.do(ctx, []string{"query", path}, func(s incusclient.InstanceServer) error {
+			p, _, err := s.GetStoragePool(pool)
+			if err == nil {
+				driver = p.Driver
+			}
+			return err
+		})
+		return driver, err
 	}
 	var r struct{ Driver string }
-	if err := json.Unmarshal([]byte(out), &r); err != nil {
-		return "", fmt.Errorf("parsing pool %s: %w", pool, err)
+	if err := c.query(ctx, path, &r, "pool "+pool); err != nil {
+		return "", err
 	}
 	return r.Driver, nil
 }
@@ -231,17 +393,25 @@ func (c Client) PoolDriver(ctx context.Context, pool string) (string, error) {
 // rather than the running instance, so it works for a stopped instance too —
 // a saved base, most of the time.
 func (c Client) VolumeUsage(ctx context.Context, pool, instance string) (int64, error) {
-	out, err := c.Run(ctx, "query", "/1.0/storage-pools/"+pool+"/volumes/container/"+instance+"/state")
-	if err != nil {
-		return 0, err
+	path := "/1.0/storage-pools/" + pool + "/volumes/container/" + instance + "/state"
+	if !c.cli() {
+		var used int64
+		err := c.do(ctx, []string{"query", path}, func(s incusclient.InstanceServer) error {
+			st, err := s.GetStoragePoolVolumeState(pool, "container", instance)
+			if err == nil && st.Usage != nil {
+				used = int64(st.Usage.Used)
+			}
+			return err
+		})
+		return used, err
 	}
 	var r struct {
 		Usage struct {
 			Used int64 `json:"used"`
 		} `json:"usage"`
 	}
-	if err := json.Unmarshal([]byte(out), &r); err != nil {
-		return 0, fmt.Errorf("parsing volume state of %s: %w", instance, err)
+	if err := c.query(ctx, path, &r, "volume state of "+instance); err != nil {
+		return 0, err
 	}
 	return r.Usage.Used, nil
 }
@@ -251,7 +421,7 @@ func (c Client) WaitReady(ctx context.Context, name string, timeout time.Duratio
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	// Fails for a "degraded" system too, which is fine for agents.
-	_, _ = c.Run(ctx, "exec", name, "--", "systemctl", "is-system-running", "--wait")
+	_, _ = c.Exec(ctx, name, "systemctl", "is-system-running", "--wait")
 	for {
 		inst, err := c.Instance(ctx, name)
 		if err == nil && inst.IPv4() != "" {
@@ -266,22 +436,4 @@ func (c Client) WaitReady(ctx context.Context, name string, timeout time.Duratio
 		case <-time.After(time.Second):
 		}
 	}
-}
-
-// UserExec runs a bash command in a login shell of user inside the instance.
-func (c Client) UserExec(ctx context.Context, name, user, command string, stdin io.Reader, stdout, stderr io.Writer) error {
-	cmd := c.Command(ctx, "exec", name, "--", "runuser", "-l", user, "-c", command)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, stdout, stderr
-	return cmd.Run()
-}
-
-// WriteFile writes content to path inside the instance, creating parent
-// directories. The content goes through stdin, never the command line. It is
-// read with cat: reopening /dev/stdin fails in unprivileged containers, because
-// the pipe belongs to host root.
-func (c Client) WriteFile(ctx context.Context, name, path string, content []byte, uid, gid int, mode os.FileMode) error {
-	const script = `set -e; mkdir -p "$(dirname "$1")"; (umask 077 && cat >"$1"); chown "$2" "$1"; chmod "$3" "$1"`
-	_, err := c.RunInput(ctx, bytes.NewReader(content), "exec", name, "-T", "--",
-		"sh", "-c", script, "sh", path, fmt.Sprintf("%d:%d", uid, gid), strconv.FormatUint(uint64(mode.Perm()), 8))
-	return err
 }

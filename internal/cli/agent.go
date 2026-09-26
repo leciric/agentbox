@@ -375,11 +375,13 @@ func newExecCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			err = incus.Client{}.UserExec(cmd.Context(), ag.Instance, u.Name, agent.ExecCommand(ag.Worktree, command),
-				cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
-				return exitCodeError(exitErr.ExitCode())
+			// The incus command, not the API: with a terminal on stdin it
+			// gives the command one too, as ssh does.
+			run := incus.Client{}.UserCommand(cmd.Context(), ag.Instance, u.Name, agent.ExecCommand(ag.Worktree, command))
+			run.Stdin, run.Stdout, run.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+			err = run.Run()
+			if code, ok := incus.ExitCode(err); ok {
+				return exitCodeError(code)
 			}
 			return err
 		},

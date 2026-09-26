@@ -9,3 +9,10 @@ linters:
     - misspell
     - staticcheck
     - unused
+  exclusions:
+    rules:
+      # internal/incus answers with the incus command's own messages, which
+      # are capitalized, so that errors read as they did when it ran it.
+      - path: internal/incus/
+        linters: [staticcheck]
+        text: "ST1005"

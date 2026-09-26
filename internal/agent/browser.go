@@ -135,7 +135,8 @@ func (m *Manager) addSocketProxy(ctx context.Context, a state.Agent, device, ser
 		return err
 	}
 	_ = os.Remove(socket) // left by an earlier device
-	_, err := m.Incus.Run(ctx, "config", "device", "add", a.Instance, device, "proxy",
+	err := m.Incus.AddDevice(ctx, a.Instance, device,
+		"proxy",
 		"listen=unix:"+socket,
 		fmt.Sprintf("connect=tcp:127.0.0.1:%d", port),
 		"bind=host",

@@ -32,7 +32,7 @@ func TestPathDefaultsToTheBareCommand(t *testing.T) {
 
 func TestRunReturnsStdoutOnSuccess(t *testing.T) {
 	c := fakeIncus(t, `echo "hello $2"`)
-	out, err := c.Run(context.Background(), "list", "world")
+	out, err := c.run(context.Background(), "list", "world")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRunReturnsStdoutOnSuccess(t *testing.T) {
 
 func TestRunStripsIncusErrorPrefixFromStderr(t *testing.T) {
 	c := fakeIncus(t, `echo "Error: instance is already running" >&2; exit 1`)
-	_, err := c.Run(context.Background(), "start", "agent-01")
+	_, err := c.run(context.Background(), "start", "agent-01")
 	if err == nil {
 		t.Fatal("Run() error = nil, want an error")
 	}
@@ -60,7 +60,7 @@ func TestRunKeepsTheUnderlyingErrorWhenStderrIsEmpty(t *testing.T) {
 	// stderr to explain why, so the caller needs the raw error to tell that
 	// incus isn't installed.
 	c := Client{Bin: filepath.Join(t.TempDir(), "not-there")}
-	_, err := c.Run(context.Background(), "list")
+	_, err := c.run(context.Background(), "list")
 	if err == nil {
 		t.Fatal("Run() error = nil, want an error")
 	}
@@ -71,7 +71,7 @@ func TestRunKeepsTheUnderlyingErrorWhenStderrIsEmpty(t *testing.T) {
 
 func TestRunInputFeedsStdinToTheCommand(t *testing.T) {
 	c := fakeIncus(t, `cat`)
-	out, err := c.RunInput(context.Background(), strings.NewReader("piped content"), "exec")
+	out, err := c.runInput(context.Background(), strings.NewReader("piped content"), "exec")
 	if err != nil {
 		t.Fatalf("RunInput() error = %v", err)
 	}

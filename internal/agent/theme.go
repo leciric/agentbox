@@ -115,8 +115,9 @@ func (m *Manager) installTheme(ctx context.Context, a state.Agent) {
 	file := m.desktopTheme().File()
 	sum := sha256.Sum256(file)
 	want := hex.EncodeToString(sum[:])
-	out, err := m.Incus.Run(ctx, "exec", a.Instance, "--",
-		"sh", "-c", "sha256sum "+themePath+" 2>/dev/null | cut -d' ' -f1")
+	out, err := m.Incus.Exec(ctx, a.Instance, "sh",
+		"-c",
+		"sha256sum "+themePath+" 2>/dev/null | cut -d' ' -f1")
 	if err == nil && strings.TrimSpace(out) == want {
 		return
 	}

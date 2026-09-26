@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"path"
 	"strconv"
 	"strings"
 	"time"
 
+	"agentbox/internal/incus"
 	"agentbox/internal/state"
 )
 
@@ -92,11 +92,11 @@ func (m *Manager) RunForLead(ctx context.Context, a state.Agent, command string,
 	out := &tailBuffer{max: LeadRunTail}
 	err := m.Incus.UserExec(run, a.Instance, m.User.Name, script, nil, out, out)
 	result := RunResult{Output: out.String(), Bytes: out.total}
-	var exit *exec.ExitError
+	code, exited := incus.ExitCode(err)
 	switch {
 	case err == nil:
-	case errors.As(err, &exit) && run.Err() == nil:
-		result.ExitCode = exit.ExitCode()
+	case exited && run.Err() == nil:
+		result.ExitCode = code
 		// 124 is timeout(1) saying it stopped the command; 137 is its KILL
 		// after --kill-after, for a command that ignored the TERM.
 		result.TimedOut = result.ExitCode == 124 || result.ExitCode == 137
