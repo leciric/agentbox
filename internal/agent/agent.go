@@ -451,6 +451,22 @@ func (m *Manager) project(ctx context.Context, name string) (state.Project, gitr
 	return p, repo, err
 }
 
+// LockAgentWorktree (re)locks a's worktree, so a `git worktree prune` run
+// elsewhere leaves its entry alone. The daemon calls this for every agent,
+// lead included, when it starts, in case a previous daemon or an older
+// AgentBox left worktrees unlocked. A worktree git no longer knows about —
+// removed, or pruned already — is left alone rather than failing.
+func (m *Manager) LockAgentWorktree(ctx context.Context, a state.Agent) error {
+	_, repo, err := m.project(ctx, a.Project)
+	if err != nil {
+		return err
+	}
+	if !repo.HasWorktree(a.Worktree) {
+		return nil
+	}
+	return repo.LockWorktree(a.Worktree, "agentbox: "+a.Ref())
+}
+
 // plan is everything build needs; Create and Fork fill it in differently.
 type plan struct {
 	project       state.Project
@@ -544,7 +560,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 
 	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
-	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit); err != nil {
+	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 		return fail("worktree", err)
 	}
 	undo = append(undo, func() {

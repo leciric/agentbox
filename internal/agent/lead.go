@@ -106,7 +106,7 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 		_ = m.Store.RemoveAgent(context.WithoutCancel(ctx), a.Project, a.Name)
 	}
 	m.logf("Creating the %s chat: a worktree on %s, detached", p.Name, baseRef)
-	if err := repo.AddWorktreeDetached(a.Worktree, commit); err != nil {
+	if err := repo.AddWorktreeDetached(a.Worktree, commit, "agentbox: "+a.Ref()); err != nil {
 		undo()
 		return state.Agent{}, fmt.Errorf("creating the %s chat: worktree: %w", p.Name, err)
 	}
@@ -139,7 +139,7 @@ func (m *Manager) repairLead(ctx context.Context, a state.Agent) (state.Agent, e
 	if !repo.HasWorktree(a.Worktree) {
 		m.logf("Recreating the %s chat's worktree", a.Project)
 		_ = repo.RemoveWorktree(a.Worktree)
-		if err := repo.AddWorktreeDetached(a.Worktree, a.BaseCommit); err != nil {
+		if err := repo.AddWorktreeDetached(a.Worktree, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 			return a, fmt.Errorf("recreating the %s chat's worktree: %w", a.Project, err)
 		}
 	}

@@ -177,7 +177,7 @@ func TestWorktreeLifecycle(t *testing.T) {
 	}
 
 	wt := filepath.Join(t.TempDir(), "worktrees", "agent-01")
-	if err := repo.AddWorktree(wt, "agentbox/agent-01", base); err != nil {
+	if err := repo.AddWorktree(wt, "agentbox/agent-01", base, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if !repo.BranchExists("agentbox/agent-01") {
@@ -239,11 +239,16 @@ func TestRemoveWorktreeGitForgot(t *testing.T) {
 		t.Fatal(err)
 	}
 	wt := filepath.Join(t.TempDir(), "worktrees", "lead")
-	if err := repo.AddWorktreeDetached(wt, base); err != nil {
+	if err := repo.AddWorktreeDetached(wt, base, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if !repo.HasWorktree(wt) {
 		t.Fatal("HasWorktree() = false for a fresh worktree")
+	}
+	// AddWorktreeDetached locks it (see TestLockedWorktreeSurvivesPrune):
+	// unlock it here to reach the "git forgot it" case this test is about.
+	if err := repo.UnlockWorktree(wt); err != nil {
+		t.Fatal(err)
 	}
 
 	elsewhere := wt + ".elsewhere"
@@ -264,8 +269,47 @@ func TestRemoveWorktreeGitForgot(t *testing.T) {
 	if _, err := os.Stat(wt); !os.IsNotExist(err) {
 		t.Errorf("worktree directory still exists: %v", err)
 	}
-	if err := repo.AddWorktreeDetached(wt, base); err != nil {
+	if err := repo.AddWorktreeDetached(wt, base, "test"); err != nil {
 		t.Errorf("AddWorktreeDetached() at the same path: %v", err)
+	}
+}
+
+// TestLockedWorktreeSurvivesPrune is the bug this locking exists to fix: one
+// agent running `git worktree prune` inside its own machine, where every
+// other agent's worktree path doesn't exist, must not unregister them.
+func TestLockedWorktreeSurvivesPrune(t *testing.T) {
+	root := testutil.FixtureRepo(t, "hello-stack")
+	repo, _ := gitrepo.Open(root)
+	base, err := repo.ResolveCommit("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt := filepath.Join(t.TempDir(), "worktrees", "agent-01")
+	if err := repo.AddWorktreeDetached(wt, base, "agentbox: proj/agent-01"); err != nil {
+		t.Fatal(err)
+	}
+
+	elsewhere := wt + ".elsewhere"
+	if err := os.Rename(wt, elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, root, "worktree", "prune")
+	if err := os.Rename(elsewhere, wt); err != nil {
+		t.Fatal(err)
+	}
+	if !repo.HasWorktree(wt) {
+		t.Error("HasWorktree() = false: prune removed a locked worktree's entry")
+	}
+
+	if err := repo.LockWorktree(wt, "agentbox: proj/agent-01"); err != nil {
+		t.Errorf("locking an already-locked worktree: %v", err)
+	}
+
+	if err := repo.RemoveWorktree(wt); err != nil {
+		t.Errorf("RemoveWorktree() on a locked worktree: %v", err)
+	}
+	if _, err := os.Stat(wt); !os.IsNotExist(err) {
+		t.Errorf("worktree directory still exists: %v", err)
 	}
 }
 
