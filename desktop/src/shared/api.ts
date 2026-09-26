@@ -277,6 +277,47 @@ export interface DiskUsage {
   categories: DiskUsageCategory[];
 }
 
+export interface MemoryUsageAgent {
+  ref: string;
+  title?: string;
+  state: string;
+  memory: number;
+  swap: number;
+  limit: number;
+}
+
+export interface ZramUsage {
+  swapBytes: number;
+  realBytes: number;
+}
+
+export interface MemoryUsage {
+  hostTotal: number;
+  agentsUsed: number;
+  otherUsed: number;
+  swapTotal: number;
+  swapUsed: number;
+  agentsSwap: number;
+  zram?: ZramUsage;
+  agents: MemoryUsageAgent[];
+}
+
+export interface CPUUsageAgent {
+  ref: string;
+  title?: string;
+  state: string;
+  cpu: number;
+  configuredCores?: string;
+  effectiveCores?: string;
+}
+
+export interface CPUUsage {
+  hostCPU: number;
+  hostCores: number;
+  otherCPU: number;
+  agents: CPUUsageAgent[];
+}
+
 export interface ClaudeAccount {
   name: string;
   default: boolean;

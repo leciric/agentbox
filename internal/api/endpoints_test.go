@@ -995,6 +995,26 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "MemoryUsage", method: http.MethodGet, path: "/v1/usage/memory",
+			resp: `{"hostTotal":1024}`,
+			run: func(t *testing.T, c *Client) {
+				usage, err := c.MemoryUsage(context.Background())
+				if err != nil || usage.HostTotal != 1024 {
+					t.Errorf("MemoryUsage() = %+v, %v; want HostTotal 1024, nil", usage, err)
+				}
+			},
+		},
+		{
+			name: "CPUUsage", method: http.MethodGet, path: "/v1/usage/cpu?interval=1h0m0s",
+			resp: `{"hostCores":8}`,
+			run: func(t *testing.T, c *Client) {
+				usage, err := c.CPUUsage(context.Background(), time.Hour)
+				if err != nil || usage.HostCores != 8 {
+					t.Errorf("CPUUsage() = %+v, %v; want HostCores 8, nil", usage, err)
+				}
+			},
+		},
+		{
 			name: "ImageReady true", method: http.MethodGet, path: "/v1/image",
 			resp: `{"ready":true}`,
 			run: func(t *testing.T, c *Client) {

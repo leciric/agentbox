@@ -250,6 +250,8 @@ export const api = {
 
   usage: () => call<T.Usage>('GET', '/v1/usage?interval=500ms'),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
+  memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
+  cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),
   auth: () => call<T.AuthStatus>('GET', '/v1/auth'),
   saveClaudeToken: (token: string, account?: string) => call<void>('POST', '/v1/auth/claude', { token, account } satisfies T.ClaudeTokenRequest),
   // Logging in from the app: the daemon runs `claude setup-token` as a job, and

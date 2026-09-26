@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Cpu, Gauge, HardDrive, Menu as MenuIcon, MemoryStick, TriangleAlert } from 'lucide-react';
-import type { ComponentType } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronRight, Cpu, Gauge, HardDrive, Menu as MenuIcon, MemoryStick, Square, TriangleAlert } from 'lucide-react';
+import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { useConnection } from '../lib/events';
@@ -91,15 +91,8 @@ export function TopBar({
         <UsageMeter view={view} agents={agents.data ?? []} />
         {host && (
           <>
-            <Meter className="hidden sm:flex" icon={Cpu} label="Host CPU" text={`${host.cpu.toFixed(0)}%`} detail={`${host.cores} cores`} fraction={host.cpu / 100} />
-            <Meter
-              className="hidden lg:flex"
-              icon={MemoryStick}
-              label="Host memory"
-              text={humanBytes(host.memUsed)}
-              detail={`of ${humanBytes(host.memTotal)}`}
-              fraction={host.memUsed / host.memTotal}
-            />
+            <CPUMeter host={host} onSelect={onSelect} />
+            <MemoryMeter host={host} onSelect={onSelect} />
             {host.poolTotal > 0 && <StoragePoolMeter host={host} />}
           </>
         )}
@@ -119,36 +112,6 @@ export function TopBar({
         </Tip>
       </div>
     </header>
-  );
-}
-
-function Meter({
-  icon: Icon,
-  label,
-  text,
-  detail,
-  fraction,
-  className,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  text: string;
-  detail: string;
-  fraction: number;
-  className?: string;
-}) {
-  const percent = Math.max(0, Math.min(1, fraction)) * 100;
-  return (
-    <Tip label={`${label}: ${text} ${detail}`}>
-      <span
-        className={cn('flex items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5', className)}
-        aria-label={`${label}: ${text} ${detail}`}
-      >
-        <Icon className="size-3.5 text-subtle" />
-        <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
-        <MeterBar percent={percent} />
-      </span>
-    </Tip>
   );
 }
 
@@ -246,6 +209,242 @@ function DiskUsageBreakdown({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// CPUMeter is the "Host CPU" indicator: what Meter would show, but clicking
+// it opens a popover breaking the total down by agent, the same way
+// StoragePoolMeter does for disk. Each agent's own CPU% is only sampled
+// while the popover is open, the same interval the top bar's own figure
+// already pays for the host as a whole.
+function CPUMeter({ host, onSelect }: { host: T.HostUsage; onSelect: (view: View) => void }) {
+  const cpuUsage = useQuery({ queryKey: ['cpuUsage'], queryFn: api.cpuUsage, enabled: false });
+  const percent = Math.max(0, Math.min(1, host.cpu / 100)) * 100;
+  const text = `${host.cpu.toFixed(0)}%`;
+  const detail = `${host.cores} cores`;
+  return (
+    <Popover onOpenChange={(open) => open && cpuUsage.refetch()}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised sm:flex"
+          aria-label={`Host CPU: ${text} ${detail}`}
+        >
+          <Cpu className="size-3.5 text-subtle" />
+          <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
+          <MeterBar percent={percent} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80">
+        <CPUUsageBreakdown host={host} query={cpuUsage} onSelect={onSelect} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function coresLabel(a: T.CPUUsageAgent): string {
+  const effective = a.effectiveCores || 'every core';
+  const configured = a.configuredCores || 'every core';
+  if (effective === configured) return effective === 'every core' ? effective : `${effective} cores`;
+  return `${effective} of ${configured} cores`;
+}
+
+function CPUUsageBreakdown({
+  host,
+  query,
+  onSelect,
+}: {
+  host: T.HostUsage;
+  query: ReturnType<typeof useQuery<T.CPUUsage>>;
+  onSelect: (view: View) => void;
+}) {
+  return (
+    <div className="grid gap-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-medium text-primary">Host CPU</span>
+        <span className="font-mono text-[11px] tabular-nums text-tertiary">
+          {host.cpu.toFixed(0)}% of {host.cores} cores
+        </span>
+      </div>
+      {query.isPending ? (
+        <span className="py-1 text-[12px] text-muted">Measuring CPU use…</span>
+      ) : query.isError ? (
+        <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
+      ) : (
+        <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+          {query.data.agents.map((a) => (
+            <AgentUsageRow
+              key={a.ref}
+              agentRef={a.ref}
+              title={a.title}
+              state={a.state}
+              onSelect={onSelect}
+              value={`${a.cpu.toFixed(0)}%`}
+              detail={coresLabel(a)}
+            />
+          ))}
+          <div className="flex items-center justify-between gap-3 border-t border-line pt-1.5 text-[11.5px] text-muted">
+            <span>Host itself</span>
+            <span className="font-mono tabular-nums text-faint">{query.data.otherCPU.toFixed(0)}%</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// MemoryMeter is the "Host memory" indicator, the same shape as CPUMeter: a
+// popover breaking the total down by agent, each with the RAM and swap its
+// own cgroup holds — a paused agent's row says so, since pausing doesn't
+// free either.
+function MemoryMeter({ host, onSelect }: { host: T.HostUsage; onSelect: (view: View) => void }) {
+  const memoryUsage = useQuery({ queryKey: ['memoryUsage'], queryFn: api.memoryUsage, enabled: false });
+  const percent = Math.max(0, Math.min(1, host.memUsed / host.memTotal)) * 100;
+  const text = humanBytes(host.memUsed);
+  const detail = `of ${humanBytes(host.memTotal)}`;
+  return (
+    <Popover onOpenChange={(open) => open && memoryUsage.refetch()}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
+          aria-label={`Host memory: ${text} ${detail}`}
+        >
+          <MemoryStick className="size-3.5 text-subtle" />
+          <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
+          <MeterBar percent={percent} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80">
+        <MemoryUsageBreakdown host={host} query={memoryUsage} onSelect={onSelect} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function MemoryUsageBreakdown({
+  host,
+  query,
+  onSelect,
+}: {
+  host: T.HostUsage;
+  query: ReturnType<typeof useQuery<T.MemoryUsage>>;
+  onSelect: (view: View) => void;
+}) {
+  return (
+    <div className="grid gap-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-medium text-primary">Host memory</span>
+        <span className="font-mono text-[11px] tabular-nums text-tertiary">
+          {humanBytes(host.memUsed)} of {humanBytes(host.memTotal)}
+        </span>
+      </div>
+      {query.isPending ? (
+        <span className="py-1 text-[12px] text-muted">Measuring memory use…</span>
+      ) : query.isError ? (
+        <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
+      ) : (
+        <>
+          <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+            {query.data.agents.map((a) => (
+              <AgentUsageRow
+                key={a.ref}
+                agentRef={a.ref}
+                title={a.title}
+                state={a.state}
+                onSelect={onSelect}
+                value={humanBytes(a.memory + a.swap)}
+                detail={[
+                  `${humanBytes(a.memory)} RAM`,
+                  a.swap > 0 ? `${humanBytes(a.swap)} swap` : null,
+                  a.limit > 0 ? `of ${humanBytes(a.limit)} limit` : null,
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
+                note={a.state === 'paused' && a.memory + a.swap > 0 ? 'Paused, but still holds this memory — Stop to free it.' : undefined}
+              />
+            ))}
+            <div className="flex items-center justify-between gap-3 border-t border-line pt-1.5 text-[11.5px] text-muted">
+              <span>Host itself</span>
+              <span className="font-mono tabular-nums text-faint">{humanBytes(query.data.otherUsed)}</span>
+            </div>
+          </div>
+          {query.data.zram && query.data.swapUsed > 0 && (
+            <div className="border-t border-line pt-2 text-[11px] text-muted">
+              Swap is zram: {humanBytes(query.data.swapUsed)} of swap really costs {humanBytes(query.data.zram.realBytes)} of RAM, compressed.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// AgentUsageRow is one agent in the CPU or memory popover: a link to the
+// agent, its usage, and a Stop button — Pause isn't enough for either meter,
+// since a paused agent still holds its memory, and stopping is what frees it.
+function AgentUsageRow({
+  agentRef,
+  title,
+  state,
+  onSelect,
+  value,
+  detail,
+  note,
+}: {
+  agentRef: string;
+  title?: string;
+  state: string;
+  onSelect: (view: View) => void;
+  value: string;
+  detail: string;
+  note?: string;
+}) {
+  const queryClient = useQueryClient();
+  const stop = useMutation({
+    mutationFn: () => api.agentAction(agentRef, 'stop'),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['agents'] });
+      await queryClient.invalidateQueries({ queryKey: ['usage'] });
+      await queryClient.invalidateQueries({ queryKey: ['cpuUsage'] });
+      await queryClient.invalidateQueries({ queryKey: ['memoryUsage'] });
+    },
+    onError: (err) => toast.error(String(err)),
+  });
+  const name = agentRef.split('/')[1];
+  const label = title || name;
+  const canStop = state === 'running' || state === 'paused';
+  return (
+    <div className="grid gap-0.5">
+      <div className="flex items-center justify-between gap-3 text-[11.5px]">
+        <button
+          type="button"
+          className="min-w-0 truncate text-left text-muted transition hover:text-primary hover:underline"
+          onClick={() => onSelect({ kind: 'agent', ref: agentRef })}
+        >
+          {label}
+          {state === 'paused' && <span className="ml-1 text-faint">(paused)</span>}
+        </button>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <span className="font-mono tabular-nums text-faint">{value}</span>
+          {canStop && (
+            <Tip label={`Stop ${label}`}>
+              <button
+                type="button"
+                className="rounded p-0.5 text-faint transition hover:bg-surface-raised hover:text-rose-300"
+                aria-label={`Stop ${label}`}
+                disabled={stop.isPending}
+                onClick={() => stop.mutate()}
+              >
+                <Square className="size-3" />
+              </button>
+            </Tip>
+          )}
+        </span>
+      </div>
+      <span className="truncate text-[11px] text-faint">{detail}</span>
+      {note && <span className="text-[10.5px] text-amber-300/80">{note}</span>}
     </div>
   );
 }
