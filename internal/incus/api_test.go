@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/lxc/incus/v6/shared/api"
+	"github.com/pkg/sftp"
 )
 
 // fakeAPI is an Incus REST API on a unix socket, as much of it as the
@@ -47,6 +48,26 @@ func startFakeAPI(t *testing.T) *fakeAPI {
 		resetShared()
 	})
 	return f
+}
+
+// serveSFTP upgrades the request to SFTP, as Incus does for its instances'
+// files, and serves this machine's own files over it: the tests use paths in
+// a temporary directory as paths inside the instance.
+func serveSFTP(w http.ResponseWriter) {
+	conn, rw, err := http.NewResponseController(w).Hijack()
+	if err != nil {
+		return
+	}
+	defer func() { _ = conn.Close() }()
+	_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: sftp\r\nConnection: Upgrade\r\n\r\n")
+	if rw.Flush() != nil {
+		return
+	}
+	srv, err := sftp.NewServer(conn)
+	if err != nil {
+		return
+	}
+	_ = srv.Serve()
 }
 
 func resetShared() {
@@ -100,8 +121,12 @@ func (f *fakeAPI) replyOp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
-	body, _ := io.ReadAll(r.Body)
 	path := strings.TrimPrefix(r.URL.Path, "/1.0")
+	if path == "/instances/agent-01/sftp" {
+		serveSFTP(w)
+		return
+	}
+	body, _ := io.ReadAll(r.Body)
 	if r.Method != http.MethodGet {
 		f.mu.Lock()
 		f.changes = append(f.changes, strings.TrimSpace(r.Method+" "+path+" "+strings.TrimSpace(string(body))))
