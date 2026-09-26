@@ -1168,6 +1168,61 @@ func (s *Server) diskUsage(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusOK, toAPIDiskUsage(usage))
 }
 
+func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
+	out := api.MemoryUsage{
+		HostTotal: u.HostTotal, AgentsUsed: u.AgentsUsed, OtherUsed: u.OtherUsed,
+		SwapTotal: u.SwapTotal, SwapUsed: u.SwapUsed, AgentsSwap: u.AgentsSwap,
+		Agents: make([]api.MemoryUsageAgent, 0, len(u.Agents)),
+	}
+	if u.Zram != nil {
+		out.Zram = &api.ZramUsage{SwapBytes: u.Zram.SwapBytes, RealBytes: u.Zram.RealBytes}
+	}
+	for _, a := range u.Agents {
+		out.Agents = append(out.Agents, api.MemoryUsageAgent{
+			Ref: a.Ref, Title: a.Title, State: a.State, Memory: a.Memory, Swap: a.Swap, Limit: a.Limit,
+		})
+	}
+	return out
+}
+
+func (s *Server) memoryUsage(w http.ResponseWriter, r *http.Request) error {
+	usage, err := s.manager(nil).MemoryUsage(r.Context())
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, toAPIMemoryUsage(usage))
+}
+
+func toAPICPUUsage(u agent.CPUUsage) api.CPUUsage {
+	out := api.CPUUsage{
+		HostCPU: u.HostCPU, HostCores: u.HostCores, OtherCPU: u.OtherCPU,
+		Agents: make([]api.CPUUsageAgent, 0, len(u.Agents)),
+	}
+	for _, a := range u.Agents {
+		out.Agents = append(out.Agents, api.CPUUsageAgent{
+			Ref: a.Ref, Title: a.Title, State: a.State, CPU: a.CPU,
+			ConfiguredCores: a.ConfiguredCores, EffectiveCores: a.EffectiveCores,
+		})
+	}
+	return out
+}
+
+func (s *Server) cpuUsage(w http.ResponseWriter, r *http.Request) error {
+	interval := time.Second
+	if v := r.URL.Query().Get("interval"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 || d > 10*time.Second {
+			return fmt.Errorf("invalid interval %q: use a duration up to 10s", v)
+		}
+		interval = d
+	}
+	usage, err := s.manager(nil).CPUUsage(r.Context(), interval)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, toAPICPUUsage(usage))
+}
+
 func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) error {
 	ready, err := image.Ready(r.Context(), s.cfg.Incus)
 	if err != nil {

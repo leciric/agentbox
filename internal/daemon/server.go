@@ -453,6 +453,8 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/usage", s.usage)
 	h("GET /v1/usage/disk", s.diskUsage)
+	h("GET /v1/usage/memory", s.memoryUsage)
+	h("GET /v1/usage/cpu", s.cpuUsage)
 	h("POST /v1/usage-stats/{feature}", s.countAppFeature)
 	h("GET /v1/image", s.imageStatus)
 	h("POST /v1/image/build", s.buildImage)

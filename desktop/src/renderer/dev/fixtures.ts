@@ -578,7 +578,16 @@ function agent99Turns(): T.TokenTurn[] {
 // accounts, and what picking a project's GitHub account or renaming one
 // changes, so a scenario that refetches them after a change (?github=1) sees
 // what the daemon would have answered.
-const devState: { projects: T.Project[]; auth?: T.AuthStatus; jobLog?: string; job?: T.Job; setup?: T.SetupStatus; cli?: unknown } = { projects: [] };
+const devState: {
+  projects: T.Project[];
+  auth?: T.AuthStatus;
+  jobLog?: string;
+  job?: T.Job;
+  setup?: T.SetupStatus;
+  cli?: unknown;
+  memoryUsage?: T.MemoryUsage;
+  cpuUsage?: T.CPUUsage;
+} = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
 // staleTime: Infinity (set by the caller's QueryClient), so nothing refetches
@@ -762,6 +771,43 @@ export function seedImageUpdate(queryClient: QueryClient): void {
   queryClient.setQueryData(['job', imageToolsJob], devState.job);
 }
 
+// seedMeterUsage is the top bar's CPU and memory popovers (?meters=cpu,
+// ?meters=memory) against three agents: one paused but still holding RAM and
+// zram swap, one capped below its configured cores by "Never freeze my CPU",
+// and one plain running agent — so both popovers have a largest-first list
+// worth a screenshot, without a daemon or Incus to ask for one.
+export function seedMeterUsage(queryClient: QueryClient): void {
+  const GiB = 1024 ** 3;
+  const memoryUsage: T.MemoryUsage = {
+    hostTotal: 32 * GiB,
+    agentsUsed: 12 * GiB,
+    otherUsed: 3 * GiB,
+    swapTotal: 20 * GiB,
+    swapUsed: 17.5 * GiB,
+    agentsSwap: 17.5 * GiB,
+    zram: { swapBytes: 17.5 * GiB, realBytes: 3.6 * GiB },
+    agents: [
+      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 4 * GiB, swap: 17.5 * GiB, limit: 8 * GiB },
+      { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', memory: 6 * GiB, swap: 0, limit: 8 * GiB },
+      { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', memory: 2 * GiB, swap: 0, limit: 8 * GiB },
+    ],
+  };
+  const cpuUsage: T.CPUUsage = {
+    hostCPU: 62,
+    hostCores: 8,
+    otherCPU: 9,
+    agents: [
+      { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', cpu: 41, configuredCores: '4', effectiveCores: '2' },
+      { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', cpu: 12, configuredCores: '', effectiveCores: '' },
+      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', cpu: 0, configuredCores: '2', effectiveCores: '2' },
+    ],
+  };
+  devState.memoryUsage = memoryUsage;
+  devState.cpuUsage = cpuUsage;
+  queryClient.setQueryData(['memoryUsage'], memoryUsage);
+  queryClient.setQueryData(['cpuUsage'], cpuUsage);
+}
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -781,6 +827,8 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
       if (method === 'GET' && devState.setup && path === '/v1/setup') return { status: 200, body: JSON.stringify(devState.setup), contentType: 'application/json' };
+      if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };
+      if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.job && path === `/v1/jobs/${devState.job.id}`) return { status: 200, body: JSON.stringify(devState.job), contentType: 'application/json' };
       if (method === 'GET' && /^\/v1\/jobs\/[^/]+\/log$/.test(path)) return { status: 200, body: devState.jobLog ?? '', contentType: 'text/plain' };
       if (method === 'GET' && path === '/v1/projects') return { status: 200, body: JSON.stringify(devState.projects), contentType: 'application/json' };
