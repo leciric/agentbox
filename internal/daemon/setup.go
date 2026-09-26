@@ -35,7 +35,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 		checks = append(checks, c)
 	}
 
-	_, incusErr := s.cfg.Incus.Run(ctx, "query", "/1.0")
+	incusErr := s.cfg.Incus.Ping(ctx)
 	incusCheck := api.SetupCheck{ID: "incus", Title: "Incus", Required: true, Status: api.SetupMissing, Detail: firstLine(incusErr), Fix: hostsetup.Command}
 	if errors.Is(incusErr, exec.ErrNotFound) {
 		incusCheck.Detail = "Incus isn't installed"
