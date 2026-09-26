@@ -156,7 +156,8 @@ func hostCPU() (cpuTimes, error) {
 }
 
 // cgroupRoot is where cgroup2 is mounted. Incus runs each container in
-// lxc.payload.<instance> under it.
+// lxc.payload.<instance> under it, or in agentbox/<instance> inside the shared
+// budget (agentCgroup).
 const cgroupRoot = "/sys/fs/cgroup"
 
 // agentMemory returns the memory an agent uses the way the host's figure
@@ -166,7 +167,7 @@ const cgroupRoot = "/sys/fs/cgroup"
 // repository showed about twice the memory it needed. It returns fallback when
 // the cgroup can't be read (cgroup v1, or another layout).
 func agentMemory(root, instance string, fallback int64) int64 {
-	dir := filepath.Join(root, "lxc.payload."+instance)
+	dir := agentCgroup(root, instance)
 	current, err := os.ReadFile(filepath.Join(dir, "memory.current"))
 	if err != nil {
 		return fallback

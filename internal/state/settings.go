@@ -172,6 +172,18 @@ const (
 	// SettingIdleTime is how long SettingAutoStopIdle waits, as a count of
 	// seconds. Empty means DefaultIdleTime.
 	SettingIdleTime = "idle_time"
+	// SettingSharedBudget says whether every agent's machine runs under one
+	// parent cgroup, /sys/fs/cgroup/agentbox, with one memory, swap and CPU
+	// budget for all of them together, so an idle agent's share goes to a
+	// busy one (agent.SharedBudget). Off until somebody turns it on.
+	SettingSharedBudget = "shared_budget"
+	// SettingSharedBudgetMemory, SettingSharedBudgetSwap and
+	// SettingSharedBudgetCPU are the budget itself: a size for memory.max, a
+	// size for memory.swap.max, and a count of cores for cpu.max. Empty means
+	// what agent.SuggestBudget works out for this host.
+	SettingSharedBudgetMemory = "shared_budget_memory"
+	SettingSharedBudgetSwap   = "shared_budget_swap"
+	SettingSharedBudgetCPU    = "shared_budget_cpu"
 )
 
 // DefaultIdleTime is how long an agent may go idle before "auto-stop idle

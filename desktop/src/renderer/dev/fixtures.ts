@@ -693,6 +693,20 @@ let defaultsSettings = {
   keepFreeCPU: 1,
   autoStopIdle: false,
   idleTimeSeconds: 2 * 60 * 60,
+  sharedBudget: {
+    on: false,
+    memory: '21GiB',
+    swap: '8GiB',
+    cpu: 12,
+    chosen: false,
+    suggested: { memory: '21GiB', swap: '8GiB', cpu: 12 },
+    why: 'Leaves this host 11.0 GiB of its 32.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap.',
+    hostSwap: 16 * 1024 ** 3,
+    hostSwapKind: 'zram',
+    setupCommand: 'sudo "$(command -v agentbox)" host budget',
+    inside: 0,
+    pending: 0,
+  },
 } as T.Settings;
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
@@ -706,6 +720,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.keepFreeCPU !== undefined) next.keepFreeCPU = req.keepFreeCPU;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
+  if (req.sharedBudget !== undefined) next.sharedBudget = { ...next.sharedBudget, on: req.sharedBudget };
   for (const [model, win] of [
     [next.defaultClaudeModel || 'opus', next.defaultAgentContextWindow],
     [next.defaultLeadModel || 'default', next.defaultLeadContextWindow],
@@ -869,7 +884,7 @@ export function installDevBridge(): void {
     info: async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'darwin' }),
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
     cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
-    hostSetup: { status: async () => ({}), run: async () => ({ restarted: false }), onOutput: () => () => {} },
+    hostSetup: { status: async () => ({}), run: async () => ({ restarted: false }), onOutput: () => () => {}, budget: async () => {} },
     vm: fakeVM(),
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },

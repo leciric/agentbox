@@ -355,6 +355,52 @@ type Settings struct {
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
+	// SharedBudget is the shared agent budget: every agent's machine under
+	// one parent cgroup with one memory, swap and CPU budget between them.
+	SharedBudget SharedBudget `json:"sharedBudget"`
+}
+
+// SharedBudget is the shared agent budget's state: whether it is on, its
+// size, what this host would be suggested, and whether it can be on here at
+// all. Off unless it was turned on.
+type SharedBudget struct {
+	On bool `json:"on"`
+	// Memory, Swap and CPU are the budget: what was chosen, or Suggested
+	// where nothing was. Swap is "" on a host with no swap.
+	Memory string `json:"memory"`
+	Swap   string `json:"swap"`
+	CPU    int    `json:"cpu"`
+	// Chosen says whether any of the three was chosen, rather than all of
+	// them following Suggested.
+	Chosen bool `json:"chosen"`
+	// Suggested is what this host's memory, swap and cores come to, and
+	// Why says how, in one line.
+	Suggested SharedBudgetSize `json:"suggested"`
+	Why       string           `json:"why"`
+	// HostSwap and HostSwapKind ("zram", "disk" or "") are the host's swap.
+	HostSwap     int64  `json:"hostSwap"`
+	HostSwapKind string `json:"hostSwapKind"`
+	// Unsupported says why this machine can't have the budget at all — a VM
+	// on a Mac or on Windows, or no cgroup v2 — or is "" when it can.
+	Unsupported string `json:"unsupported,omitempty"`
+	// NotReady says what is missing before it can be turned on: the cgroup,
+	// which needs root once. "" when it's ready. SetupCommand runs that step
+	// from a terminal.
+	NotReady     string `json:"notReady,omitempty"`
+	SetupCommand string `json:"setupCommand"`
+	// Problem is why the budget, while on, isn't applied right now.
+	Problem string `json:"problem,omitempty"`
+	// Inside is how many running agents are in the budget, and Pending how
+	// many running agents are yet to move in, or out, when they restart.
+	Inside  int `json:"inside"`
+	Pending int `json:"pending"`
+}
+
+// SharedBudgetSize is a shared budget's size alone.
+type SharedBudgetSize struct {
+	Memory string `json:"memory"`
+	Swap   string `json:"swap"`
+	CPU    int    `json:"cpu"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -401,6 +447,14 @@ type UpdateSettingsRequest struct {
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
+	// SharedBudget turns the shared agent budget on or off. On is refused
+	// until its cgroup is set up (SharedBudget.NotReady).
+	SharedBudget *bool `json:"sharedBudget,omitempty"`
+	// SharedBudgetMemory, SharedBudgetSwap and SharedBudgetCPU size it; ""
+	// (or 0 cores) goes back to what this host is suggested.
+	SharedBudgetMemory *string `json:"sharedBudgetMemory,omitempty"`
+	SharedBudgetSwap   *string `json:"sharedBudgetSwap,omitempty"`
+	SharedBudgetCPU    *int    `json:"sharedBudgetCPU,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).

@@ -162,6 +162,7 @@ export const webBridge: Bridge & { web: true } = {
     status: () => Promise.resolve<HostSetupStatus>({ pkexec: null, user: '', running: false, resizing: false, vm: null, wsl: null }),
     run: unavailable('Setting the host up'),
     onOutput: () => () => {},
+    budget: unavailable('Setting the shared budget up'),
   },
   vm: {
     resize: unavailable("Resizing AgentBox's VM"),

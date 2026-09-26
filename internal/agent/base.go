@@ -121,6 +121,13 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 			return fail(err)
 		}
 	}
+	// Nor does a base belong in the agent's cgroup: started with its
+	// raw.lxc, it would try to run in the very directory the agent runs in.
+	for _, args := range budgetSteps(next, false, copied.Config) {
+		if err := run(args...); err != nil {
+			return fail(err)
+		}
+	}
 	if err := run("start", next); err != nil {
 		return fail(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -19,7 +20,7 @@ func newHostCmd(a *app) *cobra.Command {
 		Use:   "host",
 		Short: "Set up this machine for AgentBox, and check what's missing",
 	}
-	cmd.AddCommand(newHostSetupCmd(), newHostCheckCmd(a))
+	cmd.AddCommand(newHostSetupCmd(), newHostBudgetCmd(), newHostCheckCmd(a))
 	return cmd
 }
 
@@ -83,6 +84,49 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 	cmd.Flags().BoolVar(&print, "print", false, "only print the script")
 	cmd.Flags().StringVar(&forUser, "user", "", "the user to set this machine up for, when sudo and pkexec don't say")
 	cmd.Flags().StringVar(&bridgeSubnet, "bridge-subnet", "", "the Incus bridge's address and subnet, like 10.87.0.1/24, instead of one Incus picks")
+	return cmd
+}
+
+func newHostBudgetCmd() *cobra.Command {
+	var forUser string
+	var remove bool
+	cmd := &cobra.Command{
+		Use:   "budget",
+		Short: "Make the cgroup the shared agent budget needs (once, as root)",
+		Long: `Installs ` + hostsetup.BudgetUnitName + `, a oneshot systemd unit that makes
+` + hostsetup.BudgetCgroupDir + ` at every boot, enables the memory and CPU controllers for it,
+and gives its budget files (` + strings.Join(hostsetup.BudgetFiles, ", ") + `) to your user,
+so the daemon can put every agent under one shared budget and change it while they run.
+Nothing else on the host changes. Run it with sudo:
+
+  ` + hostsetup.BudgetCommand + `
+
+Settings runs the same thing through pkexec. --remove takes the unit away again.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			log := func(line string) { _, _ = fmt.Fprintln(cmd.OutOrStdout(), line) }
+			if remove {
+				if os.Geteuid() != 0 {
+					return errors.New("removing the shared budget's unit has to run as root: " + hostsetup.BudgetCommand + " --remove")
+				}
+				return hostsetup.RemoveBudget(log)
+			}
+			if os.Geteuid() != 0 {
+				return errors.New("making the shared budget's cgroup has to run as root: " + hostsetup.BudgetCommand)
+			}
+			target, err := hostsetup.TargetUser(os.Getenv("SUDO_USER"), os.Getenv("PKEXEC_UID"), forUser, hostsetup.System())
+			if err != nil {
+				return err
+			}
+			u, err := hostsetup.System().ByName(target)
+			if err != nil {
+				return err
+			}
+			return hostsetup.InstallBudget(target, u.Uid, log)
+		},
+	}
+	cmd.Flags().StringVar(&forUser, "user", "", "the user the budget is for, when sudo and pkexec don't say")
+	cmd.Flags().BoolVar(&remove, "remove", false, "remove the unit instead")
 	return cmd
 }
 

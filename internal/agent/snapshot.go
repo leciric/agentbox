@@ -149,6 +149,11 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		return err
 	}
 	if inst.Status != "Running" {
+		// The snapshot's raw.lxc is from when it was taken, and may put the
+		// machine in or out of the shared budget against the setting now.
+		if err := m.ensureBudgetPlacement(ctx, a.Instance); err != nil {
+			return err
+		}
 		if _, err := m.Incus.Run(ctx, "start", a.Instance); err != nil {
 			return err
 		}

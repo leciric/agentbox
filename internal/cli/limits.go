@@ -10,6 +10,7 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/hostsetup"
 )
 
 // newLimitsCmd shows or changes what one agent's machine is capped at, the way
@@ -22,6 +23,7 @@ func newLimitsCmd(a *app) *cobra.Command {
 	var neverFreezeCPU string
 	var keepFreeCPU int
 	var autoStopIdle, idleTime string
+	var budget budgetFlags
 	cmd := &cobra.Command{
 		Use:   "limits [project/agent] [--cpu N] [--memory X] [--cpu-allowance P]",
 		Short: "Show or change what an agent's machine is capped at, or the host's own budget",
@@ -56,7 +58,19 @@ agents" instead: the daemon stops a running or paused agent once it has gone
 --idle-time with nothing happening on it, keeping its worktree and branch.
 
   --auto-stop-idle   on or off (true or false); off by default
-  --idle-time        how long an agent may go idle first, like 2h; 2h by default`,
+  --idle-time        how long an agent may go idle first, like 2h; 2h by default
+
+With no agent at all, --shared-budget and the --budget flags change the shared
+agent budget instead: every agent's machine under one cgroup, with one memory,
+swap and CPU budget between them, so an idle agent's share goes to a busy one.
+It needs a cgroup only root can make, once: ` + hostsetup.BudgetCommand + `.
+Agents already running move in when they restart. Pass "" (or 0 cores) to go
+back to what this host is suggested.
+
+  --shared-budget    on or off (true or false); off by default
+  --budget-memory    the agents' memory together, like 20GiB
+  --budget-swap      the swap they may use together, like 8GiB; never 0
+  --budget-cpu       the cores they share, like 12`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
@@ -65,7 +79,7 @@ agents" instead: the daemon stops a running or paused agent once it has gone
 			}
 			f := cmd.Flags()
 			if len(args) == 0 {
-				return runHostLimits(cmd, c, f, neverFreezeCPU, keepFreeCPU, autoStopIdle, idleTime)
+				return runHostLimits(cmd, c, f, neverFreezeCPU, keepFreeCPU, autoStopIdle, idleTime, budget)
 			}
 			if !f.Changed("cpu") && !f.Changed("memory") && !f.Changed("cpu-allowance") {
 				ag, err := c.Agent(cmd.Context(), args[0])
@@ -105,15 +119,42 @@ agents" instead: the daemon stops a running or paused agent once it has gone
 	f.IntVar(&keepFreeCPU, "keep-free", -1, "how many cores the host's own budget keeps free (at least 0)")
 	f.StringVar(&autoStopIdle, "auto-stop-idle", "", "turn \"auto-stop idle agents\" on or off (true or false)")
 	f.StringVar(&idleTime, "idle-time", "", "how long an agent may go idle before it is stopped, like 2h")
+	f.StringVar(&budget.on, "shared-budget", "", "turn the shared agent budget on or off (true or false)")
+	f.StringVar(&budget.memory, "budget-memory", "", `the shared budget's memory, like 20GiB ("" for the suggestion)`)
+	f.StringVar(&budget.swap, "budget-swap", "", `the shared budget's swap, like 8GiB ("" for the suggestion)`)
+	f.IntVar(&budget.cpu, "budget-cpu", 0, "the shared budget's cores (0 for the suggestion)")
 	return cmd
 }
 
 // runHostLimits is `agentbox limits` with no agent: the installation's own
 // "never freeze my CPU" budget, shown or changed the same no-flags-asks,
 // any-flag-sets way as one agent's.
-func runHostLimits(cmd *cobra.Command, c *api.Client, f *pflag.FlagSet, neverFreezeCPU string, keepFreeCPU int, autoStopIdle, idleTime string) error {
-	if f.Changed("never-freeze-cpu") || f.Changed("keep-free") || f.Changed("auto-stop-idle") || f.Changed("idle-time") {
+// budgetFlags are the shared agent budget's flags.
+type budgetFlags struct {
+	on, memory, swap string
+	cpu              int
+}
+
+func runHostLimits(cmd *cobra.Command, c *api.Client, f *pflag.FlagSet, neverFreezeCPU string, keepFreeCPU int, autoStopIdle, idleTime string, budget budgetFlags) error {
+	budgetChanged := f.Changed("shared-budget") || f.Changed("budget-memory") || f.Changed("budget-swap") || f.Changed("budget-cpu")
+	if f.Changed("never-freeze-cpu") || f.Changed("keep-free") || f.Changed("auto-stop-idle") || f.Changed("idle-time") || budgetChanged {
 		var req api.UpdateSettingsRequest
+		if f.Changed("shared-budget") {
+			on, err := strconv.ParseBool(budget.on)
+			if err != nil {
+				return fmt.Errorf("--shared-budget is true or false; %q isn't", budget.on)
+			}
+			req.SharedBudget = &on
+		}
+		if f.Changed("budget-memory") {
+			req.SharedBudgetMemory = &budget.memory
+		}
+		if f.Changed("budget-swap") {
+			req.SharedBudgetSwap = &budget.swap
+		}
+		if f.Changed("budget-cpu") {
+			req.SharedBudgetCPU = &budget.cpu
+		}
 		if f.Changed("never-freeze-cpu") {
 			on, err := strconv.ParseBool(neverFreezeCPU)
 			if err != nil {
@@ -167,8 +208,40 @@ func printHostLimits(cmd *cobra.Command, settings api.Settings) error {
 	if settings.AutoStopIdle {
 		idleState = fmt.Sprintf("on, stopping an agent idle for %s", time.Duration(settings.IdleTimeSeconds)*time.Second)
 	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "auto-stop idle agents: %s\n", idleState)
-	return err
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "auto-stop idle agents: %s\n", idleState); err != nil {
+		return err
+	}
+	return printSharedBudget(cmd, settings.SharedBudget)
+}
+
+func printSharedBudget(cmd *cobra.Command, b api.SharedBudget) error {
+	out := cmd.OutOrStdout()
+	if b.Unsupported != "" {
+		_, err := fmt.Fprintf(out, "shared agent budget: not here. %s\n", b.Unsupported)
+		return err
+	}
+	size := agent.Budget{Memory: b.Memory, Swap: b.Swap, CPU: b.CPU}.Describe()
+	state := "off"
+	if b.On {
+		state = fmt.Sprintf("on, %s; %d agent(s) inside", size, b.Inside)
+	}
+	if _, err := fmt.Fprintf(out, "shared agent budget: %s\n", state); err != nil {
+		return err
+	}
+	if b.Pending > 0 {
+		_, _ = fmt.Fprintf(out, "  %d running agent(s) move when they restart\n", b.Pending)
+	}
+	if !b.On {
+		suggested := agent.Budget{Memory: b.Suggested.Memory, Swap: b.Suggested.Swap, CPU: b.Suggested.CPU}.Describe()
+		_, _ = fmt.Fprintf(out, "  suggested for this host: %s. %s\n", suggested, b.Why)
+	}
+	switch {
+	case b.Problem != "":
+		_, _ = fmt.Fprintf(out, "  %s\n  run: %s\n", b.Problem, b.SetupCommand)
+	case b.NotReady != "":
+		_, _ = fmt.Fprintf(out, "  before it can be on, %s\n  run: %s\n", b.NotReady, b.SetupCommand)
+	}
+	return nil
 }
 
 // limitWords says what a set of limits means in one line. The wording is

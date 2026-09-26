@@ -254,6 +254,31 @@ export function runHostSetup(onOutput: (text: string) => void): Promise<void> {
 function run(onOutput: (text: string) => void): Promise<void> {
   if (onMac) return initVM(onOutput);
   if (onWindows) return initWSL(onOutput);
+  return runAsRoot(["host", "setup"], onOutput);
+}
+
+// runBudgetSetup makes the shared agent budget's cgroup: `agentbox host
+// budget`, as root through pkexec, which installs a oneshot unit that makes
+// /sys/fs/cgroup/agentbox at every boot and hands its budget files to you
+// (internal/hostsetup/budget.go). Settings offers it where the budget exists
+// at all, which is never on a Mac or Windows.
+let budgetRunning: Promise<void> | undefined;
+
+export function runBudgetSetup(): Promise<void> {
+  if (budgetRunning)
+    return Promise.reject(new Error("the budget's setup is already running"));
+  budgetRunning = runAsRoot(["host", "budget"], () => {}).finally(() => {
+    budgetRunning = undefined;
+  });
+  return budgetRunning;
+}
+
+// runAsRoot runs an agentbox subcommand as root through pkexec, for the user
+// running the app, and streams what it prints to onOutput.
+function runAsRoot(
+  command: string[],
+  onOutput: (text: string) => void,
+): Promise<void> {
   const pkexec = which("pkexec");
   const user = userInfo().username;
   const binary = setupBinary();
@@ -273,7 +298,7 @@ function run(onOutput: (text: string) => void): Promise<void> {
   }
   // pkexec sets PKEXEC_UID to the user who asked, which is what host setup
   // goes by; --user says the same thing, for a pkexec that doesn't.
-  const args = [binary, "host", "setup", "--user", user];
+  const args = [binary, ...command, "--user", user];
   return new Promise((resolve, reject) => {
     onOutput(`$ pkexec ${args.join(" ")}\n`);
     const child = spawn(pkexec, args, { stdio: ["ignore", "pipe", "pipe"] });
