@@ -15,7 +15,7 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 ### Changed
 
 - The top bar's Claude meter shows how long is left in the five-hour window beside what's used, as
-  `3h · 21%`, or in minutes in its last hour (`48m · 21%`), and counts down as it goes.
+  `3h · 21%`, or in minutes in its last hour (`48m · 21%`), and counts down as it goes. (#74)
 
 ### Fixed
 
