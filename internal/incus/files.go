@@ -8,7 +8,7 @@ import (
 	"path"
 	"path/filepath"
 
-	incusclient "github.com/lxc/incus/v6/client"
+	incusclient "github.com/lxc/incus/v7/client"
 	"github.com/pkg/sftp"
 )
 

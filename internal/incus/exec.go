@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	incusclient "github.com/lxc/incus/v6/client"
-	"github.com/lxc/incus/v6/shared/api"
+	incusclient "github.com/lxc/incus/v7/client"
+	"github.com/lxc/incus/v7/shared/api"
 )
 
 // ExitError is a command run in an instance through the API that exited with

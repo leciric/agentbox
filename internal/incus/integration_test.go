@@ -80,9 +80,12 @@ func same(t *testing.T, what string, both []side, got func(side) string) {
 
 // The client follows Incus 6.23's command, whose messages the command in
 // Debian's Incus 6.0 LTS words a little differently. Its words are put into
-// 6.23's before the two sides are compared.
+// 6.23's before the two sides are compared. Incus 7's command adds a second
+// line to a missing device's error, which is about devices from profiles and
+// so wrong for it; the client leaves it out.
 var olderWording = strings.NewReplacer(
 	"INST never: Device doesn't exist", "INST never: Device “never” doesn't exist",
+	"\nDevice from profile(s) cannot be removed from individual instance. Override device “never” or modify profile instead", "",
 	`Failed checking instance exists "local:ab-it-missing"`, "Failed checking instance ab-it-missing exists",
 	"INST/no/such/dir/f --mode 0755: file does not exist", `INST/no/such/dir/f --mode 0755: Failed to open target file "/no/such/dir/f": file does not exist`,
 )

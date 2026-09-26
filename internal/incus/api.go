@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	incusclient "github.com/lxc/incus/v6/client"
-	"github.com/lxc/incus/v6/shared/api"
+	incusclient "github.com/lxc/incus/v7/client"
+	"github.com/lxc/incus/v7/shared/api"
 )
 
 // The daemon talks to Incus through its REST API on the local unix socket,
