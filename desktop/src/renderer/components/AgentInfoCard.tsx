@@ -27,10 +27,14 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
   const mine = spend.data?.agents?.[0];
 
   return (
-    <div className="grid w-64 gap-2" data-agent-info={agent.ref}>
+    // grid-cols-1 is minmax(0, 1fr): an auto column would grow to the title's
+    // full width, pushing every value past the card's right edge.
+    <div className="grid w-64 grid-cols-1 gap-2" data-agent-info={agent.ref}>
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate text-[13px] font-medium text-primary">{agent.title || agent.name}</span>
-        <StateBadge state={agent.state} />
+        <span className="shrink-0">
+          <StateBadge state={agent.state} />
+        </span>
       </div>
       <div className="grid min-w-0 gap-1">
         <Row label="AI tool" value={aiLabel(agent.ai)} />
