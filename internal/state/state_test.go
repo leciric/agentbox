@@ -142,8 +142,12 @@ func TestAgents(t *testing.T) {
 	want := a
 	want.Status = state.AgentReady
 	want.Role = state.RoleWorker // filled in by AddAgent
+	want.ID = got.ID             // filled in by AddAgent, random
 	if got != want {
 		t.Errorf("Agent() = %+v, want %+v", got, want)
+	}
+	if got.ID == "" {
+		t.Error("Agent().ID = \"\", want one filled in by AddAgent")
 	}
 	if got.Ref() != "pawly/agent-01" {
 		t.Errorf("Ref() = %q", got.Ref())

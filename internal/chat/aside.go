@@ -127,7 +127,7 @@ func (m *Manager) AskAside(ctx context.Context, a state.Agent, model, ask string
 	// the ledger under the chat that asked for it. It heads no turn, so its
 	// whole round trip is what's timed.
 	if rows := tokenRows(state.TokenRow{
-		Project: a.Project, Agent: a.Name, AI: a.AI, Session: session.SessionID,
+		Project: a.Project, Agent: a.Name, AgentID: a.ID, AI: a.AI, Session: session.SessionID,
 		Turn: newID(), Kind: state.TokensConsolidation, At: m.now(),
 	}, res.ByModel(ranOn), ranOn, h.cost(), time.Since(started).Milliseconds()); len(rows) > 0 {
 		go m.recordTokens(rows)

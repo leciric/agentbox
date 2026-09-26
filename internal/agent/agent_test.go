@@ -204,24 +204,26 @@ esac`))
 	}
 	testutil.Git(t, f.repo.Root, "branch", "agentbox/agent-01") // left over by an earlier agent
 
-	// With no title and no task, the branch falls back to the agent's name.
+	// agent-01's number is never handed out again: the leftover branch alone
+	// raises the floor, so this agent is agent-02, and with no title and no
+	// task, its branch falls back to its own name too.
 	_, err := f.m.Create(context.Background(), "hello-stack", agent.CreateOptions{AI: "none", CopyEnv: true})
 	if err == nil || !strings.Contains(err.Error(), "simulated copy failure") {
 		t.Fatalf("Create() error = %v, want the simulated failure", err)
 	}
-	if !strings.Contains(err.Error(), "hello-stack/agent-01") {
-		t.Errorf("Create() should still be agent-01, its branch stepping around the old one: %v", err)
+	if !strings.Contains(err.Error(), "hello-stack/agent-02") {
+		t.Errorf("Create() should be agent-02, never reusing agent-01's number: %v", err)
 	}
 	if agents, _ := f.st.Agents(context.Background(), ""); len(agents) != 0 {
 		t.Errorf("agents left after rollback: %+v", agents)
 	}
-	if f.repo.BranchExists("agentbox/agent-01-2") {
-		t.Error("branch agentbox/agent-01-2 left after rollback")
+	if f.repo.BranchExists("agentbox/agent-02") {
+		t.Error("branch agentbox/agent-02 left after rollback")
 	}
 	if !f.repo.BranchExists("agentbox/agent-01") {
 		t.Error("rollback deleted the unrelated agentbox/agent-01 branch")
 	}
-	if _, err := os.Stat(f.m.Paths.Worktree("hello-stack", "agent-01")); !os.IsNotExist(err) {
+	if _, err := os.Stat(f.m.Paths.Worktree("hello-stack", "agent-02")); !os.IsNotExist(err) {
 		t.Errorf("worktree left after rollback (stat: %v)", err)
 	}
 }

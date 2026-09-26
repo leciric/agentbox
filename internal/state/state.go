@@ -552,6 +552,32 @@ var migrations = []string{
 	// own, for testing AgentBox features that touch agent machines. Off for
 	// every project before this column, since it costs isolation.
 	`ALTER TABLE projects ADD COLUMN nesting INTEGER NOT NULL DEFAULT 0`,
+
+	// Agent names are never reused within a project (#name-reuse): the
+	// number in agent-NN comes from a per-project high-water counter instead
+	// of the first free number, so once a name is handed out — to a
+	// worktree, a machine, a branch, a pull request — nothing ever hands it
+	// out again to a different agent.
+	`CREATE TABLE agent_seq (
+		project TEXT PRIMARY KEY REFERENCES projects(name),
+		next    INTEGER NOT NULL DEFAULT 1
+	)`,
+	// An id distinct from an agent's name, so a row that outlives its agent on
+	// purpose — token_usage, kept for accounting — can still tell that agent
+	// apart from whoever gets its name next, even though its name can't.
+	// Existing rows get one now rather than waiting for something to set it.
+	`ALTER TABLE agents ADD COLUMN id TEXT NOT NULL DEFAULT ''`,
+	`UPDATE agents SET id = lower(hex(randomblob(16))) WHERE id = ''`,
+	`ALTER TABLE token_usage ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''`,
+	// Chat, event and question rows a destroyed agent left behind before
+	// removeChat and CancelQuestions ran on every removal, under a name
+	// nothing here still owns: nothing reads these except by the name they
+	// were filed under, and that name may already belong to somebody else.
+	`DELETE FROM chat_items WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = chat_items.project AND a.name = chat_items.agent)`,
+	`DELETE FROM chats WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = chats.project AND a.name = chats.agent)`,
+	`DELETE FROM agent_events WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = agent_events.project AND a.name = agent_events.agent)`,
+	`UPDATE questions SET status = 'cancelled' WHERE status IN ('pending', 'escalated')
+		AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = questions.project AND a.name = questions.agent)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1411,6 +1437,10 @@ type Agent struct {
 	// whatever it was last doing before it was paused. Zero when it has never
 	// been paused, or was resumed or started since.
 	PausedAt time.Time
+	// ID is an identity distinct from Name, set once at AddAgent and never
+	// reused: what tells this agent apart from a different one that later
+	// gets its name, for a row that outlives it on purpose (token_usage).
+	ID string
 }
 
 // IsLead reports whether the agent is a project's lead, which runs on the host
@@ -1434,7 +1464,7 @@ const LeadName = "lead"
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -1443,9 +1473,12 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Role == "" {
 		a.Role = RoleWorker
 	}
+	if a.ID == "" {
+		a.ID = NewAgentID()
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice)
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -1633,6 +1666,10 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 	if err := s.removeAgentEvents(ctx, project, name); err != nil {
 		return err
 	}
+	// Nobody will ever answer these now, and its name may go to somebody else.
+	if err := s.CancelQuestions(ctx, project, name); err != nil {
+		return err
+	}
 	return removeChat(ctx, s.db, project, name)
 }
 
@@ -1647,7 +1684,7 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		var a Agent
 		var created, pausedAt int64
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
-			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &pausedAt); err != nil {
+			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &pausedAt); err != nil {
 			return nil, err
 		}
 		a.CreatedAt = time.Unix(created, 0)

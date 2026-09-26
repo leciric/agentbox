@@ -88,6 +88,51 @@ func TestQuestions(t *testing.T) {
 	}
 }
 
+// TestRemoveAgentCancelsItsQuestions covers the other end of #name-reuse:
+// nobody will ever answer a removed agent's question, and its name may go
+// to somebody else, so RemoveAgent gives up on it rather than leaving it
+// waiting under a name that isn't this agent's any more.
+func TestRemoveAgentCancelsItsQuestions(t *testing.T) {
+	ctx := context.Background()
+	st := open(t, filepath.Join(t.TempDir(), "state.db"))
+	if err := st.AddProject(ctx, state.Project{Name: "pawly", Root: "/src/pawly", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	a := state.Agent{Project: "pawly", Name: "agent-01", Instance: "ab-pawly-agent-01",
+		AI: "claude", Branch: "agentbox/agent-01", BaseRef: "main", BaseCommit: "abc",
+		Worktree: "/w/agent-01", Status: state.AgentReady, CreatedAt: time.Now()}
+	if err := st.AddAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddQuestion(ctx, state.Question{ID: "q1", Project: "pawly", Agent: "agent-01",
+		Text: "still open?", Status: state.QuestionPending, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddQuestion(ctx, state.Question{ID: "q2", Project: "pawly", Agent: "agent-01",
+		Text: "already answered", Status: state.QuestionAnswered, CreatedAt: time.Now(), AnsweredAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.RemoveAgent(ctx, "pawly", "agent-01"); err != nil {
+		t.Fatal(err)
+	}
+
+	q1, err := st.Question(ctx, "q1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q1.Status != state.QuestionCancelled {
+		t.Errorf("q1.Status = %q after removing its agent, want %q", q1.Status, state.QuestionCancelled)
+	}
+	q2, err := st.Question(ctx, "q2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q2.Status != state.QuestionAnswered {
+		t.Errorf("q2.Status = %q, want its answer left alone", q2.Status)
+	}
+}
+
 func TestProjectAutonomy(t *testing.T) {
 	ctx := context.Background()
 	st := open(t, filepath.Join(t.TempDir(), "state.db"))

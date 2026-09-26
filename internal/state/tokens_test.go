@@ -133,6 +133,41 @@ func TestTokenLedgerTPS(t *testing.T) {
 	}
 }
 
+// TestTokenLedgerAgentID: two agents that happen to share a name (#name-reuse)
+// still tell their spend apart, by the id AddTokenRows carries alongside the
+// name — even though TokenTotals still adds their spend together under the
+// name it displays, TokenRows keeps each row's own id.
+func TestTokenLedgerAgentID(t *testing.T) {
+	ctx := context.Background()
+	st := open(t, filepath.Join(t.TempDir(), "state.db"))
+	base := time.Date(2026, 9, 21, 18, 0, 0, 0, time.UTC)
+
+	if err := st.AddTokenRows(ctx, []state.TokenRow{{
+		Project: "acme", Agent: "agent-01", AgentID: "agt_first", AI: "claude",
+		Turn: "t1", Kind: state.TokensTurn, Model: "claude-sonnet-5", At: base, CostUSD: 1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddTokenRows(ctx, []state.TokenRow{{
+		Project: "acme", Agent: "agent-01", AgentID: "agt_second", AI: "claude",
+		Turn: "t2", Kind: state.TokensTurn, Model: "claude-sonnet-5", At: base.Add(time.Hour), CostUSD: 2,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := st.TokenRows(ctx, state.TokenFilter{Project: "acme", Agent: "agent-01"}, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("TokenRows() = %d rows, want 2", len(rows))
+	}
+	ids := map[string]bool{rows[0].AgentID: true, rows[1].AgentID: true}
+	if !ids["agt_first"] || !ids["agt_second"] {
+		t.Errorf("rows' agent ids = %+v, want agt_first and agt_second told apart", rows)
+	}
+}
+
 func TestClaudeCompactWindow(t *testing.T) {
 	ctx := context.Background()
 	st := open(t, filepath.Join(t.TempDir(), "state.db"))
