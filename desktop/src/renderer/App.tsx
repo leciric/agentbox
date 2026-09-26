@@ -13,6 +13,7 @@ import { Sidebar } from "./components/Sidebar";
 import { aiLabel } from "./components/state";
 import { TopBar } from "./components/TopBar";
 import { VMSetup } from "./components/VMSetup";
+import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
 import { api } from "./lib/api";
@@ -21,6 +22,7 @@ import { onMedia, useConnection } from "./lib/events";
 import { setupCard } from "./lib/setup";
 import { kindInfo } from "./lib/media";
 import { useHostTheme } from "./lib/theme";
+import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
 
 export type View =
   | { kind: "home" }
@@ -34,6 +36,7 @@ export function App() {
   const [tabs, setTabs] = useState<Record<string, AgentTab>>({});
   const [addingProject, setAddingProject] = useState(false);
   const [newAgentProject, setNewAgentProject] = useState<string | null>(null);
+  const [whatsNew, setWhatsNew] = useState(false);
   // On a narrow screen (a phone, in the web app), the sidebar slides in over the page.
   const [navOpen, setNavOpen] = useState(false);
   const agents = useQuery({ queryKey: ["agents"], queryFn: api.agents });
@@ -46,6 +49,14 @@ export function App() {
     queryFn: () => window.agentbox.info(),
     staleTime: Infinity,
   });
+  // Show What's new once after an update: never on the first run, since
+  // there's nothing "new" to someone who just installed AgentBox.
+  useEffect(() => {
+    const version = info.data?.version;
+    if (!version) return;
+    if (shouldShowAutomatically(version)) setWhatsNew(true);
+    markSeen(version);
+  }, [info.data?.version]);
   const hostSetup = useQuery({
     queryKey: ["host-setup"],
     queryFn: () => window.agentbox.hostSetup.status(),
@@ -267,6 +278,13 @@ export function App() {
         onClose={() => setNewAgentProject(null)}
         onCreated={(ref) => select({ kind: "agent", ref })}
       />
+      {info.data && (
+        <WhatsNewDialog
+          open={whatsNew}
+          onOpenChange={setWhatsNew}
+          version={info.data.version}
+        />
+      )}
     </div>
   );
 }

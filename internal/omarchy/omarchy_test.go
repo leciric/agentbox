@@ -9,14 +9,22 @@ import (
 )
 
 // install puts one of the testdata themes where Omarchy keeps its current
-// theme under home, the way omarchy-theme-set leaves it: a directory of files,
-// with the name beside it.
+// theme under home, the way omarchy-theme-set leaves it: built in a
+// generation of its own, and swapped in with one rename of a symlink, so a
+// reader never sees a "current" that is half the old theme and half the new
+// one — which a build-in-place would, to anything reading it as fast as
+// Watcher.Run's poll does in TestWatcherReportsAChange.
 func install(t *testing.T, home, fixture, name string) {
 	t.Helper()
-	theme := filepath.Join(home, ".local", "state", "omarchy", "current", "theme")
-	if err := os.RemoveAll(theme); err != nil {
+	base := filepath.Join(home, ".local", "state", "omarchy")
+	if err := os.MkdirAll(base, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	gen, err := os.MkdirTemp(base, "theme-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	theme := filepath.Join(gen, "theme")
 	if err := os.MkdirAll(theme, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -34,9 +42,20 @@ func install(t *testing.T, home, fixture, name string) {
 		}
 	}
 	if name != "" {
-		if err := os.WriteFile(filepath.Join(filepath.Dir(theme), "theme.name"), []byte(name+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(gen, "theme.name"), []byte(name+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	current := filepath.Join(base, "current")
+	link := current + ".new"
+	if err := os.RemoveAll(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gen, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(link, current); err != nil {
+		t.Fatal(err)
 	}
 }
 
