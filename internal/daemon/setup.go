@@ -54,6 +54,10 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 	check(api.SetupCheck{ID: "host", Title: "User mapping", Required: true, Status: api.SetupMissing, Detail: firstLine(hostErr), Fix: hostsetup.Command},
 		hostErr == nil, "agents write files in their worktrees as you")
 
+	if incusErr == nil {
+		checks = append(checks, s.storagePoolCheck(ctx))
+	}
+
 	// What the next build would include, and what the image really has: they
 	// differ after someone turns a component on and hasn't rebuilt yet.
 	wanted, err := s.imageComponents(ctx)
@@ -150,6 +154,25 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 			Hint:       image.DownloadsHint,
 		},
 	})
+}
+
+// storagePoolCheck warns when the "default" storage pool isn't btrfs or zfs:
+// agentbox create copies the base image's files instead of taking an instant
+// copy-on-write snapshot, which host-setup.sh's own comments put at about 15s
+// per agent instead of under a second. It never asks to migrate an existing
+// pool — that's for host setup to offer, and only on a pool it made itself.
+func (s *Server) storagePoolCheck(ctx context.Context) api.SetupCheck {
+	c := api.SetupCheck{ID: "storage", Title: "Storage pool", Status: api.SetupOK, Detail: "btrfs or zfs: agents are created with an instant snapshot"}
+	driver, err := s.cfg.Incus.PoolDriver(ctx, "default")
+	if err != nil {
+		c.Status, c.Detail = api.SetupWarn, "couldn't tell the storage pool's driver: "+firstLine(err)
+		return c
+	}
+	if driver != "btrfs" && driver != "zfs" {
+		c.Status = api.SetupWarn
+		c.Detail = fmt.Sprintf("the pool's driver is %q, not btrfs or zfs: agents are created by copying the base image's files, which takes seconds instead of being instant. Run host setup on a machine whose kernel supports btrfs to fix this for new pools; it won't touch this one.", driver)
+	}
+	return c
 }
 
 // imageComponents is the optional components chosen for this installation's

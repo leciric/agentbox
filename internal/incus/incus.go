@@ -213,6 +213,19 @@ func (c Client) PoolSpace(ctx context.Context, pool string) (used, total int64, 
 	return r.Space.Used, r.Space.Total, nil
 }
 
+// PoolDriver returns a storage pool's driver, e.g. "btrfs", "zfs" or "dir".
+func (c Client) PoolDriver(ctx context.Context, pool string) (string, error) {
+	out, err := c.Run(ctx, "query", "/1.0/storage-pools/"+pool)
+	if err != nil {
+		return "", err
+	}
+	var r struct{ Driver string }
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		return "", fmt.Errorf("parsing pool %s: %w", pool, err)
+	}
+	return r.Driver, nil
+}
+
 // VolumeUsage returns the bytes an instance's own storage volume uses on the
 // pool. Unlike Instances' State.Memory/CPU, this comes from the volume itself
 // rather than the running instance, so it works for a stopped instance too —

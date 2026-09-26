@@ -106,6 +106,8 @@ const descriptions: Record<string, string> = {
   host: "Lets agents write files in their worktrees as you.",
   image:
     "The machine every agent is copied from: Debian with Docker, Node.js, Claude Code, Chromium and ffmpeg. Downloaded ready-made and made this machine's; made here from scratch, in a few minutes, when the download fails or you ask for an optional component.",
+  storage:
+    "Where agents' machines live. On btrfs or zfs, making one is an instant snapshot; on any other driver, it's a copy of the whole base image.",
   claude:
     "AgentBox's own logins for agents. Your ~/.claude isn't shared with them.",
   codex: "For agents that run Codex.",
@@ -125,6 +127,7 @@ const environmentIds = new Set([
   "incus",
   "host",
   "image",
+  "storage",
   "android",
   "preview",
 ]);

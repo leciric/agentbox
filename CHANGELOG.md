@@ -12,6 +12,9 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
   by default: its new agents get a real Incus daemon of their own, so agents working on AgentBox
   can test limits, the GPU, image builds and agent creation for real. It needs a base image built
   with `agentbox image build --incus`, a new optional component. (#71)
+- **A Setup warning when agent storage isn't btrfs or zfs.** Setup and `agentbox host check` now
+  say when the storage pool agents are created on uses another driver, such as `dir`, meaning every
+  agent is a full copy of the base image instead of an instant snapshot.
 
 ### Changed
 

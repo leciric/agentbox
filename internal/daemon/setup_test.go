@@ -81,6 +81,64 @@ func TestSetupAdvisesLoggingInOnlyWhenTheACLDidNotTake(t *testing.T) {
 	}
 }
 
+// storagePoolIncus stands in for incus answering the "default" pool's own
+// query (not its /resources, which PoolSpace reads) with the given driver.
+func storagePoolIncus(driver string) string {
+	return `case "$1" in
+  query)
+    case "$2" in
+      /1.0/storage-pools/default) echo '{"driver": "` + driver + `"}' ;;
+      *) echo '{"config": {}, "devices": {}}' ;;
+    esac ;;
+esac
+exit 0
+`
+}
+
+// TestSetupStorageIsOKOnBtrfsOrZFS: those drivers give agentbox create an
+// instant copy-on-write snapshot, so there's nothing to warn about.
+func TestSetupStorageIsOKOnBtrfsOrZFS(t *testing.T) {
+	t.Parallel()
+	for _, driver := range []string{"btrfs", "zfs"} {
+		d := startTestDaemon(t, t.TempDir(), storagePoolIncus(driver))
+		check := setupCheck(t, d, "storage")
+		if check.Status != api.SetupOK {
+			t.Errorf("storage check on %s = %+v, want SetupOK", driver, check)
+		}
+	}
+}
+
+// TestSetupStorageWarnsWhenNotBtrfsOrZFS: a dir (or any other) driver still
+// works, but agentbox create copies the base image's files instead of taking
+// an instant snapshot, so it's slow — worth a warning, never a blocker.
+func TestSetupStorageWarnsWhenNotBtrfsOrZFS(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), storagePoolIncus("dir"))
+	check := setupCheck(t, d, "storage")
+	if check.Status != api.SetupWarn || !strings.Contains(check.Detail, `"dir"`) {
+		t.Errorf(`storage check = %+v, want SetupWarn mentioning "dir"`, check)
+	}
+}
+
+// TestSetupStorageWarnsWhenTheDriverCantBeRead: the pool query itself failing
+// is also worth a caveat, not a reason to hold up the wizard.
+func TestSetupStorageWarnsWhenTheDriverCantBeRead(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), `case "$1" in
+  query)
+    case "$2" in
+      /1.0/storage-pools/default) echo "Error: pool not found" >&2; exit 1 ;;
+      *) echo '{"config": {}, "devices": {}}' ;;
+    esac ;;
+esac
+exit 0
+`)
+	check := setupCheck(t, d, "storage")
+	if check.Status != api.SetupWarn || !strings.Contains(check.Detail, "pool not found") {
+		t.Errorf("storage check = %+v, want SetupWarn carrying incus' own message", check)
+	}
+}
+
 // TestVersionReportsWhetherTheDaemonCanReachIncus: it is what the app and the
 // command line compare against their own, to spot a daemon that started before
 // host setup and restart it.
