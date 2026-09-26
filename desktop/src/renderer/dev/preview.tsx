@@ -54,6 +54,11 @@
 //                           agent, and on a Codex agent (no meter)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
+//   ?meters=cpu|memory      the top bar's "Host CPU" or "Host memory" popover,
+//                           against a paused agent still holding swap in
+//                           zram, a CPU-capped agent and a plain one —
+//                           scenarios.json clicks the meter open before its
+//                           shot, since state here comes from the URL alone
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -86,7 +91,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedImageUpdate, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedImageUpdate, seedMeterUsage, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -106,6 +111,7 @@ const github = params.get('github') === '1';
 const resources = params.get('resources') === '1';
 const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
+const meters = params.get('meters'); // "cpu" | "memory" | null
 const imageUpdate = params.get('setup') === 'updating';
 
 const windowsBeforeSetup: HostSetupStatus = {
@@ -164,6 +170,12 @@ if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
   queryClient.setQueryData(['settings'], { ...queryClient.getQueryData(['settings']), hostCores: 8, hostMemory: 31 * GiB, seedMemory: '8GiB', defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
+}
+if (meters) {
+  const GiB = 1024 ** 3;
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0 }, agents: [] });
+  queryClient.setQueryData(['claudeLimits'], []);
+  seedMeterUsage(queryClient);
 }
 
 if (usage) {
@@ -258,6 +270,14 @@ function Preview() {
 
   if (github) return <GitHubPreview />;
   if (usage) return <UsagePreview />;
+
+  if (meters) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+      </div>
+    );
+  }
 
   if (pulls) {
     return (

@@ -272,7 +272,7 @@ function CPUUsageBreakdown({
       ) : query.isError ? (
         <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
       ) : (
-        <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+        <div className="grid min-w-0 max-h-72 gap-2 overflow-y-auto pr-1">
           {query.data.agents.map((a) => (
             <AgentUsageRow
               key={a.ref}
@@ -346,7 +346,7 @@ function MemoryUsageBreakdown({
         <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
       ) : (
         <>
-          <div className="grid max-h-72 gap-2 overflow-y-auto pr-1">
+          <div className="grid min-w-0 max-h-72 gap-2 overflow-y-auto pr-1">
             {query.data.agents.map((a) => (
               <AgentUsageRow
                 key={a.ref}
@@ -416,8 +416,8 @@ function AgentUsageRow({
   const label = title || name;
   const canStop = state === 'running' || state === 'paused';
   return (
-    <div className="grid gap-0.5">
-      <div className="flex items-center justify-between gap-3 text-[11.5px]">
+    <div className="grid min-w-0 gap-0.5">
+      <div className="flex min-w-0 items-center justify-between gap-3 text-[11.5px]">
         <button
           type="button"
           className="min-w-0 truncate text-left text-muted transition hover:text-primary hover:underline"

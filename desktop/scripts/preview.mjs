@@ -118,6 +118,11 @@ async function capture(baseUrl, outDir) {
         await page.hover(s.hover, { timeout: 3_000 }).catch(() => {});
         await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
       }
+      // A scenario can click an element, to show a popover it opens.
+      if (s.click) {
+        await page.click(s.click, { timeout: 3_000 }).catch(() => {});
+        await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
+      }
       // Animations (the avatars') are stopped at their start, so a shot is the
       // same every time and a before/after diff shows changes, not timing.
       await page.screenshot({ path: join(outDir, `${s.id}.png`), animations: 'disabled' });
