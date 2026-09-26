@@ -73,7 +73,7 @@ function ClaudeAccountPicker({ project }: { project: T.Project }) {
             ? 'Loading…'
             : accounts.length === 0
               ? 'No account stored yet — add one in Settings.'
-              : 'The login new agents get. Agents that already exist keep the one they were made with.'
+              : 'The login new agents get. Changing it asks whether to move agents still on the old one too.'
         }
         control={
           accounts.length > 0 && (
@@ -308,7 +308,7 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
             ? 'Loading…'
             : accounts.length === 0
               ? 'No account stored yet — add one in Settings.'
-              : 'The login new agents push and open pull requests with. Agents that already exist keep the one they were made with.'
+              : 'The login new agents push and open pull requests with. Changing it asks whether to move agents still on the old one too.'
         }
         control={
           accounts.length > 0 && (
