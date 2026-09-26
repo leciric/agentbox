@@ -73,8 +73,16 @@ apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugi
 if [[ $WITH_INCUS == 1 ]]; then
   step "Incus, for an agent whose project turns nesting on"
   apt-get install -y -q incus
+  # incus's postinst gives root a subuid/subgid range sized for a normal host
+  # (root:1000000:1000000000), which is bigger than this container's own
+  # idmap actually covers: writing a nested container's uid_map with it fails
+  # with EPERM, since the kernel refuses to delegate ids this container
+  # doesn't itself have. A small range, well inside what every agent's idmap
+  # covers regardless of host (only the agent user's own uid, 1000, is
+  # pinned outside the automatic range — see image.IDMap), replaces it.
+  sed -i 's/^root:.*/root:100000:65536/' /etc/subuid /etc/subgid
   # Off until a project turns nesting on: `incus admin init` runs then
-  # (agent.SetUpNesting), not at boot, so an agent without it spends nothing.
+  # (agent.EnsureNesting), not at boot, so an agent without it spends nothing.
   systemctl disable --now incus.socket incus >/dev/null 2>&1 || true
 else
   skip "Incus" "nesting is off"

@@ -138,13 +138,17 @@ EOF
 }
 
 # give_root_a_range gives root the billion IDs Incus maps containers into, in
-# the /etc/subuid or /etc/subgid it's given, unless root has that many already.
+# the /etc/subuid or /etc/subgid it's given, unless root already has a range
+# of more than one ID: Incus maps each such range to the container's ID 0, so
+# a second one is two mappings of the same ID, which the kernel refuses and no
+# container starts. The one-ID range below (for raw.idmap) doesn't count:
 # Debian's incus package gives root a range when it's installed, after the
-# highest range it finds, so it's only 1000000 when nothing ends past that; and
-# Incus maps each large range of root's to the container's ID 0, so a second
-# one overlaps the first and no container starts.
+# highest range it finds, so it's only 1000000 when nothing ends past that. A
+# nested agent (nesting.go) starts with a smaller range of its own, sized to
+# what its own container actually has room for, which this leaves alone for
+# the same reason a second billion-ID range would break it.
 give_root_a_range() {
-  awk -F: '$1 == "root" && $3 >= 1000000000 { found = 1 } END { exit !found }' "$1" ||
+  awk -F: '$1 == "root" && $3 > 1 { found = 1 } END { exit !found }' "$1" ||
     echo 'root:1000000:1000000000' >>"$1"
 }
 
@@ -249,9 +253,14 @@ if ! incus storage show default >/dev/null 2>&1; then
     # A subvolume on the existing btrfs filesystem: no fixed size, instant CoW snapshots.
     [[ -d /var/lib/incus-pool ]] || btrfs subvolume create /var/lib/incus-pool
     incus storage create default btrfs source=/var/lib/incus-pool ||
-      incus storage create default btrfs size=60GiB
+      incus storage create default btrfs size=60GiB ||
+      incus storage create default dir
   else
-    incus storage create default btrfs size=60GiB
+    # A loopback-backed btrfs image needs its own block device (losetup),
+    # which a nested Incus (nesting.go) has no access to: the pool is a
+    # directory there too, the same fallback as WSL's above.
+    incus storage create default btrfs size=60GiB ||
+      incus storage create default dir
   fi
 fi
 

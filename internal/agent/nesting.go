@@ -25,6 +25,18 @@ import (
 // --bridge-subnet chose): a private range host setup never offers.
 const nestedBridgeSubnet = "10.88.8.1/24"
 
+// nestedIDMapSize is how many ids a container the nested Incus makes gets of
+// its own: small on purpose, and set explicitly rather than left to Incus's
+// own default sizing, which asks for as many ids as /etc/subuid declares —
+// provision.sh's own root:100000:65536 among them, but an image built before
+// that fix, or a distribution whose incus package sizes its own default idmap
+// differently, could still declare more than this container's own idmap
+// actually covers, which the kernel then refuses to delegate (EPERM on
+// newuidmap, not a build-time failure): every agent's idmap covers this
+// range regardless of host, since only the agent user's own uid, 1000, is
+// pinned outside it (image.IDMap).
+const nestedIDMapSize = "65536"
+
 // nestingPreseed is `incus admin init`'s preseed, minimal on purpose: a dir
 // storage pool, which needs no block device or filesystem support nested, and
 // a bridge of its own rather than sharing the outer one. /dev/kvm isn't asked
@@ -42,6 +54,8 @@ storage_pools:
   driver: dir
 profiles:
 - name: default
+  config:
+    security.idmap.size: "` + nestedIDMapSize + `"
   devices:
     root:
       path: /
