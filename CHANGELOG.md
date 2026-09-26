@@ -3,6 +3,27 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.6.0](https://github.com/leciric/agentbox/compare/v0.5.0...v0.6.0) (2026-09-26)
+
+
+### Added
+
+* a shared agent budget, one memory, swap and CPU pool for every agent ([#73](https://github.com/leciric/agentbox/issues/73)) ([8720f39](https://github.com/leciric/agentbox/commit/8720f390d8c634f8ecb3726a5447ad03f0cbbabe))
+* count down the five-hour window in the top bar's Claude meter ([#74](https://github.com/leciric/agentbox/issues/74)) ([44a6243](https://github.com/leciric/agentbox/commit/44a62430f494ba7fd44fad33a6e0fe26ccd37a77))
+* nesting, a real Incus daemon inside an agent ([#71](https://github.com/leciric/agentbox/issues/71)) ([6d02b15](https://github.com/leciric/agentbox/commit/6d02b15286365688d4514b0a484f097c28371f20))
+* warn in Setup when agent storage isn't btrfs or zfs ([#75](https://github.com/leciric/agentbox/issues/75)) ([71bdee0](https://github.com/leciric/agentbox/commit/71bdee09e291a4639b10d993c9cddf37dcf7e8ce))
+
+
+### Fixed
+
+* lock agent worktrees against prune ([#78](https://github.com/leciric/agentbox/issues/78)) ([ba37362](https://github.com/leciric/agentbox/commit/ba37362cd9013ebbd723146df68a2633b36d798c))
+* long agent names no longer overflow the info card and media cards ([#82](https://github.com/leciric/agentbox/issues/82)) ([11c3ebb](https://github.com/leciric/agentbox/commit/11c3ebb43660b6caa2bba23b2940a4ba2b46446a))
+* make git use the agent's GitHub account over HTTPS ([#77](https://github.com/leciric/agentbox/issues/77)) ([ec09c95](https://github.com/leciric/agentbox/commit/ec09c95206eca780f7db9ec660bb905d2c349b87))
+* never reuse an agent's name, and close what reuse broke ([#84](https://github.com/leciric/agentbox/issues/84)) ([397f336](https://github.com/leciric/agentbox/commit/397f336246929757ebd51a22d68e7fcc2f19d024))
+* release-please's changelog-path can't traverse out of its package ([#81](https://github.com/leciric/agentbox/issues/81)) ([c2fa683](https://github.com/leciric/agentbox/commit/c2fa683560e5588cc80209190fbf5e46deaa049b))
+* talk to Incus through its API instead of starting the incus command for every step ([#83](https://github.com/leciric/agentbox/issues/83)) ([92d49fd](https://github.com/leciric/agentbox/commit/92d49fd9e264f3f536887b6a0a22dfbfdf82e882))
+* track every chat goroutine a turn spawns, not only the adapter's ([#80](https://github.com/leciric/agentbox/issues/80)) ([9c91ed1](https://github.com/leciric/agentbox/commit/9c91ed19d45822a4706a98a9137ed41a9cad2b06))
+
 ## 0.5.0
 
 ### Added
