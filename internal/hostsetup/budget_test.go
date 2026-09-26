@@ -1,6 +1,8 @@
 package hostsetup
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -32,5 +34,36 @@ func TestBudgetUnit(t *testing.T) {
 func TestInstallBudgetRefusesANonUID(t *testing.T) {
 	if err := InstallBudget("lint", "1000; rm -rf /", func(string) {}); err == nil {
 		t.Error("InstallBudget took a UID with shell in it")
+	}
+}
+
+func TestRemoveBudget(t *testing.T) {
+	old := budgetUnitDir
+	budgetUnitDir = t.TempDir()
+	t.Cleanup(func() { budgetUnitDir = old })
+	var said []string
+	log := func(s string) { said = append(said, s) }
+
+	if err := RemoveBudget(log); err != nil || len(said) != 1 || !strings.Contains(said[0], "There is no") {
+		t.Errorf("with no unit: %v %q", err, said)
+	}
+	path := filepath.Join(budgetUnitDir, BudgetUnitName)
+	if err := os.WriteFile(path, []byte(BudgetUnit("lint", "1000")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveBudget(log); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the unit is still there: %v", err)
+	}
+}
+
+func TestRunShell(t *testing.T) {
+	if err := runShell("true"); err != nil {
+		t.Error(err)
+	}
+	if err := runShell("echo nope >&2; exit 3"); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Errorf("a failing script = %v, want its output in the error", err)
 	}
 }
