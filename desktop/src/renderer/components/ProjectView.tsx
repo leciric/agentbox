@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, Check, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, NotebookPen, Plus, SlidersHorizontal, Trash, Users } from 'lucide-react';
+import { Brain, Check, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, LoaderCircle, MessagesSquare, NotebookPen, Plus, SlidersHorizontal, Trash, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -9,6 +9,7 @@ import { countFeature, projectTabFeatures } from '../lib/usageStats';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { ChatHeaderControls } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { FleetPanel } from './FleetPanel';
 import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
 import { ProjectBasePanel } from './ProjectBasePanel';
@@ -19,7 +20,7 @@ import { PullRequestsPanel } from './PullRequestsPanel';
 import { SecretsTab } from './SecretsTab';
 import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
-import { Card, Row } from './ui/card';
+import { Card, Notice, Row } from './ui/card';
 import { Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 import { Select, SelectOption } from './ui/select';
@@ -31,10 +32,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 function ClaudeAccountPicker({ project }: { project: T.Project }) {
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
+  const fleet = useQuery({ queryKey: ['fleet', project.name], queryFn: () => api.fleet(project.name) });
   const accounts = auth.data?.claudeAccounts ?? [];
   const fallback = accounts.find((a) => a.default)?.name;
+  const [confirm, setConfirm] = useState<{ account: string; from: string; count: number } | null>(null);
   const pick = useMutation({
-    mutationFn: (claudeAccount: string) => api.updateProject(project.name, { claudeAccount }),
+    mutationFn: ({ claudeAccount, moveClaudeAgents }: { claudeAccount: string; moveClaudeAgents?: boolean }) =>
+      api.updateProject(project.name, { claudeAccount, moveClaudeAgents }),
     onSuccess: async (updated) => {
       toast(
         updated.claudeAccount
@@ -42,39 +46,142 @@ function ClaudeAccountPicker({ project }: { project: T.Project }) {
           : `New agents of ${updated.name} use this machine's default Claude Code account`,
       );
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
+      await queryClient.invalidateQueries({ queryKey: ['fleet', project.name] });
     },
   });
 
+  const choose = (value: string) => {
+    if (value === project.claudeAccount) {
+      pick.mutate({ claudeAccount: value });
+      return;
+    }
+    const from = project.claudeAccount || fallback || '';
+    const count = (fleet.data?.agents ?? []).filter((a) => a.ai === 'claude' && a.claudeAccount === from).length;
+    if (count === 0) {
+      pick.mutate({ claudeAccount: value });
+      return;
+    }
+    setConfirm({ account: value, from, count });
+  };
+
   return (
-    <SettingRow
-      label="Claude Code account"
-      description={
-        auth.isPending
-          ? 'Loading…'
-          : accounts.length === 0
-            ? 'No account stored yet — add one in Settings.'
-            : 'The login new agents get. Agents that already exist keep the one they were made with.'
-      }
-      control={
-        accounts.length > 0 && (
-          <Select aria-label="Claude Code account" value={project.claudeAccount} disabled={pick.isPending} onChange={(value) => pick.mutate(value)}>
-            <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
-            {accounts.filter((account) => allowed(project, account.name)).map((account) => (
-              <SelectOption key={account.name} value={account.name}>
-                {account.name}
-              </SelectOption>
-            ))}
-          </Select>
-        )
-      }
-    >
-      {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
-    </SettingRow>
+    <>
+      <SettingRow
+        label="Claude Code account"
+        description={
+          auth.isPending
+            ? 'Loading…'
+            : accounts.length === 0
+              ? 'No account stored yet — add one in Settings.'
+              : 'The login new agents get. Changing it asks whether to move agents still on the old one too.'
+        }
+        control={
+          accounts.length > 0 && (
+            <Select aria-label="Claude Code account" value={project.claudeAccount} disabled={pick.isPending} onChange={choose}>
+              <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
+              {accounts.filter((account) => allowed(project, account.name)).map((account) => (
+                <SelectOption key={account.name} value={account.name}>
+                  {account.name}
+                </SelectOption>
+              ))}
+            </Select>
+          )
+        }
+      >
+        {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
+      </SettingRow>
+      {confirm && (
+        <MoveAgentsDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setConfirm(null);
+          }}
+          count={confirm.count}
+          from={confirm.from}
+          to={confirm.account || fallback || ''}
+          onChoose={(move) => pick.mutateAsync({ claudeAccount: confirm.account, moveClaudeAgents: move })}
+        />
+      )}
+    </>
   );
 }
 
 function allowed(project: T.Project, name: string) {
   return project.claudeAccounts.length === 0 || project.claudeAccounts.includes(name);
+}
+
+// accountLabel names an account the way a question reads best: quoted, or
+// "the default account" for the machine's own.
+function accountLabel(name: string) {
+  return name ? `"${name}"` : 'the default account';
+}
+
+// MoveAgentsDialog asks whether a project's agents still on the account
+// being replaced should move to the new one too, or stay where they are.
+// Both choices go ahead with the account change; only whether the agents
+// come with it differs, so this isn't a Cancel/Confirm ConfirmDialog.
+function MoveAgentsDialog({
+  open,
+  onOpenChange,
+  count,
+  from,
+  to,
+  onChoose,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  count: number;
+  from: string;
+  to: string;
+  onChoose: (move: boolean) => Promise<unknown>;
+}) {
+  const [pending, setPending] = useState<'move' | 'leave' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      setPending(null);
+      setError(null);
+    }
+  }, [open]);
+
+  const choose = async (move: boolean) => {
+    setPending(move ? 'move' : 'leave');
+    setError(null);
+    try {
+      await onChoose(move);
+      onOpenChange(false);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const plural = count === 1 ? '' : 's';
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Move its agents too?</DialogTitle>
+          <DialogDescription>
+            {count} agent{plural} still {count === 1 ? 'uses' : 'use'} {accountLabel(from)}. Move {count === 1 ? 'it' : 'them'} to {accountLabel(to)} too, or
+            leave {count === 1 ? 'it' : 'them'} where {count === 1 ? 'it is' : 'they are'}?
+          </DialogDescription>
+        </DialogHeader>
+        {error && <Notice>{error}</Notice>}
+        <DialogFooter>
+          <Button variant="ghost" disabled={pending !== null} onClick={() => void choose(false)}>
+            {pending === 'leave' && <LoaderCircle className="animate-spin" />}
+            Leave them
+          </Button>
+          <Button variant="primary" disabled={pending !== null} onClick={() => void choose(true)}>
+            {pending === 'move' && <LoaderCircle className="animate-spin" />}
+            Move {count} agent{plural} too
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ClaudeAccountsPicker limits which of the machine's accounts this project's
@@ -155,10 +262,13 @@ function ClaudeAccountsPicker({ project }: { project: T.Project }) {
 export function GitHubAccountPicker({ project }: { project: T.Project }) {
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
+  const fleet = useQuery({ queryKey: ['fleet', project.name], queryFn: () => api.fleet(project.name) });
   const accounts = auth.data?.githubAccounts ?? [];
   const fallback = accounts.find((a) => a.default)?.name;
+  const [confirm, setConfirm] = useState<{ account: string; from: string; count: number } | null>(null);
   const pick = useMutation({
-    mutationFn: (githubAccount: string) => api.updateProject(project.name, { githubAccount }),
+    mutationFn: ({ githubAccount, moveGitHubAgents }: { githubAccount: string; moveGitHubAgents?: boolean }) =>
+      api.updateProject(project.name, { githubAccount, moveGitHubAgents }),
     onSuccess: async (updated) => {
       toast(
         updated.githubAccount
@@ -175,46 +285,69 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
     },
   });
 
+  const choose = (value: string) => {
+    if (value === project.githubAccount) {
+      pick.mutate({ githubAccount: value });
+      return;
+    }
+    const from = project.githubAccount || fallback || '';
+    const count = (fleet.data?.agents ?? []).filter((a) => a.githubAccount === from).length;
+    if (count === 0) {
+      pick.mutate({ githubAccount: value });
+      return;
+    }
+    setConfirm({ account: value, from, count });
+  };
+
   return (
-    <SettingRow
-      label="GitHub account"
-      description={
-        auth.isPending
-          ? 'Loading…'
-          : accounts.length === 0
-            ? 'No account stored yet — add one in Settings.'
-            : 'The login new agents push and open pull requests with. Agents that already exist keep the one they were made with.'
-      }
-      control={
-        accounts.length > 0 && (
-          <Select
-            aria-label="GitHub account"
-            value={project.githubAccount}
-            disabled={pick.isPending}
-            onChange={(value) => pick.mutate(value)}
-          >
-            <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
-            {/* Every stored account: the project's allow-list is for Claude Code
-                accounts, and filtering these by it left only Default (and the
-                picked account showing as "Select…") on a project that has one. */}
-            {accounts.map((account) => (
-              <SelectOption key={account.name} value={account.name}>
-                {account.name}
-              </SelectOption>
-            ))}
-            {/* An account the project picked and that was removed since: it is
-                still what the project names, so it shows rather than "Select…". */}
-            {project.githubAccount && !accounts.some((a) => a.name === project.githubAccount) && (
-              <SelectOption value={project.githubAccount} disabled>
-                {project.githubAccount} (removed)
-              </SelectOption>
-            )}
-          </Select>
-        )
-      }
-    >
-      {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
-    </SettingRow>
+    <>
+      <SettingRow
+        label="GitHub account"
+        description={
+          auth.isPending
+            ? 'Loading…'
+            : accounts.length === 0
+              ? 'No account stored yet — add one in Settings.'
+              : 'The login new agents push and open pull requests with. Changing it asks whether to move agents still on the old one too.'
+        }
+        control={
+          accounts.length > 0 && (
+            <Select aria-label="GitHub account" value={project.githubAccount} disabled={pick.isPending} onChange={choose}>
+              <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
+              {/* Every stored account: the project's allow-list is for Claude Code
+                  accounts, and filtering these by it left only Default (and the
+                  picked account showing as "Select…") on a project that has one. */}
+              {accounts.map((account) => (
+                <SelectOption key={account.name} value={account.name}>
+                  {account.name}
+                </SelectOption>
+              ))}
+              {/* An account the project picked and that was removed since: it is
+                  still what the project names, so it shows rather than "Select…". */}
+              {project.githubAccount && !accounts.some((a) => a.name === project.githubAccount) && (
+                <SelectOption value={project.githubAccount} disabled>
+                  {project.githubAccount} (removed)
+                </SelectOption>
+              )}
+            </Select>
+          )
+        }
+      >
+        {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
+      </SettingRow>
+      {confirm && (
+        <MoveAgentsDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setConfirm(null);
+          }}
+          count={confirm.count}
+          from={confirm.from}
+          to={confirm.account || fallback || ''}
+          onChoose={(move) => pick.mutateAsync({ githubAccount: confirm.account, moveGitHubAgents: move })}
+        />
+      )}
+    </>
   );
 }
 

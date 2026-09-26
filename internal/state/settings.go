@@ -159,7 +159,45 @@ const (
 	// SettingKeepFreeCPU is how many cores SettingNeverFreezeCPU keeps free
 	// for the host, as a count. Empty means DefaultKeepFreeCPU.
 	SettingKeepFreeCPU = "keep_free_cpu"
+	// SettingAutoStopIdle says whether the daemon stops a running or paused
+	// agent once it has gone SettingIdleTime with nothing happening: no chat
+	// turn in progress, no running job, no pending question or credential
+	// request, no terminal input and no recording. A paused agent counts as
+	// idle from when it was paused (state.Agent.PausedAt), since it still
+	// holds its RAM and swap either way. Stopping keeps its worktree and
+	// branch, like stopping by hand. Off until somebody turns it on, so an
+	// installation that has never touched it keeps exactly the behaviour it
+	// had before this setting existed.
+	SettingAutoStopIdle = "auto_stop_idle"
+	// SettingIdleTime is how long SettingAutoStopIdle waits, as a count of
+	// seconds. Empty means DefaultIdleTime.
+	SettingIdleTime = "idle_time"
 )
+
+// DefaultIdleTime is how long an agent may go idle before "auto-stop idle
+// agents" stops it, when nobody has chosen a time of their own: long enough
+// that stepping away for a coffee doesn't lose a running agent, short enough
+// that a machine nobody came back to doesn't sit paying rent all night.
+const DefaultIdleTime = 2 * time.Hour
+
+// AutoStopIdle reads "auto-stop idle agents": off until somebody turns it on,
+// and how long an agent may be idle before it is stopped, DefaultIdleTime
+// when nobody chose.
+func (s *Store) AutoStopIdle(ctx context.Context) (on bool, idleTime time.Duration, err error) {
+	on, err = s.Flag(ctx, SettingAutoStopIdle)
+	if err != nil {
+		return false, 0, err
+	}
+	idleTime = DefaultIdleTime
+	raw, err := s.Setting(ctx, SettingIdleTime)
+	if err != nil {
+		return false, 0, err
+	}
+	if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+		idleTime = time.Duration(secs) * time.Second
+	}
+	return on, idleTime, nil
+}
 
 // DefaultKeepFreeCPU is how many cores SettingNeverFreezeCPU keeps free for
 // the host when nobody has chosen: one, enough for the desktop around the

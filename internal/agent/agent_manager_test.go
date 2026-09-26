@@ -376,15 +376,107 @@ esac`))
 	}
 }
 
-func TestSetClaudeAccountRequiresTheMachineToBeUp(t *testing.T) {
-	f := setup(t, fakeIncus(t, `case "$1" in list) echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]' ;; esac`))
+// TestSetClaudeAccountOnAStoppedAgentStillRecordsIt checks that a stopped or
+// paused agent can have its stored account changed without its machine being
+// up: the token is a file inside it, so it can't be written now, but nothing
+// stops the change itself, and Start writes the new token in when the agent
+// next comes up. exec failing loudly if it ran at all confirms nothing tried
+// to reach the (stopped) machine.
+func TestSetClaudeAccountOnAStoppedAgentStillRecordsIt(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]' ;;
+  exec) echo "exec shouldn't run on a stopped agent" >&2; exit 1 ;;
+esac`))
 	ctx := context.Background()
 	if err := f.m.Creds.SaveClaudeToken("work", "sk-ant-oat01-work"); err != nil {
 		t.Fatal(err)
 	}
 	a := claudeAgentFixture(t, f)
-	if _, err := f.m.SetClaudeAccount(ctx, a, "work"); err == nil || !strings.Contains(err.Error(), "run agentbox start") {
-		t.Errorf("SetClaudeAccount() on a stopped agent = %v", err)
+	got, err := f.m.SetClaudeAccount(ctx, a, "work")
+	if err != nil || got.ClaudeAccount != "work" {
+		t.Fatalf("SetClaudeAccount(work) = %+v, %v", got, err)
+	}
+	stored, err := f.st.Agent(ctx, a.Project, a.Name)
+	if err != nil || stored.ClaudeAccount != "work" {
+		t.Fatalf("stored account = %+v, %v", stored, err)
+	}
+}
+
+// TestStartWritesTheEnvFileAfresh checks that starting an agent writes its env
+// file again, so an account changed while it was stopped or paused — which
+// SetClaudeAccount/SetGitHubAccount can only record then, not deliver — still
+// reaches it, the same way a stopped agent catches up on its secrets.
+func TestStartWritesTheEnvFileAfresh(t *testing.T) {
+	inc, files := recordingIncus(t, oneRunningAgent)
+	f := setup(t, inc)
+	ctx := context.Background()
+	if err := f.m.Creds.SaveClaudeToken("personal", "sk-ant-oat01-personal"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Creds.SaveClaudeToken("work", "sk-ant-oat01-work"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "claude", ClaudeAccount: "personal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const path = "/home/dev/.config/agentbox/env"
+	if err := os.Remove(filepath.Join(files, a.Instance, path)); err != nil { // as if the machine had been stopped since
+		t.Fatal(err)
+	}
+	// As if the account had moved while the machine was down: the store
+	// changes, but there's no file to write it into yet.
+	if err := f.st.SetAgentClaudeAccount(ctx, a.Project, a.Name, "work"); err != nil {
+		t.Fatal(err)
+	}
+	a.ClaudeAccount = "work"
+
+	if _, err := f.m.Start(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if got := inAgent(t, files, a.Instance, path); !strings.Contains(got, "sk-ant-oat01-work") {
+		t.Errorf("starting the agent didn't write the account it now has:\n%s", got)
+	}
+}
+
+// TestMoveAgentsClaudeAccountMovesOnlyWhatsOnTheOldAccount checks the helper a
+// project-wide account change uses to catch up its existing agents: only
+// agents still on the account being replaced move, and an agent already
+// pointed elsewhere (its own explicit choice) is left alone.
+func TestMoveAgentsClaudeAccountMovesOnlyWhatsOnTheOldAccount(t *testing.T) {
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"},{"name":"ab-hello-stack-agent-02","status":"Stopped"}]' ;;
+  exec) echo "exec shouldn't run on a stopped agent" >&2; exit 1 ;;
+esac`))
+	ctx := context.Background()
+	for _, account := range []string{"personal", "work"} {
+		if err := f.m.Creds.SaveClaudeToken(account, "sk-ant-oat01-"+account); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a1 := claudeAgentFixture(t, f)
+	if err := f.st.SetAgentClaudeAccount(ctx, a1.Project, a1.Name, "personal"); err != nil {
+		t.Fatal(err)
+	}
+	a2 := a1
+	a2.Name, a2.Instance = "agent-02", "ab-hello-stack-agent-02"
+	if err := f.st.AddAgent(ctx, a2); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetAgentClaudeAccount(ctx, a2.Project, a2.Name, "work"); err != nil { // its own choice
+		t.Fatal(err)
+	}
+
+	if err := f.m.MoveAgentsClaudeAccount(ctx, "hello-stack", "personal", "work"); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := f.st.Agent(ctx, "hello-stack", "agent-01")
+	if err != nil || moved.ClaudeAccount != "work" {
+		t.Errorf("agent-01 = %+v, %v, want work", moved, err)
+	}
+	unchanged, err := f.st.Agent(ctx, "hello-stack", "agent-02")
+	if err != nil || unchanged.ClaudeAccount != "work" {
+		t.Errorf("agent-02 = %+v, %v, want work (unchanged)", unchanged, err)
 	}
 }
 

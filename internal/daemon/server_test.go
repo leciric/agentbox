@@ -363,6 +363,57 @@ func TestGitHubAccountsAPI(t *testing.T) {
 	}
 }
 
+// TestUpdateProjectMovesAgentsGitHubAccountOnlyWhenAsked is
+// TestUpdateProjectMovesAgentsOnlyWhenAsked for MoveGitHubAgents.
+func TestUpdateProjectMovesAgentsGitHubAccountOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), readyOneAgentIncus)
+	ctx := context.Background()
+	creds := credentials.Store{Dir: d.paths.Credentials()}
+	for _, name := range []string{"default", "work"} {
+		if err := creds.SaveGitHubToken(name, "gho_"+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := creds.SaveClaudeToken("default", "sk-ant-oat01-default"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	def := "default"
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{GitHubAccount: &def}); err != nil {
+		t.Fatal(err)
+	}
+	lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
+	job, err := lead.CreateProjectAgent(ctx, api.CreateAgentRequest{Title: "Reminders page", Task: "add it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.client.FollowJobLog(ctx, job.ID, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := d.client.Agents(ctx, "hello-stack")
+	if err != nil || len(agents) != 1 || agents[0].GitHubAccount != "default" {
+		t.Fatalf("Agents() before the move = %+v, %v, want one agent on default", agents, err)
+	}
+
+	work := "work"
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{GitHubAccount: &work, MoveGitHubAgents: true}); err != nil {
+		t.Fatal(err)
+	}
+	if agents, err = d.client.Agents(ctx, "hello-stack"); err != nil || agents[0].GitHubAccount != "work" {
+		t.Fatalf("Agents() after MoveGitHubAgents = %+v, %v, want the agent moved to work", agents, err)
+	}
+
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{GitHubAccount: &def}); err != nil {
+		t.Fatal(err)
+	}
+	if agents, err = d.client.Agents(ctx, "hello-stack"); err != nil || agents[0].GitHubAccount != "work" {
+		t.Fatalf("Agents() after the plain change = %+v, %v, want the agent to stay on work", agents, err)
+	}
+}
+
 // A project's accounts can be chosen as it is added, rather than picked
 // afterwards on its page: the same names, checked the same way, so a typo is
 // refused before the project exists rather than leaving it on the wrong

@@ -8,10 +8,18 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 ### Added
 
 - The top bar's "Host memory" and "Host CPU" meters now open a popover breaking the total down by agent, largest first, with a link to each agent and a Stop button. Memory shows each agent's RAM and swap from its cgroup, its limit, and says when a paused agent is still holding memory; when swap is zram, it also shows what that swap really costs in RAM. CPU shows each agent's current use and its configured vs. effective core cap.
+- **Auto-stop idle agents**: an optional switch in Settings → Every agent, off by default, that
+  stops a running or paused agent once it has gone an idle time (2h by default) with nothing
+  happening on it — no chat turn, no job, no waiting question or credential request, no terminal
+  input and no recording. Stopping keeps its worktree and branch, like stopping it by hand, and the
+  agent view shows why: "Stopped after 2h idle". (#68)
+- Changing a project's Claude Code or GitHub account asks whether to move its agents still on the old one too, in the app and with `--move-agents` on the CLI. Settings says which projects don't follow the default account. (#65)
 - A `CHANGELOG.md`, and a "What's new" view (Settings → This app, also shown once after an
   update) that renders it from the running version down.
 
 ### Changed
+
+- A stopped or paused agent's Claude Code or GitHub account can be changed; it takes effect when the agent next starts. (#65)
 
 ### Fixed
 

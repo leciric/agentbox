@@ -34,6 +34,8 @@ export interface UpdateProjectRequest {
   claudeAccount?: string;
   claudeAccounts?: string[];
   githubAccount?: string;
+  moveClaudeAgents?: boolean;
+  moveGitHubAgents?: boolean;
   autonomy?: string;
   agentModel?: string;
   branchPrefix?: string;
@@ -106,6 +108,8 @@ export interface Settings {
   defaultClaudeCompactWindow: number;
   neverFreezeCPU: boolean;
   keepFreeCPU: number;
+  autoStopIdle: boolean;
+  idleTimeSeconds: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -124,6 +128,8 @@ export interface UpdateSettingsRequest {
   mediaRetention?: string;
   neverFreezeCPU?: boolean;
   keepFreeCPU?: number;
+  autoStopIdle?: boolean;
+  idleTimeSeconds?: number;
 }
 
 export interface Limits {
