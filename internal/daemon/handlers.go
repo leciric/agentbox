@@ -676,7 +676,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 
 		State:     st.State,
 		IP:        st.IP,
-		Limits:    api.Limits{CPU: st.Limits.CPU, Allowance: st.Limits.Allowance, Memory: st.Limits.Memory},
+		Limits:    api.Limits{CPU: st.Limits.CPU, Allowance: st.Limits.Allowance, Memory: st.Limits.Memory, ConfiguredCPU: st.Limits.ConfiguredCPU},
 		CreatedAt: a.CreatedAt,
 	}
 }
@@ -877,6 +877,12 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 			}
 			return nil, err
 		}
+		// A new agent starts running right away, so it joins the CPU budget
+		// every other running agent shares immediately, not from its next
+		// start.
+		if err := s.manager(log).RecomputeCPUCaps(ctx); err != nil {
+			return nil, err
+		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode))
 		if byLead {
 			s.countFeature(api.FeatureAgentCreateByLead)
@@ -952,6 +958,14 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		if err != nil {
 			return err
+		}
+		switch action {
+		case "start", "stop", "pause", "resume":
+			// Fewer or more running agents changes the CPU budget every
+			// running one shares, whether this one just joined it or left it.
+			if err := m.RecomputeCPUCaps(ctx); err != nil {
+				return err
+			}
 		}
 		s.refreshAgents(ctx)
 		info, err := s.describe(ctx, a)
@@ -1083,7 +1097,7 @@ func toAPIUsage(host agent.HostUsage, agents []agent.AgentUsage) api.Usage {
 	for _, a := range agents {
 		u.Agents = append(u.Agents, api.AgentUsage{
 			Ref: a.Ref(), State: a.State, CPU: a.CPU, Memory: a.Memory, Processes: a.Processes,
-			Limits: api.Limits{CPU: a.Limits.CPU, Allowance: a.Limits.Allowance, Memory: a.Limits.Memory},
+			Limits: api.Limits{CPU: a.Limits.CPU, Allowance: a.Limits.Allowance, Memory: a.Limits.Memory, ConfiguredCPU: a.Limits.ConfiguredCPU},
 			Cores:  a.Cores,
 		})
 	}

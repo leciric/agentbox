@@ -42,13 +42,19 @@ type Limits struct {
 	CPU       string // limits.cpu: a count like "4"; "" is every core
 	Allowance string // limits.cpu.allowance: "50%" or "25ms/100ms"; "" is all of it
 	Memory    string // limits.memory: "8GiB"; "" is all the host's memory
+	// ConfiguredCPU is what CPU was actually chosen (ConfiguredCPU, the
+	// function): CPU itself, unless the "never freeze my CPU" budget
+	// (RecomputeCPUCaps) is holding it below that. Only ever read, on a
+	// Limits LimitsOf built from an instance's own configuration — Resolve,
+	// Validate and SetLimits know nothing about it.
+	ConfiguredCPU string
 }
 
 // LimitKeys are the Incus keys AgentBox owns on an agent's instance. A project
 // base must carry none of them (SaveBase), so a new agent gets the
 // installation's defaults rather than whatever the agent the base was saved
 // from happened to be capped at.
-var LimitKeys = []string{limitCPU, limitCPUAllowance, limitMemory, limitCPUPriority, limitMemorySwap}
+var LimitKeys = []string{limitCPU, limitCPUAllowance, limitMemory, limitCPUPriority, limitMemorySwap, limitCPUConfigured, limitCPUUnlimited}
 
 const (
 	limitCPU          = "limits.cpu"
@@ -56,6 +62,18 @@ const (
 	limitMemory       = "limits.memory"
 	limitCPUPriority  = "limits.cpu.priority"
 	limitMemorySwap   = "limits.memory.swap"
+	// limitCPUConfigured and limitCPUUnlimited mirror what an agent's CPU
+	// limit was actually chosen to be — by SetLimits, or at Create — kept
+	// apart from limits.cpu itself, which the "never freeze my CPU" budget
+	// (RecomputeCPUCaps) may drive below it. Without this mirror, lifting the
+	// budget's cap would have nothing to put back except whatever limits.cpu
+	// happens to hold at the time, which is the cap, not the choice. Two keys
+	// rather than one because limits.cpu itself can't be set to "" (Incus
+	// refuses it) to mean "no limit chosen" — user.* keys have no such
+	// restriction, but distinguishing "chosen: no limit" from "never chosen at
+	// all" still needs a key whose mere presence is the answer.
+	limitCPUConfigured = "user.agentbox.cpu.configured"
+	limitCPUUnlimited  = "user.agentbox.cpu.unlimited"
 )
 
 // MemorySwap is what AgentBox sets limits.memory.swap to on an agent whose
@@ -317,7 +335,52 @@ func (m *Manager) Limits(ctx context.Context, a state.Agent) (Limits, error) {
 
 // LimitsOf reads the limits out of an instance's configuration.
 func LimitsOf(config map[string]string) Limits {
-	return Limits{CPU: config[limitCPU], Allowance: config[limitCPUAllowance], Memory: config[limitMemory]}
+	configured, known := ConfiguredCPU(config)
+	if !known {
+		configured = config[limitCPU]
+	}
+	return Limits{
+		CPU: config[limitCPU], Allowance: config[limitCPUAllowance], Memory: config[limitMemory],
+		ConfiguredCPU: configured,
+	}
+}
+
+// ConfiguredCPU reads what an agent's CPU limit was actually chosen to be,
+// out of the mirror SetLimits and Create keep — not limits.cpu itself, which
+// RecomputeCPUCaps may hold below it. known is false for an agent from before
+// this mirror existed, which has neither key: its current limits.cpu is the
+// best answer then, since that is the last real choice anyone made of it.
+func ConfiguredCPU(config map[string]string) (cpu string, known bool) {
+	if config[limitCPUUnlimited] == "1" {
+		return "", true
+	}
+	if v, ok := config[limitCPUConfigured]; ok && v != "" {
+		return v, true
+	}
+	return "", false
+}
+
+// configuredCPUSteps keeps the ConfiguredCPU mirror in step with cpu, the CPU
+// limit that was just really chosen. have is the instance's own
+// configuration, so a mirror that already agrees is left alone.
+func configuredCPUSteps(instance, cpu string, have map[string]string) [][]string {
+	var steps [][]string
+	if cpu == "" {
+		if have[limitCPUUnlimited] != "1" {
+			steps = append(steps, []string{"config", "set", instance, limitCPUUnlimited + "=1"})
+		}
+		if _, ok := have[limitCPUConfigured]; ok {
+			steps = append(steps, []string{"config", "unset", instance, limitCPUConfigured})
+		}
+		return steps
+	}
+	if have[limitCPUUnlimited] == "1" {
+		steps = append(steps, []string{"config", "unset", instance, limitCPUUnlimited})
+	}
+	if have[limitCPUConfigured] != cpu {
+		steps = append(steps, []string{"config", "set", instance, limitCPUConfigured + "=" + cpu})
+	}
+	return steps
 }
 
 // SetLimits changes an agent's limits while it runs. All three of Incus' keys
@@ -342,7 +405,15 @@ func (m *Manager) SetLimits(ctx context.Context, a state.Agent, want LimitChoice
 		}
 	}
 
-	for _, args := range limitSteps(a.Instance, next, details.Config) {
+	steps := limitSteps(a.Instance, next, details.Config)
+	if want.CPU != nil {
+		// A choice made here is the new answer to ConfiguredCPU from now on,
+		// not only the new limits.cpu — the two only differ once "never
+		// freeze my CPU" starts holding the latter below the former.
+		next.ConfiguredCPU = next.CPU
+		steps = append(steps, configuredCPUSteps(a.Instance, next.CPU, details.Config)...)
+	}
+	for _, args := range steps {
 		if _, err := m.Incus.Run(ctx, args...); err != nil {
 			return Limits{}, err
 		}

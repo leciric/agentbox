@@ -126,6 +126,27 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		// wait out its hour to act on it.
 		go s.sweepExpiredMedia(s.background(), time.Now())
 	}
+	if req.KeepFreeCPU != nil {
+		if *req.KeepFreeCPU < 0 {
+			return fmt.Errorf("cores to keep free is at least 0; %d isn't", *req.KeepFreeCPU)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingKeepFreeCPU, strconv.Itoa(*req.KeepFreeCPU)); err != nil {
+			return err
+		}
+	}
+	if req.NeverFreezeCPU != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingNeverFreezeCPU, *req.NeverFreezeCPU); err != nil {
+			return err
+		}
+	}
+	if req.NeverFreezeCPU != nil || req.KeepFreeCPU != nil {
+		// Recomputed now rather than left for the next agent to start or
+		// stop: turning this on, or tightening it, should take hold at once,
+		// not the next time something happens to notice it.
+		if err := s.manager(nil).RecomputeCPUCaps(r.Context()); err != nil {
+			return err
+		}
+	}
 	if req.UpdateCheck != nil {
 		if err := s.setUpdateCheck(r.Context(), *req.UpdateCheck); err != nil {
 			return err
@@ -349,6 +370,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	neverFreezeCPU, keepFreeCPU, err := s.manager(nil).NeverFreezeCPU(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
@@ -377,6 +402,9 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,
+
+		NeverFreezeCPU: neverFreezeCPU,
+		KeepFreeCPU:    keepFreeCPU,
 	}, nil
 }
 

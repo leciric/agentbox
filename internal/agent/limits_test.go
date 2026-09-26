@@ -301,11 +301,17 @@ exit 0`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (agent.Limits{CPU: "12", Allowance: "50%"}); got != want {
+	if want := (agent.Limits{CPU: "12", Allowance: "50%", ConfiguredCPU: "12"}); got != want {
 		t.Errorf("SetLimits() = %+v, want %+v", got, want)
 	}
-	if call := oneCall(t, calls(), "config set "); call != "config set ab-hello-stack-agent-01 limits.cpu=12 limits.cpu.allowance=50%" {
-		t.Errorf("the set call was %s", call)
+	sets := setCalls(t, calls())
+	if sets[0] != "config set ab-hello-stack-agent-01 limits.cpu=12 limits.cpu.allowance=50%" {
+		t.Errorf("the limits set call was %s", sets[0])
+	}
+	// A CPU choice made here is mirrored, so ConfiguredCPU still answers 12
+	// once "never freeze my CPU" has moved limits.cpu somewhere else.
+	if sets[1] != "config set ab-hello-stack-agent-01 user.agentbox.cpu.configured=12" {
+		t.Errorf("the mirror set call was %s", sets[1])
 	}
 	if call := oneCall(t, calls(), "config unset "); call != "config unset ab-hello-stack-agent-01 limits.memory" {
 		t.Errorf("the unset call was %s", call)
@@ -314,6 +320,19 @@ exit 0`)
 	noCall(t, calls(), "stop ")
 	// Already at 5: nothing to rewrite.
 	noCall(t, calls(), "limits.cpu.priority")
+}
+
+// setCalls is oneCall for a prefix that may legitimately match more than
+// once, in the order the calls were made.
+func setCalls(t *testing.T, calls []string) []string {
+	t.Helper()
+	var found []string
+	for _, call := range calls {
+		if strings.HasPrefix(call, "config set ") {
+			found = append(found, call)
+		}
+	}
+	return found
 }
 
 // TestSetLimitsKeepsACappedAgentOutOfSwap checks limits.memory.swap follows
@@ -358,9 +377,13 @@ exit 0`)
 	if _, err := f.m.SetLimits(context.Background(), a, agent.LimitChoice{CPU: ptr("4")}); err != nil {
 		t.Fatal(err)
 	}
+	sets := setCalls(t, calls())
 	want := "config set ab-hello-stack-agent-01 limits.cpu=4 limits.cpu.priority=" + agent.CPUPriority
-	if call := oneCall(t, calls(), "config set "); call != want {
-		t.Errorf("the set call was %s, want %s", call, want)
+	if sets[0] != want {
+		t.Errorf("the limits set call was %s, want %s", sets[0], want)
+	}
+	if want := "config set ab-hello-stack-agent-01 user.agentbox.cpu.configured=4"; sets[1] != want {
+		t.Errorf("the mirror set call was %s, want %s", sets[1], want)
 	}
 	// Nothing was capped before, so there is nothing to unset.
 	noCall(t, calls(), "config unset")

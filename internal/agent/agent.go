@@ -614,6 +614,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		[]string{"config", "device", "add", a.Instance, "gitdir", "disk", "source=" + pl.repo.GitDir, "path=" + pl.repo.GitDir},
 	)
 	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config)...)
+	steps = append(steps, configuredCPUSteps(a.Instance, pl.limits.CPU, copied.Config)...)
 	steps = append(steps, []string{"start", a.Instance})
 	for _, args := range steps {
 		if err := incusStep(args...); err != nil {

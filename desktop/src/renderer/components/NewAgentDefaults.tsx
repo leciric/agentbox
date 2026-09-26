@@ -446,6 +446,71 @@ export function ResumeAfterLimit() {
   );
 }
 
+// NeverFreezeCPU keeps every running agent's CPU cap adding up to at most
+// this host's cores minus what you keep free, recomputed live as agents
+// start, stop, are paused, resumed, created or destroyed (D95) — not only
+// when this setting itself changes. It sits with the settings that reach
+// every agent because that's who it caps: an agent's own limit, set here or
+// per agent on its Overview tab, is its ceiling, never raised past — this
+// only ever holds the sum of them down further, and puts back what was
+// really chosen once there's room, or once it's turned off.
+export function NeverFreezeCPU() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const cores = settings.data?.hostCores ?? 0;
+  const keepFree = settings.data?.keepFreeCPU ?? 1;
+  const on = settings.data?.neverFreezeCPU ?? false;
+
+  return (
+    <SettingRow
+      label="Never freeze my CPU"
+      description={
+        <>
+          Keeps every running agent's CPU cap adding up to at most this host's cores minus what you keep free, so the agents can't starve it between
+          them the way an uncapped build on all of them at once would.
+          {cores ? <span className="text-tertiary"> This host has {cores} cores.</span> : null}
+        </>
+      }
+      control={
+        <Switch
+          data-never-freeze-cpu
+          aria-label="Never freeze my CPU"
+          disabled={save.isPending || settings.data === undefined}
+          checked={on}
+          onCheckedChange={(neverFreezeCPU) => save.mutate({ neverFreezeCPU })}
+        />
+      }
+    >
+      {on && (
+        <div className="max-w-40">
+          <ResourceField
+            id="keep-free-cpu"
+            label="Cores to keep free"
+            placeholder="1"
+            hint={`How many cores stay outside every agent's cap, for this host and everything else on it. Default 1.${cores ? ` This host has ${cores}.` : ''}`}
+            value={String(keepFree)}
+            disabled={save.isPending || settings.isPending}
+            onCommit={(value) => {
+              const n = Math.trunc(Number(value));
+              if (!Number.isFinite(n) || n < 0 || value.trim() === '') {
+                toast.error('Cores to keep free is a whole number, at least 0');
+                return;
+              }
+              save.mutate({ keepFreeCPU: n });
+            }}
+          />
+        </div>
+      )}
+    </SettingRow>
+  );
+}
+
 // compactWindows are the points a chat can be set to compact at: Claude Code's
 // own bounds (100k to 1M) at the steps worth choosing between. Codex shares
 // them; OpenCode has no such setting at all (D83).

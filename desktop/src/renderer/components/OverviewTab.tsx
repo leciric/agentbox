@@ -239,7 +239,11 @@ function InterfacePicker({ agent }: { agent: T.Agent }) {
 export function LimitsEditor({ agent }: { agent: T.Agent }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ cpu: agent.limits.cpu, cpuAllowance: agent.limits.allowance, memory: agent.limits.memory });
+  // Its own choice, not the effective figure "never freeze my CPU" may be
+  // holding it below right now — editing here changes what it's chosen to
+  // be, and that cap is recomputed from it, not the other way round.
+  const configuredCPU = agent.limits.configuredCPU || agent.limits.cpu;
+  const [form, setForm] = useState({ cpu: configuredCPU, cpuAllowance: agent.limits.allowance, memory: agent.limits.memory });
   const save = useMutation({
     mutationFn: () => api.updateAgent(agent.ref, { cpu: form.cpu.trim(), cpuAllowance: form.cpuAllowance.trim(), memory: form.memory.trim() }),
     onSuccess: async (updated) => {
@@ -259,12 +263,17 @@ export function LimitsEditor({ agent }: { agent: T.Agent }) {
         <span className="text-[13px] text-secondary" data-agent-limits>
           {limitWords(agent.limits)}
         </span>
+        {agent.limits.configuredCPU && agent.limits.configuredCPU !== agent.limits.cpu && (
+          <span className="text-[13px] text-amber-300" data-agent-limits-effective>
+            held to {agent.limits.cpu} core{agent.limits.cpu === '1' ? '' : 's'} by "never freeze my CPU"
+          </span>
+        )}
         <Button
           variant="ghost"
           size="sm"
           className="ml-auto"
           onClick={() => {
-            setForm({ cpu: agent.limits.cpu, cpuAllowance: agent.limits.allowance, memory: agent.limits.memory });
+            setForm({ cpu: configuredCPU, cpuAllowance: agent.limits.allowance, memory: agent.limits.memory });
             save.reset();
             setOpen(true);
           }}

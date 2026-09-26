@@ -226,6 +226,11 @@ func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.
 	if err := m.Destroy(ctx, a, opts); err != nil {
 		return err
 	}
+	// One fewer agent sharing the CPU budget can mean more room for the ones
+	// left running.
+	if err := m.RecomputeCPUCaps(ctx); err != nil {
+		return err
+	}
 	s.chat.Stop(a.Ref(), "the agent was destroyed")
 	s.removeActiveAgent(ctx, a.Project, a.Name)
 	s.chat.Forget(a.Ref())

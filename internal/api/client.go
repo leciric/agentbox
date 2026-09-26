@@ -371,6 +371,13 @@ func (c *Client) Settings(ctx context.Context) (Settings, error) {
 	return settings, c.do(ctx, http.MethodGet, "/v1/settings", nil, &settings)
 }
 
+// UpdateSettings changes the installation's own settings; a nil field in req
+// stays as it is.
+func (c *Client) UpdateSettings(ctx context.Context, req UpdateSettingsRequest) (Settings, error) {
+	var settings Settings
+	return settings, c.do(ctx, http.MethodPatch, "/v1/settings", req, &settings)
+}
+
 func (c *Client) Setup(ctx context.Context) (SetupStatus, error) {
 	var status SetupStatus
 	return status, c.do(ctx, http.MethodGet, "/v1/setup", nil, &status)

@@ -278,7 +278,7 @@ function Preview() {
             <NewAgentResources />
           </Panel>
           <Panel className="p-5" data-preview-limits>
-            <LimitsEditor agent={{ ...fixtures.agents[0], limits: { cpu: '4', allowance: '', memory: '8GiB' } }} />
+            <LimitsEditor agent={{ ...fixtures.agents[0], limits: { cpu: '4', allowance: '', memory: '8GiB', configuredCPU: '4' } }} />
           </Panel>
         </div>
       </div>
