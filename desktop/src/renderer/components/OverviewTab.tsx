@@ -19,6 +19,8 @@ type OverviewSection = 'machine' | 'code' | 'ai';
 export function OverviewTab({ agent }: { agent: T.Agent }) {
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage });
   const diff = useQuery({ queryKey: ['diff', agent.ref], queryFn: () => api.diffStat(agent.ref), refetchInterval: 10_000 });
+  const events = useQuery({ queryKey: ['agentEvents', agent.project], queryFn: () => api.agentEvents(agent.project) });
+  const idleStop = events.data?.find((ev) => ev.ref === agent.ref && ev.kind === 'idle_stopped');
   const mine = usage.data?.agents.find((a) => a.ref === agent.ref);
   const cpu = mine?.cpu ?? 0;
   const cores = mine?.cores ?? 0;
@@ -50,6 +52,7 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
             <Panel className="p-5">
               <Row label="State">
                 <StateBadge state={agent.state} />
+                {agent.state === 'stopped' && idleStop && <span className="text-tertiary ml-2 text-sm">{idleStop.summary}</span>}
               </Row>
               <Row label="IP address" mono>
                 {agent.ip || '—'}

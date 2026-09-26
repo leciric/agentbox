@@ -95,7 +95,9 @@ func TestTokenReportTPS(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	now := time.Now()
+	// A minute back: a row stamped at this very instant can land after the
+	// report's own "now" once both are rounded, and drop out of it.
+	now := time.Now().Add(-time.Minute)
 	add := func(turn, model string, output, generationMS int64) {
 		t.Helper()
 		if err := d.srv.store.AddTokenRows(ctx, []state.TokenRow{{

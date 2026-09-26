@@ -535,6 +535,10 @@ var migrations = []string{
 		)
 	) WHERE key = 'claude_model_windows' AND json_valid(value) AND json_type(value) = 'object'`,
 
+	// PausedAt, for "auto-stop idle agents": 0 means never paused, or resumed
+	// or started since.
+	`ALTER TABLE agents ADD COLUMN paused_at INTEGER NOT NULL DEFAULT 0`,
+
 	// A turn's own generation time (D96-ish, average TPS): from the first to
 	// the last streamed assistant chunk the adapter sent, or, when it sent
 	// none, from when the turn started to when it ended. 0 for every row
@@ -1377,6 +1381,12 @@ type Agent struct {
 	// project's own FinishNotices is FinishNoticesLead; otherwise the
 	// project decides for every agent and this is ignored.
 	FinishNotice string
+	// PausedAt is when this agent was last paused, for "auto-stop idle agents"
+	// (internal/daemon/autostopidle.go): a paused agent still holds its RAM
+	// and swap, so it counts as idle from this moment rather than from
+	// whatever it was last doing before it was paused. Zero when it has never
+	// been paused, or was resumed or started since.
+	PausedAt time.Time
 }
 
 // IsLead reports whether the agent is a project's lead, which runs on the host
@@ -1603,7 +1613,7 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 }
 
 func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+` FROM agents `+clause, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+agentColumns+`, paused_at FROM agents `+clause, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1611,13 +1621,29 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	var agents []Agent
 	for rows.Next() {
 		var a Agent
-		var created int64
+		var created, pausedAt int64
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
-			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice); err != nil {
+			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &pausedAt); err != nil {
 			return nil, err
 		}
 		a.CreatedAt = time.Unix(created, 0)
+		if pausedAt != 0 {
+			a.PausedAt = time.Unix(pausedAt, 0)
+		}
 		agents = append(agents, a)
 	}
 	return agents, rows.Err()
+}
+
+// SetPausedAt records when an agent was paused, or clears it (a zero at) when
+// it is resumed or started: "auto-stop idle agents" reads this to count a
+// paused agent as idle from the moment it was paused, not from whatever it
+// was last doing before that.
+func (s *Store) SetPausedAt(ctx context.Context, project, name string, at time.Time) error {
+	var unix int64
+	if !at.IsZero() {
+		unix = at.Unix()
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET paused_at = ? WHERE project = ? AND name = ?`, unix, project, name)
+	return err
 }

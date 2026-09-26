@@ -189,6 +189,12 @@ type UpdateProjectRequest struct {
 	// account, as it is after ClaudeAccount is applied.
 	ClaudeAccounts *[]string `json:"claudeAccounts,omitempty"`
 	GitHubAccount  *string   `json:"githubAccount,omitempty"` // "" goes back to the machine's default
+	// MoveClaudeAgents, alongside ClaudeAccount, also moves the project's
+	// agents still on the account it replaces to the new one; ignored without
+	// ClaudeAccount, and when there's nothing on the old account to move.
+	MoveClaudeAgents bool `json:"moveClaudeAgents,omitempty"`
+	// MoveGitHubAgents is MoveClaudeAgents for GitHubAccount.
+	MoveGitHubAgents bool `json:"moveGitHubAgents,omitempty"`
 	// Autonomy is how much the project's chat does on its own: ask or on.
 	Autonomy *string `json:"autonomy,omitempty"`
 	// AgentModel is the model the project's new agents are created on: "" to
@@ -339,6 +345,16 @@ type Settings struct {
 	NeverFreezeCPU bool `json:"neverFreezeCPU"`
 	// KeepFreeCPU is how many cores are kept free for the host; DefaultKeepFreeCPU when nobody chose.
 	KeepFreeCPU int `json:"keepFreeCPU"`
+	// AutoStopIdle and IdleTimeSeconds are "auto-stop idle agents": while on,
+	// the daemon stops a running or paused agent once it has gone
+	// IdleTimeSeconds with no chat turn in progress, no running job, no
+	// pending question or credential request, no terminal input and no
+	// recording. Off unless it was turned on. Stopping keeps the worktree and
+	// branch, like stopping by hand.
+	AutoStopIdle bool `json:"autoStopIdle"`
+	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
+	// stops it; DefaultIdleTimeSeconds when nobody chose.
+	IdleTimeSeconds int `json:"idleTimeSeconds"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -380,6 +396,11 @@ type UpdateSettingsRequest struct {
 	NeverFreezeCPU *bool `json:"neverFreezeCPU,omitempty"`
 	// KeepFreeCPU is how many cores NeverFreezeCPU keeps free, at least 0.
 	KeepFreeCPU *int `json:"keepFreeCPU,omitempty"`
+	// AutoStopIdle turns "auto-stop idle agents" on or off.
+	AutoStopIdle *bool `json:"autoStopIdle,omitempty"`
+	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
+	// agent, at least 60.
+	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
@@ -984,6 +1005,10 @@ const (
 	AgentFinished = "finished"
 	AgentAsked    = "asked"
 	AgentAnswered = "answered"
+	// AgentIdleStopped is the daemon stopping an agent on its own, because
+	// "auto-stop idle agents" found it idle for as long as the setting allows.
+	// Summary is what to show for it, like "Stopped after 2h idle".
+	AgentIdleStopped = "idle_stopped"
 )
 
 // EventAgentEvent carries an AgentEvent on the event stream.

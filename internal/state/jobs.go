@@ -73,6 +73,28 @@ func (s *Store) FailRunningJobs(ctx context.Context, reason string, at time.Time
 	return res.RowsAffected()
 }
 
+// JobActivityFor is the job history behind one target, whatever kind of job
+// it was: "auto-stop idle agents" (internal/daemon/autostopidle.go) reads
+// this rather than HasRunningJob, which asks about one kind at a time. It
+// reports whether a job is running on target right now, and otherwise when
+// the most recent one last touched it — its finish, or its start if none has
+// finished yet.
+func (s *Store) JobActivityFor(ctx context.Context, target string) (running bool, last time.Time, err error) {
+	jobs, err := s.queryJobs(ctx, `WHERE target = ? ORDER BY created_at DESC LIMIT 1`, target)
+	if err != nil || len(jobs) == 0 {
+		return false, time.Time{}, err
+	}
+	j := jobs[0]
+	if j.Status == "running" {
+		return true, time.Time{}, nil
+	}
+	last = j.FinishedAt
+	if last.IsZero() {
+		last = j.CreatedAt
+	}
+	return false, last, nil
+}
+
 func (s *Store) queryJobs(ctx context.Context, clause string, args ...any) ([]Job, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+jobColumns+` FROM jobs `+clause, args...)
 	if err != nil {

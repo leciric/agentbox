@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,7 +16,7 @@ import (
 // newClaudeAccountCmd shows or picks the Claude Code account a project's agents
 // use. The accounts themselves are stored with `agentbox auth claude`.
 func newClaudeAccountCmd(a *app) *cobra.Command {
-	var clear, allowAll bool
+	var clear, allowAll, moveAgents bool
 	var allow, allowAdd, allowRemove []string
 	cmd := &cobra.Command{
 		Use:   "claude-account <project | project/agent> [account]",
@@ -25,6 +26,11 @@ func newClaudeAccountCmd(a *app) *cobra.Command {
 With an account, a project's new agents use it instead of this machine's default;
 naming one agent writes that account's token into the running agent, and Claude
 Code picks it up the next time it starts. --clear goes back to inheriting.
+
+Changing a project's account only moves the project's chat: its agents that
+already exist keep the account they were made with. When some of them are
+still on the account being replaced, this asks whether to move them too;
+--move-agents answers yes without asking, for scripts.
 
 A project can also be limited to some of this machine's accounts: --allow sets
 the list, --allow-add and --allow-remove change it, and --allow-all goes back to
@@ -56,6 +62,9 @@ Accounts are stored with agentbox auth claude.`,
 				if changesList {
 					return fmt.Errorf("the accounts allowed belong to a project, not to one agent: name %s", strings.SplitN(target, "/", 2)[0])
 				}
+				if cmd.Flags().Changed("move-agents") {
+					return errors.New("--move-agents moves a project's agents, not one agent's own account")
+				}
 				return claudeAccountForAgent(cmd, c, target, account, set)
 			}
 			if allowAll && (cmd.Flags().Changed("allow") || len(allowAdd) > 0 || len(allowRemove) > 0) {
@@ -69,10 +78,15 @@ Accounts are stored with agentbox auth claude.`,
 				}
 				allowed = &list
 			}
-			return claudeAccountForProject(cmd, c, target, account, set, allowed)
+			var move *bool
+			if cmd.Flags().Changed("move-agents") {
+				move = &moveAgents
+			}
+			return claudeAccountForProject(cmd, c, target, account, set, allowed, move)
 		},
 	}
 	cmd.Flags().BoolVar(&clear, "clear", false, "go back to inheriting: a project falls back to the default account, an agent to its project's")
+	cmd.Flags().BoolVar(&moveAgents, "move-agents", false, "move agents still on the account being replaced to the new one, without asking")
 	cmd.Flags().StringSliceVar(&allow, "allow", nil, "limit the project's agents to these accounts, comma-separated")
 	cmd.Flags().StringSliceVar(&allowAdd, "allow-add", nil, "add accounts to the project's list")
 	cmd.Flags().StringSliceVar(&allowRemove, "allow-remove", nil, "remove accounts from the project's list")
@@ -111,16 +125,31 @@ func allowedAccounts(cmd *cobra.Command, c *api.Client, name string, all, replac
 	return list, nil
 }
 
-func claudeAccountForProject(cmd *cobra.Command, c *api.Client, name, account string, set bool, allowed *[]string) error {
+func claudeAccountForProject(cmd *cobra.Command, c *api.Client, name, account string, set bool, allowed *[]string, moveAgents *bool) error {
 	out := cmd.OutOrStdout()
 	p, err := c.Project(cmd.Context(), name)
 	if err != nil {
 		return err
 	}
+	move := false
+	if set && account != p.ClaudeAccount {
+		if moveAgents != nil {
+			move = *moveAgents
+		} else {
+			old, err := resolvedClaudeAccount(cmd, c, p.ClaudeAccount)
+			if err != nil {
+				return err
+			}
+			if move, err = confirmMoveAgents(cmd, c, p.Name, func(ag api.Agent) bool { return ag.AI == "claude" && ag.ClaudeAccount == old }, old, account); err != nil {
+				return err
+			}
+		}
+	}
 	if set || allowed != nil {
 		req := api.UpdateProjectRequest{ClaudeAccounts: allowed}
 		if set {
 			req.ClaudeAccount = &account
+			req.MoveClaudeAgents = move
 		}
 		if p, err = c.UpdateProject(cmd.Context(), name, req); err != nil {
 			return err
@@ -135,7 +164,11 @@ func claudeAccountForProject(cmd *cobra.Command, c *api.Client, name, account st
 		if allowed != nil {
 			printAllowed(out, p)
 		}
-		_, _ = fmt.Fprintln(out, "Agents that already exist keep the account they were created with.")
+		if move {
+			_, _ = fmt.Fprintln(out, "Its agents that were still on the old account move to the new one.")
+		} else {
+			_, _ = fmt.Fprintln(out, "Agents that already exist keep the account they were created with.")
+		}
 		return nil
 	}
 	defer printAllowed(out, p)
@@ -198,4 +231,48 @@ func defaultClaudeAccount(cmd *cobra.Command, c *api.Client) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+// resolvedClaudeAccount is account, or the machine's default when it's empty
+// — what an agent on "the project's account" actually holds, since an agent
+// never stores the empty string itself (agent.ClaudeAccountFor).
+func resolvedClaudeAccount(cmd *cobra.Command, c *api.Client, account string) (string, error) {
+	if account != "" {
+		return account, nil
+	}
+	return defaultClaudeAccount(cmd, c)
+}
+
+// confirmMoveAgents asks whether to move a project's agents still on the old
+// account to the new one, unless there's nobody on it to ask about. It takes
+// silence, or anything but yes, for no.
+func confirmMoveAgents(cmd *cobra.Command, c *api.Client, project string, on func(api.Agent) bool, old, account string) (bool, error) {
+	agents, err := c.Agents(cmd.Context(), project)
+	if err != nil {
+		return false, err
+	}
+	n := 0
+	for _, ag := range agents {
+		if on(ag) {
+			n++
+		}
+	}
+	if n == 0 {
+		return false, nil
+	}
+	plural := ""
+	if n != 1 {
+		plural = "s"
+	}
+	question := fmt.Sprintf("Move %d agent%s on %s to %s too?", n, plural, accountLabel(old), accountLabel(account))
+	return confirmPrompt(cmd, question)
+}
+
+// accountLabel names an account the way a question reads best: quoted, or
+// "the default account" for the machine's own.
+func accountLabel(name string) string {
+	if name == "" {
+		return "the default account"
+	}
+	return strconv.Quote(name)
 }

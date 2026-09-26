@@ -7,6 +7,12 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 
 ### Added
 
+- **Auto-stop idle agents**: an optional switch in Settings → Every agent, off by default, that
+  stops a running or paused agent once it has gone an idle time (2h by default) with nothing
+  happening on it — no chat turn, no job, no waiting question or credential request, no terminal
+  input and no recording. Stopping keeps its worktree and branch, like stopping it by hand, and the
+  agent view shows why: "Stopped after 2h idle". (#68)
+- Changing a project's Claude Code or GitHub account asks whether to move its agents still on the old one too, in the app and with `--move-agents` on the CLI. Settings says which projects don't follow the default account. (#65)
 - A `CHANGELOG.md`, and a "What's new" view (Settings → This app, also shown once after an
   update) that renders it from the running version down.
 - Hovering an agent row, or its context menu's new "Info" item, shows its model, effort, context
@@ -15,6 +21,8 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 - The Tokens tab shows average tokens per second, per model, per agent, and over time.
 
 ### Changed
+
+- A stopped or paused agent's Claude Code or GitHub account can be changed; it takes effect when the agent next starts. (#65)
 
 ### Fixed
 

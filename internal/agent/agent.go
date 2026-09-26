@@ -1208,6 +1208,29 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	return env, nil
 }
 
+// writeAgentEnv writes an agent's env file, replacing what was there.
+func (m *Manager) writeAgentEnv(ctx context.Context, a state.Agent) error {
+	env, err := m.agentEnv(a)
+	if err != nil {
+		return err
+	}
+	return m.Incus.WriteFile(ctx, a.Instance, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600)
+}
+
+// writeAgentEnvIfRunning writes an agent's env file when its machine is up.
+// The token is a file inside it, so a stopped or paused agent can't be given
+// it now — it gets the current one when Start next writes its env file fresh.
+func (m *Manager) writeAgentEnvIfRunning(ctx context.Context, a state.Agent) error {
+	inst, err := m.Incus.Instance(ctx, a.Instance)
+	if err != nil {
+		return err
+	}
+	if inst.Status != "Running" {
+		return nil
+	}
+	return m.writeAgentEnv(ctx, a)
+}
+
 // RewriteAgentEnv writes every ready agent's env file again, so a credential
 // you started or stopped sharing reaches the agents that already exist. Their
 // AI tool and shells pick it up the next time they start. Agents whose machine
@@ -1225,12 +1248,7 @@ func (m *Manager) RewriteAgentEnv(ctx context.Context) error {
 		if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
 			continue
 		}
-		env, err := m.agentEnv(a)
-		if err != nil {
-			failed = append(failed, a.Ref())
-			continue
-		}
-		if err := m.Incus.WriteFile(ctx, a.Instance, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600); err != nil {
+		if err := m.writeAgentEnv(ctx, a); err != nil {
 			failed = append(failed, a.Ref())
 		}
 	}
@@ -1319,9 +1337,11 @@ func (m *Manager) projectEnvFiles(ctx context.Context, project string) []string 
 	return files
 }
 
-// SetClaudeAccount moves a running agent to another stored Claude Code account:
-// it writes that account's token into the agent and records the change. The AI
-// tool picks the new token up the next time it starts.
+// SetClaudeAccount moves an agent to another stored Claude Code account: when
+// it's running, the new token is written into it right away; a stopped or
+// paused agent gets it the next time it starts (Start writes the env file
+// fresh). Either way the change is recorded now, and the AI tool picks the
+// token up the next time it starts.
 func (m *Manager) SetClaudeAccount(ctx context.Context, a state.Agent, account string) (state.Agent, error) {
 	if a.AI != "claude" {
 		return a, fmt.Errorf("%s runs %s, not Claude Code: there is no account to change", a.Ref(), a.AI)
@@ -1334,16 +1354,8 @@ func (m *Manager) SetClaudeAccount(ctx context.Context, a state.Agent, account s
 	if err != nil {
 		return a, err
 	}
-	// The token is a file inside the agent, so the machine has to be up.
-	if err := m.requireRunning(ctx, a); err != nil {
-		return a, err
-	}
 	a.ClaudeAccount = name
-	env, err := m.agentEnv(a)
-	if err != nil {
-		return a, err
-	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600); err != nil {
+	if err := m.writeAgentEnvIfRunning(ctx, a); err != nil {
 		return a, err
 	}
 	if err := m.Store.SetAgentClaudeAccount(ctx, a.Project, a.Name, name); err != nil {
@@ -1352,10 +1364,12 @@ func (m *Manager) SetClaudeAccount(ctx context.Context, a state.Agent, account s
 	return a, nil
 }
 
-// SetGitHubAccount moves a running agent to another stored GitHub account, or
-// (with an empty account) back to none: it writes that account's token into
-// the agent and records the change. A new shell picks up the new token, and
-// so does the AI tool the next time it starts.
+// SetGitHubAccount moves an agent to another stored GitHub account, or (with
+// an empty account) back to none: when it's running, the new token is written
+// into it right away; a stopped or paused agent gets it the next time it
+// starts (Start writes the env file fresh). Either way the change is recorded
+// now, and a new shell or the AI tool picks the token up the next time it
+// starts.
 func (m *Manager) SetGitHubAccount(ctx context.Context, a state.Agent, account string) (state.Agent, error) {
 	p, err := m.Store.Project(ctx, a.Project)
 	if err != nil {
@@ -1365,22 +1379,67 @@ func (m *Manager) SetGitHubAccount(ctx context.Context, a state.Agent, account s
 	if err != nil {
 		return a, err
 	}
-	// The token is a file inside the agent, so the machine has to be up.
-	if err := m.requireRunning(ctx, a); err != nil {
-		return a, err
-	}
 	a.GitHubAccount = name
-	env, err := m.agentEnv(a)
-	if err != nil {
-		return a, err
-	}
-	if err := m.Incus.WriteFile(ctx, a.Instance, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600); err != nil {
+	if err := m.writeAgentEnvIfRunning(ctx, a); err != nil {
 		return a, err
 	}
 	if err := m.Store.SetAgentGitHubAccount(ctx, a.Project, a.Name, name); err != nil {
 		return a, err
 	}
 	return a, nil
+}
+
+// MoveAgentsClaudeAccount moves every one of a project's Claude Code agents
+// still on the from account to the to account — the agents a project-wide
+// account change leaves behind, since changing the project only moves its
+// lead. Agents already moved to something else (an account set on them
+// directly) are left alone. It carries on past an agent it can't move, so one
+// unreachable machine doesn't strand the rest on the old account.
+func (m *Manager) MoveAgentsClaudeAccount(ctx context.Context, project, from, to string) error {
+	if from == to {
+		return nil
+	}
+	agents, err := m.Store.Agents(ctx, project)
+	if err != nil {
+		return err
+	}
+	var failed []string
+	for _, a := range agents {
+		if a.IsLead() || a.AI != "claude" || a.ClaudeAccount != from {
+			continue
+		}
+		if _, err := m.SetClaudeAccount(ctx, a, to); err != nil {
+			failed = append(failed, a.Ref())
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("couldn't move %s to the %s Claude Code account", strings.Join(failed, ", "), to)
+	}
+	return nil
+}
+
+// MoveAgentsGitHubAccount is MoveAgentsClaudeAccount for the GitHub account.
+func (m *Manager) MoveAgentsGitHubAccount(ctx context.Context, project, from, to string) error {
+	if from == to {
+		return nil
+	}
+	agents, err := m.Store.Agents(ctx, project)
+	if err != nil {
+		return err
+	}
+	var failed []string
+	for _, a := range agents {
+		if a.IsLead() || a.GitHubAccount != from {
+			continue
+		}
+		if _, err := m.SetGitHubAccount(ctx, a, to); err != nil {
+			failed = append(failed, a.Ref())
+		}
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("couldn't move %s to the %s GitHub account", strings.Join(failed, ", "), to)
+	}
+	return nil
 }
 
 // ensureSession starts the agent's tmux session unless it is running: window 0
@@ -1461,6 +1520,11 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 			return inst, err
 		}
 	}
+	if inst.Status != "Running" {
+		if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
+			m.logf("clearing when %s was paused: %v", a.Ref(), err)
+		}
+	}
 	if inst, err = m.Incus.WaitReady(ctx, a.Instance, readyTimeout); err != nil {
 		return inst, err
 	}
@@ -1470,6 +1534,12 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	// Before the tmux session, so its shells and the AI tool start with
 	// whatever the agent's secrets are now, not what they were when it stopped.
 	if err := m.WriteSecrets(ctx, a); err != nil {
+		return inst, err
+	}
+	// The same for its env file: an account changed while it was stopped or
+	// paused couldn't be written in then, so it's written fresh now, before
+	// anything inside reads it.
+	if err := m.writeAgentEnv(ctx, a); err != nil {
 		return inst, err
 	}
 	// The same for the project's notes, which may have changed while the
@@ -1493,15 +1563,27 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 	return nil
 }
 
-// Pause freezes every process in the agent. It keeps its memory but uses no CPU.
+// Pause freezes every process in the agent. It keeps its memory but uses no
+// CPU. PausedAt is set to now, so "auto-stop idle agents" counts it as idle
+// from this moment rather than from whatever it was last doing before.
 func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
-	_, err := m.Incus.Run(ctx, "pause", a.Instance)
-	return err
+	if _, err := m.Incus.Run(ctx, "pause", a.Instance); err != nil {
+		return err
+	}
+	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
+		m.logf("recording when %s was paused: %v", a.Ref(), err)
+	}
+	return nil
 }
 
 func (m *Manager) Resume(ctx context.Context, a state.Agent) error {
-	_, err := m.Incus.Run(ctx, "resume", a.Instance)
-	return err
+	if _, err := m.Incus.Run(ctx, "resume", a.Instance); err != nil {
+		return err
+	}
+	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
+		m.logf("clearing when %s was paused: %v", a.Ref(), err)
+	}
+	return nil
 }
 
 type DestroyOptions struct {
