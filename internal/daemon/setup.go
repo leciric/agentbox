@@ -171,11 +171,15 @@ func (s *Server) imageComponents(ctx context.Context) (image.Components, error) 
 	if err != nil {
 		return image.Components{}, err
 	}
-	return image.Components{Android: android, Codex: codex, OpenCode: opencode, DevCaches: devCaches}, nil
+	incus, err := s.store.Flag(ctx, state.SettingImageIncus)
+	if err != nil {
+		return image.Components{}, err
+	}
+	return image.Components{Android: android, Codex: codex, OpenCode: opencode, DevCaches: devCaches, Incus: incus}, nil
 }
 
 func toAPIImageComponents(c image.Components) api.ImageComponents {
-	return api.ImageComponents{Android: c.Android, Codex: c.Codex, OpenCode: c.OpenCode, DevCaches: c.DevCaches}
+	return api.ImageComponents{Android: c.Android, Codex: c.Codex, OpenCode: c.OpenCode, DevCaches: c.DevCaches, Incus: c.Incus}
 }
 
 func apiDownloads(downloads []image.Download) []api.ImageDownload {

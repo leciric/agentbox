@@ -138,6 +138,11 @@ func TestScriptWorksOutWhoSetupIsFor(t *testing.T) {
 // refuses and no container starts. Debian's incus package gives root a range of
 // its own after the highest one it finds, which isn't 1000000 when a range
 // already ends past it, as Lima's user's does.
+//
+// A nested agent (provision.sh's --incus) is different: its own idmap doesn't
+// cover a real host's billion IDs, so it starts with a smaller range of its
+// own, which $nested (set from /etc/agentbox-nested-incus) tells this apart
+// from a real host's own too-small range, which still needs the billion-ID one.
 func TestRootRangeIsAddedOnce(t *testing.T) {
 	script := string(Script)
 	start := strings.Index(script, "give_root_a_range() {")
@@ -151,23 +156,38 @@ func TestRootRangeIsAddedOnce(t *testing.T) {
 	function := script[start : start+end+3]
 
 	const ours = "root:1000000:1000000000\n"
+	const nestedRange = "root:100000:65536\n"
 	lima := "troliveiraa:524288:1073741824\n"
 	cases := []struct {
 		name, before, want string
+		nested             bool
 	}{
 		{name: "nothing yet", before: "", want: ours},
 		{name: "only a user's range", before: "dev:100000:65536\n", want: "dev:100000:65536\n" + ours},
 		{name: "only root's one-ID range for raw.idmap", before: "root:501:1\n", want: "root:501:1\n" + ours},
 		{name: "ours already", before: ours, want: ours},
 		{name: "Debian's package, after Lima's user", before: lima + "root:1074266113:1000000000\n", want: lima + "root:1074266113:1000000000\n"},
+		// A real host's own too-small range (however it got one) still isn't
+		// enough: it needs the full billion-ID range to actually work.
+		{name: "a real host's own small range", before: nestedRange, want: nestedRange + ours},
+		// A nested agent's own small range is enough on its own: adding the
+		// billion-ID range on top is the same two-ranges problem as above.
+		{name: "a nested agent's own small range", before: nestedRange, want: nestedRange, nested: true},
+		{name: "a nested agent with nothing yet", before: "", want: ours, nested: true},
+		// The raw.idmap pin alone still isn't a real range, nested or not.
+		{name: "a nested agent with only the raw.idmap pin", before: "root:501:1\n", want: "root:501:1\n" + ours, nested: true},
 	}
 	for _, c := range cases {
 		f := filepath.Join(t.TempDir(), "subuid")
 		if err := os.WriteFile(f, []byte(c.before), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		nested := "no"
+		if c.nested {
+			nested = "yes"
+		}
 		// Twice: setup is run again, and the second run must change nothing.
-		cmd := exec.Command("bash", "-c", "set -euo pipefail\n"+function+`give_root_a_range "$1"; give_root_a_range "$1"`, "bash", f)
+		cmd := exec.Command("bash", "-c", "set -euo pipefail\nnested="+nested+"\n"+function+`give_root_a_range "$1"; give_root_a_range "$1"`, "bash", f)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Errorf("%s: %v\n%s", c.name, err, out)
 			continue
@@ -179,6 +199,77 @@ func TestRootRangeIsAddedOnce(t *testing.T) {
 		if string(got) != c.want {
 			t.Errorf("%s: the file is\n%s\nwant\n%s", c.name, got, c.want)
 		}
+	}
+}
+
+// TestStorageFallsBackToDirOnlyNested runs the script's storage pool step with
+// a stub incus and findmnt that make its usual (loopback-backed) btrfs pool
+// fail, the way it does inside a nested agent with no loop devices. A real
+// host's own failed pool is worth seeing rather than papering over with a
+// slower directory one it never asked for, so only a nested agent falls back.
+func TestStorageFallsBackToDirOnlyNested(t *testing.T) {
+	script := string(Script)
+	start := strings.Index(script, `step "Storage pool 'default' (btrfs)"`)
+	if start < 0 {
+		t.Fatal(`host-setup.sh has no "Storage pool 'default' (btrfs)" step`)
+	}
+	end := strings.Index(script[start:], `step "Network bridge`)
+	if end < 0 {
+		t.Fatal("the storage pool step has no end")
+	}
+	block := script[start : start+end]
+
+	for _, nested := range []bool{false, true} {
+		t.Run(map[bool]string{false: "a real host", true: "a nested agent"}[nested], func(t *testing.T) {
+			dir := t.TempDir()
+			marker := filepath.Join(dir, "used-dir")
+			bin := filepath.Join(dir, "bin")
+			if err := os.Mkdir(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			// storage show always says "no pool yet"; the usual (loopback- or
+			// subvolume-backed) btrfs create always fails, as it does with no
+			// loop devices or subvolume permissions; the dir fallback, if the
+			// script calls it, marks that it was used.
+			write := func(name, body string) {
+				if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write("incus", `case "$*" in
+  "storage show default") exit 1 ;;
+  "storage create default dir") touch `+marker+`; exit 0 ;;
+  *) exit 1 ;;
+esac`)
+			write("findmnt", `echo ext4`) // not btrfs: the loopback-image branch
+
+			nestedVal := "no"
+			if nested {
+				nestedVal = "yes"
+			}
+			cmd := exec.Command("bash", "-c", "set -euo pipefail\nstep() { :; }\nnested="+nestedVal+"\n"+block)
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"))
+			out, err := cmd.CombinedOutput()
+			usedDir := false
+			if _, statErr := os.Stat(marker); statErr == nil {
+				usedDir = true
+			}
+			if nested {
+				if err != nil {
+					t.Errorf("a nested agent's storage step failed: %v\n%s", err, out)
+				}
+				if !usedDir {
+					t.Error("a nested agent's storage step didn't fall back to a directory pool")
+				}
+			} else {
+				if err == nil {
+					t.Errorf("a real host's storage step succeeded on a failed btrfs pool, silently:\n%s", out)
+				}
+				if usedDir {
+					t.Error("a real host's storage step fell back to a directory pool without saying so")
+				}
+			}
+		})
 	}
 }
 

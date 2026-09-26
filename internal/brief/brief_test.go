@@ -33,6 +33,15 @@ func TestRender(t *testing.T) {
 			IP:       "10.239.149.24",
 			Android:  true,
 		},
+		"nesting": {
+			Project:  "agentbox",
+			Agent:    "agent-05",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/agentbox/agent-05",
+			Branch:   "agentbox/agent-05",
+			BaseRef:  "main",
+			IP:       "10.239.149.26",
+			Nesting:  true,
+		},
 		"secrets": {
 			Project:  "pawly",
 			Agent:    "agent-04",

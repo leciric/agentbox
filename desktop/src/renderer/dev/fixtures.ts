@@ -311,6 +311,7 @@ export function buildFixtures(): FixtureData {
       consolidationModel: '',
       section: 's1',
       position: 0,
+      nesting: false,
       createdAt: new Date().toISOString(),
     },
     {
@@ -332,6 +333,7 @@ export function buildFixtures(): FixtureData {
       consolidationModel: '',
       section: '',
       position: 1,
+      nesting: false,
       createdAt: new Date().toISOString(),
     },
   ];
@@ -739,7 +741,7 @@ mise claude@2.1.280 ✓ installed
 `;
 export function seedImageUpdate(queryClient: QueryClient): void {
   const ok = (id: string, title: string, detail: string, required = true): T.SetupCheck => ({ id, title, detail, required, status: 'ok' });
-  const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false };
+  const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
   const setup = {
     ready: true,
     checks: [

@@ -91,7 +91,12 @@ type Project struct {
 	Section string `json:"section"`
 	// Position is where the project sits in its list, from 1. Zero means
 	// nobody has placed it by hand: it comes after the placed ones, by name.
-	Position  int       `json:"position"`
+	Position int `json:"position"`
+	// Nesting is whether this project's agents run a real Incus daemon of
+	// their own, inside their own container, to test AgentBox features that
+	// touch agent machines for real. Off by default: it costs isolation, and
+	// needs the base image built with Incus.
+	Nesting   bool      `json:"nesting"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -218,6 +223,10 @@ type UpdateProjectRequest struct {
 	// ConsolidationModel is the model that distils them: "cheap", a model id,
 	// or "" for whatever the project's chat runs on.
 	ConsolidationModel *string `json:"consolidationModel,omitempty"`
+	// Nesting turns this project's agents' nesting on or off: a real Incus
+	// daemon of their own, inside their own container. It needs the base
+	// image built with Incus (Setup's image.components.incus).
+	Nesting *bool `json:"nesting,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -1464,6 +1473,9 @@ type ImageComponents struct {
 	// DevCaches fills the Go, npm and Electron caches from AgentBox's own
 	// repository, for agents that work on AgentBox itself.
 	DevCaches bool `json:"devCaches"`
+	// Incus adds Incus itself, so a project that turns nesting on can run a
+	// real Incus daemon inside an agent's container.
+	Incus bool `json:"incus"`
 }
 
 // ImageBuild describes the base image build: the version it would produce, the
@@ -1503,6 +1515,7 @@ type BuildImageRequest struct {
 	Codex     *bool `json:"codex,omitempty"`
 	OpenCode  *bool `json:"opencode,omitempty"`
 	DevCaches *bool `json:"devCaches,omitempty"`
+	Incus     *bool `json:"incus,omitempty"`
 }
 
 const (

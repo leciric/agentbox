@@ -296,6 +296,67 @@ blocked until it gets an answer, so its question always wakes the chat.`,
 	}
 }
 
+// newNestingCmd shows or sets whether a project's agents run their own Incus
+// daemon, in newFinishNoticesCmd's show-or-set shape.
+func newNestingCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "nesting <project> [on|off]",
+		Short: "Whether a project's agents run a real Incus daemon of their own",
+		Long: `Shows or sets whether a project's agents run their own Incus, inside their own
+container, so agents working on AgentBox can test features that touch agent
+machines (limits, GPU, image builds) for real. Off by default: it costs
+isolation, and needs the base image built with agentbox image build --incus.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, p := range projects {
+					if p.Name == args[0] {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, nestingWords(p.Nesting))
+						return nil
+					}
+				}
+				return fmt.Errorf("no project named %q", args[0])
+			}
+			on, err := parseOnOff(args[1])
+			if err != nil {
+				return err
+			}
+			p, err := c.SetNesting(cmd.Context(), args[0], on)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, nestingWords(p.Nesting))
+			return nil
+		},
+	}
+}
+
+func nestingWords(on bool) string {
+	if on {
+		return "on — its agents run their own Incus"
+	}
+	return "off"
+}
+
+func parseOnOff(s string) (bool, error) {
+	switch s {
+	case "on":
+		return true, nil
+	case "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%q: use on or off", s)
+	}
+}
+
 func finishNoticeWords(notices string) string {
 	switch notices {
 	case "off":

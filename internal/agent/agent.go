@@ -357,6 +357,9 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	if err := m.checkImageTool(ctx, opts.AI); err != nil {
 		return state.Agent{}, err
 	}
+	if err := m.checkNesting(ctx, p); err != nil {
+		return state.Agent{}, err
+	}
 	ghAccount, err := m.GitHubAccountFor(p, opts.GitHubAccount)
 	if err != nil {
 		return state.Agent{}, err
@@ -666,6 +669,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 	a.Status = state.AgentReady
 	m.EnsureBrowser(ctx, a)
+	m.EnsureNesting(ctx, a, pl.project)
 	return a, nil
 }
 
@@ -1136,6 +1140,10 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 	if err != nil {
 		return "", err
 	}
+	p, err := m.Store.Project(ctx, a.Project)
+	if err != nil {
+		return "", err
+	}
 	projectNotes, err := notes.Read(m.Paths.ProjectNotes(a.Project))
 	if err != nil {
 		return "", err
@@ -1167,6 +1175,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		VM:       hostos.InVM(),
 		Host:     hostos.Name(),
 		Notes:    projectNotes,
+		Nesting:  p.Nesting,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
