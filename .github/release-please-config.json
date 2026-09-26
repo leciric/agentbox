@@ -2,12 +2,11 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "draft": true,
   "packages": {
-    "desktop": {
-      "release-type": "node",
-      "package-name": "agentbox",
+    ".": {
+      "release-type": "simple",
       "component": "agentbox",
       "include-component-in-tag": false,
-      "changelog-path": "../CHANGELOG.md",
+      "changelog-path": "CHANGELOG.md",
       "changelog-sections": [
         { "type": "feat", "section": "Added" },
         { "type": "fix", "section": "Fixed" },
@@ -17,6 +16,11 @@
         { "type": "ci", "hidden": true },
         { "type": "docs", "hidden": true },
         { "type": "chore", "hidden": true }
+      ],
+      "extra-files": [
+        { "type": "json", "path": "desktop/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "desktop/package-lock.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "desktop/package-lock.json", "jsonpath": "$.packages[''].version" }
       ]
     }
   }
