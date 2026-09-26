@@ -29,7 +29,8 @@ func (m *Manager) EnsureAgentAPI(ctx context.Context, a state.Agent) error {
 		return err
 	}
 	if _, ok := devices[agentAPIDevice]; !ok {
-		if _, err := m.Incus.Run(ctx, "config", "device", "add", a.Instance, agentAPIDevice, "proxy",
+		if err := m.Incus.AddDevice(ctx, a.Instance, agentAPIDevice,
+			"proxy",
 			"connect=unix:"+m.AgentSocket(a.Instance),
 			"listen=unix:"+api.InAgentSocket,
 			"bind=instance",
@@ -52,11 +53,11 @@ func (m *Manager) EnsureAgentAPI(ctx context.Context, a state.Agent) error {
 // the old file and starts every new one on the new.
 func (m *Manager) pushBinary(ctx context.Context, instance string) error {
 	next := AgentBinaryPath + ".new"
-	if _, err := m.Incus.Run(ctx, "file", "push", m.Binary, instance+next, "--mode", "0755"); err != nil {
+	if err := m.Incus.PushFile(ctx, m.Binary, instance, next, 0o755); err != nil {
 		return err
 	}
-	if _, err := m.Incus.Run(ctx, "exec", instance, "--", "mv", "-f", next, AgentBinaryPath); err != nil {
-		_, _ = m.Incus.Run(context.WithoutCancel(ctx), "exec", instance, "--", "rm", "-f", next)
+	if _, err := m.Incus.Exec(ctx, instance, "mv", "-f", next, AgentBinaryPath); err != nil {
+		_, _ = m.Incus.Exec(context.WithoutCancel(ctx), instance, "rm", "-f", next)
 		return err
 	}
 	return nil

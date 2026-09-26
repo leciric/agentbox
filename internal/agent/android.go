@@ -174,19 +174,25 @@ func (m *Manager) prepareAndroid(ctx context.Context, a state.Agent, sdk android
 	}
 	if _, ok := devices[kvmDevice]; !ok {
 		// 0666, because a device added while the agent runs doesn't get the kvm group.
-		if _, err := m.Incus.Run(ctx, "config", "device", "add", a.Instance, kvmDevice, "unix-char",
-			"source=/dev/kvm", "path=/dev/kvm", "mode=0666"); err != nil {
+		if err := m.Incus.AddDevice(ctx, a.Instance, kvmDevice,
+			"unix-char",
+			"source=/dev/kvm",
+			"path=/dev/kvm",
+			"mode=0666"); err != nil {
 			return err
 		}
 	}
 	if device, ok := devices[androidSDKDevice]; !ok || device["source"] != sdk.Path {
 		if ok {
-			if _, err := m.Incus.Run(ctx, "config", "device", "remove", a.Instance, androidSDKDevice); err != nil {
+			if err := m.Incus.RemoveDevice(ctx, a.Instance, androidSDKDevice); err != nil {
 				return err
 			}
 		}
-		if _, err := m.Incus.Run(ctx, "config", "device", "add", a.Instance, androidSDKDevice, "disk",
-			"source="+sdk.Path, "path="+sharedSDKPath, "readonly=true"); err != nil {
+		if err := m.Incus.AddDevice(ctx, a.Instance, androidSDKDevice,
+			"disk",
+			"source="+sdk.Path,
+			"path="+sharedSDKPath,
+			"readonly=true"); err != nil {
 			return err
 		}
 	}
@@ -311,7 +317,7 @@ func (m *Manager) androidScreenshot(ctx context.Context, a state.Agent, file, id
 	if _, err := m.androidRun(ctx, a, "screenshot "+tmp); err != nil {
 		return fmt.Errorf("taking the screenshot: %w", err)
 	}
-	defer func() { _, _ = m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "rm", "-f", tmp) }()
-	_, err := m.Incus.Run(ctx, "file", "pull", a.Instance+tmp, file)
+	defer func() { _, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "rm", "-f", tmp) }()
+	err := m.Incus.PullFile(ctx, a.Instance, tmp, file)
 	return err
 }

@@ -81,8 +81,8 @@ func (m *Manager) RecomputeCPUCaps(ctx context.Context) error {
 	shared := m.budgetOn(ctx)
 	apply := func(instance, want string, have map[string]string, current Limits) error {
 		current.CPU = want
-		for _, args := range limitSteps(instance, current, have, shared) {
-			if _, err := m.Incus.Run(ctx, args...); err != nil {
+		for _, step := range limitSteps(instance, current, have, shared) {
+			if err := step(ctx, m.Incus); err != nil {
 				return err
 			}
 		}

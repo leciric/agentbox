@@ -113,6 +113,6 @@ func (m *Manager) setUpNesting(ctx context.Context, a state.Agent) error {
 	if err := m.requireRunning(ctx, a); err != nil {
 		return err
 	}
-	_, err := m.Incus.Run(ctx, "exec", a.Instance, "-T", "--", "bash", "-c", nestingScript)
+	_, err := m.Incus.Exec(ctx, a.Instance, "bash", "-c", nestingScript)
 	return err
 }

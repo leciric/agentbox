@@ -593,12 +593,11 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 
 	// Instance commands run to completion even after Ctrl-C, and cancellation is
 	// checked between them, so the rollback never races an unfinished Incus operation.
-	incusStep := func(args ...string) error {
+	run := func(step incusStep) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_, err := m.Incus.Run(cleanup, args...)
-		return err
+		return step(cleanup, m.Incus)
 	}
 
 	m.logf("Creating instance %s from %s", a.Instance, pl.source)
@@ -608,36 +607,40 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	if pl.source == image.SnapshotRef() {
 		release = image.UseBase()
 	}
-	err := incusStep("copy", pl.source, a.Instance)
+	err := run(func(ctx context.Context, c incus.Client) error { return c.Copy(ctx, pl.source, a.Instance) })
 	release()
 	if err != nil {
 		return fail("instance", err)
 	}
-	undo = append(undo, func() { _, _ = m.Incus.Run(cleanup, "delete", "--force", a.Instance) })
+	undo = append(undo, func() { _ = m.Incus.Delete(cleanup, a.Instance) })
 
 	copied, err := m.Incus.Details(cleanup, a.Instance)
 	if err != nil {
 		return fail("instance", err)
 	}
-	var steps [][]string
+	var steps []incusStep
 	// A copy of another agent brings that agent's devices along: replace them.
 	for _, device := range copiedDevices {
 		if _, ok := copied.Devices[device]; ok {
-			steps = append(steps, []string{"config", "device", "remove", a.Instance, device})
+			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, a.Instance, device) })
 		}
 	}
 	steps = append(steps,
-		[]string{"config", "set", a.Instance, "raw.idmap=" + image.IDMap(m.User)},
+		setConfig(a.Instance, "raw.idmap="+image.IDMap(m.User)),
 		// Same paths as on the host, so the worktree's .git pointer resolves inside the agent.
-		[]string{"config", "device", "add", a.Instance, "worktree", "disk", "source=" + a.Worktree, "path=" + a.Worktree},
-		[]string{"config", "device", "add", a.Instance, "gitdir", "disk", "source=" + pl.repo.GitDir, "path=" + pl.repo.GitDir},
+		func(ctx context.Context, c incus.Client) error {
+			return c.AddDevice(ctx, a.Instance, "worktree", "disk", "source="+a.Worktree, "path="+a.Worktree)
+		},
+		func(ctx context.Context, c incus.Client) error {
+			return c.AddDevice(ctx, a.Instance, "gitdir", "disk", "source="+pl.repo.GitDir, "path="+pl.repo.GitDir)
+		},
 	)
 	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config, m.budgetOn(ctx))...)
 	steps = append(steps, budgetSteps(a.Instance, m.budgetOn(ctx), copied.Config)...)
 	steps = append(steps, configuredCPUSteps(a.Instance, pl.limits.CPU, copied.Config)...)
-	steps = append(steps, []string{"start", a.Instance})
-	for _, args := range steps {
-		if err := incusStep(args...); err != nil {
+	steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) })
+	for _, step := range steps {
+		if err := run(step); err != nil {
 			return fail("instance", err)
 		}
 	}
@@ -656,7 +659,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	// directory only holds the .git mount, and root made it. Give it to the
 	// agent's user, so those writes land in the agent's own filesystem; the
 	// project's checkout on the host isn't mounted, and stays untouched.
-	if _, err := m.Incus.Run(ctx, "exec", a.Instance, "--", "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(pl.repo.GitDir)); err != nil {
+	if _, err := m.Incus.Exec(ctx, a.Instance, "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(pl.repo.GitDir)); err != nil {
 		return fail("instance", err)
 	}
 	if err := m.EnsureAgentAPI(ctx, a); err != nil {
@@ -1568,7 +1571,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	switch inst.Status {
 	case "Running":
 	case "Frozen":
-		if _, err := m.Incus.Run(ctx, "resume", a.Instance); err != nil {
+		if err := m.Incus.Resume(ctx, a.Instance); err != nil {
 			return inst, err
 		}
 	default:
@@ -1577,7 +1580,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		if err := m.ensureBudgetPlacement(ctx, a.Instance); err != nil {
 			return inst, err
 		}
-		if _, err := m.Incus.Run(ctx, "start", a.Instance); err != nil {
+		if err := m.Incus.Start(ctx, a.Instance); err != nil {
 			return inst, err
 		}
 	}
@@ -1622,8 +1625,8 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 }
 
 func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
-	if _, err := m.Incus.Run(ctx, "stop", a.Instance, "--timeout", "30"); err != nil {
-		_, err = m.Incus.Run(ctx, "stop", a.Instance, "--force")
+	if err := m.Incus.StopWithin(ctx, a.Instance, 30*time.Second); err != nil {
+		err = m.Incus.ForceStop(ctx, a.Instance)
 		return err
 	}
 	return nil
@@ -1633,7 +1636,7 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 // CPU. PausedAt is set to now, so "auto-stop idle agents" counts it as idle
 // from this moment rather than from whatever it was last doing before.
 func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
-	if _, err := m.Incus.Run(ctx, "pause", a.Instance); err != nil {
+	if err := m.Incus.Pause(ctx, a.Instance); err != nil {
 		return err
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
@@ -1643,7 +1646,7 @@ func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
 }
 
 func (m *Manager) Resume(ctx context.Context, a state.Agent) error {
-	if _, err := m.Incus.Run(ctx, "resume", a.Instance); err != nil {
+	if err := m.Incus.Resume(ctx, a.Instance); err != nil {
 		return err
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
@@ -1699,7 +1702,7 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 			m.handBackFiles(ctx, a)
 		}
 		m.logf("Deleting instance %s", a.Instance)
-		if _, delErr := m.Incus.Run(ctx, "delete", "--force", a.Instance); delErr != nil {
+		if delErr := m.Incus.Delete(ctx, a.Instance); delErr != nil {
 			// The instance may have been destroyed by an earlier attempt, or
 			// concurrently, between the check above and this call. Only a
 			// delete that still finds something there is a real failure.
@@ -1754,7 +1757,7 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 // (Docker bind mounts, sudo) back to the host user, so git and the host can
 // manage them. It only works while the agent is running.
 func (m *Manager) handBackFiles(ctx context.Context, a state.Agent) {
-	_, _ = m.Incus.Run(ctx, "exec", a.Instance, "--", "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
+	_, _ = m.Incus.Exec(ctx, a.Instance, "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
 }
 
 // Status is an agent plus its live instance state.

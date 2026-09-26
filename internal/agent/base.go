@@ -75,24 +75,20 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 	next := name + "-next"
 	snapshot := "base-" + time.Now().UTC().Format("20060102-150405")
 	cleanup := context.WithoutCancel(ctx)
-	run := func(args ...string) error {
-		_, err := m.Incus.Run(ctx, args...)
-		return err
-	}
 
 	m.logf("Snapshotting %s", a.Instance)
-	if err := run("snapshot", "create", a.Instance, snapshot); err != nil {
+	if err := m.Incus.CreateSnapshot(ctx, a.Instance, snapshot); err != nil {
 		return Base{}, err
 	}
-	defer func() { _, _ = m.Incus.Run(cleanup, "snapshot", "delete", a.Instance, snapshot) }()
+	defer func() { _ = m.Incus.DeleteSnapshot(cleanup, a.Instance, snapshot) }()
 
-	_, _ = m.Incus.Run(ctx, "delete", "--force", next) // left over by an interrupted save
+	_ = m.Incus.Delete(ctx, next) // left over by an interrupted save
 	m.logf("Copying the snapshot to %s", next)
-	if err := run("copy", a.Instance+"/"+snapshot, next); err != nil {
+	if err := m.Incus.Copy(ctx, a.Instance+"/"+snapshot, next); err != nil {
 		return Base{}, err
 	}
 	fail := func(err error) (Base, error) {
-		_, _ = m.Incus.Run(cleanup, "delete", "--force", next)
+		_ = m.Incus.Delete(cleanup, next)
 		return Base{}, fmt.Errorf("saving the base of %s: %w", a.Project, err)
 	}
 
@@ -104,7 +100,7 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 		if _, ok := copied.Devices[device]; !ok {
 			continue
 		}
-		if err := run("config", "device", "remove", next, device); err != nil {
+		if err := m.Incus.RemoveDevice(ctx, next, device); err != nil {
 			return fail(err)
 		}
 	}
@@ -117,37 +113,37 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 		if _, ok := copied.Config[key]; !ok {
 			continue
 		}
-		if err := run("config", "unset", next, key); err != nil {
+		if err := m.Incus.UnsetConfig(ctx, next, key); err != nil {
 			return fail(err)
 		}
 	}
 	// Nor does a base belong in the agent's cgroup: started with its
 	// raw.lxc, it would try to run in the very directory the agent runs in.
-	for _, args := range budgetSteps(next, false, copied.Config) {
-		if err := run(args...); err != nil {
+	for _, step := range budgetSteps(next, false, copied.Config) {
+		if err := step(ctx, m.Incus); err != nil {
 			return fail(err)
 		}
 	}
-	if err := run("start", next); err != nil {
+	if err := m.Incus.Start(ctx, next); err != nil {
 		return fail(err)
 	}
 	if _, err := m.Incus.WaitReady(ctx, next, readyTimeout); err != nil {
 		return fail(err)
 	}
 	m.logf("Removing the agent's own identity, logins and AI sessions from the copy")
-	if err := run("exec", next, "--", "sh", "-c", scrubScript(m.User.Name)); err != nil {
+	if _, err := m.Incus.Exec(ctx, next, "sh", "-c", scrubScript(m.User.Name)); err != nil {
 		return fail(err)
 	}
 	savedAt := time.Now().UTC().Truncate(time.Second)
-	if err := run("stop", next); err != nil {
+	if err := m.Incus.Stop(ctx, next); err != nil {
 		return fail(err)
 	}
-	if err := run("config", "set", next,
+	if err := m.Incus.SetConfig(ctx, next,
 		"user.agentbox.saved-from="+a.Ref(),
 		"user.agentbox.saved-at="+savedAt.Format(time.RFC3339)); err != nil {
 		return fail(err)
 	}
-	if err := run("snapshot", "create", next, projectBaseSnapshot); err != nil {
+	if err := m.Incus.CreateSnapshot(ctx, next, projectBaseSnapshot); err != nil {
 		return fail(err)
 	}
 
@@ -160,19 +156,19 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 	kept := false
 	if _, err := m.Incus.Instance(ctx, name); err == nil {
 		m.logf("Keeping the base this replaces as %s, so the save can be undone", previous)
-		_, _ = m.Incus.Run(ctx, "delete", "--force", previous) // the one from two saves ago
-		if err := run("rename", name, previous); err != nil {
+		_ = m.Incus.Delete(ctx, previous) // the one from two saves ago
+		if err := m.Incus.Rename(ctx, name, previous); err != nil {
 			return fail(err)
 		}
 		kept = true
 	} else if !errors.Is(err, incus.ErrNotFound) {
 		return fail(err)
 	}
-	if err := run("rename", next, name); err != nil {
+	if err := m.Incus.Rename(ctx, next, name); err != nil {
 		// The project would otherwise be left with no base at all, when a
 		// moment ago it had a working one under its own name.
 		if kept {
-			_, _ = m.Incus.Run(cleanup, "rename", previous, name)
+			_ = m.Incus.Rename(cleanup, previous, name)
 		}
 		return fail(err)
 	}
@@ -193,14 +189,14 @@ func (m *Manager) RevertBase(ctx context.Context, project string) (Base, error) 
 	}
 	if _, err := m.Incus.Instance(ctx, name); err == nil {
 		m.logf("Dropping the base saved from %s", project)
-		if _, err := m.Incus.Run(ctx, "delete", "--force", name); err != nil {
+		if err := m.Incus.Delete(ctx, name); err != nil {
 			return Base{}, err
 		}
 	} else if !errors.Is(err, incus.ErrNotFound) {
 		return Base{}, err
 	}
 	m.logf("Putting the base saved from %s back", was.SavedFrom)
-	if _, err := m.Incus.Run(ctx, "rename", previous, name); err != nil {
+	if err := m.Incus.Rename(ctx, previous, name); err != nil {
 		return Base{}, err
 	}
 	was.Instance = name
@@ -210,8 +206,8 @@ func (m *Manager) RevertBase(ctx context.Context, project string) (Base, error) 
 // RemoveBase deletes the project's base, and with it the one a save kept: new
 // agents start from the plain base image again.
 func (m *Manager) RemoveBase(ctx context.Context, project string) error {
-	_, _ = m.Incus.Run(ctx, "delete", "--force", PreviousBaseInstance(project))
-	_, err := m.Incus.Run(ctx, "delete", "--force", ProjectBaseInstance(project))
+	_ = m.Incus.Delete(ctx, PreviousBaseInstance(project))
+	err := m.Incus.Delete(ctx, ProjectBaseInstance(project))
 	if err != nil && strings.Contains(err.Error(), "not found") {
 		return fmt.Errorf("project %s has no saved base", project)
 	}
@@ -221,7 +217,7 @@ func (m *Manager) RemoveBase(ctx context.Context, project string) error {
 // RemovePreviousBase drops what a save kept, giving its disk back. The project
 // keeps the base it is on, and loses the one step back.
 func (m *Manager) RemovePreviousBase(ctx context.Context, project string) error {
-	_, err := m.Incus.Run(ctx, "delete", "--force", PreviousBaseInstance(project))
+	err := m.Incus.Delete(ctx, PreviousBaseInstance(project))
 	if err != nil && strings.Contains(err.Error(), "not found") {
 		return fmt.Errorf("project %s has no previous base", project)
 	}
