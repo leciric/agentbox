@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
@@ -84,9 +85,30 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request) error {
 		if _, err := ptmx.Write(data); err != nil {
 			break
 		}
+		// A keystroke, for "auto-stop idle agents": a viewer with nothing
+		// typed into it isn't reason enough on its own to keep an agent
+		// running, but somebody actually using the terminal is.
+		s.touchTerminal(a.Ref())
 	}
 	_ = conn.Close(websocket.StatusNormalClosure, "")
 	return nil
+}
+
+// touchTerminal and lastTerminalInput track the last time anyone typed into
+// an agent's terminal: in memory only, so a daemon restart forgets it, the
+// same as it forgets who is connected. "auto-stop idle agents"
+// (autostopidle.go) reads it as one of the things that count as activity.
+func (s *Server) touchTerminal(ref string) {
+	s.terminalMu.Lock()
+	defer s.terminalMu.Unlock()
+	s.terminalActivity[ref] = time.Now()
+}
+
+func (s *Server) lastTerminalInput(ref string) (time.Time, bool) {
+	s.terminalMu.Lock()
+	defer s.terminalMu.Unlock()
+	at, ok := s.terminalActivity[ref]
+	return at, ok
 }
 
 func queryUint16(r *http.Request, key string, fallback uint16) uint16 {

@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -20,6 +21,7 @@ func newLimitsCmd(a *app) *cobra.Command {
 	var cpu, memory, allowance string
 	var neverFreezeCPU string
 	var keepFreeCPU int
+	var autoStopIdle, idleTime string
 	cmd := &cobra.Command{
 		Use:   "limits [project/agent] [--cpu N] [--memory X] [--cpu-allowance P]",
 		Short: "Show or change what an agent's machine is capped at, or the host's own budget",
@@ -47,7 +49,14 @@ resumed, created or destroyed. An agent's own cap, above, is never raised
 past by this — it only ever holds the sum of them down further.
 
   --never-freeze-cpu   on or off (true or false)
-  --keep-free          how many cores stay outside every agent's cap; 1 by default`,
+  --keep-free          how many cores stay outside every agent's cap; 1 by default
+
+With no agent at all, --auto-stop-idle and --idle-time change "auto-stop idle
+agents" instead: the daemon stops a running or paused agent once it has gone
+--idle-time with nothing happening on it, keeping its worktree and branch.
+
+  --auto-stop-idle   on or off (true or false); off by default
+  --idle-time        how long an agent may go idle first, like 2h; 2h by default`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
@@ -56,7 +65,7 @@ past by this — it only ever holds the sum of them down further.
 			}
 			f := cmd.Flags()
 			if len(args) == 0 {
-				return runHostLimits(cmd, c, f, neverFreezeCPU, keepFreeCPU)
+				return runHostLimits(cmd, c, f, neverFreezeCPU, keepFreeCPU, autoStopIdle, idleTime)
 			}
 			if !f.Changed("cpu") && !f.Changed("memory") && !f.Changed("cpu-allowance") {
 				ag, err := c.Agent(cmd.Context(), args[0])
@@ -94,14 +103,16 @@ past by this — it only ever holds the sum of them down further.
 	f.StringVar(&allowance, "cpu-allowance", "", `the agent's share of the CPUs, like 50% or 25ms/100ms ("" for all of it)`)
 	f.StringVar(&neverFreezeCPU, "never-freeze-cpu", "", "turn the host's own CPU budget on or off (true or false)")
 	f.IntVar(&keepFreeCPU, "keep-free", -1, "how many cores the host's own budget keeps free (at least 0)")
+	f.StringVar(&autoStopIdle, "auto-stop-idle", "", "turn \"auto-stop idle agents\" on or off (true or false)")
+	f.StringVar(&idleTime, "idle-time", "", "how long an agent may go idle before it is stopped, like 2h")
 	return cmd
 }
 
 // runHostLimits is `agentbox limits` with no agent: the installation's own
 // "never freeze my CPU" budget, shown or changed the same no-flags-asks,
 // any-flag-sets way as one agent's.
-func runHostLimits(cmd *cobra.Command, c *api.Client, f *pflag.FlagSet, neverFreezeCPU string, keepFreeCPU int) error {
-	if f.Changed("never-freeze-cpu") || f.Changed("keep-free") {
+func runHostLimits(cmd *cobra.Command, c *api.Client, f *pflag.FlagSet, neverFreezeCPU string, keepFreeCPU int, autoStopIdle, idleTime string) error {
+	if f.Changed("never-freeze-cpu") || f.Changed("keep-free") || f.Changed("auto-stop-idle") || f.Changed("idle-time") {
 		var req api.UpdateSettingsRequest
 		if f.Changed("never-freeze-cpu") {
 			on, err := strconv.ParseBool(neverFreezeCPU)
@@ -115,6 +126,21 @@ func runHostLimits(cmd *cobra.Command, c *api.Client, f *pflag.FlagSet, neverFre
 				return fmt.Errorf("--keep-free is a whole number of cores, at least 0; %d isn't", keepFreeCPU)
 			}
 			req.KeepFreeCPU = &keepFreeCPU
+		}
+		if f.Changed("auto-stop-idle") {
+			on, err := strconv.ParseBool(autoStopIdle)
+			if err != nil {
+				return fmt.Errorf("--auto-stop-idle is true or false; %q isn't", autoStopIdle)
+			}
+			req.AutoStopIdle = &on
+		}
+		if f.Changed("idle-time") {
+			d, err := time.ParseDuration(idleTime)
+			if err != nil || d < 60*time.Second {
+				return fmt.Errorf("--idle-time is a duration of at least 60s, like 2h; %q isn't", idleTime)
+			}
+			secs := int(d / time.Second)
+			req.IdleTimeSeconds = &secs
 		}
 		settings, err := c.UpdateSettings(cmd.Context(), req)
 		if err != nil {
@@ -134,7 +160,14 @@ func printHostLimits(cmd *cobra.Command, settings api.Settings) error {
 	if settings.NeverFreezeCPU {
 		state = fmt.Sprintf("on, keeping %d core(s) free of this host's %d", settings.KeepFreeCPU, settings.HostCores)
 	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "never freeze my CPU: %s\n", state)
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "never freeze my CPU: %s\n", state); err != nil {
+		return err
+	}
+	idleState := "off"
+	if settings.AutoStopIdle {
+		idleState = fmt.Sprintf("on, stopping an agent idle for %s", time.Duration(settings.IdleTimeSeconds)*time.Second)
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "auto-stop idle agents: %s\n", idleState)
 	return err
 }
 

@@ -147,6 +147,25 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.IdleTimeSeconds != nil {
+		if *req.IdleTimeSeconds < 60 {
+			return fmt.Errorf("idle time is at least 60 seconds; %d isn't", *req.IdleTimeSeconds)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingIdleTime, strconv.Itoa(*req.IdleTimeSeconds)); err != nil {
+			return err
+		}
+	}
+	if req.AutoStopIdle != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingAutoStopIdle, *req.AutoStopIdle); err != nil {
+			return err
+		}
+	}
+	if req.AutoStopIdle != nil || req.IdleTimeSeconds != nil {
+		// Turning this on, or shortening the idle time, can make an agent idle
+		// now rather than at the next tick, so check right away instead of
+		// leaving it stuck until the next sweep.
+		go s.stopIdleAgents(s.background(), time.Now())
+	}
 	if req.UpdateCheck != nil {
 		if err := s.setUpdateCheck(r.Context(), *req.UpdateCheck); err != nil {
 			return err
@@ -374,6 +393,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	autoStopIdle, idleTime, err := s.store.AutoStopIdle(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
@@ -405,6 +428,9 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		NeverFreezeCPU: neverFreezeCPU,
 		KeepFreeCPU:    keepFreeCPU,
+
+		AutoStopIdle:    autoStopIdle,
+		IdleTimeSeconds: int(idleTime / time.Second),
 	}, nil
 }
 
