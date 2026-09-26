@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
+	"time"
 
 	"agentbox/internal/state"
 )
@@ -159,7 +162,8 @@ func (m *Manager) ApplyGPU(ctx context.Context, instance string, on bool, status
 
 // videoEncoder is the ffmpeg codec, and the extra arguments around it, for
 // recording a display: VAAPI or NVENC when the agent's own container has a
-// GPU device, libx264 (as before this feature) otherwise.
+// GPU device and usableEncoder finds it really encodes there, libx264 (as
+// before this feature) otherwise.
 type videoEncoder struct {
 	Codec  string // -c:v value
 	Input  string // extra args before -f x11grab, "" for none
@@ -189,6 +193,60 @@ func recordingEncoder(status GPUStatus, hasGPU bool) videoEncoder {
 	default:
 		return videoEncoder{Codec: "libx264"}
 	}
+}
+
+// encoderProbes caches probeEncoder's verdict, keyed by instance, codec and
+// hwaccel input: whether that hardware encoder really encodes in that agent.
+// A package variable rather than a Manager field, since the daemon makes a
+// Manager per request. An agent's GPU doesn't change under it, so a verdict
+// is kept for the daemon's lifetime; turning the setting off skips the probe
+// altogether, since recordingEncoder then picks libx264 on its own.
+var encoderProbes sync.Map
+
+// encoderProbeTimeout bounds the one-frame encode: a driver that hangs
+// counts as one that doesn't work, rather than holding up the recording.
+var encoderProbeTimeout = 15 * time.Second
+
+// usableEncoder is enc if it works in agent a, and libx264 if it doesn't.
+// Having the gpu device only says a render node or /dev/nvidia0 is there, not
+// that the agent's Mesa or NVIDIA userspace can encode on it (a render node
+// with no VAAPI driver, a GPU without an H.264 encoder, a driver version the
+// container's libraries don't match), so the first recording in each agent
+// encodes one frame with enc and remembers whether that worked.
+func (m *Manager) usableEncoder(ctx context.Context, a state.Agent, enc videoEncoder) videoEncoder {
+	software := videoEncoder{Codec: "libx264"}
+	if enc.Codec == software.Codec {
+		return enc
+	}
+	key := a.Instance + "\x00" + enc.Codec + "\x00" + enc.Input
+	works, known := encoderProbes.Load(key)
+	if !known {
+		probeCtx, cancel := context.WithTimeout(ctx, encoderProbeTimeout)
+		_, err := m.agentShell(probeCtx, a, encoderProbeScript(enc))
+		cancel()
+		if ctx.Err() != nil {
+			// The request went away, not the encoder: decide next time.
+			return software
+		}
+		if err != nil && m.Log != nil {
+			fmt.Fprintf(m.Log, "%s: %s doesn't work in this agent, recording with libx264: %v\n", a.Instance, enc.Codec, err)
+		}
+		works = err == nil
+		encoderProbes.Store(key, works)
+	}
+	if works.(bool) {
+		return enc
+	}
+	return software
+}
+
+// encoderProbeScript encodes one generated frame with enc, through the same
+// hwaccel input, filters and codec arguments startRecordingScript gives the
+// recording, and throws it away: it exits non-zero when that encoder can't
+// run in the agent.
+func encoderProbeScript(enc videoEncoder) string {
+	return fmt.Sprintf(`ffmpeg -hide_banner -loglevel error -nostdin %s-f lavfi -i color=size=256x256:rate=15 -frames:v 1 -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2%s' -c:v %s %s %s-f null -`,
+		enc.Input, enc.Filter, enc.Codec, enc.codecArgs(false), enc.pixelFormat())
 }
 
 // codecArgs is videoEncoder's quality/speed arguments for a recording: fast

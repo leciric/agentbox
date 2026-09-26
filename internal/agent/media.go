@@ -281,7 +281,7 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 		return RecordingStatus{}, err
 	}
 	_, hasGPU := devices[gpuDevice]
-	enc := recordingEncoder(HostGPU(), hasGPU)
+	enc := m.usableEncoder(ctx, a, recordingEncoder(HostGPU(), hasGPU))
 	script, err := startRecordingScript(st, enc)
 	if err != nil {
 		return RecordingStatus{}, err
