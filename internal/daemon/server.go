@@ -209,6 +209,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
+	loops.Go(func() { s.watchSharedBudget(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
@@ -289,6 +290,9 @@ func (s *Server) reconcile(ctx context.Context) {
 	}
 	m := s.manager(s.cfg.Log)
 	for _, a := range agents {
+		if err := m.LockAgentWorktree(ctx, a); err != nil {
+			s.logf("lock worktree for %s: %v", a.Ref(), err)
+		}
 		if a.IsLead() {
 			continue // no machine, so no in-agent API and nothing to bring up
 		}

@@ -34,6 +34,9 @@ export function ProjectSettings({ project }: { project: T.Project }) {
         <AutonomyToggle project={project} />
         <FinishNoticesPicker project={project} />
       </SettingsGroup>
+      <SettingsGroup title="Testing AgentBox itself" description="For a project whose agents work on AgentBox.">
+        <NestingToggle project={project} />
+      </SettingsGroup>
     </div>
   );
 }
@@ -308,6 +311,46 @@ function AutonomyToggle({ project }: { project: T.Project }) {
           checked={acts}
           disabled={save.isPending}
           onCheckedChange={(on) => save.mutate(on ? 'on' : 'ask')}
+        />
+      }
+    />
+  );
+}
+
+// NestingToggle turns nesting on for this project's agents: a real Incus
+// daemon of their own, inside their own container, for testing AgentBox
+// features that touch agent machines (limits, GPU, image builds) for real.
+// Off by default, and only offered once the base image is built with Incus,
+// since that's what it needs to nest.
+function NestingToggle({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup });
+  const hasIncus = setup.data?.image.components.incus === true;
+  const save = useMutation({
+    mutationFn: (nesting: boolean) => api.updateProject(project.name, { nesting }),
+    onSuccess: async (updated) => {
+      toast(updated.nesting ? `${updated.name}'s agents now run their own Incus` : `${updated.name}'s agents no longer run their own Incus`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Nesting: agents run their own Incus"
+      htmlFor="project-nesting"
+      description={
+        hasIncus || project.nesting
+          ? 'A new agent gets a real Incus daemon of its own, so it can test AgentBox features that touch agent machines. It costs isolation: the agent can make and run containers of its own.'
+          : 'Build the base image with Incus first: agentbox image build --incus.'
+      }
+      control={
+        <Switch
+          id="project-nesting"
+          data-project-nesting
+          checked={project.nesting}
+          disabled={save.isPending || (!hasIncus && !project.nesting)}
+          onCheckedChange={(on) => save.mutate(on)}
         />
       }
     />

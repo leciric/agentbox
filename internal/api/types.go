@@ -91,7 +91,12 @@ type Project struct {
 	Section string `json:"section"`
 	// Position is where the project sits in its list, from 1. Zero means
 	// nobody has placed it by hand: it comes after the placed ones, by name.
-	Position  int       `json:"position"`
+	Position int `json:"position"`
+	// Nesting is whether this project's agents run a real Incus daemon of
+	// their own, inside their own container, to test AgentBox features that
+	// touch agent machines for real. Off by default: it costs isolation, and
+	// needs the base image built with Incus.
+	Nesting   bool      `json:"nesting"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -218,6 +223,10 @@ type UpdateProjectRequest struct {
 	// ConsolidationModel is the model that distils them: "cheap", a model id,
 	// or "" for whatever the project's chat runs on.
 	ConsolidationModel *string `json:"consolidationModel,omitempty"`
+	// Nesting turns this project's agents' nesting on or off: a real Incus
+	// daemon of their own, inside their own container. It needs the base
+	// image built with Incus (Setup's image.components.incus).
+	Nesting *bool `json:"nesting,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -355,6 +364,52 @@ type Settings struct {
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
+	// SharedBudget is the shared agent budget: every agent's machine under
+	// one parent cgroup with one memory, swap and CPU budget between them.
+	SharedBudget SharedBudget `json:"sharedBudget"`
+}
+
+// SharedBudget is the shared agent budget's state: whether it is on, its
+// size, what this host would be suggested, and whether it can be on here at
+// all. Off unless it was turned on.
+type SharedBudget struct {
+	On bool `json:"on"`
+	// Memory, Swap and CPU are the budget: what was chosen, or Suggested
+	// where nothing was. Swap is "" on a host with no swap.
+	Memory string `json:"memory"`
+	Swap   string `json:"swap"`
+	CPU    int    `json:"cpu"`
+	// Chosen says whether any of the three was chosen, rather than all of
+	// them following Suggested.
+	Chosen bool `json:"chosen"`
+	// Suggested is what this host's memory, swap and cores come to, and
+	// Why says how, in one line.
+	Suggested SharedBudgetSize `json:"suggested"`
+	Why       string           `json:"why"`
+	// HostSwap and HostSwapKind ("zram", "disk" or "") are the host's swap.
+	HostSwap     int64  `json:"hostSwap"`
+	HostSwapKind string `json:"hostSwapKind"`
+	// Unsupported says why this machine can't have the budget at all — a VM
+	// on a Mac or on Windows, or no cgroup v2 — or is "" when it can.
+	Unsupported string `json:"unsupported,omitempty"`
+	// NotReady says what is missing before it can be turned on: the cgroup,
+	// which needs root once. "" when it's ready. SetupCommand runs that step
+	// from a terminal.
+	NotReady     string `json:"notReady,omitempty"`
+	SetupCommand string `json:"setupCommand"`
+	// Problem is why the budget, while on, isn't applied right now.
+	Problem string `json:"problem,omitempty"`
+	// Inside is how many running agents are in the budget, and Pending how
+	// many running agents are yet to move in, or out, when they restart.
+	Inside  int `json:"inside"`
+	Pending int `json:"pending"`
+}
+
+// SharedBudgetSize is a shared budget's size alone.
+type SharedBudgetSize struct {
+	Memory string `json:"memory"`
+	Swap   string `json:"swap"`
+	CPU    int    `json:"cpu"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -401,6 +456,14 @@ type UpdateSettingsRequest struct {
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
+	// SharedBudget turns the shared agent budget on or off. On is refused
+	// until its cgroup is set up (SharedBudget.NotReady).
+	SharedBudget *bool `json:"sharedBudget,omitempty"`
+	// SharedBudgetMemory, SharedBudgetSwap and SharedBudgetCPU size it; ""
+	// (or 0 cores) goes back to what this host is suggested.
+	SharedBudgetMemory *string `json:"sharedBudgetMemory,omitempty"`
+	SharedBudgetSwap   *string `json:"sharedBudgetSwap,omitempty"`
+	SharedBudgetCPU    *int    `json:"sharedBudgetCPU,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
@@ -1451,6 +1514,9 @@ type ImageComponents struct {
 	// DevCaches fills the Go, npm and Electron caches from AgentBox's own
 	// repository, for agents that work on AgentBox itself.
 	DevCaches bool `json:"devCaches"`
+	// Incus adds Incus itself, so a project that turns nesting on can run a
+	// real Incus daemon inside an agent's container.
+	Incus bool `json:"incus"`
 }
 
 // ImageBuild describes the base image build: the version it would produce, the
@@ -1490,6 +1556,7 @@ type BuildImageRequest struct {
 	Codex     *bool `json:"codex,omitempty"`
 	OpenCode  *bool `json:"opencode,omitempty"`
 	DevCaches *bool `json:"devCaches,omitempty"`
+	Incus     *bool `json:"incus,omitempty"`
 }
 
 const (

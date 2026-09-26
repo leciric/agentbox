@@ -19,6 +19,7 @@ export interface Project {
   consolidationModel: string;
   section: string;
   position: number;
+  nesting: boolean;
   createdAt: string;
 }
 
@@ -44,6 +45,7 @@ export interface UpdateProjectRequest {
   contextBudget?: number;
   consolidation?: number;
   consolidationModel?: string;
+  nesting?: boolean;
 }
 
 export interface Section {
@@ -110,6 +112,31 @@ export interface Settings {
   keepFreeCPU: number;
   autoStopIdle: boolean;
   idleTimeSeconds: number;
+  sharedBudget: SharedBudget;
+}
+
+export interface SharedBudget {
+  on: boolean;
+  memory: string;
+  swap: string;
+  cpu: number;
+  chosen: boolean;
+  suggested: SharedBudgetSize;
+  why: string;
+  hostSwap: number;
+  hostSwapKind: string;
+  unsupported?: string;
+  notReady?: string;
+  setupCommand: string;
+  problem?: string;
+  inside: number;
+  pending: number;
+}
+
+export interface SharedBudgetSize {
+  memory: string;
+  swap: string;
+  cpu: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -130,6 +157,10 @@ export interface UpdateSettingsRequest {
   keepFreeCPU?: number;
   autoStopIdle?: boolean;
   idleTimeSeconds?: number;
+  sharedBudget?: boolean;
+  sharedBudgetMemory?: string;
+  sharedBudgetSwap?: string;
+  sharedBudgetCPU?: number;
 }
 
 export interface Limits {
@@ -571,6 +602,7 @@ export interface ImageComponents {
   codex: boolean;
   opencode: boolean;
   devCaches: boolean;
+  incus: boolean;
 }
 
 export interface ImageBuild {
@@ -593,6 +625,7 @@ export interface BuildImageRequest {
   codex?: boolean;
   opencode?: boolean;
   devCaches?: boolean;
+  incus?: boolean;
 }
 
 export interface ClaudeTokenRequest {

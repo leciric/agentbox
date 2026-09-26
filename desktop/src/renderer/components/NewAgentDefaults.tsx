@@ -8,6 +8,7 @@ import { formatTokens } from '../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes } from '../lib/utils';
 import { JobProgress } from './JobProgress';
+import { Button } from './ui/button';
 import { ModelByName } from './ModelByName';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Field, Input } from './ui/input';
@@ -507,6 +508,135 @@ export function NeverFreezeCPU() {
           />
         </div>
       )}
+    </SettingRow>
+  );
+}
+
+// SharedBudget puts every agent's machine under one cgroup with one memory,
+// swap and CPU budget between them (internal/agent/budget.go), so an idle
+// agent's share goes to a busy one instead of sitting reserved. The daemon
+// suggests a size from this host's memory, cores and swap; the fields show
+// it until you change them, and "Use suggested" goes back to it. The cgroup
+// needs root once, so until it exists the switch stays off and the row says
+// what's missing, with a button that asks for your password through pkexec.
+// There is no row at all where the budget can't be: in a Mac's VM, in WSL,
+// or on a host without cgroup v2.
+export function SharedBudget() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const setup = useMutation({
+    mutationFn: () => window.agentbox.hostSetup.budget(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const b = settings.data?.sharedBudget;
+  if (!b || b.unsupported) return null;
+  const busy = save.isPending || settings.isPending;
+  const suggested = b.suggested;
+
+  return (
+    <SettingRow
+      label="Shared agent budget"
+      description="Puts every agent under one memory, swap and CPU budget, so what an idle agent isn't using goes to a busy one, while the host keeps the rest. Each agent's own limits still hold inside it. Agents already running move in when they restart."
+      control={
+        <Switch
+          data-shared-budget
+          aria-label="Shared agent budget"
+          disabled={busy || (!b.on && !!b.notReady)}
+          checked={b.on}
+          onCheckedChange={(sharedBudget) => save.mutate({ sharedBudget })}
+        />
+      }
+    >
+      <div className="grid gap-3">
+        <div className="grid items-start gap-4 sm:grid-cols-3">
+          <ResourceField
+            id="shared-budget-memory"
+            label="Memory"
+            placeholder={suggested.memory}
+            hint={`All agents together. Suggested: ${suggested.memory}.`}
+            value={b.memory}
+            disabled={busy}
+            onCommit={(sharedBudgetMemory) => save.mutate({ sharedBudgetMemory })}
+          />
+          {b.hostSwap > 0 && (
+            <ResourceField
+              id="shared-budget-swap"
+              label="Swap"
+              placeholder={suggested.swap}
+              hint={`Never 0: without swap, memory pressure stalls agents. Suggested: ${suggested.swap}.`}
+              value={b.swap}
+              disabled={busy}
+              onCommit={(sharedBudgetSwap) => save.mutate({ sharedBudgetSwap })}
+            />
+          )}
+          <ResourceField
+            id="shared-budget-cpu"
+            label="CPU cores"
+            placeholder={String(suggested.cpu)}
+            hint={`Shared by every agent. Suggested: ${suggested.cpu}.`}
+            value={String(b.cpu)}
+            disabled={busy}
+            onCommit={(value) => {
+              const n = value === '' ? 0 : Math.trunc(Number(value));
+              if (!Number.isFinite(n) || n < 0) {
+                toast.error('CPU cores is a whole number');
+                return;
+              }
+              save.mutate({ sharedBudgetCPU: n });
+            }}
+          />
+        </div>
+        <SettingNote>
+          <span data-shared-budget-why>{b.why}</span>
+          {b.chosen && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="text-secondary underline underline-offset-2 hover:text-primary disabled:opacity-50"
+                disabled={busy}
+                onClick={() => save.mutate({ sharedBudgetMemory: '', sharedBudgetSwap: '', sharedBudgetCPU: 0 })}
+              >
+                Use suggested
+              </button>
+            </>
+          )}
+        </SettingNote>
+        {b.on && !b.problem && (
+          <SettingNote>
+            {b.inside} running agent{b.inside === 1 ? ' is' : 's are'} inside it.
+            {b.pending > 0 && ` ${b.pending} more move${b.pending === 1 ? 's' : ''} in when ${b.pending === 1 ? 'it restarts' : 'they restart'}.`}
+          </SettingNote>
+        )}
+        {!b.on && b.pending > 0 && (
+          <SettingNote>
+            {b.pending} running agent{b.pending === 1 ? '' : 's'} leave{b.pending === 1 ? 's' : ''} it when {b.pending === 1 ? 'it restarts' : 'they restart'}.
+          </SettingNote>
+        )}
+        {(b.problem || b.notReady) && (
+          <div className="grid gap-2" data-shared-budget-setup>
+            <SettingNote tone={b.problem ? 'error' : 'warning'}>
+              <CircleAlert className="mr-1 inline size-3.5 align-[-2px]" />
+              {b.problem || `Before it can be turned on, ${b.notReady}`}
+            </SettingNote>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button size="sm" disabled={setup.isPending} onClick={() => setup.mutate()}>
+                {setup.isPending ? 'Setting up…' : 'Set up'}
+              </Button>
+              <span className="text-xs text-subtle">
+                or in a terminal: <code className="font-mono text-tertiary">{b.setupCommand}</code>
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
     </SettingRow>
   );
 }

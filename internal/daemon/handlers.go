@@ -49,7 +49,7 @@ func projectInfo(p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, CreatedAt: p.CreatedAt}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -322,6 +322,21 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		p.ConsolidationModel = model
 	}
+	if req.Nesting != nil {
+		if *req.Nesting {
+			components, err := s.imageComponents(r.Context())
+			if err != nil {
+				return err
+			}
+			if !components.Incus {
+				return fmt.Errorf("the base image has no Incus: build it with agentbox image build --incus before turning nesting on")
+			}
+		}
+		if err := s.store.SetProjectNesting(r.Context(), p.Name, *req.Nesting); err != nil {
+			return err
+		}
+		p.Nesting = *req.Nesting
+	}
 	return writeJSON(w, http.StatusOK, projectInfo(p))
 }
 
@@ -432,6 +447,7 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		VM:       hostos.InVM(),
 		Host:     hostos.Name(),
 		Notes:    projectNotes,
+		Nesting:  p.Nesting,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -1285,6 +1301,7 @@ func (s *Server) chooseImageComponents(ctx context.Context, req api.BuildImageRe
 		{req.Codex, &components.Codex, state.SettingImageCodex},
 		{req.OpenCode, &components.OpenCode, state.SettingImageOpenCode},
 		{req.DevCaches, &components.DevCaches, state.SettingImageDevCaches},
+		{req.Incus, &components.Incus, state.SettingImageIncus},
 	} {
 		if c.want == nil {
 			continue

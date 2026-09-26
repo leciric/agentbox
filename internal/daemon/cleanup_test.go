@@ -68,7 +68,7 @@ esac`)
 	add := func(name string, commit bool) state.Agent {
 		worktree := filepath.Join(t.TempDir(), name)
 		branch := "agentbox/" + name
-		if err := repo.AddWorktree(worktree, branch, "HEAD"); err != nil {
+		if err := repo.AddWorktree(worktree, branch, "HEAD", "test"); err != nil {
 			t.Fatal(err)
 		}
 		if commit {

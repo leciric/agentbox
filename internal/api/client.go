@@ -244,6 +244,14 @@ func (c *Client) SetRolloverThreshold(ctx context.Context, project string, perce
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{RolloverThreshold: &percent}, &out)
 }
 
+// SetNesting turns a project's agents' nesting on or off: a real Incus daemon
+// of their own, inside their own container. It needs the base image built
+// with Incus.
+func (c *Client) SetNesting(ctx context.Context, project string, on bool) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Nesting: &on}, &out)
+}
+
 // SetContextBudget sets how many estimated tokens one context built from a
 // project's memory may cost (D75).
 func (c *Client) SetContextBudget(ctx context.Context, project string, tokens int) (Project, error) {

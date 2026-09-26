@@ -6,7 +6,13 @@ import { Button } from './ui/button';
 import { Code } from './ui/card';
 
 // The flag that turns each optional component on, for the row that is off.
-const flags: Record<string, string> = { android: '--android', codex: '--codex', opencode: '--opencode', 'dev-caches': '--dev-caches' };
+const flags: Record<string, string> = {
+  android: '--android',
+  codex: '--codex',
+  opencode: '--opencode',
+  'dev-caches': '--dev-caches',
+  incus: '--incus',
+};
 // keys maps an option to its field in ImageComponents, where the names differ.
 const keys: Record<string, keyof T.ImageComponents> = { 'dev-caches': 'devCaches' };
 

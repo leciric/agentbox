@@ -262,6 +262,13 @@
     "hover": "[data-usage-view=project] [data-claude-meter]"
   },
   {
+    "id": "usage-meter-narrow-dark",
+    "description": "Same as usage-meter-dark, just above the md breakpoint where the meter first shows: its countdown still fits the top bar",
+    "query": "usage=1&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
     "id": "cpu-popover-fixtures-dark",
     "description": "The top bar's \"Host CPU\" popover open, against a CPU-capped agent, a plain one and a paused one — dark",
     "query": "meters=cpu&theme=dark",

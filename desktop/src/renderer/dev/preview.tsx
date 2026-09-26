@@ -193,7 +193,7 @@ if (usage) {
       { name: 'seven_day', label: 'Weekly', utilization: 0.41, resetsAt: resets(80) },
     ] },
     { account: 'work', default: false, at, status: 'allowed_warning', windows: [
-      { name: 'five_hour', label: '5-hour', utilization: 0.88, resetsAt: resets(1) },
+      { name: 'five_hour', label: '5-hour', utilization: 0.88, resetsAt: resets(0.8) },
       { name: 'seven_day', label: 'Weekly', utilization: 0.52, resetsAt: resets(40) },
     ] },
   ] satisfies T.ClaudeLimit[]);

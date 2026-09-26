@@ -357,6 +357,9 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	if err := m.checkImageTool(ctx, opts.AI); err != nil {
 		return state.Agent{}, err
 	}
+	if err := m.checkNesting(ctx, p); err != nil {
+		return state.Agent{}, err
+	}
 	ghAccount, err := m.GitHubAccountFor(p, opts.GitHubAccount)
 	if err != nil {
 		return state.Agent{}, err
@@ -449,6 +452,22 @@ func (m *Manager) project(ctx context.Context, name string) (state.Project, gitr
 	}
 	repo, err := gitrepo.Open(p.Root)
 	return p, repo, err
+}
+
+// LockAgentWorktree (re)locks a's worktree, so a `git worktree prune` run
+// elsewhere leaves its entry alone. The daemon calls this for every agent,
+// lead included, when it starts, in case a previous daemon or an older
+// AgentBox left worktrees unlocked. A worktree git no longer knows about —
+// removed, or pruned already — is left alone rather than failing.
+func (m *Manager) LockAgentWorktree(ctx context.Context, a state.Agent) error {
+	_, repo, err := m.project(ctx, a.Project)
+	if err != nil {
+		return err
+	}
+	if !repo.HasWorktree(a.Worktree) {
+		return nil
+	}
+	return repo.LockWorktree(a.Worktree, "agentbox: "+a.Ref())
 }
 
 // plan is everything build needs; Create and Fork fill it in differently.
@@ -544,7 +563,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 
 	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
-	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit); err != nil {
+	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 		return fail("worktree", err)
 	}
 	undo = append(undo, func() {
@@ -613,7 +632,8 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		[]string{"config", "device", "add", a.Instance, "worktree", "disk", "source=" + a.Worktree, "path=" + a.Worktree},
 		[]string{"config", "device", "add", a.Instance, "gitdir", "disk", "source=" + pl.repo.GitDir, "path=" + pl.repo.GitDir},
 	)
-	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config)...)
+	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config, m.budgetOn(ctx))...)
+	steps = append(steps, budgetSteps(a.Instance, m.budgetOn(ctx), copied.Config)...)
 	steps = append(steps, configuredCPUSteps(a.Instance, pl.limits.CPU, copied.Config)...)
 	steps = append(steps, []string{"start", a.Instance})
 	for _, args := range steps {
@@ -660,6 +680,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 	a.Status = state.AgentReady
 	m.EnsureBrowser(ctx, a)
+	m.EnsureNesting(ctx, a, pl.project)
 	return a, nil
 }
 
@@ -1132,6 +1153,10 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 	if err != nil {
 		return "", err
 	}
+	p, err := m.Store.Project(ctx, a.Project)
+	if err != nil {
+		return "", err
+	}
 	projectNotes, err := notes.Read(m.Paths.ProjectNotes(a.Project))
 	if err != nil {
 		return "", err
@@ -1163,6 +1188,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		VM:       hostos.InVM(),
 		Host:     hostos.Name(),
 		Notes:    projectNotes,
+		Nesting:  p.Nesting,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -1546,6 +1572,11 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 			return inst, err
 		}
 	default:
+		// A machine only changes cgroup when it starts: this is when an
+		// agent moves into the shared budget, or out of it.
+		if err := m.ensureBudgetPlacement(ctx, a.Instance); err != nil {
+			return inst, err
+		}
 		if _, err := m.Incus.Run(ctx, "start", a.Instance); err != nil {
 			return inst, err
 		}

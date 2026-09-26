@@ -29,6 +29,7 @@ import { contextHint, currentPlan, formatTokens, pendingPermissions, toolOf } fr
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { mentionAt, matchFiles, type MentionItem } from '../../lib/mentions';
 import { getDraft, setDraft } from '../../lib/drafts';
+import { useNow } from '../../lib/useNow';
 import { imageFiles, imageTypes, maxImages, prepareImage, previewUrl, type PendingImage } from '../../lib/chatImages';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
@@ -649,16 +650,6 @@ function CacheCard({
       </div>
     </Attached>
   );
-}
-
-// useNow is the time, again every interval.
-function useNow(interval: number): number {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), interval);
-    return () => clearInterval(id);
-  }, [interval]);
-  return now;
 }
 
 // formatSpan is a duration as "4min 30s", "1h 5min" or "12s".
