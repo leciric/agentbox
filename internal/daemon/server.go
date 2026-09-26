@@ -86,6 +86,11 @@ type Server struct {
 	// can't land in the middle of what it is checking.
 	firstSweeps sync.WaitGroup
 
+	// bgChecks tracks the background Claude account checks refreshClaudeTokens
+	// starts, so Run doesn't return - and a test doesn't tear its temp dir down
+	// - while one is still about to write its answer beside the token.
+	bgChecks sync.WaitGroup
+
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
 	leadAPIs     map[string]*http.Server // per-project lead API servers
@@ -191,6 +196,7 @@ func (s *Server) Run(ctx context.Context) error {
 	defer func() {
 		stop()
 		loops.Wait()
+		s.bgChecks.Wait()
 	}()
 	s.firstSweeps.Add(2)
 	loops.Go(func() { s.watch(ctx) })
