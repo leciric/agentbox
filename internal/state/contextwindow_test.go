@@ -35,10 +35,6 @@ func TestWhatASessionReportedOverridesTheGuess(t *testing.T) {
 	if err := store.RememberClaudeModelWindow(ctx, "something-new", 1_000_000, 200_000); err != nil {
 		t.Fatal(err)
 	}
-	// Reported by a session with no compact window, so it is opus's own.
-	if err := store.RememberClaudeModelWindow(ctx, "opus", 200_000, 0); err != nil {
-		t.Fatal(err)
-	}
 	w, err := store.ClaudeWindows(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -46,13 +42,39 @@ func TestWhatASessionReportedOverridesTheGuess(t *testing.T) {
 	if got := w.ContextWindows("something-new", 200_000); len(got) != 2 {
 		t.Errorf("a model seen at 1M offers %v, want both windows", got)
 	}
-	if got := w.ContextWindows("opus", 200_000); len(got) != 1 {
-		t.Errorf("an account whose opus reported 200k offers %v, want one window", got)
+}
+
+// A session started with no autoCompactWindow key at all doesn't run
+// uncapped: Claude Code falls back to its own default there, ClaudeShortWindow,
+// same as one that asked for it outright. Reporting exactly that size is still
+// a cap, not opus's own answer, and remembering it as one is how an account's
+// opus came to offer only 200k with no way back to 1M (D91).
+func TestNoCompactWindowStillMeansTheToolsOwnDefault(t *testing.T) {
+	ctx := context.Background()
+	store := openStore(t)
+	if err := store.RememberClaudeModelWindow(ctx, "opus", 200_000, 0); err != nil {
+		t.Fatal(err)
 	}
-	// And an "opus[1m]" stored on that account keeps its suffix, since it is
-	// the only way there to a long window.
-	if got := w.NormalizeClaudeModel("opus[1m]"); got != "opus[1m]" {
-		t.Errorf("NormalizeClaudeModel(opus[1m]) = %q where opus is short, want it kept", got)
+	w, err := store.ClaudeWindows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Seen) != 0 {
+		t.Errorf("remembered %v from an uncapped session reporting the tool's own default, want nothing", w.Seen)
+	}
+	if got := w.ContextWindows("opus", 200_000); len(got) != 2 {
+		t.Errorf("opus offers %v after that report, want both windows still", got)
+	}
+	// A report above the tool's own default can only be the model's own,
+	// uncapped or not.
+	if err := store.RememberClaudeModelWindow(ctx, "sonnet", 1_000_000, 0); err != nil {
+		t.Fatal(err)
+	}
+	if w, err = store.ClaudeWindows(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if w.Seen["sonnet"] != 1_000_000 {
+		t.Errorf("Seen[sonnet] = %d, want 1000000", w.Seen["sonnet"])
 	}
 }
 

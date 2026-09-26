@@ -511,6 +511,29 @@ var migrations = []string{
 		count   INTEGER NOT NULL,
 		PRIMARY KEY (day, feature)
 	) WITHOUT ROWID`,
+
+	// RememberClaudeModelWindow trusted a session started with no
+	// autoCompactWindow key at all as free to report the model's real window,
+	// when Claude Code actually falls back to its own default there
+	// (ClaudeShortWindow) same as it would with that default asked for
+	// outright. So an account whose opus or sonnet was only ever run that way
+	// still came in remembered at 200k, past the earlier migration above, which
+	// only forgot windows a compact window had explicitly capped. This forgets
+	// the same shape of entry for a model this build's own guess already calls
+	// 1M by name — a haiku entry under 1M is left alone, since that one really
+	// is its own answer.
+	`UPDATE settings SET value = (
+		SELECT COALESCE(json_group_object(w.key, w.value), '{}') FROM json_each(settings.value) AS w
+		WHERE NOT (
+			w.type = 'integer' AND w.value < 1000000 AND lower(w.key) NOT LIKE '%haiku%' AND (
+				w.key LIKE '%[1m]'
+				OR lower(w.key) IN ('opus', 'sonnet', 'default', 'best', 'opusplan')
+				OR lower(w.key) LIKE '%fable%'
+				OR lower(w.key) LIKE 'claude-opus-5%'
+				OR lower(w.key) LIKE 'claude-sonnet-5%'
+			)
+		)
+	) WHERE key = 'claude_model_windows' AND json_valid(value) AND json_type(value) = 'object'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
