@@ -141,7 +141,22 @@ const (
 	// machine. Made on the first check, so an installation that never checks
 	// never has one.
 	SettingInstallID = "install_id"
+	// SettingNeverFreezeCPU says whether the daemon keeps every running
+	// agent's limits.cpu adding up to at most the host's cores minus
+	// SettingKeepFreeCPU, so the sum of what agents are capped at can't starve
+	// the host the way an uncapped make -j on all of them would (D95). Off
+	// until somebody turns it on, so an installation that has never touched it
+	// keeps exactly the behaviour it had before this setting existed.
+	SettingNeverFreezeCPU = "never_freeze_cpu"
+	// SettingKeepFreeCPU is how many cores SettingNeverFreezeCPU keeps free
+	// for the host, as a count. Empty means DefaultKeepFreeCPU.
+	SettingKeepFreeCPU = "keep_free_cpu"
 )
+
+// DefaultKeepFreeCPU is how many cores SettingNeverFreezeCPU keeps free for
+// the host when nobody has chosen: one, enough for the desktop around the
+// agents to stay responsive without giving up much of what they can run on.
+const DefaultKeepFreeCPU = 1
 
 // DefaultMediaRetention is how long a removed agent's media is kept when
 // nobody chose: long enough to look at what it did the day after, short

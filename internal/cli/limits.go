@@ -2,8 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -12,11 +14,15 @@ import (
 // newLimitsCmd shows or changes what one agent's machine is capped at, the way
 // `agentbox autonomy` shows or changes a project's: no flags asks, any flag
 // sets. Incus applies all three to a running instance, so nothing restarts.
+// With no agent at all, it is the installation's "never freeze my CPU"
+// budget instead — every running agent's own cap, host-wide.
 func newLimitsCmd(a *app) *cobra.Command {
 	var cpu, memory, allowance string
+	var neverFreezeCPU string
+	var keepFreeCPU int
 	cmd := &cobra.Command{
-		Use:   "limits <project/agent> [--cpu N] [--memory X] [--cpu-allowance P]",
-		Short: "Show or change what an agent's machine is capped at",
+		Use:   "limits [project/agent] [--cpu N] [--memory X] [--cpu-allowance P]",
+		Short: "Show or change what an agent's machine is capped at, or the host's own budget",
 		Long: `Shows what an agent's machine is capped at, or changes it while the agent runs.
 
   --cpu             how many cores it gets, like 4. It sees exactly that many,
@@ -30,20 +36,32 @@ func newLimitsCmd(a *app) *cobra.Command {
                     a hard ceiling that counts even on an idle host.
 
 Pass "" to remove one: --memory "" gives the agent all the host's memory.
-New agents start at whatever the overview's "Resources for new agents" says.`,
-		Args: cobra.ExactArgs(1),
+New agents start at whatever the overview's "Resources for new agents" says.
+
+With no agent at all, this is "never freeze my CPU" instead: the setting
+that keeps every running agent's own cap adding up to at most the host's
+cores minus --keep-free, recomputed live as agents start, stop, are paused,
+resumed, created or destroyed. An agent's own cap, above, is never raised
+past by this — it only ever holds the sum of them down further.
+
+  --never-freeze-cpu   on or off (true or false)
+  --keep-free          how many cores stay outside every agent's cap; 1 by default`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
 			f := cmd.Flags()
+			if len(args) == 0 {
+				return runHostLimits(cmd, c, f, neverFreezeCPU, keepFreeCPU)
+			}
 			if !f.Changed("cpu") && !f.Changed("memory") && !f.Changed("cpu-allowance") {
 				ag, err := c.Agent(cmd.Context(), args[0])
 				if err != nil {
 					return err
 				}
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", ag.Ref, limitWords(ag.Limits))
+				printAgentLimits(cmd, ag)
 				return nil
 			}
 			var req api.UpdateAgentRequest
@@ -61,7 +79,7 @@ New agents start at whatever the overview's "Resources for new agents" says.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", ag.Ref, limitWords(ag.Limits))
+			printAgentLimits(cmd, ag)
 			if ag.State != "running" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "It is %s: the new limits apply when it starts.\n", ag.State)
 			}
@@ -72,7 +90,50 @@ New agents start at whatever the overview's "Resources for new agents" says.`,
 	f.StringVar(&cpu, "cpu", "", `how many cores the agent gets, like 4 ("" for every core)`)
 	f.StringVar(&memory, "memory", "", `how much memory the agent gets, like 8GiB ("" for all of it)`)
 	f.StringVar(&allowance, "cpu-allowance", "", `the agent's share of the CPUs, like 50% or 25ms/100ms ("" for all of it)`)
+	f.StringVar(&neverFreezeCPU, "never-freeze-cpu", "", "turn the host's own CPU budget on or off (true or false)")
+	f.IntVar(&keepFreeCPU, "keep-free", -1, "how many cores the host's own budget keeps free (at least 0)")
 	return cmd
+}
+
+// runHostLimits is `agentbox limits` with no agent: the installation's own
+// "never freeze my CPU" budget, shown or changed the same no-flags-asks,
+// any-flag-sets way as one agent's.
+func runHostLimits(cmd *cobra.Command, c *api.Client, f *pflag.FlagSet, neverFreezeCPU string, keepFreeCPU int) error {
+	if f.Changed("never-freeze-cpu") || f.Changed("keep-free") {
+		var req api.UpdateSettingsRequest
+		if f.Changed("never-freeze-cpu") {
+			on, err := strconv.ParseBool(neverFreezeCPU)
+			if err != nil {
+				return fmt.Errorf("--never-freeze-cpu is true or false; %q isn't", neverFreezeCPU)
+			}
+			req.NeverFreezeCPU = &on
+		}
+		if f.Changed("keep-free") {
+			if keepFreeCPU < 0 {
+				return fmt.Errorf("--keep-free is a whole number of cores, at least 0; %d isn't", keepFreeCPU)
+			}
+			req.KeepFreeCPU = &keepFreeCPU
+		}
+		settings, err := c.UpdateSettings(cmd.Context(), req)
+		if err != nil {
+			return err
+		}
+		return printHostLimits(cmd, settings)
+	}
+	settings, err := c.Settings(cmd.Context())
+	if err != nil {
+		return err
+	}
+	return printHostLimits(cmd, settings)
+}
+
+func printHostLimits(cmd *cobra.Command, settings api.Settings) error {
+	state := "off"
+	if settings.NeverFreezeCPU {
+		state = fmt.Sprintf("on, keeping %d core(s) free of this host's %d", settings.KeepFreeCPU, settings.HostCores)
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "never freeze my CPU: %s\n", state)
+	return err
 }
 
 // limitWords says what a set of limits means in one line. The wording is
@@ -80,4 +141,14 @@ New agents start at whatever the overview's "Resources for new agents" says.`,
 // message that refuses a memory limit all say it the same way.
 func limitWords(l api.Limits) string {
 	return agent.Limits{CPU: l.CPU, Allowance: l.Allowance, Memory: l.Memory}.Describe()
+}
+
+// printAgentLimits shows an agent's limits, and, when "never freeze my CPU"
+// is holding its CPU cap below what it was actually chosen to be, says so —
+// the choice, in ConfiguredCPU, is never what changed.
+func printAgentLimits(cmd *cobra.Command, ag api.Agent) {
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", ag.Ref, limitWords(ag.Limits))
+	if l := ag.Limits; l.ConfiguredCPU != "" && l.ConfiguredCPU != l.CPU {
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  held to %s cores by \"never freeze my CPU\": chosen at %s\n", l.CPU, l.ConfiguredCPU)
+	}
 }

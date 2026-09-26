@@ -103,6 +103,8 @@ export interface Settings {
   usageStats: boolean;
   mediaRetention: string;
   defaultClaudeCompactWindow: number;
+  neverFreezeCPU: boolean;
+  keepFreeCPU: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -119,12 +121,15 @@ export interface UpdateSettingsRequest {
   updateCheck?: boolean;
   usageStats?: boolean;
   mediaRetention?: string;
+  neverFreezeCPU?: boolean;
+  keepFreeCPU?: number;
 }
 
 export interface Limits {
   cpu: string;
   allowance: string;
   memory: string;
+  configuredCPU: string;
 }
 
 export interface Agent {

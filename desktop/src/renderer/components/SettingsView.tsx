@@ -39,6 +39,7 @@ import {
   DefaultContextWindow,
   DefaultModel,
   MediaRetention,
+  NeverFreezeCPU,
   NewAgentEffort,
   NewAgentResources,
   OpenCodeInImage,
@@ -851,6 +852,7 @@ function SettingsTabs({
               description="These apply to the agents you already have, as well as the next one."
             >
               <ResumeAfterLimit />
+              <NeverFreezeCPU />
               <CompactWindow />
               <MediaRetention />
             </SettingsGroup>

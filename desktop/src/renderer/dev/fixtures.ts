@@ -67,7 +67,7 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
     interface: 'claude',
     state: 'running',
     ip: '',
-    limits: { cpu: '2', allowance: '400%', memory: '4Gi' },
+    limits: { cpu: '2', allowance: '400%', memory: '4Gi', configuredCPU: '2' },
     createdAt: new Date().toISOString(),
     ...overrides,
   };
@@ -554,6 +554,8 @@ let defaultsSettings = {
   updateCheck: true,
   usageStats: true,
   defaultClaudeCompactWindow: 200_000,
+  neverFreezeCPU: false,
+  keepFreeCPU: 1,
 } as T.Settings;
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
@@ -563,6 +565,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
   if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
+  if (req.neverFreezeCPU !== undefined) next.neverFreezeCPU = req.neverFreezeCPU;
+  if (req.keepFreeCPU !== undefined) next.keepFreeCPU = req.keepFreeCPU;
   for (const [model, win] of [
     [next.defaultClaudeModel || 'opus', next.defaultAgentContextWindow],
     [next.defaultLeadModel || 'default', next.defaultLeadContextWindow],

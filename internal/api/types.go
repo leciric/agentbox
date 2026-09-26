@@ -327,6 +327,14 @@ type Settings struct {
 	// DefaultClaudeCompactWindow is what ClaudeCompactWindow is when nobody
 	// chose, so a client can offer to go back to it.
 	DefaultClaudeCompactWindow int64 `json:"defaultClaudeCompactWindow"`
+	// NeverFreezeCPU and KeepFreeCPU are "never freeze my CPU" (D95): while
+	// on, the daemon keeps every running agent's limits.cpu adding up to at
+	// most HostCores minus KeepFreeCPU, recomputed live as agents start,
+	// stop, are paused, resumed, created or destroyed. Off unless it was
+	// turned on.
+	NeverFreezeCPU bool `json:"neverFreezeCPU"`
+	// KeepFreeCPU is how many cores are kept free for the host; DefaultKeepFreeCPU when nobody chose.
+	KeepFreeCPU int `json:"keepFreeCPU"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -364,6 +372,10 @@ type UpdateSettingsRequest struct {
 	UsageStats *bool `json:"usageStats,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
+	// NeverFreezeCPU turns "never freeze my CPU" on or off.
+	NeverFreezeCPU *bool `json:"neverFreezeCPU,omitempty"`
+	// KeepFreeCPU is how many cores NeverFreezeCPU keeps free, at least 0.
+	KeepFreeCPU *int `json:"keepFreeCPU,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
@@ -382,6 +394,11 @@ type Limits struct {
 	CPU       string `json:"cpu"`       // cores, as a count like "4"
 	Allowance string `json:"allowance"` // a share of the CPUs: "50%", or "25ms/100ms"
 	Memory    string `json:"memory"`    // a ceiling, like "8GiB"
+	// ConfiguredCPU is what CPU was actually chosen — CPU itself, unless
+	// "never freeze my CPU" (Settings.NeverFreezeCPU) is holding it below
+	// that to keep the host from being starved. Equal to CPU whenever that
+	// isn't happening.
+	ConfiguredCPU string `json:"configuredCPU"`
 }
 
 type Agent struct {

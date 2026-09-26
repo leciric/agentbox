@@ -69,6 +69,11 @@ func renderTop(w io.Writer, u api.Usage) error {
 		ofLimit := "-" // uncapped: there is no limit to be a fraction of
 		if a.Limits.CPU != "" && a.Cores > 0 {
 			ofLimit = fmt.Sprintf("%.0f%% of %s cores", a.CPU/a.Cores, a.Limits.CPU)
+			// "Never freeze my CPU" holding it below what it was chosen to be
+			// is the fact worth a glance here, not the number alone.
+			if a.Limits.ConfiguredCPU != "" && a.Limits.ConfiguredCPU != a.Limits.CPU {
+				ofLimit += fmt.Sprintf(" (chosen: %s)", a.Limits.ConfiguredCPU)
+			}
 		}
 		ofHost := "-"
 		if host.Cores > 0 {

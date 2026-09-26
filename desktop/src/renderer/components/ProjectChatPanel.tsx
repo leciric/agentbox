@@ -28,7 +28,7 @@ export function leadAgentFrom(project: T.Project, info: T.ProjectChat): T.Agent 
     // conversation can run at all, and a project's chat always can.
     state: 'running',
     ip: '',
-    limits: { cpu: '', allowance: '', memory: '' }, // no machine to cap
+    limits: { cpu: '', allowance: '', memory: '', configuredCPU: '' }, // no machine to cap
     createdAt: project.createdAt,
   };
 }
