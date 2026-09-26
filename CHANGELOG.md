@@ -20,6 +20,12 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 
 ### Fixed
 
+- **`git@github.com:` remotes work again inside an agent.** An agent's shell, chat and terminal share
+  one GitHub token, but git itself never used it: an SSH remote failed to fetch or push, since agents
+  get no SSH key. Attaching a GitHub account now also configures the agent's `~/.gitconfig` with a
+  credential helper for the token and rewrites `git@github.com:`/`ssh://git@github.com/` remotes to
+  HTTPS — kept current at create, start and whenever the account changes, and removed again once the
+  agent has none.
 - **Agent worktrees no longer disappear when another agent runs `git worktree prune`.** Each
   agent's worktree, and the lead's, is now locked when it's created and relocked when the daemon
   starts, so `git worktree prune` run inside one agent's machine — where every other agent's

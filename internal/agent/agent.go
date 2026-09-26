@@ -866,9 +866,11 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	}
 	var files []file
 
-	if name, email := gitIdentity(); name != "" && email != "" {
-		files = append(files, file{home + "/.gitconfig", fmt.Sprintf("[user]\n\tname = %s\n\temail = %s\n", gitQuote(name), gitQuote(email)), 0o644})
+	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
+	if err != nil {
+		return err
 	}
+	files = append(files, file{home + "/.gitconfig", gitConfig(gh != ""), 0o644})
 
 	env, err := m.agentEnv(a)
 	if err != nil {
@@ -1257,6 +1259,31 @@ func (m *Manager) writeAgentEnvIfRunning(ctx context.Context, a state.Agent) err
 	return m.writeAgentEnv(ctx, a)
 }
 
+// writeGitConfig writes an agent's ~/.gitconfig fresh, from its current
+// GitHub account: see gitConfig.
+func (m *Manager) writeGitConfig(ctx context.Context, a state.Agent) error {
+	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
+	if err != nil {
+		return err
+	}
+	home := "/home/" + m.User.Name
+	return m.Incus.WriteFile(ctx, a.Instance, home+"/.gitconfig", []byte(gitConfig(gh != "")), m.User.UID, m.User.GID, 0o644)
+}
+
+// writeGitConfigIfRunning writes an agent's .gitconfig when its machine is
+// up, the same way writeAgentEnvIfRunning does for its env file: a stopped or
+// paused agent gets it fresh when Start next configures it.
+func (m *Manager) writeGitConfigIfRunning(ctx context.Context, a state.Agent) error {
+	inst, err := m.Incus.Instance(ctx, a.Instance)
+	if err != nil {
+		return err
+	}
+	if inst.Status != "Running" {
+		return nil
+	}
+	return m.writeGitConfig(ctx, a)
+}
+
 // RewriteAgentEnv writes every ready agent's env file again, so a credential
 // you started or stopped sharing reaches the agents that already exist. Their
 // AI tool and shells pick it up the next time they start. Agents whose machine
@@ -1407,6 +1434,9 @@ func (m *Manager) SetGitHubAccount(ctx context.Context, a state.Agent, account s
 	}
 	a.GitHubAccount = name
 	if err := m.writeAgentEnvIfRunning(ctx, a); err != nil {
+		return a, err
+	}
+	if err := m.writeGitConfigIfRunning(ctx, a); err != nil {
 		return a, err
 	}
 	if err := m.Store.SetAgentGitHubAccount(ctx, a.Project, a.Name, name); err != nil {
@@ -1571,6 +1601,11 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	// paused couldn't be written in then, so it's written fresh now, before
 	// anything inside reads it.
 	if err := m.writeAgentEnv(ctx, a); err != nil {
+		return inst, err
+	}
+	// Same for .gitconfig: an account change while it was down couldn't write
+	// the credential helper in either.
+	if err := m.writeGitConfig(ctx, a); err != nil {
 		return inst, err
 	}
 	// The same for the project's notes, which may have changed while the
@@ -1831,6 +1866,30 @@ func gitIdentity() (name, email string) {
 		return strings.TrimSpace(string(out))
 	}
 	return get("user.name"), get("user.email")
+}
+
+// gitConfig builds an agent's ~/.gitconfig: its git identity, copied from the
+// host's own, and, when it has a GitHub account, what `gh auth setup-git`
+// would set up itself — a credential helper that resolves GH_TOKEN, and
+// rewriting git@github.com: and ssh://git@github.com/ remotes to HTTPS, since
+// an agent gets a token but never an SSH key. It's written whole every time
+// (configure, Start, SetGitHubAccount) so losing the account removes this
+// config again rather than leaving it stale.
+func gitConfig(hasGitHub bool) string {
+	var b strings.Builder
+	if name, email := gitIdentity(); name != "" && email != "" {
+		fmt.Fprintf(&b, "[user]\n\tname = %s\n\temail = %s\n", gitQuote(name), gitQuote(email))
+	}
+	if hasGitHub {
+		b.WriteString(`[credential "https://github.com"]
+	helper =
+	helper = !gh auth git-credential
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
+`)
+	}
+	return b.String()
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
