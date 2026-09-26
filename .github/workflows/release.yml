@@ -21,11 +21,29 @@ name: Release
 # opens and updates it with GITHUB_TOKEN too, whose own pushes don't trigger
 # workflows either: close it and reopen it (no need to touch its branch) to
 # get a CI run on it before merging.
+#
+# A draft release (D95's "draft": true) doesn't get its tag created until
+# it's published — GitHub's own "lazy tag creation" — so the config also sets
+# "force-tag-creation": true, and release-please tags the merge commit itself
+# as part of drafting the release. If a run's builds still fail after that (or
+# release-please's own step didn't get to run, as on 0.6.0), workflow_dispatch
+# with a `tag` input re-runs the same build and publish jobs against that
+# draft's existing tag, creating it at the draft's target commit first if it's
+# somehow still missing.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing draft release to build and publish (e.g. v0.6.0)'
+        required: true
+        type: string
 
+# The repository's default GITHUB_TOKEN is read-only: release-please needs to
+# open its PR and draft the release, and the jobs below push the tag, upload
+# the files and publish.
 permissions:
   contents: write
   pull-requests: write
@@ -37,10 +55,11 @@ concurrency:
 jobs:
   release-please:
     name: release-please
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     outputs:
-      release_created: ${{ steps.release.outputs['.--release_created'] }}
-      tag_name: ${{ steps.release.outputs['.--tag_name'] }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -48,21 +67,65 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # Whichever trigger this run is: on a push, release-please's own outputs; on
+  # a manual dispatch, the draft release named by the `tag` input, tagging it
+  # at its target commit first if release-please's "force-tag-creation"
+  # somehow didn't (a draft made before that setting landed, say). This is
+  # what every job below reads, instead of release-please's directly, so they
+  # don't need to know which trigger started them.
+  release:
+    name: Resolve the release to build
+    needs: release-please
+    if: always()
+    runs-on: ubuntu-24.04
+    outputs:
+      release_created: ${{ steps.resolve.outputs.release_created }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DISPATCH_TAG: ${{ inputs.tag }}
+      PUSH_RELEASE_CREATED: ${{ needs.release-please.outputs.release_created }}
+      PUSH_TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve
+        id: resolve
+        run: |
+          if [ -n "$DISPATCH_TAG" ]; then
+            tag="$DISPATCH_TAG"
+            is_draft=$(gh release view "$tag" --json isDraft --jq '.isDraft')
+            if [ "$is_draft" != "true" ]; then
+              echo "::error::$tag is not a draft release"
+              exit 1
+            fi
+            if ! git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+              target=$(gh release view "$tag" --json targetCommitish --jq '.targetCommitish')
+              git tag "$tag" "$target"
+              git push origin "$tag"
+            fi
+            echo "release_created=true" >>"$GITHUB_OUTPUT"
+            echo "tag_name=$tag" >>"$GITHUB_OUTPUT"
+          else
+            echo "release_created=$PUSH_RELEASE_CREATED" >>"$GITHUB_OUTPUT"
+            echo "tag_name=$PUSH_TAG_NAME" >>"$GITHUB_OUTPUT"
+          fi
+
   # A quick sanity check before the build jobs below spend minutes each:
-  # the tag release-please made is there, its release is still a draft, and
-  # the checkout is clean.
+  # the tag to build is there, its release is still a draft, and the
+  # checkout is clean.
   checks:
     name: Checks
-    needs: release-please
-    if: needs.release-please.outputs.release_created
+    needs: release
+    if: needs.release.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name }}
+      TAG: ${{ needs.release.outputs.tag_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release.outputs.tag_name }}
 
       - uses: jdx/mise-action@v4
         with:
@@ -76,14 +139,14 @@ jobs:
   # don't need to wait on the Mac job.
   linux:
     name: Linux build
-    needs: [release-please, checks]
+    needs: [release, checks]
     runs-on: ubuntu-24.04
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name }}
+      TAG: ${{ needs.release.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release.outputs.tag_name }}
 
       - uses: jdx/mise-action@v4
         with:
@@ -121,7 +184,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: linux
-          path: desktop/dist/release/${{ needs.release-please.outputs.tag_name }}/
+          path: desktop/dist/release/${{ needs.release.outputs.tag_name }}/
           if-no-files-found: error
 
   # The Windows installer and portable .exe. electron-builder makes these on
@@ -129,14 +192,14 @@ jobs:
   # which the Linux job above no longer has to install.
   windows:
     name: Windows build
-    needs: [release-please, checks]
+    needs: [release, checks]
     runs-on: ubuntu-24.04
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name }}
+      TAG: ${{ needs.release.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release.outputs.tag_name }}
 
       - uses: jdx/mise-action@v4
         with:
@@ -178,7 +241,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: windows
-          path: desktop/dist/release/${{ needs.release-please.outputs.tag_name }}/
+          path: desktop/dist/release/${{ needs.release.outputs.tag_name }}/
           if-no-files-found: error
 
   # The Mac app, built on a Mac (electron-builder makes .dmg files only there),
@@ -189,7 +252,7 @@ jobs:
   # doesn't even launch on Apple silicon.
   macos:
     name: Mac app
-    needs: [release-please, checks]
+    needs: [release, checks]
     runs-on: macos-15
     env:
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
@@ -200,7 +263,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release.outputs.tag_name }}
 
       - uses: jdx/mise-action@v4
         with:
@@ -241,21 +304,21 @@ jobs:
   # this workflow gets all three green.
   publish:
     name: Publish
-    needs: [release-please, linux, windows, macos]
+    needs: [release, linux, windows, macos]
     if: >-
       always() &&
-      needs.release-please.outputs.release_created &&
+      needs.release.outputs.release_created == 'true' &&
       needs.linux.result == 'success' &&
       needs.windows.result == 'success' &&
       (needs.macos.result == 'success' || needs.macos.result == 'skipped')
     runs-on: ubuntu-24.04
     env:
-      TAG: ${{ needs.release-please.outputs.tag_name }}
+      TAG: ${{ needs.release.outputs.tag_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.release.outputs.tag_name }}
 
       - uses: actions/download-artifact@v8
         with:
