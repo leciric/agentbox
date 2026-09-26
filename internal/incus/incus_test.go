@@ -313,6 +313,31 @@ func TestPoolSpacePropagatesTheCommandError(t *testing.T) {
 	}
 }
 
+func TestPoolDriverParsesTheDriver(t *testing.T) {
+	c := fakeIncus(t, `echo '{"driver": "btrfs"}'`)
+	driver, err := c.PoolDriver(context.Background(), "default")
+	if err != nil {
+		t.Fatalf("PoolDriver() error = %v", err)
+	}
+	if driver != "btrfs" {
+		t.Errorf("PoolDriver() = %q, want %q", driver, "btrfs")
+	}
+}
+
+func TestPoolDriverFailsOnMalformedJSON(t *testing.T) {
+	c := fakeIncus(t, `echo 'not json'`)
+	if _, err := c.PoolDriver(context.Background(), "default"); err == nil {
+		t.Error("PoolDriver() error = nil, want a parse error for malformed JSON")
+	}
+}
+
+func TestPoolDriverPropagatesTheCommandError(t *testing.T) {
+	c := fakeIncus(t, `echo "Error: pool not found" >&2; exit 1`)
+	if _, err := c.PoolDriver(context.Background(), "gone"); err == nil || !strings.Contains(err.Error(), "pool not found") {
+		t.Errorf("PoolDriver() error = %v, want it to carry incus' own message", err)
+	}
+}
+
 func TestVolumeUsageParsesUsedBytes(t *testing.T) {
 	c := fakeIncus(t, `echo '{"usage": {"used": 123456}}'`)
 	used, err := c.VolumeUsage(context.Background(), "default", "agent-01")
