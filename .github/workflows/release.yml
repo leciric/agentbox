@@ -41,6 +41,17 @@ on:
         required: true
         type: string
 
+# The repository's default GITHUB_TOKEN is read-only: release-please needs to
+# open its PR and draft the release, and the jobs below push the tag, upload
+# the files and publish.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release-please:
     name: release-please
@@ -106,7 +117,7 @@ jobs:
   checks:
     name: Checks
     needs: release
-    if: needs.release.outputs.release_created
+    if: needs.release.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
@@ -296,7 +307,7 @@ jobs:
     needs: [release, linux, windows, macos]
     if: >-
       always() &&
-      needs.release.outputs.release_created &&
+      needs.release.outputs.release_created == 'true' &&
       needs.linux.result == 'success' &&
       needs.windows.result == 'success' &&
       (needs.macos.result == 'success' || needs.macos.result == 'skipped')
