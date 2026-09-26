@@ -46,6 +46,7 @@ import {
   NewAgentResources,
   OpenCodeInImage,
   ResumeAfterLimit,
+  SharedBudget,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -856,6 +857,7 @@ function SettingsTabs({
             >
               <ResumeAfterLimit />
               <NeverFreezeCPU />
+              <SharedBudget />
               <AutoStopIdle />
               <CompactWindow />
               <MediaRetention />
