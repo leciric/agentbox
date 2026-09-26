@@ -238,5 +238,21 @@
     "width": 1280,
     "height": 900,
     "hover": "[data-usage-view=project] [data-claude-meter]"
+  },
+  {
+    "id": "cpu-popover-fixtures-dark",
+    "description": "The top bar's \"Host CPU\" popover open, against a CPU-capped agent, a plain one and a paused one — dark",
+    "query": "meters=cpu&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[aria-label^=\"Host CPU\"]"
+  },
+  {
+    "id": "memory-popover-fixtures-dark",
+    "description": "The top bar's \"Host memory\" popover open, against a paused agent still holding swap in zram, and two running ones — dark",
+    "query": "meters=memory&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[aria-label^=\"Host memory\"]"
   }
 ]

@@ -654,6 +654,64 @@ type DiskUsage struct {
 	Categories []DiskUsageCategory `json:"categories"`
 }
 
+// MemoryUsageAgent is one agent's share of the host's memory: what its own
+// cgroup holds, running or paused — a paused agent still holds every page it
+// had.
+type MemoryUsageAgent struct {
+	Ref    string `json:"ref"`
+	Title  string `json:"title,omitempty"`
+	State  string `json:"state"`
+	Memory int64  `json:"memory"`
+	Swap   int64  `json:"swap"`
+	Limit  int64  `json:"limit"` // 0 is no limit
+}
+
+// ZramUsage is what a host's zram swap devices report: SwapBytes is the
+// logical swap they hold, and RealBytes is what that actually costs in RAM
+// once compressed.
+type ZramUsage struct {
+	SwapBytes int64 `json:"swapBytes"`
+	RealBytes int64 `json:"realBytes"`
+}
+
+// MemoryUsage is the host's memory, broken down the way the "Host memory"
+// popover shows it: every agent, largest first, and what's left once they're
+// accounted for. Computed when the popover opens, not kept warm on a poll.
+type MemoryUsage struct {
+	HostTotal  int64              `json:"hostTotal"`
+	AgentsUsed int64              `json:"agentsUsed"`
+	OtherUsed  int64              `json:"otherUsed"`
+	SwapTotal  int64              `json:"swapTotal"`
+	SwapUsed   int64              `json:"swapUsed"`
+	AgentsSwap int64              `json:"agentsSwap"`
+	Zram       *ZramUsage         `json:"zram,omitempty"`
+	Agents     []MemoryUsageAgent `json:"agents"`
+}
+
+// CPUUsageAgent is one agent's share of the host's CPU: its current use, and
+// the cores it's carved out of — ConfiguredCores is what was chosen,
+// EffectiveCores what actually applies right now, which "never freeze my
+// CPU" may hold below it when the host is busy.
+type CPUUsageAgent struct {
+	Ref             string  `json:"ref"`
+	Title           string  `json:"title,omitempty"`
+	State           string  `json:"state"`
+	CPU             float64 `json:"cpu"`
+	ConfiguredCores string  `json:"configuredCores,omitempty"`
+	EffectiveCores  string  `json:"effectiveCores,omitempty"`
+}
+
+// CPUUsage is the host's CPU, broken down the way the "Host CPU" popover
+// shows it: every agent, largest first, and what the host itself is using
+// outside them. Sampled over an interval when the popover opens, the same as
+// Usage.
+type CPUUsage struct {
+	HostCPU   float64         `json:"hostCPU"`
+	HostCores int             `json:"hostCores"`
+	OtherCPU  float64         `json:"otherCPU"`
+	Agents    []CPUUsageAgent `json:"agents"`
+}
+
 // ClaudeAccount is one stored Claude Code login agents can be given.
 type ClaudeAccount struct {
 	Name    string `json:"name"`
