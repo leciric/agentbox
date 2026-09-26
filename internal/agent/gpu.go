@@ -229,7 +229,7 @@ func (m *Manager) usableEncoder(ctx context.Context, a state.Agent, enc videoEnc
 			return software
 		}
 		if err != nil && m.Log != nil {
-			fmt.Fprintf(m.Log, "%s: %s doesn't work in this agent, recording with libx264: %v\n", a.Instance, enc.Codec, err)
+			_, _ = fmt.Fprintf(m.Log, "%s: %s doesn't work in this agent, recording with libx264: %v\n", a.Instance, enc.Codec, err)
 		}
 		works = err == nil
 		encoderProbes.Store(key, works)
