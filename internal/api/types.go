@@ -189,6 +189,12 @@ type UpdateProjectRequest struct {
 	// account, as it is after ClaudeAccount is applied.
 	ClaudeAccounts *[]string `json:"claudeAccounts,omitempty"`
 	GitHubAccount  *string   `json:"githubAccount,omitempty"` // "" goes back to the machine's default
+	// MoveClaudeAgents, alongside ClaudeAccount, also moves the project's
+	// agents still on the account it replaces to the new one; ignored without
+	// ClaudeAccount, and when there's nothing on the old account to move.
+	MoveClaudeAgents bool `json:"moveClaudeAgents,omitempty"`
+	// MoveGitHubAgents is MoveClaudeAgents for GitHubAccount.
+	MoveGitHubAgents bool `json:"moveGitHubAgents,omitempty"`
 	// Autonomy is how much the project's chat does on its own: ask or on.
 	Autonomy *string `json:"autonomy,omitempty"`
 	// AgentModel is the model the project's new agents are created on: "" to

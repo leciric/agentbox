@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -181,6 +182,44 @@ func TestGitHubAccountCmd(t *testing.T) {
 	}
 }
 
+func TestGitHubAccountMoveAgentsFlag(t *testing.T) {
+	home := isolate(t)
+	startDaemon(t)
+	repo := testutil.FixtureRepo(t, "hello-stack")
+	if _, err := run(t, "", "add", repo); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".config", "agentbox", "credentials", "github")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{"work", "other"} {
+		if err := os.WriteFile(filepath.Join(dir, account+".token"), []byte("gho_"+account+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// --move-agents belongs to a project, not to one agent's own account.
+	if _, err := run(t, "", "github-account", "hello-stack/agent-01", "work", "--move-agents"); err == nil ||
+		!strings.Contains(err.Error(), "moves a project's agents, not one agent's own account") {
+		t.Errorf("github-account --move-agents on an agent: got %v", err)
+	}
+
+	// With nobody on the old account, --move-agents still answers without a prompt.
+	out, err := run(t, "", "github-account", "hello-stack", "work", "--move-agents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "move to the new one")
+
+	// Without the flag and nobody left on the old account, no prompt blocks this.
+	out, err = run(t, "", "github-account", "hello-stack", "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "keep the account they were created with")
+}
+
 func TestClaudeAccountAllowFlags(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
@@ -222,6 +261,40 @@ func TestClaudeAccountAllowFlags(t *testing.T) {
 		!strings.Contains(err.Error(), "no Claude Code account at all") {
 		t.Errorf("claude-account --allow-remove emptying the list: got %v", err)
 	}
+}
+
+func TestClaudeAccountMoveAgentsFlag(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	repo := testutil.FixtureRepo(t, "hello-stack")
+	if _, err := run(t, "", "add", repo); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{"work", "personal"} {
+		if _, err := run(t, "sk-ant-oat01-"+account+"\n", "auth", "claude", "--token-stdin", "--account", account); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// --move-agents belongs to a project, not to one agent's own account.
+	if _, err := run(t, "", "claude-account", "hello-stack/agent-01", "work", "--move-agents"); err == nil ||
+		!strings.Contains(err.Error(), "moves a project's agents, not one agent's own account") {
+		t.Errorf("claude-account --move-agents on an agent: got %v", err)
+	}
+
+	// With nobody on the old account, --move-agents still answers without a prompt.
+	out, err := run(t, "", "claude-account", "hello-stack", "work", "--move-agents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "move to the new one")
+
+	// Without the flag and nobody left on the old account, no prompt blocks this.
+	out, err = run(t, "", "claude-account", "hello-stack", "personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "keep the account they were created with")
 }
 
 func TestQuestionsAutonomyAndAnswer(t *testing.T) {
