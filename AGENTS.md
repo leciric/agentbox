@@ -181,6 +181,35 @@ them.
 `personalise.sh`, which renames the image's placeholder user to the host's, can be checked without
 Incus: `sudo scripts/check-personalise.sh`.
 
+## Testing against a real daemon
+
+An agent working on AgentBox has none of the above to test against: its own machine has no Incus,
+so features that touch agent machines — limits, GPU, image builds — can only be unit-tested there,
+against fakes. **Nesting** gives an agent a real Incus daemon of its own, inside its own container,
+so it can run AgentBox against it for real.
+
+- `agentbox image build --incus` adds Incus itself to the base image, recorded on it like
+  `--android` or `--dev-caches` (`image.Components.Incus`, `user.agentbox.with-incus`): off by
+  default, since most agents never need it, and bumping `image.Version` the way any other
+  `provision.sh` change does.
+- A project turns nesting on for its agents with `agentbox`'s `PATCH /v1/projects/<name>`
+  (`Project.Nesting`, off by default) — in the app, the project's Settings, "Testing AgentBox
+  itself". It's refused unless the base image already has Incus.
+- A new agent of a project with nesting on gets it set up automatically
+  (`agent.Manager.EnsureNesting`, `internal/agent/nesting.go`), the same best-effort way it gets
+  its browser: the container's `security.nesting=true` already lets it run Docker, so nothing more
+  is needed there, but Incus itself starts masked (`provision.sh`) until nesting turns it on. Setup
+  runs `incus admin init --preseed` with a `dir` storage pool — no block device or filesystem
+  support needed nested — and its own bridge, `10.88.8.1/24`, chosen so it can never clash with the
+  host's own (`host-setup.sh`'s `--bridge-subnet`, 10.8.8.0/24 by default). `/dev/kvm` isn't part of
+  it: nesting is for containers, not virtual machines.
+- Inside, `agentbox`, `go test ./internal/incus/...` with the `integration` build tag, and
+  `sudo agentbox host setup` (idempotent, so running it again after the automatic setup only adds
+  what it left out) all work the way they do on a real host. The smoke test this feature was built
+  for: `agentbox image build` then `agentbox create` of a tiny agent, inside an agent.
+- An agent's own brief says so, under "Testing against a real daemon" (`brief.md.tmpl`), only when
+  its project has nesting on.
+
 ## The hub is in another repository
 
 The hub, the server half of AgentBox, is [leciric/agentbox-hub](https://github.com/leciric/agentbox-hub),

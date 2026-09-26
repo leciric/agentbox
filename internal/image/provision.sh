@@ -18,6 +18,8 @@
 #   AGENTBOX_WITH_OPENCODE=1 the OpenCode CLI, which is its own ACP adapter
 #   AGENTBOX_WITH_DEV_CACHES=1 the Go, npm and Electron caches of AgentBox's own
 #                            repository, for agents that work on AgentBox itself
+#   AGENTBOX_WITH_INCUS=1    Incus itself, so an agent can run a real Incus
+#                            daemon of its own (a project's "nesting" setting)
 #
 # AGENTBOX_DEBIAN_MIRROR is a Debian mirror to download Debian's packages from
 # instead of deb.debian.org, for a connection on which deb.debian.org is slow.
@@ -26,6 +28,7 @@ set -euo pipefail
 USER_NAME=$1 USER_UID=$2 USER_GID=$3
 WITH_ANDROID=${AGENTBOX_WITH_ANDROID:-0} WITH_CODEX=${AGENTBOX_WITH_CODEX:-0}
 WITH_OPENCODE=${AGENTBOX_WITH_OPENCODE:-0} WITH_DEV_CACHES=${AGENTBOX_WITH_DEV_CACHES:-0}
+WITH_INCUS=${AGENTBOX_WITH_INCUS:-0}
 DEBIAN_MIRROR=${AGENTBOX_DEBIAN_MIRROR:-}
 export DEBIAN_FRONTEND=noninteractive
 
@@ -67,6 +70,16 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update -q
 apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin
 
+if [[ $WITH_INCUS == 1 ]]; then
+  step "Incus, for an agent whose project turns nesting on"
+  apt-get install -y -q incus
+  # Off until a project turns nesting on: `incus admin init` runs then
+  # (agent.SetUpNesting), not at boot, so an agent without it spends nothing.
+  systemctl disable --now incus.socket incus >/dev/null 2>&1 || true
+else
+  skip "Incus" "nesting is off"
+fi
+
 step "Browser and media: a display with a VNC server, a small desktop, Chromium and ffmpeg"
 apt-get install -y -q --no-install-recommends tigervnc-standalone-server chromium \
   openbox tint2 pcmanfm xfce4-terminal xdotool x11-utils x11-xserver-utils \
@@ -98,6 +111,9 @@ id "$USER_NAME" >/dev/null 2>&1 || useradd -m -u "$USER_UID" -g "$USER_GID" -s /
 # kvm: agents with Android get /dev/kvm, which Debian gives to this group at boot.
 getent group kvm >/dev/null || groupadd -r kvm
 usermod -aG sudo,docker,kvm "$USER_NAME"
+if [[ $WITH_INCUS == 1 ]]; then
+  usermod -aG incus-admin "$USER_NAME"
+fi
 echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/90-agentbox
 chmod 0440 /etc/sudoers.d/90-agentbox
 
@@ -175,4 +191,7 @@ chromium --version
 /root/tools.sh verify "$USER_NAME" /root/tools.list
 if [[ $WITH_ANDROID == 1 ]]; then
   /opt/scrcpy/scrcpy --version | head -n 1
+fi
+if [[ $WITH_INCUS == 1 ]]; then
+  dpkg-query -W -f='incus ${Version}\n' incus
 fi

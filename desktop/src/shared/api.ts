@@ -19,6 +19,7 @@ export interface Project {
   consolidationModel: string;
   section: string;
   position: number;
+  nesting: boolean;
   createdAt: string;
 }
 
@@ -44,6 +45,7 @@ export interface UpdateProjectRequest {
   contextBudget?: number;
   consolidation?: number;
   consolidationModel?: string;
+  nesting?: boolean;
 }
 
 export interface Section {
@@ -571,6 +573,7 @@ export interface ImageComponents {
   codex: boolean;
   opencode: boolean;
   devCaches: boolean;
+  incus: boolean;
 }
 
 export interface ImageBuild {
@@ -593,6 +596,7 @@ export interface BuildImageRequest {
   codex?: boolean;
   opencode?: boolean;
   devCaches?: boolean;
+  incus?: boolean;
 }
 
 export interface ClaudeTokenRequest {

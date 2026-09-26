@@ -12,6 +12,7 @@ const (
 	OptionCodex     = "codex"
 	OptionOpenCode  = "opencode"
 	OptionDevCaches = "dev-caches"
+	OptionIncus     = "incus"
 )
 
 // Download is one thing a base image build fetches over the network. The app's
@@ -127,6 +128,12 @@ var Downloads = []Download{
 		MB:      240,
 		Option:  OptionDevCaches,
 	},
+	{
+		Name:    "Incus",
+		Purpose: "A real Incus daemon an agent can run of its own, for a project whose agents need to test features that touch agent machines.",
+		MB:      45,
+		Option:  OptionIncus,
+	},
 }
 
 // on reports whether opts asks for this option.
@@ -142,6 +149,8 @@ func (c Components) on(option string) bool {
 		return c.OpenCode
 	case OptionDevCaches:
 		return c.DevCaches
+	case OptionIncus:
+		return c.Incus
 	}
 	return false
 }
