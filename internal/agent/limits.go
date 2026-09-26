@@ -32,7 +32,10 @@ import (
 //     contended; an idle host still lets the agent have everything. A time
 //     chunk ("25ms/100ms") drives cpu.max instead, a hard ceiling that applies
 //     even on an idle host, and is counted against the *total*, not per core.
-//   - limits.memory is a hard ceiling on the cgroup's memory.max.
+//   - limits.memory is a hard ceiling on the cgroup's memory.max. It caps
+//     RAM, not swap: on its own, an agent that reaches it is pushed into the
+//     host's swap rather than stopped, which is what limits.memory.swap is
+//     for (see MemorySwap).
 //
 // Empty means no limit, for all three.
 type Limits struct {
@@ -51,13 +54,14 @@ type Limits struct {
 // base must carry none of them (SaveBase), so a new agent gets the
 // installation's defaults rather than whatever the agent the base was saved
 // from happened to be capped at.
-var LimitKeys = []string{limitCPU, limitCPUAllowance, limitMemory, limitCPUPriority, limitCPUConfigured, limitCPUUnlimited}
+var LimitKeys = []string{limitCPU, limitCPUAllowance, limitMemory, limitCPUPriority, limitMemorySwap, limitCPUConfigured, limitCPUUnlimited}
 
 const (
 	limitCPU          = "limits.cpu"
 	limitCPUAllowance = "limits.cpu.allowance"
 	limitMemory       = "limits.memory"
 	limitCPUPriority  = "limits.cpu.priority"
+	limitMemorySwap   = "limits.memory.swap"
 	// limitCPUConfigured and limitCPUUnlimited mirror what an agent's CPU
 	// limit was actually chosen to be — by SetLimits, or at Create — kept
 	// apart from limits.cpu itself, which the "never freeze my CPU" budget
@@ -71,6 +75,21 @@ const (
 	limitCPUConfigured = "user.agentbox.cpu.configured"
 	limitCPUUnlimited  = "user.agentbox.cpu.unlimited"
 )
+
+// MemorySwap is what AgentBox sets limits.memory.swap to on an agent whose
+// memory is capped: "false", which Incus turns into memory.swap.max=0, so the
+// agent's own pages never go to the host's swap.
+//
+// A memory ceiling that lets the agent swap isn't one. memory.max only counts
+// RAM, so an agent at its limit goes on allocating into swap, and on a host
+// with zram — the default on Fedora, and on the machine that froze with six
+// agents each running a kind cluster — swap *is* RAM, compressed, paid for in
+// the CPU the desktop needs to stay responsive. With swap off, an agent past
+// its ceiling is OOM-killed inside its own machine: its build dies, and says
+// so, instead of the whole host thrashing. An agent with no memory limit is
+// left to swap like any other process; pinning an uncapped agent's pages in
+// RAM would only make the host's own programs the ones that get swapped out.
+const MemorySwap = "false"
 
 // CPUPriority is what AgentBox sets limits.cpu.priority to on every agent,
 // below Incus' default of 10. It is a tiebreak rather than a cap: Incus turns
@@ -216,22 +235,45 @@ func ParseBytes(size string) (int64, error) {
 }
 
 // DefaultLimits is what an installation that has never chosen caps new agents
-// at, given the host's core count.
+// at, given the host's core count and memory in bytes (0 when unknown).
 //
-// Cores, and only cores: two of them, the least that doesn't make an ordinary
-// `npm ci` painful, and never more than the host actually has. The share and
-// the memory limit start empty because a wrong guess at either is worse than
-// none — a share below 100% slows an agent down on an *idle* host for no
-// one's benefit, and a memory limit the kernel enforces by killing processes
-// turns "this build needs more RAM than I thought" into a dead test run
-// rather than a slow one. The core count alone already stops the failure this
-// exists for: a `make -j` that takes every core and freezes the host.
-func DefaultLimits(hostCores int) Limits {
+// Two cores, the least that doesn't make an ordinary `npm ci` painful, and
+// never more than the host actually has: that stops a `make -j` taking every
+// core and freezing the host.
+//
+// And DefaultMemory of memory. A core count doesn't stop an agent that runs a
+// kind cluster, or a leaky test runner, from taking every page the host has —
+// six such agents on a 30 GB host pushed 24 GB into swap and froze the
+// desktop. A memory ceiling the kernel enforces by killing processes does
+// turn "this build needs more RAM than I thought" into a dead test run, which
+// is why it is generous; a frozen desktop is worse.
+//
+// The share starts empty: a share below 100% slows an agent down on an *idle*
+// host for no one's benefit.
+func DefaultLimits(hostCores int, hostMemory int64) Limits {
 	cores := 2
 	if hostCores > 0 {
 		cores = min(cores, hostCores) // a one-core host keeps what it has
 	}
-	return Limits{CPU: strconv.Itoa(cores)}
+	return Limits{CPU: strconv.Itoa(cores), Memory: DefaultMemory(hostMemory)}
+}
+
+// DefaultMemory is the memory ceiling a new agent starts with: 8GiB, and
+// never more than half of the host's memory, so one agent can't take the
+// desktop's half. Half is rounded down to whole GiB — the host's MemTotal is
+// never a round number, and "15GiB" reads better than "15.3GiB" — or, on a
+// host with less than 2 GiB, to 256 MiB steps. A host whose memory can't be
+// read gets 8GiB.
+func DefaultMemory(hostMemory int64) string {
+	const gib, step = int64(1) << 30, int64(256) << 20
+	if hostMemory <= 0 {
+		return "8GiB"
+	}
+	half := hostMemory / 2
+	if half >= gib {
+		return strconv.FormatInt(min(half/gib, 8), 10) + "GiB"
+	}
+	return strconv.FormatInt(max(half/step, 1)*256, 10) + "MiB"
 }
 
 // Describe says what a set of limits means, in one line, for the command line
@@ -259,7 +301,7 @@ func (l Limits) Describe() string {
 // never been touched. An empty *stored* value is a real choice — no limit —
 // which is why each key is read for whether it is there at all.
 func (m *Manager) Defaults(ctx context.Context) (Limits, error) {
-	fallback := DefaultLimits(HostCores())
+	fallback := DefaultLimits(HostCores(), HostMemory())
 	out := Limits{}
 	for _, field := range []struct {
 		key      string
@@ -384,15 +426,21 @@ func (m *Manager) SetLimits(ctx context.Context, a state.Agent, want LimitChoice
 // so a key that was never there isn't unset for nothing; limits.cpu.priority
 // is always brought to CPUPriority, including on a machine made before
 // AgentBox set it, so editing an agent's limits is enough to put it behind the
-// desktop.
+// desktop. limits.memory.swap follows the memory limit the same way: off
+// (MemorySwap) whenever there is one, and cleared when there isn't.
 func limitSteps(instance string, want Limits, have map[string]string) [][]string {
 	set := []string{"config", "set", instance}
 	var unset [][]string
+	swap := ""
+	if want.Memory != "" {
+		swap = MemorySwap
+	}
 	for _, field := range []struct{ key, value string }{
 		{limitCPU, want.CPU},
 		{limitCPUAllowance, want.Allowance},
 		{limitMemory, want.Memory},
 		{limitCPUPriority, CPUPriority},
+		{limitMemorySwap, swap},
 	} {
 		switch {
 		case field.value == "" && have[field.key] != "":

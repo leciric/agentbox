@@ -104,16 +104,25 @@ func (s *Store) ClaudeWindows(ctx context.Context) (ClaudeWindows, error) {
 
 // RememberClaudeModelWindow keeps the window a session on model reported, and
 // is a no-op when it is already known. compact is the autoCompactWindow the
-// session was started with, 0 for none.
+// session was started with, 0 for none — which is not the same as "uncapped":
+// leaving the key out of settings.json doesn't make Claude Code compact at
+// the model's real window, it makes it fall back to its own default, which is
+// ClaudeShortWindow, same as an installation that asked for that outright. So
+// 0 is read as that default here too — otherwise a session started with no
+// key, whose real cap is still 200k, disables the very check below that this
+// comment describes, and remembering its capped size is how an account's opus
+// came to offer only 200k with no way back (D91).
 //
 // Claude Code reports a session's size capped at its compact window: a session
 // on opus that compacts at 200k says its window is 200000, whatever opus's
 // own is. So a size equal to the compact window says nothing about the model
-// and isn't kept — remembering it is how an account's opus came to offer only
-// 200k. A size below the compact window is the model's own, which is shorter
-// than the cap, and a size above it can only be the model's own.
+// and isn't kept. A size below the compact window is the model's own, which is
+// shorter than the cap, and a size above it can only be the model's own.
 func (s *Store) RememberClaudeModelWindow(ctx context.Context, model string, size, compact int64) error {
-	if model == "" || size <= 0 || (compact > 0 && size == compact) {
+	if compact <= 0 {
+		compact = ClaudeShortWindow
+	}
+	if model == "" || size <= 0 || size == compact {
 		return nil
 	}
 	w, err := s.ClaudeWindows(ctx)

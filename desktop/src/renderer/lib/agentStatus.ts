@@ -13,6 +13,7 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   if (agent.chat === 'waiting') return { text: 'Needs you', tone: 'urgent' };
   if (agent.state === 'incomplete') return { text: 'Needs attention', tone: 'error' };
   if (agent.state === 'missing') return { text: 'Missing', tone: 'error' };
+  if (agent.state === 'initializing') return { text: 'Initializing', tone: 'live' };
   if (agent.chat === 'running') return { text: 'Working', tone: 'live' };
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? 'Starting' : 'Idle', tone: 'muted' };
   if (agent.state === 'paused') return { text: 'Paused', tone: 'muted' };
@@ -20,10 +21,12 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
 }
 
 // rank sorts the agents that need you first, then whatever's running, leaving
-// the ones you can safely ignore for now at the bottom.
+// the ones you can safely ignore for now at the bottom. An agent still being
+// made isn't waiting on you, so it doesn't jump the queue the way incomplete
+// (an unfinished create with nothing left running) does.
 export function rank(agent: T.Agent): number {
   if (agent.chat === 'waiting' || agent.state === 'incomplete' || agent.state === 'missing') return 0;
-  if (agent.state === 'running') return 1;
+  if (agent.state === 'running' || agent.state === 'initializing') return 1;
   if (agent.state === 'paused') return 2;
   return 3;
 }

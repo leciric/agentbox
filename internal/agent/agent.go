@@ -1612,7 +1612,7 @@ func (m *Manager) handBackFiles(ctx context.Context, a state.Agent) {
 // Status is an agent plus its live instance state.
 type Status struct {
 	state.Agent
-	State string // running, stopped, paused, incomplete (unfinished create) or missing
+	State string // running, stopped, paused, initializing (create job still running), incomplete (unfinished create, nothing running) or missing
 	IP    string
 	// Limits is what the machine is capped at, read from the same `incus list`
 	// that gives the state: the machine is the truth about its own limits, and
@@ -1633,6 +1633,11 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 	for _, inst := range instances {
 		byName[inst.Name] = inst
 	}
+	// creating is looked up once, lazily: most projects have nothing mid-create,
+	// and every agent here shares the same project, so one query tells all of
+	// them apart from an interrupted create with no job left running.
+	var creating bool
+	var creatingLoaded bool
 	statuses := make([]Status, 0, len(agents))
 	for _, a := range agents {
 		s := Status{Agent: a, State: "missing"}
@@ -1650,7 +1655,17 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 			}
 		}
 		if a.Status == state.AgentCreating {
+			if !creatingLoaded {
+				creating, err = m.Store.HasRunningJob(ctx, "create", project)
+				if err != nil {
+					return nil, err
+				}
+				creatingLoaded = true
+			}
 			s.State = "incomplete"
+			if creating {
+				s.State = "initializing"
+			}
 		}
 		statuses = append(statuses, s)
 	}

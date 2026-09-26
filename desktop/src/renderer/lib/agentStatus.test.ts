@@ -15,6 +15,10 @@ test('a broken machine needs attention even mid-chat', () => {
   assert.deepEqual(chatLabel(agent('missing')), { text: 'Missing', tone: 'error' });
 });
 
+test('initializing shows as live, not as needing attention', () => {
+  assert.deepEqual(chatLabel(agent('initializing')), { text: 'Initializing', tone: 'live' });
+});
+
 test('a running chat is Working, an idle one is Idle or Starting', () => {
   assert.deepEqual(chatLabel(agent('running', 'running')), { text: 'Working', tone: 'live' });
   assert.deepEqual(chatLabel(agent('running', 'starting')), { text: 'Starting', tone: 'muted' });
@@ -34,12 +38,21 @@ test('rank puts what needs you first, then running, paused, then the rest', () =
   assert.equal(rank(agent('stopped')), 3);
 });
 
+test('initializing does not jump the queue the way needing you does', () => {
+  assert.equal(rank(agent('initializing')), rank(agent('running')));
+  assert.ok(rank(agent('initializing')) > rank(agent('incomplete')));
+});
+
 test('settled is true only for a quiet, non-starting agent', () => {
   assert.equal(settled(agent('running')), true);
   assert.equal(settled(agent('paused')), true);
   assert.equal(settled(agent('running', 'starting')), false);
   assert.equal(settled(agent('running', 'waiting')), false);
   assert.equal(settled(agent('running', 'running')), false);
+});
+
+test('initializing is not settled: it is still moving', () => {
+  assert.equal(settled(agent('initializing')), false);
 });
 
 test('projectTone picks the most urgent tone among the agents', () => {
@@ -61,6 +74,11 @@ test('avatarMood reads error, sleeping, asking, working and idle from state and 
   assert.equal(avatarMood({ state: 'running', chat: 'running' }), 'working');
   assert.equal(avatarMood({ state: 'running', chat: 'starting' }), 'working');
   assert.equal(avatarMood({ state: 'running' }), 'idle');
+});
+
+test('initializing does not read as broken the way incomplete does', () => {
+  assert.equal(avatarMood({ state: 'incomplete' }), 'error');
+  assert.notEqual(avatarMood({ state: 'initializing' }), 'error');
 });
 
 const question = (ref: string, status: string, kind?: string): T.Question => ({ ref, status, kind }) as T.Question;

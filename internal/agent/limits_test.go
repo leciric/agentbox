@@ -93,15 +93,51 @@ func TestDefaultLimitsIsTwoCores(t *testing.T) {
 	}{
 		{32, "2"}, {16, "2"}, {8, "2"}, {4, "2"}, {3, "2"}, {2, "2"}, {1, "1"}, {0, "2"},
 	} {
-		got := agent.DefaultLimits(c.host)
+		got := agent.DefaultLimits(c.host, 32<<30)
 		if got.CPU != c.want {
 			t.Errorf("DefaultLimits(%d cores).CPU = %q, want %q", c.host, got.CPU, c.want)
 		}
-		// Only the core count. A share or a memory ceiling nobody asked for
-		// would slow an agent down on an idle host, or have the kernel kill it.
-		if got.Allowance != "" || got.Memory != "" {
-			t.Errorf("DefaultLimits(%d cores) = %+v, want only a core count", c.host, got)
+		// No share: one below 100% would slow an agent down on an idle host.
+		if got.Allowance != "" {
+			t.Errorf("DefaultLimits(%d cores) = %+v, want no CPU share", c.host, got)
 		}
+	}
+}
+
+// TestDefaultMemoryIsEightGiBAtMostHalf checks the memory ceiling a fresh
+// installation is seeded with: 8GiB, never more than half the host, and a
+// size Incus takes.
+func TestDefaultMemoryIsEightGiBAtMostHalf(t *testing.T) {
+	const gib, mib = int64(1) << 30, int64(1) << 20
+	for _, c := range []struct {
+		host int64
+		want string
+	}{
+		{64 * gib, "8GiB"},
+		{16 * gib, "8GiB"},
+		{30*gib + 600*mib, "8GiB"}, // the 30 GB machine six kind clusters froze
+		{15*gib + 500*mib, "7GiB"}, // a "16 GB" laptop's MemTotal: half, rounded down
+		{8 * gib, "4GiB"},
+		{7*gib + 700*mib, "3GiB"},
+		{2 * gib, "1GiB"},
+		{1536 * mib, "768MiB"},
+		{1000 * mib, "256MiB"},
+		{300 * mib, "256MiB"}, // never nothing at all
+		{0, "8GiB"},           // unreadable: the ordinary default
+	} {
+		got := agent.DefaultMemory(c.host)
+		if got != c.want {
+			t.Errorf("DefaultMemory(%s) = %q, want %q", agent.HumanBytes(c.host), got, c.want)
+		}
+		if err := agent.ValidateMemory(got); err != nil {
+			t.Errorf("DefaultMemory(%s) = %q, which isn't valid: %v", agent.HumanBytes(c.host), got, err)
+		}
+		if n, _ := agent.ParseBytes(got); c.host > 512*mib && n > c.host/2 {
+			t.Errorf("DefaultMemory(%s) = %q, more than half the host", agent.HumanBytes(c.host), got)
+		}
+	}
+	if got := agent.DefaultLimits(8, 30*gib).Memory; got != "8GiB" {
+		t.Errorf("DefaultLimits(8 cores, 30 GiB).Memory = %q, want 8GiB", got)
 	}
 }
 
@@ -117,7 +153,7 @@ func TestDefaultsAreWhatWasChosen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := agent.DefaultLimits(agent.HostCores()); got != want {
+	if want := agent.DefaultLimits(agent.HostCores(), agent.HostMemory()); got != want {
 		t.Errorf("Defaults() on a fresh installation = %+v, want %+v", got, want)
 	}
 
@@ -169,7 +205,7 @@ func TestCreateCapsNewAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := oneCall(t, calls(), "config set "+a.Instance+" limits.")
-	want := "config set " + a.Instance + " limits.cpu=6 limits.memory=8GiB limits.cpu.priority=" + agent.CPUPriority
+	want := "config set " + a.Instance + " limits.cpu=6 limits.memory=8GiB limits.cpu.priority=" + agent.CPUPriority + " limits.memory.swap=" + agent.MemorySwap
 	if got != want {
 		t.Errorf("limits applied at creation:\n got %s\nwant %s", got, want)
 	}
@@ -191,7 +227,8 @@ func TestCreateCapsNewAgents(t *testing.T) {
 
 // TestCreateTakesTheLimitsChosenForOneAgent checks the per-agent choice, and
 // the case the pointers exist for: an explicit empty CPU limit is a choice
-// (every core), not a fallback to the installation's six.
+// (every core), not a fallback to the installation's six, and an explicit
+// empty memory limit is no ceiling — and so no reason to keep it out of swap.
 func TestCreateTakesTheLimitsChosenForOneAgent(t *testing.T) {
 	inc, calls := loggingIncus(t, createScript)
 	f := setup(t, inc)
@@ -203,7 +240,7 @@ func TestCreateTakesTheLimitsChosenForOneAgent(t *testing.T) {
 
 	a, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{
 		AI:     "none",
-		Limits: agent.LimitChoice{CPU: &unlimited, Allowance: &allowance},
+		Limits: agent.LimitChoice{CPU: &unlimited, Allowance: &allowance, Memory: &unlimited},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -214,6 +251,7 @@ func TestCreateTakesTheLimitsChosenForOneAgent(t *testing.T) {
 		t.Errorf("limits applied at creation:\n got %s\nwant %s", got, want)
 	}
 	noCall(t, calls(), "limits.cpu=")
+	noCall(t, calls(), "limits.memory")
 }
 
 // TestCreateRefusesLimitsThatDontMeanWhatTheySay checks the values refused
@@ -295,6 +333,33 @@ func setCalls(t *testing.T, calls []string) []string {
 		}
 	}
 	return found
+}
+
+// TestSetLimitsKeepsACappedAgentOutOfSwap checks limits.memory.swap follows
+// the memory limit on a live agent: a ceiling brings swap off with it, since
+// memory.max alone would let the agent go on into the host's swap, and
+// removing the ceiling gives swap back.
+func TestSetLimitsKeepsACappedAgentOutOfSwap(t *testing.T) {
+	for _, c := range []struct {
+		name, config, memory, want string
+	}{
+		{"capped", `{}`, "4GiB", "set ab-hello-stack-agent-01 limits.memory=4GiB limits.cpu.priority=5 limits.memory.swap=false"},
+		{"uncapped", `{"limits.memory":"8GiB","limits.cpu.priority":"5","limits.memory.swap":"false"}`, "", "unset ab-hello-stack-agent-01 limits.memory.swap"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			inc, calls := loggingIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Stopped"}]' ;;
+  query) echo '{"config":`+c.config+`,"expanded_config":`+c.config+`,"devices":{}}' ;;
+esac
+exit 0`)
+			f := setup(t, inc)
+			a := state.Agent{Project: "hello-stack", Name: "agent-01", Instance: "ab-hello-stack-agent-01"}
+			if _, err := f.m.SetLimits(context.Background(), a, agent.LimitChoice{Memory: ptr(c.memory)}); err != nil {
+				t.Fatal(err)
+			}
+			oneCall(t, calls(), "config "+c.want)
+		})
+	}
 }
 
 // TestSetLimitsGivesAnOlderAgentAPriority checks a machine made before
@@ -406,7 +471,7 @@ exit 0`)
 		t.Fatal(err)
 	}
 	got := oneCall(t, calls(), "config set "+fork.Instance+" limits.")
-	want := "config set " + fork.Instance + " limits.cpu=12 limits.memory=16GiB limits.cpu.priority=" + agent.CPUPriority
+	want := "config set " + fork.Instance + " limits.cpu=12 limits.memory=16GiB limits.cpu.priority=" + agent.CPUPriority + " limits.memory.swap=" + agent.MemorySwap
 	if got != want {
 		t.Errorf("a fork's limits:\n got %s\nwant %s", got, want)
 	}
@@ -420,7 +485,7 @@ exit 0`)
 func TestSaveBaseDoesNotBakeLimitsIn(t *testing.T) {
 	inc, calls := loggingIncus(t, `case "$1" in
   list) echo '[{"name":"ab-hello-stack-base-next","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.9"}]}}}}]' ;;
-  query) echo '{"config":{"limits.cpu":"12","limits.memory":"16GiB","limits.cpu.priority":"5","user.agentbox.saved-from":"hello-stack/agent-01"},"expanded_config":{},"devices":{"worktree":{"type":"disk"}}}' ;;
+  query) echo '{"config":{"limits.cpu":"12","limits.memory":"16GiB","limits.cpu.priority":"5","limits.memory.swap":"false","user.agentbox.saved-from":"hello-stack/agent-01"},"expanded_config":{},"devices":{"worktree":{"type":"disk"}}}' ;;
 esac
 exit 0`)
 	f := setup(t, inc)
@@ -436,7 +501,7 @@ exit 0`)
 			unset = append(unset, after)
 		}
 	}
-	want := []string{"limits.cpu", "limits.memory", "limits.cpu.priority"}
+	want := []string{"limits.cpu", "limits.memory", "limits.cpu.priority", "limits.memory.swap"}
 	if !slices.Equal(unset, want) {
 		t.Errorf("the base was stripped of %v, want %v", unset, want)
 	}

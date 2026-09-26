@@ -32,7 +32,7 @@ export function DestroyAgentDialog({
   // mustn't undo what the user switched.
   useEffect(() => {
     if (!open) return;
-    setForce(agent.state === 'incomplete' || agent.state === 'missing');
+    setForce(agent.state === 'incomplete' || agent.state === 'initializing' || agent.state === 'missing');
     setDeleteBranch(false);
     setDeleteMedia(false);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps

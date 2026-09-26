@@ -130,6 +130,7 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
+    agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
     // Done with, one way or another: the rail's Finished section, with agent-97
     // above, which finished and sits idle.
     agent({ ref: `${PROJECT}/agent-93`, title: 'Stopped for the night', ai: 'opencode', state: 'stopped' }),
@@ -549,6 +550,7 @@ let defaultsSettings = {
   defaultMemory: '8GiB',
   hostCores: 16,
   hostMemory: 32 * 1024 ** 3,
+  seedMemory: '8GiB',
   resumeAfterLimit: true,
   claudeCompactWindow: 200_000,
   updateCheck: true,
