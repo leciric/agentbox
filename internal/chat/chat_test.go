@@ -1254,6 +1254,64 @@ func TestATurnLeftRunningByAStoppedDaemonIsSettled(t *testing.T) {
 	}
 }
 
+// A turn's end calls Idle (and, for a worker, Finished) in a goroutine of its
+// own, off the lock a caller might be holding. Wait's whole point is to let a
+// caller — a test above all, about to remove the directories the chat's HOME
+// and worktree live under — know once nothing it started is still running.
+// Before these hooks were tracked by the same WaitGroup as the adapter's own
+// goroutine, Wait returned as soon as the turn itself ended, while the hook
+// ran on: exactly the race that made TestAgentFinishingWakesTheLeadRegardlessOfAutonomy
+// fail with "directory not empty" once in a while.
+func TestWaitWaitsForTheIdleHook(t *testing.T) {
+	store := openStore(t)
+	m, _ := newManager(t, store, newFakeTool(answerHello))
+	started := make(chan struct{})
+	release := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	var calls int
+	m.Idle = func(state.Agent) {
+		calls++
+		close(started)
+		<-release
+	}
+
+	if _, err := m.Send(testAgent, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	// Stop the adapter itself so Wait has nothing left to wait for but the
+	// idle hook: what this test is about, not how long a fake tool's process
+	// takes to end.
+	m.Close()
+
+	done := make(chan struct{})
+	go func() {
+		m.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("Wait returned while the idle hook was still running")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Wait never returned once the idle hook finished")
+	}
+	if calls != 1 {
+		t.Errorf("the idle hook ran %d time(s), want 1", calls)
+	}
+}
+
 // LastMessage is how the daemon learns what an agent did when it finishes,
 // without replaying the whole conversation into the project's chat.
 func TestLastMessage(t *testing.T) {
