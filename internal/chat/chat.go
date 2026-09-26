@@ -109,8 +109,11 @@ type Manager struct {
 
 	mu    sync.Mutex
 	convs map[string]*conversation
-	// adapters are the goroutines that launch and then read each adapter.
-	adapters sync.WaitGroup
+	// background tracks every goroutine a conversation spawns: the one that
+	// launches and reads an adapter, and the shorter-lived ones a turn spawns
+	// as it starts and ends (prompt, drainOutbox, and the hooks a finished or
+	// idle turn calls). Wait joins all of them, not only the adapter's own.
+	background sync.WaitGroup
 }
 
 // Timer is a wake-up that can be called off before it fires: what
@@ -401,7 +404,7 @@ func (c *conversation) beginTurn(it *api.ChatItem, text string, images []api.Cha
 	c.session.State = c.stateNow()
 	c.markSession()
 	c.flush(true)
-	go c.prompt(ad, t)
+	c.m.background.Go(func() { c.prompt(ad, t) })
 }
 
 // aside takes a message that arrived while a turn was running. It goes into the
@@ -441,7 +444,7 @@ func (c *conversation) drain() {
 		return
 	}
 	c.draining = true
-	go c.drainOutbox()
+	c.m.background.Go(c.drainOutbox)
 }
 
 // drainOutbox gives each waiting message to the AI tool: into the running turn
@@ -1013,7 +1016,7 @@ func (m *Manager) Close() {
 // its launch — which can write to the agent's worktree, its tools, its HOME —
 // before it finds it was stopped and goes. A test waits for that before its
 // directories are removed.
-func (m *Manager) Wait() { m.adapters.Wait() }
+func (m *Manager) Wait() { m.background.Wait() }
 
 // conversation is one agent's chat. Everything in it is guarded by mu.
 type conversation struct {
@@ -1266,7 +1269,7 @@ func (c *conversation) startAdapter() *adapter {
 	c.session.Detail = "Starting " + ToolNames[c.agent.AI]
 	c.session.State = c.stateNow()
 	c.markSession()
-	c.m.adapters.Go(func() { c.run(ad) })
+	c.m.background.Go(func() { c.run(ad) })
 	return ad
 }
 
@@ -1773,7 +1776,8 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		if c.m.AuthFailed != nil && AuthFailure(err.Error()) {
 			// Off the lock this holds, and off this turn's path: nothing here
 			// waits for it.
-			go c.m.AuthFailed(c.sessionAgent(c.adapter), firstLine(err.Error()))
+			agent, msg := c.sessionAgent(c.adapter), firstLine(err.Error())
+			c.m.background.Go(func() { c.m.AuthFailed(agent, msg) })
 		}
 		// A spent usage limit is the one failure the chat can get over on its
 		// own, by waiting for it to reset (limit.go).
@@ -1810,18 +1814,21 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	// Whoever ended the turn may want to know, so the daemon can tell the
 	// project's chat that this agent finished.
 	if c.m.Finished != nil && !c.agent.IsLead() {
-		go c.m.Finished(c.agent, *result)
+		agent, res := c.agent, *result
+		c.m.background.Go(func() { c.m.Finished(agent, res) })
 	}
 	// A lead is idle from here, and its prompt cache starts running out. The
 	// daemon checks again when it acts: a message drain is still handing the
 	// tool starts a turn this can't see yet.
 	if c.m.LeadIdle != nil && c.agent.IsLead() && c.turn == nil && !c.gone {
-		go c.m.LeadIdle(c.agent)
+		agent := c.agent
+		c.m.background.Go(func() { c.m.LeadIdle(agent) })
 	}
 	// Nothing that waited started another turn, so the chat is idle: the
 	// moment the daemon can replace a full session without anyone waiting.
 	if c.m.Idle != nil && c.turn == nil && !c.gone {
-		go c.m.Idle(c.agent)
+		agent := c.agent
+		c.m.background.Go(func() { c.m.Idle(agent) })
 	}
 }
 
@@ -1920,11 +1927,11 @@ func (h handler) Notify(method string, params json.RawMessage) {
 			// which is what the context window offers next time (D91).
 			h.ad.sizeOf = model + "=" + strconv.FormatInt(u.Size, 10)
 			ref, size, compact := c.agent.Ref(), u.Size, h.ad.window
-			go func() {
+			c.m.background.Go(func() {
 				if err := c.m.Store.RememberClaudeModelWindow(context.Background(), model, size, compact); err != nil {
 					c.m.logf("chat %s: remembering %s's window: %v", ref, model, err)
 				}
-			}()
+			})
 		}
 		h.ad.spend.observe(u.Cost)
 		// A cost with no turn running and no hidden prompt asking is a result
@@ -1935,7 +1942,8 @@ func (h handler) Notify(method string, params json.RawMessage) {
 			c.book(h.ad, state.TokensBackground, newID(), nil, 0)
 		}
 		if rl := u.Meta.RateLimit; rl != nil && c.m.Limits != nil && !h.ad.replaying {
-			go c.m.Limits(c.sessionAgent(h.ad), *rl)
+			agent, limit := c.sessionAgent(h.ad), *rl
+			c.m.background.Go(func() { c.m.Limits(agent, limit) })
 		}
 		c.markSession()
 		return
