@@ -18,7 +18,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
   const chat = useQuery({ queryKey: ['chat', agent.ref], queryFn: () => api.chat(agent.ref), staleTime: 10_000 });
   const spend = useQuery({ queryKey: ['tokens', project, name, 'all'], queryFn: () => api.tokens({ project, agent: name }), staleTime: 10_000 });
 
-  const options = chat.data?.session.options ?? [];
+  const options = chat.data?.session?.options ?? [];
   const find = (category: string) => options.find((o) => o.category === category && o.type === 'select');
   const label = (option: T.ChatOption | undefined) => (option ? choiceName(option.choices.find((c) => c.value === option.value) ?? { value: option.value, name: option.value }) : undefined);
   const model = label(find('model'));
