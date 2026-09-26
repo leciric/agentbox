@@ -71,6 +71,7 @@ func (c *conversation) book(ad *adapter, kind, turn string, res *acp.PromptRespo
 	rows := tokenRows(state.TokenRow{
 		Project: c.agent.Project,
 		Agent:   c.agent.Name,
+		AgentID: c.agent.ID,
 		AI:      c.agent.AI,
 		Session: ad.sessionID,
 		Turn:    turn,

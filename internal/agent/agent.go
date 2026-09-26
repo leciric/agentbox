@@ -11,11 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -500,7 +500,11 @@ type plan struct {
 func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	name := pl.name
 	if name == "" {
-		name = m.nextName(ctx, pl.project)
+		var err error
+		name, err = m.nextName(ctx, pl.project, pl.repo)
+		if err != nil {
+			return state.Agent{}, fmt.Errorf("choosing a name: %w", err)
+		}
 	}
 	branch := m.branchFor(ctx, pl.project, pl.repo, pl.branch, pl.title, pl.task, name)
 	a := state.Agent{
@@ -819,22 +823,57 @@ func (m *Manager) GitHubAccountFor(p state.Project, account string) (string, err
 	return m.Creds.DefaultGitHubAccount()
 }
 
-// nextName returns the first agent-NN not taken by an agent or a worktree
-// directory. Branches don't come into it: an agent's branch is named after its
-// work (branchFor), and makes its own way around the ones that are taken.
-func (m *Manager) nextName(ctx context.Context, p state.Project) string {
-	taken := map[string]bool{}
+// nextName reserves this project's next agent-NN: never one handed out
+// before, even if the agent it named is gone, its worktree deleted, or its
+// branch too (#name-reuse). state.Store.NextAgentName is what makes the
+// reservation atomic and monotonic across concurrent creates; what's
+// computed here is only its floor, from everything else that might already
+// know a number the counter doesn't: the agents this project has now, past
+// agents its memory still mentions, worktree directories left on disk, and
+// local or remote agentbox/agent-* branches.
+func (m *Manager) nextName(ctx context.Context, p state.Project, repo gitrepo.Repo) (string, error) {
+	floor := 1
+	raise := func(name string) {
+		if n, ok := agentNumber(name); ok && n+1 > floor {
+			floor = n + 1
+		}
+	}
+
 	if agents, err := m.Store.Agents(ctx, p.Name); err == nil {
 		for _, a := range agents {
-			taken[a.Name] = true
+			raise(a.Name)
 		}
 	}
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("agent-%02d", i)
-		if _, err := os.Stat(m.Paths.Worktree(p.Name, name)); !taken[name] && errors.Is(err, fs.ErrNotExist) {
-			return name
+	if names, err := m.Store.PastAgentNames(ctx, p.Name); err == nil {
+		for _, name := range names {
+			raise(name)
 		}
 	}
+	if entries, err := os.ReadDir(filepath.Join(m.Paths.Worktrees(), p.Name)); err == nil {
+		for _, entry := range entries {
+			raise(entry.Name())
+		}
+	}
+	if branches, err := repo.BranchesStartingWith(p.BranchPrefix + "agent-"); err == nil {
+		for _, b := range branches {
+			raise(strings.TrimPrefix(b, p.BranchPrefix))
+		}
+	}
+
+	return m.Store.NextAgentName(ctx, p.Name, floor)
+}
+
+// agentNumber parses the NN in agent-NN.
+func agentNumber(name string) (int, bool) {
+	n, ok := strings.CutPrefix(name, "agent-")
+	if !ok {
+		return 0, false
+	}
+	i, err := strconv.Atoi(n)
+	if err != nil || i < 1 {
+		return 0, false
+	}
+	return i, true
 }
 
 // tmuxConfig matches the desktop app's dark theme, and lets the mouse wheel
