@@ -156,7 +156,8 @@ func TestClientsAgree(t *testing.T) {
 	run("user exec, stdin and the same buffer for both", func(s side) (string, error) {
 		var out bytes.Buffer
 		err := s.c.UserExec(ctx, s.inst, u.Username, "tr a-z A-Z; echo done >&2", strings.NewReader("quiet\n"), &out, &out)
-		return out.String(), err
+		// Both reach the buffer, in whichever order their streams deliver them.
+		return strings.Join(slices.Sorted(slices.Values(strings.Fields(out.String()))), " "), err
 	})
 	run("user exec in a missing instance", func(s side) (string, error) {
 		var out bytes.Buffer
