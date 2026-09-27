@@ -283,5 +283,63 @@
     "width": 1280,
     "height": 900,
     "click": "[aria-label^=\"Host memory\"]"
+  },
+  {
+    "id": "media-project-dark",
+    "description": "A project's Media: 360 items across four agents, long names and unbroken notes — dark, a narrow window",
+    "query": "media=project&theme=dark",
+    "width": 560,
+    "height": 900
+  },
+  {
+    "id": "media-project-search-dark",
+    "description": "The same, searched for \"image\": the screenshots and nothing else",
+    "query": "media=project&theme=dark",
+    "width": 560,
+    "height": 900,
+    "fill": [
+      "[aria-label=\"Search media\"]",
+      "image"
+    ]
+  },
+  {
+    "id": "media-project-note-search-light",
+    "description": "The same, searched for words inside notes, \"flaky goroutine\" — light, xl width",
+    "query": "media=project&theme=light",
+    "width": 1280,
+    "height": 900,
+    "fill": [
+      "[aria-label=\"Search media\"]",
+      "flaky goroutine"
+    ]
+  },
+  {
+    "id": "media-agent-dark",
+    "description": "agent-99's Media tab, its toolbar wrapping in a narrow window — dark",
+    "query": "media=agent&theme=dark",
+    "width": 520,
+    "height": 800
+  },
+  {
+    "id": "media-agent-search-dark",
+    "description": "agent-99's Media tab searched for a name and a type, \"checkout video\" — dark",
+    "query": "media=agent&theme=dark",
+    "width": 520,
+    "height": 800,
+    "fill": [
+      "[aria-label=\"Search media\"]",
+      "checkout video"
+    ]
+  },
+  {
+    "id": "media-agent-no-match-dark",
+    "description": "agent-99's Media tab searched for something nothing has — dark",
+    "query": "media=agent&theme=dark",
+    "width": 520,
+    "height": 800,
+    "fill": [
+      "[aria-label=\"Search media\"]",
+      "nothing-has-this-a-very-long-unbroken-search-string"
+    ]
   }
 ]
