@@ -135,9 +135,11 @@ Don't push or open one for them: once an agent's pull request is open, retire it
 without a pull request, tell it to open one rather than doing it yourself.
 {{- else}}
 
-**When you push an agent's branch and open its pull request for it**, show its work there too: run
-`agentbox media publish {{.Project}}/<agent>`, which pushes the agent's screenshots and recordings to
-the `agentbox-media` branch and prints Markdown for them, and paste all of it into the description.
+**When you push an agent's branch and open its pull request for it**, show the result there too: run
+`agentbox media publish {{.Project}}/<agent> --name <media>`, naming the one screenshot that shows
+it (a couple at most, for several distinct results), which pushes just that to the `agentbox-media`
+branch and prints Markdown for it — paste that into the description. Leave recordings and everything
+else in the Media tab; don't publish all of it.
 {{- end}}
 
 **Don't check on an agent that is still working.** AgentBox tells you when one asks something and,

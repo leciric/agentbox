@@ -146,10 +146,12 @@ decisions to fill it in.
 - **When you finish, push `{{.Branch}}` to `origin` and open a pull request** against `{{.BaseRef}}`
   (`git push -u origin {{.Branch}}`, then `gh pr create`). Title it as a conventional commit
   (`feat: …`, `fix: …`) written for someone reading the changelog, not for `git log`. In its
-  description, say what changed and how you checked it, and show it: run `agentbox media publish`
-  in your worktree, which pushes your screenshots and recordings to the `agentbox-media` branch and
-  prints Markdown for them, and paste all of that into the description. Push again, and publish
-  again, when you change it afterwards.
+  description, say what changed and how you checked it, and show the result: run
+  `agentbox media publish --name <media>` in your worktree, naming the one screenshot that shows it
+  (a couple at most, for several distinct results), which pushes just that to the `agentbox-media`
+  branch and prints Markdown for it — paste that into the description. Recordings and everything
+  else stay local in the Media tab; name them in your report instead. Push again, and publish again,
+  when you change it afterwards.
 - Never push to `{{.BaseRef}}`, merge or close a pull request, or force-push a branch that isn't
   `{{.Branch}}`.
 {{- else}}
@@ -200,18 +202,18 @@ There is also a `desktop` MCP server: a real mouse, keyboard and screenshots of 
 
 ## Media: show your work
 
-The user reviews what you did in AgentBox's Media tab, and a recording is how they see a change actually happen rather than take your word for it.
+The user reviews what you did in AgentBox's Media tab, and a recording is how they see a change actually happen rather than take your word for it. It stays there, on this machine — it isn't what goes in a pull request (see Git above): the PR body gets one screenshot of the result, a couple at most for several distinct results, never all of it.
 
-- **Any change the user can see — UI, CLI output, an app flow — ends with a recording**: `agentbox media record start --input desktop --name <name>`, drive it through the desktop tools (above; Claude Code: hand the desktop subagent an exact script of what to click, type and wait for), then `agentbox media record stop`. Link it in your PR or report. Screenshots and notes are extras, not substitutes.
+- **Any change the user can see — UI, CLI output, an app flow — ends with a recording**: `agentbox media record start --input desktop --name <name>`, drive it through the desktop tools (above; Claude Code: hand the desktop subagent an exact script of what to click, type and wait for), then `agentbox media record stop`. Name it in your report. Screenshots and notes are extras, not substitutes.
 - Only skip the recording when there's truly nothing visible — a pure refactor, backend-only work with no observable output — and say so in your report.
-- `agentbox media screenshot --name <name>` (`--full-page` or `--display`) is for a single state alongside a recording, not instead of one.
+- `agentbox media screenshot --name <name>` (`--full-page` or `--display`) is for a single state alongside a recording, not instead of one. This is usually the one you publish to the pull request.
 - `agentbox media add <path>` keeps a single file: JUnit XML, one HTML report, a log. Don't add whole directories — not even `playwright-report/` as a folder. If a tool writes a directory of files, point at the one entry file that matters, zip the directory first, or just take a screenshot or recording of it instead.
 - `agentbox media logs --service <compose service>` keeps a service's recent logs.
 - `agentbox media note "<text>"` adds a short caption alongside a screenshot or recording — not a replacement for one.
 
 `agentbox media list` shows what's there. You can add media, but not change or delete it.
 
-A walkthrough recorded through the desktop tools is slow, click-by-click work — real minutes spent moving a mouse for a few seconds of video — and it has no business filling up this conversation. If you're Claude Code, it is the desktop subagent's: give it an exact script and have it run `agentbox media record start --input desktop` around it and report back which media it saved. Don't take its word for it: check with `agentbox media list` that what it named was saved, and if you have to see the result, look at one saved screenshot rather than driving the display yourself.
+A walkthrough recorded through the desktop tools is slow, click-by-click work — real minutes spent moving a mouse for a few seconds of video — and it has no business filling up this conversation. If you're Claude Code, it is the desktop subagent's: give it an exact script and have it run `agentbox media record start --input desktop` around it and report back which media it saved. **Always Haiku for a recording** — it's scripted, not judgment; ask for Sonnet only when the desktop subagent itself has to judge something subtle, never to drive a recording. Don't take its word for it: check with `agentbox media list` that what it named was saved, and if you have to see the result, look at one saved screenshot rather than driving the display yourself.
 {{- if .Android}}
 
 ## Android

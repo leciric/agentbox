@@ -22,15 +22,19 @@ import (
 func newMediaPublishCmd(a *app) *cobra.Command {
 	var remote string
 	var noPush bool
+	var names []string
 	cmd := &cobra.Command{
-		Use:   "publish [agent] [id...]",
-		Short: "Push an agent's screenshots and recordings to the agentbox-media branch, and print Markdown for its pull request",
-		Long: `Commits the agent's screenshots and recordings (all of them, or the ids given) to the
-repository's ` + mediapub.Branch + ` branch, under a directory named after the agent's branch,
-pushes it, and prints Markdown for the pull request's description: each screenshot
-inline, each recording as an inline GIF preview linking to its mp4. Paste it into the
-pull request's body. The links go through github.com, so they show on a private
-repository to whoever can read it.
+		Use:   "publish [agent] --name <media>...",
+		Short: "Push named screenshots or recordings to the agentbox-media branch, and print Markdown for a pull request",
+		Long: `Commits the media named with --name (repeatable) to the repository's ` + mediapub.Branch + ` branch, under
+a directory named after the agent's branch, pushes it, and prints Markdown for the
+pull request's description: each screenshot inline, each recording as an inline GIF
+preview linking to its mp4. Paste it into the pull request's body. The links go
+through github.com, so they show on a private repository to whoever can read it.
+
+A pull request's body should carry only what shows the result — one screenshot,
+a couple at most for several distinct results — never everything you captured: the
+rest stays in the Media tab, named in your report. Give --name that result's name.
 
 Recordings are re-encoded smaller and their GIF previews kept to a few seconds and a
 few megabytes, with ffmpeg; without it, files go as they are and recordings get no
@@ -41,7 +45,10 @@ Inside an agent, leave out the agent: it publishes its own media from its worktr
 On the host, name the agent: it publishes from the agent's worktree with your own
 git credentials.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ref, ids := splitRef(args, 0)
+			if len(names) == 0 {
+				return errors.New("nothing to publish: pass --name <media> for what shows the result (see agentbox media list)")
+			}
+			ref, _ := splitRef(args, 0)
 			c, err := a.scopedClient(cmd, ref)
 			if err != nil {
 				return err
@@ -58,10 +65,12 @@ git credentials.`,
 			// Oldest first, the order the work was done in.
 			slices.Reverse(all)
 			var items []mediapub.Item
+			matched := make(map[string]bool, len(names))
 			for _, it := range all {
-				if len(ids) > 0 && !slices.Contains(ids, it.ID) {
+				if !slices.Contains(names, it.Name) {
 					continue
 				}
+				matched[it.Name] = true
 				item := mediapub.Item{ID: it.ID, Kind: it.Kind, Name: it.Name, Mime: it.Mime, Text: it.Text}
 				if it.Kind != "note" {
 					id := it.ID
@@ -69,8 +78,10 @@ git credentials.`,
 				}
 				items = append(items, item)
 			}
-			if len(ids) > 0 && len(items) < len(ids) {
-				return fmt.Errorf("not every id given is this agent's: see agentbox media list")
+			for _, name := range names {
+				if !matched[name] {
+					return fmt.Errorf("no media named %q: see agentbox media list", name)
+				}
 			}
 			result, err := mediapub.Publish(ctx, items, mediapub.Options{
 				Repo: repo, Remote: remote, Dir: dir, NoPush: noPush,
@@ -91,6 +102,7 @@ git credentials.`,
 	}
 	cmd.Flags().StringVar(&remote, "remote", "origin", "the remote to push to")
 	cmd.Flags().BoolVar(&noPush, "no-push", false, "commit, but don't push")
+	cmd.Flags().StringArrayVar(&names, "name", nil, "the name of media to publish (repeatable); required")
 	return cmd
 }
 
