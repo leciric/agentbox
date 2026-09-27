@@ -392,9 +392,16 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	if from == "" {
 		from = repo.CurrentBranch()
 	}
+	if !p.BaseSyncOff {
+		m.syncBase(ctx, repo)
+	}
 	commit, err := repo.ResolveCommit(from)
 	if err != nil {
 		return state.Agent{}, err
+	}
+	if newer, ok := newerBase(repo, from); ok {
+		m.logf("%s is behind its remote: starting from the remote's %s, and leaving %s where it is", from, newer[:12], from)
+		commit = newer
 	}
 	return m.build(ctx, plan{
 		project:       p,

@@ -36,6 +36,9 @@ export function ProjectSettings({ project }: { project: T.Project }) {
         <FinishNoticesPicker project={project} />
         <PRWatchPicker project={project} />
       </SettingsGroup>
+      <SettingsGroup title="Repository" description={`What AgentBox does to ${project.name}'s own checkout.`}>
+        <SyncBaseToggle project={project} />
+      </SettingsGroup>
       <SettingsGroup title="Testing AgentBox itself" description="For a project whose agents work on AgentBox.">
         <NestingToggle project={project} />
       </SettingsGroup>
@@ -347,6 +350,44 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
           id="project-agent-prs"
           data-project-agent-prs
           checked={project.agentPRs}
+          disabled={save.isPending}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    />
+  );
+}
+
+// SyncBaseToggle keeps the project's base branch (main) up to date with its
+// remote: the daemon fetches every few minutes and before it creates an
+// agent, and fast-forwards the local branch when it is strictly behind. On by
+// default, since an agent made from a stale main starts without what was
+// merged since.
+function SyncBaseToggle({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (syncBase: boolean) => api.updateProject(project.name, { syncBase }),
+    onSuccess: async (updated) => {
+      toast(updated.syncBase ? `${updated.name}'s main now follows its remote` : `AgentBox no longer moves ${updated.name}'s main`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Keep main up to date with origin"
+      htmlFor="project-sync-base"
+      description={
+        project.syncBase
+          ? "AgentBox fetches every few minutes and before it creates an agent, and fast-forwards main when it's behind origin. It never touches a main with commits of its own, and moves a checked-out main only when nothing in it is changed."
+          : "AgentBox doesn't fetch or move main. A new agent still starts from origin's main, as last fetched, when yours is behind it."
+      }
+      control={
+        <Switch
+          id="project-sync-base"
+          data-project-sync-base
+          checked={project.syncBase}
           disabled={save.isPending}
           onCheckedChange={(on) => save.mutate(on)}
         />
