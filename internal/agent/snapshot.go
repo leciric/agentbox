@@ -67,17 +67,17 @@ func (m *Manager) takeSnapshot(ctx context.Context, a state.Agent, name string, 
 	}
 	if consistent && running {
 		// Freeze the machine, then record the worktree again, so both halves match exactly.
-		if _, err := m.Incus.Run(ctx, "pause", a.Instance); err != nil {
+		if err := m.Incus.Pause(ctx, a.Instance); err != nil {
 			_ = repo.DeleteRef(ref)
 			return Snapshot{}, err
 		}
-		defer func() { _, _ = m.Incus.Run(context.WithoutCancel(ctx), "resume", a.Instance) }()
+		defer func() { _ = m.Incus.Resume(context.WithoutCancel(ctx), a.Instance) }()
 		if commit, err = gitrepo.SnapshotWorktree(a.Worktree, ref, message); err != nil {
 			_ = repo.DeleteRef(ref)
 			return Snapshot{}, fmt.Errorf("snapshotting the worktree: %w", err)
 		}
 	}
-	if _, err := m.Incus.Run(ctx, "snapshot", "create", a.Instance, name); err != nil {
+	if err := m.Incus.CreateSnapshot(ctx, a.Instance, name); err != nil {
 		_ = repo.DeleteRef(ref)
 		return Snapshot{}, err
 	}
@@ -124,7 +124,7 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		return err
 	}
 	if inst.Status == "Frozen" {
-		if _, err := m.Incus.Run(ctx, "resume", a.Instance); err != nil {
+		if err := m.Incus.Resume(ctx, a.Instance); err != nil {
 			return err
 		}
 		inst.Status = "Running"
@@ -138,7 +138,7 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		return fmt.Errorf("saving the current worktree: %w", err)
 	}
 	m.logf("Restoring the machine to %s (the current worktree is saved on %s)", name, backup)
-	if _, err := m.Incus.Run(ctx, "snapshot", "restore", a.Instance, name); err != nil {
+	if err := m.Incus.RestoreSnapshot(ctx, a.Instance, name); err != nil {
 		return err
 	}
 	m.logf("Restoring the worktree and branch")
@@ -149,7 +149,12 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		return err
 	}
 	if inst.Status != "Running" {
-		if _, err := m.Incus.Run(ctx, "start", a.Instance); err != nil {
+		// The snapshot's raw.lxc is from when it was taken, and may put the
+		// machine in or out of the shared budget against the setting now.
+		if err := m.ensureBudgetPlacement(ctx, a.Instance); err != nil {
+			return err
+		}
+		if err := m.Incus.Start(ctx, a.Instance); err != nil {
 			return err
 		}
 	}
@@ -173,7 +178,7 @@ func (m *Manager) DeleteSnapshot(ctx context.Context, a state.Agent, name string
 	if _, err := repo.ResolveRef(ref); err != nil {
 		return fmt.Errorf("%s has no snapshot %q", a.Ref(), name)
 	}
-	if _, err := m.Incus.Run(ctx, "snapshot", "delete", a.Instance, name); err != nil && !strings.Contains(err.Error(), "not found") {
+	if err := m.Incus.DeleteSnapshot(ctx, a.Instance, name); err != nil && !strings.Contains(err.Error(), "not found") {
 		return err
 	}
 	return repo.DeleteRef(ref)

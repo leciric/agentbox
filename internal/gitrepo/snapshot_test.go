@@ -28,7 +28,7 @@ func snapshotFixture(t *testing.T) (repo gitrepo.Repo, wt, head, snapshot string
 	repo, _ = gitrepo.Open(root)
 	base, _ := repo.ResolveCommit("main")
 	wt = filepath.Join(t.TempDir(), "agent-01")
-	if err := repo.AddWorktree(wt, "agentbox/agent-01", base); err != nil {
+	if err := repo.AddWorktree(wt, "agentbox/agent-01", base, "test"); err != nil {
 		t.Fatal(err)
 	}
 	write(t, wt, "message.txt", "hello\ncommitted\n")
@@ -92,7 +92,7 @@ func TestApplyTreeToNewWorktree(t *testing.T) {
 	repo, _, head, snapshot := snapshotFixture(t)
 
 	fork := filepath.Join(t.TempDir(), "agent-02")
-	if err := repo.AddWorktree(fork, "agentbox/agent-02", head); err != nil {
+	if err := repo.AddWorktree(fork, "agentbox/agent-02", head, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if err := gitrepo.ApplyTree(fork, snapshot); err != nil {

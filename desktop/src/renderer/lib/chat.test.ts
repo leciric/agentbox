@@ -1,8 +1,11 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
+import { api } from './api.ts';
 import {
+  applyChatEvent,
   changedFiles,
   chatKey,
   contextHint,
@@ -12,11 +15,16 @@ import {
   formatTokens,
   isActive,
   isCredentialRequest,
+  isMessage,
   isSilent,
   isWork,
+  fetchThread,
   lineCounts,
   liveLabel,
+  loadOlder,
+  pageSize,
   pendingPermissions,
+  prependPage,
   timelineRows,
   toolOf,
   workSummary,
@@ -205,4 +213,97 @@ test('timelineRows shows a running turn as working, then thinking once nothing i
     rows.map((r) => r.type),
     ['user', 'working', 'thinking'],
   );
+});
+
+// A conversation of n turns of a message and an answer, a minute apart.
+const turns = (n: number, from = 0): T.ChatItem[] =>
+  Array.from({ length: n }, (_, i) => {
+    const at = new Date(Date.UTC(2026, 0, 1, 0, from + i)).toISOString();
+    const user = item({ id: `u${from + i}`, kind: 'user', turn: `u${from + i}`, createdAt: at });
+    return [user, item({ id: `a${from + i}`, kind: 'assistant', turn: user.id, createdAt: at })];
+  }).flat();
+
+test('isMessage counts what the timeline shows as a message, as the daemon pages', () => {
+  assert.ok(isMessage(item({ kind: 'user' })));
+  assert.ok(isMessage(item({ kind: 'aside' })));
+  assert.ok(isMessage(item({ kind: 'assistant' })));
+  assert.ok(!isMessage(item({ kind: 'assistant', parent: 'sub' })));
+  assert.ok(!isMessage(item({ kind: 'user', hidden: true })));
+  assert.ok(!isMessage(item({ kind: 'tool' })));
+});
+
+test('prependPage puts an older page in front, once', () => {
+  const held = { ...thread(turns(2, 5)), seq: 10, older: true };
+  const page = { ...thread(turns(5)), seq: 9, older: false };
+  const next = prependPage(held, page, []);
+  assert.deepEqual(
+    next.items.map((it) => it.id),
+    [...turns(5), ...turns(2, 5)].map((it) => it.id),
+  );
+  assert.equal(next.older, false);
+  assert.equal(next.seq, 10, 'the thread stays as of its own events');
+  assert.equal(prependPage(next, page, []), next, 'a page it already has changes nothing');
+});
+
+test('prependPage applies the events after the page to its items, and drops it after a clear', () => {
+  const held = { ...thread(turns(1, 5)), seq: 12, older: true };
+  const page = { ...thread(turns(1)), seq: 10, older: false };
+  const events: T.ChatEvent[] = [
+    { agent: 'p/agent-01', seq: 10, append: { id: 'a0', text: ' already in the page' } },
+    { agent: 'p/agent-01', seq: 11, append: { id: 'a0', text: ' and more' } },
+    { agent: 'p/agent-01', seq: 12, item: { ...page.items[0], text: 'edited' } },
+  ];
+  const next = prependPage(held, page, events);
+  assert.equal(next.items[0].text, 'edited');
+  assert.equal(next.items[1].text, ' and more');
+  assert.equal(prependPage(held, page, [{ agent: 'p/agent-01', seq: 11, cleared: true }]), held);
+});
+
+test('an event for an item of a page not read yet waits for that page', () => {
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-paged';
+  queryClient.setQueryData(chatKey(ref), { ...thread(turns(1, 5)), agent: ref, seq: 1, older: true });
+  const old = turns(1)[1];
+  applyChatEvent(queryClient, { agent: ref, seq: 2, item: { ...old, text: 'edited' } });
+  assert.deepEqual(
+    queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.map((it) => it.id),
+    ['u5', 'a5'],
+  );
+  // A new one goes at the end.
+  const fresh = item({ id: 'new', kind: 'assistant', turn: 'u5', createdAt: '2026-01-02T00:00:00Z' });
+  applyChatEvent(queryClient, { agent: ref, seq: 3, item: fresh });
+  assert.equal(queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.at(-1)!.id, 'new');
+});
+
+test('a chat is read a page at a time, back to its start', async (t) => {
+  const all = turns(25);
+  const pages: { before?: string; limit: number }[] = [];
+  // The daemon's paging, for messages that are all shown: limit of them, back to a turn.
+  t.mock.method(api, 'chat', async (ref: string, page?: { before?: string; limit: number }) => {
+    pages.push(page!);
+    const end = page?.before ? all.findIndex((it) => it.id === page.before) : all.length;
+    let start = Math.max(0, end - (page?.limit ?? end));
+    while (start > 0 && all[start].kind !== 'user') start--;
+    return { agent: ref, seq: 0, session: {} as T.ChatSession, items: all.slice(start, end), older: start > 0 };
+  });
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-long';
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  assert.equal(queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.length, pageSize);
+  let loads = 0;
+  while (await loadOlder(queryClient, ref)) loads++;
+  const held = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!;
+  assert.deepEqual(
+    held.items.map((it) => it.id),
+    all.map((it) => it.id),
+  );
+  assert.equal(held.older, false);
+  assert.equal(loads, 2);
+  assert.deepEqual(pages.slice(1), [
+    { before: 'u15', limit: pageSize },
+    { before: 'u5', limit: pageSize },
+  ]);
+  // Read again, it asks for as much as it already holds.
+  await fetchThread(queryClient, ref);
+  assert.deepEqual(pages.at(-1), { limit: 50 });
 });

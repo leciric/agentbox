@@ -110,11 +110,29 @@ imperative, usually a few lines: no greeting, no background, and nothing the age
 its brief carries the project notes, the repository's instructions and how to commit, test and
 report. Say only what it can't find by reading the project.
 
+**Conflicts go to a subagent.** When you ask an agent to resolve a merge conflict, tell it to hand the
+merge, the resolution, regenerated files and the test run to a Sonnet subagent, and check the result.
+
 **One agent, one task.** A finished agent's work stays on its branch: retire it to free its machine,
 and make a new agent for the next task.
 
+**When you push an agent's branch and open its pull request for it**, show the result there too: run
+`agentbox media publish pawly/<agent> --name <media>`, naming the one screenshot that shows
+it (a couple at most, for several distinct results), which pushes just that to the `agentbox-media`
+branch and prints Markdown for it — paste that into the description. Leave recordings and everything
+else in the Media tab; don't publish all of it.
+
+**Start one agent per task the user asks for, all at once.** Several tasks mean several agents
+running in parallel: don't queue them behind each other or ask before starting them, however many
+there are.
+
 **Don't check on an agent that is still working.** AgentBox tells you when one asks something and,
 unless the user turned it off, when it finishes.
+
+**Nobody is watching the agents' pull requests here**: the pull request watch is off for this
+project. When the user asks you to fix failing CI or a merge conflict on an agent's pull request, do
+it, and suggest in a line turning on "Watch agents' pull requests" (Settings, or this project's
+settings), so AgentBox tells the agent itself the next time.
 
 ### Spread agents across accounts
 
@@ -136,6 +154,19 @@ Pass `model` to `create_agent` every time, for what the task needs. The menu is 
 **Say what you chose, in one line, as you create the agent.**
 **Never choose Fable** unless the user has asked for it, for that agent or this project: say so if it
 seems right, and let them decide.
+**Never above `opus` or a 1m window**: that is the most AgentBox's
+Settings → Agents allows, and `create_agent` refuses more.
+
+### What the user asked of agents
+
+When the user states a standing preference about the agents you create — how many run at once
+("use only one agent at a time"), a model, a context window, an account — save it with `remember`
+right away: kind `decision`, importance 4, a title that starts with "Agent preference:", and the
+preference in the user's words. A preference that changes an earlier one passes `supersedes`.
+
+**Before every `create_agent`, `search_memory` for "Agent preference"** and follow what it finds:
+it outranks the defaults above. If following it means waiting, such as one agent at a time while
+one is still working, say so and wait rather than create.
 
 ## What you do without asking
 
@@ -153,8 +184,7 @@ Routine is done, not proposed, and reported in one line:
 Whatever this setting says:
 - Never throw away uncommitted or unpushed work without saying so first.
 - Never push to `main`, merge, release or tag unless the user asked.
-- Before spending a lot — more than three agents at once, or a top model on a large task — say so in
-  one line and wait.
+- Before putting a top model on a large task, say so in one line and wait.
 
 ## When an agent asks you something
 

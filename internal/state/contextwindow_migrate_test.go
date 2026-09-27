@@ -147,3 +147,54 @@ func TestUncappedModelWindowsAreForgottenOnUpgrade(t *testing.T) {
 		t.Errorf("ContextWindows(haiku) = %v, want %v", got, want)
 	}
 }
+
+// guessedModelWindowsMigration is the index of the migration that forgets
+// what claude-agent-acp's guess from a model's name left remembered.
+func guessedModelWindowsMigration() int {
+	return slices.IndexFunc(migrations, func(m string) bool { return strings.Contains(m, "AS seen") })
+}
+
+// The host this was found on: opus remembered at 200k after both earlier
+// migrations had run, next to the "[1m]" variant at 1M and haiku at its own
+// 200k. The guess goes; what really was reported stays.
+func TestGuessedModelWindowsAreForgottenOnUpgrade(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := guessedModelWindowsMigration()
+	if at < uncappedModelWindowsMigration() {
+		t.Fatalf("the migration is at %d, before the one it follows", at)
+	}
+	for i, m := range migrations[:at] {
+		if _, err := db.ExecContext(ctx, m); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", at)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO settings (key, value) VALUES (?, ?)`,
+		SettingClaudeModelWindows, `{"opus":200000,"opus[1m]":1000000,"sonnet":1000000,"haiku":200000}`); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	w, err := st.ClaudeWindows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Seen) != 3 || w.Seen["opus[1m]"] != ClaudeFullWindow || w.Seen["sonnet"] != ClaudeFullWindow || w.Seen["haiku"] != ClaudeShortWindow {
+		t.Errorf("Seen = %v after the upgrade, want opus[1m] and sonnet at 1M and haiku at 200k", w.Seen)
+	}
+	if name, compact := w.Launch("opus", "1m", 200_000); name != "opus" || compact != ClaudeFullWindow {
+		t.Errorf("opus at 1M launches as %q at %d, want opus at 1000000", name, compact)
+	}
+}

@@ -5,9 +5,12 @@ import { errorMessage } from './utils.ts';
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  // code is the daemon's Error.code: which refusal this is, when it says.
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -20,12 +23,13 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   }
   if (res.status >= 400) {
     let message = res.body.trim();
+    let code: string | undefined;
     try {
-      message = (JSON.parse(res.body) as T.Error).error;
+      ({ error: message, code } = JSON.parse(res.body) as T.Error);
     } catch {
       // not JSON
     }
-    throw new ApiError(message || `HTTP ${res.status}`, res.status);
+    throw new ApiError(message || `HTTP ${res.status}`, res.status, code);
   }
   if (res.status === 204 || res.body === '') return undefined as R;
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
@@ -122,10 +126,17 @@ export const api = {
   updateAgent: (ref: string, req: T.UpdateAgentRequest) => call<T.Agent>('PATCH', agent(ref), req),
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
+  agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
   agentAction: (ref: string, action: AgentAction) => call<T.Agent>('POST', `${agent(ref)}/${action}`),
   diffStat: (ref: string) => call<string>('GET', `${agent(ref)}/diff?stat=true`),
 
-  chat: (ref: string) => call<T.ChatThread>('GET', chatBase(ref)),
+  // A chat is read a page at a time: the latest limit messages, or the ones
+  // before an item. Without a page it is the whole conversation.
+  chat: (ref: string, page?: { before?: string; limit: number }) =>
+    call<T.ChatThread>(
+      'GET',
+      page ? `${chatBase(ref)}?${new URLSearchParams({ limit: String(page.limit), ...(page.before ? { before: page.before } : {}) })}` : chatBase(ref),
+    ),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   sendChat: (ref: string, text: string, images?: T.ChatImageUpload[]) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images } satisfies T.ChatMessageRequest),

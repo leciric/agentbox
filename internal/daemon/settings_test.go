@@ -188,6 +188,7 @@ func TestClaudeMenuIsKnownOnceAnAdapterSentOne(t *testing.T) {
 // AgentBox's own default, leads on Claude Code's, both at the compact window —
 // and choosing one role's never moves the other's.
 func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
 	// An installation from before the split chose a model for its agents.
@@ -239,11 +240,11 @@ func TestLeadAndAgentDefaultsAreSeparate(t *testing.T) {
 
 // Settings offers both roles 200k and 1M on opus, and on Claude Code's own
 // default — before any chat has remembered the adapter's menu, and after a
-// session compacting at 200k reported that as its size.
+// session reported opus's whole window.
 func TestOpusOffersItsWholeWindowInSettings(t *testing.T) {
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	ctx := context.Background()
-	if err := d.srv.store.RememberClaudeModelWindow(ctx, "opus", 200_000, 200_000); err != nil {
+	if err := d.srv.store.RememberClaudeModelWindow(ctx, "opus", 1_000_000); err != nil {
 		t.Fatal(err)
 	}
 	out, err := patchSettings(t, d, `{"defaultLeadModel":"opus"}`)

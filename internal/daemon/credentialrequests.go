@@ -242,9 +242,9 @@ func (s *Server) giveGitHubAccount(ctx context.Context, q state.Question, accoun
 		who = ", which is the GitHub user " + login
 	}
 	return fmt.Sprintf("You have the GitHub account %q now%s, and so does this project. GH_TOKEN and GITHUB_TOKEN hold "+
-		"its token; a shell that started before this has the old one, so run `. %s` in the command that needs it. "+
-		"gh works with it as it is, and pushing works once git uses it too: run `gh auth setup-git` once, with the "+
-		"remote on HTTPS.",
+		"its token, and git already uses it too: an SSH remote (git@github.com: or ssh://git@github.com/) is rewritten "+
+		"to HTTPS and a credential helper resolves the token, so fetch and push both just work. A shell that started "+
+		"before this has the old token, so run `. %s` in the command that needs it.",
 		account, who, envFile), nil
 }
 

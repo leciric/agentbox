@@ -88,7 +88,7 @@ func CheckHost(u User) error {
 // ask you to rebuild a base image made by an older AgentBox. The pinned agent
 // tools aren't part of it: they are in tools.txt, and their own version
 // (ToolsVersion) moves them on in place, without a rebuild.
-const Version = "2026.09.26.1"
+const Version = "2026.09.27.1"
 
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.
@@ -104,6 +104,7 @@ const (
 	codexKey     = "user.agentbox.with-codex"
 	opencodeKey  = "user.agentbox.with-opencode"
 	devCachesKey = "user.agentbox.with-dev-caches"
+	incusKey     = "user.agentbox.with-incus"
 	// The tools version and the tools themselves, as specs separated by
 	// spaces: UpdateTools needs to know which ones moved on.
 	toolsVersionKey = "user.agentbox.tools-version"
@@ -140,6 +141,7 @@ func InstalledBuild(ctx context.Context, inc incus.Client) (Installed, error) {
 			Codex:     config[codexKey] == "1",
 			OpenCode:  config[opencodeKey] == "1",
 			DevCaches: config[devCachesKey] == "1",
+			Incus:     config[incusKey] == "1",
 		},
 		ToolsVersion: config[toolsVersionKey],
 		Tools:        strings.Fields(config[toolsKey]),
@@ -178,7 +180,7 @@ var kernelModules = []string{
 
 // EnsureProfile creates the Incus profile that lets agents run Docker.
 func EnsureProfile(ctx context.Context, inc incus.Client) error {
-	if _, err := inc.Run(ctx, "profile", "show", Profile); err == nil {
+	if ok, _ := inc.HasProfile(ctx, Profile); ok {
 		return nil
 	}
 	// Containers can't load kernel modules, so Incus loads Docker's on the host when an agent starts.
@@ -188,15 +190,14 @@ func EnsureProfile(ctx context.Context, inc incus.Client) error {
 			modules = append(modules, m)
 		}
 	}
-	if _, err := inc.Run(ctx, "profile", "create", Profile); err != nil {
+	if err := inc.CreateProfile(ctx, Profile); err != nil {
 		return err
 	}
-	_, err := inc.Run(ctx, "profile", "set", Profile,
+	return inc.SetProfileConfig(ctx, Profile,
 		"security.nesting=true",
 		"security.syscalls.intercept.mknod=true",
 		"security.syscalls.intercept.setxattr=true",
 		"linux.kernel_modules="+strings.Join(modules, ","))
-	return err
 }
 
 // Components are the parts of the base image that are only in it if you ask.
@@ -217,10 +218,17 @@ type Components struct {
 	// on AgentBox itself starts testing without downloading or compiling its
 	// dependencies first. Only a machine that develops AgentBox wants it.
 	DevCaches bool
+	// Incus adds Incus itself, so an agent whose project turns on nesting
+	// (Project.Nesting) can run a real Incus daemon of its own: agents working
+	// on AgentBox can then test features that touch agent machines (limits,
+	// GPU, image builds) for real, inside their own machine.
+	Incus bool
 }
 
 // Any reports whether any component is asked for.
-func (c Components) Any() bool { return c.Android || c.Codex || c.OpenCode || c.DevCaches }
+func (c Components) Any() bool {
+	return c.Android || c.Codex || c.OpenCode || c.DevCaches || c.Incus
+}
 
 // Env renders the components as the environment variables provision.sh checks.
 func (c Components) Env() []string {
@@ -229,6 +237,7 @@ func (c Components) Env() []string {
 		"AGENTBOX_WITH_CODEX=" + envFlag(c.Codex),
 		"AGENTBOX_WITH_OPENCODE=" + envFlag(c.OpenCode),
 		"AGENTBOX_WITH_DEV_CACHES=" + envFlag(c.DevCaches),
+		"AGENTBOX_WITH_INCUS=" + envFlag(c.Incus),
 	}
 }
 
@@ -246,6 +255,9 @@ func (c Components) Summary() string {
 	}
 	if c.DevCaches {
 		on = append(on, "AgentBox's development caches")
+	}
+	if c.Incus {
+		on = append(on, "Incus")
 	}
 	if len(on) == 0 {
 		return "no optional components"
@@ -290,7 +302,7 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 		return err
 	}
 	fail := func(err error) error {
-		_, _ = inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+		_ = inc.Delete(context.WithoutCancel(ctx), next)
 		return err
 	}
 
@@ -302,15 +314,18 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 	// The components are recorded next to the version, so Setup can ask for a
 	// rebuild when you turn one on, the same way a version bump does.
 	// So are the tools, so a later AgentBox can move them on in place.
-	if err := run(ctx, inc,
-		append([]string{"config", "set", next,
-			versionKey + "=" + Version,
-			androidKey + "=" + envFlag(opts.Components.Android),
-			codexKey + "=" + envFlag(opts.Components.Codex),
-			opencodeKey + "=" + envFlag(opts.Components.OpenCode),
-			devCachesKey + "=" + envFlag(opts.Components.DevCaches)},
-			recordTools(ToolsFor(opts.Components))...),
-		[]string{"snapshot", "create", next, Generic},
+	if err := all(
+		func() error {
+			return inc.SetConfig(ctx, next, append([]string{
+				versionKey + "=" + Version,
+				androidKey + "=" + envFlag(opts.Components.Android),
+				codexKey + "=" + envFlag(opts.Components.Codex),
+				opencodeKey + "=" + envFlag(opts.Components.OpenCode),
+				devCachesKey + "=" + envFlag(opts.Components.DevCaches),
+				incusKey + "=" + envFlag(opts.Components.Incus)},
+				recordTools(ToolsFor(opts.Components))...)...)
+		},
+		func() error { return inc.CreateSnapshot(ctx, next, Generic) },
 	); err != nil {
 		return fail(err)
 	}
@@ -321,7 +336,7 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 	}
 
 	step("Snapshotting it as %s", SnapshotRef())
-	if err := run(ctx, inc, []string{"snapshot", "create", next, Snapshot}); err != nil {
+	if err := inc.CreateSnapshot(ctx, next, Snapshot); err != nil {
 		return fail(err)
 	}
 
@@ -338,27 +353,27 @@ func swapIn(ctx context.Context, inc incus.Client, next string, log io.Writer) e
 	baseLock.Lock()
 	defer baseLock.Unlock()
 	old := Base + "-old"
-	_, _ = inc.Run(ctx, "delete", "--force", old)
+	_ = inc.Delete(ctx, old)
 	// A new machine has no previous image, so there's nothing to delete after the swap.
 	replaced := false
 	if _, err := inc.Instance(ctx, Base); err == nil {
-		if err := run(ctx, inc, []string{"rename", Base, old}); err != nil {
-			_, _ = inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+		if err := inc.Rename(ctx, Base, old); err != nil {
+			_ = inc.Delete(context.WithoutCancel(ctx), next)
 			return err
 		}
 		replaced = true
 	}
-	if err := run(ctx, inc, []string{"rename", next, Base}); err != nil {
+	if err := inc.Rename(ctx, next, Base); err != nil {
 		if replaced {
 			// Put the previous one back rather than leave the machine without a base.
-			_, _ = inc.Run(context.WithoutCancel(ctx), "rename", old, Base)
+			_ = inc.Rename(context.WithoutCancel(ctx), old, Base)
 		}
 		return err
 	}
 	if !replaced {
 		return nil
 	}
-	return run(ctx, inc, []string{"delete", "--force", old})
+	return inc.Delete(ctx, old)
 }
 
 // DebianMirror is the Debian mirror a local build downloads Debian's packages
@@ -373,12 +388,12 @@ func DebianMirror() string {
 func buildLocally(ctx context.Context, inc incus.Client, next string, u User, components Components, log io.Writer) error {
 	step := stepper(log)
 	step("Creating %s from %s", next, Source)
-	if err := run(ctx, inc,
-		[]string{"init", Source, next, "--profile", "default", "--profile", Profile},
+	if err := all(
+		func() error { return inc.Init(ctx, Source, next, "default", Profile) },
 		// The host's map from the start, so Incus never has to shift the
 		// instance's files: agents copied from it use the same map.
-		[]string{"config", "set", next, "raw.idmap=" + IDMap(u)},
-		[]string{"start", next},
+		func() error { return inc.SetConfig(ctx, next, "raw.idmap="+IDMap(u)) },
+		func() error { return inc.Start(ctx, next) },
 	); err != nil {
 		return err
 	}
@@ -416,20 +431,23 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("provisioning %s: %w", next, err)
 	}
-	return run(ctx, inc,
-		[]string{"exec", next, "--", "sh", "-c", "rm /root/provision.sh /root/tools.sh /root/tools.list && " + scrubMachineID},
-		[]string{"stop", next},
+	return all(
+		func() error {
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/tools.sh /root/tools.list && "+scrubMachineID)
+			return err
+		},
+		func() error { return inc.Stop(ctx, next) },
 	)
 }
 
 // personaliseFor turns the user-agnostic image into this machine's: the host
 // user in place of the placeholder, and the host's ID map.
 func personaliseFor(ctx context.Context, inc incus.Client, next string, u User, log io.Writer) error {
-	if err := run(ctx, inc,
+	if err := all(
 		// Set before it starts: Incus shifts the filesystem once here, rather
 		// than for every agent copied from the image afterwards.
-		[]string{"config", "set", next, "raw.idmap=" + IDMap(u)},
-		[]string{"start", next},
+		func() error { return inc.SetConfig(ctx, next, "raw.idmap="+IDMap(u)) },
+		func() error { return inc.Start(ctx, next) },
 	); err != nil {
 		return err
 	}
@@ -445,10 +463,13 @@ func personaliseFor(ctx context.Context, inc incus.Client, next string, u User, 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("making %s yours: %w", next, err)
 	}
-	return run(ctx, inc,
+	return all(
 		// Booting to personalise it gave it a machine-id of its own again.
-		[]string{"exec", next, "--", "sh", "-c", "rm -f /root/personalise.sh && " + scrubMachineID},
-		[]string{"stop", next},
+		func() error {
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm -f /root/personalise.sh && "+scrubMachineID)
+			return err
+		},
+		func() error { return inc.Stop(ctx, next) },
 	)
 }
 
@@ -460,13 +481,13 @@ func remove(ctx context.Context, inc incus.Client, name string) error {
 		}
 		return err
 	}
-	_, err := inc.Run(ctx, "delete", "--force", name)
-	return err
+	return inc.Delete(ctx, name)
 }
 
-func run(ctx context.Context, inc incus.Client, commands ...[]string) error {
-	for _, args := range commands {
-		if _, err := inc.Run(ctx, args...); err != nil {
+// all takes steps one after another, and stops at the first that fails.
+func all(steps ...func() error) error {
+	for _, step := range steps {
+		if err := step(); err != nil {
 			return err
 		}
 	}

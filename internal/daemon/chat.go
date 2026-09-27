@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -53,7 +55,16 @@ func (s *Server) getChat(from agentFrom) func(http.ResponseWriter, *http.Request
 		if err != nil {
 			return err
 		}
-		thread, err := s.chat.Thread(a)
+		// Without a limit it is the whole conversation, which is what the CLI
+		// reads; the app asks for it a page at a time.
+		q := r.URL.Query()
+		limit := 0
+		if v := q.Get("limit"); v != "" {
+			if limit, err = strconv.Atoi(v); err != nil || limit < 0 {
+				return fmt.Errorf("limit must be a number of messages, not %q", v)
+			}
+		}
+		thread, err := s.chat.Page(a, q.Get("before"), limit)
 		if err != nil {
 			return err
 		}

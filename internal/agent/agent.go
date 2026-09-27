@@ -11,11 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -357,6 +357,9 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	if err := m.checkImageTool(ctx, opts.AI); err != nil {
 		return state.Agent{}, err
 	}
+	if err := m.checkNesting(ctx, p); err != nil {
+		return state.Agent{}, err
+	}
 	ghAccount, err := m.GitHubAccountFor(p, opts.GitHubAccount)
 	if err != nil {
 		return state.Agent{}, err
@@ -451,6 +454,22 @@ func (m *Manager) project(ctx context.Context, name string) (state.Project, gitr
 	return p, repo, err
 }
 
+// LockAgentWorktree (re)locks a's worktree, so a `git worktree prune` run
+// elsewhere leaves its entry alone. The daemon calls this for every agent,
+// lead included, when it starts, in case a previous daemon or an older
+// AgentBox left worktrees unlocked. A worktree git no longer knows about —
+// removed, or pruned already — is left alone rather than failing.
+func (m *Manager) LockAgentWorktree(ctx context.Context, a state.Agent) error {
+	_, repo, err := m.project(ctx, a.Project)
+	if err != nil {
+		return err
+	}
+	if !repo.HasWorktree(a.Worktree) {
+		return nil
+	}
+	return repo.LockWorktree(a.Worktree, "agentbox: "+a.Ref())
+}
+
 // plan is everything build needs; Create and Fork fill it in differently.
 type plan struct {
 	project       state.Project
@@ -481,7 +500,11 @@ type plan struct {
 func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	name := pl.name
 	if name == "" {
-		name = m.nextName(ctx, pl.project)
+		var err error
+		name, err = m.nextName(ctx, pl.project, pl.repo)
+		if err != nil {
+			return state.Agent{}, fmt.Errorf("choosing a name: %w", err)
+		}
 	}
 	branch := m.branchFor(ctx, pl.project, pl.repo, pl.branch, pl.title, pl.task, name)
 	a := state.Agent{
@@ -544,7 +567,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 
 	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
-	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit); err != nil {
+	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 		return fail("worktree", err)
 	}
 	undo = append(undo, func() {
@@ -574,12 +597,11 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 
 	// Instance commands run to completion even after Ctrl-C, and cancellation is
 	// checked between them, so the rollback never races an unfinished Incus operation.
-	incusStep := func(args ...string) error {
+	run := func(step incusStep) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		_, err := m.Incus.Run(cleanup, args...)
-		return err
+		return step(cleanup, m.Incus)
 	}
 
 	m.logf("Creating instance %s from %s", a.Instance, pl.source)
@@ -589,31 +611,36 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	if pl.source == image.SnapshotRef() {
 		release = image.UseBase()
 	}
-	err := incusStep("copy", pl.source, a.Instance)
+	err := run(func(ctx context.Context, c incus.Client) error { return c.Copy(ctx, pl.source, a.Instance) })
 	release()
 	if err != nil {
 		return fail("instance", err)
 	}
-	undo = append(undo, func() { _, _ = m.Incus.Run(cleanup, "delete", "--force", a.Instance) })
+	undo = append(undo, func() { _ = m.Incus.Delete(cleanup, a.Instance) })
 
 	copied, err := m.Incus.Details(cleanup, a.Instance)
 	if err != nil {
 		return fail("instance", err)
 	}
-	var steps [][]string
+	var steps []incusStep
 	// A copy of another agent brings that agent's devices along: replace them.
 	for _, device := range copiedDevices {
 		if _, ok := copied.Devices[device]; ok {
-			steps = append(steps, []string{"config", "device", "remove", a.Instance, device})
+			steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.RemoveDevice(ctx, a.Instance, device) })
 		}
 	}
 	steps = append(steps,
-		[]string{"config", "set", a.Instance, "raw.idmap=" + image.IDMap(m.User)},
+		setConfig(a.Instance, "raw.idmap="+image.IDMap(m.User)),
 		// Same paths as on the host, so the worktree's .git pointer resolves inside the agent.
-		[]string{"config", "device", "add", a.Instance, "worktree", "disk", "source=" + a.Worktree, "path=" + a.Worktree},
-		[]string{"config", "device", "add", a.Instance, "gitdir", "disk", "source=" + pl.repo.GitDir, "path=" + pl.repo.GitDir},
+		func(ctx context.Context, c incus.Client) error {
+			return c.AddDevice(ctx, a.Instance, "worktree", "disk", "source="+a.Worktree, "path="+a.Worktree)
+		},
+		func(ctx context.Context, c incus.Client) error {
+			return c.AddDevice(ctx, a.Instance, "gitdir", "disk", "source="+pl.repo.GitDir, "path="+pl.repo.GitDir)
+		},
 	)
-	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config)...)
+	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config, m.budgetOn(ctx))...)
+	steps = append(steps, budgetSteps(a.Instance, m.budgetOn(ctx), copied.Config)...)
 	steps = append(steps, configuredCPUSteps(a.Instance, pl.limits.CPU, copied.Config)...)
 	if on, status, err := gpuOn(ctx, m); err != nil {
 		return fail("instance", err)
@@ -621,9 +648,9 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		_, has := copied.Devices[gpuDevice]
 		steps = append(steps, gpuCreateSteps(a.Instance, status, has)...)
 	}
-	steps = append(steps, []string{"start", a.Instance})
-	for _, args := range steps {
-		if err := incusStep(args...); err != nil {
+	steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) })
+	for _, step := range steps {
+		if err := run(step); err != nil {
 			return fail("instance", err)
 		}
 	}
@@ -642,7 +669,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	// directory only holds the .git mount, and root made it. Give it to the
 	// agent's user, so those writes land in the agent's own filesystem; the
 	// project's checkout on the host isn't mounted, and stays untouched.
-	if _, err := m.Incus.Run(ctx, "exec", a.Instance, "--", "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(pl.repo.GitDir)); err != nil {
+	if _, err := m.Incus.Exec(ctx, a.Instance, "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(pl.repo.GitDir)); err != nil {
 		return fail("instance", err)
 	}
 	if err := m.EnsureAgentAPI(ctx, a); err != nil {
@@ -666,6 +693,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	}
 	a.Status = state.AgentReady
 	m.EnsureBrowser(ctx, a)
+	m.EnsureNesting(ctx, a, pl.project)
 	return a, nil
 }
 
@@ -804,22 +832,57 @@ func (m *Manager) GitHubAccountFor(p state.Project, account string) (string, err
 	return m.Creds.DefaultGitHubAccount()
 }
 
-// nextName returns the first agent-NN not taken by an agent or a worktree
-// directory. Branches don't come into it: an agent's branch is named after its
-// work (branchFor), and makes its own way around the ones that are taken.
-func (m *Manager) nextName(ctx context.Context, p state.Project) string {
-	taken := map[string]bool{}
+// nextName reserves this project's next agent-NN: never one handed out
+// before, even if the agent it named is gone, its worktree deleted, or its
+// branch too (#name-reuse). state.Store.NextAgentName is what makes the
+// reservation atomic and monotonic across concurrent creates; what's
+// computed here is only its floor, from everything else that might already
+// know a number the counter doesn't: the agents this project has now, past
+// agents its memory still mentions, worktree directories left on disk, and
+// local or remote agentbox/agent-* branches.
+func (m *Manager) nextName(ctx context.Context, p state.Project, repo gitrepo.Repo) (string, error) {
+	floor := 1
+	raise := func(name string) {
+		if n, ok := agentNumber(name); ok && n+1 > floor {
+			floor = n + 1
+		}
+	}
+
 	if agents, err := m.Store.Agents(ctx, p.Name); err == nil {
 		for _, a := range agents {
-			taken[a.Name] = true
+			raise(a.Name)
 		}
 	}
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("agent-%02d", i)
-		if _, err := os.Stat(m.Paths.Worktree(p.Name, name)); !taken[name] && errors.Is(err, fs.ErrNotExist) {
-			return name
+	if names, err := m.Store.PastAgentNames(ctx, p.Name); err == nil {
+		for _, name := range names {
+			raise(name)
 		}
 	}
+	if entries, err := os.ReadDir(filepath.Join(m.Paths.Worktrees(), p.Name)); err == nil {
+		for _, entry := range entries {
+			raise(entry.Name())
+		}
+	}
+	if branches, err := repo.BranchesStartingWith(p.BranchPrefix + "agent-"); err == nil {
+		for _, b := range branches {
+			raise(strings.TrimPrefix(b, p.BranchPrefix))
+		}
+	}
+
+	return m.Store.NextAgentName(ctx, p.Name, floor)
+}
+
+// agentNumber parses the NN in agent-NN.
+func agentNumber(name string) (int, bool) {
+	n, ok := strings.CutPrefix(name, "agent-")
+	if !ok {
+		return 0, false
+	}
+	i, err := strconv.Atoi(n)
+	if err != nil || i < 1 {
+		return 0, false
+	}
+	return i, true
 }
 
 // tmuxConfig matches the desktop app's dark theme, and lets the mouse wheel
@@ -851,9 +914,11 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	}
 	var files []file
 
-	if name, email := gitIdentity(); name != "" && email != "" {
-		files = append(files, file{home + "/.gitconfig", fmt.Sprintf("[user]\n\tname = %s\n\temail = %s\n", gitQuote(name), gitQuote(email)), 0o644})
+	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
+	if err != nil {
+		return err
 	}
+	files = append(files, file{home + "/.gitconfig", gitConfig(gh != ""), 0o644})
 
 	env, err := m.agentEnv(a)
 	if err != nil {
@@ -993,7 +1058,8 @@ func (m *Manager) agentCompactWindow(ctx context.Context, a state.Agent) (int64,
 	if err != nil {
 		return installation, nil
 	}
-	return w.CompactWindow(w.NormalizeClaudeModel(chat.Options["model"]), chat.Options[state.ChatOptionContextWindow], installation), nil
+	_, window := w.Launch(chat.Options["model"], chat.Options[state.ChatOptionContextWindow], installation)
+	return window, nil
 }
 
 // openCodeConfig is OpenCode's ~/.config/opencode/opencode.json: the MCP
@@ -1136,6 +1202,10 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 	if err != nil {
 		return "", err
 	}
+	p, err := m.Store.Project(ctx, a.Project)
+	if err != nil {
+		return "", err
+	}
 	projectNotes, err := notes.Read(m.Paths.ProjectNotes(a.Project))
 	if err != nil {
 		return "", err
@@ -1167,6 +1237,8 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		VM:       hostos.InVM(),
 		Host:     hostos.Name(),
 		Notes:    projectNotes,
+		Nesting:  p.Nesting,
+		AgentPRs: p.AgentPRs,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -1235,6 +1307,31 @@ func (m *Manager) writeAgentEnvIfRunning(ctx context.Context, a state.Agent) err
 		return nil
 	}
 	return m.writeAgentEnv(ctx, a)
+}
+
+// writeGitConfig writes an agent's ~/.gitconfig fresh, from its current
+// GitHub account: see gitConfig.
+func (m *Manager) writeGitConfig(ctx context.Context, a state.Agent) error {
+	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
+	if err != nil {
+		return err
+	}
+	home := "/home/" + m.User.Name
+	return m.Incus.WriteFile(ctx, a.Instance, home+"/.gitconfig", []byte(gitConfig(gh != "")), m.User.UID, m.User.GID, 0o644)
+}
+
+// writeGitConfigIfRunning writes an agent's .gitconfig when its machine is
+// up, the same way writeAgentEnvIfRunning does for its env file: a stopped or
+// paused agent gets it fresh when Start next configures it.
+func (m *Manager) writeGitConfigIfRunning(ctx context.Context, a state.Agent) error {
+	inst, err := m.Incus.Instance(ctx, a.Instance)
+	if err != nil {
+		return err
+	}
+	if inst.Status != "Running" {
+		return nil
+	}
+	return m.writeGitConfig(ctx, a)
 }
 
 // RewriteAgentEnv writes every ready agent's env file again, so a credential
@@ -1389,6 +1486,9 @@ func (m *Manager) SetGitHubAccount(ctx context.Context, a state.Agent, account s
 	if err := m.writeAgentEnvIfRunning(ctx, a); err != nil {
 		return a, err
 	}
+	if err := m.writeGitConfigIfRunning(ctx, a); err != nil {
+		return a, err
+	}
 	if err := m.Store.SetAgentGitHubAccount(ctx, a.Project, a.Name, name); err != nil {
 		return a, err
 	}
@@ -1518,11 +1618,16 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	switch inst.Status {
 	case "Running":
 	case "Frozen":
-		if _, err := m.Incus.Run(ctx, "resume", a.Instance); err != nil {
+		if err := m.Incus.Resume(ctx, a.Instance); err != nil {
 			return inst, err
 		}
 	default:
-		if _, err := m.Incus.Run(ctx, "start", a.Instance); err != nil {
+		// A machine only changes cgroup when it starts: this is when an
+		// agent moves into the shared budget, or out of it.
+		if err := m.ensureBudgetPlacement(ctx, a.Instance); err != nil {
+			return inst, err
+		}
+		if err := m.Incus.Start(ctx, a.Instance); err != nil {
 			return inst, err
 		}
 	}
@@ -1548,6 +1653,11 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	if err := m.writeAgentEnv(ctx, a); err != nil {
 		return inst, err
 	}
+	// Same for .gitconfig: an account change while it was down couldn't write
+	// the credential helper in either.
+	if err := m.writeGitConfig(ctx, a); err != nil {
+		return inst, err
+	}
 	// The same for the project's notes, which may have changed while the
 	// machine was down: nothing else rewrites the brief of an agent that
 	// already exists. Never let it keep an agent from starting.
@@ -1562,8 +1672,8 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 }
 
 func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
-	if _, err := m.Incus.Run(ctx, "stop", a.Instance, "--timeout", "30"); err != nil {
-		_, err = m.Incus.Run(ctx, "stop", a.Instance, "--force")
+	if err := m.Incus.StopWithin(ctx, a.Instance, 30*time.Second); err != nil {
+		err = m.Incus.ForceStop(ctx, a.Instance)
 		return err
 	}
 	return nil
@@ -1573,7 +1683,7 @@ func (m *Manager) Stop(ctx context.Context, a state.Agent) error {
 // CPU. PausedAt is set to now, so "auto-stop idle agents" counts it as idle
 // from this moment rather than from whatever it was last doing before.
 func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
-	if _, err := m.Incus.Run(ctx, "pause", a.Instance); err != nil {
+	if err := m.Incus.Pause(ctx, a.Instance); err != nil {
 		return err
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Now()); err != nil {
@@ -1583,7 +1693,7 @@ func (m *Manager) Pause(ctx context.Context, a state.Agent) error {
 }
 
 func (m *Manager) Resume(ctx context.Context, a state.Agent) error {
-	if _, err := m.Incus.Run(ctx, "resume", a.Instance); err != nil {
+	if err := m.Incus.Resume(ctx, a.Instance); err != nil {
 		return err
 	}
 	if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
@@ -1639,7 +1749,7 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 			m.handBackFiles(ctx, a)
 		}
 		m.logf("Deleting instance %s", a.Instance)
-		if _, delErr := m.Incus.Run(ctx, "delete", "--force", a.Instance); delErr != nil {
+		if delErr := m.Incus.Delete(ctx, a.Instance); delErr != nil {
 			// The instance may have been destroyed by an earlier attempt, or
 			// concurrently, between the check above and this call. Only a
 			// delete that still finds something there is a real failure.
@@ -1694,7 +1804,7 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 // (Docker bind mounts, sudo) back to the host user, so git and the host can
 // manage them. It only works while the agent is running.
 func (m *Manager) handBackFiles(ctx context.Context, a state.Agent) {
-	_, _ = m.Incus.Run(ctx, "exec", a.Instance, "--", "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
+	_, _ = m.Incus.Exec(ctx, a.Instance, "chown", "-R", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), a.Worktree)
 }
 
 // Status is an agent plus its live instance state.
@@ -1806,6 +1916,30 @@ func gitIdentity() (name, email string) {
 		return strings.TrimSpace(string(out))
 	}
 	return get("user.name"), get("user.email")
+}
+
+// gitConfig builds an agent's ~/.gitconfig: its git identity, copied from the
+// host's own, and, when it has a GitHub account, what `gh auth setup-git`
+// would set up itself — a credential helper that resolves GH_TOKEN, and
+// rewriting git@github.com: and ssh://git@github.com/ remotes to HTTPS, since
+// an agent gets a token but never an SSH key. It's written whole every time
+// (configure, Start, SetGitHubAccount) so losing the account removes this
+// config again rather than leaving it stale.
+func gitConfig(hasGitHub bool) string {
+	var b strings.Builder
+	if name, email := gitIdentity(); name != "" && email != "" {
+		fmt.Fprintf(&b, "[user]\n\tname = %s\n\temail = %s\n", gitQuote(name), gitQuote(email))
+	}
+	if hasGitHub {
+		b.WriteString(`[credential "https://github.com"]
+	helper =
+	helper = !gh auth git-credential
+[url "https://github.com/"]
+	insteadOf = git@github.com:
+	insteadOf = ssh://git@github.com/
+`)
+	}
+	return b.String()
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

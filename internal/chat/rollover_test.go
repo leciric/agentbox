@@ -20,6 +20,7 @@ import (
 // changed — and the next turn starts a new session, because the stored id is
 // gone.
 func TestRolloverKeepsTheConversationAndStartsANewSession(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -73,6 +74,7 @@ func TestRolloverKeepsTheConversationAndStartsANewSession(t *testing.T) {
 // that is about to go, and what it says comes back to the caller instead of
 // into the conversation.
 func TestConsolidationSaysNothingInTheConversation(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -122,6 +124,7 @@ func TestConsolidationSaysNothingInTheConversation(t *testing.T) {
 // replacing, so the rollover happens anyway and the caller is told why it has
 // nothing to store.
 func TestAFailedConsolidationStillRollsOver(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -165,6 +168,7 @@ func TestAFailedConsolidationStillRollsOver(t *testing.T) {
 // way it waits for a running turn: delivering it mid-rollover would start a
 // turn on the session that is about to be thrown away.
 func TestANoticeWaitsForARollover(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -206,6 +210,7 @@ func TestANoticeWaitsForARollover(t *testing.T) {
 // A chat with a turn running is not one to replace underneath: Compact says so
 // rather than cutting the turn short.
 func TestCompactWaitsForARunningTurn(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	release := make(chan struct{})
 	f := newFakeTool(func(f *fakeTool, sessionID, text string) acp.PromptResponse {
@@ -237,6 +242,7 @@ func TestCompactWaitsForARunningTurn(t *testing.T) {
 // The card is up before the consolidation starts and says it runs, so the user
 // sees the compaction as it happens rather than only once it is over.
 func TestTheCompactionCardRunsLive(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, rec := newManager(t, store, f)
@@ -278,6 +284,7 @@ func TestTheCompactionCardRunsLive(t *testing.T) {
 // the session being thrown away: it waits under the card, and becomes the
 // fresh session's first turn once the roll is done.
 func TestAMessageSentMidCompactionGoesToTheFreshSession(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -348,6 +355,7 @@ func TestAMessageSentMidCompactionGoesToTheFreshSession(t *testing.T) {
 // Idle is the daemon's cue to compact without anyone waiting: it fires once a
 // turn has ended with nothing following it.
 func TestIdleFiresWhenATurnEnds(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)
@@ -372,6 +380,7 @@ func TestIdleFiresWhenATurnEnds(t *testing.T) {
 // A card a previous daemon left running can't be finished by this one: it is
 // shown as failed, the way a turn left running is.
 func TestARunningCardFromAnotherDaemonFails(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(answerHello)
 	m, _ := newManager(t, store, f)

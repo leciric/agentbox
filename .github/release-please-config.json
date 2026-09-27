@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "draft": true,
+  "force-tag-creation": true,
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "component": "agentbox",
+      "include-component-in-tag": false,
+      "changelog-path": "CHANGELOG.md",
+      "changelog-sections": [
+        { "type": "feat", "section": "Added" },
+        { "type": "fix", "section": "Fixed" },
+        { "type": "perf", "section": "Fixed" },
+        { "type": "refactor", "section": "Changed" },
+        { "type": "test", "hidden": true },
+        { "type": "ci", "hidden": true },
+        { "type": "docs", "hidden": true },
+        { "type": "chore", "hidden": true }
+      ],
+      "extra-files": [
+        { "type": "json", "path": "desktop/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "desktop/package-lock.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "desktop/package-lock.json", "jsonpath": "$.packages[''].version" }
+      ]
+    }
+  }
+}

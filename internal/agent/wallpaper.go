@@ -34,8 +34,9 @@ const wallpaperPath = "/usr/local/share/agentbox/wallpaper.png"
 func (m *Manager) installWallpaper(ctx context.Context, a state.Agent) {
 	sum := sha256.Sum256(wallpaper)
 	want := hex.EncodeToString(sum[:])
-	out, err := m.Incus.Run(ctx, "exec", a.Instance, "--",
-		"sh", "-c", "sha256sum "+wallpaperPath+" 2>/dev/null | cut -d' ' -f1")
+	out, err := m.Incus.Exec(ctx, a.Instance, "sh",
+		"-c",
+		"sha256sum "+wallpaperPath+" 2>/dev/null | cut -d' ' -f1")
 	if err == nil && strings.TrimSpace(out) == want {
 		return
 	}

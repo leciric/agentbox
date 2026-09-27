@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -53,6 +54,19 @@ func (c *Client) ResetProjectChat(ctx context.Context, project string) error {
 func (c *Client) Chat(ctx context.Context, ref string) (ChatThread, error) {
 	var out ChatThread
 	return out, c.chatDo(ctx, http.MethodGet, ref, "", nil, &out)
+}
+
+// ChatPage returns a page of an agent's conversation: the items before the one
+// called before (the end of the conversation when before is ""), going back
+// far enough to hold limit messages, and starting where a turn does. Older
+// says whether there is more before it.
+func (c *Client) ChatPage(ctx context.Context, ref, before string, limit int) (ChatThread, error) {
+	q := url.Values{"limit": {strconv.Itoa(limit)}}
+	if before != "" {
+		q.Set("before", before)
+	}
+	var out ChatThread
+	return out, c.chatDo(ctx, http.MethodGet, ref, "?"+q.Encode(), nil, &out)
 }
 
 // StartChat starts the agent's AI tool for its chat, unless it runs.

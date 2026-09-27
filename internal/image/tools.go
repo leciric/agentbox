@@ -229,12 +229,15 @@ func UpdateTools(ctx context.Context, inc incus.Client, u User, plan Plan, log i
 		return err
 	}
 	fail := func(err error) error {
-		_, _ = inc.Run(context.WithoutCancel(ctx), "delete", "--force", next)
+		_ = inc.Delete(context.WithoutCancel(ctx), next)
 		return fmt.Errorf("updating the agent tools in place: %w", err)
 	}
 
 	step("Copying %s to %s", SnapshotRef(), next)
-	if err := run(ctx, inc, []string{"copy", SnapshotRef(), next}, []string{"start", next}); err != nil {
+	if err := all(
+		func() error { return inc.Copy(ctx, SnapshotRef(), next) },
+		func() error { return inc.Start(ctx, next) },
+	); err != nil {
 		return fail(err)
 	}
 	if _, err := inc.WaitReady(ctx, next, readyTimeout); err != nil {
@@ -278,11 +281,14 @@ func UpdateTools(ctx context.Context, inc incus.Client, u User, plan Plan, log i
 	if err := tools("verify", "/root/tools.current"); err != nil {
 		return fail(err)
 	}
-	if err := run(ctx, inc,
-		[]string{"exec", next, "--", "sh", "-c", "rm -f /root/tools.sh /root/tools.list /root/tools.remove /root/tools.current && " + scrubMachineID},
-		[]string{"stop", next},
-		append([]string{"config", "set", next}, recordTools(plan.Tools)...),
-		[]string{"snapshot", "create", next, Snapshot},
+	if err := all(
+		func() error {
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm -f /root/tools.sh /root/tools.list /root/tools.remove /root/tools.current && "+scrubMachineID)
+			return err
+		},
+		func() error { return inc.Stop(ctx, next) },
+		func() error { return inc.SetConfig(ctx, next, recordTools(plan.Tools)...) },
+		func() error { return inc.CreateSnapshot(ctx, next, Snapshot) },
 	); err != nil {
 		return fail(err)
 	}

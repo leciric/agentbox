@@ -87,7 +87,7 @@ func (s *Server) setProjectLayout(w http.ResponseWriter, r *http.Request) error 
 	}
 	out := make([]api.Project, 0, len(projects))
 	for _, p := range projects {
-		out = append(out, projectInfo(p))
+		out = append(out, s.projectInfo(r.Context(), p))
 	}
 	return writeJSON(w, http.StatusOK, out)
 }

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"agentbox/internal/incus"
 	"agentbox/internal/state"
 )
 
@@ -109,13 +110,16 @@ const nvidiaRuntimeKey = "nvidia.runtime"
 // copy this instance was made from already carries agentbox-gpu (copying
 // another agent brings its devices along, same as limitSteps and
 // configuredCPUSteps check).
-func gpuCreateSteps(instance string, status GPUStatus, hasDevice bool) [][]string {
-	var steps [][]string
+func gpuCreateSteps(instance string, status GPUStatus, hasDevice bool) []incusStep {
+	var steps []incusStep
 	if !hasDevice {
-		steps = append(steps, append([]string{"config", "device", "add", instance, gpuDevice}, gpuDeviceArgs()...))
+		args := gpuDeviceArgs()
+		steps = append(steps, func(ctx context.Context, c incus.Client) error {
+			return c.AddDevice(ctx, instance, gpuDevice, args[0], args[1:]...)
+		})
 	}
 	if status.Kind == GPUNvidia {
-		steps = append(steps, []string{"config", "set", instance, nvidiaRuntimeKey + "=true"})
+		steps = append(steps, setConfig(instance, nvidiaRuntimeKey+"=true"))
 	}
 	return steps
 }
@@ -137,12 +141,12 @@ func (m *Manager) ApplyGPU(ctx context.Context, instance string, on bool, status
 	_, has := details.Devices[gpuDevice]
 	switch {
 	case on && !has:
-		args := append([]string{"config", "device", "add", instance, gpuDevice}, gpuDeviceArgs()...)
-		if _, err := m.Incus.Run(ctx, args...); err != nil {
+		args := gpuDeviceArgs()
+		if err := m.Incus.AddDevice(ctx, instance, gpuDevice, args[0], args[1:]...); err != nil {
 			return err
 		}
 	case !on && has:
-		if _, err := m.Incus.Run(ctx, "config", "device", "remove", instance, gpuDevice); err != nil {
+		if err := m.Incus.RemoveDevice(ctx, instance, gpuDevice); err != nil {
 			return err
 		}
 	}
@@ -156,8 +160,7 @@ func (m *Manager) ApplyGPU(ctx context.Context, instance string, on bool, status
 	if details.Config[nvidiaRuntimeKey] == want {
 		return nil
 	}
-	_, err = m.Incus.Run(ctx, "config", "set", instance, nvidiaRuntimeKey+"="+want)
-	return err
+	return m.Incus.SetConfig(ctx, instance, nvidiaRuntimeKey+"="+want)
 }
 
 // videoEncoder is the ffmpeg codec, and the extra arguments around it, for

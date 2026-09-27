@@ -7,6 +7,7 @@ import { useConnection } from '../lib/events';
 import type * as T from '../../shared/api';
 import { limitTone, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
+import { useNow } from '../lib/useNow';
 import { cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -456,7 +457,10 @@ function AgentUsageRow({
 // every account's readings. A reading is what the last chat on that account
 // was told, so the tooltip says when that was, and a window that has reset
 // since shows no number rather than one that describes a window that is over.
+// The label counts down to the reset, so it ticks every minute: the query's
+// refetch leaves it alone while the reading is unchanged.
 function UsageMeter({ view, agents }: { view: View; agents: T.Agent[] }) {
+  const clock = useNow(60_000);
   const limits = useQuery({ queryKey: ['claudeLimits'], queryFn: api.claudeLimits, refetchInterval: 30_000 });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agent = view.kind === 'agent' ? agents.find((a) => a.ref === view.ref) : undefined;
@@ -466,7 +470,8 @@ function UsageMeter({ view, agents }: { view: View; agents: T.Agent[] }) {
   const account = pick.reading;
   const five = account?.windows.find((w) => w.name === 'five_hour') ?? account?.windows[0];
   if (!account || !five) return null;
-  const now = windowNow(five);
+  const now = windowNow(five, clock);
+  const left = timeUntil(five.resetsAt, clock);
   const tone = limitTone(now);
   const percent = now === null ? 0 : Math.max(0, Math.min(1, now)) * 100;
   return (
@@ -482,12 +487,12 @@ function UsageMeter({ view, agents }: { view: View; agents: T.Agent[] }) {
     >
       <span
         className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 md:flex"
-        aria-label={`Claude account ${account.account}, ${five.label} window: ${now === null ? 'reset since the last reading' : `${Math.round(percent)}% used`}`}
+        aria-label={`Claude account ${account.account}, ${five.label} window: ${now === null ? 'reset since the last reading' : `${Math.round(percent)}% used, ${left} left`}`}
         data-claude-meter={now === null ? 'reset' : Math.round(percent)}
         data-claude-account={account.account}
       >
         <Gauge className="size-3.5 text-subtle" />
-        <span className="font-mono text-[11px] tabular-nums text-tertiary">{now === null ? '5h —' : `5h ${Math.round(percent)}%`}</span>
+        <span className="font-mono text-[11px] tabular-nums text-tertiary">{now === null ? '5h —' : `${left} · ${Math.round(percent)}%`}</span>
         <span className="h-1 w-8 overflow-hidden rounded-full bg-surface-strong">
           <span
             className={cn('block h-full rounded-full', tone === 'high' ? 'bg-rose-400' : tone === 'warn' ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400')}

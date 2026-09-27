@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"agentbox/internal/incus"
 	"agentbox/internal/state"
 )
 
@@ -363,24 +364,36 @@ func ConfiguredCPU(config map[string]string) (cpu string, known bool) {
 // configuredCPUSteps keeps the ConfiguredCPU mirror in step with cpu, the CPU
 // limit that was just really chosen. have is the instance's own
 // configuration, so a mirror that already agrees is left alone.
-func configuredCPUSteps(instance, cpu string, have map[string]string) [][]string {
-	var steps [][]string
+func configuredCPUSteps(instance, cpu string, have map[string]string) []incusStep {
+	var steps []incusStep
 	if cpu == "" {
 		if have[limitCPUUnlimited] != "1" {
-			steps = append(steps, []string{"config", "set", instance, limitCPUUnlimited + "=1"})
+			steps = append(steps, setConfig(instance, limitCPUUnlimited+"=1"))
 		}
 		if _, ok := have[limitCPUConfigured]; ok {
-			steps = append(steps, []string{"config", "unset", instance, limitCPUConfigured})
+			steps = append(steps, unsetConfig(instance, limitCPUConfigured))
 		}
 		return steps
 	}
 	if have[limitCPUUnlimited] == "1" {
-		steps = append(steps, []string{"config", "unset", instance, limitCPUUnlimited})
+		steps = append(steps, unsetConfig(instance, limitCPUUnlimited))
 	}
 	if have[limitCPUConfigured] != cpu {
-		steps = append(steps, []string{"config", "set", instance, limitCPUConfigured + "=" + cpu})
+		steps = append(steps, setConfig(instance, limitCPUConfigured+"="+cpu))
 	}
 	return steps
+}
+
+// An incusStep is one change to an instance, made later: steps are worked out
+// from what an instance has, then made one after another.
+type incusStep func(context.Context, incus.Client) error
+
+func setConfig(instance string, pairs ...string) incusStep {
+	return func(ctx context.Context, c incus.Client) error { return c.SetConfig(ctx, instance, pairs...) }
+}
+
+func unsetConfig(instance, key string) incusStep {
+	return func(ctx context.Context, c incus.Client) error { return c.UnsetConfig(ctx, instance, key) }
 }
 
 // SetLimits changes an agent's limits while it runs. All three of Incus' keys
@@ -405,7 +418,7 @@ func (m *Manager) SetLimits(ctx context.Context, a state.Agent, want LimitChoice
 		}
 	}
 
-	steps := limitSteps(a.Instance, next, details.Config)
+	steps := limitSteps(a.Instance, next, details.Config, m.budgetOn(ctx))
 	if want.CPU != nil {
 		// A choice made here is the new answer to ConfiguredCPU from now on,
 		// not only the new limits.cpu — the two only differ once "never
@@ -413,28 +426,27 @@ func (m *Manager) SetLimits(ctx context.Context, a state.Agent, want LimitChoice
 		next.ConfiguredCPU = next.CPU
 		steps = append(steps, configuredCPUSteps(a.Instance, next.CPU, details.Config)...)
 	}
-	for _, args := range steps {
-		if _, err := m.Incus.Run(ctx, args...); err != nil {
+	for _, step := range steps {
+		if err := step(ctx, m.Incus); err != nil {
 			return Limits{}, err
 		}
 	}
 	return next, nil
 }
 
-// limitSteps are the incus commands that take an instance from the keys it
+// limitSteps are the changes that take an instance from the keys it
 // already has to the limits wanted. have is the instance's own configuration,
 // so a key that was never there isn't unset for nothing; limits.cpu.priority
 // is always brought to CPUPriority, including on a machine made before
 // AgentBox set it, so editing an agent's limits is enough to put it behind the
 // desktop. limits.memory.swap follows the memory limit the same way: off
-// (MemorySwap) whenever there is one, and cleared when there isn't.
-func limitSteps(instance string, want Limits, have map[string]string) [][]string {
-	set := []string{"config", "set", instance}
-	var unset [][]string
-	swap := ""
-	if want.Memory != "" {
-		swap = MemorySwap
-	}
+// (MemorySwap) whenever there is one, and cleared when there isn't — or on,
+// inside the shared budget, which caps all agents' swap together
+// (agentSwapValue).
+func limitSteps(instance string, want Limits, have map[string]string, shared bool) []incusStep {
+	var set []string
+	var unset []incusStep
+	swap := agentSwapValue(want.Memory, shared)
 	for _, field := range []struct{ key, value string }{
 		{limitCPU, want.CPU},
 		{limitCPUAllowance, want.Allowance},
@@ -445,14 +457,14 @@ func limitSteps(instance string, want Limits, have map[string]string) [][]string
 		switch {
 		case field.value == "" && have[field.key] != "":
 			// Cleared rather than set to empty: Incus refuses limits.cpu="".
-			unset = append(unset, []string{"config", "unset", instance, field.key})
+			unset = append(unset, unsetConfig(instance, field.key))
 		case field.value != "" && have[field.key] != field.value:
 			set = append(set, field.key+"="+field.value)
 		}
 	}
-	var steps [][]string
-	if len(set) > 3 {
-		steps = append(steps, set)
+	var steps []incusStep
+	if len(set) > 0 {
+		steps = append(steps, setConfig(instance, set...))
 	}
 	return append(steps, unset...)
 }

@@ -99,30 +99,35 @@ func (s *Store) ClaudeWindows(ctx context.Context) (ClaudeWindows, error) {
 			w.OneM[base] = true
 		}
 	}
+	// A "[1m]" variant a session really ran at 1M is the same proof as one on
+	// the menu, and the only one there is when the menu lists just the plain
+	// names. Without it an account whose plain "opus" reported 200k, and whose
+	// "opus[1m]" reported 1M, offered opus no 1M window at all: the 1M default
+	// for new agents in Settings was dropped at creation, and every agent
+	// compacted at 200k.
+	for model, size := range w.Seen {
+		if base, ok := SplitClaudeModel(model); ok && size >= ClaudeFullWindow {
+			w.OneM[base] = true
+		}
+	}
 	return w, nil
 }
 
 // RememberClaudeModelWindow keeps the window a session on model reported, and
-// is a no-op when it is already known. compact is the autoCompactWindow the
-// session was started with, 0 for none — which is not the same as "uncapped":
-// leaving the key out of settings.json doesn't make Claude Code compact at
-// the model's real window, it makes it fall back to its own default, which is
-// ClaudeShortWindow, same as an installation that asked for that outright. So
-// 0 is read as that default here too — otherwise a session started with no
-// key, whose real cap is still 200k, disables the very check below that this
-// comment describes, and remembering its capped size is how an account's opus
-// came to offer only 200k with no way back (D91).
+// is a no-op when it is already known. size must be the adapter's authoritative
+// reading: the one on the usage_update that follows a model result, which
+// carries the result's cost and the model's own window from its modelUsage.
+// Every other usage_update's size is claude-agent-acp's guess from the model's
+// name, 200000 for anything without "1m" in it, plain "opus" and "sonnet"
+// included — and that guess is what made this account's opus a 200k model
+// three times over (the chat keeps it out: chat.go's usage_update).
 //
-// Claude Code reports a session's size capped at its compact window: a session
-// on opus that compacts at 200k says its window is 200000, whatever opus's
-// own is. So a size equal to the compact window says nothing about the model
-// and isn't kept. A size below the compact window is the model's own, which is
-// shorter than the cap, and a size above it can only be the model's own.
-func (s *Store) RememberClaudeModelWindow(ctx context.Context, model string, size, compact int64) error {
-	if compact <= 0 {
-		compact = ClaudeShortWindow
-	}
-	if model == "" || size <= 0 || size == compact {
+// The authoritative size is the model's whole window whatever the session's
+// autoCompactWindow is: on Claude Code 2.1.280 an "opus" session compacting at
+// 200k reports 1000000 there, while /context shows "/ 200k". So a later
+// reading replaces an earlier one, which is how a wrong entry heals itself.
+func (s *Store) RememberClaudeModelWindow(ctx context.Context, model string, size int64) error {
+	if model == "" || size <= 0 {
 		return nil
 	}
 	w, err := s.ClaudeWindows(ctx)
@@ -224,6 +229,19 @@ func (w ClaudeWindows) CompactWindow(model, chosen string, installation int64) i
 		return 0
 	}
 	return window
+}
+
+// Launch is how a Claude Code chat whose stored model is model, with the
+// context window chosen (the stored option, or a role's default in Settings),
+// really runs: the model name written into its settings.json and the
+// autoCompactWindow beside it, 0 to leave the key out for the model's whole
+// window. It is the one answer to "what window does this chat run at": the
+// chat's launch, the agent's terminal head start and its brief all take it
+// from here, so none of them can drift from the others.
+func (w ClaudeWindows) Launch(model, chosen string, installation int64) (name string, compact int64) {
+	model = w.NormalizeClaudeModel(model)
+	compact = w.CompactWindow(model, chosen, installation)
+	return w.Model(model, compact), compact
 }
 
 // ParseContextWindow reads a context window the way people write one: "200k",

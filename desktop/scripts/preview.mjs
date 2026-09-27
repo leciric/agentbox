@@ -19,7 +19,7 @@
 // Elsewhere it uses Playwright's own: run `npx playwright install chromium`
 // once if launching it fails.
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -54,7 +54,10 @@ function freePort() {
 // startVite serves dev/preview.html for the tree at cwd (the working tree, or
 // a worktree's desktop/ directory), and resolves once it's actually
 // answering — vite prints "ready" before its HTTP server necessarily is.
+// The What's new view imports CHANGELOG.md from where build.mjs copies it,
+// so it's copied in here too: a fresh checkout doesn't have it.
 async function startVite(cwd, port) {
+  copyFileSync(join(cwd, '../CHANGELOG.md'), join(cwd, 'src/renderer/changelog.md'));
   const bin = join(cwd, 'node_modules/.bin/vite');
   const proc = spawn(bin, ['--config', 'vite.config.mts', '--port', String(port), '--strictPort'], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
@@ -122,6 +125,12 @@ async function capture(baseUrl, outDir) {
       if (s.click) {
         await page.click(s.click, { timeout: 3_000 }).catch(() => {});
         await page.waitForSelector('[data-radix-popper-content-wrapper]', { timeout: 3_000 }).catch(() => {});
+      }
+      // A scenario can type into a field, to show what a search leaves:
+      // "fill": [selector, text].
+      if (s.fill) {
+        await page.fill(s.fill[0], s.fill[1], { timeout: 3_000 }).catch(() => {});
+        await page.waitForTimeout(300);
       }
       // Animations (the avatars') are stopped at their start, so a shot is the
       // same every time and a before/after diff shows changes, not timing.

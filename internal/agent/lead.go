@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"agentbox/internal/brief"
@@ -106,7 +107,7 @@ func (m *Manager) EnsureLead(ctx context.Context, project string) (state.Agent, 
 		_ = m.Store.RemoveAgent(context.WithoutCancel(ctx), a.Project, a.Name)
 	}
 	m.logf("Creating the %s chat: a worktree on %s, detached", p.Name, baseRef)
-	if err := repo.AddWorktreeDetached(a.Worktree, commit); err != nil {
+	if err := repo.AddWorktreeDetached(a.Worktree, commit, "agentbox: "+a.Ref()); err != nil {
 		undo()
 		return state.Agent{}, fmt.Errorf("creating the %s chat: worktree: %w", p.Name, err)
 	}
@@ -139,7 +140,7 @@ func (m *Manager) repairLead(ctx context.Context, a state.Agent) (state.Agent, e
 	if !repo.HasWorktree(a.Worktree) {
 		m.logf("Recreating the %s chat's worktree", a.Project)
 		_ = repo.RemoveWorktree(a.Worktree)
-		if err := repo.AddWorktreeDetached(a.Worktree, a.BaseCommit); err != nil {
+		if err := repo.AddWorktreeDetached(a.Worktree, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 			return a, fmt.Errorf("recreating the %s chat's worktree: %w", a.Project, err)
 		}
 	}
@@ -304,21 +305,37 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
+	// Whether the pull request watch is on here: the project's own say, or
+	// the installation's (the daemon's prWatchOn reads it the same way).
+	prWatch := p.PRWatch == state.PRWatchOn
+	if p.PRWatch == "" {
+		on, err := m.Store.FlagOn(ctx, state.SettingPRWatch)
+		prWatch = err != nil || on
+	}
+	defModel, defWindow, enforced, err := m.LeadAgentDefaults(ctx, p)
+	if err != nil {
+		return err
+	}
 	text, err := brief.RenderLead(brief.LeadData{
-		VM:             hostos.InVM(),
-		Host:           hostos.Name(),
-		Project:        a.Project,
-		Root:           root,
-		Worktree:       a.Worktree,
-		BaseRef:        a.BaseRef,
-		Autonomy:       p.Autonomy,
-		AgentModel:     p.AgentModel,
-		ModelMenu:      models,
-		OpenCodeMenu:   openCodeModels,
-		ClaudeAccounts: accountNames,
-		CanSpawn:       socket != "",
-		Notes:          projectNotes,
-		Recap:          recap,
+		PRWatch:              prWatch,
+		VM:                   hostos.InVM(),
+		Host:                 hostos.Name(),
+		Project:              a.Project,
+		Root:                 root,
+		Worktree:             a.Worktree,
+		BaseRef:              a.BaseRef,
+		Autonomy:             p.Autonomy,
+		AgentModel:           p.AgentModel,
+		AgentDefaultModel:    defModel,
+		AgentDefaultWindow:   strings.ToLower(state.FormatContextWindow(defWindow)),
+		EnforceAgentDefaults: enforced,
+		ModelMenu:            models,
+		OpenCodeMenu:         openCodeModels,
+		ClaudeAccounts:       accountNames,
+		CanSpawn:             socket != "",
+		AgentPRs:             p.AgentPRs,
+		Notes:                projectNotes,
+		Recap:                recap,
 	})
 	if err != nil {
 		return err

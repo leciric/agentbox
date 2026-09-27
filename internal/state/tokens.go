@@ -33,6 +33,10 @@ const (
 type TokenRow struct {
 	Project string
 	Agent   string
+	// AgentID is the agent's own id, not its name, so a name reused after
+	// this row's agent is gone can't pull its spend into somebody else's
+	// total. "" for a row written before this existed.
+	AgentID string
 	AI      string // claude, codex or opencode
 	Session string // the AI tool's session id
 	Turn    string // groups the rows of one turn
@@ -72,10 +76,10 @@ func (s *Store) AddTokenRows(ctx context.Context, rows []TokenRow) error {
 	defer func() { _ = tx.Rollback() }()
 	for _, r := range rows {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO token_usage
-			(project, agent, ai, session_id, turn, kind, model, at,
+			(project, agent, agent_id, ai, session_id, turn, kind, model, at,
 			 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens, generation_ms)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.Project, r.Agent, r.AI, r.Session, r.Turn, r.Kind, r.Model, r.At.UnixMilli(),
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.Project, r.Agent, r.AgentID, r.AI, r.Session, r.Turn, r.Kind, r.Model, r.At.UnixMilli(),
 			r.Input, r.Output, r.CacheRead, r.CacheWrite, r.CostUSD, r.Context, r.GenerationMS); err != nil {
 			return err
 		}
@@ -161,7 +165,7 @@ func (s *Store) TokenTotals(ctx context.Context, f TokenFilter) ([]TokenTotal, e
 // TokenRows lists the ledger itself, newest first, at most limit rows.
 func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]TokenRow, error) {
 	where, args := f.where()
-	rows, err := s.db.QueryContext(ctx, `SELECT project, agent, ai, session_id, turn, kind, model, at,
+	rows, err := s.db.QueryContext(ctx, `SELECT project, agent, agent_id, ai, session_id, turn, kind, model, at,
 		input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd, context_tokens, generation_ms
 		FROM token_usage`+where+` ORDER BY at DESC, id DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
@@ -172,7 +176,7 @@ func (s *Store) TokenRows(ctx context.Context, f TokenFilter, limit int) ([]Toke
 	for rows.Next() {
 		var r TokenRow
 		var at int64
-		if err := rows.Scan(&r.Project, &r.Agent, &r.AI, &r.Session, &r.Turn, &r.Kind, &r.Model, &at,
+		if err := rows.Scan(&r.Project, &r.Agent, &r.AgentID, &r.AI, &r.Session, &r.Turn, &r.Kind, &r.Model, &at,
 			&r.Input, &r.Output, &r.CacheRead, &r.CacheWrite, &r.CostUSD, &r.Context, &r.GenerationMS); err != nil {
 			return nil, err
 		}

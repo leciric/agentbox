@@ -43,13 +43,13 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 
 // Projects
 
-func projectInfo(p state.Project) api.Project {
-	info := api.Project{Name: p.Name, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
+func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
+	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, CreatedAt: p.CreatedAt}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -74,7 +74,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) error {
 	}
 	out := make([]api.Project, 0, len(projects))
 	for _, p := range projects {
-		out = append(out, projectInfo(p))
+		out = append(out, s.projectInfo(r.Context(), p))
 	}
 	return writeJSON(w, http.StatusOK, out)
 }
@@ -83,6 +83,9 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 	var req api.AddProjectRequest
 	if err := readJSON(r, &req); err != nil {
 		return err
+	}
+	if req.Create {
+		return s.createProject(w, r, req)
 	}
 	repo, err := gitrepo.Open(req.Path)
 	if err != nil {
@@ -124,21 +127,81 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 	if err := s.checkGitHubAccount(githubAccount); err != nil {
 		return err
 	}
-	p := state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()}
+	p, err := s.registerProject(r.Context(), state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
+}
+
+// createProject is addProject for AddProjectRequest.Create: everything that
+// can refuse the project is checked before the folder is touched, so a
+// refusal leaves nothing behind, and a folder made here is taken away again
+// if registering it fails.
+func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.AddProjectRequest) error {
+	path := strings.TrimSpace(req.Path)
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		path = filepath.Join(home, rest)
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("%q isn't a full path: choose the new repository's folder from /", req.Path)
+	}
+	path = filepath.Clean(path)
+	if hostos.WSL() && windowsDrive.MatchString(path) {
+		return fmt.Errorf("%s is on a Windows drive, where git is slow from WSL: make the repository on WSL's own disk instead, like ~/src/%s", path, filepath.Base(path))
+	}
+	name := req.Name
+	if name == "" {
+		name = naming.Slug(filepath.Base(path))
+	}
+	if err := naming.Validate("project", name, maxProjectName); err != nil {
+		return fmt.Errorf("%w (choose another name)", err)
+	}
+	if _, err := s.store.Project(r.Context(), name); err == nil {
+		return fmt.Errorf("there's already a project called %s (choose another name)", name)
+	}
+	claudeAccount, githubAccount := strings.TrimSpace(req.ClaudeAccount), strings.TrimSpace(req.GitHubAccount)
+	if err := s.checkClaudeAccount(claudeAccount); err != nil {
+		return err
+	}
+	if err := s.checkGitHubAccount(githubAccount); err != nil {
+		return err
+	}
+	repo, created, err := gitrepo.Create(path, req.CommitFiles)
+	if err != nil {
+		return err
+	}
+	p, err := s.registerProject(r.Context(), state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
+	if err != nil {
+		if created {
+			_ = os.RemoveAll(repo.Root)
+		}
+		return err
+	}
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
+}
+
+// registerProject stores a project whose repository is ready, and answers
+// what the store has for it.
+func (s *Server) registerProject(ctx context.Context, p state.Project) (state.Project, error) {
 	// A new project may only use the account it was given, or the machine's
 	// default when it was given none, until the user allows more. The list is
 	// written out rather than left empty, which still allows every account.
-	if own, err := s.manager(nil).Creds.ClaudeAccountOf(claudeAccount); err != nil {
-		return err
+	if own, err := s.manager(nil).Creds.ClaudeAccountOf(p.ClaudeAccount); err != nil {
+		return p, err
 	} else if own != "" {
 		p.ClaudeAccounts = []string{own}
 	}
-	if err := s.store.AddProject(r.Context(), p); err != nil {
-		return err
+	if err := s.store.AddProject(ctx, p); err != nil {
+		return p, err
 	}
 	s.countFeature(api.FeatureProjectAdd)
 	// Read it back, so the answer carries what the store filled in.
-	if stored, err := s.store.Project(r.Context(), p.Name); err == nil {
+	if stored, err := s.store.Project(ctx, p.Name); err == nil {
 		p = stored
 	}
 	// Its chat's socket, so the project can be talked to straight away.
@@ -146,7 +209,7 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 		s.logf("lead API socket for %s: %v", p.Name, err)
 	}
 	s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
-	return writeJSON(w, http.StatusCreated, projectInfo(p))
+	return p, nil
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) error {
@@ -154,7 +217,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, projectInfo(p))
+	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
 
 func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
@@ -322,7 +385,43 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		p.ConsolidationModel = model
 	}
-	return writeJSON(w, http.StatusOK, projectInfo(p))
+	if req.Nesting != nil {
+		if *req.Nesting {
+			components, err := s.imageComponents(r.Context())
+			if err != nil {
+				return err
+			}
+			if !components.Incus {
+				return fmt.Errorf("the base image has no Incus: build it with agentbox image build --incus before turning nesting on")
+			}
+		}
+		if err := s.store.SetProjectNesting(r.Context(), p.Name, *req.Nesting); err != nil {
+			return err
+		}
+		p.Nesting = *req.Nesting
+	}
+	if req.AgentPRs != nil {
+		if err := s.store.SetProjectAgentPRs(r.Context(), p.Name, *req.AgentPRs); err != nil {
+			return err
+		}
+		p.AgentPRs = *req.AgentPRs
+		// Both sides of it are in briefs: the agents' Git section and the
+		// lead's, which stops pushing for them. Rewritten now so an agent
+		// started from here on, and the lead's next turn, read the new one.
+		if err := s.manager(nil).RewriteBriefs(r.Context(), p.Name); err != nil {
+			s.logf("rewriting %s's briefs after an agent PRs change: %v", p.Name, err)
+		}
+	}
+	if req.PRWatch != nil {
+		watch := strings.TrimSpace(*req.PRWatch)
+		if err := s.store.SetProjectPRWatch(r.Context(), p.Name, watch); err != nil {
+			return err
+		}
+		p.PRWatch = watch
+		s.prWatch.poke(p.Name)
+		rewriteBrief()
+	}
+	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
 
 // checkClaudeAccount and checkGitHubAccount reject an account name that no new
@@ -432,6 +531,8 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		VM:       hostos.InVM(),
 		Host:     hostos.Name(),
 		Notes:    projectNotes,
+		Nesting:  p.Nesting,
+		AgentPRs: p.AgentPRs,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -853,6 +954,16 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	// job that has already started copying a machine.
 	if err := s.manager(nil).ChatChoices(r.Context(), req.AI, req.Model, req.Effort); err != nil {
 		return err
+	}
+	// The lead is held to Settings → Agents: the model and window chosen there
+	// are either the only ones it may give an agent or the most it may, and
+	// the error tells it which, so it can ask again rather than have its
+	// choice quietly changed. The user, in the dialog or the command line,
+	// isn't.
+	if byLead {
+		if err := s.manager(nil).CheckLeadChoice(r.Context(), p, req.AI, req.Model, req.ContextWindow); err != nil {
+			return err
+		}
 	}
 	// And for a branch that could never be one.
 	if err := agent.CheckBranchSlug(req.Branch); err != nil {
@@ -1285,6 +1396,7 @@ func (s *Server) chooseImageComponents(ctx context.Context, req api.BuildImageRe
 		{req.Codex, &components.Codex, state.SettingImageCodex},
 		{req.OpenCode, &components.OpenCode, state.SettingImageOpenCode},
 		{req.DevCaches, &components.DevCaches, state.SettingImageDevCaches},
+		{req.Incus, &components.Incus, state.SettingImageIncus},
 	} {
 		if c.want == nil {
 			continue

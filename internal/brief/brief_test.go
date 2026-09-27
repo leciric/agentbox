@@ -33,6 +33,28 @@ func TestRender(t *testing.T) {
 			IP:       "10.239.149.24",
 			Android:  true,
 		},
+		"nesting": {
+			Project:  "agentbox",
+			Agent:    "agent-05",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/agentbox/agent-05",
+			Branch:   "agentbox/agent-05",
+			BaseRef:  "main",
+			IP:       "10.239.149.26",
+			Nesting:  true,
+		},
+		// A project that lets its agents push their own branch and open their
+		// own pull request: the Git and GitHub sections say so instead of
+		// "don't push".
+		"agent-prs": {
+			Project:  "pawly",
+			Agent:    "agent-07",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-07",
+			Branch:   "agentbox/feat-csv-export",
+			BaseRef:  "main",
+			IP:       "10.239.149.27",
+			GitHub:   true,
+			AgentPRs: true,
+		},
 		"secrets": {
 			Project:  "pawly",
 			Agent:    "agent-04",
@@ -127,17 +149,29 @@ func TestRender(t *testing.T) {
 	}
 }
 
-// The lead's whole brief, in each autonomy, with every optional section on.
-// Run with -update after changing lead.md.tmpl, and read the diff: this is
-// the text the project's chat reads before every turn (D90).
+// The lead's whole brief, in each autonomy, with every optional section on,
+// and in each of the ways Settings → Agents holds the agents it creates: the
+// Agents model and window as a ceiling it may go under, and enforced as the
+// only ones. Run with -update after changing lead.md.tmpl, and read the diff:
+// this is the text the project's chat reads before every turn (D90).
 func TestRenderLeadGolden(t *testing.T) {
-	for _, autonomy := range []string{"ask", "on"} {
-		t.Run(autonomy, func(t *testing.T) {
+	for _, tc := range []struct {
+		name, autonomy, agentModel string
+		enforced                   bool
+	}{
+		{"ask", "ask", "auto", false},
+		{"on", "on", "auto", false},
+		{"ceiling", "on", "", false},
+		{"enforced", "on", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			got, err := brief.RenderLead(brief.LeadData{
 				Project: "pawly", Root: "/home/dev/www/pawly",
 				Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
-				BaseRef:  "main", Autonomy: autonomy, CanSpawn: true,
-				AgentModel: "auto", ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
+				BaseRef:  "main", Autonomy: tc.autonomy, CanSpawn: true,
+				PRWatch:    tc.name == "ask", // one golden file with the watch on, the others with it off
+				AgentModel: tc.agentModel, ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
+				AgentDefaultModel: "opus", AgentDefaultWindow: "1m", EnforceAgentDefaults: tc.enforced,
 				ClaudeAccounts: []string{"personal", "work"},
 				Notes:          "## From the lead\n\n- 2026-09-18: the e2e tests need a Postgres on 5432.\n",
 				Recap:          "**What this project is doing**\n\n- Adding reminders to the pet profile.",
@@ -145,7 +179,7 @@ func TestRenderLeadGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			golden := filepath.Join("testdata", "lead-"+autonomy+".golden")
+			golden := filepath.Join("testdata", "lead-"+tc.name+".golden")
 			if *update {
 				if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
 					t.Fatal(err)
@@ -159,6 +193,73 @@ func TestRenderLeadGolden(t *testing.T) {
 				t.Errorf("RenderLead() mismatch (run with -update to accept)\n--- got ---\n%s\n--- want ---\n%s", got, want)
 			}
 		})
+	}
+}
+
+// TestRenderLeadAgentPRs checks the lead's part in a project whose agents open
+// their own pull requests: it stops pushing for them and retires them once
+// the PR is open. Off, the brief says nothing about it, as before.
+func TestRenderLeadAgentPRs(t *testing.T) {
+	lead := func(on bool) string {
+		t.Helper()
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			BaseRef:  "main", Autonomy: "ask", CanSpawn: true, AgentPRs: on,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	const says = "**This project's agents push their own branch and open their own pull request**"
+	on, off := lead(true), lead(false)
+	for _, want := range []string{says, "once an agent's pull request is open, retire it"} {
+		if !strings.Contains(on, want) {
+			t.Errorf("on: the lead's brief doesn't say %q", want)
+		}
+	}
+	if strings.Contains(off, says) {
+		t.Errorf("off: the lead's brief says agents open their own pull requests")
+	}
+	// Whoever opens the pull request puts the agent's media in it.
+	if !strings.Contains(off, "agentbox media publish pawly/<agent> --name") || strings.Contains(on, "agentbox media publish pawly/") {
+		t.Errorf("only the lead that opens pull requests itself is told to publish the agent's media")
+	}
+}
+
+// TestRenderAgentPRs checks both sides of the agent's Git section: told to
+// push and open a pull request when the project allows it, told not to push
+// when it doesn't, and never allowed to push to the base branch or merge.
+func TestRenderAgentPRs(t *testing.T) {
+	render := func(on bool) string {
+		t.Helper()
+		got, err := brief.Render(brief.Data{
+			Project: "pawly", Agent: "agent-02", Branch: "agentbox/feat-x", BaseRef: "main",
+			Worktree: "/w", GitHub: true, AgentPRs: on,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	on, off := render(true), render(false)
+	for _, want := range []string{"push `agentbox/feat-x` to `origin` and open a pull request",
+		"conventional commit", "agentbox media publish --name", "Never push to `main`, merge or close a pull request"} {
+		if !strings.Contains(on, want) {
+			t.Errorf("on: the brief doesn't say %q", want)
+		}
+	}
+	for _, not := range []string{"Don't push.", "**Don't push, and don't open"} {
+		if strings.Contains(on, not) {
+			t.Errorf("on: the brief still says %q", not)
+		}
+		if !strings.Contains(off, not) {
+			t.Errorf("off: the brief no longer says %q", not)
+		}
+	}
+	if strings.Contains(off, "open a pull request") {
+		t.Errorf("off: the brief tells the agent to open a pull request")
 	}
 }
 
@@ -195,7 +296,9 @@ func TestRenderLeadAutonomy(t *testing.T) {
 		// The limits.
 		"Never throw away uncommitted or unpushed work without saying so first",
 		"Never push to `main`, merge, release or tag unless the user asked",
-		"Before spending a lot",
+		"Before putting a top model on a large task",
+		// However many agents that takes.
+		"**Start one agent per task the user asks for, all at once.**",
 	}
 	ask, on := lead("ask"), lead("on")
 	for name, text := range map[string]string{"ask": ask, "on": on} {
@@ -203,6 +306,9 @@ func TestRenderLeadAutonomy(t *testing.T) {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s: the lead's brief doesn't say %q", name, want)
 			}
+		}
+		if strings.Contains(text, "agents at once, or") {
+			t.Errorf("%s: the lead is still told to hold back on how many agents run", name)
 		}
 	}
 	if !strings.Contains(ask, "only for **real product decisions**") || strings.Contains(ask, "**act on your own**") {
@@ -222,11 +328,18 @@ func TestRenderLeadAutonomy(t *testing.T) {
 func TestRenderLeadAgentModel(t *testing.T) {
 	lead := func(model string, menu []string, canSpawn bool) string {
 		t.Helper()
+		// What configureLead passes: the project's model when it names one,
+		// Settings → Agents' otherwise.
+		def := "opus"
+		if model != "" && model != "auto" {
+			def = model
+		}
 		got, err := brief.RenderLead(brief.LeadData{
 			Project: "pawly", Root: "/src/pawly",
 			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
 			BaseRef:  "main", Autonomy: "ask",
 			AgentModel: model, ModelMenu: menu, CanSpawn: canSpawn,
+			AgentDefaultModel: def, AgentDefaultWindow: "200k",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -255,13 +368,16 @@ func TestRenderLeadAgentModel(t *testing.T) {
 		// Nothing is said about models at all: the chat doesn't choose here,
 		// and a rule it can't act on is noise in front of everything else.
 		hasNot(t, text, "You choose each agent's model", "Fable", "runs on `")
+		// Only that the Agents model and window are its ceiling.
+		has(t, text, "New agents start on `opus` with a 200k context window, chosen in AgentBox's",
+			"refuses a dearer model or a\nlonger window", "`haiku` for a mechanical job")
 		// What it is told about creating agents is untouched.
 		has(t, text, "**One agent, one task.**", "This project asks you to **propose rather than act**")
 	})
 
 	t.Run("a model for every agent", func(t *testing.T) {
 		text := lead("haiku", []string{"opus", "sonnet", "haiku"}, true)
-		has(t, text, "Every agent you create here runs on `haiku`", "only when one agent really needs something else")
+		has(t, text, "New agents start on `haiku` with a 200k context window, the project's choice", "refuses a dearer model")
 		hasNot(t, text, "You choose each agent's model", "Fable")
 	})
 
@@ -280,7 +396,9 @@ func TestRenderLeadAgentModel(t *testing.T) {
 			"**Say what you chose, in one line, as you create the agent.**",
 			"**Never choose Fable** unless the user has asked for it",
 		)
-		hasNot(t, text, "Every agent you create here runs on")
+		hasNot(t, text, "New agents start on")
+		// Choosing still stays under the ceiling.
+		has(t, text, "**Never above `opus` or a 200k window**")
 	})
 
 	t.Run("auto before any chat has advertised a menu", func(t *testing.T) {
@@ -547,5 +665,22 @@ func TestRenderLeadOnAMac(t *testing.T) {
 	}
 	if !strings.Contains(windows, "a shell in the Linux distro AgentBox runs in on Windows") || strings.Contains(windows, "Mac") {
 		t.Errorf("on Windows, the brief should give the lead the WSL distro, and not mention a Mac:\n%s", windows)
+	}
+}
+
+// The lead is told whether the pull request watch is on: on, that it needn't
+// chase a broken pull request itself; off, to suggest turning it on the next
+// time the user asks it to fix CI or a conflict.
+func TestRenderLeadPRWatch(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		got, err := brief.RenderLead(brief.LeadData{Project: "pawly", Root: "/r", Worktree: "/w", BaseRef: "main", Autonomy: "ask", CanSpawn: true, PRWatch: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watching := strings.Contains(got, "watches every agent's open pull request")
+		suggests := strings.Contains(got, `suggest in a line turning on "Watch agents' pull requests"`)
+		if watching != on || suggests == on {
+			t.Errorf("PRWatch=%v: watching=%v suggests=%v", on, watching, suggests)
+		}
 	}
 }

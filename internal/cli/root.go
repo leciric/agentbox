@@ -264,6 +264,8 @@ func NewRootCmd() *cobra.Command {
 		newFinishNoticesCmd(a),
 		newContextBudgetCmd(a),
 		newRolloverCmd(a),
+		newNestingCmd(a),
+		newAgentPRsCmd(a),
 		newConsolidationCmd(a),
 		newConsolidationModelCmd(a),
 		newLimitsCmd(a),

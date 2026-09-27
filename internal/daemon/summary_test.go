@@ -32,6 +32,7 @@ func TestSummaryOf(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			got, cut := summaryOf(c.message)
 			if got != c.want || cut != c.wantCut {
 				t.Errorf("summaryOf(%q) = %q, cut %v; want %q, cut %v", c.message, got, cut, c.want, c.wantCut)
@@ -122,6 +123,7 @@ func TestShortenStopsBeforeWhatWouldMislead(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			got, cut := shorten(c.text, c.max)
 			if got != c.want {
 				t.Errorf("shorten(..., %d) =\n%q\nwant\n%q", c.max, got, c.want)

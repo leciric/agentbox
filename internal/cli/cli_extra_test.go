@@ -723,3 +723,33 @@ func TestProjectSettingsShowAndValidate(t *testing.T) {
 		t.Error("project model of an unknown project succeeded")
 	}
 }
+
+func TestLimitsSharedBudget(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	out, err := run(t, "", "limits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "shared agent budget:") {
+		t.Errorf("limits doesn't show the shared budget:\n%s", out)
+	}
+	if _, err := run(t, "", "limits", "--shared-budget", "maybe"); err == nil || !strings.Contains(err.Error(), "true or false") {
+		t.Errorf("--shared-budget maybe = %v", err)
+	}
+	// Refused on every machine a test runs on: either there is no budget
+	// here at all, or its cgroup was never set up — or a size is refused.
+	if _, err := run(t, "", "limits", "--budget-cpu", "100000"); err == nil {
+		t.Error("a budget of 100000 cores was taken")
+	}
+}
+
+func TestHostBudgetNeedsRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root")
+	}
+	isolate(t)
+	if _, err := run(t, "", "host", "budget"); err == nil || !strings.Contains(err.Error(), "has to run as root") {
+		t.Errorf("host budget as a user = %v", err)
+	}
+}

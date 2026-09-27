@@ -135,7 +135,7 @@ func limitBytes(memory string, hostTotal int64) int64 {
 // agentSwap reads how much swap an agent's cgroup holds, the way agentMemory
 // reads memory.current: 0 for a stopped agent, whose cgroup no longer exists.
 func agentSwap(root, instance string) int64 {
-	b, err := os.ReadFile(filepath.Join(root, "lxc.payload."+instance, "memory.swap.current"))
+	b, err := os.ReadFile(filepath.Join(agentCgroup(root, instance), "memory.swap.current"))
 	if err != nil {
 		return 0
 	}

@@ -221,8 +221,8 @@ ffmpeg -loglevel error -f x11grab -i :99 -frames:v 1 -y ` + tmp
 	if _, err := m.agentShell(ctx, a, script); err != nil {
 		return fmt.Errorf("taking the screenshot: %w", err)
 	}
-	defer func() { _, _ = m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "rm", "-f", tmp) }()
-	_, err := m.Incus.Run(ctx, "file", "pull", a.Instance+tmp, file)
+	defer func() { _, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "rm", "-f", tmp) }()
+	err := m.Incus.PullFile(ctx, a.Instance, tmp, file)
 	return err
 }
 
@@ -481,11 +481,11 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	}
 	p.item.CreatedAt = st.StartedAt
 	file := filepath.Join(p.dir, fileName(st.Name, "recording", ".mp4"))
-	remote := a.Instance + home + "/" + agentStateDir
+	remote := home + "/" + agentStateDir
 	defer func() {
-		_, _ = m.Incus.Run(context.WithoutCancel(ctx), "exec", a.Instance, "--", "sh", "-c", "rm -f "+home+"/"+agentStateDir+"/recording.* "+home+"/"+agentStateDir+"/input.*")
+		_, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "sh", "-c", "rm -f "+home+"/"+agentStateDir+"/recording.* "+home+"/"+agentStateDir+"/input.*")
 	}()
-	if _, err := m.Incus.Run(ctx, "file", "pull", remote+"/recording.mp4", file); err != nil {
+	if err := m.Incus.PullFile(ctx, a.Instance, remote+"/recording.mp4", file); err != nil {
 		p.discard()
 		return state.Media{}, err
 	}
@@ -538,9 +538,9 @@ else echo file; stat -c %%s "$p"; fi`, shellQuote(path)))
 	}
 	target := filepath.Join(p.dir, base)
 	if isDir {
-		_, err = m.Incus.Run(ctx, "file", "pull", "-r", a.Instance+path, p.dir)
+		err = m.Incus.PullDir(ctx, a.Instance, path, p.dir)
 	} else {
-		_, err = m.Incus.Run(ctx, "file", "pull", a.Instance+path, target)
+		err = m.Incus.PullFile(ctx, a.Instance, path, target)
 	}
 	if err != nil {
 		p.discard()

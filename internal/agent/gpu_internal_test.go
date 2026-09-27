@@ -75,25 +75,25 @@ func TestGPUCreateStepsSetsNvidiaRuntimeBeforeStart(t *testing.T) {
 	amd := GPUStatus{Kind: GPUAMD, Node: "/dev/dri/renderD128"}
 	nvidia := GPUStatus{Kind: GPUNvidia, Node: "/dev/nvidia0"}
 
-	steps := gpuCreateSteps("ab-p-a1", amd, false)
-	if len(steps) != 1 || strings.Join(steps[0], " ") != "config device add ab-p-a1 agentbox-gpu gpu mode=0666" {
-		t.Fatalf("gpuCreateSteps(amd, false) = %v", steps)
+	args := stepArgs(t, gpuCreateSteps("ab-p-a1", amd, false))
+	if len(args) != 1 || strings.Join(args[0], " ") != "config device add ab-p-a1 agentbox-gpu gpu mode=0666" {
+		t.Fatalf("gpuCreateSteps(amd, false) = %v", args)
 	}
 
-	steps = gpuCreateSteps("ab-p-a1", nvidia, false)
-	if len(steps) != 2 {
-		t.Fatalf("gpuCreateSteps(nvidia, false) = %v, want 2 steps", steps)
+	args = stepArgs(t, gpuCreateSteps("ab-p-a1", nvidia, false))
+	if len(args) != 2 {
+		t.Fatalf("gpuCreateSteps(nvidia, false) = %v, want 2 steps", args)
 	}
-	if strings.Join(steps[0], " ") != "config device add ab-p-a1 agentbox-gpu gpu mode=0666" {
-		t.Fatalf("gpuCreateSteps(nvidia, false)[0] = %v", steps[0])
+	if strings.Join(args[0], " ") != "config device add ab-p-a1 agentbox-gpu gpu mode=0666" {
+		t.Fatalf("gpuCreateSteps(nvidia, false)[0] = %v", args[0])
 	}
-	if strings.Join(steps[1], " ") != "config set ab-p-a1 nvidia.runtime=true" {
-		t.Fatalf("gpuCreateSteps(nvidia, false)[1] = %v", steps[1])
+	if strings.Join(args[1], " ") != "config set ab-p-a1 nvidia.runtime=true" {
+		t.Fatalf("gpuCreateSteps(nvidia, false)[1] = %v", args[1])
 	}
 
-	steps = gpuCreateSteps("ab-p-a1", nvidia, true)
-	if len(steps) != 1 || strings.Join(steps[0], " ") != "config set ab-p-a1 nvidia.runtime=true" {
-		t.Fatalf("gpuCreateSteps(nvidia, true) = %v, want only the runtime step", steps)
+	args = stepArgs(t, gpuCreateSteps("ab-p-a1", nvidia, true))
+	if len(args) != 1 || strings.Join(args[0], " ") != "config set ab-p-a1 nvidia.runtime=true" {
+		t.Fatalf("gpuCreateSteps(nvidia, true) = %v, want only the runtime step", args)
 	}
 }
 

@@ -9,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   KeyRound,
+  Lightbulb,
   ListChecks,
   LoaderCircle,
   LogIn,
@@ -47,6 +48,7 @@ import {
   NewAgentResources,
   OpenCodeInImage,
   ResumeAfterLimit,
+  SharedBudget,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -106,6 +108,8 @@ const descriptions: Record<string, string> = {
   host: "Lets agents write files in their worktrees as you.",
   image:
     "The machine every agent is copied from: Debian with Docker, Node.js, Claude Code, Chromium and ffmpeg. Downloaded ready-made and made this machine's; made here from scratch, in a few minutes, when the download fails or you ask for an optional component.",
+  storage:
+    "Where agents' machines live. On btrfs or zfs, making one is an instant snapshot; on any other driver, it's a copy of the whole base image.",
   claude:
     "AgentBox's own logins for agents. Your ~/.claude isn't shared with them.",
   codex: "For agents that run Codex.",
@@ -125,6 +129,7 @@ const environmentIds = new Set([
   "incus",
   "host",
   "image",
+  "storage",
   "android",
   "preview",
 ]);
@@ -246,7 +251,14 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     optional: true,
     detail: githubDetail(auth.data),
     description: descriptions.github,
-    body: <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />,
+    // The watch is asked here, once, on the first run: it is what an agent's
+    // GitHub account is for once its pull request is open.
+    body: (
+      <div className="grid gap-5">
+        <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
+        <PRWatch />
+      </div>
+    ),
   };
 
   // What each daemon check offers to do about itself.
@@ -841,23 +853,38 @@ function SettingsTabs({
           </TabsContent>
 
           <TabsContent value="agents" className="mt-6 grid gap-8">
-            <SettingsGroup
-              title="New agents"
-              description="Each can be overridden for a single agent as you create it."
-            >
-              <DefaultModel role="agents" />
-              <DefaultContextWindow role="agents" />
-              <NewAgentEffort />
-              <NewAgentResources />
-              <OpenCodeInImage />
-            </SettingsGroup>
+            <div className="grid gap-2.5">
+              <SettingsGroup
+                title="New agents"
+                description="Each can be overridden for a single agent as you create it."
+              >
+                <DefaultModel role="agents" />
+                <DefaultContextWindow role="agents" />
+                <EnforceAgentDefaults />
+                <NewAgentEffort />
+                <NewAgentResources />
+                <OpenCodeInImage />
+              </SettingsGroup>
+              {/* The lead saves a preference like this with remember, and
+                  its brief has it search memory before every create_agent
+                  (lead.md.tmpl, "What the user asked of agents"). */}
+              <p data-lead-preference-tip className="flex items-start gap-2 px-1 text-[12px] leading-relaxed text-subtle">
+                <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-brand-300" />
+                <span>
+                  Tip: tell a project's lead a preference like "use only one agent at a time" or "use Sonnet for small
+                  fixes". It remembers it, and follows it every time it creates an agent.
+                </span>
+              </p>
+            </div>
             <SettingsGroup
               title="Every agent"
               description="These apply to the agents you already have, as well as the next one."
             >
               <ResumeAfterLimit />
+              <PRWatch />
               <NeverFreezeCPU />
               <GPUForAgents />
+              <SharedBudget />
               <AutoStopIdle />
               <CompactWindow />
               <MediaRetention />
@@ -872,6 +899,57 @@ function SettingsTabs({
         )}
       </div>
     </div>
+  );
+}
+
+// EnforceAgentDefaults decides what the model and window above mean to a
+// project's lead: the only ones it may give the agents it creates, or the most
+// it may. agent.CheckLeadChoice refuses the rest on create_agent, and the
+// lead's brief and create_agent's description say which, so keep this text in
+// step with lead.md.tmpl and chatSettingParams (internal/cli/mcp.go).
+function EnforceAgentDefaults() {
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (enforceAgentDefaults: boolean) =>
+      api.updateSettings({ enforceAgentDefaults }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const enforced = settings.data?.enforceAgentDefaults ?? false;
+  return (
+    <SettingRow
+      label="Enforce this model and context window"
+      description={
+        enforced ? (
+          <>
+            On: the lead creates every agent with exactly this model and
+            window, and is refused any other.
+          </>
+        ) : (
+          <>
+            Off: this model and window are the most the lead may use. It keeps
+            them for medium and hard tasks and picks a cheaper model for easy
+            ones, like Sonnet for small fixes or Haiku for mechanical jobs,
+            never anything above them.
+          </>
+        )
+      }
+      control={
+        <Switch
+          data-enforce-agent-defaults
+          aria-label="Enforce this model and context window"
+          disabled={save.isPending || settings.data === undefined}
+          checked={enforced}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    >
+      <SettingNote>
+        Only for agents the lead creates: what you pick when you create one
+        yourself always wins.
+      </SettingNote>
+    </SettingRow>
   );
 }
 
@@ -934,6 +1012,48 @@ function UpdateCheck() {
         </SettingNote>
       )}
     </SettingRow>
+  );
+}
+
+// PRWatch is the pull request watch (internal/daemon/prwatch.go): every
+// agent's open pull request, until it's merged or closed. A project can
+// override it from its own settings.
+export function PRWatch() {
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (prWatch: boolean) => api.updateSettings({ prWatch }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["settings"], next);
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label="Watch agents' pull requests"
+      htmlFor="pr-watch"
+      description={
+        <>
+          Until each is merged or closed. When one conflicts with its base, its
+          checks fail or a reviewer asks for changes, AgentBox tells the agent
+          that opened it to fix it — starting it if it was stopped — and tells
+          the project's chat. It asks GitHub once per repository per look, with
+          the project's GitHub account: every 30 seconds while checks run,
+          slowing to every 15 minutes while nothing changes.
+        </>
+      }
+      control={
+        <Switch
+          id="pr-watch"
+          data-pr-watch
+          aria-label="Watch agents' pull requests"
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.prWatch ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
   );
 }
 

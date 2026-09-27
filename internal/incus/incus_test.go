@@ -32,7 +32,7 @@ func TestPathDefaultsToTheBareCommand(t *testing.T) {
 
 func TestRunReturnsStdoutOnSuccess(t *testing.T) {
 	c := fakeIncus(t, `echo "hello $2"`)
-	out, err := c.Run(context.Background(), "list", "world")
+	out, err := c.run(context.Background(), "list", "world")
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -43,7 +43,7 @@ func TestRunReturnsStdoutOnSuccess(t *testing.T) {
 
 func TestRunStripsIncusErrorPrefixFromStderr(t *testing.T) {
 	c := fakeIncus(t, `echo "Error: instance is already running" >&2; exit 1`)
-	_, err := c.Run(context.Background(), "start", "agent-01")
+	_, err := c.run(context.Background(), "start", "agent-01")
 	if err == nil {
 		t.Fatal("Run() error = nil, want an error")
 	}
@@ -60,7 +60,7 @@ func TestRunKeepsTheUnderlyingErrorWhenStderrIsEmpty(t *testing.T) {
 	// stderr to explain why, so the caller needs the raw error to tell that
 	// incus isn't installed.
 	c := Client{Bin: filepath.Join(t.TempDir(), "not-there")}
-	_, err := c.Run(context.Background(), "list")
+	_, err := c.run(context.Background(), "list")
 	if err == nil {
 		t.Fatal("Run() error = nil, want an error")
 	}
@@ -71,7 +71,7 @@ func TestRunKeepsTheUnderlyingErrorWhenStderrIsEmpty(t *testing.T) {
 
 func TestRunInputFeedsStdinToTheCommand(t *testing.T) {
 	c := fakeIncus(t, `cat`)
-	out, err := c.RunInput(context.Background(), strings.NewReader("piped content"), "exec")
+	out, err := c.runInput(context.Background(), strings.NewReader("piped content"), "exec")
 	if err != nil {
 		t.Fatalf("RunInput() error = %v", err)
 	}
@@ -310,6 +310,31 @@ func TestPoolSpacePropagatesTheCommandError(t *testing.T) {
 	c := fakeIncus(t, `echo "Error: pool not found" >&2; exit 1`)
 	if _, _, err := c.PoolSpace(context.Background(), "gone"); err == nil || !strings.Contains(err.Error(), "pool not found") {
 		t.Errorf("PoolSpace() error = %v, want it to carry incus' own message", err)
+	}
+}
+
+func TestPoolDriverParsesTheDriver(t *testing.T) {
+	c := fakeIncus(t, `echo '{"driver": "btrfs"}'`)
+	driver, err := c.PoolDriver(context.Background(), "default")
+	if err != nil {
+		t.Fatalf("PoolDriver() error = %v", err)
+	}
+	if driver != "btrfs" {
+		t.Errorf("PoolDriver() = %q, want %q", driver, "btrfs")
+	}
+}
+
+func TestPoolDriverFailsOnMalformedJSON(t *testing.T) {
+	c := fakeIncus(t, `echo 'not json'`)
+	if _, err := c.PoolDriver(context.Background(), "default"); err == nil {
+		t.Error("PoolDriver() error = nil, want a parse error for malformed JSON")
+	}
+}
+
+func TestPoolDriverPropagatesTheCommandError(t *testing.T) {
+	c := fakeIncus(t, `echo "Error: pool not found" >&2; exit 1`)
+	if _, err := c.PoolDriver(context.Background(), "gone"); err == nil || !strings.Contains(err.Error(), "pool not found") {
+		t.Errorf("PoolDriver() error = %v, want it to carry incus' own message", err)
 	}
 }
 

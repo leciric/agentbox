@@ -29,10 +29,15 @@ export function ProjectSettings({ project }: { project: T.Project }) {
         <AgentModelPicker project={project} />
         {/* Keyed on the saved value, so a save (or another client's) starts the draft over. */}
         <BranchPrefixField key={project.branchPrefix} project={project} />
+        <AgentPRsToggle project={project} />
       </SettingsGroup>
       <SettingsGroup title="Project chat" description={`How much the ${project.name} chat does on its own.`}>
         <AutonomyToggle project={project} />
         <FinishNoticesPicker project={project} />
+        <PRWatchPicker project={project} />
+      </SettingsGroup>
+      <SettingsGroup title="Testing AgentBox itself" description="For a project whose agents work on AgentBox.">
+        <NestingToggle project={project} />
       </SettingsGroup>
     </div>
   );
@@ -311,6 +316,118 @@ function AutonomyToggle({ project }: { project: T.Project }) {
         />
       }
     />
+  );
+}
+
+// AgentPRsToggle lets this project's agents push their own branch and open
+// their own pull request when they finish, and tells the lead to stop doing it
+// for them. Off by default: a push publishes, with the user's GitHub token.
+function AgentPRsToggle({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentPRs: boolean) => api.updateProject(project.name, { agentPRs }),
+    onSuccess: async (updated) => {
+      toast(updated.agentPRs ? `${updated.name}'s agents now open their own pull requests` : `${updated.name}'s agents no longer push`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Agents push and open pull requests"
+      htmlFor="project-agent-prs"
+      description={
+        project.agentPRs
+          ? 'An agent pushes its branch and opens a pull request when it finishes, and the chat retires it once the PR is open. It never pushes to the base branch, merges or closes anything.'
+          : "Agents commit on their branch and don't push: you or the project's chat push it and open the pull request."
+      }
+      control={
+        <Switch
+          id="project-agent-prs"
+          data-project-agent-prs
+          checked={project.agentPRs}
+          disabled={save.isPending}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    />
+  );
+}
+
+// NestingToggle turns nesting on for this project's agents: a real Incus
+// daemon of their own, inside their own container, for testing AgentBox
+// features that touch agent machines (limits, GPU, image builds) for real.
+// Off by default, and only offered once the base image is built with Incus,
+// since that's what it needs to nest.
+function NestingToggle({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup });
+  const hasIncus = setup.data?.image.components.incus === true;
+  const save = useMutation({
+    mutationFn: (nesting: boolean) => api.updateProject(project.name, { nesting }),
+    onSuccess: async (updated) => {
+      toast(updated.nesting ? `${updated.name}'s agents now run their own Incus` : `${updated.name}'s agents no longer run their own Incus`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Nesting: agents run their own Incus"
+      htmlFor="project-nesting"
+      description={
+        hasIncus || project.nesting
+          ? 'A new agent gets a real Incus daemon of its own, so it can test AgentBox features that touch agent machines. It costs isolation: the agent can make and run containers of its own.'
+          : 'Build the base image with Incus first: agentbox image build --incus.'
+      }
+      control={
+        <Switch
+          id="project-nesting"
+          data-project-nesting
+          checked={project.nesting}
+          disabled={save.isPending || (!hasIncus && !project.nesting)}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    />
+  );
+}
+
+// PRWatchPicker overrides Settings' "Watch agents' pull requests" for this
+// project, or follows it (the empty value). The daemon says what that comes
+// to, so following it can say whether it's on.
+function PRWatchPicker({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const pick = useMutation({
+    mutationFn: (prWatch: string) => api.updateProject(project.name, { prWatch }),
+    onSuccess: async (updated) => {
+      toast(updated.prWatching ? `AgentBox watches ${updated.name}'s agents' pull requests` : `AgentBox no longer watches ${updated.name}'s agents' pull requests`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Watch agents' pull requests"
+      description="Until each is merged or closed. When one conflicts with its base, its checks fail or a reviewer asks for changes, AgentBox tells the agent to fix it, starting it if it was stopped, and tells the chat. One request to GitHub per look, however many pull requests."
+    >
+      <Select
+        data-project-pr-watch
+        aria-label="Watch agents' pull requests"
+        disabled={pick.isPending}
+        className="sm:max-w-sm"
+        value={project.prWatch}
+        onChange={(value) => pick.mutate(value)}
+      >
+        <SelectOption value="">{settings.data ? `As in Settings (${settings.data.prWatch ? 'on' : 'off'})` : 'As in Settings'}</SelectOption>
+        <SelectOption value="on">On for this project</SelectOption>
+        <SelectOption value="off">Off for this project</SelectOption>
+      </Select>
+    </SettingRow>
   );
 }
 

@@ -91,8 +91,22 @@ type Project struct {
 	Section string `json:"section"`
 	// Position is where the project sits in its list, from 1. Zero means
 	// nobody has placed it by hand: it comes after the placed ones, by name.
-	Position  int       `json:"position"`
-	CreatedAt time.Time `json:"createdAt"`
+	Position int `json:"position"`
+	// Nesting is whether this project's agents run a real Incus daemon of
+	// their own, inside their own container, to test AgentBox features that
+	// touch agent machines for real. Off by default: it costs isolation, and
+	// needs the base image built with Incus.
+	Nesting bool `json:"nesting"`
+	// AgentPRs is whether this project's agents push their own branch and
+	// open their own pull request when they finish. Off by default: a push
+	// publishes, with the user's GitHub token.
+	AgentPRs bool `json:"agentPRs"`
+	// PRWatch is whether the daemon watches this project's agents' pull
+	// requests: "" to follow Settings.PRWatch, "on" or "off" to override it.
+	PRWatch string `json:"prWatch"`
+	// PRWatching is what that comes to: whether they are watched now.
+	PRWatching bool      `json:"prWatching"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // Section is a group of projects in the sidebar (D79). It is a thing of its
@@ -218,6 +232,16 @@ type UpdateProjectRequest struct {
 	// ConsolidationModel is the model that distils them: "cheap", a model id,
 	// or "" for whatever the project's chat runs on.
 	ConsolidationModel *string `json:"consolidationModel,omitempty"`
+	// Nesting turns this project's agents' nesting on or off: a real Incus
+	// daemon of their own, inside their own container. It needs the base
+	// image built with Incus (Setup's image.components.incus).
+	Nesting *bool `json:"nesting,omitempty"`
+	// AgentPRs turns on or off whether this project's agents push their own
+	// branch and open their own pull request, in place of the lead.
+	AgentPRs *bool `json:"agentPRs,omitempty"`
+	// PRWatch is "on" or "off" to override the installation's pull request
+	// watch for this project, or "" to follow it again.
+	PRWatch *string `json:"prWatch,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -233,6 +257,14 @@ type AddProjectRequest struct {
 	// ~/src/<name> on the distro's own disk, and adds that clone instead of
 	// refusing the path (D91). Elsewhere it changes nothing.
 	CopyToLinux bool `json:"copyToLinux,omitempty"`
+	// Create makes Path a new repository, on main with an initial commit, and
+	// adds that: a folder that doesn't exist yet is made, and one that's the top
+	// of a repository with commits is added as it is. A folder with files in
+	// it and no commits is refused with ErrorFolderNotEmpty unless
+	// CommitFiles, which makes them the initial commit; a folder inside
+	// another repository is refused.
+	Create      bool `json:"create,omitempty"`
+	CommitFiles bool `json:"commitFiles,omitempty"`
 }
 
 // Settings belong to this installation rather than to one project.
@@ -245,6 +277,11 @@ type Settings struct {
 	// start with: "" for the installation's compact window (the first of
 	// ClaudeContextWindows), or "1000000" for the model's whole window.
 	DefaultAgentContextWindow string `json:"defaultAgentContextWindow"`
+	// EnforceAgentDefaults makes DefaultClaudeModel and
+	// DefaultAgentContextWindow the only model and window the lead may create
+	// an agent on. Off, they are its ceiling: it may choose a cheaper model or
+	// a shorter window for an easy task, never a dearer one.
+	EnforceAgentDefaults bool `json:"enforceAgentDefaults"`
 	// DefaultLeadModel is the model a project's lead chats on when its own
 	// composer hasn't chosen one. Empty means Claude Code's own default, not
 	// AgentBox's. Unlike the agents' default it reaches leads that already
@@ -331,6 +368,11 @@ type Settings struct {
 	// else. On unless it was turned off, and never sent while UpdateCheck is
 	// off or something blocks it.
 	UsageStats bool `json:"usageStats"`
+	// PRWatch says whether the daemon watches every agent's open pull request
+	// until it's merged or closed, and tells the agent when it conflicts with
+	// its base, its checks fail or a reviewer asks for changes. On unless it
+	// was turned off; a project can override it (Project.PRWatch).
+	PRWatch bool `json:"prWatch"`
 	// MediaRetention is how long a removed agent's media is kept before the
 	// daemon purges it: one of the MediaRetention values.
 	MediaRetention string `json:"mediaRetention"`
@@ -366,6 +408,52 @@ type Settings struct {
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
+	// SharedBudget is the shared agent budget: every agent's machine under
+	// one parent cgroup with one memory, swap and CPU budget between them.
+	SharedBudget SharedBudget `json:"sharedBudget"`
+}
+
+// SharedBudget is the shared agent budget's state: whether it is on, its
+// size, what this host would be suggested, and whether it can be on here at
+// all. Off unless it was turned on.
+type SharedBudget struct {
+	On bool `json:"on"`
+	// Memory, Swap and CPU are the budget: what was chosen, or Suggested
+	// where nothing was. Swap is "" on a host with no swap.
+	Memory string `json:"memory"`
+	Swap   string `json:"swap"`
+	CPU    int    `json:"cpu"`
+	// Chosen says whether any of the three was chosen, rather than all of
+	// them following Suggested.
+	Chosen bool `json:"chosen"`
+	// Suggested is what this host's memory, swap and cores come to, and
+	// Why says how, in one line.
+	Suggested SharedBudgetSize `json:"suggested"`
+	Why       string           `json:"why"`
+	// HostSwap and HostSwapKind ("zram", "disk" or "") are the host's swap.
+	HostSwap     int64  `json:"hostSwap"`
+	HostSwapKind string `json:"hostSwapKind"`
+	// Unsupported says why this machine can't have the budget at all — a VM
+	// on a Mac or on Windows, or no cgroup v2 — or is "" when it can.
+	Unsupported string `json:"unsupported,omitempty"`
+	// NotReady says what is missing before it can be turned on: the cgroup,
+	// which needs root once. "" when it's ready. SetupCommand runs that step
+	// from a terminal.
+	NotReady     string `json:"notReady,omitempty"`
+	SetupCommand string `json:"setupCommand"`
+	// Problem is why the budget, while on, isn't applied right now.
+	Problem string `json:"problem,omitempty"`
+	// Inside is how many running agents are in the budget, and Pending how
+	// many running agents are yet to move in, or out, when they restart.
+	Inside  int `json:"inside"`
+	Pending int `json:"pending"`
+}
+
+// SharedBudgetSize is a shared budget's size alone.
+type SharedBudgetSize struct {
+	Memory string `json:"memory"`
+	Swap   string `json:"swap"`
+	CPU    int    `json:"cpu"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -378,6 +466,8 @@ type UpdateSettingsRequest struct {
 	// Haiku. A request that moves a role's model to one without a 1M window
 	// has to bring its window back to 200k in the same request.
 	DefaultAgentContextWindow *string `json:"defaultAgentContextWindow,omitempty"`
+	// EnforceAgentDefaults turns Settings.EnforceAgentDefaults on or off.
+	EnforceAgentDefaults *bool `json:"enforceAgentDefaults,omitempty"`
 	// DefaultLeadModel is "" to go back to Claude Code's own default.
 	DefaultLeadModel         *string `json:"defaultLeadModel,omitempty"`
 	DefaultLeadContextWindow *string `json:"defaultLeadContextWindow,omitempty"`
@@ -401,6 +491,8 @@ type UpdateSettingsRequest struct {
 	// UsageStats turns the anonymous usage stats on or off. Off also forgets
 	// the counts not sent yet.
 	UsageStats *bool `json:"usageStats,omitempty"`
+	// PRWatch turns the pull request watch on or off.
+	PRWatch *bool `json:"prWatch,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
 	// NeverFreezeCPU turns "never freeze my CPU" on or off.
@@ -414,6 +506,14 @@ type UpdateSettingsRequest struct {
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
+	// SharedBudget turns the shared agent budget on or off. On is refused
+	// until its cgroup is set up (SharedBudget.NotReady).
+	SharedBudget *bool `json:"sharedBudget,omitempty"`
+	// SharedBudgetMemory, SharedBudgetSwap and SharedBudgetCPU size it; ""
+	// (or 0 cores) goes back to what this host is suggested.
+	SharedBudgetMemory *string `json:"sharedBudgetMemory,omitempty"`
+	SharedBudgetSwap   *string `json:"sharedBudgetSwap,omitempty"`
+	SharedBudgetCPU    *int    `json:"sharedBudgetCPU,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
@@ -667,6 +767,18 @@ type DiskUsage struct {
 	Categories []DiskUsageCategory `json:"categories"`
 }
 
+// AgentDisk is what one agent takes up on disk, for its info card: its
+// machine's root disk (the container's own volume on the storage pool) and its
+// worktree on the host, measured separately because they are different disks
+// and grow for different reasons. A size is left out when it couldn't be
+// measured, such as a machine whose volume Incus can't read. The daemon
+// caches each agent's for a minute, so MeasuredAt says how fresh it is.
+type AgentDisk struct {
+	Machine    *int64    `json:"machine,omitempty"`
+	Worktree   *int64    `json:"worktree,omitempty"`
+	MeasuredAt time.Time `json:"measuredAt"`
+}
+
 // MemoryUsageAgent is one agent's share of the host's memory: what its own
 // cgroup holds, running or paused — a paused agent still holds every page it
 // had.
@@ -813,6 +925,14 @@ type PullRequest struct {
 	// Agent is the name of this project's agent whose commits it carries,
 	// when there is one; only the project pull requests list sets it.
 	Agent string `json:"agent,omitempty"`
+	// Conflict, Review and Watched come from the pull request watch, which
+	// reads an agent's open pull request on its own schedule: whether it
+	// conflicts with its base, GitHub's review decision (approved,
+	// changes_requested, review_required, or ""), and whether the watch has
+	// read it at all — without it, Conflict says nothing either way.
+	Conflict bool   `json:"conflict,omitempty"`
+	Review   string `json:"review,omitempty"`
+	Watched  bool   `json:"watched,omitempty"`
 }
 
 // Why a project's pull requests couldn't be read. The app says a different
@@ -1080,6 +1200,9 @@ const (
 	// "auto-stop idle agents" found it idle for as long as the setting allows.
 	// Summary is what to show for it, like "Stopped after 2h idle".
 	AgentIdleStopped = "idle_stopped"
+	// AgentPRBroken is the pull request watch finding the agent's pull
+	// request newly broken: Summary says how, PR is the pull request.
+	AgentPRBroken = "pr_broken"
 )
 
 // EventAgentEvent carries an AgentEvent on the event stream.
@@ -1238,7 +1361,14 @@ type Self struct {
 
 type Error struct {
 	Error string `json:"error"`
+	// Code, when there is one, says which refusal this is, for a client that
+	// offers a way past it rather than only showing the message.
+	Code string `json:"code,omitempty"`
 }
+
+// ErrorFolderNotEmpty is the Code of AddProjectRequest.Create refusing a
+// folder that has files in it: the same request with CommitFiles gets past it.
+const ErrorFolderNotEmpty = "folder-not-empty"
 
 // VersionInfo is what GET /v1/version reports about the daemon.
 type VersionInfo struct {
@@ -1464,6 +1594,9 @@ type ImageComponents struct {
 	// DevCaches fills the Go, npm and Electron caches from AgentBox's own
 	// repository, for agents that work on AgentBox itself.
 	DevCaches bool `json:"devCaches"`
+	// Incus adds Incus itself, so a project that turns nesting on can run a
+	// real Incus daemon inside an agent's container.
+	Incus bool `json:"incus"`
 }
 
 // ImageBuild describes the base image build: the version it would produce, the
@@ -1503,6 +1636,7 @@ type BuildImageRequest struct {
 	Codex     *bool `json:"codex,omitempty"`
 	OpenCode  *bool `json:"opencode,omitempty"`
 	DevCaches *bool `json:"devCaches,omitempty"`
+	Incus     *bool `json:"incus,omitempty"`
 }
 
 const (

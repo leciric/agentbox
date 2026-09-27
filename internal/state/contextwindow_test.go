@@ -32,7 +32,7 @@ func TestContextWindowsFollowTheModel(t *testing.T) {
 func TestWhatASessionReportedOverridesTheGuess(t *testing.T) {
 	ctx := context.Background()
 	store := openStore(t)
-	if err := store.RememberClaudeModelWindow(ctx, "something-new", 1_000_000, 200_000); err != nil {
+	if err := store.RememberClaudeModelWindow(ctx, "something-new", 1_000_000); err != nil {
 		t.Fatal(err)
 	}
 	w, err := store.ClaudeWindows(ctx)
@@ -44,83 +44,66 @@ func TestWhatASessionReportedOverridesTheGuess(t *testing.T) {
 	}
 }
 
-// A session started with no autoCompactWindow key at all doesn't run
-// uncapped: Claude Code falls back to its own default there, ClaudeShortWindow,
-// same as one that asked for it outright. Reporting exactly that size is still
-// a cap, not opus's own answer, and remembering it as one is how an account's
-// opus came to offer only 200k with no way back to 1M (D91).
-func TestNoCompactWindowStillMeansTheToolsOwnDefault(t *testing.T) {
+// The adapter's authoritative size is the model's whole window, whatever the
+// session compacts at, so a later reading replaces an earlier one: an opus
+// once remembered at 200k — from the adapter's guess, the way every account
+// used to — offers 1M again as soon as a turn on it reports 1M, including a
+// turn of a chat that compacts at 1M, whose reading earlier builds dropped as
+// "only the compact window".
+func TestALaterReadingHealsAWrongWindow(t *testing.T) {
 	ctx := context.Background()
 	store := openStore(t)
-	if err := store.RememberClaudeModelWindow(ctx, "opus", 200_000, 0); err != nil {
+	if err := store.SetSetting(ctx, state.SettingClaudeModelWindows, `{"opus":200000}`); err != nil {
 		t.Fatal(err)
 	}
 	w, err := store.ClaudeWindows(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(w.Seen) != 0 {
-		t.Errorf("remembered %v from an uncapped session reporting the tool's own default, want nothing", w.Seen)
+	if got := w.ContextWindows("opus", 200_000); len(got) != 1 {
+		t.Fatalf("opus remembered at 200k offers %v, want only 200k", got)
 	}
-	if got := w.ContextWindows("opus", 200_000); len(got) != 2 {
-		t.Errorf("opus offers %v after that report, want both windows still", got)
-	}
-	// A report above the tool's own default can only be the model's own,
-	// uncapped or not.
-	if err := store.RememberClaudeModelWindow(ctx, "sonnet", 1_000_000, 0); err != nil {
+	if err := store.RememberClaudeModelWindow(ctx, "opus", 1_000_000); err != nil {
 		t.Fatal(err)
 	}
 	if w, err = store.ClaudeWindows(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if w.Seen["sonnet"] != 1_000_000 {
-		t.Errorf("Seen[sonnet] = %d, want 1000000", w.Seen["sonnet"])
+	if got, want := w.ContextWindows("opus", 200_000), []int64{200_000, 1_000_000}; !slices.Equal(got, want) {
+		t.Errorf("ContextWindows(opus) = %v, want %v", got, want)
+	}
+	if got, err := w.DefaultContextWindow("opus", "1m", 200_000); err != nil || got != "1000000" {
+		t.Errorf("DefaultContextWindow(opus, 1m) = %q, %v; want 1000000", got, err)
 	}
 }
 
-// A session compacting at 200k reports 200000 as its size whatever its
-// model's window is. Remembering that made opus a 200k model for good, and
-// Settings and create_agent offered it no 1M window.
-func TestACompactCappedSizeIsNotTheModelsWindow(t *testing.T) {
-	ctx := context.Background()
-	store := openStore(t)
-	for _, model := range []string{"opus", "default"} {
-		if err := store.RememberClaudeModelWindow(ctx, model, 200_000, 200_000); err != nil {
-			t.Fatal(err)
+// Launch is the one answer to what a chat runs at, for every combination a
+// chat can be stored with.
+func TestLaunch(t *testing.T) {
+	long := state.ClaudeWindows{Seen: map[string]int64{"opus": 1_000_000}, OneM: map[string]bool{}}
+	short := state.ClaudeWindows{Seen: map[string]int64{"opus": 200_000, "opus[1m]": 1_000_000}, OneM: map[string]bool{"opus": true}}
+	for _, tc := range []struct {
+		name          string
+		w             state.ClaudeWindows
+		model, chosen string
+		installation  int64
+		wantName      string
+		wantCompact   int64
+	}{
+		{"nothing chosen", long, "opus", "", 200_000, "opus", 200_000},
+		{"1M chosen", long, "opus", "1000000", 200_000, "opus", 1_000_000},
+		{"1M written as people do", long, "opus", "1m", 200_000, "opus", 1_000_000},
+		{"a stored opus[1m] from before D91", long, "opus[1m]", "", 200_000, "opus", 200_000},
+		{"installation uncapped", long, "opus", "1000000", 0, "opus", 0},
+		{"haiku can't have 1M", long, "haiku", "1000000", 200_000, "haiku", 200_000},
+		{"the default model", long, "default", "1000000", 200_000, "default", 1_000_000},
+		{"1M through the variant", short, "opus", "1000000", 200_000, "opus[1m]", 1_000_000},
+		{"200k needs no variant", short, "opus", "", 200_000, "opus", 200_000},
+	} {
+		name, compact := tc.w.Launch(tc.model, tc.chosen, tc.installation)
+		if name != tc.wantName || compact != tc.wantCompact {
+			t.Errorf("%s: Launch(%q, %q, %d) = %q, %d; want %q, %d", tc.name, tc.model, tc.chosen, tc.installation, name, compact, tc.wantName, tc.wantCompact)
 		}
-	}
-	w, err := store.ClaudeWindows(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(w.Seen) != 0 {
-		t.Errorf("remembered %v from sizes capped at the compact window, want nothing", w.Seen)
-	}
-	for _, model := range []string{"opus", "default"} {
-		if got, want := w.ContextWindows(model, 200_000), []int64{200_000, 1_000_000}; !slices.Equal(got, want) {
-			t.Errorf("ContextWindows(%q) = %v, want %v", model, got, want)
-		}
-		if _, err := w.ContextWindowChoice(model, "1m", 200_000); err != nil {
-			t.Errorf("1m for %s: %v", model, err)
-		}
-		if got, err := w.DefaultContextWindow(model, "1m", 200_000); err != nil || got != "1000000" {
-			t.Errorf("DefaultContextWindow(%q, 1m) = %q, %v; want 1000000", model, got, err)
-		}
-	}
-
-	// A size under the cap is the model's own, shorter than the cap; one
-	// over it can only be the model's own.
-	if err := store.RememberClaudeModelWindow(ctx, "short-one", 200_000, 1_000_000); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.RememberClaudeModelWindow(ctx, "long-one", 1_000_000, 200_000); err != nil {
-		t.Fatal(err)
-	}
-	if w, err = store.ClaudeWindows(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if w.Seen["short-one"] != 200_000 || w.Seen["long-one"] != 1_000_000 {
-		t.Errorf("Seen = %v, want short-one 200000 and long-one 1000000", w.Seen)
 	}
 }
 
@@ -215,5 +198,37 @@ func TestDefaultContextWindowIsCheckedAgainstTheModel(t *testing.T) {
 		if got, err := w.DefaultContextWindow(tc.model, tc.value, 200_000); err == nil {
 			t.Errorf("DefaultContextWindow(%q, %q) = %q, want it refused", tc.model, tc.value, got)
 		}
+	}
+}
+
+// A "[1m]" variant a session really ran at 1M is the way to a long window for
+// its plain model, just as one on the menu is: an account whose plain opus
+// reported 200k, with no "[1m]" on its menu, still offers opus at 1M, and
+// starts it as the variant.
+func TestA1MVariantSeenRunningIsTheWayToALongWindow(t *testing.T) {
+	ctx := context.Background()
+	store := openStore(t)
+	if err := store.SetSetting(ctx, state.SettingClaudeModelWindows, `{"opus":200000,"opus[1m]":1000000,"haiku[1m]":200000}`); err != nil {
+		t.Fatal(err)
+	}
+	w, err := store.ClaudeWindows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := w.ContextWindows("opus", 200_000); !slices.Equal(got, []int64{200_000, 1_000_000}) {
+		t.Fatalf("ContextWindows(opus) = %v, want 200k and 1M", got)
+	}
+	if got, err := w.DefaultContextWindow("opus", "1m", 200_000); err != nil || got != "1000000" {
+		t.Errorf("DefaultContextWindow(opus, 1m) = %q, %v", got, err)
+	}
+	if got := w.Model("opus", 1_000_000); got != "opus[1m]" {
+		t.Errorf("opus at 1M starts as %q, want opus[1m]", got)
+	}
+	if got := w.Model("opus", 200_000); got != "opus" {
+		t.Errorf("opus at 200k starts as %q, want opus", got)
+	}
+	// A variant that never reached 1M proves nothing.
+	if got := w.ContextWindows("haiku", 200_000); !slices.Equal(got, []int64{200_000}) {
+		t.Errorf("ContextWindows(haiku) = %v, want only 200k", got)
 	}
 }

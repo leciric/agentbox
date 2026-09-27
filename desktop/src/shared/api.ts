@@ -19,6 +19,10 @@ export interface Project {
   consolidationModel: string;
   section: string;
   position: number;
+  nesting: boolean;
+  agentPRs: boolean;
+  prWatch: string;
+  prWatching: boolean;
   createdAt: string;
 }
 
@@ -28,6 +32,8 @@ export interface AddProjectRequest {
   claudeAccount?: string;
   githubAccount?: string;
   copyToLinux?: boolean;
+  create?: boolean;
+  commitFiles?: boolean;
 }
 
 export interface UpdateProjectRequest {
@@ -44,6 +50,9 @@ export interface UpdateProjectRequest {
   contextBudget?: number;
   consolidation?: number;
   consolidationModel?: string;
+  nesting?: boolean;
+  agentPRs?: boolean;
+  prWatch?: string;
 }
 
 export interface Section {
@@ -85,6 +94,7 @@ export interface NotesRequest {
 export interface Settings {
   defaultClaudeModel: string;
   defaultAgentContextWindow: string;
+  enforceAgentDefaults: boolean;
   defaultLeadModel: string;
   defaultLeadContextWindow: string;
   claudeModelChoices: ChatOptionChoice[];
@@ -104,6 +114,7 @@ export interface Settings {
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
+  prWatch: boolean;
   mediaRetention: string;
   defaultClaudeCompactWindow: number;
   neverFreezeCPU: boolean;
@@ -113,11 +124,37 @@ export interface Settings {
   gpuForAgents: boolean;
   autoStopIdle: boolean;
   idleTimeSeconds: number;
+  sharedBudget: SharedBudget;
+}
+
+export interface SharedBudget {
+  on: boolean;
+  memory: string;
+  swap: string;
+  cpu: number;
+  chosen: boolean;
+  suggested: SharedBudgetSize;
+  why: string;
+  hostSwap: number;
+  hostSwapKind: string;
+  unsupported?: string;
+  notReady?: string;
+  setupCommand: string;
+  problem?: string;
+  inside: number;
+  pending: number;
+}
+
+export interface SharedBudgetSize {
+  memory: string;
+  swap: string;
+  cpu: number;
 }
 
 export interface UpdateSettingsRequest {
   defaultClaudeModel?: string;
   defaultAgentContextWindow?: string;
+  enforceAgentDefaults?: boolean;
   defaultLeadModel?: string;
   defaultLeadContextWindow?: string;
   defaultClaudeEffort?: string;
@@ -128,12 +165,17 @@ export interface UpdateSettingsRequest {
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   usageStats?: boolean;
+  prWatch?: boolean;
   mediaRetention?: string;
   neverFreezeCPU?: boolean;
   keepFreeCPU?: number;
   gpuForAgents?: boolean;
   autoStopIdle?: boolean;
   idleTimeSeconds?: number;
+  sharedBudget?: boolean;
+  sharedBudgetMemory?: string;
+  sharedBudgetSwap?: string;
+  sharedBudgetCPU?: number;
 }
 
 export interface Limits {
@@ -287,6 +329,12 @@ export interface DiskUsage {
   categories: DiskUsageCategory[];
 }
 
+export interface AgentDisk {
+  machine?: number;
+  worktree?: number;
+  measuredAt: string;
+}
+
 export interface MemoryUsageAgent {
   ref: string;
   title?: string;
@@ -424,6 +472,7 @@ export interface Self {
 
 export interface Error {
   error: string;
+  code?: string;
 }
 
 export interface TerminalResize {
@@ -575,6 +624,7 @@ export interface ImageComponents {
   codex: boolean;
   opencode: boolean;
   devCaches: boolean;
+  incus: boolean;
 }
 
 export interface ImageBuild {
@@ -597,6 +647,7 @@ export interface BuildImageRequest {
   codex?: boolean;
   opencode?: boolean;
   devCaches?: boolean;
+  incus?: boolean;
 }
 
 export interface ClaudeTokenRequest {
@@ -678,6 +729,9 @@ export interface PullRequest {
   author?: string;
   authorAvatar?: string;
   agent?: string;
+  conflict?: boolean;
+  review?: string;
+  watched?: boolean;
 }
 
 export interface GitHubError {
@@ -930,6 +984,7 @@ export interface ChatThread {
   seq: number;
   session: ChatSession;
   items: ChatItem[];
+  older?: boolean;
 }
 
 export interface ChatSession {
@@ -1489,6 +1544,7 @@ export const SetupOutdated = "outdated";
 export const SetupOptional = "optional";
 export const SetupUpdating = "updating";
 export const InAgentSocket = "/run/agentbox.sock";
+export const ErrorFolderNotEmpty = "folder-not-empty";
 export const LeadName = "lead";
 export const AgentModelAuto = "auto";
 export const ConsolidationModelCheap = "cheap";

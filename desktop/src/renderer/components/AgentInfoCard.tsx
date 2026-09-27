@@ -1,10 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { chatKey, fetchThread } from '../lib/chat';
 import { choiceName } from '../lib/modelChoices';
 import { humanTokens, tps, usd } from '../lib/tokens';
-import { timeAgo } from '../lib/utils';
+import { humanBytes, timeAgo } from '../lib/utils';
 import { aiLabel, StateBadge } from './state';
 
 // AgentInfoCard is what hovering an agent row shows, and what its context
@@ -15,8 +16,14 @@ import { aiLabel, StateBadge } from './state';
 // carrying that data around itself.
 export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullRequest }) {
   const [project, name] = agent.ref.split('/');
-  const chat = useQuery({ queryKey: ['chat', agent.ref], queryFn: () => api.chat(agent.ref), staleTime: 10_000 });
+  // The chat's own query, read the way the chat reads it: its latest page.
+  const queryClient = useQueryClient();
+  const chat = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref), staleTime: 10_000 });
   const spend = useQuery({ queryKey: ['tokens', project, name, 'all'], queryFn: () => api.tokens({ project, agent: name }), staleTime: 10_000 });
+  // Disk is measured by the daemon, which walks the whole worktree and asks
+  // Incus for the machine's volume, and caches both for a minute: the card
+  // asks no more often than that however often it's hovered.
+  const disk = useQuery({ queryKey: ['agentDisk', agent.ref], queryFn: () => api.agentDisk(agent.ref), staleTime: 60_000 });
 
   const options = chat.data?.session?.options ?? [];
   const find = (category: string) => options.find((o) => o.category === category && o.type === 'select');
@@ -27,11 +34,16 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
   const mine = spend.data?.agents?.[0];
 
   return (
-    <div className="grid w-64 gap-2" data-agent-info={agent.ref}>
+    // grid-cols-1 is minmax(0, 1fr): an auto column would grow to the title's
+    // full width, pushing every value past the card's right edge.
+    <div className="grid w-64 grid-cols-1 gap-2" data-agent-info={agent.ref}>
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate text-[13px] font-medium text-primary">{agent.title || agent.name}</span>
-        <StateBadge state={agent.state} />
+        <span className="shrink-0">
+          <StateBadge state={agent.state} />
+        </span>
       </div>
+      {agent.title && <span className="-mt-1.5 min-w-0 truncate font-mono text-[11px] text-faint">{agent.name}</span>}
       <div className="grid min-w-0 gap-1">
         <Row label="AI tool" value={aiLabel(agent.ai)} />
         {model && <Row label="Model" value={model} />}
@@ -44,11 +56,20 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
         <Row label="Uptime" value={timeAgo(agent.createdAt)} />
         <Row label="CPU" value={agent.limits.configuredCPU || agent.limits.cpu || '—'} />
         <Row label="Memory" value={agent.limits.memory || '—'} />
+        <Row label="Machine disk" value={diskSize(disk.data?.machine, disk.isPending)} />
+        <Row label="Worktree on host" value={diskSize(disk.data?.worktree, disk.isPending)} />
         <Row label="Tokens" value={mine ? `${humanTokens(mine.total)} · ${usd(mine.costUSD)}` : '0'} />
-        {pr && <Row label="Pull request" value={`#${pr.number} ${pr.state}`} />}
+        {pr && <Row label="Pull request" value={prSummary(pr)} />}
       </div>
     </div>
   );
+}
+
+// diskSize is one of the agent's disk sizes, or why there isn't one: still
+// being measured, or not measurable (a machine Incus can't read).
+function diskSize(bytes: number | undefined, pending: boolean): string {
+  if (bytes !== undefined) return humanBytes(bytes);
+  return pending ? '…' : '—';
 }
 
 function Row({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
@@ -58,4 +79,14 @@ function Row({ label, value, mono }: { label: string; value: ReactNode; mono?: b
       <span className={mono ? 'min-w-0 truncate font-mono text-[11px] text-secondary' : 'min-w-0 truncate text-secondary'}>{value}</span>
     </div>
   );
+}
+
+// prSummary is the pull request in a line: its state, and what the watch found
+// wrong with it when it found something.
+function prSummary(pr: T.PullRequest): string {
+  const parts = [`#${pr.number} ${pr.draft ? 'draft' : pr.state}`];
+  if (pr.checks) parts.push(`checks ${pr.checks}`);
+  if (pr.conflict) parts.push('conflicts');
+  if (pr.review === 'changes_requested') parts.push('changes requested');
+  return parts.join(', ');
 }

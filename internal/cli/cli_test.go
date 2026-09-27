@@ -134,6 +134,35 @@ func TestProjectLifecycle(t *testing.T) {
 	mustContain(t, out, "No projects yet")
 }
 
+// add --new starts a repository rather than needing one, and says how to get
+// past a folder that already has files in it.
+func TestAddNewMakesTheRepository(t *testing.T) {
+	home := isolate(t)
+	startDaemon(t)
+	path := filepath.Join(home, "code", "fresh")
+	out, err := run(t, "", "add", "--new", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Added project fresh", path, "main (new agents start here)")
+
+	notes := filepath.Join(home, "notes")
+	if err := os.MkdirAll(notes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(notes, "todo.md"), []byte("- ship\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "", "add", "--new", notes); err == nil || !strings.Contains(err.Error(), "--commit-files") {
+		t.Errorf("add --new of a folder with files = %v, want the --commit-files hint", err)
+	}
+	out, err = run(t, "", "add", "--new", "--commit-files", notes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Added project notes")
+}
+
 // A project's accounts can be chosen as it is added, so a machine with two
 // GitHub logins doesn't have to add the project and then fix it.
 func TestAddPicksTheProjectsAccounts(t *testing.T) {

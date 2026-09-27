@@ -50,6 +50,11 @@ const (
 	// adds AgentBox's small pinned list (D69) on top, at every place the menu
 	// is shown.
 	SettingClaudeModelChoices = "claude_model_choices"
+	// SettingEnforceAgentDefaults says whether the lead must create every
+	// Claude Code agent on exactly SettingDefaultClaudeModel and
+	// SettingDefaultAgentContextWindow ("1"), or may go cheaper for an easy
+	// task, never above them (off, the default). agent.CheckLeadChoice.
+	SettingEnforceAgentDefaults = "enforce_agent_defaults"
 	// SettingDefaultClaudeEffort is the "effort" chat option new Claude Code
 	// agents are seeded with. Empty means DefaultClaudeEffort.
 	SettingDefaultClaudeEffort = "default_claude_effort"
@@ -98,6 +103,11 @@ const (
 	SettingImageCodex     = "image_codex"
 	SettingImageOpenCode  = "image_opencode"
 	SettingImageDevCaches = "image_dev_caches"
+	// SettingImageIncus is whether the base image is built with Incus itself,
+	// so a project that turns on nesting (Project.Nesting) has something to
+	// nest: an agent can then run a real Incus daemon of its own inside its
+	// container, to test AgentBox features that touch agent machines.
+	SettingImageIncus = "image_incus"
 	// SettingAppearance is what AgentBox wears: api.AppearanceFollow (the
 	// desktop theme this machine is running, in its own window and on every
 	// agent's desktop), or api.AppearanceLight or api.AppearanceDark for its
@@ -138,6 +148,11 @@ const (
 	// feature_usage counts. On until somebody turns it off (FlagOn), and
 	// never sent while SettingUpdateCheck is off.
 	SettingUsageStats = "usage_stats"
+	// SettingPRWatch says whether the daemon watches every agent's open pull
+	// request and tells the agent when it breaks: a conflict with its base,
+	// failing checks, changes requested. On until somebody turns it off
+	// (FlagOn); a project can override it (Project.PRWatch).
+	SettingPRWatch = "pr_watch"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a
@@ -178,6 +193,18 @@ const (
 	// SettingIdleTime is how long SettingAutoStopIdle waits, as a count of
 	// seconds. Empty means DefaultIdleTime.
 	SettingIdleTime = "idle_time"
+	// SettingSharedBudget says whether every agent's machine runs under one
+	// parent cgroup, /sys/fs/cgroup/agentbox, with one memory, swap and CPU
+	// budget for all of them together, so an idle agent's share goes to a
+	// busy one (agent.SharedBudget). Off until somebody turns it on.
+	SettingSharedBudget = "shared_budget"
+	// SettingSharedBudgetMemory, SettingSharedBudgetSwap and
+	// SettingSharedBudgetCPU are the budget itself: a size for memory.max, a
+	// size for memory.swap.max, and a count of cores for cpu.max. Empty means
+	// what agent.SuggestBudget works out for this host.
+	SettingSharedBudgetMemory = "shared_budget_memory"
+	SettingSharedBudgetSwap   = "shared_budget_swap"
+	SettingSharedBudgetCPU    = "shared_budget_cpu"
 )
 
 // DefaultIdleTime is how long an agent may go idle before "auto-stop idle

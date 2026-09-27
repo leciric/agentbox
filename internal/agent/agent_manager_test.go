@@ -21,7 +21,7 @@ import (
 func claudeAgentFixture(t *testing.T, f fixture) state.Agent {
 	t.Helper()
 	worktree := f.m.Paths.Worktree("hello-stack", "agent-01")
-	if err := f.repo.AddWorktree(worktree, "agentbox/agent-01", "HEAD"); err != nil {
+	if err := f.repo.AddWorktree(worktree, "agentbox/agent-01", "HEAD", "test"); err != nil {
 		t.Fatal(err)
 	}
 	a := state.Agent{
@@ -510,5 +510,44 @@ esac`))
 	// An unknown account is refused before anything is written.
 	if _, err := f.m.SetGitHubAccount(ctx, got, "gone"); err == nil || !strings.Contains(err.Error(), `no GitHub account named "gone"`) {
 		t.Errorf("SetGitHubAccount(gone) = %v, want it refused", err)
+	}
+}
+
+// TestGitHubAccountConfiguresAndRemovesGitCredentials checks that an agent's
+// ~/.gitconfig gets the credential helper and the HTTPS rewrite for
+// git@github.com: as soon as it has a GitHub account — created with one,
+// given one later, and moved off it again, since git never uses GH_TOKEN on
+// its own the way gh does.
+func TestGitHubAccountConfiguresAndRemovesGitCredentials(t *testing.T) {
+	inc, files := recordingIncus(t, oneRunningAgent)
+	f := setup(t, inc)
+	ctx := context.Background()
+	if err := f.m.Creds.SaveGitHubToken("personal", "gho_personal"); err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", GitHubAccount: "personal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const path = "/home/dev/.gitconfig"
+	got := inAgent(t, files, a.Instance, path)
+	if !strings.Contains(got, `helper = !gh auth git-credential`) || !strings.Contains(got, `insteadOf = git@github.com:`) {
+		t.Fatalf("a freshly created agent with a GitHub account has no credential helper in .gitconfig:\n%s", got)
+	}
+
+	// As if the account were removed from the machine entirely (not just
+	// moved off this agent, which GitHubAccountFor's fallback to the
+	// machine's default would just resolve straight back to): Start, which
+	// rewrites .gitconfig fresh every time, now finds no token for it.
+	if err := f.m.Creds.RemoveGitHubAccount("personal"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.m.Start(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	got = inAgent(t, files, a.Instance, path)
+	if strings.Contains(got, "git-credential") || strings.Contains(got, "insteadOf") {
+		t.Errorf("losing the GitHub account left the credential helper in %s's .gitconfig:\n%s", a.Ref(), got)
 	}
 }

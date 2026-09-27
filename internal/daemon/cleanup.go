@@ -234,6 +234,7 @@ func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.
 	s.chat.Stop(a.Ref(), "the agent was destroyed")
 	s.removeActiveAgent(ctx, a.Project, a.Name)
 	s.chat.Forget(a.Ref())
+	s.disks.forget(a.Ref())
 	s.stopAgentAPI(a.Instance)
 	s.removeBrowserSockets(a.Instance)
 	return nil

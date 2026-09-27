@@ -191,23 +191,46 @@ func (r Repo) BranchInTheWay(prefix string) string {
 	return ""
 }
 
-// AddWorktree creates a worktree at path on a new branch starting at commit.
-func (r Repo) AddWorktree(path, branch, commit string) error {
+// AddWorktree creates a worktree at path on a new branch starting at commit,
+// locked with reason so a `git worktree prune` run elsewhere — inside the
+// worktree's own machine, where every other worktree's path doesn't exist —
+// leaves its entry under .git/worktrees alone instead of deleting it.
+func (r Repo) AddWorktree(path, branch, commit, reason string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	_, err := run(r.Root, "worktree", "add", "--quiet", "-b", branch, path, commit)
+	_, err := run(r.Root, "worktree", "add", "--quiet", "--lock", "--reason", reason, "-b", branch, path, commit)
 	return err
 }
 
 // AddWorktreeDetached creates a worktree at path with a detached HEAD at
-// commit. Nothing is committed there and no branch is created, so several
-// worktrees can stand on the same commit as a branch the main checkout holds.
-func (r Repo) AddWorktreeDetached(path, commit string) error {
+// commit, locked with reason (see AddWorktree). Nothing is committed there
+// and no branch is created, so several worktrees can stand on the same
+// commit as a branch the main checkout holds.
+func (r Repo) AddWorktreeDetached(path, commit, reason string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	_, err := run(r.Root, "worktree", "add", "--quiet", "--detach", path, commit)
+	_, err := run(r.Root, "worktree", "add", "--quiet", "--lock", "--reason", reason, "--detach", path, commit)
+	return err
+}
+
+// LockWorktree locks the worktree at path, with reason recorded for
+// `git worktree list` to show. Locking one that's already locked is not an
+// error, so relocking every worktree when the daemon starts is idempotent.
+func (r Repo) LockWorktree(path, reason string) error {
+	_, err := run(r.Root, "worktree", "lock", "--reason", reason, path)
+	if err != nil && strings.Contains(err.Error(), "already locked") {
+		return nil
+	}
+	return err
+}
+
+// UnlockWorktree undoes LockWorktree. AgentBox calls it right before removing
+// or moving a worktree itself: `git worktree remove` and `worktree move`
+// refuse a locked one.
+func (r Repo) UnlockWorktree(path string) error {
+	_, err := run(r.Root, "worktree", "unlock", path)
 	return err
 }
 
@@ -226,8 +249,11 @@ func (r Repo) RemoveWorktree(path string) error {
 			if err := os.RemoveAll(path); err != nil {
 				return err
 			}
-		} else if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
-			return err
+		} else {
+			_ = r.UnlockWorktree(path)
+			if _, err := run(r.Root, "worktree", "remove", "--force", path); err != nil {
+				return err
+			}
 		}
 	}
 	_, err := run(r.Root, "worktree", "prune")

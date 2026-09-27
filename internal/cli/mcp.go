@@ -91,7 +91,9 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// under them. The lead's own defaults are another section of Settings and
 	// never reach its agents.
 	defaultModel, defaultWindow := state.DefaultClaudeModel, "200k"
+	var enforced bool
 	if settings, err := c.ProjectSettings(ctx); err == nil {
+		enforced = settings.EnforceAgentDefaults
 		if settings.DefaultClaudeModel != "" {
 			defaultModel = settings.DefaultClaudeModel
 		}
@@ -140,6 +142,20 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 			"accept is refused when the agent starts, and the agent says so in its own chat, so don't guess one. Leaving this out " +
 			"doesn't fail: the agent falls back to " + defaultModel + ", the model new agents start on in AgentBox's Settings → Agents."
 	}
+	// Settings → Agents either fixes the model and window (enforced) or caps
+	// them, and create_agent refuses what breaks either (agent.CheckLeadChoice):
+	// saying so here is what keeps the lead from asking for it in the first
+	// place. Enforcing wins over a project that leaves the model to the lead.
+	if enforced {
+		model = "the model this agent runs on. AgentBox's Settings → Agents enforces " + defaultModel + " for every agent you " +
+			"create, so leave this out: any other model is refused."
+	} else if !auto {
+		model += " That model is also the most you may use: choose a cheaper one for an easy task (sonnet for small, " +
+			"well-defined work, haiku for a mechanical job like a rename or a config change) and keep " + defaultModel +
+			" for medium and hard ones. A model above it is refused."
+	} else {
+		model += " Never choose one above " + defaultModel + ": it is the most Settings → Agents allows, and a model above it is refused."
+	}
 	// The AI tool itself, offered only when an agent could really run the
 	// other one: OpenCode has to be in the base image and have a login, and
 	// asking for it otherwise would be a tool call that can only fail. The
@@ -179,6 +195,17 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		"200k (the installation's compact window) is right for nearly every task: past it, every step of the agent resends the " +
 		"whole conversation, so 1M costs up to five times as much per step late in a long task. Choose 1m only for work that " +
 		"really needs a very large codebase or log in view at once.")
+	switch {
+	case enforced:
+		params["context_window"] = str("where this agent's chat compacts. AgentBox's Settings → Agents enforces " + defaultWindow +
+			" for every agent you create, so leave this out: any other window is refused.")
+	case defaultWindow == "1m":
+		params["context_window"] = str(params["context_window"].(map[string]any)["description"].(string) +
+			" 1m is the most Settings → Agents allows.")
+	default:
+		params["context_window"] = str("where this agent's chat compacts, a Claude Code setting. Leave this out for " + defaultWindow +
+			", the window new agents start with in AgentBox's Settings → Agents. It is also the most Settings allows: a longer one is refused.")
+	}
 	return params, auto, openCode
 }
 

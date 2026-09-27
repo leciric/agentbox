@@ -16,6 +16,7 @@ import (
 )
 
 func TestRemoveReason(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	created := now.Add(-72 * time.Hour)
 	ago := func(d time.Duration) *time.Time { at := now.Add(-d); return &at }
@@ -52,6 +53,7 @@ func TestRemoveReason(t *testing.T) {
 // nothing, branch and all, and keeps one that finished just as long ago with
 // a commit that exists nowhere else.
 func TestRemoveFinishedAgents(t *testing.T) {
+	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), `case "$1" in
   list) echo '[]' ;;
 esac`)
@@ -68,7 +70,7 @@ esac`)
 	add := func(name string, commit bool) state.Agent {
 		worktree := filepath.Join(t.TempDir(), name)
 		branch := "agentbox/" + name
-		if err := repo.AddWorktree(worktree, branch, "HEAD"); err != nil {
+		if err := repo.AddWorktree(worktree, branch, "HEAD", "test"); err != nil {
 			t.Fatal(err)
 		}
 		if commit {

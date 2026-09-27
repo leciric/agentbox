@@ -49,6 +49,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
+	if req.EnforceAgentDefaults != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingEnforceAgentDefaults, *req.EnforceAgentDefaults); err != nil {
+			return err
+		}
+	}
 	if req.DefaultClaudeEffort != nil {
 		// Checked, unlike the model: the adapter resolves no aliases for this
 		// option and refuses anything outside the list it advertised, so a
@@ -176,6 +181,9 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		// leaving it stuck until the next sweep.
 		go s.stopIdleAgents(s.background(), time.Now())
 	}
+	if err := s.updateSharedBudget(r.Context(), req); err != nil {
+		return err
+	}
 	if req.UpdateCheck != nil {
 		if err := s.setUpdateCheck(r.Context(), *req.UpdateCheck); err != nil {
 			return err
@@ -183,6 +191,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.UsageStats != nil {
 		if err := s.setUsageStats(r.Context(), *req.UsageStats); err != nil {
+			return err
+		}
+	}
+	if req.PRWatch != nil {
+		if err := s.setPRWatch(r.Context(), *req.PRWatch); err != nil {
 			return err
 		}
 	}
@@ -321,6 +334,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	enforce, err := s.store.Flag(r.Context(), state.SettingEnforceAgentDefaults)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	var agentWindow, leadModel, leadWindow string
 	for key, into := range map[string]*string{
 		state.SettingDefaultAgentContextWindow: &agentWindow,
@@ -374,6 +391,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	prWatch, err := s.store.FlagOn(r.Context(), state.SettingPRWatch)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	compactWindow, err := s.store.ClaudeCompactWindow(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -412,9 +433,14 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	sharedBudget, err := s.sharedBudget(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
+		EnforceAgentDefaults:      enforce,
 		DefaultLeadModel:          leadModel,
 		DefaultLeadContextWindow:  leadWindow,
 		ClaudeModelChoices:        models,
@@ -436,6 +462,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		ResumeAfterLimit: resumeAfterLimit,
 		UpdateCheck:      updateCheck,
 		UsageStats:       usageStats,
+		PRWatch:          prWatch,
 		MediaRetention:   mediaRetention,
 
 		ClaudeCompactWindow:        compactWindow,
@@ -449,6 +476,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		GPUForAgents:    gpuForAgents,
 		AutoStopIdle:    autoStopIdle,
 		IdleTimeSeconds: int(idleTime / time.Second),
+
+		SharedBudget: sharedBudget,
 	}, nil
 }
 

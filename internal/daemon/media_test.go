@@ -126,6 +126,30 @@ func TestMediaFilesAreServedWithRanges(t *testing.T) {
 	if code, _ := get("/v1/media/report/file?path=../clip.mp4", ""); code != http.StatusBadRequest {
 		t.Errorf("a path outside the report answered %d, want 400", code)
 	}
+
+	// The agent reads its own files on its socket, for agentbox media publish,
+	// and nobody else's.
+	if err := d.srv.serveAgentAPI(a.Instance); err != nil {
+		t.Fatal(err)
+	}
+	inAgent := api.NewClient(d.srv.agentSocketPath(a.Instance))
+	f, err := inAgent.MediaFile(ctx, "", "clip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(f)
+	_ = f.Close()
+	if string(body) != "hello video" {
+		t.Errorf("the agent's own clip = %q", body)
+	}
+	other := state.Media{ID: "theirs", Project: a.Project, Agent: "agent-99", Kind: "recording", Name: "theirs",
+		File: "item/clip.mp4", Mime: "video/mp4", Meta: "{}", Source: "agent", CreatedAt: time.Now()}
+	if err := d.srv.store.AddMedia(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inAgent.MediaFile(ctx, "", "theirs"); !api.IsNotFound(err) {
+		t.Errorf("another agent's item on the agent's socket: %v, want 404", err)
+	}
 }
 
 // Once an agent is destroyed with its media kept, the project's media view

@@ -109,8 +109,11 @@ type Manager struct {
 
 	mu    sync.Mutex
 	convs map[string]*conversation
-	// adapters are the goroutines that launch and then read each adapter.
-	adapters sync.WaitGroup
+	// background tracks every goroutine a conversation spawns: the one that
+	// launches and reads an adapter, and the shorter-lived ones a turn spawns
+	// as it starts and ends (prompt, drainOutbox, and the hooks a finished or
+	// idle turn calls). Wait joins all of them, not only the adapter's own.
+	background sync.WaitGroup
 }
 
 // Timer is a wake-up that can be called off before it fires: what
@@ -217,17 +220,65 @@ func (m *Manager) existing(ref string) *conversation {
 
 // Thread returns an agent's conversation, with the number of the last event it includes.
 func (m *Manager) Thread(a state.Agent) (api.ChatThread, error) {
+	return m.Page(a, "", 0)
+}
+
+// Page returns a page of an agent's conversation: the items before the one
+// called before (all of them when before is ""), going back far enough to hold
+// limit messages (every one of them when limit is 0). A message is what you
+// read in the timeline — what you wrote and what the AI tool answered — so a
+// page of tool calls doesn't count as a page of conversation. A page always
+// starts at a user message, where a turn does, so the app never sees half a
+// turn: its tool calls, its subagents' work and its fold stay together.
+//
+// It reads the conversation the chat holds, which is chat_items as they are
+// stored plus what hasn't been saved yet. A before the conversation doesn't
+// have — it was cleared meanwhile — is an empty page.
+func (m *Manager) Page(a state.Agent, before string, limit int) (api.ChatThread, error) {
 	c, err := m.conversation(a)
 	if err != nil {
 		return api.ChatThread{}, err
 	}
 	defer c.mu.Unlock()
 	c.flush(false)
-	items := make([]api.ChatItem, 0, len(c.items))
-	for _, it := range c.items {
+	start, end := pageOf(c.items, before, limit)
+	items := make([]api.ChatItem, 0, end-start)
+	for _, it := range c.items[start:end] {
 		items = append(items, clone(*it))
 	}
-	return api.ChatThread{Agent: a.Ref(), Seq: c.seq, Session: clone(c.session), Items: items}, nil
+	return api.ChatThread{Agent: a.Ref(), Seq: c.seq, Session: clone(c.session), Items: items, Older: start > 0}, nil
+}
+
+// pageOf is where Page's page lies in items: items[start:end].
+func pageOf(items []*api.ChatItem, before string, limit int) (start, end int) {
+	end = len(items)
+	if before != "" {
+		end = slices.IndexFunc(items, func(it *api.ChatItem) bool { return it.ID == before })
+		if end < 0 {
+			return 0, 0
+		}
+	}
+	if limit <= 0 {
+		return 0, end
+	}
+	start = end
+	for n := 0; start > 0 && n < limit; {
+		start--
+		if isMessage(*items[start]) {
+			n++
+		}
+	}
+	for start > 0 && items[start].Kind != "user" {
+		start--
+	}
+	return start, end
+}
+
+// isMessage says whether an item counts towards a page's limit (Page): a
+// message of yours or the AI tool's own answer, shown in the conversation.
+// The app counts the same way to ask for as much as it already has.
+func isMessage(it api.ChatItem) bool {
+	return (it.Kind == "user" || it.Kind == "aside" || it.Kind == "assistant") && it.Parent == "" && !it.Hidden
 }
 
 // LastMessage returns the text of the last thing an agent's AI tool said: the
@@ -401,7 +452,7 @@ func (c *conversation) beginTurn(it *api.ChatItem, text string, images []api.Cha
 	c.session.State = c.stateNow()
 	c.markSession()
 	c.flush(true)
-	go c.prompt(ad, t)
+	c.m.background.Go(func() { c.prompt(ad, t) })
 }
 
 // aside takes a message that arrived while a turn was running. It goes into the
@@ -441,7 +492,7 @@ func (c *conversation) drain() {
 		return
 	}
 	c.draining = true
-	go c.drainOutbox()
+	c.m.background.Go(c.drainOutbox)
 }
 
 // drainOutbox gives each waiting message to the AI tool: into the running turn
@@ -1013,7 +1064,7 @@ func (m *Manager) Close() {
 // its launch — which can write to the agent's worktree, its tools, its HOME —
 // before it finds it was stopped and goes. A test waits for that before its
 // directories are removed.
-func (m *Manager) Wait() { m.adapters.Wait() }
+func (m *Manager) Wait() { m.background.Wait() }
 
 // conversation is one agent's chat. Everything in it is guarded by mu.
 type conversation struct {
@@ -1266,7 +1317,7 @@ func (c *conversation) startAdapter() *adapter {
 	c.session.Detail = "Starting " + ToolNames[c.agent.AI]
 	c.session.State = c.stateNow()
 	c.markSession()
-	c.m.adapters.Go(func() { c.run(ad) })
+	c.m.background.Go(func() { c.run(ad) })
 	return ad
 }
 
@@ -1604,6 +1655,12 @@ func (c *conversation) wanted(id string) (api.ChatOption, string, bool) {
 	if !ok || value == option.Value {
 		return option, value, false
 	}
+	if option.ID == "model" && c.launchedAs(value) == option.Value {
+		// Started as its "[1m]" variant for the window chosen for it
+		// (launchSettings): switching to the plain name would take the long
+		// window away again.
+		return option, value, false
+	}
 	if option.ID == "model" {
 		// The model is worth trying even when it isn't literally among this
 		// account's choices: the adapter resolves a preference itself (see
@@ -1773,7 +1830,8 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		if c.m.AuthFailed != nil && AuthFailure(err.Error()) {
 			// Off the lock this holds, and off this turn's path: nothing here
 			// waits for it.
-			go c.m.AuthFailed(c.sessionAgent(c.adapter), firstLine(err.Error()))
+			agent, msg := c.sessionAgent(c.adapter), firstLine(err.Error())
+			c.m.background.Go(func() { c.m.AuthFailed(agent, msg) })
 		}
 		// A spent usage limit is the one failure the chat can get over on its
 		// own, by waiting for it to reset (limit.go).
@@ -1810,18 +1868,21 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	// Whoever ended the turn may want to know, so the daemon can tell the
 	// project's chat that this agent finished.
 	if c.m.Finished != nil && !c.agent.IsLead() {
-		go c.m.Finished(c.agent, *result)
+		agent, res := c.agent, *result
+		c.m.background.Go(func() { c.m.Finished(agent, res) })
 	}
 	// A lead is idle from here, and its prompt cache starts running out. The
 	// daemon checks again when it acts: a message drain is still handing the
 	// tool starts a turn this can't see yet.
 	if c.m.LeadIdle != nil && c.agent.IsLead() && c.turn == nil && !c.gone {
-		go c.m.LeadIdle(c.agent)
+		agent := c.agent
+		c.m.background.Go(func() { c.m.LeadIdle(agent) })
 	}
 	// Nothing that waited started another turn, so the chat is idle: the
 	// moment the daemon can replace a full session without anyone waiting.
 	if c.m.Idle != nil && c.turn == nil && !c.gone {
-		go c.m.Idle(c.agent)
+		agent := c.agent
+		c.m.background.Go(func() { c.m.Idle(agent) })
 	}
 }
 
@@ -1915,16 +1976,20 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		return
 	case "usage_update":
 		c.session.ContextUsed, c.session.ContextSize = u.Used, c.contextSize(h.ad, u.Size)
-		if model := optionValueOf(c.session.Options, "model"); c.agent.AI == "claude" && u.Size > 0 && model != "" && h.ad.sizeOf != model+"="+strconv.FormatInt(u.Size, 10) {
+		if model := optionValueOf(c.session.Options, "model"); c.agent.AI == "claude" && u.Cost != nil && !h.ad.replaying && u.Size > 0 && model != "" && h.ad.sizeOf != model+"="+strconv.FormatInt(u.Size, 10) {
 			// The account's own answer to how long this model's window is,
-			// which is what the context window offers next time (D91).
+			// which is what the context window offers next time (D91). Only
+			// the reading that follows a model result is that answer: the
+			// ones streamed before it are the adapter's guess from the name,
+			// 200k for plain "opus", and remembering that guess is what kept
+			// taking opus's 1M window away (RememberClaudeModelWindow).
 			h.ad.sizeOf = model + "=" + strconv.FormatInt(u.Size, 10)
-			ref, size, compact := c.agent.Ref(), u.Size, h.ad.window
-			go func() {
-				if err := c.m.Store.RememberClaudeModelWindow(context.Background(), model, size, compact); err != nil {
+			ref, size := c.agent.Ref(), u.Size
+			c.m.background.Go(func() {
+				if err := c.m.Store.RememberClaudeModelWindow(context.Background(), model, size); err != nil {
 					c.m.logf("chat %s: remembering %s's window: %v", ref, model, err)
 				}
-			}()
+			})
 		}
 		h.ad.spend.observe(u.Cost)
 		// A cost with no turn running and no hidden prompt asking is a result
@@ -1935,7 +2000,8 @@ func (h handler) Notify(method string, params json.RawMessage) {
 			c.book(h.ad, state.TokensBackground, newID(), nil, 0)
 		}
 		if rl := u.Meta.RateLimit; rl != nil && c.m.Limits != nil && !h.ad.replaying {
-			go c.m.Limits(c.sessionAgent(h.ad), *rl)
+			agent, limit := c.sessionAgent(h.ad), *rl
+			c.m.background.Go(func() { c.m.Limits(agent, limit) })
 		}
 		c.markSession()
 		return

@@ -81,9 +81,12 @@ func (c *conversation) compactWindow() int64 {
 }
 
 // launchSettings are the model and compact window an adapter starts with.
-// A stored "opus[1m]" starts as "opus" (NormalizeClaudeModel), and a model
-// whose own window is short starts as its "[1m]" variant when the long window
-// was chosen. Caller holds c.mu.
+// The window is the one chosen for the model the chat runs — the session's,
+// once it has one, which is also the tool's own default when nobody chose a
+// model — and the name the stored model's, with its "[1m]" variant where that
+// is the way to the long window: state.ClaudeWindows.Launch, when the two
+// models are the same. A stored "opus[1m]" starts as "opus"
+// (NormalizeClaudeModel). Caller holds c.mu.
 func (c *conversation) launchSettings() (model string, window int64) {
 	model = c.storedOption("model")
 	if c.agent.AI != "claude" {
@@ -93,6 +96,19 @@ func (c *conversation) launchSettings() (model string, window int64) {
 	w, _ := c.windows()
 	window = c.compactWindow()
 	return w.Model(w.NormalizeClaudeModel(model), window), window
+}
+
+// launchedAs is the name a Claude Code chat whose stored model is model is
+// started under, for the window chosen for it: model itself, or its "[1m]"
+// variant when that is the way to the long window (state.ClaudeWindows.Launch).
+// Caller holds c.mu.
+func (c *conversation) launchedAs(model string) string {
+	if c.agent.AI != "claude" {
+		return model
+	}
+	w, installation := c.windows()
+	name, _ := w.Launch(model, c.storedOption(state.ChatOptionContextWindow), installation)
+	return name
 }
 
 // refreshWindowOption puts the context window among the session's options, or

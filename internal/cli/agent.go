@@ -26,7 +26,7 @@ func newImageCmd(a *app) *cobra.Command {
 		Short: "Manage the base image agents are created from",
 	}
 
-	var local, android, codex, withOpenCode, devCaches bool
+	var local, android, codex, withOpenCode, devCaches, withIncus bool
 	build := &cobra.Command{
 		Use:   "build",
 		Short: "Build the base image (replaces an existing one; existing agents are unaffected)",
@@ -34,14 +34,16 @@ func newImageCmd(a *app) *cobra.Command {
 few minutes. Nothing publishes a ready-made image: it holds software AgentBox may
 not redistribute, so every machine builds its own.
 
-Four components are optional and off until you ask, because most agents use
+Five components are optional and off until you ask, because most agents use
 none of them: --android adds scrcpy, which mirrors an Android emulator's screen,
 --codex adds the Codex CLI and the adapter the app's chat drives it with,
---opencode adds the OpenCode CLI, which is its own adapter, and --dev-caches
+--opencode adds the OpenCode CLI, which is its own adapter, --dev-caches
 fills the Go, npm and Electron caches from AgentBox's own repository, for a
-machine whose agents work on AgentBox itself. What you choose is remembered, so
-a later rebuild keeps it; turn one off again with --android=false,
---codex=false, --opencode=false or --dev-caches=false.`,
+machine whose agents work on AgentBox itself, and --incus adds Incus itself, for
+a project whose agents need to run a real Incus daemon of their own (its
+"nesting" setting). What you choose is remembered, so a later rebuild keeps it;
+turn one off again with --android=false, --codex=false, --opencode=false,
+--dev-caches=false or --incus=false.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, err := a.client(cmd)
@@ -61,6 +63,9 @@ a later rebuild keeps it; turn one off again with --android=false,
 			}
 			if f.Changed("dev-caches") {
 				req.DevCaches = &devCaches
+			}
+			if f.Changed("incus") {
+				req.Incus = &withIncus
 			}
 			out := cmd.OutOrStdout()
 			components, err := buildComponents(cmd.Context(), c, req)
@@ -90,6 +95,7 @@ a later rebuild keeps it; turn one off again with --android=false,
 	build.Flags().BoolVar(&codex, "codex", false, "build in the Codex CLI and its chat adapter")
 	build.Flags().BoolVar(&withOpenCode, "opencode", false, "build in the OpenCode CLI, which is its own chat adapter")
 	build.Flags().BoolVar(&devCaches, "dev-caches", false, "fill the Go, npm and Electron caches from AgentBox's own repository, for agents that work on AgentBox")
+	build.Flags().BoolVar(&withIncus, "incus", false, "build in Incus, for a project whose agents run a real Incus daemon of their own")
 	cmd.AddCommand(build)
 
 	version := &cobra.Command{
@@ -119,6 +125,7 @@ func buildComponents(ctx context.Context, c *api.Client, req api.BuildImageReque
 		Codex:     status.Image.Components.Codex,
 		OpenCode:  status.Image.Components.OpenCode,
 		DevCaches: status.Image.Components.DevCaches,
+		Incus:     status.Image.Components.Incus,
 	}
 	if req.Android != nil {
 		components.Android = *req.Android
@@ -131,6 +138,9 @@ func buildComponents(ctx context.Context, c *api.Client, req api.BuildImageReque
 	}
 	if req.DevCaches != nil {
 		components.DevCaches = *req.DevCaches
+	}
+	if req.Incus != nil {
+		components.Incus = *req.Incus
 	}
 	return components, nil
 }
@@ -195,8 +205,8 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.AI, "ai", "claude", "AI tool to start: claude, codex, opencode or none")
 	f.StringVar(&req.Interface, "interface", "", "how you use the AI tool: chat (the default: the app's Chat tab, or agentbox chat) or cli (its command line, in the terminal)")
 	f.BoolVar(&autonomous, "autonomous", true, "start the AI tool without permission prompts (the agent's machine is the sandbox); --autonomous=false asks first")
-	f.StringVar(&model, "model", "", "the Claude Code model this agent runs on, as Claude Code names it, like opus[1m] or haiku (default: the model new agents start on, then Opus 5 at 1M context)")
-	f.StringVar(&window, "context-window", "", "where this agent's chat compacts, like 200k or 1m, if its model has that window (default: the installation's compact window)")
+	f.StringVar(&model, "model", "", "the Claude Code model this agent runs on, as Claude Code names it, like opus, sonnet or haiku (default: the project's, then the model new agents start on in Settings, then opus)")
+	f.StringVar(&window, "context-window", "", "this agent's context window, where its chat compacts, like 200k or 1m, if its model has that window (default: the window new agents start with in Settings, then the installation's compact window)")
 	f.StringVar(&effort, "effort", "", "how hard this agent thinks, as Claude Code names it, like xhigh or low (default: the effort new agents start on, then high)")
 	f.StringVar(&req.From, "from", "", "branch or commit to start from (default: the branch checked out in the project)")
 	f.StringVar(&req.ClaudeAccount, "claude-account", "", "a stored Claude Code account for this agent (default: the project's, then this machine's default)")
@@ -365,11 +375,13 @@ func newExecCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			err = incus.Client{}.UserExec(cmd.Context(), ag.Instance, u.Name, agent.ExecCommand(ag.Worktree, command),
-				cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr())
-			var exitErr *exec.ExitError
-			if errors.As(err, &exitErr) {
-				return exitCodeError(exitErr.ExitCode())
+			// The incus command, not the API: with a terminal on stdin it
+			// gives the command one too, as ssh does.
+			run := incus.Client{}.UserCommand(cmd.Context(), ag.Instance, u.Name, agent.ExecCommand(ag.Worktree, command))
+			run.Stdin, run.Stdout, run.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+			err = run.Run()
+			if code, ok := incus.ExitCode(err); ok {
+				return exitCodeError(code)
 			}
 			return err
 		},

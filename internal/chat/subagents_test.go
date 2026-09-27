@@ -14,6 +14,7 @@ import (
 // said to have finished. Its words and tool calls land under its card, and the
 // agent's own last word is still what LastMessage says the turn ended on.
 func TestASubagentIsACardWithItsWorkNestedUnderIt(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
 		f.update(s, `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Let me look."}}`)
@@ -89,6 +90,7 @@ func TestASubagentIsACardWithItsWorkNestedUnderIt(t *testing.T) {
 // TestASubagentStillRunningWhenItsSessionEndsIsStopped: an adapter that goes
 // away takes its subagents with it, and their cards say so rather than spin.
 func TestASubagentStillRunningWhenItsSessionEndsIsStopped(t *testing.T) {
+	t.Parallel()
 	store := openStore(t)
 	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
 		f.update(s, `{"sessionUpdate":"subagent_spawned","subagentSessionId":"bg-1","name":"general-purpose","task":"run the suite"}`)

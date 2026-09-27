@@ -547,6 +547,85 @@ var migrations = []string{
 	// TokenBuckets leave those out of the average rather than dividing by
 	// zero.
 	`ALTER TABLE token_usage ADD COLUMN generation_ms INTEGER NOT NULL DEFAULT 0`,
+
+	// Whether this project's agents get nesting: a real Incus daemon of their
+	// own, for testing AgentBox features that touch agent machines. Off for
+	// every project before this column, since it costs isolation.
+	`ALTER TABLE projects ADD COLUMN nesting INTEGER NOT NULL DEFAULT 0`,
+
+	// Agent names are never reused within a project (#name-reuse): the
+	// number in agent-NN comes from a per-project high-water counter instead
+	// of the first free number, so once a name is handed out — to a
+	// worktree, a machine, a branch, a pull request — nothing ever hands it
+	// out again to a different agent.
+	`CREATE TABLE agent_seq (
+		project TEXT PRIMARY KEY REFERENCES projects(name),
+		next    INTEGER NOT NULL DEFAULT 1
+	)`,
+	// An id distinct from an agent's name, so a row that outlives its agent on
+	// purpose — token_usage, kept for accounting — can still tell that agent
+	// apart from whoever gets its name next, even though its name can't.
+	// Existing rows get one now rather than waiting for something to set it.
+	`ALTER TABLE agents ADD COLUMN id TEXT NOT NULL DEFAULT ''`,
+	`UPDATE agents SET id = lower(hex(randomblob(16))) WHERE id = ''`,
+	`ALTER TABLE token_usage ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''`,
+	// Chat, event and question rows a destroyed agent left behind before
+	// removeChat and CancelQuestions ran on every removal, under a name
+	// nothing here still owns: nothing reads these except by the name they
+	// were filed under, and that name may already belong to somebody else.
+	`DELETE FROM chat_items WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = chat_items.project AND a.name = chat_items.agent)`,
+	`DELETE FROM chats WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = chats.project AND a.name = chats.agent)`,
+	`DELETE FROM agent_events WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = agent_events.project AND a.name = agent_events.agent)`,
+	`UPDATE questions SET status = 'cancelled' WHERE status IN ('pending', 'escalated')
+		AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = questions.project AND a.name = questions.agent)`,
+
+	// Whether this project's agents push their own branch and open their own
+	// pull request, rather than leaving both to the user or the lead. Off for
+	// every project, existing and new: pushing publishes with the user's
+	// GitHub token, so it is something a project opts into.
+	`ALTER TABLE projects ADD COLUMN agent_prs INTEGER NOT NULL DEFAULT 0`,
+
+	// Whether the daemon watches this project's agents' pull requests: "" to
+	// follow the installation's SettingPRWatch, PRWatchOn or PRWatchOff.
+	`ALTER TABLE projects ADD COLUMN pr_watch TEXT NOT NULL DEFAULT ''`,
+	// The agents' pull requests the daemon is watching, and what it last saw
+	// of each: the watch only speaks up when something turns bad, so what it
+	// saw has to outlive a restart, or every broken pull request would be
+	// announced again each time the daemon starts. A row goes when its pull
+	// request is merged or closed. agent_id tells the agent that opened it
+	// from a later one given its name.
+	`CREATE TABLE pr_watches (
+		project    TEXT NOT NULL,
+		number     INTEGER NOT NULL,
+		agent      TEXT NOT NULL,
+		agent_id   TEXT NOT NULL DEFAULT '',
+		head_sha   TEXT NOT NULL DEFAULT '',
+		conflict   INTEGER NOT NULL DEFAULT 0,
+		checks     TEXT NOT NULL DEFAULT '',
+		review     TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY (project, number)
+	)`,
+	// Both migrations above forgot opus at 200k, and it came back each time:
+	// the size they blamed on the compact window was claude-agent-acp's guess
+	// from the model's name, 200000 for plain "opus" or "sonnet", which it
+	// streams on every usage_update until a model result gives it the real
+	// window. The chat remembered that guess, and dropped the real 1M reading
+	// that followed whenever the chat compacted at 1M — so choosing 1M was
+	// what took 1M away. The chat now remembers only the reading after a
+	// result, and this forgets what the guess left, one last time.
+	`UPDATE settings SET value = (
+		SELECT COALESCE(json_group_object(seen.key, seen.value), '{}') FROM json_each(settings.value) AS seen
+		WHERE NOT (
+			seen.type = 'integer' AND seen.value < 1000000 AND lower(seen.key) NOT LIKE '%haiku%' AND (
+				seen.key LIKE '%[1m]'
+				OR lower(seen.key) IN ('opus', 'sonnet', 'default', 'best', 'opusplan')
+				OR lower(seen.key) LIKE '%fable%'
+				OR lower(seen.key) LIKE 'claude-opus-5%'
+				OR lower(seen.key) LIKE 'claude-sonnet-5%'
+			)
+		)
+	) WHERE key = 'claude_model_windows' AND json_valid(value) AND json_type(value) = 'object'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -693,7 +772,28 @@ type Project struct {
 	// list of projects in no section — from 1. Zero means nobody has placed
 	// it by hand, and it sorts last in its list, by name.
 	Position int
+	// Nesting is whether this project's agents run a real Incus daemon of
+	// their own, inside their own container, so they can test AgentBox
+	// features that touch agent machines (limits, GPU, image builds) for
+	// real. Off by default: it costs isolation, and needs the base image
+	// built with Incus (image.Components.Incus).
+	Nesting bool
+	// AgentPRs is whether this project's agents push their own branch and
+	// open their own pull request when they finish, and so whether the lead
+	// stops doing it for them. Off by default: a push publishes, with the
+	// user's own GitHub token.
+	AgentPRs bool
+	// PRWatch is whether the daemon watches this project's agents' pull
+	// requests and tells an agent when its own breaks: "" follows the
+	// installation's SettingPRWatch, PRWatchOn and PRWatchOff override it.
+	PRWatch string
 }
+
+// A project's PRWatch.
+const (
+	PRWatchOn  = "on"
+	PRWatchOff = "off"
+)
 
 // How much a project's chat does on its own.
 const (
@@ -844,7 +944,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix`
+const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -914,10 +1014,10 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
-		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix)
+		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch)
 	return err
 }
 
@@ -944,7 +1044,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		var allowed string
 		if err := rows.Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Section, &p.Position); err != nil {
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -961,6 +1061,9 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 	}
 	if agents > 0 {
 		return fmt.Errorf("project %q still has %d agent(s): destroy them first", name, agents)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM pr_watches WHERE project = ?`, name); err != nil {
+		return err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, name)
 	if err != nil {
@@ -1210,6 +1313,48 @@ func (s *Store) SetProjectBranchPrefix(ctx context.Context, name, prefix string)
 	return nil
 }
 
+// SetProjectNesting turns this project's agents' nesting on or off: whether
+// they run a real Incus daemon of their own, inside their own container.
+func (s *Store) SetProjectNesting(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET nesting = ? WHERE name = ?`, on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+// SetProjectAgentPRs sets whether this project's agents push their own branch
+// and open their own pull request.
+func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET agent_prs = ? WHERE name = ?`, on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
+// SetProjectPRWatch sets whether the daemon watches this project's agents'
+// pull requests: "" to follow the installation, PRWatchOn or PRWatchOff.
+func (s *Store) SetProjectPRWatch(ctx context.Context, name, watch string) error {
+	if watch != "" && watch != PRWatchOn && watch != PRWatchOff {
+		return fmt.Errorf("unknown pull request watch %q: use on, off, or nothing to follow Settings", watch)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET pr_watch = ? WHERE name = ?`, watch, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectMediaRetentionDays sets how long this project keeps media whose
 // agent is gone before the daemon sweeps it away.
 func (s *Store) SetProjectMediaRetentionDays(ctx context.Context, name string, days int) error {
@@ -1329,7 +1474,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Section, &p.Position)
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
@@ -1387,6 +1532,10 @@ type Agent struct {
 	// whatever it was last doing before it was paused. Zero when it has never
 	// been paused, or was resumed or started since.
 	PausedAt time.Time
+	// ID is an identity distinct from Name, set once at AddAgent and never
+	// reused: what tells this agent apart from a different one that later
+	// gets its name, for a row that outlives it on purpose (token_usage).
+	ID string
 }
 
 // IsLead reports whether the agent is a project's lead, which runs on the host
@@ -1410,7 +1559,7 @@ const LeadName = "lead"
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -1419,9 +1568,12 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Role == "" {
 		a.Role = RoleWorker
 	}
+	if a.ID == "" {
+		a.ID = NewAgentID()
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice)
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -1609,6 +1761,10 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 	if err := s.removeAgentEvents(ctx, project, name); err != nil {
 		return err
 	}
+	// Nobody will ever answer these now, and its name may go to somebody else.
+	if err := s.CancelQuestions(ctx, project, name); err != nil {
+		return err
+	}
 	return removeChat(ctx, s.db, project, name)
 }
 
@@ -1623,7 +1779,7 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		var a Agent
 		var created, pausedAt int64
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
-			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &pausedAt); err != nil {
+			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &pausedAt); err != nil {
 			return nil, err
 		}
 		a.CreatedAt = time.Unix(created, 0)
