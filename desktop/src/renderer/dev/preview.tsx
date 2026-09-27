@@ -63,6 +63,9 @@
 //                           zram, a CPU-capped agent and a plain one —
 //                           scenarios.json clicks the meter open before its
 //                           shot, since state here comes from the URL alone
+//   ?media=project|agent    a project's Media, 360 items across four agents
+//                           with long names and unbroken notes, or agent-99's
+//                           own Media tab, at the width of a narrow window
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -80,6 +83,8 @@ import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../compon
 import { LimitsEditor } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectView';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
+import { MediaTab } from '../components/MediaTab';
+import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
@@ -96,7 +101,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedImageUpdate, seedMeterUsage, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedMedia, seedImageUpdate, seedMeterUsage, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -116,6 +121,7 @@ const github = params.get('github') === '1';
 const resources = params.get('resources') === '1';
 const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
+const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "memory" | null
 const imageUpdate = params.get('setup') === 'updating';
@@ -171,6 +177,7 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: In
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
+if (media) seedMedia(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
 if (resources) {
   const GiB = 1024 ** 3;
@@ -289,6 +296,22 @@ function Preview() {
     return (
       <div style={{ maxWidth: 420, padding: 24, font: '13px var(--font-sans)' }}>
         <PullRequestsPanel project={PROJECT} onSelect={() => {}} onOpenAccount={() => {}} />
+      </div>
+    );
+  }
+
+  if (media === 'project') {
+    return (
+      <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
+        <ProjectMediaPanel project={PROJECT} />
+      </div>
+    );
+  }
+
+  if (media === 'agent') {
+    return (
+      <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
+        <MediaTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
       </div>
     );
   }

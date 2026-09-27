@@ -345,6 +345,77 @@ export function buildFixtures(): FixtureData {
   return { agents, events, questions, fleet, projects, sections };
 }
 
+// mediaFiles is what the dev bridge's mediaUrl serves for each fixture item:
+// a drawn thumbnail for a screenshot, the text of a log. Filled by
+// mediaItems, read by installDevBridge.
+const mediaFiles = new Map<string, string>();
+
+// mediaItems is a project's Media: hundreds of items across four agents and
+// every kind, so the gallery and its search can be checked at the size a busy
+// project reaches, with names, file names and notes long and unbroken enough
+// to push a card or the toolbar wider than its column.
+export function mediaItems(count = 360): T.MediaItem[] {
+  const agents = [
+    { name: 'agent-12', title: 'Add a "New project" button to the Sidebar' },
+    { name: 'agent-96', title: 'Fix the agent rail overflowing on wide text' },
+    { name: 'agent-97', title: 'Long path agent' },
+    { name: 'agent-99', title: 'PR agent' },
+  ];
+  const kinds = ['screenshot', 'recording', 'note', 'report', 'log', 'file', 'screenshot', 'note'];
+  const topics = ['checkout', 'sidebar-overflow', 'login-flow', 'settings-agents-defaults', 'media-gallery', 'release-dry-run', 'rail-folded', 'pull-requests'];
+  const notes = [
+    'The sidebar no longer grows past 312px with a long branch name. Checked against dev/fixtures.ts.',
+    'Retried the flaky lead-wake test 200 times: all green. The race was in the chat goroutine that outlived its turn.',
+    'Stack trace before the fix: TypeError: Cannot read properties of undefined (reading "agentName") at MediaCard (MediaTab.tsx:444)',
+    'See https://github.com/leciric/agentbox/pull/82/files#diff-a-very-long-anchor-that-never-breaks-anywhere-at-all for the overflow.',
+    'Coverage went from 61.2% to 63.8%; the floor in .github/coverage-floor.txt is bumped to match.',
+  ];
+  const colors = ['#6d5dfc', '#0ea5e9', '#f59e0b', '#10b981', '#f43f5e'];
+  const now = Date.now();
+  const items: T.MediaItem[] = [];
+  for (let i = 0; i < count; i++) {
+    const kind = kinds[i % kinds.length];
+    // Each run of kinds goes to one agent, so every agent has every kind,
+    // and topics cycle on their own period, so each kind has every topic.
+    const a = agents[Math.floor(i / kinds.length) % agents.length];
+    const topic = topics[Math.floor(i / 3) % topics.length];
+    const id = `m${String(i).padStart(4, '0')}`;
+    const long = i % 11 === 0 ? '-with-a-name-far-too-long-for-any-card-in-the-gallery-to-show-whole' : '';
+    const ext = { screenshot: 'png', recording: 'mp4', report: 'html', log: 'log', file: 'zip' }[kind as 'screenshot'];
+    const mime = { screenshot: 'image/png', recording: 'video/mp4', report: 'text/html', log: 'text/plain', file: 'application/zip' }[kind as 'screenshot'];
+    const item: T.MediaItem = {
+      id,
+      agent: `${PROJECT}/${a.name}`,
+      agentName: a.name,
+      agentTitle: a.title,
+      kind,
+      name: `${topic}${long} ${i}`,
+      file: kind === 'note' ? undefined : `${topic}${long}-${i}.${ext}`,
+      mime: kind === 'note' ? undefined : mime,
+      size: kind === 'note' ? 0 : 20_000 + ((i * 7919) % 2_000_000),
+      source: i % 5 === 0 ? 'user' : 'agent',
+      text: kind === 'note' ? notes[i % notes.length] : undefined,
+      meta: kind === 'recording' ? { duration: 12 + (i % 50) } : kind === 'report' ? { tests: { passed: 40 + (i % 9), failed: i % 3, skipped: 1 } } : {},
+      createdAt: new Date(now - i * 7 * 60_000).toISOString(),
+    };
+    if (kind === 'screenshot') {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200"><rect width="320" height="200" fill="${colors[i % colors.length]}" opacity="0.35"/><rect x="16" y="16" width="120" height="168" rx="8" fill="#fff" opacity="0.15"/><text x="152" y="104" font-family="sans-serif" font-size="18" fill="#fff">${topic}</text></svg>`;
+      mediaFiles.set(id, `data:image/svg+xml,${encodeURIComponent(svg)}`);
+    } else if (kind === 'log') {
+      mediaFiles.set(id, `data:text/plain,${encodeURIComponent(`$ go test ./internal/${topic}\nok  \tgithub.com/leciric/agentbox/internal/${topic}\t0.412s\n`)}`);
+    }
+    items.push(item);
+  }
+  return items;
+}
+
+// seedMedia gives the project, and agent-99, the gallery mediaItems makes.
+export function seedMedia(queryClient: QueryClient): void {
+  devState.media = mediaItems();
+  queryClient.setQueryData(['projectMedia', PROJECT], devState.media);
+  queryClient.setQueryData(['media', `${PROJECT}/agent-99`], devState.media.filter((m) => m.agentName === 'agent-99'));
+}
+
 // pullRequests is a project's pull requests list, with a long GitHub login to
 // check the author column doesn't widen the row (#pull-request-author).
 export function pullRequests(): T.ProjectPullRequests {
@@ -582,6 +653,7 @@ function agent99Turns(): T.TokenTurn[] {
 // what the daemon would have answered.
 const devState: {
   projects: T.Project[];
+  media?: T.MediaItem[];
   auth?: T.AuthStatus;
   jobLog?: string;
   job?: T.Job;
@@ -848,6 +920,11 @@ export function installDevBridge(): void {
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.job && path === `/v1/jobs/${devState.job.id}`) return { status: 200, body: JSON.stringify(devState.job), contentType: 'application/json' };
       if (method === 'GET' && /^\/v1\/jobs\/[^/]+\/log$/.test(path)) return { status: 200, body: devState.jobLog ?? '', contentType: 'text/plain' };
+      // The ?media= scenarios' gallery, the project's and agent-99's.
+      if (method === 'GET' && devState.media && path.startsWith(`/v1/projects/${PROJECT}/media`))
+        return { status: 200, body: JSON.stringify(devState.media), contentType: 'application/json' };
+      if (method === 'GET' && devState.media && path === `/v1/agents/${PROJECT}/agent-99/media`)
+        return { status: 200, body: JSON.stringify(devState.media.filter((m) => m.agentName === 'agent-99')), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/projects') return { status: 200, body: JSON.stringify(devState.projects), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/auth') return { status: 200, body: JSON.stringify(devState.auth), contentType: 'application/json' };
       // Picking a project's GitHub account, and renaming one (?github=1),
@@ -890,7 +967,7 @@ export function installDevBridge(): void {
     vm: fakeVM(),
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },
-    mediaUrl: () => '',
+    mediaUrl: (id: string) => mediaFiles.get(id) ?? '',
     pickDirectory: async () => null,
     openPath: async () => '',
     showItem: async () => {},
