@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
+	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/state"
 )
@@ -36,6 +38,14 @@ type Base struct {
 	Instance  string
 	SavedFrom string // agent ref
 	SavedAt   time.Time
+	// Built is what the base image the base descends from was built with: its
+	// image version, components and agent tools. A base is a copy of an agent,
+	// and an agent a copy of the base image or of an earlier base, and `incus
+	// copy` carries configuration along, so the keys the image records on
+	// itself (image.InstalledFrom) reach every base without being written
+	// again — including bases saved before this was read. A refresh that
+	// caught the machine up (CatchUp) moved them on before it was saved.
+	Built image.Installed
 }
 
 // SnapshotRef is what new agents are copied from.
@@ -62,7 +72,7 @@ func (m *Manager) baseAt(ctx context.Context, name string) (base Base, ok bool, 
 	if err != nil {
 		return Base{}, false, err
 	}
-	base = Base{Instance: name, SavedFrom: config["user.agentbox.saved-from"]}
+	base = Base{Instance: name, SavedFrom: config["user.agentbox.saved-from"], Built: image.InstalledFrom(config)}
 	base.SavedAt, _ = time.Parse(time.RFC3339, config["user.agentbox.saved-at"])
 	return base, true, nil
 }
@@ -135,6 +145,10 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 		return fail(err)
 	}
 	savedAt := time.Now().UTC().Truncate(time.Second)
+	// What the image the agent descends from was built with came along with
+	// the copy (Base.Built), and is kept as it is: limits are an agent's, but
+	// that is the machine's.
+	built := image.InstalledFrom(copied.Config)
 	if err := m.Incus.Stop(ctx, next); err != nil {
 		return fail(err)
 	}
@@ -172,7 +186,89 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 		}
 		return fail(err)
 	}
-	return Base{Instance: name, SavedFrom: a.Ref(), SavedAt: savedAt}, nil
+	return Base{Instance: name, SavedFrom: a.Ref(), SavedAt: savedAt, Built: built}, nil
+}
+
+// BaseBehind is how far a project base is behind the base image this AgentBox
+// makes now; its Any is false when it is up to date.
+func (m *Manager) BaseBehind(ctx context.Context, base Base) (image.Behind, error) {
+	built, err := image.InstalledBuild(ctx, m.Incus)
+	if err != nil {
+		return image.Behind{}, err
+	}
+	return image.BehindImage(base.Built, built), nil
+}
+
+// CatchUp brings an agent's machine up to the base image this AgentBox makes
+// now, as image.CatchUp does it, and says what it did for the agent to read.
+// It is for the agent that refreshes a project base: made from the base, its
+// machine is as far behind as the base is, and whatever it catches up is in
+// the base saved from it. An agent that isn't behind is left alone, and ""
+// comes back. What it set out to do comes back even when it fails.
+func (m *Manager) CatchUp(ctx context.Context, a state.Agent) (string, error) {
+	config, err := m.Incus.Config(ctx, a.Instance)
+	if err != nil {
+		return "", err
+	}
+	built, err := image.InstalledBuild(ctx, m.Incus)
+	if err != nil {
+		return "", err
+	}
+	behind := image.BehindImage(image.InstalledFrom(config), built)
+	if !behind.Any() {
+		return "", nil
+	}
+	what := DescribeBehind(behind)
+	m.logf("Catching %s up with the base image: %s", a.Ref(), what)
+	log := m.Log
+	if log == nil {
+		log = io.Discard
+	}
+	if err := image.CatchUp(ctx, m.Incus, a.Instance, m.User, behind, log); err != nil {
+		return what, fmt.Errorf("catching %s up with the base image: %w", a.Ref(), err)
+	}
+	return what, nil
+}
+
+// DescribeBehind says in a sentence what catching up with the image changes.
+func DescribeBehind(b image.Behind) string {
+	var parts []string
+	switch {
+	case b.Image && b.From == "":
+		parts = append(parts, "the system packages and settings of image "+image.Version+" (the base didn't record which image it came from)")
+	case b.Image:
+		var what []string
+		for _, c := range b.Changes {
+			what = append(what, c.What)
+		}
+		part := "image " + b.From + " → " + image.Version
+		if len(what) > 0 {
+			part += " (" + strings.Join(what, "; ") + ")"
+		}
+		parts = append(parts, part)
+	}
+	if len(b.Components) > 0 {
+		parts = append(parts, strings.Join(b.Components, " and ")+", which the image has now")
+	}
+	if b.ToolsUnknown {
+		parts = append(parts, "the agent tools at the versions tools.txt pins (the base didn't record its own)")
+	} else {
+		var moves []string
+		for _, c := range b.ToolChanges() {
+			switch {
+			case c.From == "":
+				moves = append(moves, c.Name+" "+c.To)
+			case c.To == "":
+				moves = append(moves, c.Name+" "+c.From+" removed")
+			default:
+				moves = append(moves, c.Name+" "+c.From+" → "+c.To)
+			}
+		}
+		if len(moves) > 0 {
+			parts = append(parts, strings.Join(moves, ", "))
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // RevertBase puts the base the last save replaced back, and drops the one that

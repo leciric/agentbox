@@ -47,6 +47,13 @@ func TestProvisionReadsTheOptions(t *testing.T) {
 			t.Errorf("provision.sh doesn't default %s to off", name)
 		}
 	}
+	// system.sh installs the software of the two components that have any
+	// outside the agent tools, and reads them the same way.
+	for _, want := range []string{"${AGENTBOX_WITH_ANDROID:-0}", "${AGENTBOX_WITH_INCUS:-0}", `if [[ $WITH_ANDROID == 1 ]]; then`, `elif [[ $WITH_INCUS == 1 ]]; then`} {
+		if !strings.Contains(string(systemScript), want) {
+			t.Errorf("system.sh has no %q", want)
+		}
+	}
 	for _, want := range []string{
 		`if [[ $WITH_ANDROID == 1 ]]; then`,    // scrcpy
 		`if [[ $WITH_CODEX == 1 ]]; then`,      // the Codex CLI and its adapter
@@ -83,7 +90,11 @@ func TestProvisionSwitchesToTheDebianMirror(t *testing.T) {
 		!strings.Contains(script, "${AGENTBOX_DEBIAN_MIRROR:-}") {
 		t.Error("provision.sh doesn't switch to AGENTBOX_DEBIAN_MIRROR")
 	}
-	if strings.Index(script, "debian_from_mirror \"$DEBIAN_MIRROR\"") > strings.Index(script, "apt-get update") {
+	// apt runs in system.sh, which provision.sh runs once the user exists.
+	if strings.Contains(script, "apt-get") || !strings.Contains(string(systemScript), "apt-get update") {
+		t.Error("apt has moved: check the mirror is switched to before it runs")
+	}
+	if strings.Index(script, "debian_from_mirror \"$DEBIAN_MIRROR\"") > strings.Index(script, "/root/system.sh") {
 		t.Error("provision.sh switches to the mirror after it first uses apt")
 	}
 

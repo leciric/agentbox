@@ -38,6 +38,8 @@ You were created **from the project's current base**, so this machine already ha
 - Install the project's dependencies and check the application still runs: build it, start it, run its tests.
 - Write down what is installed and at what version — in the repository, or in the project's notes — so the knowledge isn't trapped inside a disk image.
 
+If a note above this says AgentBox caught the machine up with its base image, that part is done: check the project works on what it installed rather than installing it again.
+
 Don't change application code to make something pass; say so instead. When you're done, say what you updated and what everything is on now. The machine is then saved as the project's new base.`;
 
 export function ProjectBasePanel({ project, className, onOpenAgent }: { project: T.Project; className?: string; onOpenAgent: (ref: string) => void }) {
@@ -110,6 +112,12 @@ export function ProjectBasePanel({ project, className, onOpenAgent }: { project:
               {base.data.snapshot}
             </span>
           </Row>
+          <Row label="Base image" mono>
+            <span className="truncate" title={base.data.tools ? `agent tools ${base.data.tools}` : undefined}>
+              {base.data.image ?? 'not recorded'}
+            </span>
+          </Row>
+          {base.data.behind && <BehindNotice behind={base.data.behind} />}
           {stale(base.data.savedAt) && (
             <Notice tone="warning" className="mt-3.5">
               This base is {age(base.data.savedAt)}. Every agent of {name} starts from the machine as it was then, and spends its first minutes catching
@@ -259,6 +267,11 @@ function RefreshDialog({
         interface: 'chat',
         autonomous: true,
         task: task.trim(),
+        // Its machine is as far behind the base image as the base is, and
+        // what the daemon catches up on it before the task is in the base
+        // saved from it. A new base has nothing to catch up: it starts from
+        // the image itself.
+        catchUp: base !== null,
         // Never clean. An agent made from the plain image would look like a
         // working machine and make a base that has lost everything the old one
         // had, because a save is a photograph and photographs don't merge.
@@ -335,6 +348,13 @@ function RefreshDialog({
                   It starts from the base saved from <Code>{base.savedFrom}</Code>, not from a clean machine — so it already has everything the base
                   has, and only changes what has drifted. Two machine images can't be merged, so an agent that started clean would, the moment you saved
                   from it, throw the rest away.
+                  {base.behind && (
+                    <>
+                      {' '}
+                      Before its task, AgentBox installs on its machine what the base image has that the base doesn't — the system packages and the agent
+                      tools — and tells it what it did.
+                    </>
+                  )}
                 </>
               ) : (
                 <>
@@ -506,6 +526,60 @@ function SaveDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+// BehindNotice says what the base image has that the base doesn't. A base is a
+// copy of a machine, so it keeps the image it was first copied from however
+// often it is saved again, until a refresh catches it up: this is how the user
+// finds out that new agents of the project miss a fix the image already has.
+function BehindNotice({ behind }: { behind: T.BaseBehind }) {
+  const tools = behind.tools ?? [];
+  const changes = behind.changes ?? [];
+  const components = behind.components ?? [];
+  return (
+    <Notice tone="warning" className="mt-3.5">
+      <p>
+        The base image has moved on since this base was saved, and new agents of this project don't get what it added. Refresh the base to catch it
+        up: AgentBox installs these on the refresh agent's machine before its task.
+      </p>
+      <ul className="mt-2 grid list-disc gap-1 pl-4 text-[12.5px]">
+        {behind.imageTo && (
+          <li>
+            Image <span className="font-mono text-[12px]">{behind.imageFrom || 'not recorded'}</span> →{' '}
+            <span className="font-mono text-[12px]">{behind.imageTo}</span>
+            {changes.length > 0 && (
+              <ul className="mt-1 grid list-[circle] gap-0.5 pl-4">
+                {changes.map((c) => (
+                  <li key={c.version}>
+                    <span className="font-mono text-[12px]">{c.version}</span>: {c.what}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </li>
+        )}
+        {components.length > 0 && <li>New in the image: {components.join(', ')}</li>}
+        {behind.toolsUnknown && <li>The agent tools this base has aren't recorded: the refresh installs every pinned one</li>}
+        {tools.length > 0 && (
+          <li>
+            Agent tools:{' '}
+            {tools.map((t, i) => (
+              <span key={t.name}>
+                {i > 0 && ', '}
+                <span className="font-mono text-[12px]">{t.name}</span> {toolMove(t)}
+              </span>
+            ))}
+          </li>
+        )}
+      </ul>
+    </Notice>
+  );
+}
+
+function toolMove(t: T.BaseToolChange): string {
+  if (!t.from) return `${t.to} (new)`;
+  if (!t.to) return `${t.from} (no longer pinned)`;
+  return `${t.from} → ${t.to}`;
 }
 
 // Age says how old a base is in words as well as in a date, because the

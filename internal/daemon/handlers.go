@@ -718,6 +718,12 @@ func (s *Server) getBase(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("project %s has no saved base: %w", project, state.ErrNotFound)
 	}
 	out := apiBase(base)
+	// How far it is behind the image is worth showing but not worth failing
+	// over: a machine whose base image is being rebuilt has none to compare
+	// with for a while.
+	if behind, err := m.BaseBehind(r.Context(), base); err == nil && behind.Any() {
+		out.Behind = apiBaseBehind(behind)
+	}
 	// What the last save replaced, when it kept one: the app offers going back
 	// to it, and says so beside the base that replaced it.
 	if previous, ok, err := m.PreviousBase(r.Context(), project); err != nil {
@@ -730,7 +736,24 @@ func (s *Server) getBase(w http.ResponseWriter, r *http.Request) error {
 }
 
 func apiBase(base agent.Base) api.Base {
-	return api.Base{Snapshot: base.SnapshotRef(), SavedFrom: base.SavedFrom, SavedAt: base.SavedAt}
+	return api.Base{Snapshot: base.SnapshotRef(), SavedFrom: base.SavedFrom, SavedAt: base.SavedAt,
+		Image: base.Built.Version, Tools: base.Built.ToolsVersion}
+}
+
+func apiBaseBehind(b image.Behind) *api.BaseBehind {
+	out := &api.BaseBehind{Components: b.Components, ToolsUnknown: b.ToolsUnknown}
+	if b.Image {
+		out.ImageFrom, out.ImageTo = b.From, image.Version
+		for _, c := range b.Changes {
+			out.Changes = append(out.Changes, api.BaseImageChange{Version: c.Version, What: c.What})
+		}
+	}
+	if !b.ToolsUnknown {
+		for _, c := range b.ToolChanges() {
+			out.Tools = append(out.Tools, api.BaseToolChange{Name: c.Name, From: c.From, To: c.To})
+		}
+	}
+	return out
 }
 
 func (s *Server) saveBase(w http.ResponseWriter, r *http.Request) error {
@@ -993,6 +1016,13 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	// doing what every caller already asked for.
 	autonomous := req.Autonomous == nil || *req.Autonomous
 	return s.startJob(w, "create", req.Project, func(ctx context.Context, log io.Writer) (any, error) {
+		// What a catch-up ran is kept too, so a failed one can show the agent
+		// its last lines.
+		var ran *tailWriter
+		if req.CatchUp {
+			ran = &tailWriter{max: catchUpTail}
+			log = io.MultiWriter(log, ran)
+		}
 		a, err := s.manager(log).Create(ctx, req.Project, agent.CreateOptions{
 			Name:          req.Name,
 			Branch:        req.Branch,
@@ -1036,6 +1066,18 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 			s.countFeature(api.FeatureAgentCreateByLead)
 		}
 		task := strings.TrimSpace(req.Task)
+		// Before the task, which is why the agent was made from the base: a
+		// catch-up changes the machine the task then checks and saves.
+		send := task
+		if req.CatchUp {
+			what, err := s.manager(log).CatchUp(ctx, a)
+			if err != nil {
+				_, _ = fmt.Fprintf(log, "the agent was made, but it couldn't be caught up with the base image: %v\n", err)
+			}
+			if note := catchUpNote(what, err, ran.String()); note != "" && send != "" {
+				send = note + "\n\n---\n\n" + send
+			}
+		}
 		model := ""
 		if req.Model != nil {
 			model = *req.Model
@@ -1051,7 +1093,7 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 			if byLead {
 				s.leadAsked(a)
 			}
-			if _, err := s.chat.Send(a, task); err != nil {
+			if _, err := s.chat.Send(a, send); err != nil {
 				_, _ = fmt.Fprintf(log, "the agent was made, but its task couldn't be sent: %v\n", err)
 			}
 		}
