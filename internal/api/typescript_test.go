@@ -18,7 +18,7 @@ const tsFile = "../../desktop/src/shared/api.ts"
 var tsTypes = []any{
 	Project{}, AddProjectRequest{}, UpdateProjectRequest{}, Section{}, AddSectionRequest{}, UpdateSectionRequest{},
 	ProjectLayout{}, SectionProjects{}, Notes{}, NotesRequest{}, Settings{}, SharedBudget{}, SharedBudgetSize{}, UpdateSettingsRequest{}, Limits{}, Agent{}, WorktreeFiles{}, CreateAgentRequest{}, ForkRequest{}, UpdateAgentRequest{},
-	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Base{}, SaveBaseRequest{},
+	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
 	Job{}, HostUsage{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{},
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, CPUUsageAgent{}, CPUUsage{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
 	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},

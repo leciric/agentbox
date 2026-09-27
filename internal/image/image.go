@@ -87,7 +87,9 @@ func CheckHost(u User) error {
 // Version changes whenever provision.sh changes what agents get, so Setup can
 // ask you to rebuild a base image made by an older AgentBox. The pinned agent
 // tools aren't part of it: they are in tools.txt, and their own version
-// (ToolsVersion) moves them on in place, without a rebuild.
+// (ToolsVersion) moves them on in place, without a rebuild. Bumping it means
+// saying what changed in Changes, which is what a project base saved before it
+// is shown.
 const Version = "2026.09.27.1"
 
 // CodexMissing is what Setup and agent creation say about an image built
@@ -134,6 +136,14 @@ func InstalledBuild(ctx context.Context, inc incus.Client) (Installed, error) {
 	if err != nil {
 		return Installed{}, err
 	}
+	return InstalledFrom(config), nil
+}
+
+// InstalledFrom reads what an instance's configuration says it was built with.
+// A machine copied from the base image carries the same keys — `incus copy`
+// copies configuration — so for an agent, or a project base saved from one, it
+// is what the image it descends from was built with.
+func InstalledFrom(config map[string]string) Installed {
 	return Installed{
 		Version: config[versionKey],
 		Components: Components{
@@ -145,7 +155,7 @@ func InstalledBuild(ctx context.Context, inc incus.Client) (Installed, error) {
 		},
 		ToolsVersion: config[toolsVersionKey],
 		Tools:        strings.Fields(config[toolsKey]),
-	}, nil
+	}
 }
 
 // Ready reports whether the base snapshot exists.
@@ -409,6 +419,7 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 		mode    os.FileMode
 	}{
 		{"/root/provision.sh", provision, 0o700},
+		{"/root/system.sh", systemScript, 0o700},
 		{"/root/tools.sh", toolsScript, 0o700},
 		{"/root/tools.list", toolsList(ToolsFor(components)), 0o600},
 	} {
@@ -433,7 +444,7 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 	}
 	return all(
 		func() error {
-			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/tools.sh /root/tools.list && "+scrubMachineID)
+			_, err := inc.Exec(ctx, next, "sh", "-c", "rm /root/provision.sh /root/system.sh /root/tools.sh /root/tools.list && "+scrubMachineID)
 			return err
 		},
 		func() error { return inc.Stop(ctx, next) },

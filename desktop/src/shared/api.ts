@@ -230,6 +230,7 @@ export interface CreateAgentRequest {
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
+  catchUp?: boolean;
   cpu?: string;
   memory?: string;
   cpuAllowance?: string;
@@ -271,7 +272,30 @@ export interface Base {
   snapshot: string;
   savedFrom: string;
   savedAt: string;
+  image?: string;
+  tools?: string;
+  behind?: BaseBehind;
   previous?: Base;
+}
+
+export interface BaseBehind {
+  imageFrom?: string;
+  imageTo?: string;
+  changes?: BaseImageChange[];
+  components?: string[];
+  tools?: BaseToolChange[];
+  toolsUnknown?: boolean;
+}
+
+export interface BaseImageChange {
+  version: string;
+  what: string;
+}
+
+export interface BaseToolChange {
+  name: string;
+  from?: string;
+  to?: string;
 }
 
 export interface SaveBaseRequest {

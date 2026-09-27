@@ -213,6 +213,7 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
+	f.BoolVar(&req.CatchUp, "catch-up", false, "bring the machine up to the current base image's packages and agent tools before its task: how a project base is refreshed")
 	f.StringVar(&cpu, "cpu", "", `how many cores this agent gets, like 4; "" gives it every core (default: what new agents get)`)
 	f.StringVar(&memory, "memory", "", `how much memory this agent gets, like 8GiB; "" gives it all of it (default: what new agents get)`)
 	f.StringVar(&cpuAllowance, "cpu-allowance", "", `this agent's share of the CPUs: a percentage like 50%, which only counts when the host is busy, or a hard ceiling like 25ms/100ms (default: what new agents get)`)

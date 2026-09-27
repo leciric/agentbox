@@ -363,3 +363,108 @@ func TestUpdateToolsWaitsForCopiesOfTheBase(t *testing.T) {
 	}
 	inc.ran(t, "rename|agentbox-base-next|agentbox-base|")
 }
+
+// A build puts system.sh next to provision.sh, which runs it, and takes it
+// away again: an agent's machine never has it lying around.
+func TestBuildRunsTheSystemScript(t *testing.T) {
+	inc := fakeIncus(t, "")
+	if err := image.Build(t.Context(), inc.Client, host, image.Options{}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	pushed := inc.ran(t, "/root/system.sh")
+	provisioned := inc.ran(t, "/root/provision.sh|agent|1000|1000")
+	removed := inc.ran(t, "rm /root/provision.sh /root/system.sh ")
+	if pushed >= provisioned || provisioned >= removed {
+		t.Errorf("out of order:\n%s", strings.Join(inc.commands(t), "\n"))
+	}
+}
+
+const refreshAgent = "ab-organic-agent-07"
+
+// catchUpBehind is a base saved from image 2026.09.21.1 with an older Claude
+// Code, as the base image with Incus has moved on from.
+func catchUpBehind(t *testing.T) image.Behind {
+	t.Helper()
+	var specs []string
+	for _, tool := range image.ToolsFor(image.Components{}) {
+		spec := tool.Spec
+		if tool.Name() == "claude" {
+			spec = "claude@0.0.1"
+		}
+		specs = append(specs, spec)
+	}
+	now := image.Installed{Version: image.Version, Components: image.Components{Incus: true}, Tools: specs}
+	return image.BehindImage(image.Installed{Version: "2026.09.21.1", Tools: specs}, now)
+}
+
+// A refresh agent's machine gets system.sh, for what the image changed, then
+// the tools that moved and a check of every tool, and only then is it recorded
+// as descending from the current image.
+func TestCatchUp(t *testing.T) {
+	inc := fakeIncus(t, "")
+	var log bytes.Buffer
+	if err := image.CatchUp(t.Context(), inc.Client, refreshAgent, host, catchUpBehind(t), &log); err != nil {
+		t.Fatalf("CatchUp() = %v\n%s", err, log.String())
+	}
+	system := inc.ran(t, "exec|"+refreshAgent+"|-T|--env|AGENTBOX_WITH_ANDROID=0|")
+	inc.ran(t, "AGENTBOX_WITH_INCUS=1|--|/root/system.sh|dev|")
+	installed := inc.ran(t, "exec|"+refreshAgent+"|-T|--|/root/tools.sh|install|dev|/root/tools.list|")
+	verified := inc.ran(t, "/root/tools.sh|verify|dev|/root/tools.current|")
+	recorded := inc.ran(t, "config|set|"+refreshAgent+"|user.agentbox.image-version="+image.Version+"|")
+	inc.ran(t, "user.agentbox.with-incus=1|")
+	cleaned := inc.ran(t, "exec|"+refreshAgent+"|--|rm|-f|/root/system.sh|")
+	if system >= installed || installed >= verified || verified >= recorded || recorded >= cleaned {
+		t.Errorf("the catch-up ran out of order:\n%s", strings.Join(inc.commands(t), "\n"))
+	}
+	if !strings.Contains(log.String(), "Installing "+image.Pin("claude")+"\n") {
+		t.Errorf("the catch-up should install Claude Code alone:\n%s", log.String())
+	}
+	// It works on the agent's own machine, not on a copy of the base image.
+	inc.neverRan(t, "copy|")
+	inc.neverRan(t, "rename|")
+	inc.neverRan(t, "provision.sh")
+}
+
+// Only the tools moved: system.sh has nothing new to do.
+func TestCatchUpOnlyTheTools(t *testing.T) {
+	inc := fakeIncus(t, "")
+	b := image.BehindImage(image.Installed{Version: image.Version, Components: image.Components{Incus: true}, Tools: []string{"claude@0.0.1"}},
+		image.Installed{Version: image.Version, Components: image.Components{Incus: true}})
+	if err := image.CatchUp(t.Context(), inc.Client, refreshAgent, host, b, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	inc.neverRan(t, "/root/system.sh|")
+	inc.ran(t, "/root/tools.sh|install|")
+	inc.ran(t, "|rm|-f|/root/tools.sh|")
+}
+
+// A failure records nothing, so the base saved from that machine still says
+// it is behind; the scripts are cleaned up all the same.
+func TestCatchUpRecordsNothingWhenItFails(t *testing.T) {
+	for step, run := range map[string]string{"system.sh": "system.sh dev", "tools.sh install": "tools.sh install", "tools.sh verify": "tools.sh verify"} {
+		t.Run(step, func(t *testing.T) {
+			inc := fakeIncus(t, "  exec) case \"$*\" in *\""+run+"\"*) echo it broke >&2; exit 1 ;; esac ;;")
+			err := image.CatchUp(t.Context(), inc.Client, refreshAgent, host, catchUpBehind(t), &bytes.Buffer{})
+			if err == nil || !strings.Contains(err.Error(), step) {
+				t.Fatalf("CatchUp() = %v, want %s to fail it", err, step)
+			}
+			inc.neverRan(t, "user.agentbox.image-version=")
+			inc.ran(t, "|rm|-f|/root/system.sh|")
+		})
+	}
+}
+
+// A machine that isn't behind is left alone.
+func TestCatchUpNothingToDo(t *testing.T) {
+	inc := fakeIncus(t, "")
+	up := image.Installed{Version: image.Version, Tools: []string{}}
+	for _, tool := range image.ToolsFor(image.Components{}) {
+		up.Tools = append(up.Tools, tool.Spec)
+	}
+	if err := image.CatchUp(t.Context(), inc.Client, refreshAgent, host, image.BehindImage(up, up), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(inc.log); err == nil {
+		t.Errorf("incus was run:\n%s", strings.Join(inc.commands(t), "\n"))
+	}
+}
