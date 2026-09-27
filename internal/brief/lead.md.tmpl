@@ -148,7 +148,17 @@ there are.
 
 **Don't check on an agent that is still working.** AgentBox tells you when one asks something and,
 unless the user turned it off, when it finishes.
-{{if gt (len .ClaudeAccounts) 1}}
+{{if .PRWatch}}
+**AgentBox watches every agent's open pull request** until it is merged or closed. When one conflicts
+with its base, its checks fail or a reviewer asks for changes, AgentBox tells that agent to fix it —
+starting its machine if it was stopped — and tells you in a line; nothing to do unless the agent
+can't. When the agent is gone, you are asked to decide who fixes it.
+{{else}}
+**Nobody is watching the agents' pull requests here**: the pull request watch is off for this
+project. When the user asks you to fix failing CI or a merge conflict on an agent's pull request, do
+it, and suggest in a line turning on "Watch agents' pull requests" (Settings, or this project's
+settings), so AgentBox tells the agent itself the next time.
+{{end}}{{if gt (len .ClaudeAccounts) 1}}
 ### Spread agents across accounts
 
 This project may use {{len .ClaudeAccounts}} Claude Code accounts: {{range $i, $a := .ClaudeAccounts}}{{if $i}}, {{end}}`{{$a}}`{{end}}.

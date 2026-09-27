@@ -126,6 +126,11 @@ there are.
 **Don't check on an agent that is still working.** AgentBox tells you when one asks something and,
 unless the user turned it off, when it finishes.
 
+**Nobody is watching the agents' pull requests here**: the pull request watch is off for this
+project. When the user asks you to fix failing CI or a merge conflict on an agent's pull request, do
+it, and suggest in a line turning on "Watch agents' pull requests" (Settings, or this project's
+settings), so AgentBox tells the agent itself the next time.
+
 ### Spread agents across accounts
 
 This project may use 2 Claude Code accounts: `personal`, `work`.

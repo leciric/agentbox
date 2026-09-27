@@ -249,7 +249,14 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     optional: true,
     detail: githubDetail(auth.data),
     description: descriptions.github,
-    body: <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />,
+    // The watch is asked here, once, on the first run: it is what an agent's
+    // GitHub account is for once its pull request is open.
+    body: (
+      <div className="grid gap-5">
+        <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
+        <PRWatch />
+      </div>
+    ),
   };
 
   // What each daemon check offers to do about itself.
@@ -859,6 +866,7 @@ function SettingsTabs({
               description="These apply to the agents you already have, as well as the next one."
             >
               <ResumeAfterLimit />
+              <PRWatch />
               <NeverFreezeCPU />
               <SharedBudget />
               <AutoStopIdle />
@@ -937,6 +945,48 @@ function UpdateCheck() {
         </SettingNote>
       )}
     </SettingRow>
+  );
+}
+
+// PRWatch is the pull request watch (internal/daemon/prwatch.go): every
+// agent's open pull request, until it's merged or closed. A project can
+// override it from its own settings.
+export function PRWatch() {
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (prWatch: boolean) => api.updateSettings({ prWatch }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["settings"], next);
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label="Watch agents' pull requests"
+      htmlFor="pr-watch"
+      description={
+        <>
+          Until each is merged or closed. When one conflicts with its base, its
+          checks fail or a reviewer asks for changes, AgentBox tells the agent
+          that opened it to fix it — starting it if it was stopped — and tells
+          the project's chat. It asks GitHub once per repository per look, with
+          the project's GitHub account: every 30 seconds while checks run,
+          slowing to every 15 minutes while nothing changes.
+        </>
+      }
+      control={
+        <Switch
+          id="pr-watch"
+          data-pr-watch
+          aria-label="Watch agents' pull requests"
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.prWatch ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
   );
 }
 

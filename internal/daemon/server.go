@@ -56,8 +56,15 @@ type Server struct {
 	store   *state.Store
 	events  *broker
 	jobs    *jobs
-	chat    *chat.Manager    // the agents' conversations in the app's Chat tab
-	pulls   *pullsCache      // what GitHub said about each repository, served stale
+	chat    *chat.Manager // the agents' conversations in the app's Chat tab
+	pulls   *pullsCache   // what GitHub said about each repository, served stale
+	prWatch *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	// prTell sends an agent a message from the pull request watch, waking it
+	// first, and reports whether it had to: wakeAndTell, or a test's recorder.
+	prTell func(ctx context.Context, a state.Agent, text string) (woke bool, err error)
+	// prLead puts the watch's notice in front of a project's chat: tellLead,
+	// or a test's recorder.
+	prLead  func(ctx context.Context, project, notice string, act bool)
 	files   *filesCache      // each agent's worktree file listing, served briefly stale
 	disks   *agentDiskCache  // each agent's machine and worktree sizes, for its info card
 	themes  *omarchy.Watcher // the desktop theme this machine is running, if any
@@ -138,11 +145,13 @@ func New(cfg Config) (*Server, error) {
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
 		pulls:            newPullsCache(),
+		prWatch:          newPRWatcher(),
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
 		terminalActivity: map[string]time.Time{},
 	}
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
+	s.prTell, s.prLead = s.wakeAndTell, s.tellLead
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
@@ -213,6 +222,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
 	loops.Go(func() { s.watchSharedBudget(ctx) })
+	loops.Go(func() { s.watchPullRequests(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they

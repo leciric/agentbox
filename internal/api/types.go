@@ -100,8 +100,13 @@ type Project struct {
 	// AgentPRs is whether this project's agents push their own branch and
 	// open their own pull request when they finish. Off by default: a push
 	// publishes, with the user's GitHub token.
-	AgentPRs  bool      `json:"agentPRs"`
-	CreatedAt time.Time `json:"createdAt"`
+	AgentPRs bool `json:"agentPRs"`
+	// PRWatch is whether the daemon watches this project's agents' pull
+	// requests: "" to follow Settings.PRWatch, "on" or "off" to override it.
+	PRWatch string `json:"prWatch"`
+	// PRWatching is what that comes to: whether they are watched now.
+	PRWatching bool      `json:"prWatching"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // Section is a group of projects in the sidebar (D79). It is a thing of its
@@ -234,6 +239,9 @@ type UpdateProjectRequest struct {
 	// AgentPRs turns on or off whether this project's agents push their own
 	// branch and open their own pull request, in place of the lead.
 	AgentPRs *bool `json:"agentPRs,omitempty"`
+	// PRWatch is "on" or "off" to override the installation's pull request
+	// watch for this project, or "" to follow it again.
+	PRWatch *string `json:"prWatch,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -355,6 +363,11 @@ type Settings struct {
 	// else. On unless it was turned off, and never sent while UpdateCheck is
 	// off or something blocks it.
 	UsageStats bool `json:"usageStats"`
+	// PRWatch says whether the daemon watches every agent's open pull request
+	// until it's merged or closed, and tells the agent when it conflicts with
+	// its base, its checks fail or a reviewer asks for changes. On unless it
+	// was turned off; a project can override it (Project.PRWatch).
+	PRWatch bool `json:"prWatch"`
 	// MediaRetention is how long a removed agent's media is kept before the
 	// daemon purges it: one of the MediaRetention values.
 	MediaRetention string `json:"mediaRetention"`
@@ -460,6 +473,8 @@ type UpdateSettingsRequest struct {
 	// UsageStats turns the anonymous usage stats on or off. Off also forgets
 	// the counts not sent yet.
 	UsageStats *bool `json:"usageStats,omitempty"`
+	// PRWatch turns the pull request watch on or off.
+	PRWatch *bool `json:"prWatch,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
 	// NeverFreezeCPU turns "never freeze my CPU" on or off.
@@ -890,6 +905,14 @@ type PullRequest struct {
 	// Agent is the name of this project's agent whose commits it carries,
 	// when there is one; only the project pull requests list sets it.
 	Agent string `json:"agent,omitempty"`
+	// Conflict, Review and Watched come from the pull request watch, which
+	// reads an agent's open pull request on its own schedule: whether it
+	// conflicts with its base, GitHub's review decision (approved,
+	// changes_requested, review_required, or ""), and whether the watch has
+	// read it at all — without it, Conflict says nothing either way.
+	Conflict bool   `json:"conflict,omitempty"`
+	Review   string `json:"review,omitempty"`
+	Watched  bool   `json:"watched,omitempty"`
 }
 
 // Why a project's pull requests couldn't be read. The app says a different
@@ -1157,6 +1180,9 @@ const (
 	// "auto-stop idle agents" found it idle for as long as the setting allows.
 	// Summary is what to show for it, like "Stopped after 2h idle".
 	AgentIdleStopped = "idle_stopped"
+	// AgentPRBroken is the pull request watch finding the agent's pull
+	// request newly broken: Summary says how, PR is the pull request.
+	AgentPRBroken = "pr_broken"
 )
 
 // EventAgentEvent carries an AgentEvent on the event stream.

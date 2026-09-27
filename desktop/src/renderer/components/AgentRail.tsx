@@ -247,7 +247,7 @@ function AgentRow({
         >
           {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
           <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
-          <span className={cn('min-w-0 flex-1', pr && 'pr-11')}>
+          <span className={cn('min-w-0 flex-1', pr && (pr.conflict ? 'pr-14' : 'pr-11'))}>
             {/* The title, and after it the agent's name (agent-125), the handle
                 it goes by in the chat, the CLI and its branch. The name takes
                 at most 40% of the line, so a long custom one can't push the title
@@ -336,7 +336,7 @@ const checkTone: Record<string, string> = { passing: 'text-emerald-300', failing
 function PullRequestBadge({ pr }: { pr: T.PullRequest }) {
   const state = pr.draft ? 'draft' : pr.state;
   return (
-    <Tip label={`#${pr.number} ${state}${pr.checks ? `, checks ${pr.checks}` : ''} — ${pr.title}`}>
+    <Tip label={`#${pr.number} ${state}${pr.checks ? `, checks ${pr.checks}` : ''}${pr.conflict ? ', conflicts with its base' : ''}${pr.review === 'changes_requested' ? ', changes requested' : ''} — ${pr.title}`}>
       <a
         href={pr.url}
         data-rail-pr={pr.number}
@@ -354,6 +354,11 @@ function PullRequestBadge({ pr }: { pr: T.PullRequest }) {
       >
         #{pr.number}
         {pr.checks && <span className={checkTone[pr.checks]}>{checkMark[pr.checks]}</span>}
+        {pr.conflict && (
+          <span className="text-rose-300" data-rail-pr-conflict aria-label="conflicts">
+            ⚠
+          </span>
+        )}
       </a>
     </Tip>
   );

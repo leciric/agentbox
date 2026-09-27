@@ -290,6 +290,8 @@ function PullRequestRow({
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           {pr.draft ? <Badge>draft</Badge> : <Badge variant={stateVariants[pr.state] ?? 'default'}>{pr.state}</Badge>}
           {pr.checks && <Badge variant={checksVariants[pr.checks] ?? 'default'}>checks {pr.checks}</Badge>}
+          {pr.conflict && <Badge variant={checksVariants.failing}>conflicts</Badge>}
+          {pr.review === 'changes_requested' && <Badge variant={checksVariants.pending}>changes requested</Badge>}
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">

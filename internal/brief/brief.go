@@ -136,6 +136,11 @@ type LeadData struct {
 	Host string
 	// Notes are the project's notes, the same ones its agents are given.
 	Notes string
+	// PRWatch is whether AgentBox watches this project's agents' pull
+	// requests and tells an agent when its own breaks. When it's off, the
+	// lead is asked to suggest turning it on the next time it's asked to fix
+	// CI or a conflict.
+	PRWatch bool
 	// Recap is where this project's chat had got to, rendered from its
 	// memory: it is what a session started after a rollover reads in place of
 	// the conversation it can no longer see (D73). Empty until the first

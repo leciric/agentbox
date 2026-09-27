@@ -178,6 +178,8 @@ function PR({ pr }: { pr?: T.PullRequest }) {
       <GitPullRequest className="size-3.5" />
       #{pr.number} {pr.draft ? 'draft' : pr.state}
       {pr.checks && <span className={checks[pr.checks] ?? 'text-muted'}>checks {pr.checks}</span>}
+      {pr.conflict && <span className="text-rose-400" data-fleet-pr-conflict>conflicts</span>}
+      {pr.review === 'changes_requested' && <span className="text-amber-300">changes requested</span>}
       {(pr.comments ?? 0) > 0 && <span className="text-subtle">{pr.comments} comments</span>}
     </span>
   );

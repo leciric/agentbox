@@ -402,6 +402,9 @@ func (s *Server) refreshPulls(project string, client github.Client, repo github.
 	if !changed {
 		return
 	}
+	// Something moved — a pull request opened, pushed to, its checks — so
+	// the watch looks now rather than when it next meant to.
+	s.prWatch.poke(project)
 	s.events.publish(api.EventPulls, api.PullsChange{Project: project, GitHub: key, FetchedAt: entry.at})
 }
 
@@ -579,6 +582,7 @@ func (s *Server) projectPullRequests(w http.ResponseWriter, r *http.Request) err
 	}
 	for i := range out.PullRequests {
 		pr := &out.PullRequests[i]
+		s.prWatch.overlay(project, pr)
 		pr.Agent = byNumber[pr.Number]
 		for _, h := range heads {
 			if h.owns(pr.HeadSHA) {

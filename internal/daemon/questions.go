@@ -369,6 +369,8 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, result 
 		return
 	}
 	changes, pr := changesOf(a), s.prFor(ctx, a)
+	// An agent that finished has often just pushed: the watch looks now.
+	s.prWatch.poke(a.Project)
 	ev := s.record(ctx, finishedEvent(a, changes, pr, s.chat.LastMessage(a), time.Now()))
 	s.captureAgentFinished(ctx, a, changes, pr, ev.Summary)
 	// Whether the lead reacts to this now is the project's to say, or the

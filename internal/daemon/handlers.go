@@ -43,8 +43,8 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 
 // Projects
 
-func projectInfo(p state.Project) api.Project {
-	info := api.Project{Name: p.Name, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
+func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
+	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
@@ -74,7 +74,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) error {
 	}
 	out := make([]api.Project, 0, len(projects))
 	for _, p := range projects {
-		out = append(out, projectInfo(p))
+		out = append(out, s.projectInfo(r.Context(), p))
 	}
 	return writeJSON(w, http.StatusOK, out)
 }
@@ -131,7 +131,7 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusCreated, projectInfo(p))
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
 }
 
 // createProject is addProject for AddProjectRequest.Create: everything that
@@ -182,7 +182,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 		}
 		return err
 	}
-	return writeJSON(w, http.StatusCreated, projectInfo(p))
+	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
 }
 
 // registerProject stores a project whose repository is ready, and answers
@@ -217,7 +217,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, projectInfo(p))
+	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
 
 func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
@@ -412,7 +412,16 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			s.logf("rewriting %s's briefs after an agent PRs change: %v", p.Name, err)
 		}
 	}
-	return writeJSON(w, http.StatusOK, projectInfo(p))
+	if req.PRWatch != nil {
+		watch := strings.TrimSpace(*req.PRWatch)
+		if err := s.store.SetProjectPRWatch(r.Context(), p.Name, watch); err != nil {
+			return err
+		}
+		p.PRWatch = watch
+		s.prWatch.poke(p.Name)
+		rewriteBrief()
+	}
+	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
 
 // checkClaudeAccount and checkGitHubAccount reject an account name that no new
