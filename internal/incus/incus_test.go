@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -438,6 +439,79 @@ func TestWriteFilePropagatesFailure(t *testing.T) {
 	c := fakeIncus(t, `exit 1`)
 	if err := c.WriteFile(context.Background(), "agent-01", "/tmp/x", []byte("x"), 0, 0, 0o600); err == nil {
 		t.Error("WriteFile() error = nil, want the underlying command's failure surfaced")
+	}
+}
+
+// attemptCounter tracks how many times a fake incus script ran, across the
+// separate processes the shell script pattern uses: each run reads the last
+// count from a file, adds one, and writes it back.
+func attemptCounter(t *testing.T) (env string, path string) {
+	t.Helper()
+	path = filepath.Join(t.TempDir(), "attempts")
+	return "COUNTER", path
+}
+
+const countAttempt = `n=0
+[ -f "$COUNTER" ] && n=$(cat "$COUNTER")
+n=$((n + 1))
+echo "$n" >"$COUNTER"
+cat >/dev/null
+`
+
+func TestWriteFileRetriesOnFailedPIDRetrieve(t *testing.T) {
+	env, counter := attemptCounter(t)
+	c := fakeIncus(t, countAttempt+`
+if [ "$n" -eq 1 ]; then
+  echo "Error: Failed to retrieve PID of executing child process" >&2
+  exit 1
+fi
+exit 0`)
+	t.Setenv(env, counter)
+	if err := c.WriteFile(context.Background(), "agent-01", "/home/dev/.gitconfig", []byte("x"), 1000, 1000, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v, want it to retry the transient failure and succeed", err)
+	}
+	got, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "2"; strings.TrimSpace(string(got)) != want {
+		t.Errorf("WriteFile() ran the command %s times, want %s", strings.TrimSpace(string(got)), want)
+	}
+}
+
+func TestWriteFileGivesUpAfterRepeatedPIDRetrieveFailures(t *testing.T) {
+	env, counter := attemptCounter(t)
+	c := fakeIncus(t, countAttempt+`echo "Error: Failed to retrieve PID of executing child process" >&2
+exit 1`)
+	t.Setenv(env, counter)
+	err := c.WriteFile(context.Background(), "agent-01", "/home/dev/.gitconfig", []byte("x"), 1000, 1000, 0o644)
+	if err == nil || !strings.Contains(err.Error(), "Failed to retrieve PID of executing child process") {
+		t.Fatalf("WriteFile() error = %v, want the PID failure surfaced once retries are exhausted", err)
+	}
+	got, readErr := os.ReadFile(counter)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if want := strconv.Itoa(pidRetries); strings.TrimSpace(string(got)) != want {
+		t.Errorf("WriteFile() ran the command %s times, want %s (pidRetries)", strings.TrimSpace(string(got)), want)
+	}
+}
+
+func TestWriteFileDoesNotRetryOtherFailures(t *testing.T) {
+	env, counter := attemptCounter(t)
+	c := fakeIncus(t, countAttempt+`echo "Error: instance is not running" >&2
+exit 1`)
+	t.Setenv(env, counter)
+	if err := c.WriteFile(context.Background(), "agent-01", "/tmp/x", []byte("x"), 0, 0, 0o600); err == nil ||
+		!strings.Contains(err.Error(), "instance is not running") {
+		t.Fatalf("WriteFile() error = %v, want the underlying failure surfaced", err)
+	}
+	got, err := os.ReadFile(counter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "1"; strings.TrimSpace(string(got)) != want {
+		t.Errorf("WriteFile() ran the command %s times, want %s (no retry for a different error)", strings.TrimSpace(string(got)), want)
 	}
 }
 
