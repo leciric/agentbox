@@ -9,7 +9,9 @@
 # - Chromium, maximized, with the DevTools protocol on 127.0.0.1:9222.
 # Runs as the agent's user. AgentBox reaches both ports through Incus proxy
 # devices, so nothing listens on the agent's network.
-# Usage: browser.sh start|stop|theme
+# Windows are kept inside the display as the viewer resizes it: openbox opens
+# application windows maximized, and a watcher (watch_display) fits the rest.
+# Usage: browser.sh start|stop|theme|watch
 set -eu
 
 display=99
@@ -209,6 +211,13 @@ osd.label.text.color: $theme_foreground
 EOF
 }
 
+# Every application window opens maximized, since the viewer resizes the
+# display to whatever panel shows it and a window sized for 1440x900 would
+# spill off a smaller one. Only type "normal": dialogs, menus, tooltips and
+# the dock keep the size they ask for, and so do Chromium's pop-ups (a
+# window.open with a size, an OAuth prompt), which are normal windows told
+# apart by their role. openbox refits a maximized window to a resized display
+# on its own; watch_display below takes care of the rest.
 write_openbox_config() {
   write_config "$config/openbox/rc.xml" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -228,6 +237,10 @@ write_openbox_config() {
     <mousebind button="Left" action="Click"><action name="ToggleMaximize"/></mousebind>
   </context>
 </mouse>
+<applications>
+  <application type="normal"><maximized>yes</maximized></application>
+  <application type="normal" role="pop-up"><maximized>no</maximized></application>
+</applications>
 </openbox_config>
 EOF
 }
@@ -414,6 +427,93 @@ reload_desktop() {
   fi
 }
 
+# fit_windows shrinks and moves every window that doesn't fit the work area
+# (the display less the dock) until it does. Maximized and full-screen ones
+# are openbox's: it refits those itself. The frame is what has to fit, so its
+# borders and title bar, from _NET_FRAME_EXTENTS, come off the size a window
+# is given. A window never gets smaller than its own minimum size (the
+# AgentBox app's is 1024x640); one that is still too big keeps its title bar
+# on the screen and its bottom right corner off it.
+fit_windows() {
+  # shellcheck disable=SC2046 # "0, 0, 1262, 671" split into four numbers
+  set -- $(xprop -root -notype _NET_WORKAREA 2>/dev/null | sed -n 's/^_NET_WORKAREA = //p' | tr -d ,)
+  [ "$#" -ge 4 ] || return 0
+  area_x=$1 area_y=$2 area_w=$3 area_h=$4
+  for window in $(xprop -root -notype _NET_CLIENT_LIST 2>/dev/null | sed -n 's/^.*# //p' | tr -d ,); do
+    fit_window "$window" || true
+  done
+}
+
+# field prints what follows $1 on the first line of $2 that has it.
+field() { printf '%s\n' "$2" | sed -n "s/^[[:space:]]*$1[[:space:]]*//p" | head -n 1; }
+
+fit_window() {
+  window=$1
+  props=$(xprop -id "$window" -notype _NET_WM_WINDOW_TYPE _NET_WM_STATE _NET_FRAME_EXTENTS WM_NORMAL_HINTS 2>/dev/null) || return 0
+  case "$props" in
+  *_NET_WM_WINDOW_TYPE_DOCK* | *_NET_WM_WINDOW_TYPE_DESKTOP* | *_NET_WM_STATE_FULLSCREEN*) return 0 ;;
+  *_NET_WM_STATE_MAXIMIZED_VERT*_NET_WM_STATE_MAXIMIZED_HORZ* | *_NET_WM_STATE_MAXIMIZED_HORZ*_NET_WM_STATE_MAXIMIZED_VERT*) return 0 ;;
+  esac
+  # shellcheck disable=SC2046
+  set -- $(field '_NET_FRAME_EXTENTS =' "$props" | tr -d ,) 0 0 0 0
+  left=$1 right=$2 top=$3 bottom=$4
+  # shellcheck disable=SC2046
+  set -- $(field 'program specified minimum size:' "$props" | sed 's/ by / /') 1 1
+  min_w=$1 min_h=$2
+  geometry=$(xwininfo -id "$window" 2>/dev/null) || return 0
+  x=$(field 'Absolute upper-left X:' "$geometry")
+  y=$(field 'Absolute upper-left Y:' "$geometry")
+  w=$(field 'Width:' "$geometry")
+  h=$(field 'Height:' "$geometry")
+  [ -n "$x" ] && [ -n "$y" ] && [ -n "$w" ] && [ -n "$h" ] || return 0
+  fit_w=$w fit_h=$h
+  [ $((fit_w + left + right)) -le "$area_w" ] || fit_w=$((area_w - left - right))
+  [ $((fit_h + top + bottom)) -le "$area_h" ] || fit_h=$((area_h - top - bottom))
+  [ "$fit_w" -ge "$min_w" ] || fit_w=$min_w
+  [ "$fit_h" -ge "$min_h" ] || fit_h=$min_h
+  # Where the frame's corner goes: as far up and left as it needs to be for
+  # the rest of it to fit, and never past the work area's corner.
+  frame_w=$((fit_w + left + right)) frame_h=$((fit_h + top + bottom))
+  frame_x=$((x - left)) frame_y=$((y - top))
+  [ "$frame_x" -le $((area_x + area_w - frame_w)) ] || frame_x=$((area_x + area_w - frame_w))
+  [ "$frame_y" -le $((area_y + area_h - frame_h)) ] || frame_y=$((area_y + area_h - frame_h))
+  [ "$frame_x" -ge "$area_x" ] || frame_x=$area_x
+  [ "$frame_y" -ge "$area_y" ] || frame_y=$area_y
+  if [ "$fit_w" != "$w" ] || [ "$fit_h" != "$h" ]; then
+    xdotool windowsize "$window" "$fit_w" "$fit_h"
+  fi
+  if [ "$frame_x" != $((x - left)) ] || [ "$frame_y" != $((y - top)) ]; then
+    # A move places the frame's corner, except for a window with static
+    # gravity (Chromium and Electron), where it places the window's own.
+    case "$props" in
+    *'window gravity: Static'*) xdotool windowmove "$window" $((frame_x + left)) $((frame_y + top)) ;;
+    *) xdotool windowmove "$window" "$frame_x" "$frame_y" ;;
+    esac
+  fi
+}
+
+# watch_display fits the windows whenever the work area changes: openbox
+# rewrites _NET_WORKAREA on the root window after the display is resized
+# (RandR, which is what the viewer's resize is) and after the dock moves to
+# the new bottom edge. One resize rewrites it several times in a burst, so an
+# event only fits the windows again if it came after the last fit read them:
+# its X timestamp, in milliseconds, is past the one that started that fit
+# plus the pause before it (or far behind it: the server's clock wraps after
+# 49 days). It ends with the display, when xev loses it.
+watch_display() {
+  fit_windows || true
+  fitted=0
+  xev -display "$DISPLAY" -root -event property | while IFS= read -r line; do
+    case "$line" in *'(_NET_WORKAREA), time '*) ;; *) continue ;; esac
+    time=${line#*time }
+    time=${time%%,*}
+    if [ "$time" -le "$fitted" ] && [ "$time" -ge $((fitted - 300)) ]; then continue; fi
+    fitted=$((time + 300))
+    sleep 0.3
+    fit_windows || true
+  done
+}
+
 case "${1:-}" in
 start)
   # Match this display's processes only: the Android emulator has a display too.
@@ -445,6 +545,9 @@ start)
   else
     reload_desktop
   fi
+  if ! pgrep -u "$uid" -f "xev -display $DISPLAY -root" >/dev/null; then
+    setsid sh "$0" watch >"$state/watch.log" 2>&1 </dev/null &
+  fi
   if ! devtools; then
     # Same for the lock of a browser that was running.
     rm -f "$profile"/Singleton*
@@ -467,11 +570,16 @@ stop)
   pkill -u "$uid" -x pcmanfm || true
   pkill -u "$uid" -x xfce4-terminal || true
   pkill -u "$uid" -f "tint2 -c $config/tint2/tint2rc" || true
+  pkill -u "$uid" -f "xev -display $DISPLAY -root" || true
   pkill -u "$uid" -f "openbox --config-file $config/openbox/rc.xml" || true
   pkill -u "$uid" -f "Xvnc $DISPLAY " || true
   ;;
+watch)
+  # Started by start, and runs for as long as the display does.
+  watch_display
+  ;;
 *)
-  echo "usage: browser.sh start|stop|theme" >&2
+  echo "usage: browser.sh start|stop|theme|watch" >&2
   exit 2
   ;;
 esac
