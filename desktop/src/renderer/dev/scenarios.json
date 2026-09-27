@@ -357,5 +357,30 @@
       "[aria-label=\"Search media\"]",
       "nothing-has-this-a-very-long-unbroken-search-string"
     ]
+  },
+  {
+    "id": "settings-models-dark",
+    "description": "Settings on a set-up machine, open at Models: the sidebar, groups of rows, and rows changed from their default marked — dark, xl width",
+    "query": "settings=models&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "settings-project-light",
+    "description": "Settings open at a project's own settings, its advanced ones folded — light",
+    "query": "settings=project:agentbox&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "settings-search-narrow-dark",
+    "description": "Settings searched for \"memory\" in a narrow window, where the sections are a row of chips — dark",
+    "query": "settings=models&theme=dark",
+    "width": 560,
+    "height": 900,
+    "fill": [
+      "[data-settings-search]",
+      "memory"
+    ]
   }
 ]

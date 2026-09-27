@@ -150,7 +150,7 @@ func TestRender(t *testing.T) {
 }
 
 // The lead's whole brief, in each autonomy, with every optional section on,
-// and in each of the ways Settings → Agents holds the agents it creates: the
+// and in each of the ways Settings → Models holds the agents it creates: the
 // Agents model and window as a ceiling it may go under, and enforced as the
 // only ones. Run with -update after changing lead.md.tmpl, and read the diff:
 // this is the text the project's chat reads before every turn (D90).
@@ -329,7 +329,7 @@ func TestRenderLeadAgentModel(t *testing.T) {
 	lead := func(model string, menu []string, canSpawn bool) string {
 		t.Helper()
 		// What configureLead passes: the project's model when it names one,
-		// Settings → Agents' otherwise.
+		// Settings → Models' otherwise.
 		def := "opus"
 		if model != "" && model != "auto" {
 			def = model

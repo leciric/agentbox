@@ -973,7 +973,7 @@ exit 0`))
 }
 
 // TestCreateSeedsTheDefaultContextWindow checks the window new agents start
-// with in Settings → Agents: an agent nobody chose a window for gets it, and
+// with in Settings → Models: an agent nobody chose a window for gets it, and
 // one whose model has no such window — Haiku, picked by the lead — gets the
 // compact window instead of a refusal, since nobody asked it for 1M.
 func TestCreateSeedsTheDefaultContextWindow(t *testing.T) {

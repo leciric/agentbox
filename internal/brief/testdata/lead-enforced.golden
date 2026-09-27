@@ -144,7 +144,7 @@ in the same line as the model.**
 ### Every agent runs on `opus` at 1m
 
 The user enforces `opus` with a 1m context window for every agent you
-create, in AgentBox's Settings → Agents. Leave `model` and `context_window` out of `create_agent`:
+create, in AgentBox's Settings → Models. Leave `model` and `context_window` out of `create_agent`:
 it refuses any other.
 
 ### What the user asked of agents

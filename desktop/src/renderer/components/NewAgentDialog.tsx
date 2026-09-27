@@ -543,17 +543,17 @@ export function NewAgentDialog({
 
             {needsLogin && (
               <Notice tone="warning">
-                AgentBox has no {aiLabel(form.ai)} login yet. Add one in Settings, or run <Code>agentbox auth {form.ai}</Code>.
+                AgentBox has no {aiLabel(form.ai)} login yet. Add one in Settings → Accounts, or run <Code>agentbox auth {form.ai}</Code>.
               </Notice>
             )}
             {missingFromImage && (
               <Notice tone="warning">
-                The base image was built without OpenCode. Turn it on in Settings, or run <Code>agentbox image build --opencode</Code>.
+                The base image was built without OpenCode. Turn it on in Settings → Setup, or run <Code>agentbox image build --opencode</Code>.
               </Notice>
             )}
             {image.data?.ready === false && (
               <Notice tone="warning">
-                The base image isn't built yet. Build it in Settings, or run <Code>agentbox image build</Code>.
+                The base image isn't built yet. Build it in Settings → Setup, or run <Code>agentbox image build</Code>.
               </Notice>
             )}
             {create.error && <Notice>{errorMessage(create.error)}</Notice>}

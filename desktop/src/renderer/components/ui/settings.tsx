@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from 'react';
+import { useState, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 import { Panel } from './card';
 
@@ -37,10 +37,15 @@ export function SettingsGroup({
 // too wide for that column — a text box with buttons, a long choice, a grid of
 // fields — goes in children instead, full width under the description, where
 // anything the row has to say after the fact (an error, a job) goes too.
+//
+// The description is one plain line: what the setting does. Anything more —
+// how it works, what it costs, who it reaches and when — is details, folded
+// behind "More" so a group can be read down its first lines.
 export function SettingRow({
   label,
   htmlFor,
   description,
+  details,
   control,
   children,
   className,
@@ -49,10 +54,12 @@ export function SettingRow({
   label: ReactNode;
   htmlFor?: string;
   description?: ReactNode;
+  details?: ReactNode;
   control?: ReactNode;
   children?: ReactNode;
 } & Omit<HTMLAttributes<HTMLDivElement>, 'children'>) {
   const Label = htmlFor ? 'label' : 'div';
+  const [more, setMore] = useState(false);
   return (
     <div className={cn('grid gap-3 px-5 py-4', className)} {...props}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
@@ -60,7 +67,26 @@ export function SettingRow({
           <Label htmlFor={htmlFor} className="block text-[13px] font-medium text-primary">
             {label}
           </Label>
-          {description && <div className="mt-1 text-[12px] leading-relaxed text-subtle">{description}</div>}
+          {description && (
+            <div className="mt-1 text-[12px] leading-relaxed text-subtle">
+              {description}
+              {details && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    aria-expanded={more}
+                    data-setting-more
+                    onClick={() => setMore((open) => !open)}
+                    className="rounded text-tertiary underline decoration-line-strong underline-offset-2 transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+                  >
+                    {more ? 'Less' : 'More'}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+          {details && more && <div className="mt-1.5 grid gap-1.5 text-[12px] leading-relaxed text-subtle">{details}</div>}
         </div>
         {control && <div className="flex min-w-0 shrink-0 items-center sm:w-64 sm:justify-end">{control}</div>}
       </div>

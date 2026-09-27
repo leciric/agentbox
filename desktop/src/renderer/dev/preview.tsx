@@ -86,7 +86,7 @@ import { AgentRail } from '../components/AgentRail';
 import { HomeView } from '../components/HomeView';
 import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../components/NewAgentDefaults';
 import { LimitsEditor } from '../components/OverviewTab';
-import { GitHubAccountPicker } from '../components/ProjectView';
+import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
 import { ProjectMediaPanel } from '../components/ProjectMediaPanel';

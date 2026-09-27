@@ -67,6 +67,7 @@ var tsConstants = [][2]string{
 	{"FeatureDesktopOpen", FeatureDesktopOpen}, {"FeatureTerminalOpen", FeatureTerminalOpen}, {"FeatureAndroidOpen", FeatureAndroidOpen}, {"FeatureAgentMediaView", FeatureAgentMediaView},
 	{"FeatureProjectMediaView", FeatureProjectMediaView}, {"FeaturePullList", FeaturePullList}, {"FeatureMemoryView", FeatureMemoryView}, {"FeatureTokensView", FeatureTokensView},
 	{"FeatureSettingsEnvironment", FeatureSettingsEnvironment}, {"FeatureSettingsAccounts", FeatureSettingsAccounts}, {"FeatureSettingsLead", FeatureSettingsLead}, {"FeatureSettingsAgents", FeatureSettingsAgents},
+	{"FeatureSettingsGeneral", FeatureSettingsGeneral}, {"FeatureSettingsModels", FeatureSettingsModels}, {"FeatureSettingsResources", FeatureSettingsResources}, {"FeatureSettingsProject", FeatureSettingsProject}, {"FeatureSettingsSearch", FeatureSettingsSearch},
 	{"FeatureMenuOpenChat", FeatureMenuOpenChat}, {"FeatureMenuOpenTerminal", FeatureMenuOpenTerminal}, {"FeatureMenuInfo", FeatureMenuInfo}, {"FeatureMenuLifecycle", FeatureMenuLifecycle}, {"FeatureMenuRetire", FeatureMenuRetire},
 	{"FeatureMenuCopyBranch", FeatureMenuCopyBranch}, {"FeatureMenuOpenPullRequest", FeatureMenuOpenPullRequest}, {"FeatureMenuDestroy", FeatureMenuDestroy},
 }

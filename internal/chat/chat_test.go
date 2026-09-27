@@ -2173,7 +2173,7 @@ func TestHaikuHasNoContextWindowChoice(t *testing.T) {
 }
 
 // TestTheLeadStartsOnTheLeadDefaults: a lead's chat whose composer chose
-// nothing runs on the model and window in Settings → Lead, read when its
+// nothing runs on the model and window in Settings → Models, read when its
 // adapter starts, and a choice made in its composer still wins. An agent's
 // chat never reads them.
 func TestTheLeadStartsOnTheLeadDefaults(t *testing.T) {

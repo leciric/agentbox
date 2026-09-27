@@ -18,6 +18,11 @@ export type AppFeature =
   | typeof T.FeatureSettingsAccounts
   | typeof T.FeatureSettingsLead
   | typeof T.FeatureSettingsAgents
+  | typeof T.FeatureSettingsGeneral
+  | typeof T.FeatureSettingsModels
+  | typeof T.FeatureSettingsResources
+  | typeof T.FeatureSettingsProject
+  | typeof T.FeatureSettingsSearch
   | typeof T.FeatureMenuOpenChat
   | typeof T.FeatureMenuOpenTerminal
   | typeof T.FeatureMenuInfo
@@ -48,9 +53,16 @@ export const projectTabFeatures: Record<string, AppFeature> = {
   tokens: T.FeatureTokensView,
 };
 
+// The sections of Settings whose opening is counted. Setup keeps the key the
+// Environment tab had, since it is the same checks; the lead's defaults moved
+// into Models, so settings.view.lead is only counted by older apps now. Every
+// project's settings count as one key: a project's name is never sent.
 export const settingsSectionFeatures: Record<string, AppFeature> = {
-  environment: T.FeatureSettingsEnvironment,
-  accounts: T.FeatureSettingsAccounts,
-  lead: T.FeatureSettingsLead,
+  general: T.FeatureSettingsGeneral,
+  models: T.FeatureSettingsModels,
   agents: T.FeatureSettingsAgents,
+  resources: T.FeatureSettingsResources,
+  accounts: T.FeatureSettingsAccounts,
+  setup: T.FeatureSettingsEnvironment,
+  project: T.FeatureSettingsProject,
 };

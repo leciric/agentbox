@@ -2,24 +2,27 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   ArrowRight,
+  Bot,
   Check,
   ChevronDown,
   CircleCheck,
   CircleDashed,
   Copy,
+  Cpu,
   ExternalLink,
   KeyRound,
   Lightbulb,
   ListChecks,
   LoaderCircle,
   LogIn,
-  MessagesSquare,
   Monitor,
   Moon,
   PartyPopper,
   Pencil,
   RefreshCw,
   ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
   SquareTerminal,
   Sun,
   Trash2,
@@ -31,7 +34,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type * as T from "../../shared/api";
 import { api } from "../lib/api";
-import { countFeature, settingsSectionFeatures } from "../lib/usageStats";
+import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
@@ -44,6 +47,7 @@ import {
   GPUForAgents,
   MediaRetention,
   NeverFreezeCPU,
+  NewAgentCPUShare,
   NewAgentEffort,
   NewAgentResources,
   OpenCodeInImage,
@@ -53,10 +57,11 @@ import {
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
-import { SettingNote, SettingRow, SettingsGroup } from "./ui/settings";
+import { projectSection } from "./ProjectSettings";
+import { SettingsPage, type SectionIcons } from "./SettingsPage";
+import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs";
 import { VMSize } from "./VMSize";
 
 type Status =
@@ -91,6 +96,9 @@ type Step = {
   optional: boolean;
   detail?: string;
   body?: ReactNode;
+  // settingsBody replaces body on the Settings page, for a step whose body in
+  // the wizard carries a setting that has its own place there.
+  settingsBody?: ReactNode;
 };
 
 // skippable is the wizard's rule for the Next/Skip buttons: everything the
@@ -252,13 +260,15 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     detail: githubDetail(auth.data),
     description: descriptions.github,
     // The watch is asked here, once, on the first run: it is what an agent's
-    // GitHub account is for once its pull request is open.
+    // GitHub account is for once its pull request is open. On the Settings
+    // page it has a place of its own, under Agents.
     body: (
       <div className="grid gap-5">
         <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
         <PRWatch />
       </div>
     ),
+    settingsBody: <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />,
   };
 
   // What each daemon check offers to do about itself.
@@ -424,7 +434,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     );
   }
   return (
-    <SettingsTabs
+    <InstalledSettings
       steps={steps}
       done={done}
       total={required.length}
@@ -709,10 +719,16 @@ function Finished({
   );
 }
 
-// SettingsTabs is the page once setup is done: everything grouped by tabs, to
-// check on or to change. The wizard is a click away for a machine that needs
-// it again.
-function SettingsTabs({
+// InstalledSettings is the page once setup is done: every setting, in the
+// sections SettingsPage draws with a sidebar and a search. This is where each
+// setting's place is decided, and the words a search finds it by.
+//
+// The installation's sections go from what you change most to what you set
+// once: how it looks, what agents run on, what they do, what they may take,
+// the logins they use, and what this machine needs. Each project's settings
+// follow them, as a section per project. Settings that most people never
+// change are marked advanced, and folded at the end of their section.
+function InstalledSettings({
   steps,
   done,
   total,
@@ -733,11 +749,10 @@ function SettingsTabs({
   hostSetupRan: boolean;
   onWizard: () => void;
 }) {
-  type Section = "environment" | "accounts" | "lead" | "agents";
-  const [section, setSection] = useState<Section>("environment");
-  useEffect(() => countFeature(settingsSectionFeatures[section]), [section]);
-  const environmentSteps = steps.filter((s) => environmentIds.has(s.id));
-  const accountSteps = steps.filter((s) => accountIds.has(s.id));
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const theme = useQuery({ queryKey: ["theme"], queryFn: api.theme });
+  const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
+  const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   // On a Mac, the VM everything runs in, whose size can be changed here.
   const hostSetup = useQuery({
     queryKey: ["host-setup"],
@@ -745,162 +760,433 @@ function SettingsTabs({
     refetchInterval: 2_000,
   });
   const vm = hostSetup.data?.vm;
+  const s = settings.data;
+  // changed is undefined until settings arrive, so nothing is marked on a
+  // guess.
+  const changed = (test: (s: T.Settings) => boolean) => (s ? test(s) : undefined);
 
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-4 py-6 md:px-8 md:py-9">
-        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
-          <div className="min-w-0 flex-1 basis-80">
-            <h1 className="text-2xl font-semibold tracking-tight text-title">
-              Settings
-            </h1>
-            <p className="mt-1 text-sm text-muted">
-              What AgentBox needs on this machine, and what it applies to every
-              agent. This page checks again every few seconds.
-            </p>
-          </div>
-          <div className="ml-auto flex shrink-0 items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={onWizard}>
+  const stepEntry = (step: Step, alwaysShow = false) => ({
+    id: step.id,
+    label: step.title,
+    keywords: `${step.description} ${step.detail ?? ""}`,
+    render: () => (
+      <ChecklistStep step={step} alwaysShow={alwaysShow} />
+    ),
+  });
+  const needsLook = (list: Step[]) =>
+    list.filter((step) => ["missing", "outdated", "warn"].includes(step.status)).length;
+  const machineSteps = steps.filter((step) => environmentIds.has(step.id));
+  const accountSteps = steps.filter((step) => accountIds.has(step.id));
+  const aiSteps = accountSteps.filter((step) => step.id !== "github");
+  const githubSteps = accountSteps.filter((step) => step.id === "github");
+
+  const sections: SettingSection[] = [
+    {
+      id: "general",
+      title: "General",
+      description: "How AgentBox looks on this machine, and how it keeps up to date.",
+      scope: "installation",
+      groups: [
+        {
+          id: "appearance",
+          title: "Appearance",
+          entries: [
+            {
+              id: "appearance",
+              label: "Appearance",
+              keywords: "theme dark light mode omarchy colours colors accent follow desktop",
+              modified: theme.data ? theme.data.appearance !== "follow" : undefined,
+              render: () => <Appearance />,
+            },
+          ],
+        },
+        {
+          id: "updates",
+          title: "Updates and privacy",
+          entries: [
+            {
+              id: "update-check",
+              label: "Check for updates",
+              keywords: "update version release new daily telemetry privacy installations count",
+              modified: changed((s) => !s.updateCheck),
+              render: () => <UpdateCheck />,
+            },
+            {
+              id: "usage-stats",
+              label: "Share anonymous usage stats",
+              keywords: "telemetry analytics anonymous features privacy tracking",
+              modified: changed((s) => !s.usageStats),
+              render: () => <UsageStats />,
+            },
+            ...(info
+              ? [
+                  {
+                    id: "whats-new",
+                    label: "What's new",
+                    keywords: "changelog release notes version",
+                    render: () => <WhatsNewRow version={info.version} />,
+                  },
+                ]
+              : []),
+          ],
+        },
+      ],
+      footer: info && (
+        <p className="text-center font-mono text-[11px] text-faint">
+          AgentBox {info.version} · Electron {info.electron} · {info.socket}
+        </p>
+      ),
+    },
+    {
+      id: "models",
+      title: "Models",
+      description:
+        "What agents and each project's lead run on, and how long a chat gets before it compacts.",
+      scope: "installation",
+      groups: [
+        {
+          id: "new-agents",
+          title: "New agents",
+          description:
+            "Each can be overridden for a single agent as you create it, and a project can pick its own model.",
+          entries: [
+            {
+              id: "agent-model",
+              label: "Model for new agents",
+              keywords: "claude code opus sonnet haiku fable default",
+              modified: changed((s) => s.defaultClaudeModel !== ""),
+              render: () => <DefaultModel role="agents" />,
+            },
+            {
+              id: "agent-window",
+              label: "Context window for new agents",
+              keywords: "1m tokens compact context",
+              modified: changed((s) => s.defaultAgentContextWindow !== ""),
+              render: () => <DefaultContextWindow role="agents" />,
+            },
+            {
+              id: "agent-effort",
+              label: "Effort for new agents",
+              keywords: "thinking reasoning effort high low",
+              modified: changed((s) => s.defaultClaudeEffort !== ""),
+              render: () => <NewAgentEffort />,
+            },
+            {
+              id: "enforce",
+              label: "Enforce this model and context window",
+              keywords: "lead cheaper model ceiling limit create_agent",
+              modified: changed((s) => s.enforceAgentDefaults),
+              render: () => <EnforceAgentDefaults />,
+            },
+          ],
+        },
+        {
+          id: "lead",
+          title: "Lead",
+          description:
+            "Each project's chat, which plans the work and directs its agents. Its composer can still pick another model or window for one project, and what it picks there wins.",
+          entries: [
+            {
+              id: "lead-model",
+              label: "Model for the lead",
+              keywords: "project chat claude opus sonnet default",
+              modified: changed((s) => s.defaultLeadModel !== ""),
+              render: () => <DefaultModel role="lead" />,
+            },
+            {
+              id: "lead-window",
+              label: "Context window for the lead",
+              keywords: "project chat 1m tokens compact context",
+              modified: changed((s) => s.defaultLeadContextWindow !== ""),
+              render: () => <DefaultContextWindow role="lead" />,
+            },
+          ],
+        },
+        {
+          id: "chats",
+          title: "Every chat",
+          description:
+            "These reach the chats you already have, as well as the next one.",
+          entries: [
+            {
+              id: "compact",
+              label: "Compact chats at",
+              keywords: "context window tokens summarise summarize compaction cost codex",
+              modified: changed((s) => s.claudeCompactWindow !== s.defaultClaudeCompactWindow),
+              render: () => <CompactWindow />,
+            },
+            {
+              id: "resume",
+              label: "Resume after a usage limit",
+              keywords: "rate limit usage spent five hour weekly wait carry on claude account",
+              modified: changed((s) => !s.resumeAfterLimit),
+              render: () => <ResumeAfterLimit />,
+            },
+          ],
+        },
+      ],
+      // The lead saves a preference like this with remember, and its brief has
+      // it search memory before every create_agent (lead.md.tmpl, "What the
+      // user asked of agents").
+      footer: (
+        <p
+          data-lead-preference-tip
+          className="flex items-start gap-2 px-1 text-[12px] leading-relaxed text-subtle"
+        >
+          <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-brand-300" />
+          <span>
+            Tip: tell a project's lead a preference like "use only one agent at
+            a time" or "use Sonnet for small fixes". It remembers it, and
+            follows it every time it creates an agent.
+          </span>
+        </p>
+      ),
+    },
+    {
+      id: "agents",
+      title: "Agents",
+      description:
+        "What happens to agents as they work: their pull requests, and when they're idle or gone.",
+      scope: "installation",
+      groups: [
+        {
+          id: "pulls",
+          title: "Pull requests",
+          description: "A project can turn this on or off for itself in its settings.",
+          entries: [
+            {
+              id: "pr-watch",
+              label: "Watch agents' pull requests",
+              keywords: "pr github conflict checks ci fail review changes requested",
+              modified: changed((s) => !s.prWatch),
+              render: () => <PRWatch />,
+            },
+          ],
+        },
+        {
+          id: "lifecycle",
+          title: "Idle and removed agents",
+          entries: [
+            {
+              id: "auto-stop",
+              label: "Auto-stop idle agents",
+              keywords: "idle stop timeout inactive suspend sleep",
+              modified: changed((s) => s.autoStopIdle),
+              render: () => <AutoStopIdle />,
+            },
+            {
+              id: "media-retention",
+              label: "Keep a removed agent's media for",
+              keywords: "media screenshots recordings reports retention purge delete disk",
+              modified: changed((s) => s.mediaRetention !== "1d"),
+              render: () => <MediaRetention />,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "resources",
+      title: "Resources",
+      description:
+        "What agents may take from this machine: each one's limits, what they share, and its GPU.",
+      scope: "installation",
+      groups: [
+        {
+          id: "each",
+          title: "Each new agent",
+          description: "Change an agent you already have on its Overview tab.",
+          entries: [
+            {
+              id: "resources",
+              label: "Resources for new agents",
+              keywords: "limits cpu cores memory ram gib",
+              modified: changed((s) => s.defaultCPU !== "2" || s.defaultMemory !== s.seedMemory),
+              render: () => <NewAgentResources />,
+            },
+            {
+              id: "cpu-share",
+              label: "CPU share for new agents",
+              keywords: "cpu allowance percent priority ceiling limits",
+              advanced: true,
+              modified: changed((s) => s.defaultCPUAllowance !== ""),
+              render: () => <NewAgentCPUShare />,
+            },
+          ],
+        },
+        {
+          id: "together",
+          title: "All agents together",
+          description: "These reach the agents you already have, as well as the next one.",
+          entries: [
+            {
+              id: "never-freeze",
+              label: "Never freeze my CPU",
+              keywords: "cpu cores keep free host starve cap limits",
+              modified: changed((s) => s.neverFreezeCPU),
+              render: () => <NeverFreezeCPU />,
+            },
+            ...(s?.sharedBudget && !s.sharedBudget.unsupported
+              ? [
+                  {
+                    id: "shared-budget",
+                    label: "Shared agent budget",
+                    keywords: "memory swap cpu cgroup pool limits zram",
+                    modified: changed((s) => s.sharedBudget.on),
+                    render: () => <SharedBudget />,
+                  },
+                ]
+              : []),
+          ],
+        },
+        ...(s?.gpuAvailable
+          ? [
+              {
+                id: "hardware",
+                title: "Hardware",
+                entries: [
+                  {
+                    id: "gpu",
+                    label: "GPU for agents",
+                    keywords: "gpu graphics render amd nvidia intel acceleration",
+                    modified: changed((s) => s.gpuForAgents),
+                    render: () => <GPUForAgents />,
+                  },
+                ],
+              },
+            ]
+          : []),
+        ...(vm?.exists
+          ? [
+              {
+                id: "vm",
+                title: "AgentBox's Linux VM",
+                cards: true,
+                entries: [
+                  {
+                    id: "vm-size",
+                    label: "VM size",
+                    keywords: "mac lima cpus memory resize virtual machine",
+                    render: () => (
+                      <VMSize vm={vm} busy={hostSetup.data?.resizing === true} />
+                    ),
+                  },
+                ],
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: "accounts",
+      title: "Accounts",
+      description:
+        "The logins agents use, kept by AgentBox. Each project picks which of them its agents get.",
+      scope: "installation",
+      attention: needsLook(accountSteps),
+      groups: [
+        {
+          id: "ai",
+          title: "AI tools",
+          cards: true,
+          entries: aiSteps.map((step) => stepEntry(step, step.id === "claude")),
+        },
+        {
+          id: "github",
+          title: "GitHub",
+          cards: true,
+          entries: githubSteps.map((step) => stepEntry({ ...step, body: step.settingsBody ?? step.body }, true)),
+        },
+      ],
+    },
+    {
+      id: "setup",
+      title: "Setup",
+      description:
+        "What AgentBox needs on this machine. Checked again every few seconds, so a step you finish elsewhere ticks itself off.",
+      scope: "installation",
+      attention: needsLook(machineSteps),
+      header: (
+        <div className="grid gap-2 px-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <span
+              className="text-[13px] tabular-nums text-muted"
+              data-setup-progress={`${done}/${total}`}
+            >
+              {done} of {total} required ready
+            </span>
+            <Button variant="ghost" size="sm" className="ml-auto" onClick={onWizard}>
               <Wand />
               Run setup again
             </Button>
-            <span
-              className="text-sm tabular-nums text-muted"
-              data-setup-progress={`${done}/${total}`}
-            >
-              {done} of {total} ready
-            </span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-surface-raised">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-brand-400 to-emerald-400 transition-all duration-500"
+              style={{ width: `${total ? (done / total) * 100 : 0}%` }}
+            />
           </div>
         </div>
-        <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface-raised">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-brand-400 to-emerald-400 transition-all duration-500"
-            style={{ width: `${(done / total) * 100}%` }}
-          />
-        </div>
-        {error && <Notice className="mt-4">{error}</Notice>}
+      ),
+      groups: [
+        {
+          id: "required",
+          title: "Required",
+          cards: true,
+          entries: machineSteps
+            .filter((step) => step.required)
+            .map((step) =>
+              stepEntry(
+                step,
+                (step.id === "image" && imageJob !== null) ||
+                  (step.id === "incus" && hostSetupRan),
+              ),
+            ),
+        },
+        {
+          id: "optional",
+          title: "Optional",
+          cards: true,
+          entries: machineSteps.filter((step) => !step.required).map((step) => stepEntry(step)),
+        },
+        {
+          id: "image",
+          title: "Base image",
+          entries: [
+            {
+              id: "opencode-image",
+              label: "OpenCode in the base image",
+              keywords: "opencode image build rebuild component tool",
+              modified: setup.data ? setup.data.image.components.opencode : undefined,
+              render: () => <OpenCodeInImage />,
+            },
+          ],
+        },
+      ],
+    },
+    ...(projects.data ?? []).map(projectSection),
+  ];
 
-        <Tabs
-          className="mt-6"
-          value={section}
-          onValueChange={(value) => setSection(value as Section)}
-        >
-          <TabsList>
-            <TabsTrigger value="environment">
-              <Wrench />
-              Environment
-            </TabsTrigger>
-            <TabsTrigger value="accounts">
-              <KeyRound />
-              Accounts
-            </TabsTrigger>
-            <TabsTrigger value="lead">
-              <MessagesSquare />
-              Lead
-            </TabsTrigger>
-            <TabsTrigger value="agents">
-              <SquareTerminal />
-              Agents
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="environment" className="mt-4">
-            <ol className="grid grid-cols-1 gap-3">
-              {environmentSteps.map((step, i) => (
-                <ChecklistStep
-                  key={step.id}
-                  n={i + 1}
-                  step={step}
-                  alwaysShow={
-                    (step.id === "image" && imageJob !== null) ||
-                    (step.id === "incus" && hostSetupRan)
-                  }
-                />
-              ))}
-            </ol>
-            {vm?.exists && (
-              <VMSize vm={vm} busy={hostSetup.data?.resizing === true} />
-            )}
-            <SettingsGroup title="This app" className="mt-8">
-              <Appearance />
-              <UpdateCheck />
-              <UsageStats />
-              {info && <WhatsNewRow version={info.version} />}
-            </SettingsGroup>
-          </TabsContent>
-
-          <TabsContent value="accounts" className="mt-4">
-            <ol className="grid grid-cols-1 gap-3">
-              {accountSteps.map((step, i) => (
-                <ChecklistStep
-                  key={step.id}
-                  n={i + 1}
-                  step={step}
-                  alwaysShow={step.id === "claude" || step.id === "github"}
-                />
-              ))}
-            </ol>
-          </TabsContent>
-
-          <TabsContent value="lead" className="mt-6">
-            <SettingsGroup
-              title="Lead"
-              description="Each project's chat, which plans the work and directs its agents. Its composer can still pick another model or window for one project, and what it picks there wins."
-            >
-              <DefaultModel role="lead" />
-              <DefaultContextWindow role="lead" />
-            </SettingsGroup>
-          </TabsContent>
-
-          <TabsContent value="agents" className="mt-6 grid gap-8">
-            <div className="grid gap-2.5">
-              <SettingsGroup
-                title="New agents"
-                description="Each can be overridden for a single agent as you create it."
-              >
-                <DefaultModel role="agents" />
-                <DefaultContextWindow role="agents" />
-                <EnforceAgentDefaults />
-                <NewAgentEffort />
-                <NewAgentResources />
-                <OpenCodeInImage />
-              </SettingsGroup>
-              {/* The lead saves a preference like this with remember, and
-                  its brief has it search memory before every create_agent
-                  (lead.md.tmpl, "What the user asked of agents"). */}
-              <p data-lead-preference-tip className="flex items-start gap-2 px-1 text-[12px] leading-relaxed text-subtle">
-                <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-brand-300" />
-                <span>
-                  Tip: tell a project's lead a preference like "use only one agent at a time" or "use Sonnet for small
-                  fixes". It remembers it, and follows it every time it creates an agent.
-                </span>
-              </p>
-            </div>
-            <SettingsGroup
-              title="Every agent"
-              description="These apply to the agents you already have, as well as the next one."
-            >
-              <ResumeAfterLimit />
-              <PRWatch />
-              <NeverFreezeCPU />
-              <GPUForAgents />
-              <SharedBudget />
-              <AutoStopIdle />
-              <CompactWindow />
-              <MediaRetention />
-            </SettingsGroup>
-          </TabsContent>
-        </Tabs>
-
-        {info && (
-          <p className="mt-8 text-center font-mono text-[11px] text-faint">
-            AgentBox {info.version} · Electron {info.electron} · {info.socket}
-          </p>
-        )}
-      </div>
-    </div>
+  return (
+    <SettingsPage
+      sections={sections.map((section) => ({
+        ...section,
+        groups: section.groups.filter((g) => g.entries.length > 0),
+      }))}
+      icons={sectionIcons}
+      error={error}
+    />
   );
 }
+
+const sectionIcons: SectionIcons = {
+  general: SlidersHorizontal,
+  models: Sparkles,
+  agents: Bot,
+  resources: Cpu,
+  accounts: KeyRound,
+  setup: Wrench,
+};
 
 // EnforceAgentDefaults decides what the model and window above mean to a
 // project's lead: the only ones it may give the agents it creates, or the most
@@ -921,19 +1207,28 @@ function EnforceAgentDefaults() {
     <SettingRow
       label="Enforce this model and context window"
       description={
-        enforced ? (
-          <>
-            On: the lead creates every agent with exactly this model and
-            window, and is refused any other.
-          </>
-        ) : (
-          <>
-            Off: this model and window are the most the lead may use. It keeps
-            them for medium and hard tasks and picks a cheaper model for easy
-            ones, like Sonnet for small fixes or Haiku for mechanical jobs,
-            never anything above them.
-          </>
-        )
+        enforced
+          ? "The lead creates every agent with exactly this model and window."
+          : "The lead may pick a cheaper model for an easy task, never a dearer one."
+      }
+      details={
+        <>
+          {enforced ? (
+            <>
+              On: the lead creates every agent with exactly this model and
+              window, and is refused any other.
+            </>
+          ) : (
+            <>
+              Off: this model and window are the most the lead may use. It
+              keeps them for medium and hard tasks and picks a cheaper model
+              for easy ones, like Sonnet for small fixes or Haiku for
+              mechanical jobs, never anything above them.
+            </>
+          )}{" "}
+          Only for agents the lead creates: what you pick when you create one
+          yourself always wins.
+        </>
       }
       control={
         <Switch
@@ -944,12 +1239,7 @@ function EnforceAgentDefaults() {
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
-    >
-      <SettingNote>
-        Only for agents the lead creates: what you pick when you create one
-        yourself always wins.
-      </SettingNote>
-    </SettingRow>
+    />
   );
 }
 
@@ -978,10 +1268,10 @@ function UpdateCheck() {
   return (
     <SettingRow
       label="Check for updates"
-      description={
+      description="Once a day, asks agentbox.linting.dev whether a newer AgentBox is out."
+      details={
         <>
-          Once a day, asks agentbox.linting.dev whether a newer AgentBox is out,
-          which is also how installations are counted. It sends exactly four
+          It's also how installations are counted. It sends exactly four
           things: a random ID made for this purpose, this version of AgentBox
           {update.data?.current ? ` (${update.data.current})` : ""}, the
           operating system and the processor architecture. Nothing about you,
@@ -1033,14 +1323,14 @@ export function PRWatch() {
     <SettingRow
       label="Watch agents' pull requests"
       htmlFor="pr-watch"
-      description={
+      description="Tells an agent when its pull request conflicts, fails its checks or gets changes requested."
+      details={
         <>
-          Until each is merged or closed. When one conflicts with its base, its
-          checks fail or a reviewer asks for changes, AgentBox tells the agent
-          that opened it to fix it — starting it if it was stopped — and tells
-          the project's chat. It asks GitHub once per repository per look, with
-          the project's GitHub account: every 30 seconds while checks run,
-          slowing to every 15 minutes while nothing changes.
+          Until each is merged or closed. AgentBox tells the agent that opened
+          it to fix it — starting it if it was stopped — and tells the
+          project's chat. It asks GitHub once per repository per look, with the
+          project's GitHub account: every 30 seconds while checks run, slowing
+          to every 15 minutes while nothing changes.
         </>
       }
       control={
@@ -1081,11 +1371,11 @@ function UsageStats() {
   return (
     <SettingRow
       label="Share anonymous usage stats"
-      description={
+      description="With the update check, sends how many times each feature was used per day."
+      details={
         <>
-          With the update check, sends how many times each feature was used
-          per day (like "agent.create.claude: 3") and nothing else: no names,
-          paths, repositories or anything you typed.
+          Like "agent.create.claude: 3", and nothing else: no names, paths,
+          repositories or anything you typed.
         </>
       }
       control={
@@ -1168,7 +1458,8 @@ function Appearance() {
   return (
     <SettingRow
       label="Appearance"
-      description="Following takes the colours from the Omarchy theme this machine is running — its accent and whether it is light or dark — for AgentBox's own window and for every agent's desktop, its dock and window decorations. Agents' browsers are left alone: a page an agent looks at renders the way it would anywhere else. Light and dark are AgentBox's own colours, one way round or the other, whatever the desktop is doing."
+      description="Follow this machine's Omarchy theme, or keep AgentBox's own colours, light or dark."
+      details="Following takes the colours from the Omarchy theme this machine is running — its accent and whether it is light or dark — for AgentBox's own window and for every agent's desktop, its dock and window decorations. Agents' browsers are left alone: a page an agent looks at renders the way it would anywhere else. Light and dark are AgentBox's own colours, one way round or the other, whatever the desktop is doing."
     >
       <div
         className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
@@ -2142,17 +2433,15 @@ export function CommandBox({ command }: { command: string }) {
 }
 
 function ChecklistStep({
-  n,
   step,
   alwaysShow,
 }: {
-  n: number;
   step: Step;
   alwaysShow?: boolean;
 }) {
   const ok = step.status === "ok";
   return (
-    <li className="min-w-0" data-setup-step={step.title} data-status={step.status}>
+    <div className="min-w-0" data-setup-step={step.title} data-status={step.status}>
       <Panel
         className={cn(
           "p-4 transition",
@@ -2169,7 +2458,6 @@ function ChecklistStep({
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className="text-[11px] tabular-nums text-faint">{n}</span>
               <h3 className="text-[14px] font-semibold text-primary">
                 {step.title}
               </h3>
@@ -2207,6 +2495,6 @@ function ChecklistStep({
           </div>
         </div>
       </Panel>
-    </li>
+    </div>
   );
 }
