@@ -7,16 +7,21 @@
 //
 //   mise exec -- node scripts/demo/pr-watch.mjs > .demo-runs/pr-watch/demo.log 2>&1
 //
-// With KEEP=1 it leaves the daemon and the stub running at the end and prints
+// With APP=1 it also screenshots the real app, on a private display, into
+// .demo-runs/pr-watch/media. With KEEP=1 it leaves the daemon and the stub running at the end and prints
 // the environment to start the app against them, for a recording; the stub's
 // /__set/<state> (pending, failing, conflict, merged) moves the pull request.
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { startXvfb } from '../record/xvfb.mjs';
 
 const root = resolve(import.meta.dirname, '../..');
+const desktop = join(root, 'desktop');
+const media = join(root, '.demo-runs/pr-watch/media');
 const work = mkdtempSync(join(tmpdir(), 'agentbox-prwatch-'));
 const bin = join(work, 'bin', 'agentbox');
 const P = 'hello-stack';
@@ -195,7 +200,7 @@ function serveIncus(socket, name) {
       res.setHeader('Content-Type', 'application/json');
       const u = new URL(req.url, 'http://incus');
       if (u.pathname === '/1.0') {
-        return void res.end(sync({ api_extensions: ['instance_get_full'], api_status: 'stable', api_version: '1.0', auth: 'trusted', public: false,
+        return void res.end(sync({ api_extensions: ['instances', 'container_full', 'instance_get_full'], api_status: 'stable', api_version: '1.0', auth: 'trusted', public: false,
           auth_methods: ['tls'], environment: { server_name: 'stub', project: 'default', server_version: '6.0', storage: 'btrfs' }, config: {} }));
       }
       if (u.pathname === '/1.0/instances') return void res.end(sync(u.searchParams.get('recursion') ? [instance] : [`/1.0/instances/${name}`]));
@@ -226,6 +231,77 @@ async function waitFor(what, cond, ms = 200_000) {
   }
   log('timed out waiting for', what);
   return false;
+}
+
+// shots drives the real app against this daemon: the agent's pull request in
+// the rail, the Pull requests tab, what the agent was told, and both settings.
+async function shots() {
+  const { _electron: electron } = createRequire(join(desktop, 'package.json'))('playwright');
+  mkdirSync(media, { recursive: true });
+  execFileSync('npm', ['run', 'build'], { cwd: desktop, stdio: 'inherit' });
+  const x = await startXvfb({ width: 1500, height: 940 });
+  const app = await electron.launch({
+    args: ['.', '--no-sandbox', '--disable-gpu', '--disable-software-rasterizer'],
+    cwd: desktop,
+    env: { ...env, DISPLAY: x.display, XDG_SESSION_TYPE: 'x11' },
+  });
+  try {
+    const page = await app.firstWindow();
+    await page.waitForLoadState('domcontentloaded');
+    // agent-01's chat can't start without a machine, so the rail files it
+    // under Finished, which is folded until opened.
+    await page.evaluate(() => localStorage.setItem('agentbox.rail.finished', '1'));
+    await page.reload();
+    await sleep(3000);
+    const shot = async (name) => {
+      await page.screenshot({ path: join(media, `pr-watch-${name}.png`) });
+      log('screenshot', `pr-watch-${name}.png`);
+    };
+    const tab = (name) => page.getByRole('tab', { name }).first().click({ timeout: 8000 });
+
+    await page.locator('aside, nav').getByText(P, { exact: true }).first().click({ timeout: 15000 });
+    await sleep(2500);
+    const badge = page.locator('[data-rail-pr="12"]').first();
+    check('the rail shows #12 conflicting', (await page.locator('[data-rail-pr-conflict]').count()) > 0);
+    await badge.hover({ timeout: 10000 }).catch(async () => log('no #12 in the rail; the page says:', (await page.locator('body').innerText()).slice(0, 2500).replaceAll('\n', ' | ')));
+    await sleep(1200);
+    await shot('01-rail');
+
+    await tab(/pull requests/i);
+    await sleep(2500);
+    check('the Pull requests tab shows the conflict', (await page.getByText('conflicts', { exact: true }).count()) > 0);
+    await shot('02-pull-requests-tab');
+
+    await page.locator('[data-agent="hello-stack/agent-01"]').first().click({ timeout: 8000 });
+    await sleep(2500);
+    await tab(/chat/i).catch(() => {});
+    await sleep(1500);
+    await page.getByText(/It conflicts with/).first().scrollIntoViewIfNeeded().catch(() => {});
+    check('agent-01\'s chat shows what it was told', (await page.getByText(/AgentBox is watching your pull request #12/).count()) > 0);
+    await shot('03-agent-chat');
+
+    await page.locator('aside, nav').getByText(P, { exact: true }).first().click({ timeout: 8000 });
+    await sleep(1500);
+    await tab(/overview/i);
+    await sleep(1000);
+    await tab(/^settings$/i);
+    await sleep(1500);
+    await page.locator('[data-project-pr-watch]').scrollIntoViewIfNeeded();
+    await shot('04-project-setting');
+
+    await page.locator('aside, nav').getByText('Settings', { exact: true }).first().click({ timeout: 8000 });
+    await sleep(2000);
+    await page.getByRole('button', { name: /show settings/i }).click({ timeout: 3000 }).catch(() => {});
+    await sleep(1000);
+    await tab(/agents/i);
+    await sleep(1000);
+    await page.locator('[data-pr-watch]').first().scrollIntoViewIfNeeded();
+    check('Settings has the watch, on', (await page.locator('[data-pr-watch][data-state="checked"]').count()) > 0);
+    await shot('05-settings');
+  } finally {
+    await app.close().catch(() => {});
+    x.stop();
+  }
 }
 
 async function main() {
@@ -286,6 +362,8 @@ async function main() {
 
   const looks = gh.calls().filter((c) => c.startsWith('POST /graphql')).length;
   log(`GitHub was asked ${looks} time(s) by the watch, one request per look`);
+
+  if (process.env.APP) await shots();
 
   if (process.env.KEEP) {
     console.log(`\nKept running. Start the app against it with:\n  XDG_CONFIG_HOME=${env.XDG_CONFIG_HOME} XDG_DATA_HOME=${env.XDG_DATA_HOME} AGENTBOX_PREVIEW_ADDR=off npm --prefix desktop start\nMove the pull request with: curl ${gh.url}/__set/<pending|passing|failing|conflict|merged>\nStop with: XDG_DATA_HOME=${env.XDG_DATA_HOME} ${bin} daemon stop; kill ${gh.proc.pid}`);
