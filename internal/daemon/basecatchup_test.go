@@ -89,7 +89,7 @@ func TestCatchUpNote(t *testing.T) {
 func TestTailWriterKeepsTheLastLines(t *testing.T) {
 	w := &tailWriter{max: 16}
 	for i := range 10 {
-		fmt.Fprintf(w, "line %d\n", i)
+		_, _ = fmt.Fprintf(w, "line %d\n", i)
 	}
 	if got := w.String(); got != "line 8\nline 9\n" {
 		t.Errorf("tail = %q", got)
