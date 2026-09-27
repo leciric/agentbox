@@ -844,3 +844,64 @@ func TestSetupReportsARejectedClaudeToken(t *testing.T) {
 		t.Error("the new token has no saved date")
 	}
 }
+
+// A project can start from a repository AgentBox makes: a new folder on main
+// with an initial commit, so there's something to branch agents from. A
+// folder with files in it is only committed when asked, and a refusal leaves
+// nothing behind.
+func TestAddProjectCreatesARepository(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	parent := t.TempDir()
+
+	fresh := filepath.Join(parent, "My App")
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: fresh, Create: true})
+	if err != nil || p.Name != "my-app" || p.Root != fresh || p.Branch != "main" {
+		t.Fatalf("AddProject(create) = %+v, %v", p, err)
+	}
+	if got := testutil.Git(t, fresh, "log", "--format=%s"); got != "Initial commit" {
+		t.Errorf("log = %q", got)
+	}
+
+	// Taken names are refused before the folder is made.
+	taken := filepath.Join(parent, "taken")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: taken, Name: "my-app", Create: true}); err == nil || !strings.Contains(err.Error(), "already a project called my-app") {
+		t.Errorf("AddProject(taken name) = %v", err)
+	}
+	if _, err := os.Stat(taken); err == nil {
+		t.Error("the refused project's folder was made anyway")
+	}
+
+	// A folder with files in it says so, and is committed only when asked.
+	notes := filepath.Join(parent, "notes")
+	if err := os.MkdirAll(notes, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(notes, "todo.md"), []byte("- ship\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.client.AddProject(ctx, api.AddProjectRequest{Path: notes, Create: true})
+	if !api.HasReason(err, api.ErrorFolderNotEmpty) {
+		t.Fatalf("AddProject(non-empty) = %v, want %s", err, api.ErrorFolderNotEmpty)
+	}
+	if p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: notes, Create: true, CommitFiles: true}); err != nil || p.Name != "notes" {
+		t.Fatalf("AddProject(commit files) = %+v, %v", p, err)
+	}
+	if got := testutil.Git(t, notes, "ls-tree", "--name-only", "HEAD"); got != "todo.md" {
+		t.Errorf("committed %q", got)
+	}
+
+	// A repository that already has commits is added as it is.
+	existing := d.fixtureRepo(t, "hello-stack")
+	if p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: existing, Name: "existing", Create: true}); err != nil || p.Root != existing {
+		t.Errorf("AddProject(existing repository) = %+v, %v", p, err)
+	}
+	// A folder inside one isn't made.
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: filepath.Join(existing, "sub"), Name: "nested", Create: true}); err == nil || !strings.Contains(err.Error(), "inside the repository") {
+		t.Errorf("AddProject(nested) = %v", err)
+	}
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: "relative/path", Create: true}); err == nil || !strings.Contains(err.Error(), "isn't a full path") {
+		t.Errorf("AddProject(relative) = %v", err)
+	}
+}

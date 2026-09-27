@@ -29,6 +29,8 @@ export interface AddProjectRequest {
   claudeAccount?: string;
   githubAccount?: string;
   copyToLinux?: boolean;
+  create?: boolean;
+  commitFiles?: boolean;
 }
 
 export interface UpdateProjectRequest {
@@ -451,6 +453,7 @@ export interface Self {
 
 export interface Error {
   error: string;
+  code?: string;
 }
 
 export interface TerminalResize {
@@ -1518,6 +1521,7 @@ export const SetupOutdated = "outdated";
 export const SetupOptional = "optional";
 export const SetupUpdating = "updating";
 export const InAgentSocket = "/run/agentbox.sock";
+export const ErrorFolderNotEmpty = "folder-not-empty";
 export const LeadName = "lead";
 export const AgentModelAuto = "auto";
 export const ConsolidationModelCheap = "cheap";

@@ -48,7 +48,7 @@ var tsConstants = [][2]string{
 	{"JobRunning", JobRunning}, {"JobSucceeded", JobSucceeded}, {"JobFailed", JobFailed}, {"JobCancelled", JobCancelled},
 	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventPulls", EventPulls}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate},
 	{"SetupOK", SetupOK}, {"SetupMissing", SetupMissing}, {"SetupOutdated", SetupOutdated}, {"SetupOptional", SetupOptional}, {"SetupUpdating", SetupUpdating},
-	{"InAgentSocket", InAgentSocket},
+	{"InAgentSocket", InAgentSocket}, {"ErrorFolderNotEmpty", ErrorFolderNotEmpty},
 	{"LeadName", LeadName}, {"AgentModelAuto", AgentModelAuto},
 	{"ConsolidationModelCheap", ConsolidationModelCheap}, {"ConsolidationModelChat", ConsolidationModelChat},
 	{"EventChat", EventChat}, {"EventChatCache", EventChatCache}, {"EventQuestion", EventQuestion}, {"EventAgentEvent", EventAgentEvent},

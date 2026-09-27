@@ -21,6 +21,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
 	"agentbox/internal/credentials"
+	"agentbox/internal/gitrepo"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/memory"
@@ -501,7 +502,11 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, state.ErrExists):
 		status = http.StatusConflict
 	}
-	_ = writeJSON(w, status, api.Error{Error: err.Error()})
+	body := api.Error{Error: err.Error()}
+	if errors.Is(err, gitrepo.ErrNotEmpty) {
+		body.Code = api.ErrorFolderNotEmpty
+	}
+	_ = writeJSON(w, status, body)
 }
 
 func readJSON(r *http.Request, v any) error {

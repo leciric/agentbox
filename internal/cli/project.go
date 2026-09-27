@@ -14,11 +14,20 @@ import (
 
 func newAddCmd(a *app) *cobra.Command {
 	var name, claudeAccount, githubAccount string
-	var copyToLinux bool
+	var copyToLinux, create, commitFiles bool
 	cmd := &cobra.Command{
 		Use:   "add <path>",
 		Short: "Register a git repository as a project",
-		Args:  cobra.ExactArgs(1),
+		Long: `Register a git repository as a project.
+
+With --new, <path> is a repository to start: AgentBox makes the folder, runs
+git init on main and makes an initial commit, so agents have a commit to branch
+from, then registers it. A folder that is already a repository with commits is
+added as it is; one with files in it and no commits is only committed with
+--commit-files.`,
+		Example: `  agentbox add ~/code/my-app
+  agentbox add --new ~/code/my-new-app`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path, err := filepath.Abs(args[0])
 			if err != nil {
@@ -30,7 +39,11 @@ func newAddCmd(a *app) *cobra.Command {
 			}
 			p, err := c.AddProject(cmd.Context(), api.AddProjectRequest{
 				Path: path, Name: name, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CopyToLinux: copyToLinux,
+				Create: create, CommitFiles: commitFiles,
 			})
+			if api.HasReason(err, api.ErrorFolderNotEmpty) {
+				return fmt.Errorf("%w: add --commit-files to make them its initial commit", err)
+			}
 			if err != nil {
 				return err
 			}
@@ -51,6 +64,8 @@ func newAddCmd(a *app) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "project name (default: derived from the directory name)")
 	cmd.Flags().StringVar(&claudeAccount, "claude-account", "", "Claude Code account its agents use (default: this machine's default account)")
 	cmd.Flags().StringVar(&githubAccount, "github-account", "", "GitHub account its agents use (default: this machine's default account)")
+	cmd.Flags().BoolVar(&create, "new", false, "make <path> a new repository, on main with an initial commit, and add that")
+	cmd.Flags().BoolVar(&commitFiles, "commit-files", false, "with --new, commit the files already in <path> as the initial commit")
 	cmd.Flags().BoolVar(&copyToLinux, "copy", false, "in WSL, add a clone in ~/src/<name> of a repository on a Windows drive, rather than refusing it")
 	return cmd
 }
