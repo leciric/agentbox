@@ -497,7 +497,7 @@ func prFixMessage(pr github.WatchedPR, problems []prProblem) string {
 	for _, problem := range problems {
 		switch problem {
 		case prConflict:
-			fmt.Fprintf(&b, "\n- It conflicts with `%s`. `git fetch origin`, rebase your branch on `origin/%s`, resolve the conflicts keeping both sides' intent, and run the tests.", pr.BaseBranch, pr.BaseBranch)
+			fmt.Fprintf(&b, "\n- It conflicts with `%s`. Don't resolve it on your own model: hand it to a Sonnet subagent with your Agent tool — `git fetch origin`, bring `origin/%s` into your branch, resolve the conflicts keeping both sides' intent, regenerate goldens and generated files, and rerun the tests — then check its result.", pr.BaseBranch, pr.BaseBranch)
 		case prChecks:
 			fmt.Fprintf(&b, "\n- Its checks are failing on %s:", shortSHA(pr.HeadSHA))
 			for _, c := range pr.Failing {

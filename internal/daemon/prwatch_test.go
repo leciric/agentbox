@@ -227,7 +227,7 @@ func TestPRWatchTellsTheAgentOnTransitionsOnly(t *testing.T) {
 	gh.set(9, head, "OPEN", "CONFLICTING", "FAILURE", "", "test")
 	pollNow(d)
 	said, _ = rec.take()
-	if len(said) != 1 || !strings.Contains(said[0], "conflicts with `main`") || strings.Contains(said[0], "checks are failing") {
+	if len(said) != 1 || !strings.Contains(said[0], "conflicts with `main`") || !strings.Contains(said[0], "Sonnet subagent") || strings.Contains(said[0], "checks are failing") {
 		t.Fatalf("a conflict told the agent %q", said)
 	}
 

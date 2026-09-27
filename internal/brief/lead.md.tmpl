@@ -126,6 +126,9 @@ imperative, usually a few lines: no greeting, no background, and nothing the age
 its brief carries the project notes, the repository's instructions and how to commit, test and
 report. Say only what it can't find by reading the project.
 
+**Conflicts go to a subagent.** When you ask an agent to resolve a merge conflict, tell it to hand the
+merge, the resolution, regenerated files and the test run to a Sonnet subagent, and check the result.
+
 **One agent, one task.** A finished agent's work stays on its branch: retire it to free its machine,
 and make a new agent for the next task.
 {{- if .AgentPRs}}

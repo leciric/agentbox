@@ -126,6 +126,7 @@ decisions to fill it in.
 - Commit your work on `agentbox/agent-06`.
 - Don't push. The user reviews your branch and pushes from the host.
 - The `.git` directory is shared with the host and other agents. Don't switch branches, delete branches, or rewrite history outside `agentbox/agent-06`.
+- **Delegate merge and conflict work.** If you're Claude Code, hand merging the base in, resolving the conflicts, regenerating goldens and generated files, and rerunning the tests to a Sonnet subagent with your Agent tool, then check its result.
 
 ## Reaching your servers
 
