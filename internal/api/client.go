@@ -259,6 +259,13 @@ func (c *Client) SetNesting(ctx context.Context, project string, on bool) (Proje
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Nesting: &on}, &out)
 }
 
+// SetAgentPRs sets whether a project's agents push their own branch and open
+// their own pull request when they finish.
+func (c *Client) SetAgentPRs(ctx context.Context, project string, on bool) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentPRs: &on}, &out)
+}
+
 // SetContextBudget sets how many estimated tokens one context built from a
 // project's memory may cost (D75).
 func (c *Client) SetContextBudget(ctx context.Context, project string, tokens int) (Project, error) {
@@ -462,6 +469,21 @@ func (c *Client) Media(ctx context.Context, ref string) ([]MediaItem, error) {
 func (c *Client) MediaItem(ctx context.Context, id string) (MediaItem, error) {
 	var item MediaItem
 	return item, c.do(ctx, http.MethodGet, "/v1/media/"+url.PathEscape(id), nil, &item)
+}
+
+// MediaFile opens an item's file: any item on the host API (ref is only
+// checked there by the caller), and only the caller's own on the in-agent API
+// (ref ""). The caller closes it.
+func (c *Client) MediaFile(ctx context.Context, ref, id string) (io.ReadCloser, error) {
+	path := "/v1/media/" + url.PathEscape(id) + "/file"
+	if ref == "" {
+		path = "/v1/self/media/" + url.PathEscape(id) + "/file"
+	}
+	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
 }
 
 func (c *Client) DeleteMedia(ctx context.Context, id string) error {

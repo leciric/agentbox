@@ -42,6 +42,19 @@ func TestRender(t *testing.T) {
 			IP:       "10.239.149.26",
 			Nesting:  true,
 		},
+		// A project that lets its agents push their own branch and open their
+		// own pull request: the Git and GitHub sections say so instead of
+		// "don't push".
+		"agent-prs": {
+			Project:  "pawly",
+			Agent:    "agent-07",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-07",
+			Branch:   "agentbox/feat-csv-export",
+			BaseRef:  "main",
+			IP:       "10.239.149.27",
+			GitHub:   true,
+			AgentPRs: true,
+		},
 		"secrets": {
 			Project:  "pawly",
 			Agent:    "agent-04",
@@ -168,6 +181,73 @@ func TestRenderLeadGolden(t *testing.T) {
 				t.Errorf("RenderLead() mismatch (run with -update to accept)\n--- got ---\n%s\n--- want ---\n%s", got, want)
 			}
 		})
+	}
+}
+
+// TestRenderLeadAgentPRs checks the lead's part in a project whose agents open
+// their own pull requests: it stops pushing for them and retires them once
+// the PR is open. Off, the brief says nothing about it, as before.
+func TestRenderLeadAgentPRs(t *testing.T) {
+	lead := func(on bool) string {
+		t.Helper()
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly",
+			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			BaseRef:  "main", Autonomy: "ask", CanSpawn: true, AgentPRs: on,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	const says = "**This project's agents push their own branch and open their own pull request**"
+	on, off := lead(true), lead(false)
+	for _, want := range []string{says, "once an agent's pull request is open, retire it"} {
+		if !strings.Contains(on, want) {
+			t.Errorf("on: the lead's brief doesn't say %q", want)
+		}
+	}
+	if strings.Contains(off, says) {
+		t.Errorf("off: the lead's brief says agents open their own pull requests")
+	}
+	// Whoever opens the pull request puts the agent's media in it.
+	if !strings.Contains(off, "agentbox media publish pawly/<agent> --name") || strings.Contains(on, "agentbox media publish pawly/") {
+		t.Errorf("only the lead that opens pull requests itself is told to publish the agent's media")
+	}
+}
+
+// TestRenderAgentPRs checks both sides of the agent's Git section: told to
+// push and open a pull request when the project allows it, told not to push
+// when it doesn't, and never allowed to push to the base branch or merge.
+func TestRenderAgentPRs(t *testing.T) {
+	render := func(on bool) string {
+		t.Helper()
+		got, err := brief.Render(brief.Data{
+			Project: "pawly", Agent: "agent-02", Branch: "agentbox/feat-x", BaseRef: "main",
+			Worktree: "/w", GitHub: true, AgentPRs: on,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	on, off := render(true), render(false)
+	for _, want := range []string{"push `agentbox/feat-x` to `origin` and open a pull request",
+		"conventional commit", "agentbox media publish --name", "Never push to `main`, merge or close a pull request"} {
+		if !strings.Contains(on, want) {
+			t.Errorf("on: the brief doesn't say %q", want)
+		}
+	}
+	for _, not := range []string{"Don't push.", "**Don't push, and don't open"} {
+		if strings.Contains(on, not) {
+			t.Errorf("on: the brief still says %q", not)
+		}
+		if !strings.Contains(off, not) {
+			t.Errorf("off: the brief no longer says %q", not)
+		}
+	}
+	if strings.Contains(off, "open a pull request") {
+		t.Errorf("off: the brief tells the agent to open a pull request")
 	}
 }
 

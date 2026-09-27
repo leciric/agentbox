@@ -49,7 +49,7 @@ func projectInfo(p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, CreatedAt: p.CreatedAt}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -400,6 +400,18 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		p.Nesting = *req.Nesting
 	}
+	if req.AgentPRs != nil {
+		if err := s.store.SetProjectAgentPRs(r.Context(), p.Name, *req.AgentPRs); err != nil {
+			return err
+		}
+		p.AgentPRs = *req.AgentPRs
+		// Both sides of it are in briefs: the agents' Git section and the
+		// lead's, which stops pushing for them. Rewritten now so an agent
+		// started from here on, and the lead's next turn, read the new one.
+		if err := s.manager(nil).RewriteBriefs(r.Context(), p.Name); err != nil {
+			s.logf("rewriting %s's briefs after an agent PRs change: %v", p.Name, err)
+		}
+	}
 	return writeJSON(w, http.StatusOK, projectInfo(p))
 }
 
@@ -511,6 +523,7 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		Host:     hostos.Name(),
 		Notes:    projectNotes,
 		Nesting:  p.Nesting,
+		AgentPRs: p.AgentPRs,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,

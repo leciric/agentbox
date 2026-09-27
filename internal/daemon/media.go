@@ -180,6 +180,29 @@ func (s *Server) mediaFile(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	return s.serveMediaFile(w, r, item)
+}
+
+// selfMediaFile is mediaFile on an agent's own socket, for its own items only:
+// what agentbox media publish reads to put them in a pull request.
+func (s *Server) selfMediaFile(self func(*http.Request) (state.Agent, error)) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := self(r)
+		if err != nil {
+			return err
+		}
+		item, err := s.store.MediaItem(r.Context(), r.PathValue("id"))
+		if err != nil {
+			return err
+		}
+		if item.Project != a.Project || item.Agent != a.Name {
+			return fmt.Errorf("media %s: %w", item.ID, state.ErrNotFound)
+		}
+		return s.serveMediaFile(w, r, item)
+	}
+}
+
+func (s *Server) serveMediaFile(w http.ResponseWriter, r *http.Request, item state.Media) error {
 	root := s.manager(nil).MediaPath(item)
 	if root == "" {
 		return fmt.Errorf("media %s is a note, with no file: %w", item.ID, state.ErrNotFound)

@@ -29,6 +29,7 @@ export function ProjectSettings({ project }: { project: T.Project }) {
         <AgentModelPicker project={project} />
         {/* Keyed on the saved value, so a save (or another client's) starts the draft over. */}
         <BranchPrefixField key={project.branchPrefix} project={project} />
+        <AgentPRsToggle project={project} />
       </SettingsGroup>
       <SettingsGroup title="Project chat" description={`How much the ${project.name} chat does on its own.`}>
         <AutonomyToggle project={project} />
@@ -311,6 +312,42 @@ function AutonomyToggle({ project }: { project: T.Project }) {
           checked={acts}
           disabled={save.isPending}
           onCheckedChange={(on) => save.mutate(on ? 'on' : 'ask')}
+        />
+      }
+    />
+  );
+}
+
+// AgentPRsToggle lets this project's agents push their own branch and open
+// their own pull request when they finish, and tells the lead to stop doing it
+// for them. Off by default: a push publishes, with the user's GitHub token.
+function AgentPRsToggle({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentPRs: boolean) => api.updateProject(project.name, { agentPRs }),
+    onSuccess: async (updated) => {
+      toast(updated.agentPRs ? `${updated.name}'s agents now open their own pull requests` : `${updated.name}'s agents no longer push`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Agents push and open pull requests"
+      htmlFor="project-agent-prs"
+      description={
+        project.agentPRs
+          ? 'An agent pushes its branch and opens a pull request when it finishes, and the chat retires it once the PR is open. It never pushes to the base branch, merges or closes anything.'
+          : "Agents commit on their branch and don't push: you or the project's chat push it and open the pull request."
+      }
+      control={
+        <Switch
+          id="project-agent-prs"
+          data-project-agent-prs
+          checked={project.agentPRs}
+          disabled={save.isPending}
+          onCheckedChange={(on) => save.mutate(on)}
         />
       }
     />

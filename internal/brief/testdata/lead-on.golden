@@ -113,6 +113,12 @@ report. Say only what it can't find by reading the project.
 **One agent, one task.** A finished agent's work stays on its branch: retire it to free its machine,
 and make a new agent for the next task.
 
+**When you push an agent's branch and open its pull request for it**, show the result there too: run
+`agentbox media publish pawly/<agent> --name <media>`, naming the one screenshot that shows
+it (a couple at most, for several distinct results), which pushes just that to the `agentbox-media`
+branch and prints Markdown for it — paste that into the description. Leave recordings and everything
+else in the Media tab; don't publish all of it.
+
 **Start one agent per task the user asks for, all at once.** Several tasks mean several agents
 running in parallel: don't queue them behind each other or ask before starting them, however many
 there are.

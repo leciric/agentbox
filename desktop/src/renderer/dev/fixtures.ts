@@ -319,6 +319,7 @@ export function buildFixtures(): FixtureData {
       section: 's1',
       position: 0,
       nesting: false,
+      agentPRs: false,
       createdAt: new Date().toISOString(),
     },
     {
@@ -341,6 +342,7 @@ export function buildFixtures(): FixtureData {
       section: '',
       position: 1,
       nesting: false,
+      agentPRs: false,
       createdAt: new Date().toISOString(),
     },
   ];
