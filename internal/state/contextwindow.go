@@ -302,7 +302,7 @@ func ContextWindowOption(windows []int64, value string) (api.ChatOption, bool) {
 	for i, n := range windows {
 		ch := api.ChatOptionChoice{Value: strconv.FormatInt(n, 10), Name: FormatContextWindow(n)}
 		if i == 0 {
-			ch.Description = "Compacts at " + FormatContextWindow(n) + ", the window every chat has in Settings → Agents."
+			ch.Description = "Compacts at " + FormatContextWindow(n) + ", the window every chat has in Settings → Models."
 		} else {
 			ch.Description = "The model's whole window. Late in a long task every step resends up to " + FormatContextWindow(n) + " tokens."
 		}

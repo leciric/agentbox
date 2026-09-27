@@ -964,7 +964,7 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	if err := s.manager(nil).ChatChoices(r.Context(), req.AI, req.Model, req.Effort); err != nil {
 		return err
 	}
-	// The lead is held to Settings → Agents: the model and window chosen there
+	// The lead is held to Settings → Models: the model and window chosen there
 	// are either the only ones it may give an agent or the most it may, and
 	// the error tells it which, so it can ask again rather than have its
 	// choice quietly changed. The user, in the dialog or the command line,

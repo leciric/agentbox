@@ -1822,6 +1822,11 @@ const (
 	FeatureSettingsAccounts    = "settings.view.accounts"
 	FeatureSettingsLead        = "settings.view.lead"
 	FeatureSettingsAgents      = "settings.view.agents"
+	FeatureSettingsGeneral     = "settings.view.general"
+	FeatureSettingsModels      = "settings.view.models"
+	FeatureSettingsResources   = "settings.view.resources"
+	FeatureSettingsProject     = "settings.view.project"
+	FeatureSettingsSearch      = "settings.search"
 	FeatureMenuOpenChat        = "menu.agent.open_chat"
 	FeatureMenuOpenTerminal    = "menu.agent.open_terminal"
 	FeatureMenuInfo            = "menu.agent.info"
@@ -1837,6 +1842,7 @@ var AppFeatures = []string{
 	FeatureDesktopOpen, FeatureTerminalOpen, FeatureAndroidOpen, FeatureAgentMediaView, FeatureProjectMediaView,
 	FeaturePullList, FeatureMemoryView, FeatureTokensView,
 	FeatureSettingsEnvironment, FeatureSettingsAccounts, FeatureSettingsLead, FeatureSettingsAgents,
+	FeatureSettingsGeneral, FeatureSettingsModels, FeatureSettingsResources, FeatureSettingsProject, FeatureSettingsSearch,
 	FeatureMenuOpenChat, FeatureMenuOpenTerminal, FeatureMenuInfo, FeatureMenuLifecycle, FeatureMenuRetire,
 	FeatureMenuCopyBranch, FeatureMenuOpenPullRequest, FeatureMenuDestroy,
 }

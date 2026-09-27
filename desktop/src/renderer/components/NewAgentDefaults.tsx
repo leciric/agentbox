@@ -28,9 +28,11 @@ export type Role = 'agents' | 'lead';
 const roles = {
   agents: {
     title: 'Model for new agents',
-    about: "What a new Claude Code agent starts on, in every project. Agents you've already made keep the model they have.",
+    about: 'What a new Claude Code agent starts on, in every project.',
+    more: "Agents you've already made keep the model they have. A project can pick its own in its settings, and what you pick as you create an agent wins over both.",
     windowTitle: 'Context window for new agents',
-    windowAbout: "Where a new Claude Code agent's chat compacts. Agents you've already made keep the window they have.",
+    windowAbout: "Where a new Claude Code agent's chat compacts.",
+    windowMore: "Agents you've already made keep the window they have.",
     empty: { value: '', name: 'AgentBox default', description: 'Opus' },
     emptyModel: 'opus',
     model: (s: T.Settings) => s.defaultClaudeModel,
@@ -39,10 +41,12 @@ const roles = {
     saveWindow: (window: string): T.UpdateSettingsRequest => ({ defaultAgentContextWindow: window }),
   },
   lead: {
-    title: "Model for the lead",
-    about: "What each project's chat runs on, unless you pick another in its composer. Leads you already have move to it the next time their chat starts.",
-    windowTitle: "Context window for the lead",
-    windowAbout: 'Where the lead\'s chat compacts, unless you pick another in its composer. Applies from its next session.',
+    title: 'Model for the lead',
+    about: "What each project's chat runs on.",
+    more: 'Unless you pick another in its composer, which wins for that project. Leads you already have move to it the next time their chat starts.',
+    windowTitle: 'Context window for the lead',
+    windowAbout: "Where each project's chat compacts.",
+    windowMore: 'Unless you pick another in its composer. Applies from its next session.',
     empty: { value: '', name: "Claude Code's default", description: 'Whatever Claude Code picks for the account' },
     emptyModel: 'default',
     model: (s: T.Settings) => s.defaultLeadModel,
@@ -107,6 +111,7 @@ export function DefaultModel({ role }: { role: Role }) {
     <SettingRow
       label={r.title}
       description={r.about}
+      details={r.more}
       control={
         <Menu onOpenChange={(open) => !open && setQuery('')}>
           <MenuTrigger asChild>
@@ -222,8 +227,14 @@ export function DefaultContextWindow({ role }: { role: Role }) {
       label={r.windowTitle}
       description={
         <>
-          {r.windowAbout} Past the compact window every step resends the whole conversation, so 1M costs up to five times as much per step late in a long task.
+          {r.windowAbout}
           {settings.data && !hasFull && ' This model has no 1M window.'}
+        </>
+      }
+      details={
+        <>
+          {r.windowMore} Past the compact window every step resends the whole conversation, so 1M costs up to five times as much per step late in a long
+          task.
         </>
       }
       control={
@@ -269,10 +280,12 @@ export function NewAgentEffort() {
       label="Effort for new agents"
       description={
         <>
-          How hard a new Claude Code agent thinks. Not every model has effort levels, and one that doesn't simply ignores this.
+          How hard a new Claude Code agent thinks.
           {settings.data && !settings.data.claudeMenuKnown && ' The levels are here once a Claude Code chat has started.'}
         </>
       }
+      details="Not every model has effort levels, and one that doesn't simply ignores this."
+
       control={
         <Select
           data-default-effort
@@ -296,7 +309,7 @@ export function NewAgentEffort() {
   );
 }
 
-// NewAgentResources caps what a new agent's machine may take from the host.
+// NewAgentResources caps the cores and memory a new agent's machine may take from the host.
 // This is the setting that decides whether an agent running a build or a test
 // suite costs you your desktop, so it sits with the other two: like them it
 // says what you want an agent to cost, which doesn't change from one
@@ -323,38 +336,35 @@ export function NewAgentResources() {
       label="Resources for new agents"
       description={
         <>
-          Each limit is per agent, not a pool shared by all of them: three agents at 4 cores on an 8-core host each see 4, and share the host's 8. Empty
-          means no limit. Changes apply to new agents only — change an existing one on its Overview tab.{' '}
+          The most CPU and memory each new agent's machine may take.{' '}
           <span className="text-tertiary">
             This host has {cores || '—'} cores and {memory ? humanBytes(memory) : '—'} of memory.
           </span>
         </>
       }
+      details={
+        <>
+          Each limit is per agent, not a pool shared by all of them: three agents at 4 cores on an 8-core host each see 4, and share the host's 8. Empty
+          means no limit. Changes apply to new agents only — change an existing one on its Overview tab. Past the memory ceiling the kernel kills processes
+          inside the agent, which is kept out of the host's swap so it can't slow the host down first.
+        </>
+      }
     >
-      <div className="grid items-start gap-4 sm:grid-cols-3">
+      <div className="grid items-start gap-4 sm:grid-cols-2">
         <ResourceField
           id="default-cpu"
           label="CPU cores"
           placeholder="every core"
-          hint={`How many cores the agent sees and can use, even when the host is idle. A new installation starts at 2; empty is every core.${cores ? ` This host has ${cores}.` : ''}`}
+          hint="How many cores it sees, even when the host is idle. A new installation starts at 2."
           value={settings.data?.defaultCPU ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultCPU) => save.mutate({ defaultCPU })}
         />
         <ResourceField
-          id="default-cpu-allowance"
-          label="CPU share"
-          placeholder="all of it"
-          hint="50% only matters when agents compete for the CPU. 25ms/100ms is a hard ceiling, a quarter of one core, even on an idle host."
-          value={settings.data?.defaultCPUAllowance ?? ''}
-          disabled={save.isPending || settings.isPending}
-          onCommit={(defaultCPUAllowance) => save.mutate({ defaultCPUAllowance })}
-        />
-        <ResourceField
           id="default-memory"
           label="Memory"
           placeholder="all of it"
-          hint={`A hard ceiling. A new installation starts at 8GiB, or half the host's memory if that's less${settings.data?.seedMemory ? ` — ${settings.data.seedMemory} here` : ''}. Past it, the kernel kills processes inside the agent, which is kept out of the host's swap so it can't slow the host down first.`}
+          hint={`A hard ceiling. A new installation starts at 8GiB, or half the host's memory if that's less${settings.data?.seedMemory ? ` — ${settings.data.seedMemory} here` : ''}.`}
           value={settings.data?.defaultMemory ?? ''}
           disabled={save.isPending || settings.isPending}
           onCommit={(defaultMemory) => save.mutate({ defaultMemory })}
@@ -364,8 +374,38 @@ export function NewAgentResources() {
   );
 }
 
-// ResourceField is a text box that saves what you typed when you leave it, and
-// follows the stored value when that changes underneath.
+// NewAgentCPUShare is the third of the new agents' limits: the share of the
+// CPU a new agent gets (Incus limits.cpu.allowance). Most never change it —
+// cores and memory are what decide whether an agent costs you your desktop —
+// so Settings keeps it with the advanced ones.
+export function NewAgentCPUShare() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (defaultCPUAllowance: string) => api.updateSettings({ defaultCPUAllowance }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label="CPU share for new agents"
+      htmlFor="default-cpu-allowance"
+      description="How much of the CPU a new agent gets when agents compete for it."
+      details="50% only matters when agents compete for the CPU. 25ms/100ms is a hard ceiling, a quarter of one core, even on an idle host. Empty is all of it."
+      control={
+        <CommitInput
+          id="default-cpu-allowance"
+          placeholder="all of it"
+          value={settings.data?.defaultCPUAllowance ?? ''}
+          disabled={save.isPending || settings.isPending}
+          onCommit={(value) => save.mutate(value)}
+        />
+      }
+    />
+  );
+}
+
+// ResourceField is a labelled CommitInput.
 function ResourceField({
   id,
   label,
@@ -383,6 +423,28 @@ function ResourceField({
   disabled?: boolean;
   onCommit: (value: string) => void;
 }) {
+  return (
+    <Field label={label} htmlFor={id} hint={hint}>
+      <CommitInput id={id} placeholder={placeholder} value={value} disabled={disabled} onCommit={onCommit} />
+    </Field>
+  );
+}
+
+// CommitInput is a text box that saves what you typed when you leave it, and
+// follows the stored value when that changes underneath.
+function CommitInput({
+  id,
+  placeholder,
+  value,
+  disabled,
+  onCommit,
+}: {
+  id: string;
+  placeholder: string;
+  value: string;
+  disabled?: boolean;
+  onCommit: (value: string) => void;
+}) {
   const [draft, setDraft] = useState(value);
   const [edited, setEdited] = useState(false);
   // While you're typing, the box is yours; otherwise it shows what is stored.
@@ -392,27 +454,25 @@ function ResourceField({
     if (draft.trim() !== value) onCommit(draft.trim());
   };
   return (
-    <Field label={label} htmlFor={id} hint={hint}>
-      <Input
-        id={id}
-        data-setting={id}
-        disabled={disabled}
-        placeholder={placeholder}
-        value={shown}
-        onChange={(event) => {
-          setEdited(true);
-          setDraft(event.target.value);
-        }}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') event.currentTarget.blur();
-          if (event.key === 'Escape') {
-            setEdited(false);
-            event.currentTarget.blur();
-          }
-        }}
-      />
-    </Field>
+    <Input
+      id={id}
+      data-setting={id}
+      disabled={disabled}
+      placeholder={placeholder}
+      value={shown}
+      onChange={(event) => {
+        setEdited(true);
+        setDraft(event.target.value);
+      }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          setEdited(false);
+          event.currentTarget.blur();
+        }
+      }}
+    />
   );
 }
 
@@ -433,7 +493,8 @@ export function ResumeAfterLimit() {
   return (
     <SettingRow
       label="Resume after a usage limit"
-      description="When Claude Code stops an agent mid-turn because the account's usage is spent, wait for the limit to reset and ask it to carry on where it left off. Off, the turn stays failed until you send a message. Anything you do to the chat in the meantime — a message, stopping it, stopping the agent — calls the wait off."
+      description="When the Claude account's usage runs out mid-turn, carry on where it left off once the limit resets."
+      details="Off, the turn stays failed until you send a message. Anything you do to the chat in the meantime — a message, stopping it, stopping the agent — calls the wait off. It reaches the agents you already have."
       control={
         <Switch
           data-resume-after-limit
@@ -473,11 +534,11 @@ export function NeverFreezeCPU() {
       label="Never freeze my CPU"
       description={
         <>
-          Keeps every running agent's CPU cap adding up to at most this host's cores minus what you keep free, so the agents can't starve it between
-          them the way an uncapped build on all of them at once would.
-          {cores ? <span className="text-tertiary"> This host has {cores} cores.</span> : null}
+          Keeps the running agents' CPU caps adding up to less than this host's cores.
+          {cores ? <span className="text-tertiary"> This host has {cores}.</span> : null}
         </>
       }
+      details="They sum to at most this host's cores minus the ones you keep free, so the agents can't starve it between them the way an uncapped build on all of them at once would. It's worked out again whenever an agent starts, stops, pauses or resumes. An agent's own limit is never raised, and what you chose comes back once there's room, or once this is off."
       control={
         <Switch
           data-never-freeze-cpu
@@ -543,7 +604,8 @@ export function SharedBudget() {
   return (
     <SettingRow
       label="Shared agent budget"
-      description="Puts every agent under one memory, swap and CPU budget, so what an idle agent isn't using goes to a busy one, while the host keeps the rest. Each agent's own limits still hold inside it. Agents already running move in when they restart."
+      description="One memory, swap and CPU budget for all agents, so what an idle agent isn't using goes to a busy one."
+      details="The host keeps the rest. Each agent's own limits still hold inside it. Agents already running move in when they restart. The size starts at what AgentBox suggests for this host."
       control={
         <Switch
           data-shared-budget
@@ -555,60 +617,64 @@ export function SharedBudget() {
       }
     >
       <div className="grid gap-3">
-        <div className="grid items-start gap-4 sm:grid-cols-3">
-          <ResourceField
-            id="shared-budget-memory"
-            label="Memory"
-            placeholder={suggested.memory}
-            hint={`All agents together. Suggested: ${suggested.memory}.`}
-            value={b.memory}
-            disabled={busy}
-            onCommit={(sharedBudgetMemory) => save.mutate({ sharedBudgetMemory })}
-          />
-          {b.hostSwap > 0 && (
-            <ResourceField
-              id="shared-budget-swap"
-              label="Swap"
-              placeholder={suggested.swap}
-              hint={`Never 0: without swap, memory pressure stalls agents. Suggested: ${suggested.swap}.`}
-              value={b.swap}
-              disabled={busy}
-              onCommit={(sharedBudgetSwap) => save.mutate({ sharedBudgetSwap })}
-            />
-          )}
-          <ResourceField
-            id="shared-budget-cpu"
-            label="CPU cores"
-            placeholder={String(suggested.cpu)}
-            hint={`Shared by every agent. Suggested: ${suggested.cpu}.`}
-            value={String(b.cpu)}
-            disabled={busy}
-            onCommit={(value) => {
-              const n = value === '' ? 0 : Math.trunc(Number(value));
-              if (!Number.isFinite(n) || n < 0) {
-                toast.error('CPU cores is a whole number');
-                return;
-              }
-              save.mutate({ sharedBudgetCPU: n });
-            }}
-          />
-        </div>
-        <SettingNote>
-          <span data-shared-budget-why>{b.why}</span>
-          {b.chosen && (
-            <>
-              {' '}
-              <button
-                type="button"
-                className="text-secondary underline underline-offset-2 hover:text-primary disabled:opacity-50"
+        {b.on && (
+          <>
+            <div className="grid items-start gap-4 sm:grid-cols-3">
+              <ResourceField
+                id="shared-budget-memory"
+                label="Memory"
+                placeholder={suggested.memory}
+                hint={`All agents together. Suggested: ${suggested.memory}.`}
+                value={b.memory}
                 disabled={busy}
-                onClick={() => save.mutate({ sharedBudgetMemory: '', sharedBudgetSwap: '', sharedBudgetCPU: 0 })}
-              >
-                Use suggested
-              </button>
-            </>
-          )}
-        </SettingNote>
+                onCommit={(sharedBudgetMemory) => save.mutate({ sharedBudgetMemory })}
+              />
+              {b.hostSwap > 0 && (
+                <ResourceField
+                  id="shared-budget-swap"
+                  label="Swap"
+                  placeholder={suggested.swap}
+                  hint={`Never 0: without swap, memory pressure stalls agents. Suggested: ${suggested.swap}.`}
+                  value={b.swap}
+                  disabled={busy}
+                  onCommit={(sharedBudgetSwap) => save.mutate({ sharedBudgetSwap })}
+                />
+              )}
+              <ResourceField
+                id="shared-budget-cpu"
+                label="CPU cores"
+                placeholder={String(suggested.cpu)}
+                hint={`Shared by every agent. Suggested: ${suggested.cpu}.`}
+                value={String(b.cpu)}
+                disabled={busy}
+                onCommit={(value) => {
+                  const n = value === '' ? 0 : Math.trunc(Number(value));
+                  if (!Number.isFinite(n) || n < 0) {
+                    toast.error('CPU cores is a whole number');
+                    return;
+                  }
+                  save.mutate({ sharedBudgetCPU: n });
+                }}
+              />
+            </div>
+            <SettingNote>
+              <span data-shared-budget-why>{b.why}</span>
+              {b.chosen && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="text-secondary underline underline-offset-2 hover:text-primary disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => save.mutate({ sharedBudgetMemory: '', sharedBudgetSwap: '', sharedBudgetCPU: 0 })}
+                  >
+                    Use suggested
+                  </button>
+                </>
+              )}
+            </SettingNote>
+          </>
+        )}
         {b.on && !b.problem && (
           <SettingNote>
             {b.inside} running agent{b.inside === 1 ? ' is' : 's are'} inside it.
@@ -673,7 +739,8 @@ export function AutoStopIdle() {
   return (
     <SettingRow
       label="Auto-stop idle agents"
-      description="Stops a running or paused agent once nothing has happened on it for this long: no chat turn, no job, no waiting question or credential request, no terminal input and no recording. Keeps its worktree and branch, like stopping it by hand."
+      description="Stops an agent once nothing has happened on it for a while. Its worktree and branch stay."
+      details="Nothing means no chat turn, no job, no waiting question or credential request, no terminal input and no recording. It's the same as stopping it by hand, and applies to running and paused agents alike."
       control={
         <Switch
           data-auto-stop-idle
@@ -735,7 +802,8 @@ export function CompactWindow() {
   return (
     <SettingRow
       label="Compact chats at"
-      description="How full a Claude Code or Codex chat's context gets before it is summarised and carried on (OpenCode has no such setting). Every step an agent takes sends its whole conversation again, so this decides what long work costs per step — smaller spends less, larger forgets less. Applies from each chat's next session."
+      description="How full a chat's context gets before it's summarised and carried on. Smaller spends less, larger forgets less."
+      details="For Claude Code and Codex; OpenCode has no such setting. Every step an agent takes sends its whole conversation again, so this decides what long work costs per step. Applies from each chat's next session, the lead's included."
       control={
         <Select
           data-compact-window
@@ -785,7 +853,8 @@ export function MediaRetention() {
   return (
     <SettingRow
       label="Keep a removed agent's media for"
-      description="Screenshots, recordings and reports stay in the project's media view after their agent is destroyed — by you, or on its own once its pull request is merged or closed — and are purged when this runs out. An agent that still exists keeps all of its media."
+      description="How long an agent's screenshots, recordings and reports outlive it."
+      details="They stay in the project's Media after the agent is destroyed — by you, or on its own once its pull request is merged or closed — and are purged when this runs out. An agent that still exists keeps all of its media."
       control={
         <Select
           data-media-retention
@@ -830,7 +899,8 @@ export function OpenCodeInImage() {
   return (
     <SettingRow
       label="OpenCode in the base image"
-      description="Adds the OpenCode CLI, which is its own chat adapter, so agents can be created on it. About 120 MB, and turning it on rebuilds the image. Agents that already exist are unaffected."
+      description="Adds OpenCode to the base image, so agents can be created on it."
+      details="The OpenCode CLI is its own chat adapter. About 120 MB, and turning it on rebuilds the image. Agents that already exist are unaffected."
       control={
         <Switch
           data-image-opencode
@@ -842,7 +912,7 @@ export function OpenCodeInImage() {
       }
     >
       {wanted && !installed && job === null && (
-        <SettingNote tone="warning">The image doesn't have OpenCode yet: rebuild it in the Environment tab, or run agentbox image build.</SettingNote>
+        <SettingNote tone="warning">The image doesn't have OpenCode yet: rebuild it under Base image above, or run agentbox image build.</SettingNote>
       )}
       {job && <JobProgress jobId={job} onDone={() => void queryClient.invalidateQueries({ queryKey: ['setup'] })} />}
     </SettingRow>
@@ -876,7 +946,8 @@ export function GPUForAgents() {
   return (
     <SettingRow
       label="GPU for agents"
-      description={`Passes this host's ${kind} into every agent's container, so its browser, Chromium, Electron and Android emulator render on it instead of software. A recording of an agent's display also encodes on it when it's on.${restart}`}
+      description={`Passes this host's ${kind} into every agent, so its browser and emulator render on it instead of software.`}
+      details={`Chromium, Electron, Playwright and the Android emulator all render on it, and a recording of an agent's display encodes on it. It reaches the agents you already have the moment it changes.${restart}`}
       control={
         <Switch
           data-gpu-for-agents

@@ -157,10 +157,10 @@ POST https://agentbox.linting.dev/api/v1/usage
 A key names a feature and nothing about what it was used on: no names, paths, repositories,
 models, prompts or anything you typed. Counts the server has are deleted from `state.db`, and
 counts it never got are dropped after 31 days. Switch off **Share anonymous usage stats** under
-**Settings → Environment** to stop them and delete what wasn't sent yet; they are also off whenever
+**Settings → General** to stop them and delete what wasn't sent yet; they are also off whenever
 the update check is.
 
-**To turn the check off**, and the usage stats with it, switch off **Check for updates** in the app under **Settings → Environment**,
+**To turn the check off**, and the usage stats with it, switch off **Check for updates** in the app under **Settings → General**,
 or set `AGENTBOX_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` in the daemon's environment (restart it with
 `agentbox daemon stop` afterwards). Builds from source, which report version `dev`, never check.
 

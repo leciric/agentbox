@@ -113,7 +113,7 @@ type LeadData struct {
 	// state.AgentModelAuto, which asks the lead to choose one per task.
 	AgentModel string
 	// AgentDefaultModel and AgentDefaultWindow are what a Claude Code agent
-	// the lead creates starts on when it passes neither — Settings → Agents,
+	// the lead creates starts on when it passes neither — Settings → Models,
 	// or the model the project names — with the window written the way
 	// create_agent takes it ("200k", "1m"). EnforceAgentDefaults says they are
 	// the only model and window it may use; otherwise they are the most it

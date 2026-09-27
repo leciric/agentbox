@@ -8,7 +8,7 @@ import (
 	"agentbox/internal/state"
 )
 
-// What the lead may choose for the agents it creates, from Settings → Agents.
+// What the lead may choose for the agents it creates, from Settings → Models.
 // The model and the context window chosen there — or the model the project
 // names for its agents, which is the user's too — are either the only ones
 // the lead may use (EnforceAgentDefaults) or its ceiling: a cheaper model or a
@@ -68,7 +68,7 @@ func modelTier(model string) int {
 }
 
 // CheckLeadChoice checks the model and context window the lead asked
-// create_agent for — nil for one it left out — against Settings → Agents, and
+// create_agent for — nil for one it left out — against Settings → Models, and
 // says what to do instead when they break it. Only a Claude Code agent is
 // checked: the others have no such settings.
 func (m *Manager) CheckLeadChoice(ctx context.Context, p state.Project, ai string, model, window *string) error {
@@ -100,23 +100,23 @@ func (m *Manager) CheckLeadChoice(ctx context.Context, p state.Project, ai strin
 	}
 	if enforced {
 		if model != nil && runsOn != defModel {
-			return fmt.Errorf("the user enforces %s at %s in Settings → Agents for every agent you create, so %s isn't allowed: "+
+			return fmt.Errorf("the user enforces %s at %s in Settings → Models for every agent you create, so %s isn't allowed: "+
 				"leave model and context_window out", defModel, state.FormatContextWindow(defWindow), runsOn)
 		}
 		if window != nil && asked != defWindow {
-			return fmt.Errorf("the user enforces %s at %s in Settings → Agents for every agent you create, so a %s window isn't allowed: "+
+			return fmt.Errorf("the user enforces %s at %s in Settings → Models for every agent you create, so a %s window isn't allowed: "+
 				"leave model and context_window out", defModel, state.FormatContextWindow(defWindow), state.FormatContextWindow(asked))
 		}
 		return nil
 	}
 	if model != nil {
 		if have, ceiling := modelTier(runsOn), modelTier(defModel); have > 0 && ceiling > 0 && have > ceiling {
-			return fmt.Errorf("%s is above %s, the model chosen in Settings → Agents, which is the most you may use: "+
+			return fmt.Errorf("%s is above %s, the model chosen in Settings → Models, which is the most you may use: "+
 				"choose %s or a cheaper model, or leave model out", runsOn, defModel, defModel)
 		}
 	}
 	if window != nil && asked > defWindow {
-		return fmt.Errorf("a %s window is above %s, the context window chosen in Settings → Agents, which is the most you may use: "+
+		return fmt.Errorf("a %s window is above %s, the context window chosen in Settings → Models, which is the most you may use: "+
 			"choose %s or less, or leave context_window out", state.FormatContextWindow(asked), state.FormatContextWindow(defWindow), state.FormatContextWindow(defWindow))
 	}
 	return nil

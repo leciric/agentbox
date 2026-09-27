@@ -12,43 +12,172 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Select, SelectOption, selectTrigger } from './ui/select';
-import { SettingNote, SettingRow, SettingsGroup } from './ui/settings';
+import type { SettingGroup, SettingSection } from '../lib/settingsSearch';
+import { ClaudeAccountPicker, ClaudeAccountsPicker, GitHubAccountPicker } from './ProjectAccounts';
+import { SettingGroups } from './SettingsPage';
+import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
 
 // The settings that belong to one project rather than to the whole
-// installation: what its agents run on and are branched as, and how much its
-// chat does on its own.
-// They live on the project's Overview, beside the accounts its new agents get,
-// because that is where every other "this project's new agents…" choice is.
-// Laid out like Settings' own groups (ui/settings), so a setting looks the same
-// whichever page it is on.
+// installation: what its agents run on and with which accounts, what they do
+// with their pull requests, and how much its chat does on its own. They're a
+// section of Settings, under Projects, and the project's Overview draws the
+// same groups, so a setting looks the same and says the same whichever page
+// it's on.
+//
+// Each has a default every project starts on, which is how a row knows it's
+// been changed. A setting a project can leave to Settings (the model, the pull
+// request watch) says what Settings currently makes of it, so "the default"
+// is never a promise you have to go elsewhere to read.
+export function projectSettingGroups(project: T.Project): SettingGroup[] {
+  return [
+    {
+      id: 'agents',
+      title: 'New agents',
+      description: `What ${project.name} gives the agents it creates. Agents it already has keep what they were made with.`,
+      entries: [
+        {
+          id: 'model',
+          label: 'Model',
+          keywords: 'agents model claude opus sonnet haiku fable auto lead picks per task',
+          modified: project.agentModel !== '',
+          render: () => <AgentModelPicker project={project} />,
+        },
+        {
+          id: 'branch-prefix',
+          label: 'Branch prefix',
+          keywords: 'git branch name prefix agentbox/ slug',
+          advanced: true,
+          modified: project.branchPrefix !== 'agentbox/',
+          // Keyed on the saved value, so a save (or another client's) starts the draft over.
+          render: () => <BranchPrefixField key={project.branchPrefix} project={project} />,
+        },
+      ],
+    },
+    {
+      id: 'accounts',
+      title: 'Accounts',
+      description: 'The logins its new agents get, from the ones stored under Accounts.',
+      entries: [
+        {
+          id: 'claude-account',
+          label: 'Claude Code account',
+          keywords: 'claude login token anthropic subscription',
+          modified: project.claudeAccount !== '',
+          render: () => <ClaudeAccountPicker project={project} />,
+        },
+        {
+          id: 'claude-accounts',
+          label: 'Allowed accounts',
+          keywords: 'claude code accounts allow list which logins',
+          modified: project.claudeAccounts.length > 0,
+          render: () => <ClaudeAccountsPicker project={project} />,
+        },
+        {
+          id: 'github-account',
+          label: 'GitHub account',
+          keywords: 'github login token gh_token push pull requests',
+          modified: project.githubAccount !== '',
+          render: () => <GitHubAccountPicker project={project} />,
+        },
+      ],
+    },
+    {
+      id: 'repository',
+      title: 'Repository',
+      description: "How AgentBox keeps the project's base branch.",
+      entries: [
+        {
+          id: 'sync-base',
+          label: 'Keep main up to date with origin',
+          keywords: 'git fetch fast-forward main origin base branch sync stale up to date',
+          modified: !project.syncBase,
+          render: () => <SyncBaseToggle project={project} />,
+        },
+      ],
+    },
+    {
+      id: 'pulls',
+      title: 'Pull requests',
+      description: 'What its agents do with their branches once the work is done.',
+      entries: [
+        {
+          id: 'agent-prs',
+          label: 'Agents push and open pull requests',
+          keywords: 'push pr github publish branch retire',
+          modified: project.agentPRs,
+          render: () => <AgentPRsToggle project={project} />,
+        },
+        {
+          id: 'pr-watch',
+          label: "Watch agents' pull requests",
+          keywords: 'pr watch conflict checks ci fail review changes requested github',
+          modified: project.prWatch !== '',
+          render: () => <PRWatchPicker project={project} />,
+        },
+      ],
+    },
+    {
+      id: 'chat',
+      title: 'Project chat',
+      description: `How much the ${project.name} chat does on its own.`,
+      entries: [
+        {
+          id: 'autonomy',
+          label: 'Makes product decisions itself',
+          keywords: 'autonomy lead chat decides asks product calls',
+          modified: project.autonomy === 'on',
+          render: () => <AutonomyToggle project={project} />,
+        },
+        {
+          id: 'finish-notices',
+          label: 'When an agent finishes',
+          keywords: 'finish notices wake chat lead turn tokens record',
+          modified: project.finishNotices !== 'lead',
+          render: () => <FinishNoticesPicker project={project} />,
+        },
+      ],
+    },
+    {
+      id: 'testing',
+      title: 'Testing AgentBox itself',
+      entries: [
+        {
+          id: 'nesting',
+          label: 'Nesting: agents run their own Incus',
+          keywords: 'nesting incus containers testing agentbox itself isolation',
+          advanced: true,
+          modified: project.nesting,
+          render: () => <NestingToggle project={project} />,
+        },
+      ],
+    },
+  ];
+}
+
+// projectSection is a project's settings as a section of the Settings page.
+export function projectSection(project: T.Project): SettingSection {
+  return {
+    id: `project:${project.name}`,
+    title: project.name,
+    description: 'What this project gives its agents, and how much its chat does on its own. Every other project keeps its own.',
+    scope: 'project',
+    groups: projectSettingGroups(project),
+  };
+}
+
+// ProjectSettings is the same groups, on the project's Overview.
 export function ProjectSettings({ project }: { project: T.Project }) {
   return (
     <div className="grid gap-8">
-      <SettingsGroup title="New agents" description={`What ${project.name} gives the agents it creates. Agents it already has keep what they were made with.`}>
-        <AgentModelPicker project={project} />
-        {/* Keyed on the saved value, so a save (or another client's) starts the draft over. */}
-        <BranchPrefixField key={project.branchPrefix} project={project} />
-        <AgentPRsToggle project={project} />
-      </SettingsGroup>
-      <SettingsGroup title="Project chat" description={`How much the ${project.name} chat does on its own.`}>
-        <AutonomyToggle project={project} />
-        <FinishNoticesPicker project={project} />
-        <PRWatchPicker project={project} />
-      </SettingsGroup>
-      <SettingsGroup title="Repository" description={`What AgentBox does to ${project.name}'s own checkout.`}>
-        <SyncBaseToggle project={project} />
-      </SettingsGroup>
-      <SettingsGroup title="Testing AgentBox itself" description="For a project whose agents work on AgentBox.">
-        <NestingToggle project={project} />
-      </SettingsGroup>
+      <SettingGroups groups={projectSettingGroups(project)} />
     </div>
   );
 }
 
 // The empty stored value: this project follows the model chosen for new agents
-// on the Home page, which is what every project does until you change it.
-const homeDefault = { value: '', name: 'Same as Home page default', description: 'The model new agents start on, in every project' };
+// in Settings, which is what every project does until you change it.
+const homeDefault = { value: '', name: 'Same as Settings', description: 'The model new agents start on, in every project' };
 // Not a model: the project's chat chooses one for each agent it creates.
 const auto = { value: AgentModelAuto, name: 'Auto: the lead picks per task', description: 'The lead never picks Fable unless you ask for it.' };
 
@@ -85,14 +214,15 @@ function AgentModelPicker({ project }: { project: T.Project }) {
   const groups = groupChoices(choices.filter((c) => matchesQuery(c, query)));
   const searchable = choices.length >= searchThreshold;
   const label = !settings.data ? 'Loading…' : value === '' ? homeDefault.name : value === AgentModelAuto ? auto.name : (picked && choiceName(picked)) || value;
-  // What the Home page currently says, so "same as" isn't a promise you have
-  // to leave the page to read.
+  // What Settings currently says, so "same as" isn't a promise you have to
+  // leave the page to read.
   const home = settings.data?.defaultClaudeModel || 'AgentBox default (opus)';
 
   return (
     <SettingRow
       label="Model"
-      description={value === AgentModelAuto ? auto.description : 'What a new agent starts on. The ones this project already has keep the model they were made with.'}
+      description={value === AgentModelAuto ? auto.description : 'What a new agent of this project starts on.'}
+      details="The agents it already has keep the model they were made with. What you pick as you create an agent wins over this."
       control={
         <Menu onOpenChange={(open) => !open && setQuery('')}>
           <MenuTrigger asChild>
@@ -198,7 +328,7 @@ function describeAgentModel(project: T.Project): string {
     return `The ${project.name} chat picks a model for each agent it creates`;
   }
   if (project.agentModel === '') {
-    return `New agents of ${project.name} use the model chosen on the Home page`;
+    return `New agents of ${project.name} use the model chosen in Settings`;
   }
   return `New agents of ${project.name} start on ${project.agentModel}`;
 }
@@ -227,11 +357,10 @@ function BranchPrefixField({ project }: { project: T.Project }) {
       htmlFor="project-branch-prefix"
       description={
         <>
-          A new agent works on a branch named after its work, like{' '}
-          <code className="break-all font-mono text-tertiary">{draft}fix-login-redirect</code>. Empty means no prefix. Agents that already exist keep
-          their branches.
+          What its agents' branches start with, like <code className="break-all font-mono text-tertiary">{draft}fix-login-redirect</code>.
         </>
       }
+      details="A new agent works on a branch named after its work. In a repository shared with others, a prefix keeps your agents' branches out of theirs. Empty means no prefix. Agents that already exist keep their branches."
     >
       <form
         className="grid gap-1.5"
@@ -306,9 +435,10 @@ function AutonomyToggle({ project }: { project: T.Project }) {
       htmlFor="project-autonomy"
       description={
         acts
-          ? 'It also makes the product calls itself — designs, the next piece of work — and tells you what it did.'
-          : 'It retires merged agents, answers agents and starts the obvious next one itself, and asks you about product decisions and anything costly.'
+          ? 'It makes product calls itself — designs, the next piece of work — and tells you what it did.'
+          : 'It asks you about product decisions and anything costly.'
       }
+      details="Either way it does the routine itself: it retires merged agents, answers agents and starts the obvious next one."
       control={
         <Switch
           id="project-autonomy"
@@ -342,8 +472,13 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
       htmlFor="project-agent-prs"
       description={
         project.agentPRs
-          ? 'An agent pushes its branch and opens a pull request when it finishes, and the chat retires it once the PR is open. It never pushes to the base branch, merges or closes anything.'
+          ? 'An agent pushes its branch and opens a pull request when it finishes.'
           : "Agents commit on their branch and don't push: you or the project's chat push it and open the pull request."
+      }
+      details={
+        project.agentPRs
+          ? 'The chat retires it once the pull request is open. An agent never pushes to the base branch, merges or closes anything. A push publishes, with the project\'s GitHub account.'
+          : 'On, an agent pushes its branch and opens its own pull request when it finishes, with the project\'s GitHub account, and the chat stops doing it for it. Off by default, since a push publishes.'
       }
       control={
         <Switch
@@ -380,8 +515,13 @@ function SyncBaseToggle({ project }: { project: T.Project }) {
       htmlFor="project-sync-base"
       description={
         project.syncBase
-          ? "AgentBox fetches every few minutes and before it creates an agent, and fast-forwards main when it's behind origin. It never touches a main with commits of its own, and moves a checked-out main only when nothing in it is changed."
-          : "AgentBox doesn't fetch or move main. A new agent still starts from origin's main, as last fetched, when yours is behind it."
+          ? "AgentBox fetches every few minutes and fast-forwards main when it's behind origin."
+          : "AgentBox doesn't fetch or move main."
+      }
+      details={
+        project.syncBase
+          ? 'It also fetches before it creates an agent. It never touches a main with commits of its own, and moves a checked-out main only when nothing in it is changed.'
+          : "A new agent still starts from origin's main, as last fetched, when yours is behind it. On by default, since an agent made from a stale main starts without what was merged since."
       }
       control={
         <Switch
@@ -420,9 +560,10 @@ function NestingToggle({ project }: { project: T.Project }) {
       htmlFor="project-nesting"
       description={
         hasIncus || project.nesting
-          ? 'A new agent gets a real Incus daemon of its own, so it can test AgentBox features that touch agent machines. It costs isolation: the agent can make and run containers of its own.'
+          ? 'A new agent gets a real Incus daemon of its own, to test AgentBox itself.'
           : 'Build the base image with Incus first: agentbox image build --incus.'
       }
+      details="For a project whose agents work on AgentBox: they can test the features that touch agent machines — limits, GPU, image builds — for real. It costs isolation: the agent can make and run containers of its own."
       control={
         <Switch
           id="project-nesting"
@@ -454,7 +595,8 @@ function PRWatchPicker({ project }: { project: T.Project }) {
   return (
     <SettingRow
       label="Watch agents' pull requests"
-      description="Until each is merged or closed. When one conflicts with its base, its checks fail or a reviewer asks for changes, AgentBox tells the agent to fix it, starting it if it was stopped, and tells the chat. One request to GitHub per look, however many pull requests."
+      description="Tells an agent when its pull request conflicts, fails its checks or gets changes requested."
+      details="Until each is merged or closed. AgentBox tells the agent to fix it, starting it if it was stopped, and tells the chat. One request to GitHub per look, however many pull requests. Left as in Settings, it follows the setting there."
     >
       <Select
         data-project-pr-watch
@@ -499,7 +641,8 @@ function FinishNoticesPicker({ project }: { project: T.Project }) {
   return (
     <SettingRow
       label="When an agent finishes"
-      description="Telling the chat costs it a turn, even when the agent left nothing to decide. Recorded finishes are still in its history, and it reads them the next time you write. A question from an agent wakes it either way — the agent is blocked on the answer."
+      description="Whether a finished agent wakes the chat, which costs it a turn."
+      details="Telling the chat costs it a turn, even when the agent left nothing to decide. Recorded finishes are still in its history, and it reads them the next time you write. A question from an agent wakes it either way — the agent is blocked on the answer."
     >
       <Select
         data-finish-notices

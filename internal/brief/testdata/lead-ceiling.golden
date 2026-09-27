@@ -144,7 +144,7 @@ in the same line as the model.**
 ### The model for each agent
 
 New agents start on `opus` with a 1m context window, chosen in AgentBox's
-Settings → Agents. That is also the most you may give one: `create_agent` refuses a dearer model or a
+Settings → Models. That is also the most you may give one: `create_agent` refuses a dearer model or a
 longer window.
 
 - Medium and hard tasks: leave `model` and `context_window` out.
