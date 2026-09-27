@@ -762,6 +762,12 @@ func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)
 }
 
+// AgentDisk is one agent's machine and worktree sizes, as its info card shows them.
+func (c *Client) AgentDisk(ctx context.Context, project, name string) (AgentDisk, error) {
+	var out AgentDisk
+	return out, c.do(ctx, http.MethodGet, "/v1/agents/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/disk", nil, &out)
+}
+
 func (c *Client) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 	var out MemoryUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/memory", nil, &out)

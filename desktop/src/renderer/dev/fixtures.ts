@@ -131,6 +131,13 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
+    // A name given to create by hand, as long as the title beside it: the
+    // row's name must give way before it pushes the title out.
+    agent({
+      ref: `${PROJECT}/fix-the-context-budget-warning-that-never-clears`,
+      title: 'Fix the context budget warning that never clears after consolidation runs',
+      chat: 'running',
+    }),
     // Done with, one way or another: the rail's Finished section, with agent-97
     // above, which finished and sits idle.
     agent({ ref: `${PROJECT}/agent-93`, title: 'Stopped for the night', ai: 'opencode', state: 'stopped' }),
@@ -604,6 +611,13 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
   queryClient.setQueryData(['chat', `${PROJECT}/agent-99`], agent99Chat());
   queryClient.setQueryData(['tokens', PROJECT, 'agent-99', 'all'], agent99Tokens());
+  // Every agent's disk, as the info card asks for it: the machine's root disk
+  // and the worktree, apart from agent-92, whose machine is gone, so Incus has
+  // no volume to measure.
+  data.agents.forEach((a, i) => {
+    const machine = a.ref === `${PROJECT}/agent-92` ? undefined : (3.2 + i * 0.7) * 1024 ** 3;
+    queryClient.setQueryData(['agentDisk', a.ref], { machine, worktree: (180 + i * 37) * 1024 ** 2, measuredAt: new Date().toISOString() } satisfies T.AgentDisk);
+  });
   const agent99Recent = agentTokens('agent-99', 'PR agent', 6, 3_540_000, 90_000, [{ model: 'claude-sonnet-5', avgTPS: 71.8, ...figures(6_000, 26_000, 480_000, 18_000, 1.6) }]);
   queryClient.setQueryData(['tokens', PROJECT, 'agent-99', '5h'], { until: new Date().toISOString(), since: new Date(Date.now() - 5 * 3_600_000).toISOString(), ...sumModels([agent99Recent]), agents: [agent99Recent], buckets: [], bucketSeconds: 600 } satisfies T.TokenReport);
   queryClient.setQueryData(['tokens', PROJECT, '5h'], projectTokenReport());

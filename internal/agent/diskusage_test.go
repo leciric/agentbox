@@ -121,3 +121,45 @@ exit 0`)
 		t.Errorf("state and logs Items[1] = %+v", stateAndLogs.Items[1])
 	}
 }
+
+// TestAgentDisk checks one agent's two sizes, and that each is measured on
+// its own: a machine Incus can't read still has its worktree measured.
+func TestAgentDisk(t *testing.T) {
+	inc := fakeIncus(t, `case "$1" in
+  query)
+    case "$2" in
+      */volumes/container/ab-hello-stack-agent-01/state) echo '{"usage":{"used":1000}}' ;;
+      *) echo "Error: not found" >&2; exit 1 ;;
+    esac ;;
+esac
+exit 0`)
+	f := setup(t, inc)
+	ctx := context.Background()
+
+	worktree := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(worktree, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, size := range map[string]int{"README.md": 250, "src/main.go": 750} {
+		if err := os.WriteFile(filepath.Join(worktree, name), make([]byte, size), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := state.Agent{Project: "hello-stack", Name: "agent-01", Instance: "ab-hello-stack-agent-01", Worktree: worktree}
+	d := f.m.AgentDisk(ctx, a)
+	if d.MachineErr != nil || d.Machine != 1000 {
+		t.Errorf("machine = %d, %v; want 1000", d.Machine, d.MachineErr)
+	}
+	if d.WorktreeErr != nil || d.Worktree != 1000 {
+		t.Errorf("worktree = %d, %v; want 1000", d.Worktree, d.WorktreeErr)
+	}
+
+	gone := state.Agent{Project: "hello-stack", Name: "agent-02", Instance: "ab-hello-stack-agent-02", Worktree: worktree}
+	d = f.m.AgentDisk(ctx, gone)
+	if d.MachineErr == nil {
+		t.Errorf("machine of an instance Incus doesn't have = %d, want an error", d.Machine)
+	}
+	if d.WorktreeErr != nil || d.Worktree != 1000 {
+		t.Errorf("worktree beside an unreadable machine = %d, %v; want 1000", d.Worktree, d.WorktreeErr)
+	}
+}
