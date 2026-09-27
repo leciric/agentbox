@@ -725,6 +725,18 @@ type DiskUsage struct {
 	Categories []DiskUsageCategory `json:"categories"`
 }
 
+// AgentDisk is what one agent takes up on disk, for its info card: its
+// machine's root disk (the container's own volume on the storage pool) and its
+// worktree on the host, measured separately because they are different disks
+// and grow for different reasons. A size is left out when it couldn't be
+// measured, such as a machine whose volume Incus can't read. The daemon
+// caches each agent's for a minute, so MeasuredAt says how fresh it is.
+type AgentDisk struct {
+	Machine    *int64    `json:"machine,omitempty"`
+	Worktree   *int64    `json:"worktree,omitempty"`
+	MeasuredAt time.Time `json:"measuredAt"`
+}
+
 // MemoryUsageAgent is one agent's share of the host's memory: what its own
 // cgroup holds, running or paused — a paused agent still holds every page it
 // had.

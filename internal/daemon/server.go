@@ -59,6 +59,7 @@ type Server struct {
 	chat    *chat.Manager    // the agents' conversations in the app's Chat tab
 	pulls   *pullsCache      // what GitHub said about each repository, served stale
 	files   *filesCache      // each agent's worktree file listing, served briefly stale
+	disks   *agentDiskCache  // each agent's machine and worktree sizes, for its info card
 	themes  *omarchy.Watcher // the desktop theme this machine is running, if any
 	updates updates          // what the daily update check last found
 	stop    context.CancelFunc
@@ -141,6 +142,7 @@ func New(cfg Config) (*Server, error) {
 		updates:          updates{now: make(chan struct{}, 1)},
 		terminalActivity: map[string]time.Time{},
 	}
+	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
@@ -419,6 +421,7 @@ func (s *Server) routes() http.Handler {
 		h("POST /v1/agents/{project}/{agent}/"+action, s.agentAction(action))
 	}
 	h("GET /v1/agents/{project}/{agent}/diff", s.diff)
+	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
 	h("GET /v1/agents/{project}/{agent}/files", s.listFiles(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/snapshots", s.listSnapshots)
 	h("POST /v1/agents/{project}/{agent}/snapshots", s.takeSnapshot)

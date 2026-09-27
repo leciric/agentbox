@@ -126,6 +126,7 @@ export const api = {
   updateAgent: (ref: string, req: T.UpdateAgentRequest) => call<T.Agent>('PATCH', agent(ref), req),
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
+  agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
   agentAction: (ref: string, action: AgentAction) => call<T.Agent>('POST', `${agent(ref)}/${action}`),
   diffStat: (ref: string) => call<string>('GET', `${agent(ref)}/diff?stat=true`),
 

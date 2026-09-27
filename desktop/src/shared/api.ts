@@ -316,6 +316,12 @@ export interface DiskUsage {
   categories: DiskUsageCategory[];
 }
 
+export interface AgentDisk {
+  machine?: number;
+  worktree?: number;
+  measuredAt: string;
+}
+
 export interface MemoryUsageAgent {
   ref: string;
   title?: string;

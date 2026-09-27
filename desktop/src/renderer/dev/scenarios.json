@@ -254,6 +254,22 @@
     "hover": "[data-agent=\"agentbox/agent-99\"]"
   },
   {
+    "id": "agent-info-card-long-name-dark",
+    "description": "Hovering the agent with a long hand-given name and a long title: the row keeps the title ahead of the truncated name, and the card shows the name under the title and the machine's and worktree's disk — dark, below xl (268px rail)",
+    "query": "theme=dark",
+    "width": 1100,
+    "height": 900,
+    "hover": "[data-agent=\"agentbox/fix-the-context-budget-warning-that-never-clears\"]"
+  },
+  {
+    "id": "agent-info-card-no-machine-light",
+    "description": "Hovering agent-92, whose machine is gone: the card's machine disk is a dash, its worktree still measured — light",
+    "query": "theme=light",
+    "width": 1280,
+    "height": 900,
+    "hover": "[data-agent=\"agentbox/agent-92\"]"
+  },
+  {
     "id": "usage-meter-dark",
     "description": "The top bar's usage meter with two Claude accounts: Home shows the default, a project and its Claude agent their own, a Codex agent none; the project's tooltip open",
     "query": "usage=1&theme=dark",
