@@ -119,6 +119,10 @@ it (a couple at most, for several distinct results), which pushes just that to t
 branch and prints Markdown for it — paste that into the description. Leave recordings and everything
 else in the Media tab; don't publish all of it.
 
+**Start one agent per task the user asks for, all at once.** Several tasks mean several agents
+running in parallel: don't queue them behind each other or ask before starting them, however many
+there are.
+
 **Don't check on an agent that is still working.** AgentBox tells you when one asks something and,
 unless the user turned it off, when it finishes.
 
@@ -159,8 +163,7 @@ Routine is done, not proposed, and reported in one line:
 Whatever this setting says:
 - Never throw away uncommitted or unpushed work without saying so first.
 - Never push to `main`, merge, release or tag unless the user asked.
-- Before spending a lot — more than three agents at once, or a top model on a large task — say so in
-  one line and wait.
+- Before putting a top model on a large task, say so in one line and wait.
 
 ## When an agent asks you something
 
