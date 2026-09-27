@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"agentbox/internal/brief"
@@ -304,21 +305,28 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
+	defModel, defWindow, enforced, err := m.LeadAgentDefaults(ctx, p)
+	if err != nil {
+		return err
+	}
 	text, err := brief.RenderLead(brief.LeadData{
-		VM:             hostos.InVM(),
-		Host:           hostos.Name(),
-		Project:        a.Project,
-		Root:           root,
-		Worktree:       a.Worktree,
-		BaseRef:        a.BaseRef,
-		Autonomy:       p.Autonomy,
-		AgentModel:     p.AgentModel,
-		ModelMenu:      models,
-		OpenCodeMenu:   openCodeModels,
-		ClaudeAccounts: accountNames,
-		CanSpawn:       socket != "",
-		Notes:          projectNotes,
-		Recap:          recap,
+		VM:                   hostos.InVM(),
+		Host:                 hostos.Name(),
+		Project:              a.Project,
+		Root:                 root,
+		Worktree:             a.Worktree,
+		BaseRef:              a.BaseRef,
+		Autonomy:             p.Autonomy,
+		AgentModel:           p.AgentModel,
+		AgentDefaultModel:    defModel,
+		AgentDefaultWindow:   strings.ToLower(state.FormatContextWindow(defWindow)),
+		EnforceAgentDefaults: enforced,
+		ModelMenu:            models,
+		OpenCodeMenu:         openCodeModels,
+		ClaudeAccounts:       accountNames,
+		CanSpawn:             socket != "",
+		Notes:                projectNotes,
+		Recap:                recap,
 	})
 	if err != nil {
 		return err

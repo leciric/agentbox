@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,5 +166,90 @@ func TestAgentDefaultsOffer1M(t *testing.T) {
 	}
 	if settings.DefaultAgentContextWindow != "1000000" {
 		t.Errorf("DefaultAgentContextWindow = %q, want 1000000", settings.DefaultAgentContextWindow)
+	}
+}
+
+// TestLeadCap: what the lead asks create_agent for is
+// checked against Settings → Agents before anything starts. Not enforced, the
+// model and window chosen there are a ceiling: a cheaper model or a shorter
+// window goes through, a dearer model or a longer window is refused. Enforced,
+// they are the only ones. The app and the command line aren't held to either.
+func TestLeadCap(t *testing.T) {
+	t.Parallel()
+	str := func(s string) *string { return &s }
+	for _, tc := range []struct {
+		name          string
+		settings      api.UpdateSettingsRequest
+		model, window *string
+		refused       string // what the refusal says; "" for none
+	}{
+		{"cheaper", api.UpdateSettingsRequest{}, str("sonnet"), nil, ""},
+		{"haiku", api.UpdateSettingsRequest{}, str("haiku"), str("200k"), ""},
+		{"at cap", api.UpdateSettingsRequest{}, str("opus"), str("1m"), ""},
+		{"model above", api.UpdateSettingsRequest{DefaultClaudeModel: str("sonnet")}, str("opus"), nil,
+			"opus is above sonnet, the model chosen in Settings → Agents"},
+		{"window above", api.UpdateSettingsRequest{DefaultAgentContextWindow: str("200k")}, nil, str("1m"),
+			"a 1M window is above 200k"},
+		{"enf model", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, str("sonnet"), nil,
+			"Settings → Agents enforces opus at 1M"},
+		{"enf window", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, nil, str("200k"),
+			"Settings → Agents enforces opus at 1M"},
+		{"enf same", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, str("opus"), str("1m"), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d, _ := startWithAgentDefaults(t)
+			ctx := context.Background()
+			if _, err := d.client.UpdateSettings(ctx, tc.settings); err != nil {
+				t.Fatal(err)
+			}
+			lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
+			job, err := lead.CreateProjectAgent(ctx, api.CreateAgentRequest{Title: "Reminders page", Task: "add it", Model: tc.model, ContextWindow: tc.window})
+			if tc.refused != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.refused) {
+					t.Fatalf("create_agent = %v, want it refused with %q", err, tc.refused)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("create_agent was refused: %v", err)
+			}
+			waitFor(t, "the agent to be created", func() bool {
+				j, err := d.client.Job(ctx, job.ID)
+				return err == nil && j.Done()
+			})
+		})
+	}
+
+	t.Run("user", func(t *testing.T) {
+		t.Parallel()
+		d, _ := startWithAgentDefaults(t)
+		ctx := context.Background()
+		if _, err := d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}); err != nil {
+			t.Fatal(err)
+		}
+		model := "sonnet"
+		job, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", Title: "Reminders page", Model: &model})
+		if err != nil {
+			t.Fatalf("the app's dialog was held to the lead's rule: %v", err)
+		}
+		waitFor(t, "the agent to be created", func() bool {
+			j, err := d.client.Job(ctx, job.ID)
+			return err == nil && j.Done()
+		})
+	})
+}
+
+func TestEnforcingTheAgentDefaultsIsASetting(t *testing.T) {
+	t.Parallel()
+	d, _ := startWithAgentDefaults(t)
+	ctx := context.Background()
+	for _, want := range []bool{true, false} {
+		if _, err := d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{EnforceAgentDefaults: &want}); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := d.client.Settings(ctx); err != nil || got.EnforceAgentDefaults != want {
+			t.Errorf("EnforceAgentDefaults = %v, %v; want %v", got.EnforceAgentDefaults, err, want)
+		}
 	}
 }

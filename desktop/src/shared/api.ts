@@ -87,6 +87,7 @@ export interface NotesRequest {
 export interface Settings {
   defaultClaudeModel: string;
   defaultAgentContextWindow: string;
+  enforceAgentDefaults: boolean;
   defaultLeadModel: string;
   defaultLeadContextWindow: string;
   claudeModelChoices: ChatOptionChoice[];
@@ -142,6 +143,7 @@ export interface SharedBudgetSize {
 export interface UpdateSettingsRequest {
   defaultClaudeModel?: string;
   defaultAgentContextWindow?: string;
+  enforceAgentDefaults?: boolean;
   defaultLeadModel?: string;
   defaultLeadContextWindow?: string;
   defaultClaudeEffort?: string;

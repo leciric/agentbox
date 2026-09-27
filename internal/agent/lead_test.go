@@ -416,7 +416,7 @@ func TestReconfigureLeadRewritesTheBriefForTheProjectsModel(t *testing.T) {
 	if err := f.m.ReconfigureLead(ctx, "hello-stack"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(brief(), "runs on `haiku`") {
+	if !strings.Contains(brief(), "New agents start on `haiku` with a 200k context window, the project's choice") {
 		t.Error("the brief doesn't say which model this project's agents are created on")
 	}
 	if strings.Contains(brief(), "You choose each agent's model") {

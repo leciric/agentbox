@@ -49,6 +49,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}); err != nil {
 		return err
 	}
+	if req.EnforceAgentDefaults != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingEnforceAgentDefaults, *req.EnforceAgentDefaults); err != nil {
+			return err
+		}
+	}
 	if req.DefaultClaudeEffort != nil {
 		// Checked, unlike the model: the adapter resolves no aliases for this
 		// option and refuses anything outside the list it advertised, so a
@@ -314,6 +319,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	enforce, err := s.store.Flag(r.Context(), state.SettingEnforceAgentDefaults)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	var agentWindow, leadModel, leadWindow string
 	for key, into := range map[string]*string{
 		state.SettingDefaultAgentContextWindow: &agentWindow,
@@ -407,6 +416,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
+		EnforceAgentDefaults:      enforce,
 		DefaultLeadModel:          leadModel,
 		DefaultLeadContextWindow:  leadWindow,
 		ClaudeModelChoices:        models,

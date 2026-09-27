@@ -852,6 +852,7 @@ function SettingsTabs({
               >
                 <DefaultModel role="agents" />
                 <DefaultContextWindow role="agents" />
+                <EnforceAgentDefaults />
                 <NewAgentEffort />
                 <NewAgentResources />
                 <OpenCodeInImage />
@@ -888,6 +889,57 @@ function SettingsTabs({
         )}
       </div>
     </div>
+  );
+}
+
+// EnforceAgentDefaults decides what the model and window above mean to a
+// project's lead: the only ones it may give the agents it creates, or the most
+// it may. agent.CheckLeadChoice refuses the rest on create_agent, and the
+// lead's brief and create_agent's description say which, so keep this text in
+// step with lead.md.tmpl and chatSettingParams (internal/cli/mcp.go).
+function EnforceAgentDefaults() {
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (enforceAgentDefaults: boolean) =>
+      api.updateSettings({ enforceAgentDefaults }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const enforced = settings.data?.enforceAgentDefaults ?? false;
+  return (
+    <SettingRow
+      label="Enforce this model and context window"
+      description={
+        enforced ? (
+          <>
+            On: the lead creates every agent with exactly this model and
+            window, and is refused any other.
+          </>
+        ) : (
+          <>
+            Off: this model and window are the most the lead may use. It keeps
+            them for medium and hard tasks and picks a cheaper model for easy
+            ones, like Sonnet for small fixes or Haiku for mechanical jobs,
+            never anything above them.
+          </>
+        )
+      }
+      control={
+        <Switch
+          data-enforce-agent-defaults
+          aria-label="Enforce this model and context window"
+          disabled={save.isPending || settings.data === undefined}
+          checked={enforced}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    >
+      <SettingNote>
+        Only for agents the lead creates: what you pick when you create one
+        yourself always wins.
+      </SettingNote>
+    </SettingRow>
   );
 }
 

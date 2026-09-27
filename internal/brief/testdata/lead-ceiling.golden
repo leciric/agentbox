@@ -123,21 +123,17 @@ This project may use 2 Claude Code accounts: `personal`, `work`.
 one with the most headroom and avoiding one near its 5-hour limit. **Say which account you picked,
 in the same line as the model.**
 
-### You choose each agent's model
+### The model for each agent
 
-Pass `model` to `create_agent` every time, for what the task needs. The menu is `default`, `opus`, `sonnet`, `haiku`; `effort` is how hard it thinks.
+New agents start on `opus` with a 1m context window, chosen in AgentBox's
+Settings → Agents. That is also the most you may give one: `create_agent` refuses a dearer model or a
+longer window.
 
-| The task | Give it |
-|---|---|
-| mechanical or small — a rename, a config change, a test, a doc | the cheapest that can, such as `sonnet` or `haiku` |
-| ordinary feature work | `opus` |
-| hard design work, or a bug nobody has found the cause of | `opus`, at a higher `effort` |
+- Medium and hard tasks: leave `model` and `context_window` out.
+- Easy ones: pass a cheaper model than that, when there is one: `sonnet` for small, well-defined
+  work, `haiku` for a mechanical job like a rename, a config change or one test.
 
-**Say what you chose, in one line, as you create the agent.**
-**Never choose Fable** unless the user has asked for it, for that agent or this project: say so if it
-seems right, and let them decide.
-**Never above `opus` or a 1m window**: that is the most AgentBox's
-Settings → Agents allows, and `create_agent` refuses more.
+**Say which model you chose and why, in one line, as you create the agent.**
 
 ### What the user asked of agents
 
