@@ -21,6 +21,8 @@ export interface Project {
   position: number;
   nesting: boolean;
   agentPRs: boolean;
+  prWatch: string;
+  prWatching: boolean;
   createdAt: string;
 }
 
@@ -50,6 +52,7 @@ export interface UpdateProjectRequest {
   consolidationModel?: string;
   nesting?: boolean;
   agentPRs?: boolean;
+  prWatch?: string;
 }
 
 export interface Section {
@@ -111,6 +114,7 @@ export interface Settings {
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
+  prWatch: boolean;
   mediaRetention: string;
   defaultClaudeCompactWindow: number;
   neverFreezeCPU: boolean;
@@ -158,6 +162,7 @@ export interface UpdateSettingsRequest {
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   usageStats?: boolean;
+  prWatch?: boolean;
   mediaRetention?: string;
   neverFreezeCPU?: boolean;
   keepFreeCPU?: number;
@@ -720,6 +725,9 @@ export interface PullRequest {
   author?: string;
   authorAvatar?: string;
   agent?: string;
+  conflict?: boolean;
+  review?: string;
+  watched?: boolean;
 }
 
 export interface GitHubError {

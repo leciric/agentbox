@@ -158,6 +158,7 @@ decisions to fill it in.
 - Don't push. The user reviews your branch and pushes from the host.
 {{- end}}
 - The `.git` directory is shared with the host and other agents. Don't switch branches, delete branches, or rewrite history outside `{{.Branch}}`.
+- **Delegate merge and conflict work.** If you're Claude Code, hand merging the base in, resolving the conflicts, regenerating goldens and generated files, and rerunning the tests to a Sonnet subagent with your Agent tool, then check its result.
 
 {{- if .GitHub}}
 

@@ -148,6 +148,11 @@ const (
 	// feature_usage counts. On until somebody turns it off (FlagOn), and
 	// never sent while SettingUpdateCheck is off.
 	SettingUsageStats = "usage_stats"
+	// SettingPRWatch says whether the daemon watches every agent's open pull
+	// request and tells the agent when it breaks: a conflict with its base,
+	// failing checks, changes requested. On until somebody turns it off
+	// (FlagOn); a project can override it (Project.PRWatch).
+	SettingPRWatch = "pr_watch"
 	// SettingMediaRetention is how long a removed agent's media is kept: one
 	// of the api.MediaRetention values, empty meaning
 	// DefaultMediaRetention. It belongs to the installation rather than to a

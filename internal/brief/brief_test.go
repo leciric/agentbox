@@ -169,6 +169,7 @@ func TestRenderLeadGolden(t *testing.T) {
 				Project: "pawly", Root: "/home/dev/www/pawly",
 				Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
 				BaseRef:  "main", Autonomy: tc.autonomy, CanSpawn: true,
+				PRWatch:    tc.name == "ask", // one golden file with the watch on, the others with it off
 				AgentModel: tc.agentModel, ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
 				AgentDefaultModel: "opus", AgentDefaultWindow: "1m", EnforceAgentDefaults: tc.enforced,
 				ClaudeAccounts: []string{"personal", "work"},
@@ -664,5 +665,22 @@ func TestRenderLeadOnAMac(t *testing.T) {
 	}
 	if !strings.Contains(windows, "a shell in the Linux distro AgentBox runs in on Windows") || strings.Contains(windows, "Mac") {
 		t.Errorf("on Windows, the brief should give the lead the WSL distro, and not mention a Mac:\n%s", windows)
+	}
+}
+
+// The lead is told whether the pull request watch is on: on, that it needn't
+// chase a broken pull request itself; off, to suggest turning it on the next
+// time the user asks it to fix CI or a conflict.
+func TestRenderLeadPRWatch(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		got, err := brief.RenderLead(brief.LeadData{Project: "pawly", Root: "/r", Worktree: "/w", BaseRef: "main", Autonomy: "ask", CanSpawn: true, PRWatch: on})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watching := strings.Contains(got, "watches every agent's open pull request")
+		suggests := strings.Contains(got, `suggest in a line turning on "Watch agents' pull requests"`)
+		if watching != on || suggests == on {
+			t.Errorf("PRWatch=%v: watching=%v suggests=%v", on, watching, suggests)
+		}
 	}
 }

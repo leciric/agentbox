@@ -59,7 +59,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
         <Row label="Machine disk" value={diskSize(disk.data?.machine, disk.isPending)} />
         <Row label="Worktree on host" value={diskSize(disk.data?.worktree, disk.isPending)} />
         <Row label="Tokens" value={mine ? `${humanTokens(mine.total)} · ${usd(mine.costUSD)}` : '0'} />
-        {pr && <Row label="Pull request" value={`#${pr.number} ${pr.state}`} />}
+        {pr && <Row label="Pull request" value={prSummary(pr)} />}
       </div>
     </div>
   );
@@ -79,4 +79,14 @@ function Row({ label, value, mono }: { label: string; value: ReactNode; mono?: b
       <span className={mono ? 'min-w-0 truncate font-mono text-[11px] text-secondary' : 'min-w-0 truncate text-secondary'}>{value}</span>
     </div>
   );
+}
+
+// prSummary is the pull request in a line: its state, and what the watch found
+// wrong with it when it found something.
+function prSummary(pr: T.PullRequest): string {
+  const parts = [`#${pr.number} ${pr.draft ? 'draft' : pr.state}`];
+  if (pr.checks) parts.push(`checks ${pr.checks}`);
+  if (pr.conflict) parts.push('conflicts');
+  if (pr.review === 'changes_requested') parts.push('changes requested');
+  return parts.join(', ');
 }
