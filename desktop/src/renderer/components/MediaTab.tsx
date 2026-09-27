@@ -14,16 +14,18 @@ import {
   LoaderCircle,
   MousePointerClick,
   Play,
+  Search,
   SquareCheck,
   StickyNote,
   Trash,
   User,
+  X,
 } from 'lucide-react';
-import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { clock, describeAll, kindInfo, mediaKinds, mediaUrl } from '../lib/media';
+import { clock, describeAll, kindInfo, mediaKinds, mediaUrl, searchMedia } from '../lib/media';
 import { cn, errorMessage, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Badge, type BadgeVariant } from './ui/badge';
@@ -56,6 +58,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
     refetchInterval: (query) => (query.state.data?.recording ? 2_000 : 10_000),
   });
   const [filter, setFilter] = useState('all');
+  const [query, setQuery] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [noting, setNoting] = useState(false);
   const [deleting, setDeleting] = useState<T.MediaItem | null>(null);
@@ -82,7 +85,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
       }),
   });
 
-  const items = media.data ?? [];
+  const items = useMemo(() => media.data ?? [], [media.data]);
   const counts = new Map<string, number>();
   let total = 0; // what this agent's media takes on disk, since freeing that is why you delete it
   for (const item of items) {
@@ -90,7 +93,8 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
     total += item.size;
   }
   const kind = filter === 'all' ? '' : filter;
-  const visible = kind === '' ? items : items.filter((item) => item.kind === kind);
+  const search = useDeferredValue(query);
+  const visible = useMemo(() => searchMedia(kind === '' ? items : items.filter((item) => item.kind === kind), search), [items, kind, search]);
   const index = visible.findIndex((item) => item.id === openId);
   const error = shot.error ?? record.error ?? exportAll.error ?? media.error;
   const refresh = async () => {
@@ -114,6 +118,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
             ))}
           {total > 0 && <span className="pl-1.5 text-[12px] tabular-nums text-subtle">{humanBytes(total)}</span>}
         </div>
+        {items.length > 0 && <MediaSearch value={query} onChange={setQuery} />}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {!selecting && (
             <>
@@ -167,8 +172,8 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
             onSelecting={setSelecting}
             selected={selected}
             onSelected={setSelected}
-            all={{ all: true, kind: kind || undefined }}
-            allLabel={describeAll(visible.length, kind, agent.title || agent.name)}
+            all={search.trim() ? { ids: visible.map((item) => item.id) } : { all: true, kind: kind || undefined }}
+            allLabel={describeAll(visible.length, kind, agent.title || agent.name, search)}
             deleteMedia={(req) => api.deleteAgentMedia(agent.ref, req)}
             onDeleted={refresh}
           />
@@ -211,6 +216,8 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
               <span className="text-faint">$ </span>agentbox media add playwright-report/
             </pre>
           </EmptyState>
+        ) : visible.length === 0 ? (
+          <NoMatch query={search} onClear={() => setQuery('')} />
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
             {visible.map((item) => (
@@ -248,6 +255,51 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
         }}
       />
     </div>
+  );
+}
+
+// MediaSearch narrows a gallery by name, file name, type ("image", "video",
+// "note") and a note's own words. Every word has to match; a "quoted phrase"
+// matches whole. Escape clears it.
+export function MediaSearch({ value, onChange, className }: { value: string; onChange: (value: string) => void; className?: string }) {
+  return (
+    <div className={cn('relative flex w-56 min-w-0 max-w-full items-center', className)}>
+      <Search className="pointer-events-none absolute left-2.5 size-3.5 text-subtle" />
+      <Input
+        type="search"
+        aria-label="Search media"
+        placeholder="Search names, types, notes"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && value) {
+            e.stopPropagation();
+            onChange('');
+          }
+        }}
+        className="h-7 min-w-0 pl-8 pr-7 text-[12.5px] [&::-webkit-search-cancel-button]:hidden"
+      />
+      {value && (
+        <button aria-label="Clear the search" onClick={() => onChange('')} className="absolute right-1.5 flex size-5 items-center justify-center rounded-md text-subtle hover:bg-surface hover:text-primary">
+          <X className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// NoMatch is what a gallery shows when its filters leave nothing, with the
+// search that did it, cut short rather than widening the column.
+export function NoMatch({ query, onClear }: { query: string; onClear: () => void }) {
+  return (
+    <p className="flex min-w-0 items-center gap-2 px-1 text-[13px] text-subtle">
+      <span className="min-w-0 truncate">{query.trim() ? `Nothing matches “${query.trim()}”.` : 'Nothing matches that filter.'}</span>
+      {query.trim() && (
+        <Button size="sm" variant="ghost" className="shrink-0" onClick={onClear}>
+          Clear the search
+        </Button>
+      )}
+    </p>
   );
 }
 
