@@ -125,7 +125,13 @@ export const api = {
   agentAction: (ref: string, action: AgentAction) => call<T.Agent>('POST', `${agent(ref)}/${action}`),
   diffStat: (ref: string) => call<string>('GET', `${agent(ref)}/diff?stat=true`),
 
-  chat: (ref: string) => call<T.ChatThread>('GET', chatBase(ref)),
+  // A chat is read a page at a time: the latest limit messages, or the ones
+  // before an item. Without a page it is the whole conversation.
+  chat: (ref: string, page?: { before?: string; limit: number }) =>
+    call<T.ChatThread>(
+      'GET',
+      page ? `${chatBase(ref)}?${new URLSearchParams({ limit: String(page.limit), ...(page.before ? { before: page.before } : {}) })}` : chatBase(ref),
+    ),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   sendChat: (ref: string, text: string, images?: T.ChatImageUpload[]) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images } satisfies T.ChatMessageRequest),

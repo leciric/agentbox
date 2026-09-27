@@ -959,6 +959,7 @@ export interface ChatThread {
   seq: number;
   session: ChatSession;
   items: ChatItem[];
+  older?: boolean;
 }
 
 export interface ChatSession {
