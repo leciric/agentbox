@@ -141,7 +141,7 @@ func (s *Server) leadProject(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusOK, projectInfo(p))
+	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
 
 // leadSettings tells a project's chat what new agents start on, and which

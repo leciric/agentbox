@@ -147,6 +147,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	// lead with no adapter answers "no session" — but a distillation's aside
 	// session (D78) would launch Claude Code on the host, so it is stubbed
 	// here and overridden by the tests that are about it.
+	srv.prWatch.every = 0 // tests drive the pull request watch themselves
 	srv.askAside = func(context.Context, state.Agent, string, string) (string, string, error) {
 		return "", "", errors.New("this test starts no AI tool")
 	}

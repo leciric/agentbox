@@ -34,6 +34,7 @@ export function ProjectSettings({ project }: { project: T.Project }) {
       <SettingsGroup title="Project chat" description={`How much the ${project.name} chat does on its own.`}>
         <AutonomyToggle project={project} />
         <FinishNoticesPicker project={project} />
+        <PRWatchPicker project={project} />
       </SettingsGroup>
       <SettingsGroup title="Testing AgentBox itself" description="For a project whose agents work on AgentBox.">
         <NestingToggle project={project} />
@@ -391,6 +392,42 @@ function NestingToggle({ project }: { project: T.Project }) {
         />
       }
     />
+  );
+}
+
+// PRWatchPicker overrides Settings' "Watch agents' pull requests" for this
+// project, or follows it (the empty value). The daemon says what that comes
+// to, so following it can say whether it's on.
+function PRWatchPicker({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const pick = useMutation({
+    mutationFn: (prWatch: string) => api.updateProject(project.name, { prWatch }),
+    onSuccess: async (updated) => {
+      toast(updated.prWatching ? `AgentBox watches ${updated.name}'s agents' pull requests` : `AgentBox no longer watches ${updated.name}'s agents' pull requests`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Watch agents' pull requests"
+      description="Until each is merged or closed. When one conflicts with its base, its checks fail or a reviewer asks for changes, AgentBox tells the agent to fix it, starting it if it was stopped, and tells the chat. One request to GitHub per look, however many pull requests."
+    >
+      <Select
+        data-project-pr-watch
+        aria-label="Watch agents' pull requests"
+        disabled={pick.isPending}
+        className="sm:max-w-sm"
+        value={project.prWatch}
+        onChange={(value) => pick.mutate(value)}
+      >
+        <SelectOption value="">{settings.data ? `As in Settings (${settings.data.prWatch ? 'on' : 'off'})` : 'As in Settings'}</SelectOption>
+        <SelectOption value="on">On for this project</SelectOption>
+        <SelectOption value="off">Off for this project</SelectOption>
+      </Select>
+    </SettingRow>
   );
 }
 

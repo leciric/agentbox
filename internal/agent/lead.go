@@ -304,7 +304,15 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
+	// Whether the pull request watch is on here: the project's own say, or
+	// the installation's (the daemon's prWatchOn reads it the same way).
+	prWatch := p.PRWatch == state.PRWatchOn
+	if p.PRWatch == "" {
+		on, err := m.Store.FlagOn(ctx, state.SettingPRWatch)
+		prWatch = err != nil || on
+	}
 	text, err := brief.RenderLead(brief.LeadData{
+		PRWatch:        prWatch,
 		VM:             hostos.InVM(),
 		Host:           hostos.Name(),
 		Project:        a.Project,

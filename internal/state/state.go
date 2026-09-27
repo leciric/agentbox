@@ -584,6 +584,28 @@ var migrations = []string{
 	// every project, existing and new: pushing publishes with the user's
 	// GitHub token, so it is something a project opts into.
 	`ALTER TABLE projects ADD COLUMN agent_prs INTEGER NOT NULL DEFAULT 0`,
+
+	// Whether the daemon watches this project's agents' pull requests: "" to
+	// follow the installation's SettingPRWatch, PRWatchOn or PRWatchOff.
+	`ALTER TABLE projects ADD COLUMN pr_watch TEXT NOT NULL DEFAULT ''`,
+	// The agents' pull requests the daemon is watching, and what it last saw
+	// of each: the watch only speaks up when something turns bad, so what it
+	// saw has to outlive a restart, or every broken pull request would be
+	// announced again each time the daemon starts. A row goes when its pull
+	// request is merged or closed. agent_id tells the agent that opened it
+	// from a later one given its name.
+	`CREATE TABLE pr_watches (
+		project    TEXT NOT NULL,
+		number     INTEGER NOT NULL,
+		agent      TEXT NOT NULL,
+		agent_id   TEXT NOT NULL DEFAULT '',
+		head_sha   TEXT NOT NULL DEFAULT '',
+		conflict   INTEGER NOT NULL DEFAULT 0,
+		checks     TEXT NOT NULL DEFAULT '',
+		review     TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY (project, number)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -741,7 +763,17 @@ type Project struct {
 	// stops doing it for them. Off by default: a push publishes, with the
 	// user's own GitHub token.
 	AgentPRs bool
+	// PRWatch is whether the daemon watches this project's agents' pull
+	// requests and tells an agent when its own breaks: "" follows the
+	// installation's SettingPRWatch, PRWatchOn and PRWatchOff override it.
+	PRWatch string
 }
+
+// A project's PRWatch.
+const (
+	PRWatchOn  = "on"
+	PRWatchOff = "off"
+)
 
 // How much a project's chat does on its own.
 const (
@@ -892,7 +924,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs`
+const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -962,10 +994,10 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
-		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs)
+		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch)
 	return err
 }
 
@@ -992,7 +1024,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		var allowed string
 		if err := rows.Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.Section, &p.Position); err != nil {
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -1009,6 +1041,9 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 	}
 	if agents > 0 {
 		return fmt.Errorf("project %q still has %d agent(s): destroy them first", name, agents)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM pr_watches WHERE project = ?`, name); err != nil {
+		return err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, name)
 	if err != nil {
@@ -1284,6 +1319,22 @@ func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) er
 	return nil
 }
 
+// SetProjectPRWatch sets whether the daemon watches this project's agents'
+// pull requests: "" to follow the installation, PRWatchOn or PRWatchOff.
+func (s *Store) SetProjectPRWatch(ctx context.Context, name, watch string) error {
+	if watch != "" && watch != PRWatchOn && watch != PRWatchOff {
+		return fmt.Errorf("unknown pull request watch %q: use on, off, or nothing to follow Settings", watch)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET pr_watch = ? WHERE name = ?`, watch, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectMediaRetentionDays sets how long this project keeps media whose
 // agent is gone before the daemon sweeps it away.
 func (s *Store) SetProjectMediaRetentionDays(ctx context.Context, name string, days int) error {
@@ -1403,7 +1454,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.Section, &p.Position)
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound

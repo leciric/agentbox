@@ -76,6 +76,7 @@ func (s *Server) fleet(w http.ResponseWriter, r *http.Request) error {
 			row.Media = len(items)
 		}
 		row.PR = prs[st.Name]
+		s.prWatch.overlay(project, row.PR)
 		row.Busy, row.Idle, row.LastActive, row.Retire = s.idleOf(ctx, st, row.Changes)
 		if row.Idle {
 			out.Idle++
