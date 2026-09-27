@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strconv"
 
 	"agentbox/internal/state"
@@ -39,6 +40,11 @@ func (m *Manager) NeverFreezeCPU(ctx context.Context) (on bool, keepFree int, er
 //
 // Turned off, it puts back exactly what ConfiguredCPU remembers, agent by
 // agent — never the host's own defaults, and never another agent's limit.
+//
+// Leads never appear in live: they have no instance among what Instances
+// lists, since they run on the host rather than a machine of their own (see
+// Agent.Role). One agent failing to take the new limit doesn't stop the rest
+// from getting theirs: every error is collected and joined at the end.
 func (m *Manager) RecomputeCPUCaps(ctx context.Context) error {
 	on, keepFree, err := m.NeverFreezeCPU(ctx)
 	if err != nil {
@@ -90,12 +96,13 @@ func (m *Manager) RecomputeCPUCaps(ctx context.Context) error {
 	}
 
 	if !on {
+		var errs []error
 		for _, r := range live {
 			if err := apply(r.instance, r.configured, r.have, r.current); err != nil {
-				return err
+				errs = append(errs, err)
 			}
 		}
-		return nil
+		return errors.Join(errs...)
 	}
 
 	budget := max(0, HostCores()-keepFree)
@@ -112,12 +119,13 @@ func (m *Manager) RecomputeCPUCaps(ctx context.Context) error {
 		ceilings[i] = n
 	}
 	alloc := AllocateCPU(budget, ceilings)
+	var errs []error
 	for i, r := range live {
 		if err := apply(r.instance, strconv.Itoa(alloc[i]), r.have, r.current); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // AllocateCPU shares a CPU budget out among running agents, so the host never
