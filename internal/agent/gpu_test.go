@@ -151,6 +151,86 @@ func TestRecomputeGPURemovesTheDeviceFromEveryAgent(t *testing.T) {
 	oneCall(t, calls(), "config device remove ab-p-a2 agentbox-gpu")
 }
 
+// TestRecomputeGPUSkipsTheLead checks the bug this feature shipped with:
+// RecomputeGPU used to loop over every row Store.Agents returns, leads
+// included, and a lead's reserved instance name is never a real Incus
+// instance (it runs on the host — see Agent.Role) so ApplyGPU always failed
+// on it with "instance not found", on whichever row happened to come first.
+// Skipping leads, the way agent.go's own loops do, means a project's lead
+// never reaches Incus at all.
+func TestRecomputeGPUSkipsTheLead(t *testing.T) {
+	inc, calls := loggingIncus(t, gpuQueryIncus)
+	st, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if err := st.AddProject(ctx, state.Project{Name: "p", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	lead := state.Agent{
+		Project: "p", Name: state.LeadName, Instance: "ab-p-lead", AI: "claude",
+		Worktree: t.TempDir(), Status: state.AgentReady, CreatedAt: time.Now(), Role: state.RoleLead,
+	}
+	if err := st.AddAgent(ctx, lead); err != nil {
+		t.Fatal(err)
+	}
+	worker := state.Agent{
+		Project: "p", Name: "a1", Instance: "ab-p-a1", AI: "none",
+		Branch: "agentbox/a1", Worktree: t.TempDir(), Status: state.AgentReady, CreatedAt: time.Now(),
+	}
+	if err := st.AddAgent(ctx, worker); err != nil {
+		t.Fatal(err)
+	}
+	m := &agent.Manager{Incus: inc, Store: st}
+	if err := m.RecomputeGPU(ctx); err != nil {
+		t.Fatalf("RecomputeGPU() with a lead in the store = %v, want nil", err)
+	}
+	oneCall(t, calls(), "config device remove ab-p-a1 agentbox-gpu")
+	noCall(t, calls(), "ab-p-lead")
+}
+
+// TestRecomputeGPUContinuesPastAFailingInstance checks that one agent whose
+// instance Incus doesn't know about (destroyed underneath the store, or any
+// other failure) doesn't stop RecomputeGPU from reaching the rest: it used to
+// return on the very first error, leaving every agent after the broken one
+// without the change the flag just promised.
+func TestRecomputeGPUContinuesPastAFailingInstance(t *testing.T) {
+	inc, calls := loggingIncus(t, `case "$1" in
+  query)
+    case "$2" in
+      */ab-p-missing) echo "Error: not found" >&2; exit 1 ;;
+      *) echo '{"config":{"nvidia.runtime":"true"},"devices":{"agentbox-gpu":{"type":"gpu"}}}' ;;
+    esac ;;
+esac
+exit 0
+`)
+	st, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if err := st.AddProject(ctx, state.Project{Name: "p", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"missing", "a1"} {
+		a := state.Agent{
+			Project: "p", Name: name, Instance: "ab-p-" + name, AI: "none",
+			Branch: "agentbox/" + name, Worktree: t.TempDir(), Status: state.AgentReady, CreatedAt: time.Now(),
+		}
+		if err := st.AddAgent(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := &agent.Manager{Incus: inc, Store: st}
+	if err := m.RecomputeGPU(ctx); err == nil {
+		t.Error("RecomputeGPU() = nil, want the missing instance's error reported")
+	}
+	oneCall(t, calls(), "config device remove ab-p-a1 agentbox-gpu")
+}
+
 // TestCreateSkipsTheGPUDeviceWithoutAHostGPU checks that turning "GPU for
 // agents" on doesn't break Create, or add the device, on a machine with none
 // to give — this test's own container, which is exactly why this feature

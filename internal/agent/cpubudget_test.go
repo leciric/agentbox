@@ -1,10 +1,16 @@
 package agent_test
 
 import (
+	"context"
+	"fmt"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/incus"
+	"agentbox/internal/state"
 )
 
 func repeat(n, v int) []int {
@@ -53,4 +59,97 @@ func TestAllocateCPU(t *testing.T) {
 			}
 		})
 	}
+}
+
+// recomputeCPUCapsIncus answers `list` with two running agents, ab-p-a1 and
+// ab-p-a2, each already chosen to run on 4 cores (user.agentbox.cpu.
+// configured) but with no limits.cpu of its own yet, so RecomputeCPUCaps
+// always has something to restore for both; `config set` fails for
+// failInstance, the way a transient Incus error would for one agent among
+// several, and succeeds (silently, like the rest of this package's fakes)
+// for everything else.
+func recomputeCPUCapsIncus(t *testing.T, failInstance string) (incus.Client, func() []string) {
+	t.Helper()
+	return loggingIncus(t, fmt.Sprintf(`case "$1 $2 $3" in
+  "config set %s") echo boom >&2; exit 1 ;;
+esac
+case "$1" in
+  list) echo '[
+    {"name":"ab-p-a1","status":"Running","config":{"user.agentbox.cpu.configured":"4"},"expanded_config":{"user.agentbox.cpu.configured":"4"},"state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}},
+    {"name":"ab-p-a2","status":"Running","config":{"user.agentbox.cpu.configured":"4"},"expanded_config":{"user.agentbox.cpu.configured":"4"},"state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.6"}]}}}}]' ;;
+  query) echo '{"config":{},"devices":{}}' ;;
+esac
+exit 0
+`, failInstance))
+}
+
+// TestRecomputeCPUCapsSkipsTheLead checks that a lead sitting in the store
+// alongside ordinary agents doesn't stop RecomputeCPUCaps: unlike GPU, this
+// one is already driven off Incus's own instance list rather than looping
+// over agents and reaching for Incus directly, so a lead — which is never in
+// that list, having no machine of its own (Agent.Role) — is naturally left
+// alone. This pins that down so a future rewrite doesn't quietly start
+// looking the lead's instance up.
+func TestRecomputeCPUCapsSkipsTheLead(t *testing.T) {
+	inc, calls := recomputeCPUCapsIncus(t, "")
+	st, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if err := st.AddProject(ctx, state.Project{Name: "p", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	lead := state.Agent{
+		Project: "p", Name: state.LeadName, Instance: "ab-p-lead", AI: "claude",
+		Worktree: t.TempDir(), Status: state.AgentReady, CreatedAt: time.Now(), Role: state.RoleLead,
+	}
+	if err := st.AddAgent(ctx, lead); err != nil {
+		t.Fatal(err)
+	}
+	worker := state.Agent{
+		Project: "p", Name: "a1", Instance: "ab-p-a1", AI: "none",
+		Branch: "agentbox/a1", Worktree: t.TempDir(), Status: state.AgentReady, CreatedAt: time.Now(),
+	}
+	if err := st.AddAgent(ctx, worker); err != nil {
+		t.Fatal(err)
+	}
+	m := &agent.Manager{Incus: inc, Store: st}
+	if err := m.RecomputeCPUCaps(ctx); err != nil {
+		t.Fatalf("RecomputeCPUCaps() with a lead in the store = %v, want nil", err)
+	}
+	oneCall(t, calls(), "config set ab-p-a1")
+	noCall(t, calls(), "ab-p-lead")
+}
+
+// TestRecomputeCPUCapsContinuesPastAFailingInstance checks that one agent
+// whose Incus call fails doesn't stop RecomputeCPUCaps from reaching the
+// rest: it used to return on the very first error, leaving every agent after
+// the broken one with whatever limits it already had.
+func TestRecomputeCPUCapsContinuesPastAFailingInstance(t *testing.T) {
+	inc, calls := recomputeCPUCapsIncus(t, "ab-p-a2")
+	st, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	if err := st.AddProject(ctx, state.Project{Name: "p", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a1", "a2"} {
+		a := state.Agent{
+			Project: "p", Name: name, Instance: "ab-p-" + name, AI: "none",
+			Branch: "agentbox/" + name, Worktree: t.TempDir(), Status: state.AgentReady, CreatedAt: time.Now(),
+		}
+		if err := st.AddAgent(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := &agent.Manager{Incus: inc, Store: st}
+	if err := m.RecomputeCPUCaps(ctx); err == nil {
+		t.Error("RecomputeCPUCaps() = nil, want ab-p-a2's error reported")
+	}
+	oneCall(t, calls(), "config set ab-p-a1")
 }
