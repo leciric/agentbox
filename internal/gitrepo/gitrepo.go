@@ -418,7 +418,8 @@ func output(dir string, env []string, args ...string) (string, error) {
 // BranchCommits is where a branch is, and the commits on it that are its own:
 // reachable from it but from none of not, newest first and at most limit of
 // them. A name in not that doesn't resolve is left out rather than failing the
-// call, so a base branch that has since been deleted still works. The tip is
+// call, so a base branch that has since been deleted still works; not may also
+// hold rev-list's --glob=<pattern>, for every ref it matches. The tip is
 // returned even when none of the branch's commits are its own.
 func BranchCommits(root, branch string, limit int, not ...string) (tip string, own []string, err error) {
 	ref := "refs/heads/" + branch

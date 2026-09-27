@@ -104,6 +104,12 @@ type Project struct {
 	// PRWatch is whether the daemon watches this project's agents' pull
 	// requests: "" to follow Settings.PRWatch, "on" or "off" to override it.
 	PRWatch string `json:"prWatch"`
+	// SyncBase is whether the daemon keeps this project's base branch (main)
+	// up to date with its remote: it fetches every few minutes and before it
+	// creates an agent, and fast-forwards the local branch when it is strictly
+	// behind — never a diverged branch, and a checked-out one only when its
+	// checkout has no changes. On by default.
+	SyncBase bool `json:"syncBase"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -242,6 +248,9 @@ type UpdateProjectRequest struct {
 	// PRWatch is "on" or "off" to override the installation's pull request
 	// watch for this project, or "" to follow it again.
 	PRWatch *string `json:"prWatch,omitempty"`
+	// SyncBase turns on or off keeping this project's base branch up to date
+	// with its remote.
+	SyncBase *bool `json:"syncBase,omitempty"`
 }
 
 type AddProjectRequest struct {

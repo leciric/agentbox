@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"encoding/xml"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -168,6 +170,43 @@ func TestBrowserScriptFallsBackToAgentBoxsColours(t *testing.T) {
 		if !strings.Contains(tint2, want) {
 			t.Errorf("the dock's config doesn't have %q:\n%s", want, tint2)
 		}
+	}
+}
+
+// The viewer resizes the display to its panel, so application windows open
+// maximized and openbox keeps them fitting it; dialogs and Chromium's pop-ups
+// keep their own size. rc.xml has to parse, too: openbox falls back to its
+// defaults, rules and theme included, when it doesn't.
+func TestBrowserScriptOpensApplicationWindowsMaximized(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	runBrowserTheme(t, home, nil)
+	var rc struct {
+		Applications []struct {
+			Type      string `xml:"type,attr"`
+			Role      string `xml:"role,attr"`
+			Maximized string `xml:"maximized"`
+		} `xml:"applications>application"`
+	}
+	raw := read(t, filepath.Join(home, ".config", "openbox", "rc.xml"))
+	if err := xml.Unmarshal([]byte(raw), &rc); err != nil {
+		t.Fatalf("rc.xml doesn't parse: %v\n%s", err, raw)
+	}
+	got := map[string]string{}
+	for _, app := range rc.Applications {
+		got[app.Type+"/"+app.Role] = app.Maximized
+	}
+	want := map[string]string{"normal/": "yes", "normal/pop-up": "no"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("openbox's window rules are %v, want %v", got, want)
+	}
+	// The rule for pop-ups has to come after the one it makes an exception
+	// to: openbox applies every rule a window matches, in order.
+	if last := rc.Applications[len(rc.Applications)-1]; last.Role != "pop-up" {
+		t.Errorf("the pop-up rule isn't last, so the maximize rule overrides it: %+v", rc.Applications)
+	}
+	if !strings.Contains(string(browserScript), `"$0" watch`) {
+		t.Error("browser.sh start doesn't start the watcher that fits windows to a resized display")
 	}
 }
 

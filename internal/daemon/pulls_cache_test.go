@@ -399,6 +399,50 @@ func TestAgentHeadsAfterAMerge(t *testing.T) {
 	}
 }
 
+// An agent made from a main that was behind origin/main, which then caught up
+// with origin/main, owns none of what it caught up with: not the pull request
+// merged last, whose squash commit is now its branch's tip, nor any before it.
+// Its own commits on top still are its.
+func TestAgentHeadsFromAStaleMain(t *testing.T) {
+	t.Parallel()
+	testutil.GitEnv(t)
+	repo := testutil.FixtureRepo(t, "hello-stack")
+	stale := testutil.Git(t, repo, "rev-parse", "HEAD")
+	testutil.Git(t, repo, "branch", "agentbox/stale", stale)
+
+	// origin/main, as last fetched, is two merged pull requests ahead of main.
+	testutil.Git(t, repo, "checkout", "--quiet", "-b", "upstream")
+	var merged []string
+	for _, pr := range []string{"85", "86"} {
+		testutil.Git(t, repo, "commit", "--quiet", "--allow-empty", "-m", "Merged (#"+pr+")")
+		merged = append(merged, testutil.Git(t, repo, "rev-parse", "HEAD"))
+	}
+	testutil.Git(t, repo, "checkout", "--quiet", "main")
+	testutil.Git(t, repo, "update-ref", "refs/remotes/origin/main", "upstream")
+	testutil.Git(t, repo, "branch", "--quiet", "-D", "upstream")
+	testutil.Git(t, repo, "branch", "-f", "agentbox/stale", "refs/remotes/origin/main")
+
+	a := state.Agent{Name: "stale", Branch: "agentbox/stale", BaseRef: "main", BaseCommit: stale}
+	h := agentHeads(repo, []state.Agent{a})[0]
+	for _, sha := range merged {
+		if h.owns(sha) {
+			t.Errorf("the agent owns %s, which was merged into origin/main before it caught up", sha)
+		}
+	}
+	pr86 := api.PullRequest{Number: 86, HeadSHA: "release-please-head"}
+	if h.accepts(pr86, merged[1]) {
+		t.Error("the agent was given #86, found by the squash commit it caught up with")
+	}
+
+	worktree := filepath.Join(t.TempDir(), "stale")
+	testutil.Git(t, repo, "worktree", "add", "--quiet", worktree, "agentbox/stale")
+	mine := commitOn(t, state.Agent{Worktree: worktree}, "mine.txt")
+	h = agentHeads(repo, []state.Agent{a})[0]
+	if h.tip != mine || len(h.own) != 1 || !h.owns(mine) {
+		t.Errorf("head after a commit of its own = %+v, want just %s", h, mine)
+	}
+}
+
 // A refresh that finds something new says so on the event stream, so the app
 // redraws then rather than at its next poll. One that finds nothing new says
 // nothing: an event per poll would be the polling it replaces.

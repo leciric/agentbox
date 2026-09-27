@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -292,7 +293,11 @@ func (e videoEncoder) pixelFormat() string {
 // RecomputeGPU applies the installation's "GPU for agents" choice to every
 // agent this daemon knows about, the way RecomputeCPUCaps applies its own
 // setting: called wherever a change has to reach agents that already exist,
-// not only the next one created.
+// not only the next one created. Leads are skipped: they run on the host, not
+// a machine of their own (see Agent.Role), so there is no instance to change.
+// One agent's instance being missing or otherwise failing doesn't stop the
+// rest from getting the change: every error is collected and joined at the
+// end, rather than the first one aborting agents still to come.
 func (m *Manager) RecomputeGPU(ctx context.Context) error {
 	on, status, err := gpuOn(ctx, m)
 	if err != nil {
@@ -302,10 +307,14 @@ func (m *Manager) RecomputeGPU(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var errs []error
 	for _, a := range agents {
+		if a.IsLead() {
+			continue
+		}
 		if err := m.ApplyGPU(ctx, a.Instance, on, status); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
