@@ -128,6 +128,7 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 			handle(route.method+" /v1/self/media"+route.path, s.media(route.action, self, "agent"))
 		}
 	}
+	handle("GET /v1/self/media/{id}/file", s.selfMediaFile(self))
 	// Its project's memory: it reads all of it, and appends what it found,
 	// what it produced and how its task went. Writing a memory down and
 	// saying what the project is doing now are not an agent's to do.

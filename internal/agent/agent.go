@@ -1231,6 +1231,7 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		Host:     hostos.Name(),
 		Notes:    projectNotes,
 		Nesting:  p.Nesting,
+		AgentPRs: p.AgentPRs,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,

@@ -317,6 +317,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		OpenCodeMenu:   openCodeModels,
 		ClaudeAccounts: accountNames,
 		CanSpawn:       socket != "",
+		AgentPRs:       p.AgentPRs,
 		Notes:          projectNotes,
 		Recap:          recap,
 	})

@@ -249,6 +249,33 @@ func TestProjectsAPI(t *testing.T) {
 	}
 }
 
+// A project starts with its agents not pushing; turning agent PRs on is kept,
+// reported back, and reaches the brief its agents are given.
+func TestUpdateProjectAgentPRs(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.AgentPRs {
+		t.Error("a new project's agents push their own pull requests")
+	}
+	if brief, _ := d.client.Brief(ctx, "hello-stack", "agent-07"); !strings.Contains(brief, "Don't push.") {
+		t.Errorf("off: the brief doesn't tell the agent not to push:\n%s", brief)
+	}
+	if p, err = d.client.SetAgentPRs(ctx, "hello-stack", true); err != nil || !p.AgentPRs {
+		t.Fatalf("SetAgentPRs(on) = %+v, %v", p, err)
+	}
+	if p, err := d.client.Project(ctx, "hello-stack"); err != nil || !p.AgentPRs {
+		t.Errorf("Project() after SetAgentPRs(on) = %+v, %v", p, err)
+	}
+	if brief, _ := d.client.Brief(ctx, "hello-stack", "agent-07"); !strings.Contains(brief, "open a pull request") || strings.Contains(brief, "Don't push.") {
+		t.Errorf("on: the brief doesn't tell the agent to open its pull request:\n%s", brief)
+	}
+}
+
 func TestClaudeAccountsAPI(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)

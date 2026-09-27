@@ -96,7 +96,11 @@ type Project struct {
 	// their own, inside their own container, to test AgentBox features that
 	// touch agent machines for real. Off by default: it costs isolation, and
 	// needs the base image built with Incus.
-	Nesting   bool      `json:"nesting"`
+	Nesting bool `json:"nesting"`
+	// AgentPRs is whether this project's agents push their own branch and
+	// open their own pull request when they finish. Off by default: a push
+	// publishes, with the user's GitHub token.
+	AgentPRs  bool      `json:"agentPRs"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -227,6 +231,9 @@ type UpdateProjectRequest struct {
 	// daemon of their own, inside their own container. It needs the base
 	// image built with Incus (Setup's image.components.incus).
 	Nesting *bool `json:"nesting,omitempty"`
+	// AgentPRs turns on or off whether this project's agents push their own
+	// branch and open their own pull request, in place of the lead.
+	AgentPRs *bool `json:"agentPRs,omitempty"`
 }
 
 type AddProjectRequest struct {

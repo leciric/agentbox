@@ -128,6 +128,17 @@ report. Say only what it can't find by reading the project.
 
 **One agent, one task.** A finished agent's work stays on its branch: retire it to free its machine,
 and make a new agent for the next task.
+{{- if .AgentPRs}}
+
+**This project's agents push their own branch and open their own pull request** when they finish.
+Don't push or open one for them: once an agent's pull request is open, retire it. If one finishes
+without a pull request, tell it to open one rather than doing it yourself.
+{{- else}}
+
+**When you push an agent's branch and open its pull request for it**, show its work there too: run
+`agentbox media publish {{.Project}}/<agent>`, which pushes the agent's screenshots and recordings to
+the `agentbox-media` branch and prints Markdown for them, and paste all of it into the description.
+{{- end}}
 
 **Don't check on an agent that is still working.** AgentBox tells you when one asks something and,
 unless the user turned it off, when it finishes.

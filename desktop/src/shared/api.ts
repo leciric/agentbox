@@ -20,6 +20,7 @@ export interface Project {
   section: string;
   position: number;
   nesting: boolean;
+  agentPRs: boolean;
   createdAt: string;
 }
 
@@ -46,6 +47,7 @@ export interface UpdateProjectRequest {
   consolidation?: number;
   consolidationModel?: string;
   nesting?: boolean;
+  agentPRs?: boolean;
 }
 
 export interface Section {

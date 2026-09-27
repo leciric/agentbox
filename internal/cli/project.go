@@ -346,6 +346,57 @@ func nestingWords(on bool) string {
 	return "off"
 }
 
+// newAgentPRsCmd shows or sets whether a project's agents push their own
+// branch and open their own pull request, in newNestingCmd's shape.
+func newAgentPRsCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "agent-prs <project> [on|off]",
+		Short: "Whether a project's agents push their branch and open a PR themselves",
+		Long: `Shows or sets whether a project's agents push their own branch and open their
+own pull request when they finish, rather than leaving both to you or the
+project's chat, which then only retires an agent once its PR is open. They
+still never push to the base branch, merge, close, or force-push someone else's
+branch. Off by default: a push publishes, with your GitHub token.`,
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args) == 1 {
+				projects, err := c.Projects(cmd.Context())
+				if err != nil {
+					return err
+				}
+				for _, p := range projects {
+					if p.Name == args[0] {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentPRsWords(p.AgentPRs))
+						return nil
+					}
+				}
+				return fmt.Errorf("no project named %q", args[0])
+			}
+			on, err := parseOnOff(args[1])
+			if err != nil {
+				return err
+			}
+			p, err := c.SetAgentPRs(cmd.Context(), args[0], on)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentPRsWords(p.AgentPRs))
+			return nil
+		},
+	}
+}
+
+func agentPRsWords(on bool) string {
+	if on {
+		return "on — its agents push their branch and open a pull request"
+	}
+	return "off — its agents don't push"
+}
+
 func parseOnOff(s string) (bool, error) {
 	switch s {
 	case "on":
