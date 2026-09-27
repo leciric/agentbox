@@ -277,6 +277,11 @@ type Settings struct {
 	// start with: "" for the installation's compact window (the first of
 	// ClaudeContextWindows), or "1000000" for the model's whole window.
 	DefaultAgentContextWindow string `json:"defaultAgentContextWindow"`
+	// EnforceAgentDefaults makes DefaultClaudeModel and
+	// DefaultAgentContextWindow the only model and window the lead may create
+	// an agent on. Off, they are its ceiling: it may choose a cheaper model or
+	// a shorter window for an easy task, never a dearer one.
+	EnforceAgentDefaults bool `json:"enforceAgentDefaults"`
 	// DefaultLeadModel is the model a project's lead chats on when its own
 	// composer hasn't chosen one. Empty means Claude Code's own default, not
 	// AgentBox's. Unlike the agents' default it reaches leads that already
@@ -450,6 +455,8 @@ type UpdateSettingsRequest struct {
 	// Haiku. A request that moves a role's model to one without a 1M window
 	// has to bring its window back to 200k in the same request.
 	DefaultAgentContextWindow *string `json:"defaultAgentContextWindow,omitempty"`
+	// EnforceAgentDefaults turns Settings.EnforceAgentDefaults on or off.
+	EnforceAgentDefaults *bool `json:"enforceAgentDefaults,omitempty"`
 	// DefaultLeadModel is "" to go back to Claude Code's own default.
 	DefaultLeadModel         *string `json:"defaultLeadModel,omitempty"`
 	DefaultLeadContextWindow *string `json:"defaultLeadContextWindow,omitempty"`

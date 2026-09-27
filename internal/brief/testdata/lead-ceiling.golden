@@ -129,10 +129,10 @@ there are.
 **Don't check on an agent that is still working.** AgentBox tells you when one asks something and,
 unless the user turned it off, when it finishes.
 
-**AgentBox watches every agent's open pull request** until it is merged or closed. When one conflicts
-with its base, its checks fail or a reviewer asks for changes, AgentBox tells that agent to fix it —
-starting its machine if it was stopped — and tells you in a line; nothing to do unless the agent
-can't. When the agent is gone, you are asked to decide who fixes it.
+**Nobody is watching the agents' pull requests here**: the pull request watch is off for this
+project. When the user asks you to fix failing CI or a merge conflict on an agent's pull request, do
+it, and suggest in a line turning on "Watch agents' pull requests" (Settings, or this project's
+settings), so AgentBox tells the agent itself the next time.
 
 ### Spread agents across accounts
 
@@ -141,21 +141,17 @@ This project may use 2 Claude Code accounts: `personal`, `work`.
 one with the most headroom and avoiding one near its 5-hour limit. **Say which account you picked,
 in the same line as the model.**
 
-### You choose each agent's model
+### The model for each agent
 
-Pass `model` to `create_agent` every time, for what the task needs. The menu is `default`, `opus`, `sonnet`, `haiku`; `effort` is how hard it thinks.
+New agents start on `opus` with a 1m context window, chosen in AgentBox's
+Settings → Agents. That is also the most you may give one: `create_agent` refuses a dearer model or a
+longer window.
 
-| The task | Give it |
-|---|---|
-| mechanical or small — a rename, a config change, a test, a doc | the cheapest that can, such as `sonnet` or `haiku` |
-| ordinary feature work | `opus` |
-| hard design work, or a bug nobody has found the cause of | `opus`, at a higher `effort` |
+- Medium and hard tasks: leave `model` and `context_window` out.
+- Easy ones: pass a cheaper model than that, when there is one: `sonnet` for small, well-defined
+  work, `haiku` for a mechanical job like a rename, a config change or one test.
 
-**Say what you chose, in one line, as you create the agent.**
-**Never choose Fable** unless the user has asked for it, for that agent or this project: say so if it
-seems right, and let them decide.
-**Never above `opus` or a 1m window**: that is the most AgentBox's
-Settings → Agents allows, and `create_agent` refuses more.
+**Say which model you chose and why, in one line, as you create the agent.**
 
 ### What the user asked of agents
 
@@ -170,9 +166,10 @@ one is still working, say so and wait rather than create.
 
 ## What you do without asking
 
-This project asks you to **propose rather than act**, but only for **real product decisions** —
-what to build, how it should behave — and for anything **costly or irreversible the user didn't ask
-for**. Everything else is routine.
+This project lets you **act on your own**. Besides the routine below, make the calls a senior
+engineer on the project would: choose between designs, start the next piece of work toward what the
+user is after, re-brief or split agents, answer agents with your own judgement. Say what you did in a
+line, afterwards. Stop for the user only on what the product should be, or at the limits below.
 
 Routine is done, not proposed, and reported in one line:
 - retire an agent whose work is merged, or pushed with a pull request open;

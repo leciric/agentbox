@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"agentbox/internal/brief"
@@ -311,23 +312,30 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		on, err := m.Store.FlagOn(ctx, state.SettingPRWatch)
 		prWatch = err != nil || on
 	}
+	defModel, defWindow, enforced, err := m.LeadAgentDefaults(ctx, p)
+	if err != nil {
+		return err
+	}
 	text, err := brief.RenderLead(brief.LeadData{
-		PRWatch:        prWatch,
-		VM:             hostos.InVM(),
-		Host:           hostos.Name(),
-		Project:        a.Project,
-		Root:           root,
-		Worktree:       a.Worktree,
-		BaseRef:        a.BaseRef,
-		Autonomy:       p.Autonomy,
-		AgentModel:     p.AgentModel,
-		ModelMenu:      models,
-		OpenCodeMenu:   openCodeModels,
-		ClaudeAccounts: accountNames,
-		CanSpawn:       socket != "",
-		AgentPRs:       p.AgentPRs,
-		Notes:          projectNotes,
-		Recap:          recap,
+		PRWatch:              prWatch,
+		VM:                   hostos.InVM(),
+		Host:                 hostos.Name(),
+		Project:              a.Project,
+		Root:                 root,
+		Worktree:             a.Worktree,
+		BaseRef:              a.BaseRef,
+		Autonomy:             p.Autonomy,
+		AgentModel:           p.AgentModel,
+		AgentDefaultModel:    defModel,
+		AgentDefaultWindow:   strings.ToLower(state.FormatContextWindow(defWindow)),
+		EnforceAgentDefaults: enforced,
+		ModelMenu:            models,
+		OpenCodeMenu:         openCodeModels,
+		ClaudeAccounts:       accountNames,
+		CanSpawn:             socket != "",
+		AgentPRs:             p.AgentPRs,
+		Notes:                projectNotes,
+		Recap:                recap,
 	})
 	if err != nil {
 		return err

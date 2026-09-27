@@ -764,6 +764,7 @@ function fakeVM() {
 let defaultsSettings = {
   defaultClaudeModel: 'sonnet',
   defaultAgentContextWindow: '1000000',
+  enforceAgentDefaults: false,
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
   mediaRetention: '1d',
@@ -816,6 +817,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.defaultClaudeModel !== undefined) next.defaultClaudeModel = req.defaultClaudeModel;
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
+  if (req.enforceAgentDefaults !== undefined) next.enforceAgentDefaults = req.enforceAgentDefaults;
   if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
   if (req.neverFreezeCPU !== undefined) next.neverFreezeCPU = req.neverFreezeCPU;
   if (req.keepFreeCPU !== undefined) next.keepFreeCPU = req.keepFreeCPU;

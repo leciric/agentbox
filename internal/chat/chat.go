@@ -1655,6 +1655,12 @@ func (c *conversation) wanted(id string) (api.ChatOption, string, bool) {
 	if !ok || value == option.Value {
 		return option, value, false
 	}
+	if option.ID == "model" && c.launchedAs(value) == option.Value {
+		// Started as its "[1m]" variant for the window chosen for it
+		// (launchSettings): switching to the plain name would take the long
+		// window away again.
+		return option, value, false
+	}
 	if option.ID == "model" {
 		// The model is worth trying even when it isn't literally among this
 		// account's choices: the adapter resolves a preference itself (see
@@ -1970,13 +1976,17 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		return
 	case "usage_update":
 		c.session.ContextUsed, c.session.ContextSize = u.Used, c.contextSize(h.ad, u.Size)
-		if model := optionValueOf(c.session.Options, "model"); c.agent.AI == "claude" && u.Size > 0 && model != "" && h.ad.sizeOf != model+"="+strconv.FormatInt(u.Size, 10) {
+		if model := optionValueOf(c.session.Options, "model"); c.agent.AI == "claude" && u.Cost != nil && !h.ad.replaying && u.Size > 0 && model != "" && h.ad.sizeOf != model+"="+strconv.FormatInt(u.Size, 10) {
 			// The account's own answer to how long this model's window is,
-			// which is what the context window offers next time (D91).
+			// which is what the context window offers next time (D91). Only
+			// the reading that follows a model result is that answer: the
+			// ones streamed before it are the adapter's guess from the name,
+			// 200k for plain "opus", and remembering that guess is what kept
+			// taking opus's 1M window away (RememberClaudeModelWindow).
 			h.ad.sizeOf = model + "=" + strconv.FormatInt(u.Size, 10)
-			ref, size, compact := c.agent.Ref(), u.Size, h.ad.window
+			ref, size := c.agent.Ref(), u.Size
 			c.m.background.Go(func() {
-				if err := c.m.Store.RememberClaudeModelWindow(context.Background(), model, size, compact); err != nil {
+				if err := c.m.Store.RememberClaudeModelWindow(context.Background(), model, size); err != nil {
 					c.m.logf("chat %s: remembering %s's window: %v", ref, model, err)
 				}
 			})

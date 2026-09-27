@@ -369,12 +369,16 @@ func TestCreateAgentNamesTheAgentDefaults(t *testing.T) {
 		project  api.Project
 		want     []string
 	}{
-		{"nothing chosen", api.Settings{DefaultLeadModel: "haiku"}, api.Project{},
+		{"nothing chosen", api.Settings{DefaultLeadModel: "claude-lead-only"}, api.Project{},
 			[]string{"Leave this out for opus", "Leave this out for 200k"}},
-		{"chosen in Settings", api.Settings{DefaultClaudeModel: "sonnet", DefaultAgentContextWindow: "1000000", DefaultLeadModel: "haiku"}, api.Project{},
+		{"chosen in Settings", api.Settings{DefaultClaudeModel: "sonnet", DefaultAgentContextWindow: "1000000", DefaultLeadModel: "claude-lead-only"}, api.Project{},
 			[]string{"Leave this out for sonnet", "Leave this out for 1m"}},
 		{"chosen for the project", api.Settings{DefaultClaudeModel: "sonnet"}, api.Project{AgentModel: "claude-fable-5-1"},
 			[]string{"Leave this out for claude-fable-5-1, the model this project's settings name"}},
+		{"enforced", api.Settings{DefaultClaudeModel: "opus", DefaultAgentContextWindow: "1000000", EnforceAgentDefaults: true}, api.Project{},
+			[]string{"enforces opus for every agent you create, so leave this out", "enforces 1m for every agent you create"}},
+		{"a ceiling", api.Settings{DefaultClaudeModel: "opus"}, api.Project{},
+			[]string{"also the most you may use", "haiku for a mechanical job", "A model above it is refused", "a longer one is refused"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			socket := filepath.Join(t.TempDir(), "lead.sock")
@@ -401,7 +405,7 @@ func TestCreateAgentNamesTheAgentDefaults(t *testing.T) {
 					t.Errorf("create_agent doesn't say %q:\n%s", want, params)
 				}
 			}
-			if strings.Contains(params, "haiku") {
+			if strings.Contains(params, "claude-lead-only") {
 				t.Error("create_agent names the lead's default model as the agents'")
 			}
 		})

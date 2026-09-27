@@ -50,6 +50,11 @@ const (
 	// adds AgentBox's small pinned list (D69) on top, at every place the menu
 	// is shown.
 	SettingClaudeModelChoices = "claude_model_choices"
+	// SettingEnforceAgentDefaults says whether the lead must create every
+	// Claude Code agent on exactly SettingDefaultClaudeModel and
+	// SettingDefaultAgentContextWindow ("1"), or may go cheaper for an easy
+	// task, never above them (off, the default). agent.CheckLeadChoice.
+	SettingEnforceAgentDefaults = "enforce_agent_defaults"
 	// SettingDefaultClaudeEffort is the "effort" chat option new Claude Code
 	// agents are seeded with. Empty means DefaultClaudeEffort.
 	SettingDefaultClaudeEffort = "default_claude_effort"

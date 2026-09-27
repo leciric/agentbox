@@ -149,18 +149,29 @@ func TestRender(t *testing.T) {
 	}
 }
 
-// The lead's whole brief, in each autonomy, with every optional section on.
-// Run with -update after changing lead.md.tmpl, and read the diff: this is
-// the text the project's chat reads before every turn (D90).
+// The lead's whole brief, in each autonomy, with every optional section on,
+// and in each of the ways Settings → Agents holds the agents it creates: the
+// Agents model and window as a ceiling it may go under, and enforced as the
+// only ones. Run with -update after changing lead.md.tmpl, and read the diff:
+// this is the text the project's chat reads before every turn (D90).
 func TestRenderLeadGolden(t *testing.T) {
-	for _, autonomy := range []string{"ask", "on"} {
-		t.Run(autonomy, func(t *testing.T) {
+	for _, tc := range []struct {
+		name, autonomy, agentModel string
+		enforced                   bool
+	}{
+		{"ask", "ask", "auto", false},
+		{"on", "on", "auto", false},
+		{"ceiling", "on", "", false},
+		{"enforced", "on", "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			got, err := brief.RenderLead(brief.LeadData{
 				Project: "pawly", Root: "/home/dev/www/pawly",
 				Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
-				BaseRef:  "main", Autonomy: autonomy, CanSpawn: true,
-				PRWatch:    autonomy == "ask", // one golden file with the watch on, one with it off
-				AgentModel: "auto", ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
+				BaseRef:  "main", Autonomy: tc.autonomy, CanSpawn: true,
+				PRWatch:    tc.name == "ask", // one golden file with the watch on, the others with it off
+				AgentModel: tc.agentModel, ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
+				AgentDefaultModel: "opus", AgentDefaultWindow: "1m", EnforceAgentDefaults: tc.enforced,
 				ClaudeAccounts: []string{"personal", "work"},
 				Notes:          "## From the lead\n\n- 2026-09-18: the e2e tests need a Postgres on 5432.\n",
 				Recap:          "**What this project is doing**\n\n- Adding reminders to the pet profile.",
@@ -168,7 +179,7 @@ func TestRenderLeadGolden(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			golden := filepath.Join("testdata", "lead-"+autonomy+".golden")
+			golden := filepath.Join("testdata", "lead-"+tc.name+".golden")
 			if *update {
 				if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
 					t.Fatal(err)
@@ -317,11 +328,18 @@ func TestRenderLeadAutonomy(t *testing.T) {
 func TestRenderLeadAgentModel(t *testing.T) {
 	lead := func(model string, menu []string, canSpawn bool) string {
 		t.Helper()
+		// What configureLead passes: the project's model when it names one,
+		// Settings → Agents' otherwise.
+		def := "opus"
+		if model != "" && model != "auto" {
+			def = model
+		}
 		got, err := brief.RenderLead(brief.LeadData{
 			Project: "pawly", Root: "/src/pawly",
 			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
 			BaseRef:  "main", Autonomy: "ask",
 			AgentModel: model, ModelMenu: menu, CanSpawn: canSpawn,
+			AgentDefaultModel: def, AgentDefaultWindow: "200k",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -350,13 +368,16 @@ func TestRenderLeadAgentModel(t *testing.T) {
 		// Nothing is said about models at all: the chat doesn't choose here,
 		// and a rule it can't act on is noise in front of everything else.
 		hasNot(t, text, "You choose each agent's model", "Fable", "runs on `")
+		// Only that the Agents model and window are its ceiling.
+		has(t, text, "New agents start on `opus` with a 200k context window, chosen in AgentBox's",
+			"refuses a dearer model or a\nlonger window", "`haiku` for a mechanical job")
 		// What it is told about creating agents is untouched.
 		has(t, text, "**One agent, one task.**", "This project asks you to **propose rather than act**")
 	})
 
 	t.Run("a model for every agent", func(t *testing.T) {
 		text := lead("haiku", []string{"opus", "sonnet", "haiku"}, true)
-		has(t, text, "Every agent you create here runs on `haiku`", "only when one agent really needs something else")
+		has(t, text, "New agents start on `haiku` with a 200k context window, the project's choice", "refuses a dearer model")
 		hasNot(t, text, "You choose each agent's model", "Fable")
 	})
 
@@ -375,7 +396,9 @@ func TestRenderLeadAgentModel(t *testing.T) {
 			"**Say what you chose, in one line, as you create the agent.**",
 			"**Never choose Fable** unless the user has asked for it",
 		)
-		hasNot(t, text, "Every agent you create here runs on")
+		hasNot(t, text, "New agents start on")
+		// Choosing still stays under the ceiling.
+		has(t, text, "**Never above `opus` or a 200k window**")
 	})
 
 	t.Run("auto before any chat has advertised a menu", func(t *testing.T) {
