@@ -119,6 +119,9 @@ export interface Settings {
   defaultClaudeCompactWindow: number;
   neverFreezeCPU: boolean;
   keepFreeCPU: number;
+  gpuAvailable: boolean;
+  gpuKind: string;
+  gpuForAgents: boolean;
   autoStopIdle: boolean;
   idleTimeSeconds: number;
   sharedBudget: SharedBudget;
@@ -166,6 +169,7 @@ export interface UpdateSettingsRequest {
   mediaRetention?: string;
   neverFreezeCPU?: boolean;
   keepFreeCPU?: number;
+  gpuForAgents?: boolean;
   autoStopIdle?: boolean;
   idleTimeSeconds?: number;
   sharedBudget?: boolean;

@@ -41,6 +41,7 @@ import {
   CompactWindow,
   DefaultContextWindow,
   DefaultModel,
+  GPUForAgents,
   MediaRetention,
   NeverFreezeCPU,
   NewAgentEffort,
@@ -882,6 +883,7 @@ function SettingsTabs({
               <ResumeAfterLimit />
               <PRWatch />
               <NeverFreezeCPU />
+              <GPUForAgents />
               <SharedBudget />
               <AutoStopIdle />
               <CompactWindow />

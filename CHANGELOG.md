@@ -13,7 +13,6 @@ All notable, user-facing changes to AgentBox are documented here, in the style o
 * nesting, a real Incus daemon inside an agent ([#71](https://github.com/leciric/agentbox/issues/71)) ([6d02b15](https://github.com/leciric/agentbox/commit/6d02b15286365688d4514b0a484f097c28371f20))
 * warn in Setup when agent storage isn't btrfs or zfs ([#75](https://github.com/leciric/agentbox/issues/75)) ([71bdee0](https://github.com/leciric/agentbox/commit/71bdee09e291a4639b10d993c9cddf37dcf7e8ce))
 
-
 ### Fixed
 
 * lock agent worktrees against prune ([#78](https://github.com/leciric/agentbox/issues/78)) ([ba37362](https://github.com/leciric/agentbox/commit/ba37362cd9013ebbd723146df68a2633b36d798c))

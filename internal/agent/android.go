@@ -112,6 +112,24 @@ func CheckKVM() error {
 	return f.Close()
 }
 
+// androidGPUMode is the emulator's -gpu mode: "host", which renders through
+// whatever GPU the container's agentbox-gpu device passed it, when this
+// agent has one, or "swiftshader_indirect", the software renderer the
+// emulator has always used here, when it doesn't. There is no window for the
+// emulator's own process to render into (scrcpy shows the device on its own
+// display, not the emulator's), so "host" here relies on Mesa's headless EGL
+// rather than an X connection — untested on real hardware as part of this
+// change; a host whose container has the device but where "host" still fails
+// to start would need swangle_indirect (SwiftShader through ANGLE) as a
+// middle ground, still software but a different renderer, before falling
+// back to swiftshader_indirect.
+func androidGPUMode(hasGPU bool) string {
+	if hasGPU {
+		return "host"
+	}
+	return "swiftshader_indirect"
+}
+
 // StartAndroid starts the agent's emulator, unless it runs, and waits until
 // Android has booted.
 func (m *Manager) StartAndroid(ctx context.Context, a state.Agent, opts AndroidOptions) (AndroidStatus, error) {
@@ -133,8 +151,14 @@ func (m *Manager) StartAndroid(ctx context.Context, a state.Agent, opts AndroidO
 	if err := m.prepareAndroid(ctx, a, sdk); err != nil {
 		return AndroidStatus{}, err
 	}
+	devices, err := m.Incus.Devices(ctx, a.Instance)
+	if err != nil {
+		return AndroidStatus{}, err
+	}
+	_, hasGPU := devices[gpuDevice]
+	gpuMode := androidGPUMode(hasGPU)
 	m.logf("Starting the Android emulator (%s)", image.ID)
-	if _, err := m.androidRun(ctx, a, fmt.Sprintf("start %s %d %d", shellQuote(image.ID), memory, cores)); err != nil {
+	if _, err := m.androidRun(ctx, a, fmt.Sprintf("start %s %d %d %s", shellQuote(image.ID), memory, cores, gpuMode)); err != nil {
 		return AndroidStatus{}, err
 	}
 	wait, cancel := context.WithTimeout(ctx, 6*time.Minute)

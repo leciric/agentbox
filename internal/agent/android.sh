@@ -8,7 +8,7 @@
 #   the device full-screen through scrcpy, which also passes input to it.
 # Runs as the agent's user. AgentBox reaches the VNC port through an Incus
 # proxy device, so nothing listens on the agent's network.
-# Usage: android.sh link | start <image> <memory MB> <cores> | wait | view | status | stop
+# Usage: android.sh link | start <image> <memory MB> <cores> [gpu mode] | wait | view | status | stop
 #        android.sh screenshot <file> | logcat <since seconds> [package] | install <apk> | record <file> <seconds>
 set -eu
 
@@ -89,7 +89,7 @@ link() {
 }
 
 write_avd() {
-  image=$1 memory=$2 cores=$3
+  image=$1 memory=$2 cores=$3 gpu_mode=${4:-swiftshader_indirect}
   sysdir=$(printf '%s' "$image" | tr ';' '/')
   [ -f "$ANDROID_HOME/$sysdir/system.img" ] || { echo "$image isn't installed in the shared Android SDK" >&2; exit 1; }
   platform=$(printf '%s' "$image" | cut -d';' -f2)
@@ -128,7 +128,7 @@ hw.initialOrientation=portrait
 hw.keyboard=yes
 hw.mainKeys=no
 hw.gpu.enabled=yes
-hw.gpu.mode=swiftshader_indirect
+hw.gpu.mode=$gpu_mode
 hw.audioInput=no
 hw.audioOutput=no
 hw.camera.back=none
@@ -180,13 +180,14 @@ link)
   link
   ;;
 start)
-  [ $# -eq 4 ] || { echo "usage: android.sh start <image> <memory MB> <cores>" >&2; exit 2; }
+  [ $# -ge 4 ] && [ $# -le 5 ] || { echo "usage: android.sh start <image> <memory MB> <cores> [gpu mode]" >&2; exit 2; }
+  gpu_mode=${5:-swiftshader_indirect}
   link
   if ! emulator_running; then
-    write_avd "$2" "$3" "$4"
+    write_avd "$2" "$3" "$4" "$gpu_mode"
     # A snapshot taken while the emulator ran keeps its locks.
     rm -f "$ANDROID_AVD_HOME/$avd.avd"/*.lock
-    setsid "$ANDROID_HOME/emulator/emulator" -avd "$avd" -no-window -gpu swiftshader_indirect -no-audio -no-snapshot \
+    setsid "$ANDROID_HOME/emulator/emulator" -avd "$avd" -no-window -gpu "$gpu_mode" -no-audio -no-snapshot \
       -no-boot-anim -no-metrics >"$state/emulator.log" 2>&1 </dev/null &
   fi
   start_display
