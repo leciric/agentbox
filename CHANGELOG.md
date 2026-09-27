@@ -3,6 +3,27 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.7.0](https://github.com/leciric/agentbox/compare/v0.6.0...v0.7.0) (2026-09-27)
+
+
+### Added
+
+* agents record every visible change to Media by default ([#91](https://github.com/leciric/agentbox/issues/91)) ([e3b3e25](https://github.com/leciric/agentbox/commit/e3b3e25464aa84a7fb49671683e4b5901cf39d03))
+* create a new repository right from Add project ([#90](https://github.com/leciric/agentbox/issues/90)) ([c7057ba](https://github.com/leciric/agentbox/commit/c7057baab39f2a27cb035e63624c4fdfa8f0f997))
+* GPU for agents, an installation setting that passes the host's GPU into every agent ([#66](https://github.com/leciric/agentbox/issues/66)) ([cf5d80d](https://github.com/leciric/agentbox/commit/cf5d80d530911c3213c892a079d2b59ce0fb4142))
+* let a project's agents push and open their own pull requests, with their media in the PR ([#94](https://github.com/leciric/agentbox/issues/94)) ([f082cb3](https://github.com/leciric/agentbox/commit/f082cb3942889853a6503cd213a165c35a2d6e98))
+* search the Media tab by name, type and a note's words ([#92](https://github.com/leciric/agentbox/issues/92)) ([88e165f](https://github.com/leciric/agentbox/commit/88e165f3ea8d4422db232882b344a0c406da0faf))
+* show each agent's name in the agents list, and its disk usage in its info card ([#93](https://github.com/leciric/agentbox/issues/93)) ([bf587d5](https://github.com/leciric/agentbox/commit/bf587d5c168e3982101a180a081ac2f7d407f519))
+* watch agents' pull requests and tell the agent when one conflicts, fails CI or gets changes requested ([#97](https://github.com/leciric/agentbox/issues/97)) ([f67c18c](https://github.com/leciric/agentbox/commit/f67c18c386c0695fabae31d9d88b9110e8097e6c))
+
+
+### Fixed
+
+* chats open on their latest messages and load older ones as you scroll up ([#95](https://github.com/leciric/agentbox/issues/95)) ([d188b8c](https://github.com/leciric/agentbox/commit/d188b8c9eb0ae58e4c8c364e5ce7c2dfeb9ff030))
+* new agents and the lead run at the model and context window chosen in Settings ([#96](https://github.com/leciric/agentbox/issues/96)) ([7298e60](https://github.com/leciric/agentbox/commit/7298e606720ede42225b8115dfc1e64ec681cdab))
+* release-please releases build and publish their files ([#87](https://github.com/leciric/agentbox/issues/87)) ([2db44a9](https://github.com/leciric/agentbox/commit/2db44a9573063c5e1e103aaeaf9cc5ddb67acad4))
+* the project chat starts one agent per task instead of stopping at three ([#89](https://github.com/leciric/agentbox/issues/89)) ([af255d1](https://github.com/leciric/agentbox/commit/af255d144811d0667b3a1bc3e91c311b61bb415a))
+
 ## [0.6.0](https://github.com/leciric/agentbox/compare/v0.5.0...v0.6.0) (2026-09-26)
 
 
