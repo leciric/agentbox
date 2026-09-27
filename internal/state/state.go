@@ -578,6 +578,13 @@ var migrations = []string{
 	`DELETE FROM agent_events WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = agent_events.project AND a.name = agent_events.agent)`,
 	`UPDATE questions SET status = 'cancelled' WHERE status IN ('pending', 'escalated')
 		AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = questions.project AND a.name = questions.agent)`,
+
+	// Whether this project's agents push their own branch and open their own
+	// pull request, rather than leaving both to the user or the lead. Off for
+	// every project, existing and new: pushing publishes with the user's
+	// GitHub token, so it is something a project opts into.
+	`ALTER TABLE projects ADD COLUMN agent_prs INTEGER NOT NULL DEFAULT 0`,
+
 	// Both migrations above forgot opus at 200k, and it came back each time:
 	// the size they blamed on the compact window was claude-agent-acp's guess
 	// from the model's name, 200000 for plain "opus" or "sonnet", which it
@@ -750,6 +757,11 @@ type Project struct {
 	// real. Off by default: it costs isolation, and needs the base image
 	// built with Incus (image.Components.Incus).
 	Nesting bool
+	// AgentPRs is whether this project's agents push their own branch and
+	// open their own pull request when they finish, and so whether the lead
+	// stops doing it for them. Off by default: a push publishes, with the
+	// user's own GitHub token.
+	AgentPRs bool
 }
 
 // How much a project's chat does on its own.
@@ -901,7 +913,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting`
+const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -971,10 +983,10 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
-		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting)
+		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs)
 	return err
 }
 
@@ -1001,7 +1013,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		var allowed string
 		if err := rows.Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.Section, &p.Position); err != nil {
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -1280,6 +1292,19 @@ func (s *Store) SetProjectNesting(ctx context.Context, name string, on bool) err
 	return nil
 }
 
+// SetProjectAgentPRs sets whether this project's agents push their own branch
+// and open their own pull request.
+func (s *Store) SetProjectAgentPRs(ctx context.Context, name string, on bool) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET agent_prs = ? WHERE name = ?`, on, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetProjectMediaRetentionDays sets how long this project keeps media whose
 // agent is gone before the daemon sweeps it away.
 func (s *Store) SetProjectMediaRetentionDays(ctx context.Context, name string, days int) error {
@@ -1399,7 +1424,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.Section, &p.Position)
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound

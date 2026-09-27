@@ -38,6 +38,10 @@ type Data struct {
 	// Nesting is whether the project turned nesting on: the agent runs a real
 	// Incus daemon of its own, inside its own container.
 	Nesting bool
+	// AgentPRs is whether the project lets its agents push their own branch
+	// and open their own pull request. Off, the brief tells the agent not to
+	// push and leaves both to the user and the lead.
+	AgentPRs bool
 	// VM is set when AgentBox runs in a Linux VM on another OS: WSL 2 on
 	// Windows (package hostwsl, D94), or the VM it makes on a Mac (package
 	// hostvm, D92). The agent's address is then inside that VM, which the
@@ -98,6 +102,10 @@ type LeadData struct {
 	// CanSpawn is true once the lead has the tools to create and follow this
 	// project's agents itself.
 	CanSpawn bool
+	// AgentPRs is whether the project's agents push their own branch and open
+	// their own pull request, so the lead doesn't do it for them and retires
+	// one once its PR is open.
+	AgentPRs bool
 	// Autonomy is how much it may do without being asked: "ask" or "on".
 	Autonomy string
 	// AgentModel is what the project says the agents it creates run on: "" to

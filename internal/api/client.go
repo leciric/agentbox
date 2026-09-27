@@ -60,6 +60,7 @@ func (c *Client) HTTPClient() *http.Client { return c.http }
 type StatusError struct {
 	Code    int
 	Message string
+	Reason  string // Error.Code: which refusal it is, when the daemon says
 }
 
 func (e *StatusError) Error() string { return e.Message }
@@ -67,6 +68,12 @@ func (e *StatusError) Error() string { return e.Message }
 func IsNotFound(err error) bool {
 	var se *StatusError
 	return errors.As(err, &se) && se.Code == http.StatusNotFound
+}
+
+// HasReason reports whether err is the daemon's refusal with that Error.Code.
+func HasReason(err error, code string) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Reason == code
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body any) (*http.Response, error) {
@@ -99,7 +106,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 		if json.Unmarshal(data, &e) != nil || e.Error == "" {
 			e.Error = strings.TrimSpace(string(data))
 		}
-		return nil, &StatusError{Code: resp.StatusCode, Message: e.Error}
+		return nil, &StatusError{Code: resp.StatusCode, Message: e.Error, Reason: e.Code}
 	}
 	return resp, nil
 }
@@ -250,6 +257,13 @@ func (c *Client) SetRolloverThreshold(ctx context.Context, project string, perce
 func (c *Client) SetNesting(ctx context.Context, project string, on bool) (Project, error) {
 	var out Project
 	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{Nesting: &on}, &out)
+}
+
+// SetAgentPRs sets whether a project's agents push their own branch and open
+// their own pull request when they finish.
+func (c *Client) SetAgentPRs(ctx context.Context, project string, on bool) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{AgentPRs: &on}, &out)
 }
 
 // SetContextBudget sets how many estimated tokens one context built from a
@@ -455,6 +469,21 @@ func (c *Client) Media(ctx context.Context, ref string) ([]MediaItem, error) {
 func (c *Client) MediaItem(ctx context.Context, id string) (MediaItem, error) {
 	var item MediaItem
 	return item, c.do(ctx, http.MethodGet, "/v1/media/"+url.PathEscape(id), nil, &item)
+}
+
+// MediaFile opens an item's file: any item on the host API (ref is only
+// checked there by the caller), and only the caller's own on the in-agent API
+// (ref ""). The caller closes it.
+func (c *Client) MediaFile(ctx context.Context, ref, id string) (io.ReadCloser, error) {
+	path := "/v1/media/" + url.PathEscape(id) + "/file"
+	if ref == "" {
+		path = "/v1/self/media/" + url.PathEscape(id) + "/file"
+	}
+	resp, err := c.request(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Body, nil
 }
 
 func (c *Client) DeleteMedia(ctx context.Context, id string) error {
@@ -760,6 +789,12 @@ func (c *Client) Usage(ctx context.Context, interval time.Duration) (Usage, erro
 func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	var out DiskUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)
+}
+
+// AgentDisk is one agent's machine and worktree sizes, as its info card shows them.
+func (c *Client) AgentDisk(ctx context.Context, project, name string) (AgentDisk, error) {
+	var out AgentDisk
+	return out, c.do(ctx, http.MethodGet, "/v1/agents/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/disk", nil, &out)
 }
 
 func (c *Client) MemoryUsage(ctx context.Context) (MemoryUsage, error) {

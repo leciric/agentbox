@@ -18,10 +18,59 @@ export function resetChatEvents(): void {
   recent.clear();
 }
 
-export async function fetchThread(ref: string): Promise<T.ChatThread> {
-  const thread = await api.chat(ref);
+// A chat opens on its latest messages, and older ones come a page at a time as
+// you scroll up to them (loadOlder). The daemon pages by messages — yours and
+// the AI tool's answers, not tool calls — and starts each page at a turn, so a
+// turn, its tool calls and its subagents' work always arrive together.
+export const pageSize = 20;
+
+// isMessage is what counts towards a page, the same as isMessage in package chat.
+export const isMessage = (it: T.ChatItem) => (it.kind === 'user' || it.kind === 'aside' || it.kind === 'assistant') && !it.parent && !it.hidden;
+
+// fetchThread reads a chat's latest page. When the chat has already been read
+// further back, it asks for as many messages as it holds, so reading it again
+// — after a missed event — doesn't drop what you scrolled up to.
+export async function fetchThread(queryClient: QueryClient, ref: string): Promise<T.ChatThread> {
+  const held = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
+  const limit = Math.max(pageSize, held?.items.filter(isMessage).length ?? 0);
+  const thread = await api.chat(ref, { limit });
   const next = advance(thread, recent.get(ref) ?? []);
   return next === 'gap' ? thread : next;
+}
+
+// loadOlder reads the page before the oldest item a chat holds, and puts it in
+// front. It answers whether it added anything.
+export async function loadOlder(queryClient: QueryClient, ref: string): Promise<boolean> {
+  const held = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
+  const first = held?.items[0];
+  if (!held?.older || !first) return false;
+  const page = await api.chat(ref, { before: first.id, limit: pageSize });
+  const now = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
+  // Read again or cleared meanwhile: the page no longer goes in front of it.
+  if (!now || now.items[0]?.id !== first.id) return false;
+  const next = prependPage(now, page, recent.get(ref) ?? []);
+  if (next !== now) queryClient.setQueryData(chatKey(ref), next);
+  return next !== now;
+}
+
+// prependPage puts an older page in front of a thread. The page is as of its
+// own seq; events after it that changed its items, which the thread skipped
+// for not having them, are applied to it here. A chat cleared after it makes
+// it history nobody has any more.
+export function prependPage(thread: T.ChatThread, page: T.ChatThread, events: T.ChatEvent[]): T.ChatThread {
+  const later = events.filter((ev) => ev.seq > page.seq);
+  if (later.some((ev) => ev.cleared)) return thread;
+  const held = new Set(thread.items.map((it) => it.id));
+  let items = page.items.filter((it) => !held.has(it.id));
+  if (items.length === 0 && page.older === thread.older) return thread;
+  for (const ev of later) {
+    const id = ev.item?.id ?? ev.append?.id;
+    const i = id === undefined ? -1 : items.findIndex((it) => it.id === id);
+    if (i < 0) continue;
+    if (ev.item) items = items.with(i, ev.item);
+    else if (ev.append) items = items.with(i, { ...items[i], text: (items[i].text ?? '') + ev.append.text });
+  }
+  return { ...thread, items: [...items, ...thread.items], older: page.older };
 }
 
 export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void {
@@ -68,12 +117,21 @@ function applyEvent(thread: T.ChatThread, ev: T.ChatEvent): T.ChatThread {
     next.session = ev.session;
   } else if (ev.item) {
     const i = indexOf(thread.items, ev.item.id);
+    if (i < 0 && olderThanHeld(thread, ev.item)) return next;
     next.items = i < 0 ? [...thread.items, ev.item] : thread.items.with(i, ev.item);
   } else if (ev.append) {
     const i = indexOf(thread.items, ev.append.id);
     if (i >= 0) next.items = thread.items.with(i, { ...thread.items[i], text: (thread.items[i].text ?? '') + ev.append.text });
   }
   return next;
+}
+
+// olderThanHeld says an item the thread doesn't have belongs to a page it hasn't
+// read yet, rather than being new: new items go at the end, and are never
+// older than the ones already there. It comes with that page.
+function olderThanHeld(thread: T.ChatThread, it: T.ChatItem): boolean {
+  const first = thread.items[0];
+  return !!thread.older && !!first && Date.parse(it.createdAt) < Date.parse(first.createdAt);
 }
 
 // indexOf searches from the end, where changes happen.

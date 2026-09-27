@@ -2,11 +2,13 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"agentbox/internal/image"
+	"agentbox/internal/state"
 )
 
 // pool is the storage pool every agent's machine and every saved base lives
@@ -110,4 +112,29 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 
 func sortItemsDesc(items []DiskUsageItem) {
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Bytes > items[j].Bytes })
+}
+
+// AgentDisk is one agent's two sizes, each with its own error, so a machine
+// Incus can't read still shows its worktree.
+type AgentDisk struct {
+	Machine     int64
+	MachineErr  error
+	Worktree    int64
+	WorktreeErr error
+}
+
+// AgentDisk measures one agent: its machine's root disk, the bytes its
+// container's volume uses on the pool, and its worktree on the host. It is the
+// per-agent slice of DiskUsage and as cheap as that is for one agent, one
+// Incus query and one walk of one worktree, which the daemon caches rather
+// than repeating on every hover.
+func (m *Manager) AgentDisk(ctx context.Context, a state.Agent) AgentDisk {
+	var d AgentDisk
+	d.Machine, d.MachineErr = m.Incus.VolumeUsage(ctx, pool, a.Instance)
+	if a.Worktree == "" {
+		d.WorktreeErr = errors.New(a.Ref() + " has no worktree")
+	} else {
+		d.Worktree, d.WorktreeErr = dirSize(a.Worktree)
+	}
+	return d
 }

@@ -20,6 +20,7 @@ export interface Project {
   section: string;
   position: number;
   nesting: boolean;
+  agentPRs: boolean;
   createdAt: string;
 }
 
@@ -29,6 +30,8 @@ export interface AddProjectRequest {
   claudeAccount?: string;
   githubAccount?: string;
   copyToLinux?: boolean;
+  create?: boolean;
+  commitFiles?: boolean;
 }
 
 export interface UpdateProjectRequest {
@@ -46,6 +49,7 @@ export interface UpdateProjectRequest {
   consolidation?: number;
   consolidationModel?: string;
   nesting?: boolean;
+  agentPRs?: boolean;
 }
 
 export interface Section {
@@ -316,6 +320,12 @@ export interface DiskUsage {
   categories: DiskUsageCategory[];
 }
 
+export interface AgentDisk {
+  machine?: number;
+  worktree?: number;
+  measuredAt: string;
+}
+
 export interface MemoryUsageAgent {
   ref: string;
   title?: string;
@@ -453,6 +463,7 @@ export interface Self {
 
 export interface Error {
   error: string;
+  code?: string;
 }
 
 export interface TerminalResize {
@@ -961,6 +972,7 @@ export interface ChatThread {
   seq: number;
   session: ChatSession;
   items: ChatItem[];
+  older?: boolean;
 }
 
 export interface ChatSession {
@@ -1520,6 +1532,7 @@ export const SetupOutdated = "outdated";
 export const SetupOptional = "optional";
 export const SetupUpdating = "updating";
 export const InAgentSocket = "/run/agentbox.sock";
+export const ErrorFolderNotEmpty = "folder-not-empty";
 export const LeadName = "lead";
 export const AgentModelAuto = "auto";
 export const ConsolidationModelCheap = "cheap";

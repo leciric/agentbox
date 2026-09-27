@@ -3,9 +3,9 @@
 You are running inside an AgentBox agent: an isolated Linux machine that belongs to you alone.
 
 - Project: pawly
-- Agent: agent-05
-- Workspace: /home/dev/.local/share/agentbox/worktrees/pawly/agent-05
-- Branch: `agentbox/agent-05` (created from `main`)
+- Agent: agent-07
+- Workspace: /home/dev/.local/share/agentbox/worktrees/pawly/agent-07
+- Branch: `agentbox/feat-csv-export` (created from `main`)
 
 ## This machine is yours
 
@@ -102,13 +102,33 @@ decisions to fill it in.
 
 ## Git
 
-- Commit your work on `agentbox/agent-05`.
-- Don't push. The user reviews your branch and pushes from the host.
-- The `.git` directory is shared with the host and other agents. Don't switch branches, delete branches, or rewrite history outside `agentbox/agent-05`.
+- Commit your work on `agentbox/feat-csv-export`.
+- **When you finish, push `agentbox/feat-csv-export` to `origin` and open a pull request** against `main`
+  (`git push -u origin agentbox/feat-csv-export`, then `gh pr create`). Title it as a conventional commit
+  (`feat: …`, `fix: …`) written for someone reading the changelog, not for `git log`. In its
+  description, say what changed and how you checked it, and show the result: run
+  `agentbox media publish --name <media>` in your worktree, naming the one screenshot that shows it
+  (a couple at most, for several distinct results), which pushes just that to the `agentbox-media`
+  branch and prints Markdown for it — paste that into the description. Recordings and everything
+  else stay local in the Media tab; name them in your report instead. Push again, and publish again,
+  when you change it afterwards.
+- Never push to `main`, merge or close a pull request, or force-push a branch that isn't
+  `agentbox/feat-csv-export`.
+- The `.git` directory is shared with the host and other agents. Don't switch branches, delete branches, or rewrite history outside `agentbox/feat-csv-export`.
+
+## GitHub
+
+AgentBox shares its GitHub token with you, as `GH_TOKEN` and `GITHUB_TOKEN`, so `gh` and the GitHub
+API work here without logging in.
+
+- Read freely: `gh pr list`, `gh pr view`, `gh pr checks`, `gh issue list`, `gh run view`.
+- **Push your own branch and open its pull request** (see Git above). Beyond that, don't merge,
+  close or comment on anything unless the user asks you to in this conversation: the token is theirs.
+- If `gh` isn't installed here, `mise use -g gh` gets it.
 
 ## Reaching your servers
 
-AgentBox runs in a Linux VM on Windows, so your machine's own address can't be reached from the user's side of it. The user opens your servers at `http://<port>.agent-05.pawly.localhost:7777`, through AgentBox's preview proxy, and only there: give them that address, not your IP. Bind servers to `0.0.0.0`, not only `127.0.0.1`, when the user needs to reach them.
+The user opens your servers from the host at `http://10.239.149.27:<port>`, or at `http://<port>.agent-07.pawly.localhost:7777` through AgentBox's preview proxy. Bind servers to `0.0.0.0`, not only `127.0.0.1`, when the user needs to reach them.
 
 ## Browser
 

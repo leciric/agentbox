@@ -36,9 +36,9 @@ AgentBox does not set the project up for you. Work it out the way a new develope
 - **Run the full suite once, before you finish.** Leave to CI what this machine can't run, like tests
   behind a build tag that need a VM or a device, and say that you did.
 - **Show a user-facing change working on your desktop**, in the real app, through the desktop
-  subagent, and keep the proof with `agentbox media`. Make that quick: build the app and launch it
-  unpacked (for Electron, the build plus `electron .`) rather than packaging an installer, unless
-  packaging is what you changed.
+  subagent, and end with a recording in Media (below) — the default, not an extra. Make that quick:
+  build the app and launch it unpacked (for Electron, the build plus `electron .`) rather than
+  packaging an installer, unless packaging is what you changed.
 
 ## When a credential is missing
 
@@ -135,21 +135,21 @@ There is also a `desktop` MCP server: a real mouse, keyboard and screenshots of 
 
 **If you're Claude Code, the desktop tools aren't yours: they belong to your `desktop` subagent.** Hand it the job with your Agent tool — an exact goal, and what to report back — and you get words back, while its screenshots go with it when it answers. It runs on Haiku; ask for Sonnet when what it has to judge is subtle. Other AI tools have the server directly: take a `screenshot` to start, and after that each action answers with a screenshot of what it led to, so there is no need to take another; coordinates are in the screenshot's pixels.
 
-- **Use the desktop tools by default**, inside a web page and outside it: pages and apps, the file manager, the terminal, the panel, native dialogs (file pickers, print, permission prompts).
+- **Use the desktop tools for as much of your testing and recording as you can**, inside a web page and outside it: pages and apps, the file manager, the terminal, the panel, native dialogs (file pickers, print, permission prompts).
 - **Fall back to Playwright only for what pixels can't tell you**: the DOM, an element's exact text or attributes, or waiting until an element appears.
 - **Use them for recordings too.** Playwright's input never moves the real cursor, so a recording made with it shows things changing with no pointer anywhere. The desktop tools move the actual mouse, so the user sees where you clicked.
 
 ## Media: show your work
 
-The user reviews what you did in AgentBox's Media tab. When something works, capture proof instead of only describing it: if you can show it happening, show it.
+The user reviews what you did in AgentBox's Media tab, and a recording is how they see a change actually happen rather than take your word for it. It stays there, on this machine — it isn't what goes in a pull request (see Git above): the PR body gets one screenshot of the result, a couple at most for several distinct results, never all of it.
 
-- `agentbox media screenshot --name <name>` saves the browser's current page (`--full-page` for all of it, `--display` for the whole screen). This is your default way to prove a UI change works.
-- `agentbox media record start --name <name>`, go through the flow in the browser, then `agentbox media record stop`. Use this for anything that's a flow rather than a single state.
-- When the user should see how the flow was driven, not just its result, record it with `agentbox media record start --input desktop --name <name>` and drive it with the desktop tools (above), not Playwright: that adds the mouse cursor and an overlay of the keys you press.
+- **Any change the user can see — UI, CLI output, an app flow — ends with a recording**: `agentbox media record start --input desktop --name <name>`, drive it through the desktop tools (above; Claude Code: hand the desktop subagent an exact script of what to click, type and wait for), then `agentbox media record stop`. Name it in your report. Screenshots and notes are extras, not substitutes.
+- Only skip the recording when there's truly nothing visible — a pure refactor, backend-only work with no observable output — and say so in your report.
+- `agentbox media screenshot --name <name>` (`--full-page` or `--display`) is for a single state alongside a recording, not instead of one. This is usually the one you publish to the pull request.
 - `agentbox media add <path>` keeps a single file: JUnit XML, one HTML report, a log. Don't add whole directories — not even `playwright-report/` as a folder. If a tool writes a directory of files, point at the one entry file that matters, zip the directory first, or just take a screenshot or recording of it instead.
 - `agentbox media logs --service <compose service>` keeps a service's recent logs.
-- `agentbox media note "<text>"` adds a short caption alongside a screenshot or recording — not a replacement for one. A note with nothing visual behind it is the weakest kind of proof; use it sparingly.
+- `agentbox media note "<text>"` adds a short caption alongside a screenshot or recording — not a replacement for one.
 
 `agentbox media list` shows what's there. You can add media, but not change or delete it.
 
-A walkthrough recorded through the desktop tools is slow, click-by-click work — real minutes spent moving a mouse for a few seconds of video — and it has no business filling up this conversation. If you're Claude Code, it is the desktop subagent's: give it an exact script of what to click, type and wait for, and have it run `agentbox media record start --input desktop` around that script and report back which media it saved. Don't take its word for it: check with `agentbox media list` that what it named was saved, and if you have to see the result, look at one saved screenshot rather than driving the display yourself.
+A walkthrough recorded through the desktop tools is slow, click-by-click work — real minutes spent moving a mouse for a few seconds of video — and it has no business filling up this conversation. If you're Claude Code, it is the desktop subagent's: give it an exact script and have it run `agentbox media record start --input desktop` around it and report back which media it saved. **Always Haiku for a recording** — it's scripted, not judgment; ask for Sonnet only when the desktop subagent itself has to judge something subtle, never to drive a recording. Don't take its word for it: check with `agentbox media list` that what it named was saved, and if you have to see the result, look at one saved screenshot rather than driving the display yourself.

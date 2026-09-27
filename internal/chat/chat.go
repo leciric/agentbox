@@ -220,17 +220,65 @@ func (m *Manager) existing(ref string) *conversation {
 
 // Thread returns an agent's conversation, with the number of the last event it includes.
 func (m *Manager) Thread(a state.Agent) (api.ChatThread, error) {
+	return m.Page(a, "", 0)
+}
+
+// Page returns a page of an agent's conversation: the items before the one
+// called before (all of them when before is ""), going back far enough to hold
+// limit messages (every one of them when limit is 0). A message is what you
+// read in the timeline — what you wrote and what the AI tool answered — so a
+// page of tool calls doesn't count as a page of conversation. A page always
+// starts at a user message, where a turn does, so the app never sees half a
+// turn: its tool calls, its subagents' work and its fold stay together.
+//
+// It reads the conversation the chat holds, which is chat_items as they are
+// stored plus what hasn't been saved yet. A before the conversation doesn't
+// have — it was cleared meanwhile — is an empty page.
+func (m *Manager) Page(a state.Agent, before string, limit int) (api.ChatThread, error) {
 	c, err := m.conversation(a)
 	if err != nil {
 		return api.ChatThread{}, err
 	}
 	defer c.mu.Unlock()
 	c.flush(false)
-	items := make([]api.ChatItem, 0, len(c.items))
-	for _, it := range c.items {
+	start, end := pageOf(c.items, before, limit)
+	items := make([]api.ChatItem, 0, end-start)
+	for _, it := range c.items[start:end] {
 		items = append(items, clone(*it))
 	}
-	return api.ChatThread{Agent: a.Ref(), Seq: c.seq, Session: clone(c.session), Items: items}, nil
+	return api.ChatThread{Agent: a.Ref(), Seq: c.seq, Session: clone(c.session), Items: items, Older: start > 0}, nil
+}
+
+// pageOf is where Page's page lies in items: items[start:end].
+func pageOf(items []*api.ChatItem, before string, limit int) (start, end int) {
+	end = len(items)
+	if before != "" {
+		end = slices.IndexFunc(items, func(it *api.ChatItem) bool { return it.ID == before })
+		if end < 0 {
+			return 0, 0
+		}
+	}
+	if limit <= 0 {
+		return 0, end
+	}
+	start = end
+	for n := 0; start > 0 && n < limit; {
+		start--
+		if isMessage(*items[start]) {
+			n++
+		}
+	}
+	for start > 0 && items[start].Kind != "user" {
+		start--
+	}
+	return start, end
+}
+
+// isMessage says whether an item counts towards a page's limit (Page): a
+// message of yours or the AI tool's own answer, shown in the conversation.
+// The app counts the same way to ask for as much as it already has.
+func isMessage(it api.ChatItem) bool {
+	return (it.Kind == "user" || it.Kind == "aside" || it.Kind == "assistant") && it.Parent == "" && !it.Hidden
 }
 
 // LastMessage returns the text of the last thing an agent's AI tool said: the

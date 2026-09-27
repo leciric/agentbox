@@ -52,6 +52,26 @@ func TestChatClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "ChatPage, the latest", method: http.MethodGet, path: "/v1/agents/pawly/agent-01/chat?limit=20",
+			resp: `{"agent":"agent-01","seq":3,"older":true}`,
+			run: func(t *testing.T, c *Client) {
+				thread, err := c.ChatPage(context.Background(), "pawly/agent-01", "", 20)
+				if err != nil || !thread.Older {
+					t.Errorf("ChatPage() = %+v, %v; want Older, nil", thread, err)
+				}
+			},
+		},
+		{
+			name: "ChatPage, before an item", method: http.MethodGet, path: "/v1/projects/pawly/chat?before=item+1&limit=20",
+			resp: `{"agent":"lead","seq":3}`,
+			run: func(t *testing.T, c *Client) {
+				thread, err := c.ChatPage(context.Background(), "pawly", "item 1", 20)
+				if err != nil || thread.Older {
+					t.Errorf("ChatPage() = %+v, %v; want nothing older, nil", thread, err)
+				}
+			},
+		},
+		{
 			name: "Chat for the project's own lead", method: http.MethodGet, path: "/v1/projects/pawly/chat",
 			resp: `{"agent":"lead","seq":1}`,
 			run: func(t *testing.T, c *Client) {

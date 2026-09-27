@@ -1,29 +1,31 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image, Layers } from 'lucide-react';
-import { useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { describeAll } from '../lib/media';
+import { describeAll, searchMedia } from '../lib/media';
 import { humanBytes } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
-import { FilterChip, MediaCard, MediaSelection, MediaViewer, toggled } from './MediaTab';
+import { FilterChip, MediaCard, MediaSearch, MediaSelection, MediaViewer, NoMatch, toggled } from './MediaTab';
 import { EmptyState } from './ui/card';
 
 // ProjectMediaPanel is every agent's media in one stream, so you can see what
 // the whole project has shown without opening each agent. Each item is labelled
 // with the agent it came from and what that agent was for, and the stream can
-// be filtered down to one agent or one kind.
+// be filtered down to one agent or one kind, and searched.
 export function ProjectMediaPanel({ project }: { project: string }) {
   const queryClient = useQueryClient();
   const media = useQuery({ queryKey: ['projectMedia', project], queryFn: () => api.projectMedia(project), refetchInterval: 10_000 });
   const [agent, setAgent] = useState('');
   const [kind, setKind] = useState('');
+  const [query, setQuery] = useState('');
+  const search = useDeferredValue(query);
   const [openId, setOpenId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<T.MediaItem | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
-  const items = media.data ?? [];
+  const items = useMemo(() => media.data ?? [], [media.data]);
   // The agents that have shown something, newest item first, each with a count.
   const agents = new Map<string, { title: string; count: number; gone: boolean }>();
   const kinds = new Map<string, number>();
@@ -36,7 +38,10 @@ export function ProjectMediaPanel({ project }: { project: string }) {
     total += item.size;
   }
 
-  const visible = items.filter((item) => (!agent || item.agentName === agent) && (!kind || item.kind === kind));
+  const visible = useMemo(
+    () => searchMedia(items.filter((item) => (!agent || item.agentName === agent) && (!kind || item.kind === kind)), search),
+    [items, agent, kind, search],
+  );
   const index = visible.findIndex((item) => item.id === openId);
   const refresh = async () => {
     setOpenId(null);
@@ -66,6 +71,7 @@ export function ProjectMediaPanel({ project }: { project: string }) {
           {items.length} item{items.length === 1 ? '' : 's'}
           {total > 0 && <span className="text-subtle"> · {humanBytes(total)}</span>}
         </span>
+        <MediaSearch value={query} onChange={setQuery} />
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <MediaSelection
             visible={visible}
@@ -73,8 +79,10 @@ export function ProjectMediaPanel({ project }: { project: string }) {
             onSelecting={setSelecting}
             selected={selected}
             onSelected={setSelected}
-            all={{ all: true, agent: agent || undefined, kind: kind || undefined }}
-            allLabel={describeAll(visible.length, kind, agent)}
+            // A search has no counterpart on the daemon's side, so what it
+            // leaves is deleted by ID: "Delete all" never takes more than it shows.
+            all={search.trim() ? { ids: visible.map((item) => item.id) } : { all: true, agent: agent || undefined, kind: kind || undefined }}
+            allLabel={describeAll(visible.length, kind, agent, search)}
             deleteMedia={(req) => api.deleteProjectMedia(project, req)}
             onDeleted={refresh}
           />
@@ -103,7 +111,7 @@ export function ProjectMediaPanel({ project }: { project: string }) {
       </div>
 
       {visible.length === 0 ? (
-        <p className="px-1 text-[13px] text-subtle">Nothing matches that filter.</p>
+        <NoMatch query={search} onClear={() => setQuery('')} />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {visible.map((item) => (

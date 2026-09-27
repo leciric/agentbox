@@ -248,7 +248,19 @@ function AgentRow({
           {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
           <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
           <span className={cn('min-w-0 flex-1', pr && 'pr-11')}>
-            <span className={cn('block truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
+            {/* The title, and after it the agent's name (agent-125), the handle
+                it goes by in the chat, the CLI and its branch. The name takes
+                at most 40% of the line, so a long custom one can't push the title
+                out, and it is dropped when there is no title, as that line
+                already is the name. */}
+            <span className="flex min-w-0 items-baseline gap-1.5">
+              <span className={cn('min-w-0 truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
+              {agent.title && (
+                <span className="min-w-0 max-w-[40%] shrink-0 truncate font-mono text-[10.5px] text-faint" data-rail-name>
+                  {agent.name}
+                </span>
+              )}
+            </span>
             <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
               {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
               {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}

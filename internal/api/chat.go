@@ -11,6 +11,10 @@ type ChatThread struct {
 	Seq     int64       `json:"seq"` // the last event it includes
 	Session ChatSession `json:"session"`
 	Items   []ChatItem  `json:"items"`
+	// Older says the conversation has items before these: this is a page of
+	// it (GET …/chat?limit=&before=), and the next one back starts before
+	// Items[0].
+	Older bool `json:"older,omitempty"`
 }
 
 // ChatSession is the state of the AI tool's session behind a conversation.

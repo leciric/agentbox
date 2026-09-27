@@ -96,7 +96,11 @@ type Project struct {
 	// their own, inside their own container, to test AgentBox features that
 	// touch agent machines for real. Off by default: it costs isolation, and
 	// needs the base image built with Incus.
-	Nesting   bool      `json:"nesting"`
+	Nesting bool `json:"nesting"`
+	// AgentPRs is whether this project's agents push their own branch and
+	// open their own pull request when they finish. Off by default: a push
+	// publishes, with the user's GitHub token.
+	AgentPRs  bool      `json:"agentPRs"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -227,6 +231,9 @@ type UpdateProjectRequest struct {
 	// daemon of their own, inside their own container. It needs the base
 	// image built with Incus (Setup's image.components.incus).
 	Nesting *bool `json:"nesting,omitempty"`
+	// AgentPRs turns on or off whether this project's agents push their own
+	// branch and open their own pull request, in place of the lead.
+	AgentPRs *bool `json:"agentPRs,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -242,6 +249,14 @@ type AddProjectRequest struct {
 	// ~/src/<name> on the distro's own disk, and adds that clone instead of
 	// refusing the path (D91). Elsewhere it changes nothing.
 	CopyToLinux bool `json:"copyToLinux,omitempty"`
+	// Create makes Path a new repository, on main with an initial commit, and
+	// adds that: a folder that doesn't exist yet is made, and one that's the top
+	// of a repository with commits is added as it is. A folder with files in
+	// it and no commits is refused with ErrorFolderNotEmpty unless
+	// CommitFiles, which makes them the initial commit; a folder inside
+	// another repository is refused.
+	Create      bool `json:"create,omitempty"`
+	CommitFiles bool `json:"commitFiles,omitempty"`
 }
 
 // Settings belong to this installation rather than to one project.
@@ -722,6 +737,18 @@ type DiskUsageCategory struct {
 type DiskUsage struct {
 	Total      int64               `json:"total"`
 	Categories []DiskUsageCategory `json:"categories"`
+}
+
+// AgentDisk is what one agent takes up on disk, for its info card: its
+// machine's root disk (the container's own volume on the storage pool) and its
+// worktree on the host, measured separately because they are different disks
+// and grow for different reasons. A size is left out when it couldn't be
+// measured, such as a machine whose volume Incus can't read. The daemon
+// caches each agent's for a minute, so MeasuredAt says how fresh it is.
+type AgentDisk struct {
+	Machine    *int64    `json:"machine,omitempty"`
+	Worktree   *int64    `json:"worktree,omitempty"`
+	MeasuredAt time.Time `json:"measuredAt"`
 }
 
 // MemoryUsageAgent is one agent's share of the host's memory: what its own
@@ -1295,7 +1322,14 @@ type Self struct {
 
 type Error struct {
 	Error string `json:"error"`
+	// Code, when there is one, says which refusal this is, for a client that
+	// offers a way past it rather than only showing the message.
+	Code string `json:"code,omitempty"`
 }
+
+// ErrorFolderNotEmpty is the Code of AddProjectRequest.Create refusing a
+// folder that has files in it: the same request with CommitFiles gets past it.
+const ErrorFolderNotEmpty = "folder-not-empty"
 
 // VersionInfo is what GET /v1/version reports about the daemon.
 type VersionInfo struct {
