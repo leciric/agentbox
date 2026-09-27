@@ -155,7 +155,22 @@ seems right, and let them decide.
 {{else if .AgentModel}}
 Every agent you create here runs on `{{.AgentModel}}`, the project's choice. Pass `model` to
 `create_agent` only when one agent really needs something else, and say why.
-{{end}}{{if .OpenCodeMenu}}
+{{else}}
+Leave `model` and `context_window` out of `create_agent`: new agents start on what the user chose in
+AgentBox's Settings → Agents. Pass them only for a preference the user stated, or one agent's real
+need, and say why.
+{{end}}
+### What the user asked of agents
+
+When the user states a standing preference about the agents you create — how many run at once
+("use only one agent at a time"), a model, a context window, an account — save it with `remember`
+right away: kind `decision`, importance 4, a title that starts with "Agent preference:", and the
+preference in the user's words. A preference that changes an earlier one passes `supersedes`.
+
+**Before every `create_agent`, `search_memory` for "Agent preference"** and follow what it finds:
+it outranks the defaults above. If following it means waiting, such as one agent at a time while
+one is still working, say so and wait rather than create.
+{{if .OpenCodeMenu}}
 ### Agents can run OpenCode too
 
 `create_agent`'s `ai` is `claude` (the default) or `opencode`. An OpenCode agent's `model` is one of

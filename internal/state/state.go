@@ -578,6 +578,26 @@ var migrations = []string{
 	`DELETE FROM agent_events WHERE NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = agent_events.project AND a.name = agent_events.agent)`,
 	`UPDATE questions SET status = 'cancelled' WHERE status IN ('pending', 'escalated')
 		AND NOT EXISTS (SELECT 1 FROM agents a WHERE a.project = questions.project AND a.name = questions.agent)`,
+	// Both migrations above forgot opus at 200k, and it came back each time:
+	// the size they blamed on the compact window was claude-agent-acp's guess
+	// from the model's name, 200000 for plain "opus" or "sonnet", which it
+	// streams on every usage_update until a model result gives it the real
+	// window. The chat remembered that guess, and dropped the real 1M reading
+	// that followed whenever the chat compacted at 1M — so choosing 1M was
+	// what took 1M away. The chat now remembers only the reading after a
+	// result, and this forgets what the guess left, one last time.
+	`UPDATE settings SET value = (
+		SELECT COALESCE(json_group_object(seen.key, seen.value), '{}') FROM json_each(settings.value) AS seen
+		WHERE NOT (
+			seen.type = 'integer' AND seen.value < 1000000 AND lower(seen.key) NOT LIKE '%haiku%' AND (
+				seen.key LIKE '%[1m]'
+				OR lower(seen.key) IN ('opus', 'sonnet', 'default', 'best', 'opusplan')
+				OR lower(seen.key) LIKE '%fable%'
+				OR lower(seen.key) LIKE 'claude-opus-5%'
+				OR lower(seen.key) LIKE 'claude-sonnet-5%'
+			)
+		)
+	) WHERE key = 'claude_model_windows' AND json_valid(value) AND json_type(value) = 'object'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

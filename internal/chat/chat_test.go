@@ -2004,7 +2004,7 @@ func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
 	store := openStore(t)
 	ctx := context.Background()
 	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
-		f.update(s, `{"sessionUpdate":"usage_update","used":1234,"size":1000000}`)
+		f.update(s, `{"sessionUpdate":"usage_update","used":1234,"size":1000000,"cost":{"amount":0.01,"currency":"USD"}}`)
 		return acp.PromptResponse{StopReason: "end_turn"}
 	})
 	f.resume = true
@@ -2313,5 +2313,108 @@ func TestAModelChosenLateInTheSetupStillReachesTheTool(t *testing.T) {
 	}
 	if got := optionValue(th.Session, "model"); got != "haiku" {
 		t.Errorf("the session reports model %q, want haiku", got)
+	}
+}
+
+// TestALongWindowVariantIsNotSwitchedBack: an agent whose plain model has a
+// short window starts as its "[1m]" variant for the 1M window chosen for it,
+// and the session's setup mustn't then set the stored plain name, which would
+// take the long window away the moment the chat started.
+func TestALongWindowVariantIsNotSwitchedBack(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	ctx := context.Background()
+	if err := store.SetSetting(ctx, state.SettingClaudeModelWindows, `{"opus":200000,"opus[1m]":1000000}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveChat(ctx, testAgent.Project, testAgent.Name, state.Chat{Options: map[string]string{"model": "opus", state.ChatOptionContextWindow: "1000000"}}); err != nil {
+		t.Fatal(err)
+	}
+	tool := newFakeTool(answerHello)
+	// What Claude Code reports once settings.json named the variant.
+	tool.values["model"] = "opus[1m]"
+	m, _ := newManager(t, store, tool)
+	var mu sync.Mutex
+	var models []string
+	m.Prepare = func(_ context.Context, _ state.Agent, model string, _ int64) error {
+		mu.Lock()
+		defer mu.Unlock()
+		models = append(models, model)
+		return nil
+	}
+	if _, err := m.Send(testAgent, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, testAgent, "the first turn", turnsEnded(1))
+	mu.Lock()
+	defer mu.Unlock()
+	if !slices.Equal(models, []string{"opus[1m]"}) {
+		t.Errorf("started on %v, want opus[1m]", models)
+	}
+	for _, params := range tool.called(acp.MethodSetConfigOption) {
+		if strings.Contains(string(params), `"configId":"model"`) {
+			t.Errorf("the session was switched back: %s", params)
+		}
+	}
+}
+
+// TestOnlyTheReadingAfterAResultIsAModelsWindow is how an account's opus kept
+// losing its 1M window. claude-agent-acp streams its guess from the model's
+// name — 200000 for plain "opus" — on every usage_update until a model result
+// gives it the real window, and sends that one with the result's cost. A chat
+// on opus at 1M remembered the guess, and dropped the real reading because it
+// equalled the chat's compact window: after one turn at 1M, opus had no 1M
+// window to offer anyone. Measured on claude-agent-acp 0.81.0 and Claude Code
+// 2.1.280, which report exactly this sequence.
+func TestOnlyTheReadingAfterAResultIsAModelsWindow(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	ctx := context.Background()
+	if err := store.SaveChat(ctx, testAgent.Project, testAgent.Name, state.Chat{Options: map[string]string{
+		"model": "opus", state.ChatOptionContextWindow: "1000000",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
+		f.update(s, `{"sessionUpdate":"usage_update","used":15267,"size":200000}`)
+		f.update(s, `{"sessionUpdate":"usage_update","used":15267,"size":1000000,"cost":{"amount":0.05,"currency":"USD"}}`)
+		return acp.PromptResponse{StopReason: "end_turn"}
+	})
+	f.values["model"] = "opus"
+	m, _ := newManager(t, store, f)
+	var mu sync.Mutex
+	var started []int64
+	m.Prepare = func(_ context.Context, _ state.Agent, _ string, window int64) error {
+		mu.Lock()
+		defer mu.Unlock()
+		started = append(started, window)
+		return nil
+	}
+	for i, text := range []string{"hi", "and again"} {
+		if _, err := m.Send(testAgent, text); err != nil {
+			t.Fatal(err)
+		}
+		th := waitThread(t, m, testAgent, "the turn", turnsEnded(i+1))
+		if th.Session.ContextSize != 1_000_000 {
+			t.Errorf("turn %d: context size = %d, want 1000000", i+1, th.Session.ContextSize)
+		}
+	}
+	// Remembered in the background.
+	var w state.ClaudeWindows
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if w, _ = store.ClaudeWindows(ctx); w.Seen["opus"] != 0 {
+			break
+		}
+	}
+	if w.Seen["opus"] != 1_000_000 {
+		t.Errorf("remembered %v, want opus at 1000000", w.Seen)
+	}
+	if name, compact := w.Launch("opus", "1000000", state.DefaultClaudeCompactWindow); name != "opus" || compact != 1_000_000 {
+		t.Errorf("the next opus chat at 1M launches as %q at %d", name, compact)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(started) != 1 || started[0] != 1_000_000 {
+		t.Errorf("the adapter started on %v, want once at 1M", started)
 	}
 }

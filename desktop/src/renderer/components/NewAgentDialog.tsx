@@ -129,12 +129,16 @@ export function NewAgentDialog({
   const openCodeModels = settings.data?.openCodeModelChoices ?? [];
   const fallbackModel = settingLabel(modelChoices, settings.data?.defaultClaudeModel ?? '', 'opus');
   // The windows the model it will run on has: the one picked, else the
-  // project's, else the installation's default. The first is the installation's
-  // compact window, which is what "Default" gets.
+  // project's, else the installation's default. "Default" is the window new
+  // agents start with in Settings when that model has it, else the first, the
+  // installation's compact window — what the daemon gives an agent nobody
+  // chose a window for (claudeChatDefaults).
   const projectModel = selected?.agentModel && selected.agentModel !== 'auto' ? selected.agentModel : '';
   const runsOn = form.model || projectModel || settings.data?.defaultClaudeModel || 'opus';
   const contextWindows = settings.data?.claudeContextWindows?.[runsOn] ?? [];
   const contextWindow = contextWindows.includes(Number(form.contextWindow)) ? form.contextWindow : '';
+  const settingsWindow = Number(settings.data?.defaultAgentContextWindow || 0);
+  const defaultWindow = contextWindows.includes(settingsWindow) ? settingsWindow : contextWindows[0];
   const fallbackEffort = settingLabel(effortChoices, settings.data?.defaultClaudeEffort ?? '', 'high');
 
   const create = useMutation({
@@ -436,7 +440,7 @@ export function NewAgentDialog({
                     hint="Where its chat compacts. Past the default, every step resends the whole conversation, so 1M costs up to five times as much per step late in a long task."
                   >
                     <Select id="agent-context-window" value={contextWindow} onChange={(value) => set('contextWindow', value)}>
-                      <SelectOption value="">Default ({formatTokens(contextWindows[0])})</SelectOption>
+                      <SelectOption value="">Default ({formatTokens(defaultWindow)})</SelectOption>
                       {contextWindows.slice(1).map((n) => (
                         <SelectOption key={n} value={String(n)}>
                           {formatTokens(n)}, the model's whole window

@@ -1052,7 +1052,8 @@ func (m *Manager) agentCompactWindow(ctx context.Context, a state.Agent) (int64,
 	if err != nil {
 		return installation, nil
 	}
-	return w.CompactWindow(w.NormalizeClaudeModel(chat.Options["model"]), chat.Options[state.ChatOptionContextWindow], installation), nil
+	_, window := w.Launch(chat.Options["model"], chat.Options[state.ChatOptionContextWindow], installation)
+	return window, nil
 }
 
 // openCodeConfig is OpenCode's ~/.config/opencode/opencode.json: the MCP

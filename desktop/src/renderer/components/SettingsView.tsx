@@ -9,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   KeyRound,
+  Lightbulb,
   ListChecks,
   LoaderCircle,
   LogIn,
@@ -844,16 +845,28 @@ function SettingsTabs({
           </TabsContent>
 
           <TabsContent value="agents" className="mt-6 grid gap-8">
-            <SettingsGroup
-              title="New agents"
-              description="Each can be overridden for a single agent as you create it."
-            >
-              <DefaultModel role="agents" />
-              <DefaultContextWindow role="agents" />
-              <NewAgentEffort />
-              <NewAgentResources />
-              <OpenCodeInImage />
-            </SettingsGroup>
+            <div className="grid gap-2.5">
+              <SettingsGroup
+                title="New agents"
+                description="Each can be overridden for a single agent as you create it."
+              >
+                <DefaultModel role="agents" />
+                <DefaultContextWindow role="agents" />
+                <NewAgentEffort />
+                <NewAgentResources />
+                <OpenCodeInImage />
+              </SettingsGroup>
+              {/* The lead saves a preference like this with remember, and
+                  its brief has it search memory before every create_agent
+                  (lead.md.tmpl, "What the user asked of agents"). */}
+              <p data-lead-preference-tip className="flex items-start gap-2 px-1 text-[12px] leading-relaxed text-subtle">
+                <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-brand-300" />
+                <span>
+                  Tip: tell a project's lead a preference like "use only one agent at a time" or "use Sonnet for small
+                  fixes". It remembers it, and follows it every time it creates an agent.
+                </span>
+              </p>
+            </div>
             <SettingsGroup
               title="Every agent"
               description="These apply to the agents you already have, as well as the next one."
