@@ -5,9 +5,12 @@ import { errorMessage } from './utils.ts';
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  // code is the daemon's Error.code: which refusal this is, when it says.
+  readonly code?: string;
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -20,12 +23,13 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   }
   if (res.status >= 400) {
     let message = res.body.trim();
+    let code: string | undefined;
     try {
-      message = (JSON.parse(res.body) as T.Error).error;
+      ({ error: message, code } = JSON.parse(res.body) as T.Error);
     } catch {
       // not JSON
     }
-    throw new ApiError(message || `HTTP ${res.status}`, res.status);
+    throw new ApiError(message || `HTTP ${res.status}`, res.status, code);
   }
   if (res.status === 204 || res.body === '') return undefined as R;
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
