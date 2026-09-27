@@ -22,6 +22,7 @@ export interface Project {
   nesting: boolean;
   agentPRs: boolean;
   prWatch: string;
+  syncBase: boolean;
   prWatching: boolean;
   createdAt: string;
 }
@@ -53,6 +54,7 @@ export interface UpdateProjectRequest {
   nesting?: boolean;
   agentPRs?: boolean;
   prWatch?: string;
+  syncBase?: boolean;
 }
 
 export interface Section {

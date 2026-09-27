@@ -49,7 +49,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, CreatedAt: p.CreatedAt}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -420,6 +420,15 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		p.PRWatch = watch
 		s.prWatch.poke(p.Name)
 		rewriteBrief()
+	}
+	if req.SyncBase != nil {
+		if err := s.store.SetProjectBaseSync(r.Context(), p.Name, *req.SyncBase); err != nil {
+			return err
+		}
+		p.BaseSyncOff = !*req.SyncBase
+		if *req.SyncBase {
+			go s.syncBase(s.background(), p)
+		}
 	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }

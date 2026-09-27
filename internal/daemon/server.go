@@ -110,6 +110,7 @@ type Server struct {
 	distilling   map[string]bool          // projects with a distillation running, by name
 	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
+	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
 	remoteStop   context.CancelFunc
@@ -144,6 +145,7 @@ func New(cfg Config) (*Server, error) {
 		claudeLogins:     map[string]*claudeLogin{},
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
+		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),
 		files:            newFilesCache(),
@@ -223,6 +225,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchUpdates(ctx) })
 	loops.Go(func() { s.watchSharedBudget(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
+	loops.Go(func() { s.syncBases(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they

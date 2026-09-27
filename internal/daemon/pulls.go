@@ -131,8 +131,15 @@ func agentHeadOf(root string, a state.Agent) agentHead {
 	}
 	// The base branch as it is now, too: an agent that rebased onto a newer
 	// main doesn't own what it picked up, pull requests merged in included.
+	// And every remote's copy of it, as last fetched: what is already on
+	// origin/main is never the agent's own, even when the local main is
+	// behind it — an agent made from a stale main that caught up with
+	// origin's would otherwise own every pull request merged in between.
 	if a.BaseRef != "" && a.BaseRef != a.Branch {
 		not = append(not, a.BaseRef)
+		if a.BaseRef != "HEAD" {
+			not = append(not, "--glob=refs/remotes/*/"+a.BaseRef)
+		}
 	}
 	tip, own, err := gitrepo.BranchCommits(root, a.Branch, agentCommitsLimit, not...)
 	if err != nil {
