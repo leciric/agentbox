@@ -204,7 +204,9 @@ func TestRenderLeadAutonomy(t *testing.T) {
 		// The limits.
 		"Never throw away uncommitted or unpushed work without saying so first",
 		"Never push to `main`, merge, release or tag unless the user asked",
-		"Before spending a lot",
+		"Before putting a top model on a large task",
+		// However many agents that takes.
+		"**Start one agent per task the user asks for, all at once.**",
 	}
 	ask, on := lead("ask"), lead("on")
 	for name, text := range map[string]string{"ask": ask, "on": on} {
@@ -212,6 +214,9 @@ func TestRenderLeadAutonomy(t *testing.T) {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s: the lead's brief doesn't say %q", name, want)
 			}
+		}
+		if strings.Contains(text, "agents at once, or") {
+			t.Errorf("%s: the lead is still told to hold back on how many agents run", name)
 		}
 	}
 	if !strings.Contains(ask, "only for **real product decisions**") || strings.Contains(ask, "**act on your own**") {
