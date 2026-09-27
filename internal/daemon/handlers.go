@@ -84,6 +84,9 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
+	if req.Create {
+		return s.createProject(w, r, req)
+	}
 	repo, err := gitrepo.Open(req.Path)
 	if err != nil {
 		return err
@@ -124,21 +127,81 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 	if err := s.checkGitHubAccount(githubAccount); err != nil {
 		return err
 	}
-	p := state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()}
+	p, err := s.registerProject(r.Context(), state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusCreated, projectInfo(p))
+}
+
+// createProject is addProject for AddProjectRequest.Create: everything that
+// can refuse the project is checked before the folder is touched, so a
+// refusal leaves nothing behind, and a folder made here is taken away again
+// if registering it fails.
+func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.AddProjectRequest) error {
+	path := strings.TrimSpace(req.Path)
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		path = filepath.Join(home, rest)
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("%q isn't a full path: choose the new repository's folder from /", req.Path)
+	}
+	path = filepath.Clean(path)
+	if hostos.WSL() && windowsDrive.MatchString(path) {
+		return fmt.Errorf("%s is on a Windows drive, where git is slow from WSL: make the repository on WSL's own disk instead, like ~/src/%s", path, filepath.Base(path))
+	}
+	name := req.Name
+	if name == "" {
+		name = naming.Slug(filepath.Base(path))
+	}
+	if err := naming.Validate("project", name, maxProjectName); err != nil {
+		return fmt.Errorf("%w (choose another name)", err)
+	}
+	if _, err := s.store.Project(r.Context(), name); err == nil {
+		return fmt.Errorf("there's already a project called %s (choose another name)", name)
+	}
+	claudeAccount, githubAccount := strings.TrimSpace(req.ClaudeAccount), strings.TrimSpace(req.GitHubAccount)
+	if err := s.checkClaudeAccount(claudeAccount); err != nil {
+		return err
+	}
+	if err := s.checkGitHubAccount(githubAccount); err != nil {
+		return err
+	}
+	repo, created, err := gitrepo.Create(path, req.CommitFiles)
+	if err != nil {
+		return err
+	}
+	p, err := s.registerProject(r.Context(), state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
+	if err != nil {
+		if created {
+			_ = os.RemoveAll(repo.Root)
+		}
+		return err
+	}
+	return writeJSON(w, http.StatusCreated, projectInfo(p))
+}
+
+// registerProject stores a project whose repository is ready, and answers
+// what the store has for it.
+func (s *Server) registerProject(ctx context.Context, p state.Project) (state.Project, error) {
 	// A new project may only use the account it was given, or the machine's
 	// default when it was given none, until the user allows more. The list is
 	// written out rather than left empty, which still allows every account.
-	if own, err := s.manager(nil).Creds.ClaudeAccountOf(claudeAccount); err != nil {
-		return err
+	if own, err := s.manager(nil).Creds.ClaudeAccountOf(p.ClaudeAccount); err != nil {
+		return p, err
 	} else if own != "" {
 		p.ClaudeAccounts = []string{own}
 	}
-	if err := s.store.AddProject(r.Context(), p); err != nil {
-		return err
+	if err := s.store.AddProject(ctx, p); err != nil {
+		return p, err
 	}
 	s.countFeature(api.FeatureProjectAdd)
 	// Read it back, so the answer carries what the store filled in.
-	if stored, err := s.store.Project(r.Context(), p.Name); err == nil {
+	if stored, err := s.store.Project(ctx, p.Name); err == nil {
 		p = stored
 	}
 	// Its chat's socket, so the project can be talked to straight away.
@@ -146,7 +209,7 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 		s.logf("lead API socket for %s: %v", p.Name, err)
 	}
 	s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
-	return writeJSON(w, http.StatusCreated, projectInfo(p))
+	return p, nil
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) error {

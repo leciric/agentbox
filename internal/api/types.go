@@ -249,6 +249,14 @@ type AddProjectRequest struct {
 	// ~/src/<name> on the distro's own disk, and adds that clone instead of
 	// refusing the path (D91). Elsewhere it changes nothing.
 	CopyToLinux bool `json:"copyToLinux,omitempty"`
+	// Create makes Path a new repository, on main with an initial commit, and
+	// adds that: a folder that doesn't exist yet is made, and one that's the top
+	// of a repository with commits is added as it is. A folder with files in
+	// it and no commits is refused with ErrorFolderNotEmpty unless
+	// CommitFiles, which makes them the initial commit; a folder inside
+	// another repository is refused.
+	Create      bool `json:"create,omitempty"`
+	CommitFiles bool `json:"commitFiles,omitempty"`
 }
 
 // Settings belong to this installation rather than to one project.
@@ -1295,7 +1303,14 @@ type Self struct {
 
 type Error struct {
 	Error string `json:"error"`
+	// Code, when there is one, says which refusal this is, for a client that
+	// offers a way past it rather than only showing the message.
+	Code string `json:"code,omitempty"`
 }
+
+// ErrorFolderNotEmpty is the Code of AddProjectRequest.Create refusing a
+// folder that has files in it: the same request with CommitFiles gets past it.
+const ErrorFolderNotEmpty = "folder-not-empty"
 
 // VersionInfo is what GET /v1/version reports about the daemon.
 type VersionInfo struct {

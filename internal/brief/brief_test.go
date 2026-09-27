@@ -211,7 +211,7 @@ func TestRenderLeadAgentPRs(t *testing.T) {
 		t.Errorf("off: the lead's brief says agents open their own pull requests")
 	}
 	// Whoever opens the pull request puts the agent's media in it.
-	if !strings.Contains(off, "`agentbox media publish pawly/<agent>`") || strings.Contains(on, "agentbox media publish pawly/") {
+	if !strings.Contains(off, "agentbox media publish pawly/<agent> --name") || strings.Contains(on, "agentbox media publish pawly/") {
 		t.Errorf("only the lead that opens pull requests itself is told to publish the agent's media")
 	}
 }
@@ -233,7 +233,7 @@ func TestRenderAgentPRs(t *testing.T) {
 	}
 	on, off := render(true), render(false)
 	for _, want := range []string{"push `agentbox/feat-x` to `origin` and open a pull request",
-		"conventional commit", "`agentbox media publish`", "Never push to `main`, merge or close a pull request"} {
+		"conventional commit", "agentbox media publish --name", "Never push to `main`, merge or close a pull request"} {
 		if !strings.Contains(on, want) {
 			t.Errorf("on: the brief doesn't say %q", want)
 		}
@@ -284,7 +284,9 @@ func TestRenderLeadAutonomy(t *testing.T) {
 		// The limits.
 		"Never throw away uncommitted or unpushed work without saying so first",
 		"Never push to `main`, merge, release or tag unless the user asked",
-		"Before spending a lot",
+		"Before putting a top model on a large task",
+		// However many agents that takes.
+		"**Start one agent per task the user asks for, all at once.**",
 	}
 	ask, on := lead("ask"), lead("on")
 	for name, text := range map[string]string{"ask": ask, "on": on} {
@@ -292,6 +294,9 @@ func TestRenderLeadAutonomy(t *testing.T) {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s: the lead's brief doesn't say %q", name, want)
 			}
+		}
+		if strings.Contains(text, "agents at once, or") {
+			t.Errorf("%s: the lead is still told to hold back on how many agents run", name)
 		}
 	}
 	if !strings.Contains(ask, "only for **real product decisions**") || strings.Contains(ask, "**act on your own**") {

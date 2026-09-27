@@ -60,6 +60,7 @@ func (c *Client) HTTPClient() *http.Client { return c.http }
 type StatusError struct {
 	Code    int
 	Message string
+	Reason  string // Error.Code: which refusal it is, when the daemon says
 }
 
 func (e *StatusError) Error() string { return e.Message }
@@ -67,6 +68,12 @@ func (e *StatusError) Error() string { return e.Message }
 func IsNotFound(err error) bool {
 	var se *StatusError
 	return errors.As(err, &se) && se.Code == http.StatusNotFound
+}
+
+// HasReason reports whether err is the daemon's refusal with that Error.Code.
+func HasReason(err error, code string) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Reason == code
 }
 
 func (c *Client) request(ctx context.Context, method, path string, body any) (*http.Response, error) {
@@ -99,7 +106,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) (*h
 		if json.Unmarshal(data, &e) != nil || e.Error == "" {
 			e.Error = strings.TrimSpace(string(data))
 		}
-		return nil, &StatusError{Code: resp.StatusCode, Message: e.Error}
+		return nil, &StatusError{Code: resp.StatusCode, Message: e.Error, Reason: e.Code}
 	}
 	return resp, nil
 }
