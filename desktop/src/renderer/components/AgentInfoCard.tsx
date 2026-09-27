@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { chatKey, fetchThread } from '../lib/chat';
 import { choiceName } from '../lib/modelChoices';
 import { humanTokens, tps, usd } from '../lib/tokens';
 import { humanBytes, timeAgo } from '../lib/utils';
@@ -15,7 +16,9 @@ import { aiLabel, StateBadge } from './state';
 // carrying that data around itself.
 export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullRequest }) {
   const [project, name] = agent.ref.split('/');
-  const chat = useQuery({ queryKey: ['chat', agent.ref], queryFn: () => api.chat(agent.ref), staleTime: 10_000 });
+  // The chat's own query, read the way the chat reads it: its latest page.
+  const queryClient = useQueryClient();
+  const chat = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref), staleTime: 10_000 });
   const spend = useQuery({ queryKey: ['tokens', project, name, 'all'], queryFn: () => api.tokens({ project, agent: name }), staleTime: 10_000 });
   // Disk is measured by the daemon, which walks the whole worktree and asks
   // Incus for the machine's volume, and caches both for a minute: the card

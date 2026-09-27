@@ -3,7 +3,7 @@ import { ArrowDown, LoaderCircle, MessageSquarePlus, Play } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
-import { chatKey, fetchThread, isSilent } from '../../lib/chat';
+import { chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
 import { cn, errorMessage } from '../../lib/utils';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ProjectCredentialCards } from '../CredentialCard';
@@ -19,7 +19,7 @@ import { Timeline } from './Timeline';
 // autoStart is off only where nothing should start, like the dev preview.
 export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent: T.Agent; starting: boolean; onStart: () => void; autoStart?: boolean }) {
   const queryClient = useQueryClient();
-  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(agent.ref) });
+  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
   const session = thread.data?.session;
   const running = agent.state === 'running';
   const start = useMutation({
@@ -82,6 +82,37 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
     if (box && following.current) box.scrollTop = box.scrollHeight;
   }, [composerHeight]);
 
+  // Older messages come a page at a time as you get near the top. A page put
+  // in front would push what you are reading down by its height, so the
+  // distance from the end is kept across it instead: what was on screen stays
+  // where it was. (The scroller has overflow-anchor off, for following the end.)
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const fromEnd = useRef<number | null>(null);
+  const older = thread.data?.older ?? false;
+  const loadMore = () => {
+    const box = scroller.current;
+    if (!box || !older || loadingOlder) return;
+    setLoadingOlder(true);
+    fromEnd.current = box.scrollHeight - box.scrollTop;
+    loadOlder(queryClient, agent.ref)
+      .catch(() => {})
+      .finally(() => setLoadingOlder(false));
+  };
+  const firstId = thread.data?.items[0]?.id;
+  useLayoutEffect(() => {
+    const box = scroller.current;
+    if (!box || fromEnd.current === null) return;
+    if (!following.current) box.scrollTop = box.scrollHeight - fromEnd.current;
+    fromEnd.current = null;
+  }, [firstId]);
+  // A first page too short to scroll has no top to get near: keep reading
+  // back until the chat fills its view, or there is nothing older.
+  useEffect(() => {
+    const box = scroller.current;
+    if (box && older && !loadingOlder && box.scrollHeight <= box.clientHeight + 200) loadMore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [older, loadingOlder, firstId]);
+
   // A conversation of nothing but notices — a project's chat whose only agent
   // finished without waking it — has items and still nothing to show, so the
   // hero belongs there too.
@@ -100,6 +131,7 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
           else if (box.scrollTop < lastTop.current - 1) following.current = false;
           lastTop.current = box.scrollTop;
           setAtEnd(end || following.current);
+          if (box.scrollTop < 400) loadMore();
         }}
       >
         <div ref={content} className="mx-auto w-full max-w-4xl px-4 pt-6 md:px-6" style={{ paddingBottom: composerHeight + 28 }}>
@@ -114,7 +146,15 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
           ) : empty ? (
             <Hero agent={agent} />
           ) : (
-            <Timeline agent={agent} thread={thread.data} />
+            <>
+              {thread.data.older && (
+                <div className="flex h-8 items-center justify-center gap-1.5 pb-4 text-[12px] text-subtle" data-chat-older>
+                  {loadingOlder && <LoaderCircle className="size-3.5 animate-spin" />}
+                  {loadingOlder ? 'Loading earlier messages' : ''}
+                </div>
+              )}
+              <Timeline agent={agent} thread={thread.data} />
+            </>
           )}
           {/* What the project's agents are waiting on you for, at the end of
               the project's chat where you are: cards, not messages the lead reads. */}
@@ -162,7 +202,8 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
 // ProjectView) fold it into their tab bar instead, so the chat itself doesn't
 // need a second header under theirs.
 export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
-  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(agent.ref) });
+  const queryClient = useQueryClient();
+  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
   const items = thread.data?.items ?? [];
   const [clearing, setClearing] = useState(false);
   return (
