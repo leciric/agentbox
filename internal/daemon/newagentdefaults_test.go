@@ -191,9 +191,9 @@ func TestLeadCap(t *testing.T) {
 		{"window above", api.UpdateSettingsRequest{DefaultAgentContextWindow: str("200k")}, nil, str("1m"),
 			"a 1M window is above 200k"},
 		{"enf model", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, str("sonnet"), nil,
-			"Settings → Agents enforces opus at 1M"},
+			"the user enforces opus at 1M in Settings → Agents"},
 		{"enf window", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, nil, str("200k"),
-			"Settings → Agents enforces opus at 1M"},
+			"the user enforces opus at 1M in Settings → Agents"},
 		{"enf same", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, str("opus"), str("1m"), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

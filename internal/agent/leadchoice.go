@@ -100,11 +100,11 @@ func (m *Manager) CheckLeadChoice(ctx context.Context, p state.Project, ai strin
 	}
 	if enforced {
 		if model != nil && runsOn != defModel {
-			return fmt.Errorf("Settings → Agents enforces %s at %s for every agent you create, so %s isn't allowed: "+
+			return fmt.Errorf("the user enforces %s at %s in Settings → Agents for every agent you create, so %s isn't allowed: "+
 				"leave model and context_window out", defModel, state.FormatContextWindow(defWindow), runsOn)
 		}
 		if window != nil && asked != defWindow {
-			return fmt.Errorf("Settings → Agents enforces %s at %s for every agent you create, so a %s window isn't allowed: "+
+			return fmt.Errorf("the user enforces %s at %s in Settings → Agents for every agent you create, so a %s window isn't allowed: "+
 				"leave model and context_window out", defModel, state.FormatContextWindow(defWindow), state.FormatContextWindow(asked))
 		}
 		return nil
