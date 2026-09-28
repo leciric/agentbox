@@ -124,10 +124,7 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventAgent: {
         const change = event.data as T.AgentChange;
         const agents = queryClient.getQueryData<T.Agent[]>(['agents']);
-        // Starting or stopping thrashing at its memory limit is only a flag
-        // here; the warning's figures and its offer come with the agent.
-        const known = agents?.find((a) => a.ref === change.ref);
-        if (agents && known && !change.removed && !!known.memoryShortage === !!change.shortOfMemory) {
+        if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
           queryClient.setQueryData<T.Agent[]>(
             ['agents'],
             agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '' } : a)),
