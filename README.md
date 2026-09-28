@@ -95,7 +95,9 @@ with 4 GiB and takes more memory as its agents need it, up to a cap (`--memory-c
 of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
 every agent and turns the VM off. Your home folder is shared with the VM at the same path, so
 projects and agents' worktrees stay where they are. `agentbox vm delete --yes` goes back to
-running on your system. GPU and Android emulators aren't available in the VM.
+running on your system. Android emulators run in the VM's agents when your CPU's KVM module has
+nested virtualization on (`nested=1`), and boot in 30–50 seconds rather than 20–25; GPUs aren't
+available in the VM.
 
 ### macOS and Windows (alpha)
 
