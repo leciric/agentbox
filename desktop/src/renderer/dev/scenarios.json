@@ -35,6 +35,20 @@
     "height": 900
   },
   {
+    "id": "budget-short-dark",
+    "description": "The agents in the shared budget thrashing at its 20 GiB together, none on its own: the warning atop the rail \u2014 dark",
+    "query": "budget=short&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "budget-short-light",
+    "description": "Same as budget-short-dark, light, below the xl breakpoint (268px rail)",
+    "query": "budget=short&theme=light",
+    "width": 1100,
+    "height": 900
+  },
+  {
     "id": "folded-dark",
     "description": "Rail folded to 56px",
     "query": "folded=1&theme=dark",
