@@ -274,6 +274,70 @@ type window struct {
 	WriteMiBsMax  float64 `json:"diskWriteMiBsMax"`
 	MemUsedMaxGiB float64 `json:"memUsedMaxGiB"`
 	HeldMaxGiB    float64 `json:"heldMaxGiB"`
+	// Page cache thrash: file pages read again after being evicted, and major
+	// faults, on the host and, for a VM, in its guest. A VM too small for its
+	// agents re-reads its cache from the disk, and the host feels it.
+	HostRefaultGiB  float64  `json:"hostRefaultGiB"`
+	HostMajFaults   int64    `json:"hostMajorFaults"`
+	GuestRefaultGiB *float64 `json:"guestRefaultGiB,omitempty"`
+	GuestMajFaults  *int64   `json:"guestMajorFaults,omitempty"`
+	GuestMemSome    *float64 `json:"guestMemSomeAvg,omitempty"` // % of the window
+	GuestMemFull    *float64 `json:"guestMemFullAvg,omitempty"`
+}
+
+// vmCounters are the counters a window takes the difference of, from
+// /proc/vmstat and /proc/pressure/memory, the host's or a guest's.
+type vmCounters struct {
+	refaultPages, majFaults int64
+	memSome, memFull        int64 // µs
+}
+
+func parseVMCounters(vmstat, memPressure string) vmCounters {
+	var c vmCounters
+	for line := range strings.SplitSeq(vmstat, "\n") {
+		f := strings.Fields(line)
+		if len(f) != 2 {
+			continue
+		}
+		n, _ := strconv.ParseInt(f[1], 10, 64)
+		switch f[0] {
+		case "workingset_refault_file", "workingset_refault": // the second before 5.9
+			c.refaultPages += n
+		case "pgmajfault":
+			c.majFaults = n
+		}
+	}
+	p := parsePressure(memPressure)
+	c.memSome, c.memFull = p.some, p.full
+	return c
+}
+
+func hostVMCounters() vmCounters {
+	vmstat, _ := os.ReadFile("/proc/vmstat")
+	mem, _ := os.ReadFile("/proc/pressure/memory")
+	return parseVMCounters(string(vmstat), string(mem))
+}
+
+// vmCountersScript prints a guest's counters, for parseGuestCounters.
+const vmCountersScript = "cat /proc/vmstat; echo @@; cat /proc/pressure/memory"
+
+func parseGuestCounters(out string) vmCounters {
+	vmstat, mem, _ := strings.Cut(out, "@@")
+	return parseVMCounters(vmstat, mem)
+}
+
+func (w *window) addCounters(hostBefore, hostAfter vmCounters, guestBefore, guestAfter *vmCounters) {
+	page := float64(os.Getpagesize())
+	w.HostRefaultGiB = float64(hostAfter.refaultPages-hostBefore.refaultPages) * page / (1 << 30)
+	w.HostMajFaults = hostAfter.majFaults - hostBefore.majFaults
+	if guestBefore == nil || guestAfter == nil {
+		return
+	}
+	refault := float64(guestAfter.refaultPages-guestBefore.refaultPages) * 4096 / (1 << 30)
+	maj := guestAfter.majFaults - guestBefore.majFaults
+	us := w.Seconds * 1e6
+	some, full := pct(guestAfter.memSome-guestBefore.memSome, us), pct(guestAfter.memFull-guestBefore.memFull, us)
+	w.GuestRefaultGiB, w.GuestMajFaults, w.GuestMemSome, w.GuestMemFull = &refault, &maj, &some, &full
 }
 
 func (w *window) summarizeHost(hs []hostSample) {

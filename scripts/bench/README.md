@@ -22,8 +22,9 @@ A full run takes roughly an hour per mode; `run.sh -h` lists every option.
 - **`vm`**: AgentBox in one Cloud Hypervisor VM, through agentbox's front end, from
   `agentbox/feat-cloud-hypervisor-vm`. The harness drives it with the same `agentbox`
   commands as `containers`, plus the VM commands `--vm-start`, `--vm-stop`,
-  `--vm-pause`, `--vm-resume`, `--vm-delete`, `--vm-status` and `--vm-setup`, and the
-  environment in `--vm-env`. The defaults (`agentbox vm init|start|stop|pause|resume|delete`,
+  `--vm-pause`, `--vm-resume`, `--vm-delete`, `--vm-status`, `--vm-setup` and
+  `--vm-shell` (a command run in the VM itself, for its page cache and memory
+  pressure), and the environment in `--vm-env`. The defaults (`agentbox vm init|start|stop|pause|resume|delete`,
   `vm status --json` printing `"exists"`, `AGENTBOX_FRONT_END=vm
   AGENTBOX_VM_TYPE=cloud-hypervisor`) follow the Lima front end's names: check them
   against that branch before running, and pass what it actually uses.
@@ -109,7 +110,10 @@ The host sampler runs in the harness, on the host, for the whole of each mode:
   how many ended in the window, their mean, and the longest seen (a commit still running
   counts by its age);
 - memory in use, disk throughput, and what the agents hold: their containers' cgroups
-  (`memory.current`), or the VM process's resident memory.
+  (`memory.current`), or the VM process's resident memory;
+- for each window, **page cache thrash**: file pages read again after being evicted
+  (`workingset_refault_file` in `/proc/vmstat`) on the host and, for a VM, inside its
+  guest, with the guest's own memory pressure.
 
 ## What it does to the host, and Ctrl-C
 
@@ -135,3 +139,9 @@ place at the end, to look at.
   set anything up, so anything else on the host moves it too; what the agents or the VM
   hold, in brackets, is theirs alone.
 - The fsync probe and pressure are the host's, whoever causes them.
+- A VM's size decides how the host feels. Its disks bypass the host's page cache, so a
+  guest short of memory re-reads its own cache from the SSD, and the host stalls behind
+  it. Measured here on the prototype (a single run each, on a host shared with other
+  agents): three agents building at once in a 12 GiB VM read 138 GiB from the disk, and
+  host fsyncs took up to 36 s; in a 20 GiB VM they read 3.5 GiB, and the worst fsync took
+  0.9 s (4.5 s with today's containers). Try `--ch-memory` sizes against your agents.

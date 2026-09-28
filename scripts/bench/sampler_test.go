@@ -141,3 +141,15 @@ func TestQuickKeepsWhatWasGiven(t *testing.T) {
 		t.Fatal("an unknown mode should be refused")
 	}
 }
+
+func TestGuestCounters(t *testing.T) {
+	c := parseGuestCounters("nr_free_pages 5\nworkingset_refault_anon 7\nworkingset_refault_file 262144\npgmajfault 12\n@@\nsome avg10=0.00 avg60=0.00 avg300=0.00 total=2000000\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=1000000\n")
+	if c != (vmCounters{refaultPages: 262144, majFaults: 12, memSome: 2000000, memFull: 1000000}) {
+		t.Fatalf("got %+v", c)
+	}
+	w := &window{Seconds: 10}
+	w.addCounters(vmCounters{}, vmCounters{majFaults: 3}, &vmCounters{}, &c)
+	if *w.GuestRefaultGiB != 1 || *w.GuestMajFaults != 12 || *w.GuestMemSome != 20 || *w.GuestMemFull != 10 || w.HostMajFaults != 3 {
+		t.Fatalf("got refault %.2f GiB, %d faults, some %.0f%%, full %.0f%%", *w.GuestRefaultGiB, *w.GuestMajFaults, *w.GuestMemSome, *w.GuestMemFull)
+	}
+}

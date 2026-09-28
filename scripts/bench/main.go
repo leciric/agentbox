@@ -39,7 +39,7 @@ type options struct {
 	vmEnv                                        string
 	vmSetup                                      []string
 	vmStart, vmStop, vmPause, vmResume, vmDelete string
-	vmStatus, vmProcess                          string
+	vmStatus, vmProcess, vmShell                 string
 	freshVM                                      bool
 
 	chMemory, chDisk, chBridge, chBinary string
@@ -95,6 +95,7 @@ func parseFlags(args []string) (*options, error) {
 	fs.StringVar(&o.vmResume, "vm-resume", `"$AGENTBOX" vm resume`, "resumes the VM (vm mode)")
 	fs.StringVar(&o.vmDelete, "vm-delete", `"$AGENTBOX" vm delete --force`, "deletes the VM, only one the harness set up (vm mode)")
 	fs.StringVar(&o.vmStatus, "vm-status", `"$AGENTBOX" vm status --json`, `prints JSON with "exists" (vm mode)`)
+	fs.StringVar(&o.vmShell, "vm-shell", `"$AGENTBOX" vm shell --`, "runs a command in the VM itself, for its page cache and memory pressure (vm mode; \"\" for none)")
 	fs.StringVar(&o.vmProcess, "vm-process", "cloud-hypervisor", "the VM's process name, whose memory is what the host holds (vm mode)")
 	fs.BoolVar(&o.freshVM, "vm-fresh", false, "vm mode: refuse to run on a VM that's already there, rather than use it and not time its set-up")
 

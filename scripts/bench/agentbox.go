@@ -62,7 +62,7 @@ func (d *agentboxDriver) describe() map[string]any {
 	if d.mode == "vm" {
 		c["env"] = d.o.vmEnv
 		c["commands"] = map[string]any{"setup": d.o.vmSetup, "start": d.o.vmStart, "stop": d.o.vmStop,
-			"pause": d.o.vmPause, "resume": d.o.vmResume, "delete": d.o.vmDelete, "status": d.o.vmStatus, "process": d.o.vmProcess}
+			"pause": d.o.vmPause, "resume": d.o.vmResume, "delete": d.o.vmDelete, "status": d.o.vmStatus, "process": d.o.vmProcess, "shell": d.o.vmShell}
 	}
 	return c
 }
@@ -217,6 +217,16 @@ func (d *agentboxDriver) waitDaemon(ctx context.Context) error {
 			return fmt.Errorf("the daemon didn't answer: %w", err)
 		}
 	}
+}
+
+// guestCounters reads the VM's own page cache and memory pressure counters,
+// in vm mode, when there's a way into it.
+func (d *agentboxDriver) guestCounters(ctx context.Context) (vmCounters, error) {
+	if d.mode != "vm" || d.o.vmShell == "" {
+		return vmCounters{}, errors.New("no way into the VM")
+	}
+	out, err := d.r.sh(ctx, d.o.vmShell+" sh -c "+shq(vmCountersScript))
+	return parseGuestCounters(out), err
 }
 
 func (d *agentboxDriver) vmExists(ctx context.Context) (bool, error) {

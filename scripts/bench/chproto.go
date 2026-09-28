@@ -532,6 +532,11 @@ func (d *chDriver) exec(ctx context.Context, agent, script string) error {
 	return err
 }
 
+func (d *chDriver) guestCounters(ctx context.Context) (vmCounters, error) {
+	out, err := d.ssh(ctx, "", vmCountersScript)
+	return parseGuestCounters(out), err
+}
+
 func (d *chDriver) dropCaches(ctx context.Context) error {
 	_, err := d.ssh(ctx, "", "sync && echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null")
 	return err

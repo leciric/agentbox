@@ -141,6 +141,21 @@ func windowRows(win, what string) []row {
 		winRow(what+": host disk written, GiB (worst MiB/s)", win, func(w *window) string {
 			return fmt.Sprintf("%.1f (%.0f)", w.WriteMiB/1024, w.WriteMiBsMax)
 		}),
+		winRow(what+": host disk read, GiB", win, func(w *window) string {
+			return fmt.Sprintf("%.1f", w.ReadMiB/1024)
+		}),
+		winRow(what+": page cache re-read after eviction (refaults), GiB: host / guest", win, func(w *window) string {
+			if w.GuestRefaultGiB == nil {
+				return fmt.Sprintf("%.1f / —", w.HostRefaultGiB)
+			}
+			return fmt.Sprintf("%.1f / %.1f", w.HostRefaultGiB, *w.GuestRefaultGiB)
+		}),
+		winRow(what+": guest memory pressure some / full, mean %", win, func(w *window) string {
+			if w.GuestMemSome == nil {
+				return "—"
+			}
+			return fmt.Sprintf("%.1f / %.1f", *w.GuestMemSome, *w.GuestMemFull)
+		}),
 	}
 }
 

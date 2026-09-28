@@ -212,12 +212,28 @@ func (m *modeRun) memPoint(name string) {
 // window samples the host while fn runs, then for tail more, and keeps the
 // summary under name.
 func (m *modeRun) window(ctx context.Context, name string, tail time.Duration, fn func(context.Context) error) error {
+	guest, _ := m.d.(interface {
+		guestCounters(context.Context) (vmCounters, error)
+	})
+	var guestBefore, guestAfter *vmCounters
+	if guest != nil {
+		if c, err := guest.guestCounters(ctx); err == nil {
+			guestBefore = &c
+		}
+	}
+	hostBefore := hostVMCounters()
 	from := m.s.since()
 	err := fn(ctx)
 	if ctx.Err() == nil {
 		_ = sleepCtx(ctx, tail)
 	}
 	w := m.s.window(name, from, m.s.since())
+	if guest != nil && ctx.Err() == nil {
+		if c, err := guest.guestCounters(ctx); err == nil {
+			guestAfter = &c
+		}
+	}
+	w.addCounters(hostBefore, hostVMCounters(), guestBefore, guestAfter)
 	m.mu.Lock()
 	m.res.Windows[name] = w
 	m.mu.Unlock()
