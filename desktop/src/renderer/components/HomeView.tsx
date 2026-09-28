@@ -11,6 +11,7 @@ import { JobStatusBadge } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Panel } from './ui/card';
+import { Skeleton } from './ui/skeleton';
 
 export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: () => void }) {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
@@ -25,6 +26,9 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
 
   const all = agents.data ?? [];
   const running = all.filter((a) => a.state === 'running').length;
+  // Counts are only counts once both lists are in: "0 of 0 agents" before
+  // then would say there are none.
+  const counted = agents.data !== undefined && projects.data !== undefined;
   const host = usage.data?.host;
   const pressure = host?.pressure;
 
@@ -34,10 +38,14 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-title">Home</h1>
-            <p className="mt-1 text-sm text-muted">
-              {running} of {all.length} agent{all.length === 1 ? '' : 's'} running, across {projects.data?.length ?? 0} project
-              {projects.data?.length === 1 ? '' : 's'}
-            </p>
+            {counted ? (
+              <p className="mt-1 text-sm text-muted">
+                {running} of {all.length} agent{all.length === 1 ? '' : 's'} running, across {projects.data.length} project
+                {projects.data.length === 1 ? '' : 's'}
+              </p>
+            ) : (
+              <Skeleton className="mt-2 h-3.5 w-64" />
+            )}
           </div>
           <div className="ml-auto flex gap-2">
             <Button onClick={onAddProject}>
@@ -72,7 +80,7 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
             not the window's: five across only where each still fits its value. */}
         <div className="@container mt-6">
           <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @5xl:grid-cols-5">
-            <Stat label="Agents running" value={String(running)} detail={`of ${all.length}`} />
+            <Stat label="Agents running" value={agents.data ? String(running) : '—'} detail={agents.data ? `of ${all.length}` : ''} />
             <Stat label="Host CPU, whole machine" value={host ? `${host.cpu.toFixed(0)}%` : '—'} detail={host ? `of all ${host.cores} cores` : ''} fraction={host ? host.cpu / 100 : undefined} />
             <Stat
               label="Host memory"
@@ -112,7 +120,15 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
         <AllAgentsPanel onSelect={onSelect} onNewAgent={onNewAgent} />
 
         <SectionTitle>Recent jobs</SectionTitle>
-        <Panel className="divide-y divide-line-faint overflow-hidden">
+        <Panel className="divide-y divide-line-faint overflow-hidden" aria-busy={!jobs.data}>
+          {!jobs.data &&
+            ['w-40', 'w-28', 'w-36'].map((width) => (
+              <div key={width} className="flex items-center gap-3 px-4 py-3" data-job-skeleton>
+                <Skeleton className="h-4 w-16 rounded-full" />
+                <Skeleton className={cn('h-3', width)} />
+                <Skeleton className="ml-auto h-3 w-12" />
+              </div>
+            ))}
           {(jobs.data ?? []).slice(0, 6).map((job) => (
             <div key={job.id} className="flex items-center gap-3 px-4 py-2.5 text-[13px]">
               <JobStatusBadge status={job.status} />

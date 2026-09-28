@@ -424,5 +424,19 @@
     "query": "io=agent&theme=dark",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "loading-dark",
+    "description": "The first launch before the daemon has answered: placeholder rows in the sidebar, Home and the rail, and no \"No agents yet\" \u2014 dark",
+    "query": "loading=hold&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "loading-light",
+    "description": "Same as loading-dark, light",
+    "query": "loading=hold&theme=light",
+    "width": 1440,
+    "height": 900
   }
 ]

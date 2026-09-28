@@ -11,6 +11,7 @@ import { Sparkline } from './Sparkline';
 import { LiveAgentAvatar } from './state';
 import { Button } from './ui/button';
 import { Panel } from './ui/card';
+import { Skeleton, skeletonWidths } from './ui/skeleton';
 
 // The tones in the order they should catch your eye: agents that need you
 // first, then whatever's failed, then whatever's working, then the rest.
@@ -41,7 +42,8 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
   const history = useCpuHistory(usage.data);
 
   const all = (agents.data ?? []).toSorted(compareAgents);
-  const emptyProjects = (projects.data ?? []).filter((p) => !all.some((a) => a.project === p.name));
+  // A project can only be said to have no agents once they're known.
+  const emptyProjects = agents.data ? (projects.data ?? []).filter((p) => !all.some((a) => a.project === p.name)) : [];
 
   if (agents.data && all.length === 0) {
     return (
@@ -65,7 +67,10 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
         <span className="hidden w-[200px] shrink-0 md:block">Activity</span>
         <span className="w-4 shrink-0" />
       </div>
-      <Panel className="divide-y divide-line-faint overflow-hidden rounded-2xl" aria-label="All agents">
+      <Panel className="divide-y divide-line-faint overflow-hidden rounded-2xl" aria-label="All agents" aria-busy={!agents.data}>
+        {/* Until the first list arrives there is nothing to say about the
+            agents, not even that there are none. */}
+        {!agents.data && skeletonWidths.map((width) => <AgentFleetRowSkeleton key={width} width={width} />)}
         {all.map((agent) => (
           <AgentFleetRow
             key={agent.ref}
@@ -96,6 +101,29 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
           .
         </p>
       )}
+    </div>
+  );
+}
+
+// AgentFleetRowSkeleton holds an agent's row, the same height and columns,
+// while the list loads.
+function AgentFleetRowSkeleton({ width }: { width: string }) {
+  return (
+    <div className="flex items-center gap-3 py-2 pl-4 pr-3" data-agent-skeleton>
+      <Skeleton className="size-10 shrink-0 rounded-xl" />
+      <span className="hidden w-24 shrink-0 sm:block md:w-32 lg:w-40">
+        <Skeleton className="h-3 w-3/4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <Skeleton className={cn('h-3.5', width)} />
+      </span>
+      <span className="w-[124px] shrink-0">
+        <Skeleton className="h-3 w-20" />
+      </span>
+      <span className="hidden w-[200px] shrink-0 md:block">
+        <Skeleton className="h-3 w-32" />
+      </span>
+      <span className="hidden w-4 shrink-0 sm:block" />
     </div>
   );
 }

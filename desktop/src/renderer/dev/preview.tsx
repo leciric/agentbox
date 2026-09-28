@@ -75,6 +75,11 @@
 //                           zram, a CPU-capped agent and a plain one —
 //                           scenarios.json clicks the meter open before its
 //                           shot, since state here comes from the URL alone
+//   ?loading=hold           the first launch before the daemon has answered:
+//                           the sidebar, Home and the rail with no lists yet.
+//                           ?loading=3000 answers them from the fixtures after
+//                           3 s; ?loading=refetch loads them, then holds every
+//                           refetch, the way a busy daemon does
 //   ?io=1|stalling          Home, the top bar and the rail with disk IO next to
 //                           CPU and memory: a quiet host, or one stalling on
 //                           disk and memory the way the user's desktop froze
@@ -141,6 +146,7 @@ const pulls = params.get('pulls') === '1';
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "memory" | null
+const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
@@ -548,7 +554,63 @@ function GitHubPreview() {
   );
 }
 
-if (wsl) {
+// slowListsBridge answers the lists the sidebar, Home and the rail read from
+// the fixtures, but only once `hold` has passed: never, for null. With
+// `refetches`, the first answer is at once and it's every later one that
+// waits, the way a daemon busy destroying an agent answers.
+function slowListsBridge(hold: number | null, refetches = false): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  const lists: Record<string, unknown> = {
+    '/v1/agents': fixtures.agents,
+    '/v1/projects': fixtures.projects,
+    '/v1/sections': fixtures.sections,
+    '/v1/jobs': [],
+    '/v1/setup': { ready: true },
+    '/v1/update': {},
+    '/v1/usage?interval=500ms': { host: { cpu: 12, cores: 16, memUsed: 9 * 1024 ** 3, memTotal: 31 * 1024 ** 3, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] },
+    [`/v1/projects/${PROJECT}/fleet`]: fixtures.fleet,
+    [`/v1/projects/${PROJECT}/agent-events`]: fixtures.events,
+    [`/v1/projects/${PROJECT}/questions?all=1`]: fixtures.questions,
+    [`/v1/projects/${PROJECT}/lead`]: { project: PROJECT, ref: `${PROJECT}/lead`, started: true, chat: 'idle' },
+  };
+  const answered = new Set<string>();
+  bridge.request = async (method, path, body) => {
+    if (method !== 'GET' || !(path in lists)) return inner(method, path, body);
+    if (!refetches || answered.has(path)) await new Promise((resolve) => hold !== null && setTimeout(resolve, hold));
+    answered.add(path);
+    return { status: 200, body: JSON.stringify(lists[path]), contentType: 'application/json' };
+  };
+  // What the app does when an agent is removed, as the daemon announces it.
+  if (refetches) (window as unknown as { refetchLists: () => void }).refetchLists = () => void loadingClient.invalidateQueries();
+}
+
+// The sidebar, Home and the rail side by side, against a client nothing is
+// seeded into, so each reads what it shows through its own query.
+const loadingClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
+function LoadingPreview() {
+  return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
+      <Sidebar view={{ kind: 'home' }} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
+      </div>
+      <AgentRail view={{ kind: 'project', project: PROJECT }} onSelect={() => {}} onNewAgent={() => {}} />
+    </div>
+  );
+}
+
+if (loading) {
+  slowListsBridge(loading === 'hold' ? null : loading === 'refetch' ? null : Number(loading), loading === 'refetch');
+  createRoot(document.getElementById('root')!).render(
+    <QueryClientProvider client={loadingClient}>
+      <TooltipProvider delayDuration={250}>
+        <LoadingPreview />
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
+} else if (wsl) {
   windowsBeforeSetupBridge();
   // After the bridge: some of what App imports reaches for it as it loads.
   const { App } = await import('../App');
