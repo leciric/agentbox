@@ -30,10 +30,11 @@ import (
 // lxc.cgroup.dir.container says, relative to the cgroup root, and systemd
 // leaves a cgroup it didn't make alone. Making it needs root, once, which
 // is what `agentbox host budget` does (package hostsetup): it installs a
-// oneshot unit that makes the cgroup at boot and gives the four files the
-// budget is written to — memory.high, memory.max, memory.swap.max and
-// cpu.max — to the user the daemon runs as. Everything else, the cgroup's
-// children included, stays root's and Incus'.
+// oneshot unit that makes the cgroup at boot and gives the files the budget
+// is written to — memory.high, memory.max, memory.swap.max and cpu.max, and
+// for the disk io.weight, io.max and the root's io.cost.qos (budgetdisk.go) —
+// to the user the daemon runs as. Everything else, the cgroup's children
+// included, stays root's and Incus'.
 //
 // An agent moves in when its machine starts: raw.lxc is read at start, so
 // turning the budget on sets it on every agent, and those already running
@@ -71,11 +72,16 @@ const highShare = 0.9
 const swapFullShare = 0.9
 
 // Budget is the shared budget's size. Memory and Swap are sizes Incus would
-// take (ParseBytes), CPU a count of cores.
+// take (ParseBytes), CPU a count of cores. DiskWeight is the budget's
+// io.weight, against the 100 of the host's own cgroups, and DiskWrite the most
+// the agents write together a second, a size, or "max" for no ceiling
+// (budgetdisk.go).
 type Budget struct {
-	Memory string
-	Swap   string
-	CPU    int
+	Memory     string
+	Swap       string
+	CPU        int
+	DiskWeight int
+	DiskWrite  string
 }
 
 // HostResources is what the budget is worked out from.
@@ -84,11 +90,12 @@ type HostResources struct {
 	Swap     int64  // SwapTotal, in bytes
 	SwapKind string // "zram", "disk", or "" with no swap
 	Cores    int
+	Disk     *Disk // the physical disk under /, nil when it can't be told
 }
 
 // ReadHostResources reads this host's memory, swap and cores.
 func ReadHostResources() HostResources {
-	h := HostResources{Memory: HostMemory(), Cores: HostCores()}
+	h := HostResources{Memory: HostMemory(), Cores: HostCores(), Disk: ReadDisks().Root}
 	if total, _, err := hostSwap(); err == nil {
 		h.Swap = total
 	}
@@ -105,7 +112,9 @@ func ReadHostResources() HostResources {
 // one line. The host keeps a third of its memory, and never less than 6 GiB —
 // a desktop, a browser and an editor — and a quarter of its cores, at least
 // one; agents may use half the host's swap, at most half their memory. A
-// host too small to leave 6 GiB gets half its memory for agents.
+// host too small to leave 6 GiB gets half its memory for agents. On the disk,
+// agents weigh a tenth of the host's apps and write at most what
+// suggestDiskWrite says for the disk under /.
 func SuggestBudget(h HostResources) (Budget, string) {
 	const gib = int64(1) << 30
 	reserve := max(h.Memory/3, 6*gib)
@@ -115,7 +124,7 @@ func SuggestBudget(h HostResources) (Budget, string) {
 	}
 	keep := max(h.Cores/4, 1)
 	cores := max(h.Cores-keep, 1)
-	b := Budget{Memory: roundSize(memory), CPU: cores}
+	b := Budget{Memory: roundSize(memory), CPU: cores, DiskWeight: defaultDiskWeight, DiskWrite: suggestDiskWrite(h.Disk)}
 	why := fmt.Sprintf("Leaves this host %s of its %s of memory and %d of its %d cores", HumanBytes(h.Memory-sizeOf(b.Memory)), HumanBytes(h.Memory), h.Cores-cores, h.Cores)
 	if h.Swap > 0 {
 		b.Swap = roundSize(min(h.Swap/2, sizeOf(b.Memory)/2))
@@ -127,6 +136,11 @@ func SuggestBudget(h HostResources) (Budget, string) {
 	} else {
 		why += ". This host has no swap, so agents are only ever held at the hard limit: without swap, a soft one stalls them instead of freeing memory."
 	}
+	disk := "its disk"
+	if h.Disk != nil {
+		disk = "its " + h.Disk.Kind
+	}
+	why += fmt.Sprintf(" On %s, agents give way to this host's own apps whenever those need it, and write at most %s/s together, which even a budget SSD keeps up with once its write cache is full.", disk, HumanBytes(sizeOf(b.DiskWrite)))
 	return b, why
 }
 
@@ -168,6 +182,14 @@ func (b Budget) Validate(h HostResources) error {
 	if b.CPU < 1 || (h.Cores > 0 && b.CPU > h.Cores) {
 		return fmt.Errorf("the shared budget's CPU is a whole number of cores between 1 and %d; got %d", h.Cores, b.CPU)
 	}
+	if b.DiskWeight < 1 || b.DiskWeight > 100 {
+		return fmt.Errorf("the shared budget's disk weight is a whole number between 1 and 100, against 100 for this host's own apps; got %d", b.DiskWeight)
+	}
+	if b.DiskWrite != "max" {
+		if n, err := ParseBytes(b.DiskWrite); err != nil || strings.HasSuffix(b.DiskWrite, "%") || n < 8<<20 {
+			return fmt.Errorf("the shared budget's disk writes are a size a second, at least 8MiB, like 64MiB, or max for no ceiling; got %q", b.DiskWrite)
+		}
+	}
 	return nil
 }
 
@@ -181,7 +203,15 @@ func (b Budget) Describe() string {
 	if b.Swap != "" {
 		swap = b.Swap + " of swap"
 	}
-	return fmt.Sprintf("%s of memory, %s and %d %s", b.Memory, swap, b.CPU, cores)
+	out := fmt.Sprintf("%s of memory, %s and %d %s", b.Memory, swap, b.CPU, cores)
+	if b.DiskWeight == 0 {
+		return out
+	}
+	writes := "no write ceiling"
+	if b.DiskWrite != "max" && b.DiskWrite != "" {
+		writes = "writes up to " + b.DiskWrite + "/s"
+	}
+	return fmt.Sprintf("%s; disk weight %d, %s", out, b.DiskWeight, writes)
 }
 
 // BudgetSupport says why this machine can't have a shared budget, or "" when
@@ -265,7 +295,7 @@ func ApplyBudget(on bool, b Budget) error {
 			return err
 		}
 	}
-	return nil
+	return applyBudgetDisk(on, b, ReadDisks())
 }
 
 // budgetSwapUsed is how much swap the agents in the budget hold between them.
@@ -311,8 +341,9 @@ func (m *Manager) SharedBudget(ctx context.Context) (on bool, b Budget, err erro
 	}
 	b, _ = SuggestBudget(ReadHostResources())
 	for key, into := range map[string]*string{
-		state.SettingSharedBudgetMemory: &b.Memory,
-		state.SettingSharedBudgetSwap:   &b.Swap,
+		state.SettingSharedBudgetMemory:    &b.Memory,
+		state.SettingSharedBudgetSwap:      &b.Swap,
+		state.SettingSharedBudgetDiskWrite: &b.DiskWrite,
 	} {
 		v, err := m.Store.Setting(ctx, key)
 		if err != nil {
@@ -328,6 +359,13 @@ func (m *Manager) SharedBudget(ctx context.Context) (on bool, b Budget, err erro
 	}
 	if n, err := strconv.Atoi(v); err == nil && n > 0 {
 		b.CPU = n
+	}
+	v, err = m.Store.Setting(ctx, state.SettingSharedBudgetDiskWeight)
+	if err != nil {
+		return false, Budget{}, err
+	}
+	if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		b.DiskWeight = n
 	}
 	return on, b, nil
 }

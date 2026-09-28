@@ -604,7 +604,7 @@ export function SharedBudget() {
   return (
     <SettingRow
       label="Shared agent budget"
-      description="One memory, swap and CPU budget for all agents, so what an idle agent isn't using goes to a busy one."
+      description="One memory, swap and CPU budget for all agents, so what an idle agent isn't using goes to a busy one. On the disk, agents give way to your own apps."
       details="The host keeps the rest. Each agent's own limits still hold inside it. Agents already running move in when they restart. The size starts at what AgentBox suggests for this host."
       control={
         <Switch
@@ -657,6 +657,33 @@ export function SharedBudget() {
                 }}
               />
             </div>
+            <div className="grid items-start gap-4 sm:grid-cols-3" data-shared-budget-disk>
+              <ResourceField
+                id="shared-budget-disk-weight"
+                label="Disk weight"
+                placeholder={String(suggested.diskWeight)}
+                hint={`Against 100 for your own apps, while they need the disk. Suggested: ${suggested.diskWeight}.`}
+                value={String(b.diskWeight)}
+                disabled={busy}
+                onCommit={(value) => {
+                  const n = value === '' ? 0 : Math.trunc(Number(value));
+                  if (!Number.isFinite(n) || n < 0 || n > 100) {
+                    toast.error('Disk weight is a whole number from 1 to 100');
+                    return;
+                  }
+                  save.mutate({ sharedBudgetDiskWeight: n });
+                }}
+              />
+              <ResourceField
+                id="shared-budget-disk-write"
+                label="Disk writes a second"
+                placeholder={suggested.diskWrite}
+                hint={`All agents together, or max. Well under what a cheap SSD writes once its cache is full. Suggested: ${suggested.diskWrite}.`}
+                value={b.diskWrite}
+                disabled={busy}
+                onCommit={(sharedBudgetDiskWrite) => save.mutate({ sharedBudgetDiskWrite })}
+              />
+            </div>
             <SettingNote>
               <span data-shared-budget-why>{b.why}</span>
               {b.chosen && (
@@ -666,7 +693,9 @@ export function SharedBudget() {
                     type="button"
                     className="text-secondary underline underline-offset-2 hover:text-primary disabled:opacity-50"
                     disabled={busy}
-                    onClick={() => save.mutate({ sharedBudgetMemory: '', sharedBudgetSwap: '', sharedBudgetCPU: 0 })}
+                    onClick={() =>
+                      save.mutate({ sharedBudgetMemory: '', sharedBudgetSwap: '', sharedBudgetCPU: 0, sharedBudgetDiskWeight: 0, sharedBudgetDiskWrite: '' })
+                    }
                   >
                     Use suggested
                   </button>
@@ -686,11 +715,11 @@ export function SharedBudget() {
             {b.pending} running agent{b.pending === 1 ? '' : 's'} leave{b.pending === 1 ? 's' : ''} it when {b.pending === 1 ? 'it restarts' : 'they restart'}.
           </SettingNote>
         )}
-        {(b.problem || b.notReady) && (
+        {(b.problem || b.notReady || (b.on && b.diskNotReady)) && (
           <div className="grid gap-2" data-shared-budget-setup>
             <SettingNote tone={b.problem ? 'error' : 'warning'}>
               <CircleAlert className="mr-1 inline size-3.5 align-[-2px]" />
-              {b.problem || `Before it can be turned on, ${b.notReady}`}
+              {b.problem || (b.notReady ? `Before it can be turned on, ${b.notReady}` : b.diskNotReady)}
             </SettingNote>
             <div className="flex flex-wrap items-center gap-3">
               <Button size="sm" disabled={setup.isPending} onClick={() => setup.mutate()}>

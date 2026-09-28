@@ -145,12 +145,19 @@ export interface SharedBudget {
   problem?: string;
   inside: number;
   pending: number;
+  diskWeight: number;
+  diskWrite: string;
+  disk?: string;
+  diskNotReady?: string;
+  shortage?: MemoryShortage;
 }
 
 export interface SharedBudgetSize {
   memory: string;
   swap: string;
   cpu: number;
+  diskWeight: number;
+  diskWrite: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -178,6 +185,8 @@ export interface UpdateSettingsRequest {
   sharedBudgetMemory?: string;
   sharedBudgetSwap?: string;
   sharedBudgetCPU?: number;
+  sharedBudgetDiskWeight?: number;
+  sharedBudgetDiskWrite?: string;
 }
 
 export interface Limits {
@@ -207,6 +216,7 @@ export interface Agent {
   state: string;
   ip: string;
   limits: Limits;
+  memoryShortage?: MemoryShortage;
   createdAt: string;
 }
 
@@ -386,6 +396,16 @@ export interface MemoryUsage {
   agents: MemoryUsageAgent[];
 }
 
+export interface MemoryShortage {
+  since: string;
+  pressure: number;
+  refaultRate: number;
+  readRate: number;
+  limit: number;
+  inBudget: boolean;
+  raiseTo?: string;
+}
+
 export interface CPUUsageAgent {
   ref: string;
   title?: string;
@@ -444,6 +464,7 @@ export interface AgentChange {
   state: string;
   ip?: string;
   removed?: boolean;
+  shortOfMemory?: boolean;
 }
 
 export interface Theme {
@@ -820,6 +841,7 @@ export interface FleetAgent {
   state: string;
   ip: string;
   limits: Limits;
+  memoryShortage?: MemoryShortage;
   createdAt: string;
   changes: AgentChanges;
   media: number;
@@ -1564,6 +1586,7 @@ export const EventMedia = "media";
 export const EventPulls = "pulls";
 export const EventTheme = "theme";
 export const EventUpdate = "update";
+export const EventBudget = "budget";
 export const SetupOK = "ok";
 export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";

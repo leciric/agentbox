@@ -15,14 +15,16 @@ func TestBudgetUnit(t *testing.T) {
 		"RemainAfterExit=yes",
 		"mkdir -p /sys/fs/cgroup/agentbox",
 		"echo '+memory +cpu' > /sys/fs/cgroup/agentbox/cgroup.subtree_control",
-		"chown 1000 memory.high memory.max memory.swap.max cpu.max",
+		"chown 1000 memory.high memory.max memory.swap.max cpu.max && {",
+		"echo +io > /sys/fs/cgroup/agentbox/cgroup.subtree_control",
+		"chown 1000 io.weight io.max /sys/fs/cgroup/io.cost.qos; true; }",
 		"WantedBy=multi-user.target",
 	} {
 		if !strings.Contains(unit, want) {
 			t.Errorf("the unit has no %q:\n%s", want, unit)
 		}
 	}
-	// It hands over the four budget files and nothing else: not the
+	// It hands over the budget files and nothing else: not the
 	// directory, which would let the user make cgroups of their own in it,
 	// and not cgroup.procs, which would let them move processes.
 	script := BudgetScript("1000")
