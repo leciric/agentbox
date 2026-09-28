@@ -132,7 +132,12 @@ func startFailed(l Layout, why string) error {
 
 // runSSH runs a shell script in the VM, and returns what it printed.
 func runSSH(ctx context.Context, c Config, l Layout, self, script string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, sshTryTimeout)
+	return runSSHFor(ctx, c, l, self, script, sshTryTimeout)
+}
+
+// runSSHFor is runSSH for a script that may take longer than a probe.
+func runSSHFor(ctx context.Context, c Config, l Layout, self, script string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	argv := SSHArgs(c, l, self, "", false, []string{"sh", "-c", script})
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)

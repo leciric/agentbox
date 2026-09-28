@@ -200,7 +200,12 @@ async function start(): Promise<void> {
   if (vm) {
     const state = await vmState();
     if (state === 'paused') throw new Error("AgentBox's VM is paused: resume it to carry on");
-    if (reached && state === 'off') throw new Error("AgentBox's VM is off: start it to carry on");
+    // Once the app has had a daemon, only the user brings the VM back: a VM
+    // on its way down (Free resources, `agentbox vm stop`) is stopping, not
+    // off, and `daemon start` would boot it again the moment it's off.
+    if (reached && state !== 'running' && state !== 'starting') {
+      throw new Error(`AgentBox's VM is ${state === 'stopping' ? 'turning off' : state}: start it to carry on`);
+    }
   }
   // On Windows, agentbox.exe starts the daemon in AgentBox's WSL distro, which
   // may have to boot first, systemd and Incus with it.

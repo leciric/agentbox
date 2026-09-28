@@ -486,7 +486,7 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 			continue
 		}
 		if d.Shrink {
-			if _, err := s.ssh(ctx, "sync; echo 1 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null"); err != nil {
+			if _, err := runSSHFor(ctx, s.c, s.l, s.self, "sync; echo 1 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null", 30*time.Second); err != nil {
 				s.logf("dropping the VM's page cache: %v", err)
 			}
 		}

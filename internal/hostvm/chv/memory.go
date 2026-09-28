@@ -18,8 +18,12 @@ import (
 // memHeadroomMin, and memHeadroomPerAgent for each running agent, since an
 // agent's machine can grow by that much in the time it takes to notice.
 // Growing is done at once (it takes the guest under a second); memory stalls
-// (PSI) grow it by memPressureStep even when the numbers look fine, since
-// they mean the guest is already short. Shrinking waits for the target to
+// (PSI) grow it by memPressureStep when it has less than memHeadroomMin
+// available, since they mean the guest is already short. Stalls with plenty
+// available aren't for want of memory the VM can be given: the kernel's own
+// caches (dentries, inodes) live only in the memory it booted with, and
+// hotplugged memory, onlined movable, can't hold them, so growing then
+// would only be shrunk again a minute later. Shrinking waits for the target to
 // have stayed lower for memShrinkAfter, so a build that stops for a minute
 // doesn't hand memory back only to ask for it again, and first drops the
 // guest's clean page cache, which would otherwise hold the blocks it has to
@@ -102,7 +106,7 @@ func (p memPolicy) decide(st *memState, s *memSample, now time.Time) memDecision
 	}
 	want := p.target(*s)
 	reason := fmt.Sprintf("uses %s with %d agents running", gib(s.Used()), s.Agents)
-	if s.Pressure > memPressureSome && now.Sub(st.lastGrow) >= memGrowCooldown {
+	if s.Pressure > memPressureSome && s.Available < memHeadroomMin && now.Sub(st.lastGrow) >= memGrowCooldown {
 		if bumped := p.clamp(st.Requested + memPressureStep); bumped > want {
 			want = bumped
 			reason = fmt.Sprintf("stalled on memory %.0f%% of the last 10s", s.Pressure)

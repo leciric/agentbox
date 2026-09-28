@@ -54,20 +54,27 @@ func TestMemPolicyGrowsUnderPressure(t *testing.T) {
 	p := memPolicy{Min: 4 * GiB, Cap: 16 * GiB}
 	st := memState{Requested: 8 * GiB}
 	now := time.Now()
-	// The numbers say 8 GiB is plenty, but the guest stalls on memory.
-	d := p.decide(&st, sample(2*GiB, 8*GiB, 0, 25), now)
+	half := GiB / 2
+	// Stalls with plenty available aren't for want of memory the VM can be
+	// given (the kernel's caches can't use hotplugged memory): nothing.
+	if d := p.decide(&st, sample(2*GiB, 8*GiB, 0, 25), now); d.Target != 0 {
+		t.Fatalf("stalls with 6 GiB available: %+v, want nothing", d)
+	}
+	// Short, and stalling: a step more than the numbers alone ask for.
+	d := p.decide(&st, sample(6*GiB+half, 8*GiB, 0, 25), now)
 	if d.Target != 10*GiB {
 		t.Fatalf("decide = %+v, want a grow to 10 GiB", d)
 	}
-	// Not again until the grow has had time to help.
-	if d := p.decide(&st, sample(2*GiB, 10*GiB, 0, 25), now.Add(memTick)); d.Target != 0 {
+	// Not again until the grow has had time to help (the guest hasn't seen
+	// all of it yet).
+	if d := p.decide(&st, sample(6*GiB+half, 8*GiB, 0, 25), now.Add(memTick)); d.Target != 0 {
 		t.Errorf("within the cooldown: %+v, want nothing", d)
 	}
-	if d := p.decide(&st, sample(2*GiB, 10*GiB, 0, 25), now.Add(memGrowCooldown)); d.Target != 12*GiB {
+	if d := p.decide(&st, sample(6*GiB+half, 8*GiB, 0, 25), now.Add(memGrowCooldown)); d.Target != 12*GiB {
 		t.Errorf("after the cooldown: %+v, want 12 GiB", d)
 	}
 	st.Requested = 16 * GiB
-	if d := p.decide(&st, sample(2*GiB, 16*GiB, 0, 50), now.Add(time.Minute)); d.Target != 0 {
+	if d := p.decide(&st, sample(15*GiB, 16*GiB, 0, 50), now.Add(time.Minute)); d.Target != 0 {
 		t.Errorf("at the cap: %+v, want nothing", d)
 	}
 }
