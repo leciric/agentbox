@@ -6,7 +6,7 @@ import type { View } from '../App';
 import { api } from '../lib/api';
 import { avatarMood, chatLabel, isAsking, rank, settled, type Mood } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
-import { cn, humanBytes, timeAgo } from '../lib/utils';
+import { cn, humanBytes, humanRate, shortRate, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
 import { BudgetShortageWarning, MemoryShortageWarning } from './MemoryShortage';
@@ -289,8 +289,8 @@ function AgentRow({
             {sample && agent.state === 'running' && (
               <span className="mt-1.5 hidden items-center gap-2 xl:flex">
                 <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
-                <span className="font-mono text-[10px] tabular-nums text-subtle">
-                  {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)}
+                <span className="font-mono text-[10px] tabular-nums text-subtle" title={`CPU ${sample.cpu.toFixed(0)}% · memory ${humanBytes(sample.memory)} · disk ${humanRate(sample.diskRead)} read, ${humanRate(sample.diskWrite)} write`}>
+                  {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)} · {shortRate(sample.diskRead + sample.diskWrite)}
                 </span>
               </span>
             )}

@@ -332,6 +332,17 @@ export interface HostUsage {
   memTotal: number;
   poolUsed: number;
   poolTotal: number;
+  diskRead: number;
+  diskWrite: number;
+  pressure?: HostPressure;
+}
+
+export interface HostPressure {
+  ioSome: number;
+  ioFull: number;
+  memorySome: number;
+  memoryFull: number;
+  stalling: boolean;
 }
 
 export interface AgentUsage {
@@ -340,6 +351,8 @@ export interface AgentUsage {
   cpu: number;
   memory: number;
   processes: number;
+  diskRead: number;
+  diskWrite: number;
   limits: Limits;
   cores: number;
 }

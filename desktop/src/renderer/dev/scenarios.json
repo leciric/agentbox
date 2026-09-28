@@ -410,5 +410,33 @@
       "[data-settings-search]",
       "memory"
     ]
+  },
+  {
+    "id": "io-home-stalling-dark",
+    "description": "Home, the top bar and the rail with disk IO, on a host stalling on disk and memory (io full 35%, memory full 19%) — dark",
+    "query": "io=stalling&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "io-home-quiet-dark",
+    "description": "Same as io-home-stalling-dark, on a quiet host — dark",
+    "query": "io=1&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "io-home-stalling-light",
+    "description": "Same as io-home-stalling-dark, light appearance",
+    "query": "io=stalling&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "io-agent-dark",
+    "description": "agent-12's Overview, its disk IO beside its CPU and memory, while the host stalls — dark",
+    "query": "io=agent&theme=dark",
+    "width": 1440,
+    "height": 900
   }
 ]

@@ -5,7 +5,7 @@ import type { View } from '../App';
 import { api } from '../lib/api';
 import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
-import { cn, humanBytes } from '../lib/utils';
+import { cn, humanBytes, humanRate, shortRate } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { Sparkline } from './Sparkline';
 import { LiveAgentAvatar } from './state';
@@ -62,7 +62,7 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
         <span className="w-24 shrink-0 md:w-32 lg:w-40">Project</span>
         <span className="min-w-0 flex-1">Agent</span>
         <span className="w-[124px] shrink-0">Status</span>
-        <span className="hidden w-[150px] shrink-0 md:block">Activity</span>
+        <span className="hidden w-[200px] shrink-0 md:block">Activity</span>
         <span className="w-4 shrink-0" />
       </div>
       <Panel className="divide-y divide-line-faint overflow-hidden rounded-2xl" aria-label="All agents">
@@ -172,12 +172,12 @@ function AgentFleetRow({
           {status.text}
         </span>
       </span>
-      <span className="hidden w-[150px] shrink-0 items-center gap-2 md:flex">
+      <span className="hidden w-[200px] shrink-0 items-center gap-2 md:flex">
         {sample && agent.state === 'running' ? (
           <>
             <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
-            <span className="font-mono text-[10.5px] tabular-nums text-subtle">
-              {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)}
+            <span className="font-mono text-[10.5px] tabular-nums text-subtle" title={`CPU ${sample.cpu.toFixed(0)}% · memory ${humanBytes(sample.memory)} · disk ${humanRate(sample.diskRead)} read, ${humanRate(sample.diskWrite)} write`}>
+              {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)} · {shortRate(sample.diskRead + sample.diskWrite)}
             </span>
           </>
         ) : (

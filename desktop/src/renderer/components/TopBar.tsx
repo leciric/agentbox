@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, Cpu, Gauge, HardDrive, Menu as MenuIcon, MemoryStick, Square, TriangleAlert } from 'lucide-react';
+import { ArrowDownUp, ChevronRight, Cpu, Gauge, HardDrive, Menu as MenuIcon, MemoryStick, Square, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
@@ -8,7 +8,7 @@ import type * as T from '../../shared/api';
 import { limitTone, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
-import { cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
+import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
@@ -94,6 +94,7 @@ export function TopBar({
           <>
             <CPUMeter host={host} onSelect={onSelect} />
             <MemoryMeter host={host} onSelect={onSelect} />
+            <DiskIOMeter host={host} />
             {host.poolTotal > 0 && <StoragePoolMeter host={host} />}
           </>
         )}
@@ -126,6 +127,51 @@ function MeterBar({ percent, className }: { percent: number; className?: string 
         style={{ width: `${Math.max(percent, 4)}%` }}
       />
     </span>
+  );
+}
+
+// DiskIOMeter is the host's disk IO, read and write together, and the one
+// meter that says the host is stalling: while io full or memory full (PSI)
+// is past stallPressure it turns rose and shows on every width, since that is
+// when the desktop freezes and the user needs to know why.
+function DiskIOMeter({ host }: { host: T.HostUsage }) {
+  const p = host.pressure;
+  const stalling = p?.stalling ?? false;
+  const text = shortRate(host.diskRead + host.diskWrite);
+  return (
+    <Tip
+      label={
+        <div className="grid gap-0.5 text-left">
+          <span>
+            Disk: {humanRate(host.diskRead)} read, {humanRate(host.diskWrite)} write
+          </span>
+          {p && (
+            <>
+              <span className={cn(p.ioFull > stallPressure && 'text-rose-300')}>
+                Stalled on disk {p.ioFull.toFixed(0)}% of the last 10 s (some tasks: {p.ioSome.toFixed(0)}%)
+              </span>
+              <span className={cn(p.memoryFull > stallPressure && 'text-rose-300')}>
+                Stalled on memory {p.memoryFull.toFixed(0)}% of the last 10 s (some tasks: {p.memorySome.toFixed(0)}%)
+              </span>
+              {stalling && <span className="font-medium">The host is stalling: past {stallPressure}%, the desktop freezes.</span>}
+            </>
+          )}
+        </div>
+      }
+    >
+      <span
+        className={cn(
+          'items-center gap-2 rounded-full border py-1 pl-2 pr-2.5',
+          stalling ? 'flex border-rose-400/40 bg-rose-400/10' : 'hidden border-line bg-surface-faint lg:flex',
+        )}
+        aria-label={`Host disk IO: ${humanRate(host.diskRead)} read, ${humanRate(host.diskWrite)} write${stalling ? ', the host is stalling' : ''}`}
+        data-stalling={stalling || undefined}
+      >
+        {stalling ? <TriangleAlert className="size-3.5 text-rose-300" /> : <ArrowDownUp className="size-3.5 text-subtle" />}
+        <span className={cn('font-mono text-[11px] tabular-nums', stalling ? 'text-rose-200' : 'text-tertiary')}>{text}</span>
+        {stalling && <span className="text-[11px] font-medium text-rose-200">Stalling</span>}
+      </span>
+    </Tip>
   );
 }
 

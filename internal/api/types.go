@@ -823,6 +823,28 @@ type HostUsage struct {
 	MemTotal  int64   `json:"memTotal"`
 	PoolUsed  int64   `json:"poolUsed"`
 	PoolTotal int64   `json:"poolTotal"`
+	// DiskRead and DiskWrite are what the host's physical disks read and
+	// wrote over the sample, in bytes a second: whole disks only, so neither
+	// a partition nor a device-mapper device counts the same bytes twice.
+	DiskRead  int64 `json:"diskRead"`
+	DiskWrite int64 `json:"diskWrite"`
+	// Pressure is how much the host is stalling on disk and memory; nil when
+	// its kernel doesn't keep pressure stall information.
+	Pressure *HostPressure `json:"pressure,omitempty"`
+}
+
+// HostPressure is the kernel's pressure stall information (PSI) for the
+// host, each the share of the last ten seconds in percent ("avg10"): "some"
+// while at least one task was stalled waiting on disk or memory, "full"
+// while every non-idle task was at once, which is what freezes the desktop.
+type HostPressure struct {
+	IOSome     float64 `json:"ioSome"`
+	IOFull     float64 `json:"ioFull"`
+	MemorySome float64 `json:"memorySome"`
+	MemoryFull float64 `json:"memoryFull"`
+	// Stalling is set while io full or memory full is past 10%, where the
+	// user's desktop starts to freeze.
+	Stalling bool `json:"stalling"`
 }
 
 type AgentUsage struct {
@@ -831,6 +853,10 @@ type AgentUsage struct {
 	CPU       float64 `json:"cpu"` // percent; 100 is one full core
 	Memory    int64   `json:"memory"`
 	Processes int64   `json:"processes"`
+	// DiskRead and DiskWrite are what it read from and wrote to the host's
+	// disks over the sample, in bytes a second, from its cgroup's io.stat.
+	DiskRead  int64 `json:"diskRead"`
+	DiskWrite int64 `json:"diskWrite"`
 	// Limits is what this agent's machine is capped at, and Cores is how many
 	// cores its CPU figure can add up to: its own limit, or the host's cores
 	// when it has none. CPU as a share of the host says the machine is busy;

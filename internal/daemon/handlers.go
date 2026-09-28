@@ -1281,12 +1281,20 @@ func toAPIUsage(host agent.HostUsage, agents []agent.AgentUsage) api.Usage {
 			CPU: host.CPU, Cores: host.Cores,
 			MemUsed: host.MemUsed, MemTotal: host.MemTotal,
 			PoolUsed: host.PoolUsed, PoolTotal: host.PoolTotal,
+			DiskRead: host.DiskRead, DiskWrite: host.DiskWrite,
 		},
 		Agents: make([]api.AgentUsage, 0, len(agents)),
+	}
+	if p := host.Pressure; p != nil {
+		u.Host.Pressure = &api.HostPressure{
+			IOSome: p.IOSome, IOFull: p.IOFull, MemorySome: p.MemorySome, MemoryFull: p.MemoryFull,
+			Stalling: p.Stalling(),
+		}
 	}
 	for _, a := range agents {
 		u.Agents = append(u.Agents, api.AgentUsage{
 			Ref: a.Ref(), State: a.State, CPU: a.CPU, Memory: a.Memory, Processes: a.Processes,
+			DiskRead: a.DiskRead, DiskWrite: a.DiskWrite,
 			Limits: api.Limits{CPU: a.Limits.CPU, Allowance: a.Limits.Allowance, Memory: a.Limits.Memory, ConfiguredCPU: a.Limits.ConfiguredCPU},
 			Cores:  a.Cores,
 		})

@@ -37,3 +37,15 @@ func TestHostCoresIsAtLeastOne(t *testing.T) {
 		t.Errorf("HostCores() = %d, want at least 1", HostCores())
 	}
 }
+
+// TestHostDiskIOReadsTheRealProc only asks the real /proc/diskstats to parse:
+// which disks a runner has, and whether it keeps PSI, differ from one to the
+// next.
+func TestHostDiskIOReadsTheRealProc(t *testing.T) {
+	if _, err := hostDiskIO("/proc/diskstats", sysRoot); err != nil {
+		t.Fatalf("hostDiskIO() = %v", err)
+	}
+	if p, ok := hostPressure("/proc/pressure"); ok && (p.IOFull < 0 || p.IOFull > 100 || p.MemoryFull < 0 || p.MemoryFull > 100) {
+		t.Errorf("hostPressure() = %+v, want percentages", p)
+	}
+}

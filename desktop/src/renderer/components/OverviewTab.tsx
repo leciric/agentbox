@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Box, Copy, ExternalLink, FileDiff, FolderOpen, GitBranch, LoaderCircle, SlidersHorizontal, SquareTerminal } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { cn, errorMessage, humanBytes, shortCommit } from '../lib/utils';
+import { cn, errorMessage, humanBytes, humanRate, shortCommit, shortRate } from '../lib/utils';
 import { aiLabel, StateBadge } from './state';
 import { AgentTokensCard } from './TokensPanel';
 import { Button } from './ui/button';
@@ -67,7 +67,7 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
                 {agent.source || '—'}
               </Row>
               <Row label="Created">{new Date(agent.createdAt).toLocaleString()}</Row>
-              <div className="mt-4 grid grid-cols-3 gap-3">
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {/* Against its own limit, not a fixed four cores: the question a
                     capped agent raises is whether it is the one at its wall. */}
                 <Metric
@@ -81,6 +81,19 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
                   value={mine ? humanBytes(mine.memory) : '—'}
                   fraction={memoryFraction}
                   hint={agent.limits.memory ? `Capped at ${agent.limits.memory}` : 'No limit: it may take all the host has'}
+                />
+                <Metric
+                  label="Disk IO"
+                  value={mine ? humanRate(mine.diskRead + mine.diskWrite) : '—'}
+                  detail={
+                    mine && (
+                      <>
+                        <span className="block truncate">{shortRate(mine.diskRead)} read</span>
+                        <span className="block truncate">{shortRate(mine.diskWrite)} write</span>
+                      </>
+                    )
+                  }
+                  hint="What its machine reads from and writes to the host's disks"
                 />
                 <Metric label="Processes" value={mine ? String(mine.processes) : '—'} />
               </div>
@@ -354,11 +367,12 @@ function parseBytes(size: string): number | undefined {
   return Number(match[1]) * (units[match[2] ?? 'B'] ?? 1);
 }
 
-function Metric({ label, value, fraction, hint }: { label: string; value: string; fraction?: number; hint?: string }) {
+function Metric({ label, value, detail, fraction, hint }: { label: string; value: string; detail?: ReactNode; fraction?: number; hint?: string }) {
   return (
-    <div className="rounded-xl border border-line-faint bg-surface-faint p-3" title={hint}>
+    <div className="min-w-0 rounded-xl border border-line-faint bg-surface-faint p-3" title={hint}>
       <div className="text-[11px] uppercase tracking-wider text-subtle">{label}</div>
       <div className="mt-1 font-mono text-lg tabular-nums text-primary">{value}</div>
+      {detail && <div className="mt-1 font-mono text-[10.5px] tabular-nums text-subtle">{detail}</div>}
       {fraction !== undefined && (
         <div className="mt-2 h-1 overflow-hidden rounded-full bg-surface-raised">
           <div className="h-full rounded-full bg-gradient-to-r from-brand-400 to-sky-400" style={{ width: `${Math.max(fraction * 100, 3)}%` }} />
