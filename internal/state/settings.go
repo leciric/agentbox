@@ -205,6 +205,12 @@ const (
 	SettingSharedBudgetMemory = "shared_budget_memory"
 	SettingSharedBudgetSwap   = "shared_budget_swap"
 	SettingSharedBudgetCPU    = "shared_budget_cpu"
+	// SettingSharedBudgetDiskWeight and SettingSharedBudgetDiskWrite are the
+	// budget's disk: its io.weight against the host's 100, and the most the
+	// agents write together a second, a size or "max". "" is, again,
+	// agent.SuggestBudget's.
+	SettingSharedBudgetDiskWeight = "shared_budget_disk_weight"
+	SettingSharedBudgetDiskWrite  = "shared_budget_disk_write"
 )
 
 // DefaultIdleTime is how long an agent may go idle before "auto-stop idle

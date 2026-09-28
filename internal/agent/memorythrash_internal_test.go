@@ -284,3 +284,106 @@ func TestCgroupFileParsers(t *testing.T) {
 		t.Error("read a sample from a cgroup that isn't there")
 	}
 }
+
+// The agents in the shared budget can thrash at its memory together while
+// none of them does on its own: each is under the bar, with no limit of its
+// own, and between them they re-read what the budget made them drop. The
+// budget's own cgroup is what says so.
+func TestThrashWatchSharedBudgetTogether(t *testing.T) {
+	root := t.TempDir()
+	budget := &fakeCgroup{dir: filepath.Join(root, BudgetCgroup), limit: fmt.Sprint(16 << 30)}
+	agents := []*fakeCgroup{
+		{dir: filepath.Join(root, BudgetCgroup, "ab-p-a1"), limit: "max"},
+		{dir: filepath.Join(root, BudgetCgroup, "ab-p-a2"), limit: "max"},
+		{dir: filepath.Join(root, BudgetCgroup, "ab-p-a3"), limit: "max"},
+	}
+	// An agent hitting a limit of its own shows in the budget's hierarchical
+	// memory.events, but not in memory.events.local, the budget's own.
+	local := int64(0)
+	writeLocal := func() {
+		body := fmt.Sprintf("low 0\nhigh 0\nmax %d\noom 0\noom_kill 0\noom_group_kill 0\n", local)
+		if err := os.WriteFile(filepath.Join(budget.dir, "memory.events.local"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := newTestWatch(root)
+	ctx := context.Background()
+	at := time.Now()
+	var group *MemoryThrash
+	for i := 0; i < 10 && group == nil; i++ {
+		budget.write(t)
+		writeLocal()
+		for _, c := range agents {
+			c.write(t)
+		}
+		started, _ := w.Sample(ctx, at)
+		for _, th := range started {
+			if !th.Group {
+				t.Fatalf("flagged %s on its own: %+v", th.Instance, th)
+			}
+			group = &th
+		}
+		// Each agent: 10% pressure, refaulting 8 MB/s — under the bar alone.
+		for _, c := range agents {
+			c.pressure = 10
+			c.refaults += 10_000
+		}
+		// The budget: all three together and more, at its own limit.
+		budget.pressure = 35
+		budget.refaults += 60_000
+		budget.readBytes += 60_000 * 4096
+		budget.hits += 1_000
+		local += 1_000
+		at = at.Add(ThrashInterval)
+	}
+	if group == nil {
+		t.Fatal("the agents together were never flagged")
+	}
+	if group.Instance != "" || group.Limit != 16<<30 || group.Pressure != 35 || group.RefaultRate == 0 {
+		t.Errorf("group = %+v", group)
+	}
+	if now, ok := w.GroupThrashing(); !ok || now.Since != group.Since {
+		t.Errorf("GroupThrashing = %+v, %v", now, ok)
+	}
+
+	// The agents stop: no agent in the budget, no warning about it.
+	for _, c := range agents {
+		if err := os.RemoveAll(c.dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, stopped := w.Sample(ctx, at)
+	if len(stopped) != 1 || !stopped[0].Group {
+		t.Errorf("stopped = %+v, want the group's warning", stopped)
+	}
+	if _, ok := w.GroupThrashing(); ok {
+		t.Error("still flagged with no agent in the budget")
+	}
+}
+
+// Agents hitting only their own limits inside the budget aren't the budget
+// being short: its memory.events counts them, its memory.events.local doesn't.
+func TestThrashWatchGroupNeedsTheBudgetsOwnLimit(t *testing.T) {
+	root := t.TempDir()
+	budget := &fakeCgroup{dir: filepath.Join(root, BudgetCgroup), limit: fmt.Sprint(16 << 30)}
+	c := &fakeCgroup{dir: filepath.Join(root, BudgetCgroup, "ab-p-a1"), limit: fmt.Sprint(fourGiB)}
+	w := newTestWatch(root)
+	at := time.Now()
+	for i := 0; i < 12; i++ {
+		budget.write(t)
+		if err := os.WriteFile(filepath.Join(budget.dir, "memory.events.local"), []byte("high 0\nmax 0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		c.write(t)
+		w.Sample(context.Background(), at)
+		thrashing(c)
+		budget.pressure, budget.refaults, budget.hits = c.pressure, c.refaults, c.hits
+		at = at.Add(ThrashInterval)
+	}
+	if _, ok := w.Thrashing("ab-p-a1"); !ok {
+		t.Error("the agent at its own limit isn't flagged")
+	}
+	if th, ok := w.GroupThrashing(); ok {
+		t.Errorf("the budget is flagged for one agent's own limit: %+v", th)
+	}
+}

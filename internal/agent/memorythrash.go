@@ -89,6 +89,12 @@ type MemoryThrash struct {
 	// none, and it's the shared budget holding it (InBudget).
 	Limit    int64
 	InBudget bool
+	// Group is set, and Instance empty, when it's the agents in the shared
+	// budget together, at the budget's memory: each of them may be well
+	// under the bar on its own, with none of the limits of its own that the
+	// per-agent check needs, while between them they re-read gigabytes a
+	// second. Limit is then the budget's memory.max.
+	Group bool
 	// RaiseTo is the limit to offer it, as limits.memory takes it ("8GiB"),
 	// or "" when there's no room to offer more (ThrashWatch.Raise).
 	RaiseTo string
@@ -124,6 +130,7 @@ type ThrashWatch struct {
 
 	mu     sync.Mutex
 	tracks map[string]*thrashTrack
+	group  *thrashTrack // the shared budget's own cgroup, while agents are in it
 }
 
 // NewThrashWatch watches the agents' cgroups under the host's cgroup root.
@@ -194,6 +201,11 @@ func (w *ThrashWatch) Sample(ctx context.Context, now time.Time) (started, stopp
 			delete(w.tracks, instance)
 		}
 	}
+	if on, off := w.sampleGroup(budgetDir, cgroups, now); on != nil {
+		started = append(started, *on)
+	} else if off != nil {
+		stopped = append(stopped, *off)
+	}
 	w.mu.Unlock()
 
 	// The offer reads settings, so it's worked out outside the lock, and only
@@ -216,6 +228,75 @@ func (w *ThrashWatch) Sample(ctx context.Context, now time.Time) (started, stopp
 	sort.Slice(started, func(i, j int) bool { return started[i].Instance < started[j].Instance })
 	sort.Slice(stopped, func(i, j int) bool { return stopped[i].Instance < stopped[j].Instance })
 	return started, stopped
+}
+
+// sampleGroup samples the shared budget's own cgroup, the agents in it
+// together, while any are, the same way as one agent's. Its limit hits are
+// memory.events.local's, the budget's own memory.max and memory.high: the
+// hierarchical memory.events also counts every agent hitting its own limit.
+// It returns the warning that started, or the one that stopped. Called with
+// w.mu held.
+func (w *ThrashWatch) sampleGroup(budgetDir string, cgroups map[string]string, now time.Time) (started, stopped *MemoryThrash) {
+	inside := false
+	for _, dir := range cgroups {
+		inside = inside || filepath.Dir(dir) == budgetDir
+	}
+	s, ok := readCgroupSample(budgetDir, now)
+	if !inside || !ok {
+		if w.group != nil && w.group.on != nil {
+			stopped = w.group.on
+		}
+		w.group = nil
+		return nil, stopped
+	}
+	if local := filepath.Join(budgetDir, "memory.events.local"); fileExists(local) {
+		s.limitHits = limitHits(local)
+	}
+	if w.group == nil {
+		w.group = &thrashTrack{}
+	}
+	t := w.group
+	if n := len(t.samples); n > 0 && t.samples[n-1].limit != s.limit {
+		// The budget was resized: start over, as for an agent's own limit.
+		t.samples = nil
+		if t.on != nil {
+			stopped, t.on = t.on, nil
+		}
+	}
+	t.samples = trimSamples(append(t.samples, s), thrashWindow)
+	was := t.on != nil
+	next := assessThrash(t.samples, was)
+	switch {
+	case next != nil && !was:
+		next.Group, next.Since = true, now
+		t.on = next
+		return next, stopped
+	case next != nil:
+		next.Group, next.Since = true, t.on.Since
+		t.on = next
+	case was:
+		stopped, t.on = t.on, nil
+	}
+	return nil, stopped
+}
+
+// GroupThrashing reports whether the agents in the shared budget are
+// thrashing at its memory together, and how badly.
+func (w *ThrashWatch) GroupThrashing() (MemoryThrash, bool) {
+	if w == nil {
+		return MemoryThrash{}, false
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.group != nil && w.group.on != nil {
+		return *w.group.on, true
+	}
+	return MemoryThrash{}, false
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // Thrashing reports whether an agent's machine is thrashing right now, and
@@ -334,9 +415,13 @@ func readCgroupSample(dir string, now time.Time) (cgroupSample, bool) {
 }
 
 // limitHits is how many times a cgroup has hit memory.max or memory.high,
-// from memory.events.
+// from memory.events in dir, or from the events file dir names.
 func limitHits(dir string) int64 {
-	b, err := os.ReadFile(filepath.Join(dir, "memory.events"))
+	path := dir
+	if !strings.HasPrefix(filepath.Base(dir), "memory.events") {
+		path = filepath.Join(dir, "memory.events")
+	}
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return 0
 	}

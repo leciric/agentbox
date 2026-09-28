@@ -78,7 +78,11 @@ back to what this host is suggested.
   --shared-budget    on or off (true or false); off by default
   --budget-memory    the agents' memory together, like 20GiB
   --budget-swap      the swap they may use together, like 8GiB; never 0
-  --budget-cpu       the cores they share, like 12`,
+  --budget-cpu       the cores they share, like 12
+  --budget-disk-weight  their weight on the disk while your own apps need it,
+                     1 to 100, against 100 for your apps; 10 by default
+  --budget-disk-write   the most they write together a second, like 64MiB, or
+                     max for no ceiling`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
@@ -151,6 +155,8 @@ back to what this host is suggested.
 	f.StringVar(&budget.memory, "budget-memory", "", `the shared budget's memory, like 20GiB ("" for the suggestion)`)
 	f.StringVar(&budget.swap, "budget-swap", "", `the shared budget's swap, like 8GiB ("" for the suggestion)`)
 	f.IntVar(&budget.cpu, "budget-cpu", 0, "the shared budget's cores (0 for the suggestion)")
+	f.IntVar(&budget.diskWeight, "budget-disk-weight", 0, "the shared budget's weight on the disk, 1 to 100 against your apps' 100 (0 for the suggestion)")
+	f.StringVar(&budget.diskWrite, "budget-disk-write", "", `the most the shared budget's agents write a second, like 64MiB, or max ("" for the suggestion)`)
 	return cmd
 }
 
@@ -159,12 +165,13 @@ back to what this host is suggested.
 // any-flag-sets way as one agent's.
 // budgetFlags are the shared agent budget's flags.
 type budgetFlags struct {
-	on, memory, swap string
-	cpu              int
+	on, memory, swap, diskWrite string
+	cpu, diskWeight             int
 }
 
 func runHostLimits(cmd *cobra.Command, c *api.Client, f *pflag.FlagSet, neverFreezeCPU string, keepFreeCPU int, autoStopIdle, idleTime string, budget budgetFlags) error {
-	budgetChanged := f.Changed("shared-budget") || f.Changed("budget-memory") || f.Changed("budget-swap") || f.Changed("budget-cpu")
+	budgetChanged := f.Changed("shared-budget") || f.Changed("budget-memory") || f.Changed("budget-swap") || f.Changed("budget-cpu") ||
+		f.Changed("budget-disk-weight") || f.Changed("budget-disk-write")
 	if f.Changed("never-freeze-cpu") || f.Changed("keep-free") || f.Changed("auto-stop-idle") || f.Changed("idle-time") || budgetChanged {
 		var req api.UpdateSettingsRequest
 		if f.Changed("shared-budget") {
@@ -182,6 +189,12 @@ func runHostLimits(cmd *cobra.Command, c *api.Client, f *pflag.FlagSet, neverFre
 		}
 		if f.Changed("budget-cpu") {
 			req.SharedBudgetCPU = &budget.cpu
+		}
+		if f.Changed("budget-disk-weight") {
+			req.SharedBudgetDiskWeight = &budget.diskWeight
+		}
+		if f.Changed("budget-disk-write") {
+			req.SharedBudgetDiskWrite = &budget.diskWrite
 		}
 		if f.Changed("never-freeze-cpu") {
 			on, err := strconv.ParseBool(neverFreezeCPU)
@@ -248,7 +261,7 @@ func printSharedBudget(cmd *cobra.Command, b api.SharedBudget) error {
 		_, err := fmt.Fprintf(out, "shared agent budget: not here. %s\n", b.Unsupported)
 		return err
 	}
-	size := agent.Budget{Memory: b.Memory, Swap: b.Swap, CPU: b.CPU}.Describe()
+	size := agent.Budget{Memory: b.Memory, Swap: b.Swap, CPU: b.CPU, DiskWeight: b.DiskWeight, DiskWrite: b.DiskWrite}.Describe()
 	state := "off"
 	if b.On {
 		state = fmt.Sprintf("on, %s; %d agent(s) inside", size, b.Inside)
@@ -260,7 +273,7 @@ func printSharedBudget(cmd *cobra.Command, b api.SharedBudget) error {
 		_, _ = fmt.Fprintf(out, "  %d running agent(s) move when they restart\n", b.Pending)
 	}
 	if !b.On {
-		suggested := agent.Budget{Memory: b.Suggested.Memory, Swap: b.Suggested.Swap, CPU: b.Suggested.CPU}.Describe()
+		suggested := agent.Budget{Memory: b.Suggested.Memory, Swap: b.Suggested.Swap, CPU: b.Suggested.CPU, DiskWeight: b.Suggested.DiskWeight, DiskWrite: b.Suggested.DiskWrite}.Describe()
 		_, _ = fmt.Fprintf(out, "  suggested for this host: %s. %s\n", suggested, b.Why)
 	}
 	switch {
@@ -268,6 +281,12 @@ func printSharedBudget(cmd *cobra.Command, b api.SharedBudget) error {
 		_, _ = fmt.Fprintf(out, "  %s\n  run: %s\n", b.Problem, b.SetupCommand)
 	case b.NotReady != "":
 		_, _ = fmt.Fprintf(out, "  before it can be on, %s\n  run: %s\n", b.NotReady, b.SetupCommand)
+	case b.DiskNotReady != "":
+		_, _ = fmt.Fprintf(out, "  %s\n  run: %s\n", b.DiskNotReady, b.SetupCommand)
+	}
+	if s := b.Shortage; s != nil {
+		_, _ = fmt.Fprintf(out, "  short of memory together, and slowing the whole computer down: the agents in it are re-reading %s/s of what they had to drop from disk (%.0f%% memory pressure)\n  give the shared budget more memory (agentbox limits --budget-memory), or stop an agent\n",
+			agent.HumanBytes(s.RefaultRate), s.Pressure)
 	}
 	return nil
 }

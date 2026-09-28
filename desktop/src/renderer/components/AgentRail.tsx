@@ -9,7 +9,7 @@ import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
-import { MemoryShortageWarning } from './MemoryShortage';
+import { BudgetShortageWarning, MemoryShortageWarning } from './MemoryShortage';
 import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
 import { Tip } from './ui/tooltip';
@@ -166,6 +166,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
+        <BudgetShortageWarning className="mx-1 mb-1.5" onOpenSettings={() => onSelect({ kind: 'settings' })} />
         <button
           onClick={() => onSelect({ kind: 'project', project })}
           className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', onLead ? 'bg-surface-strong' : 'hover:bg-surface')}

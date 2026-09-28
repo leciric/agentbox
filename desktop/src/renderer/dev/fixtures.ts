@@ -816,14 +816,18 @@ let defaultsSettings = {
     swap: '8GiB',
     cpu: 12,
     chosen: false,
-    suggested: { memory: '21GiB', swap: '8GiB', cpu: 12 },
-    why: 'Leaves this host 11.0 GiB of its 32.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap.',
+    suggested: { memory: '21GiB', swap: '8GiB', cpu: 12, diskWeight: 10, diskWrite: '64MiB' },
+    why:
+      "Leaves this host 11.0 GiB of its 32.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap. On its NVMe, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
     hostSwap: 16 * 1024 ** 3,
     hostSwapKind: 'zram',
     setupCommand: 'sudo "$(command -v agentbox)" host budget',
     inside: 0,
     pending: 0,
-  },
+    diskWeight: 10,
+    diskWrite: '64MiB',
+    disk: 'NVMe nvme0n1 (KINGSTON SNV3S1000G)',
+  } as T.SharedBudget,
 } as T.Settings;
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
@@ -840,6 +844,10 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
   if (req.sharedBudget !== undefined) next.sharedBudget = { ...next.sharedBudget, on: req.sharedBudget };
+  if (req.sharedBudgetDiskWeight !== undefined)
+    next.sharedBudget = { ...next.sharedBudget, diskWeight: req.sharedBudgetDiskWeight || next.sharedBudget.suggested.diskWeight };
+  if (req.sharedBudgetDiskWrite !== undefined)
+    next.sharedBudget = { ...next.sharedBudget, diskWrite: req.sharedBudgetDiskWrite || next.sharedBudget.suggested.diskWrite };
   // The rest are stored as they are sent, the way the daemon stores them.
   for (const key of ['defaultClaudeEffort', 'defaultCPU', 'defaultCPUAllowance', 'defaultMemory', 'resumeAfterLimit', 'claudeCompactWindow', 'updateCheck', 'usageStats', 'prWatch', 'mediaRetention'] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
@@ -855,6 +863,25 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   // that is the same object it already holds.
   defaultsSettings = next;
   return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
+}
+
+// seedBudget turns the shared budget on in defaultsSettings (?budget=on), and
+// with ?budget=short has the agents in it thrashing at its 20 GiB together:
+// Settings' disk fields, and the rail's warning for the group.
+export function seedBudget(queryClient: QueryClient, short: boolean): void {
+  defaultsSettings = {
+    ...defaultsSettings,
+    sharedBudget: {
+      ...defaultsSettings.sharedBudget,
+      on: true,
+      memory: '20GiB',
+      inside: 4,
+      shortage: short
+        ? { since: new Date().toISOString(), pressure: 38.4, refaultRate: 1.9 * 2 ** 30, readRate: 2.1 * 2 ** 30, limit: 20 * 2 ** 30, inBudget: false }
+        : undefined,
+    },
+  };
+  queryClient.setQueryData(['settings'], defaultsSettings);
 }
 
 // seedDefaults puts defaultsSettings where the Settings components read them.
