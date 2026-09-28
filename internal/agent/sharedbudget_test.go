@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,14 +27,7 @@ exit 0
 // files next to it, and a BudgetDir of its own, set up as root would.
 func budgetManager(t *testing.T, instances, details string) (*Manager, func() string) {
 	t.Helper()
-	old := BudgetDir
-	BudgetDir = t.TempDir()
-	t.Cleanup(func() { BudgetDir = old })
-	for _, name := range budgetFiles {
-		if err := os.WriteFile(filepath.Join(BudgetDir, name), []byte("max\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	budgetRoot(t)
 	dir := t.TempDir()
 	for name, body := range map[string]string{"incus": budgetIncus, "instances": instances, "details": details} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
@@ -103,8 +97,13 @@ func TestApplySharedBudgetPlacesEveryAgent(t *testing.T) {
 	if strings.Contains(got, "ab-p-a2 limits.memory.swap") {
 		t.Errorf("an agent with no memory limit got a swap setting:\n%s", got)
 	}
-	if b, _ := os.ReadFile(filepath.Join(BudgetDir, "memory.max")); string(b) != "2147483648" {
+	// Agents are held only a safety margin short of the host's memory, and
+	// the rest of it past their 2 GiB is reserved for the host's apps.
+	if b, _ := os.ReadFile(filepath.Join(BudgetDir, "memory.max")); string(b) != strconv.FormatInt(max(2<<30, HostMemory()-safetyMargin), 10) {
 		t.Errorf("memory.max = %q", b)
+	}
+	if b, _ := os.ReadFile(reservePath("user.slice")); HostMemory() > 3<<30 && strings.TrimSpace(string(b)) == "0" {
+		t.Errorf("user.slice's memory.low = %q", b)
 	}
 	if err := os.MkdirAll(filepath.Join(BudgetDir, "ab-p-a1"), 0o755); err != nil {
 		t.Fatal(err)
@@ -153,12 +152,13 @@ func TestBudgetDescribeAndHost(t *testing.T) {
 	for b, want := range map[Budget]string{
 		{Memory: "20GiB", Swap: "8GiB", CPU: 12}: "20GiB of memory, 8GiB of swap and 12 cores",
 		{Memory: "3GiB", CPU: 1}:                 "3GiB of memory, no swap and 1 core",
-		{Memory: "20GiB", Swap: "8GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}: "20GiB of memory, 8GiB of swap and 12 cores; disk weight 10, writes up to 64MiB/s",
-		{Memory: "20GiB", Swap: "8GiB", CPU: 12, DiskWeight: 25, DiskWrite: "max"}:   "20GiB of memory, 8GiB of swap and 12 cores; disk weight 25, no write ceiling",
 	} {
 		if got := b.Describe(); got != want {
 			t.Errorf("Describe(%+v) = %q, want %q", b, got, want)
 		}
+	}
+	if got := (Budget{Memory: "20GiB", Swap: "8GiB", CPU: 12}).DescribeOn(30 * gib); got != "20GiB of memory, 8GiB of swap and 12 cores; 10.0 GiB of memory stays reserved for your apps" {
+		t.Errorf("DescribeOn = %q", got)
 	}
 	h := ReadHostResources()
 	if h.Memory <= 0 || h.Cores < 1 {

@@ -33,8 +33,8 @@ func newHostSetupCmd() *cobra.Command {
 		Long: `Installs Incus (Arch, Debian/Ubuntu or Fedora), gives your user access to it — in the
 session running now, not only the next login — creates its storage pool and network,
 lets agents map your user, and keeps ufw and Docker from blocking the Incus bridge.
-It also does what host budget does: the cgroup the shared agent budget lives in, which
-the daemon turns on by itself once it's there. Safe to run again. Run it with sudo:
+It also does what host budget does: the cgroup the shared agent budget lives in, ready
+for when you turn the budget on. Safe to run again. Run it with sudo:
 
   ` + hostsetup.Command + `
 
@@ -65,11 +65,11 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 			if os.Geteuid() != 0 {
 				return errors.New("host setup is for " + target + ", but it has to run as root: " + hostsetup.Command)
 			}
-			// The shared budget's cgroup first, which the daemon turns the
-			// budget on in once it's there, so the script's own result is
-			// what the output ends on. Here in the Mac's VM and WSL as well:
-			// the daemon leaves the budget off there, but the unit costs
-			// nothing and is ready if it ever doesn't.
+			// The shared budget's cgroup first, so the script's own result is
+			// what the output ends on. It only makes the budget possible:
+			// turning it on is the user's. Here in the Mac's VM and WSL as
+			// well, where the budget can't be turned on: the unit costs
+			// nothing and is ready if it ever can.
 			out := cmd.OutOrStdout()
 			_, _ = fmt.Fprintln(out, "==> The shared agent budget's cgroup")
 			u, err := hostsetup.System().ByName(target)
@@ -109,11 +109,12 @@ func newHostBudgetCmd() *cobra.Command {
 		Use:   "budget",
 		Short: "Make the cgroup the shared agent budget needs (once, as root)",
 		Long: `Installs ` + hostsetup.BudgetUnitName + `, a oneshot systemd unit that makes
-` + hostsetup.BudgetCgroupDir + ` at every boot, enables the memory, CPU and io controllers for
-it, and gives its budget files (` + strings.Join(append(append([]string{}, hostsetup.BudgetFiles...), hostsetup.BudgetDiskFiles...), ", ") + `) and
-` + hostsetup.CostQoSFile + ` to your user, so the daemon can put every agent under one shared
-budget, change it while they run, and turn on io.cost for the host's disks while the budget
-is on, so agents give way to your own apps on the disk. Run it with sudo:
+` + hostsetup.BudgetCgroupDir + ` at every boot, enables the memory and CPU controllers for it,
+and gives your user its budget files (` + strings.Join(hostsetup.BudgetFiles, ", ") + `) and the
+memory.low of ` + strings.Join(hostsetup.ReserveSlices, " and ") + `, so the daemon can put every agent under
+one shared budget, change it while they run, and reserve the rest of the memory
+for your own apps. It doesn't turn the budget on: that's yours to do, in Settings
+or with agentbox limits --shared-budget true. Run it with sudo:
 
   ` + hostsetup.BudgetCommand + `
 

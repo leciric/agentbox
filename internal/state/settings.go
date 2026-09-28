@@ -196,29 +196,16 @@ const (
 	// SettingSharedBudget says whether every agent's machine runs under one
 	// parent cgroup, /sys/fs/cgroup/agentbox, with one memory, swap and CPU
 	// budget for all of them together, so an idle agent's share goes to a
-	// busy one (agent.SharedBudget). Nobody having chosen, the daemon turns
-	// it on by itself as soon as the cgroup is usable — unless
-	// SettingSharedBudgetOffer says the installation is older than that —
-	// and writes "1", so that a "0" from the user is what keeps it off.
+	// busy one (agent.SharedBudget). Off until the user turns it on.
 	SettingSharedBudget = "shared_budget"
-	// SettingSharedBudgetOffer is "1" on installations that had projects
-	// before the shared budget was on by default: the daemon doesn't turn it
-	// on under them, and Setup and Settings offer it instead, while
-	// SettingSharedBudget is still unset.
-	SettingSharedBudgetOffer = "shared_budget_offer"
 	// SettingSharedBudgetMemory, SettingSharedBudgetSwap and
-	// SettingSharedBudgetCPU are the budget itself: a size for memory.max, a
+	// SettingSharedBudgetCPU are the budget itself: the memory agents may use,
+	// the host's less it being reserved for its own apps (agent/reserve.go), a
 	// size for memory.swap.max, and a count of cores for cpu.max. Empty means
 	// what agent.SuggestBudget works out for this host.
 	SettingSharedBudgetMemory = "shared_budget_memory"
 	SettingSharedBudgetSwap   = "shared_budget_swap"
 	SettingSharedBudgetCPU    = "shared_budget_cpu"
-	// SettingSharedBudgetDiskWeight and SettingSharedBudgetDiskWrite are the
-	// budget's disk: its io.weight against the host's 100, and the most the
-	// agents write together a second, a size or "max". "" is, again,
-	// agent.SuggestBudget's.
-	SettingSharedBudgetDiskWeight = "shared_budget_disk_weight"
-	SettingSharedBudgetDiskWrite  = "shared_budget_disk_write"
 )
 
 // DefaultIdleTime is how long an agent may go idle before "auto-stop idle

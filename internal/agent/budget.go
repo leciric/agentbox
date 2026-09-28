@@ -21,9 +21,27 @@ import (
 // Per-agent limits (limits.go) are a ceiling each: six agents at 8 GiB on a
 // 30 GB host can still add up to 48, and an agent that is idle keeps a share
 // nobody else can have. A parent cgroup shares instantly instead — the kernel
-// hands whatever the idle agents aren't using to the busy ones, and holds the
-// sum under one budget — where rebalancing each agent's own limits from the
-// daemon lags behind and OOM-kills whatever it lowers too far.
+// hands whatever the idle agents aren't using to the busy ones — where
+// rebalancing each agent's own limits from the daemon lags behind and
+// OOM-kills whatever it lowers too far.
+//
+// Its memory protects the host's own apps rather than fencing the agents in.
+// The user picks what agents may use, 20 GiB of a 30 GiB host say, and the
+// rest, 10 GiB, is reserved for the host: memory.low on user.slice and
+// system.slice (reserve.go). The agents' cgroup gets no memory.high, and a
+// memory.max only as a safety margin near the host's memory. So while the
+// host's apps don't need their reserve, agents use it as page cache; when the
+// apps want it back, the kernel reclaims from the agents first. A fence did
+// the opposite: agents held at 16 GiB with 14 GiB free around them kept
+// evicting their own file cache and reading it back from the SSD at 2 GB/s,
+// and that IO is what froze the desktop.
+//
+// The disk isn't part of it. io.cost's latency QoS and an io.max write
+// ceiling on the budget were tried, and made things worse on the user's host
+// (LUKS over btrfs on a budget NVMe): btrfs transaction commits waited on the
+// agents' throttled writeback, up to 11.5 s, with user.slice stalled on IO
+// 45–50% of the time, and io.cost slowed the whole device for everyone.
+// legacy.go puts back what that left behind.
 //
 // The parent is a plain top-level cgroup, /sys/fs/cgroup/agentbox, not a
 // systemd slice: Incus' liblxc places a container wherever raw.lxc's
@@ -31,10 +49,9 @@ import (
 // leaves a cgroup it didn't make alone. Making it needs root, once, which
 // is what `agentbox host budget` does (package hostsetup): it installs a
 // oneshot unit that makes the cgroup at boot and gives the files the budget
-// is written to — memory.high, memory.max, memory.swap.max and cpu.max, and
-// for the disk io.weight, io.max and the root's io.cost.qos (budgetdisk.go) —
-// to the user the daemon runs as. Everything else, the cgroup's children
-// included, stays root's and Incus'.
+// is written to — memory.max, memory.swap.max and cpu.max, and the slices'
+// memory.low — to the user the daemon runs as. Everything else, the cgroup's
+// children included, stays root's and Incus'.
 //
 // An agent moves in when its machine starts: raw.lxc is read at start, so
 // turning the budget on sets it on every agent, and those already running
@@ -56,32 +73,19 @@ var BudgetDir = filepath.Join(cgroupRoot, BudgetCgroup)
 // kernel's own default, so a quota of N periods is N cores' worth.
 const cpuPeriod = 100000
 
-// highShare is where memory.high sits, as a share of memory.max: past it,
-// the kernel reclaims from the agents and pushes their pages to swap, so the
-// budget bends before it breaks — memory.max is where it kills.
-const highShare = 0.9
-
-// swapFullShare is how full the budget's swap may get before memory.high is
-// lifted to memory.max. memory.high never kills: when reclaim has nowhere to
-// put anonymous pages — no swap on the host, or the budget's swap used up —
-// the kernel throttles every process over it instead, indefinitely. On a
-// test host, a 350 MB allocation under a 300 MB memory.high with no swap was
-// still stalled after 30 s at 92% memory pressure; under memory.max alone it
-// was killed at once. A stall is the freeze this budget exists to prevent,
-// so the soft limit only holds while there is swap left to reclaim into.
-const swapFullShare = 0.9
+// safetyMargin is what the agents' memory.max keeps free of the host's
+// memory: not their budget, which the reserve (reserve.go) holds, but a floor
+// under which even the host's own reclaim couldn't keep up.
+const safetyMargin = int64(2) << 30
 
 // Budget is the shared budget's size. Memory and Swap are sizes Incus would
-// take (ParseBytes), CPU a count of cores. DiskWeight is the budget's
-// io.weight, against the 100 of the host's own cgroups, and DiskWrite the most
-// the agents write together a second, a size, or "max" for no ceiling
-// (budgetdisk.go).
+// take (ParseBytes), CPU a count of cores. Memory is what agents may use
+// while the host's apps need their share: the host's memory less it is
+// reserved for those apps.
 type Budget struct {
-	Memory     string
-	Swap       string
-	CPU        int
-	DiskWeight int
-	DiskWrite  string
+	Memory string
+	Swap   string
+	CPU    int
 }
 
 // HostResources is what the budget is worked out from.
@@ -90,12 +94,11 @@ type HostResources struct {
 	Swap     int64  // SwapTotal, in bytes
 	SwapKind string // "zram", "disk", or "" with no swap
 	Cores    int
-	Disk     *Disk // the physical disk under /, nil when it can't be told
 }
 
 // ReadHostResources reads this host's memory, swap and cores.
 func ReadHostResources() HostResources {
-	h := HostResources{Memory: HostMemory(), Cores: HostCores(), Disk: ReadDisks().Root}
+	h := HostResources{Memory: HostMemory(), Cores: HostCores()}
 	if total, _, err := hostSwap(); err == nil {
 		h.Swap = total
 	}
@@ -109,12 +112,10 @@ func ReadHostResources() HostResources {
 }
 
 // SuggestBudget works out a budget from what the host has, and says why in
-// one line. The host keeps a third of its memory, and never less than 6 GiB —
-// a desktop, a browser and an editor — and a quarter of its cores, at least
-// one; agents may use half the host's swap, at most half their memory. A
-// host too small to leave 6 GiB gets half its memory for agents. On the disk,
-// agents weigh a tenth of the host's apps and write at most what
-// suggestDiskWrite says for the disk under /.
+// one line. The host's apps keep a third of its memory, and never less than
+// 6 GiB — a desktop, a browser and an editor — and a quarter of its cores, at
+// least one; agents may use half the host's swap, at most half their memory.
+// A host too small to leave 6 GiB reserves half its memory.
 func SuggestBudget(h HostResources) (Budget, string) {
 	const gib = int64(1) << 30
 	reserve := max(h.Memory/3, 6*gib)
@@ -124,23 +125,19 @@ func SuggestBudget(h HostResources) (Budget, string) {
 	}
 	keep := max(h.Cores/4, 1)
 	cores := max(h.Cores-keep, 1)
-	b := Budget{Memory: roundSize(memory), CPU: cores, DiskWeight: defaultDiskWeight, DiskWrite: suggestDiskWrite(h.Disk)}
-	why := fmt.Sprintf("Leaves this host %s of its %s of memory and %d of its %d cores", HumanBytes(h.Memory-sizeOf(b.Memory)), HumanBytes(h.Memory), h.Cores-cores, h.Cores)
+	b := Budget{Memory: roundSize(memory), CPU: cores}
+	why := fmt.Sprintf("Reserves %s of this host's %s of memory for your own apps, and keeps %d of its %d cores free", HumanBytes(h.Memory-sizeOf(b.Memory)), HumanBytes(h.Memory), h.Cores-cores, h.Cores)
 	if h.Swap > 0 {
 		b.Swap = roundSize(min(h.Swap/2, sizeOf(b.Memory)/2))
 		kind := "swap"
 		if h.SwapKind == "zram" {
 			kind = "zram swap"
 		}
-		why += fmt.Sprintf(", and lets agents use %s of its %s of %s.", HumanBytes(sizeOf(b.Swap)), HumanBytes(h.Swap), kind)
+		why += fmt.Sprintf("; agents may use %s of its %s of %s.", HumanBytes(sizeOf(b.Swap)), HumanBytes(h.Swap), kind)
 	} else {
-		why += ". This host has no swap, so agents are only ever held at the hard limit: without swap, a soft one stalls them instead of freeing memory."
+		why += "."
 	}
-	disk := "its disk"
-	if h.Disk != nil {
-		disk = "its " + h.Disk.Kind
-	}
-	why += fmt.Sprintf(" On %s, agents give way to this host's own apps whenever those need it, and write at most %s/s together, which even a budget SSD keeps up with once its write cache is full.", disk, HumanBytes(sizeOf(b.DiskWrite)))
+	why += " Agents may borrow the reserved memory while your apps aren't using it, and give it back first when they are."
 	return b, why
 }
 
@@ -174,21 +171,13 @@ func (b Budget) Validate(h HostResources) error {
 	}
 	if b.Swap != "" {
 		if _, err := ParseBytes(b.Swap); err != nil {
-			return fmt.Errorf("the shared budget's swap is a size like 4GiB, never 0: with no swap, the kernel stalls agents over the budget instead of freeing memory; got %q", b.Swap)
+			return fmt.Errorf("the shared budget's swap is a size like 4GiB, never 0: it is where the kernel puts agents' memory when your apps need theirs back; got %q", b.Swap)
 		}
 	} else if h.Swap > 0 {
-		return errors.New("the shared budget's swap is a size like 4GiB, never 0: with no swap, the kernel stalls agents over the budget instead of freeing memory")
+		return errors.New("the shared budget's swap is a size like 4GiB, never 0: it is where the kernel puts agents' memory when your apps need theirs back")
 	}
 	if b.CPU < 1 || (h.Cores > 0 && b.CPU > h.Cores) {
 		return fmt.Errorf("the shared budget's CPU is a whole number of cores between 1 and %d; got %d", h.Cores, b.CPU)
-	}
-	if b.DiskWeight < 1 || b.DiskWeight > 100 {
-		return fmt.Errorf("the shared budget's disk weight is a whole number between 1 and 100, against 100 for this host's own apps; got %d", b.DiskWeight)
-	}
-	if b.DiskWrite != "max" {
-		if n, err := ParseBytes(b.DiskWrite); err != nil || strings.HasSuffix(b.DiskWrite, "%") || n < 8<<20 {
-			return fmt.Errorf("the shared budget's disk writes are a size a second, at least 8MiB, like 64MiB, or max for no ceiling; got %q", b.DiskWrite)
-		}
 	}
 	return nil
 }
@@ -203,15 +192,18 @@ func (b Budget) Describe() string {
 	if b.Swap != "" {
 		swap = b.Swap + " of swap"
 	}
-	out := fmt.Sprintf("%s of memory, %s and %d %s", b.Memory, swap, b.CPU, cores)
-	if b.DiskWeight == 0 {
-		return out
+	return fmt.Sprintf("%s of memory, %s and %d %s", b.Memory, swap, b.CPU, cores)
+}
+
+// DescribeOn is Describe, with what stays reserved for the apps of a host
+// with hostMemory: "20GiB of memory, 8GiB of swap and 12 cores; 10.0 GiB of
+// memory stays reserved for your apps".
+func (b Budget) DescribeOn(hostMemory int64) string {
+	out := b.Describe()
+	if reserve := hostMemory - sizeOf(b.Memory); hostMemory > 0 && reserve > 0 {
+		out += fmt.Sprintf("; %s of memory stays reserved for your apps", HumanBytes(reserve))
 	}
-	writes := "no write ceiling"
-	if b.DiskWrite != "max" && b.DiskWrite != "" {
-		writes = "writes up to " + b.DiskWrite + "/s"
-	}
-	return fmt.Sprintf("%s; disk weight %d, %s", out, b.DiskWeight, writes)
+	return out
 }
 
 // BudgetSupport says why this machine can't have a shared budget, or "" when
@@ -237,85 +229,93 @@ func BudgetSupport() string {
 var ErrBudgetNotReady = errors.New("the shared budget's cgroup isn't set up")
 
 // BudgetReady checks that the parent cgroup is there and that its budget is
-// this user's to write.
+// this user's to write, the host's reserve (reserve.go) included.
 func BudgetReady() error {
 	if _, err := os.Stat(BudgetDir); err != nil {
 		return fmt.Errorf("%w: %s doesn't exist", ErrBudgetNotReady, BudgetDir)
 	}
+	var paths []string
 	for _, name := range budgetFiles {
-		f, err := os.OpenFile(filepath.Join(BudgetDir, name), os.O_WRONLY, 0)
+		paths = append(paths, filepath.Join(BudgetDir, name))
+	}
+	for _, path := range append(paths, reservePaths()...) {
+		f, err := os.OpenFile(path, os.O_WRONLY, 0)
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
-				return fmt.Errorf("%w: %s has no %s, so the memory and CPU controllers aren't enabled for it", ErrBudgetNotReady, BudgetDir, name)
+				return fmt.Errorf("%w: %s has no %s, so the memory and CPU controllers aren't enabled for it", ErrBudgetNotReady, filepath.Dir(path), filepath.Base(path))
 			}
-			return fmt.Errorf("%w: %s isn't yours to write", ErrBudgetNotReady, filepath.Join(BudgetDir, name))
+			return fmt.Errorf("%w: %s isn't yours to write", ErrBudgetNotReady, path)
 		}
 		_ = f.Close()
 	}
 	return nil
 }
 
-// budgetValues are what the parent cgroup's four files are written with.
-// Off, every one is "max": the agents still inside, until they restart, share
-// the host again with nothing holding them. memory.high is held below
-// memory.max only while agents have swap to be reclaimed into: see
-// swapFullShare.
-func budgetValues(on bool, b Budget, hostSwap, swapUsed int64) map[string]string {
-	out := map[string]string{"memory.high": "max", "memory.max": "max", "memory.swap.max": "max", "cpu.max": "max " + strconv.Itoa(cpuPeriod)}
-	if !on {
-		return out
+// BudgetPaths are every file the budget is written to: the parent cgroup's,
+// and the host's slices' memory.low. For tests, which make them.
+func BudgetPaths() []string {
+	var out []string
+	for _, name := range budgetFiles {
+		out = append(out, filepath.Join(BudgetDir, name))
 	}
-	memory := sizeOf(b.Memory)
-	swap := sizeOf(b.Swap)
-	out["memory.max"] = strconv.FormatInt(memory, 10)
-	out["memory.swap.max"] = strconv.FormatInt(swap, 10)
-	out["cpu.max"] = fmt.Sprintf("%d %d", b.CPU*cpuPeriod, cpuPeriod)
-	if hostSwap > 0 && swap > 0 && float64(swapUsed) < float64(swap)*swapFullShare {
-		out["memory.high"] = strconv.FormatInt(int64(float64(memory)*highShare), 10)
-	}
-	return out
+	return append(out, reservePaths()...)
 }
 
-// ApplyBudget writes the budget into the parent cgroup, live: the kernel
-// applies each file the moment it is written, to every agent inside. Lowering
-// memory.max under what the agents use makes the kernel reclaim, and kill
-// past what it can't, which is the same as any other memory limit.
-//
-// memory.high is written last and memory.max first when tightening, so the
-// two never cross: the kernel refuses nothing, but a high above max means
-// nothing.
-func ApplyBudget(on bool, b Budget) error {
-	var hostTotal int64
-	if total, _, err := hostSwap(); err == nil {
-		hostTotal = total
+// budgetWrite is one cgroup file and what it's written with.
+type budgetWrite struct{ path, value string }
+
+// budgetValues are what the budget's files are written with, in the order
+// they're written: the reserve first, so a host whose slices aren't this
+// user's yet fails before the agents' ceiling is lifted, and nothing is left
+// holding agents at the safety margin with nothing reserved for the host.
+// The agents' memory.max is the host's memory less safetyMargin, or their
+// budget where that's more. Off, every limit is "max" and the reserve 0: the
+// agents still inside, until they restart, share the host again with nothing
+// holding them.
+func budgetValues(on bool, b Budget, hostMemory int64) []budgetWrite {
+	memory, swap, cpu := "max", "max", "max "+strconv.Itoa(cpuPeriod)
+	reserve := map[string]int64{}
+	if on {
+		agents := sizeOf(b.Memory)
+		ceiling := agents
+		if hostMemory > 0 {
+			ceiling = max(agents, hostMemory-safetyMargin)
+			reserve = reserveSplit(max(hostMemory-agents, 0))
+		}
+		memory = strconv.FormatInt(ceiling, 10)
+		swap = strconv.FormatInt(sizeOf(b.Swap), 10)
+		cpu = fmt.Sprintf("%d %d", b.CPU*cpuPeriod, cpuPeriod)
 	}
-	values := budgetValues(on, b, hostTotal, budgetSwapUsed())
-	for _, name := range []string{"memory.max", "memory.swap.max", "cpu.max", "memory.high"} {
-		if err := writeBudgetFile(name, values[name]); err != nil {
+	var out []budgetWrite
+	for _, slice := range reserveSlices {
+		out = append(out, budgetWrite{reservePath(slice), strconv.FormatInt(reserve[slice], 10)})
+	}
+	return append(out,
+		budgetWrite{filepath.Join(BudgetDir, "memory.max"), memory},
+		budgetWrite{filepath.Join(BudgetDir, "memory.swap.max"), swap},
+		budgetWrite{filepath.Join(BudgetDir, "cpu.max"), cpu})
+}
+
+// ApplyBudget writes the budget, live: the kernel applies each file the
+// moment it is written. Written again while the budget is on, it also puts
+// back a reserve systemd reset — it writes the slices' memory.low itself when
+// it reloads.
+func ApplyBudget(on bool, b Budget) error {
+	for _, w := range budgetValues(on, b, HostMemory()) {
+		if err := writeBudgetFile(w.path, w.value); err != nil {
 			return err
 		}
 	}
-	return applyBudgetDisk(on, b, ReadDisks())
+	return nil
 }
 
-// budgetSwapUsed is how much swap the agents in the budget hold between them.
-func budgetSwapUsed() int64 {
-	b, err := os.ReadFile(filepath.Join(BudgetDir, "memory.swap.current"))
-	if err != nil {
-		return 0
-	}
-	n, _ := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
-	return n
-}
-
-func writeBudgetFile(name, value string) error {
-	path := filepath.Join(BudgetDir, name)
+func writeBudgetFile(path, value string) error {
 	current, err := os.ReadFile(path)
 	if err == nil && sameBudgetValue(strings.TrimSpace(string(current)), value) {
 		return nil
 	}
 	if err := os.WriteFile(path, []byte(value), 0); err != nil {
-		return fmt.Errorf("setting the shared budget's %s: %w", name, err)
+		return fmt.Errorf("setting the shared budget's %s: %w", path, err)
 	}
 	return nil
 }
@@ -341,9 +341,8 @@ func (m *Manager) SharedBudget(ctx context.Context) (on bool, b Budget, err erro
 	}
 	b, _ = SuggestBudget(ReadHostResources())
 	for key, into := range map[string]*string{
-		state.SettingSharedBudgetMemory:    &b.Memory,
-		state.SettingSharedBudgetSwap:      &b.Swap,
-		state.SettingSharedBudgetDiskWrite: &b.DiskWrite,
+		state.SettingSharedBudgetMemory: &b.Memory,
+		state.SettingSharedBudgetSwap:   &b.Swap,
 	} {
 		v, err := m.Store.Setting(ctx, key)
 		if err != nil {
@@ -359,13 +358,6 @@ func (m *Manager) SharedBudget(ctx context.Context) (on bool, b Budget, err erro
 	}
 	if n, err := strconv.Atoi(v); err == nil && n > 0 {
 		b.CPU = n
-	}
-	v, err = m.Store.Setting(ctx, state.SettingSharedBudgetDiskWeight)
-	if err != nil {
-		return false, Budget{}, err
-	}
-	if n, err := strconv.Atoi(v); err == nil && n > 0 {
-		b.DiskWeight = n
 	}
 	return on, b, nil
 }
@@ -450,8 +442,8 @@ func RunningOutsideBudget(instance string) bool {
 // agentSwapValue is limits.memory.swap for an agent with the given memory
 // limit. Outside the budget, a capped agent is kept out of swap (MemorySwap).
 // Inside it, it may swap: the budget's memory.swap.max caps what all agents
-// swap together, and the budget's soft limit can only reclaim an agent's
-// pages into swap — one whose own swap.max is 0 would stall at it instead.
+// swap together, and when the host's apps take their reserve back, swap is
+// the only place the kernel can reclaim an agent's anonymous pages to.
 func agentSwapValue(memory string, shared bool) string {
 	switch {
 	case memory == "":

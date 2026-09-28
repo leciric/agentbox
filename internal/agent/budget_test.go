@@ -21,25 +21,25 @@ func TestSuggestBudget(t *testing.T) {
 		{
 			// The machine that froze: 30 GB, 16 cores, zram.
 			"30 GiB with zram", HostResources{Memory: 30 * gib, Swap: 16 * gib, SwapKind: "zram", Cores: 16},
-			Budget{Memory: "20GiB", Swap: "8GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"},
-			"Leaves this host 10.0 GiB of its 30.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap. On its disk, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
+			Budget{Memory: "20GiB", Swap: "8GiB", CPU: 12},
+			"Reserves 10.0 GiB of this host's 30.0 GiB of memory for your own apps, and keeps 4 of its 16 cores free; agents may use 8.0 GiB of its 16.0 GiB of zram swap. Agents may borrow the reserved memory while your apps aren't using it, and give it back first when they are.",
 		},
 		{
 			// A third of 16 is less than 6 GiB: the host keeps 6.
 			"16 GiB, disk swap", HostResources{Memory: 16 * gib, Swap: 4 * gib, SwapKind: "disk", Cores: 8},
-			Budget{Memory: "10GiB", Swap: "2GiB", CPU: 6, DiskWeight: 10, DiskWrite: "64MiB"},
-			"Leaves this host 6.0 GiB of its 16.0 GiB of memory and 2 of its 8 cores, and lets agents use 2.0 GiB of its 4.0 GiB of swap. On its disk, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
+			Budget{Memory: "10GiB", Swap: "2GiB", CPU: 6},
+			"Reserves 6.0 GiB of this host's 16.0 GiB of memory for your own apps, and keeps 2 of its 8 cores free; agents may use 2.0 GiB of its 4.0 GiB of swap. Agents may borrow the reserved memory while your apps aren't using it, and give it back first when they are.",
 		},
 		{
 			// Too small to leave 6 GiB and have 1 GiB for agents: half.
 			"6 GiB, no swap", HostResources{Memory: 6 * gib, Cores: 2},
-			Budget{Memory: "3GiB", CPU: 1, DiskWeight: 10, DiskWrite: "64MiB"},
-			"Leaves this host 3.0 GiB of its 6.0 GiB of memory and 1 of its 2 cores. This host has no swap, so agents are only ever held at the hard limit: without swap, a soft one stalls them instead of freeing memory. On its disk, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
+			Budget{Memory: "3GiB", CPU: 1},
+			"Reserves 3.0 GiB of this host's 6.0 GiB of memory for your own apps, and keeps 1 of its 2 cores free. Agents may borrow the reserved memory while your apps aren't using it, and give it back first when they are.",
 		},
 		{
 			// Swap is capped at half of the agents' memory.
 			"64 GiB, huge swap", HostResources{Memory: 64 * gib, Swap: 64 * gib, SwapKind: "disk", Cores: 32},
-			Budget{Memory: "42GiB", Swap: "21GiB", CPU: 24, DiskWeight: 10, DiskWrite: "64MiB"},
+			Budget{Memory: "42GiB", Swap: "21GiB", CPU: 24},
 			"",
 		},
 	} {
@@ -64,19 +64,15 @@ func TestBudgetValidate(t *testing.T) {
 		b    Budget
 		want string
 	}{
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, ""},
-		{Budget{Memory: "50%", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "a size like 20GiB"},
-		{Budget{Memory: "40GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "more than this host has"},
-		{Budget{Memory: "100MiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "at least 512MiB"},
-		{Budget{Memory: "20GiB", Swap: "", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "never 0"},
-		{Budget{Memory: "20GiB", Swap: "0", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "never 0"},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 0, DiskWrite: "64MiB"}, "disk weight"},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 101, DiskWrite: "64MiB"}, "disk weight"},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "max"}, ""},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "1MiB"}, "at least 8MiB"},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "fast"}, "disk writes"},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 0, DiskWeight: 10, DiskWrite: "64MiB"}, "between 1 and 16"},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 17, DiskWeight: 10, DiskWrite: "64MiB"}, "between 1 and 16"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12}, ""},
+		{Budget{Memory: "50%", Swap: "4GiB", CPU: 12}, "a size like 20GiB"},
+		{Budget{Memory: "40GiB", Swap: "4GiB", CPU: 12}, "more than this host has"},
+		{Budget{Memory: "100MiB", Swap: "4GiB", CPU: 12}, "at least 512MiB"},
+		{Budget{Memory: "20GiB", Swap: "", CPU: 12}, "never 0"},
+		{Budget{Memory: "20GiB", Swap: "0", CPU: 12}, "never 0"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12}, ""},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 0}, "between 1 and 16"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 17}, "between 1 and 16"},
 	} {
 		err := c.b.Validate(host)
 		if c.want == "" {
@@ -90,56 +86,99 @@ func TestBudgetValidate(t *testing.T) {
 		}
 	}
 	// A host with no swap has nothing to give: no swap is fine there.
-	if err := (Budget{Memory: "3GiB", CPU: 1, DiskWeight: 10, DiskWrite: "max"}).Validate(HostResources{Memory: 6 * gib, Cores: 2}); err != nil {
+	if err := (Budget{Memory: "3GiB", CPU: 1}).Validate(HostResources{Memory: 6 * gib, Cores: 2}); err != nil {
 		t.Errorf("no swap on a host with none: %v", err)
 	}
 }
 
 func TestBudgetValues(t *testing.T) {
+	old := BudgetDir
+	BudgetDir = filepath.Join("/cg", BudgetCgroup)
+	t.Cleanup(func() { BudgetDir = old })
+	values := func(on bool, b Budget, host int64) map[string]string {
+		out := map[string]string{}
+		for _, w := range budgetValues(on, b, host) {
+			out[strings.TrimPrefix(w.path, "/cg/")] = w.value
+		}
+		return out
+	}
 	b := Budget{Memory: "20GiB", Swap: "8GiB", CPU: 12}
-	off := budgetValues(false, b, 16*gib, 0)
-	for name, want := range map[string]string{"memory.high": "max", "memory.max": "max", "memory.swap.max": "max", "cpu.max": "max 100000"} {
+	off := values(false, b, 30*gib)
+	for name, want := range map[string]string{
+		"agentbox/memory.max": "max", "agentbox/memory.swap.max": "max", "agentbox/cpu.max": "max 100000",
+		"user.slice/memory.low": "0", "system.slice/memory.low": "0",
+	} {
 		if off[name] != want {
 			t.Errorf("off: %s = %q, want %q", name, off[name], want)
 		}
 	}
-	on := budgetValues(true, b, 16*gib, 0)
+	if _, ok := off["agentbox/memory.high"]; ok {
+		t.Error("memory.high is written: the budget has none")
+	}
+	// The host that froze: 30 GiB, 20 for agents. The other 10 are the
+	// host's apps', and agents are only held off the last 2.
+	on := values(true, b, 30*gib)
 	for name, want := range map[string]string{
-		"memory.max": "21474836480", "memory.swap.max": "8589934592", "cpu.max": "1200000 100000",
-		"memory.high": "19327352832", // 90% of 20 GiB
+		"agentbox/memory.max":      "30064771072", // 28 GiB
+		"agentbox/memory.swap.max": "8589934592",
+		"agentbox/cpu.max":         "1200000 100000",
+		"user.slice/memory.low":    "8589934592", // 8 GiB
+		"system.slice/memory.low":  "2147483648", // a quarter, at most 2 GiB
 	} {
 		if on[name] != want {
 			t.Errorf("on: %s = %q, want %q", name, on[name], want)
 		}
 	}
-	// The thrash case: memory.high with nothing to reclaim into stalls every
-	// process over it, so it is lifted to max when the host has no swap...
-	if v := budgetValues(true, Budget{Memory: "3GiB", CPU: 1}, 0, 0)["memory.high"]; v != "max" {
-		t.Errorf("no host swap: memory.high = %q, want max", v)
+	// The reserve is written before the agents' ceiling is lifted.
+	if w := budgetValues(true, b, 30*gib); !strings.HasSuffix(w[0].path, "memory.low") || !strings.HasSuffix(w[1].path, "memory.low") {
+		t.Errorf("written in the order %v", w)
 	}
-	// ...and while the budget's own swap is nearly used up.
-	if v := budgetValues(true, b, 16*gib, 8*gib-100<<20)["memory.high"]; v != "max" {
-		t.Errorf("swap nearly full: memory.high = %q, want max", v)
+	// Agents given nearly all of it are held at what they were given, not
+	// at the safety margin.
+	if v := values(true, Budget{Memory: "29GiB", Swap: "1GiB", CPU: 1}, 30*gib)["agentbox/memory.max"]; v != "31138512896" {
+		t.Errorf("29 of 30 GiB: memory.max = %q, want 29 GiB", v)
 	}
-	if v := budgetValues(true, b, 16*gib, 4*gib)["memory.high"]; v == "max" {
-		t.Error("swap half used: memory.high should still be held below memory.max")
+	// A small reserve is shared the same way.
+	if got := values(true, Budget{Memory: "3GiB", CPU: 1}, 6*gib); got["user.slice/memory.low"] != "2415919104" || got["system.slice/memory.low"] != "805306368" {
+		t.Errorf("3 of 6 GiB: user %s, system %s", got["user.slice/memory.low"], got["system.slice/memory.low"])
 	}
 }
 
-func TestApplyBudgetWritesTheParentCgroup(t *testing.T) {
-	dir := t.TempDir()
+// budgetRoot points BudgetDir at a cgroup root of the test's own and makes
+// every file the budget is written to there, as root would.
+func budgetRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
 	old := BudgetDir
-	BudgetDir = dir
+	BudgetDir = filepath.Join(root, BudgetCgroup)
 	t.Cleanup(func() { BudgetDir = old })
-
-	if err := BudgetReady(); err == nil || !strings.Contains(err.Error(), "memory.high") {
-		t.Fatalf("BudgetReady with no files = %v, want it to name the missing controller file", err)
-	}
-	for _, name := range budgetFiles {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("max\n"), 0o644); err != nil {
+	for _, path := range BudgetPaths() {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("max\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
+	return root
+}
+
+func TestApplyBudgetWritesTheParentCgroup(t *testing.T) {
+	root := t.TempDir()
+	old := BudgetDir
+	BudgetDir = filepath.Join(root, BudgetCgroup)
+	t.Cleanup(func() { BudgetDir = old })
+
+	if err := BudgetReady(); err == nil || !strings.Contains(err.Error(), "doesn't exist") {
+		t.Fatalf("BudgetReady with no cgroup = %v", err)
+	}
+	if err := os.Mkdir(BudgetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := BudgetReady(); err == nil || !strings.Contains(err.Error(), "memory.max") {
+		t.Fatalf("BudgetReady with no files = %v, want it to name the missing controller file", err)
+	}
+	root = budgetRoot(t)
 	if err := BudgetReady(); err != nil {
 		t.Fatalf("BudgetReady = %v", err)
 	}
@@ -148,28 +187,38 @@ func TestApplyBudgetWritesTheParentCgroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	read := func(name string) string {
-		out, _ := os.ReadFile(filepath.Join(dir, name))
-		return string(out)
+		out, _ := os.ReadFile(filepath.Join(root, name))
+		return strings.TrimSpace(string(out))
 	}
-	if got := read("memory.max"); got != "2147483648" {
-		t.Errorf("memory.max = %q", got)
-	}
-	if got := read("cpu.max"); got != "200000 100000" {
+	if got := read("agentbox/cpu.max"); got != "200000 100000" {
 		t.Errorf("cpu.max = %q", got)
+	}
+	if got := read("user.slice/memory.low"); got == "max" || got == "0" {
+		t.Errorf("user.slice's memory.low = %q, want the reserve", got)
 	}
 	if err := ApplyBudget(false, b); err != nil {
 		t.Fatal(err)
 	}
-	if got := read("memory.max"); got != "max" {
-		t.Errorf("off: memory.max = %q, want max", got)
+	for name, want := range map[string]string{"agentbox/memory.max": "max", "user.slice/memory.low": "0", "system.slice/memory.low": "0"} {
+		if got := read(name); got != want {
+			t.Errorf("off: %s = %q, want %q", name, got, want)
+		}
 	}
 
-	if err := os.Chmod(filepath.Join(dir, "cpu.max"), 0o444); err != nil {
-		t.Fatal(err)
-	}
 	if os.Geteuid() != 0 {
-		if err := BudgetReady(); err == nil || !strings.Contains(err.Error(), "isn't yours to write") {
-			t.Errorf("BudgetReady with a read-only cpu.max = %v", err)
+		// A slice not handed over is the budget not set up: without its
+		// reserve, the budget would only lift the agents' ceiling.
+		if err := os.Chmod(filepath.Join(root, "user.slice", "memory.low"), 0o444); err != nil {
+			t.Fatal(err)
+		}
+		if err := BudgetReady(); err == nil || !strings.Contains(err.Error(), "user.slice/memory.low isn't yours to write") {
+			t.Errorf("BudgetReady with a read-only memory.low = %v", err)
+		}
+		if err := ApplyBudget(true, b); err == nil {
+			t.Error("applied with the reserve not handed over")
+		}
+		if got := read("agentbox/memory.max"); got != "max" {
+			t.Errorf("the agents' ceiling moved with no reserve written: %q", got)
 		}
 	}
 }
@@ -250,8 +299,8 @@ func TestLimitStepsLetAgentsSwapInsideTheBudget(t *testing.T) {
 	if got := find(limitSteps("i", want, map[string]string{}, false)); got != MemorySwap {
 		t.Errorf("outside the budget: swap = %q, want %q", got, MemorySwap)
 	}
-	// Inside, the budget's own memory.swap.max holds all of them, and an
-	// agent kept out of swap would stall at the budget's memory.high.
+	// Inside, the budget's own memory.swap.max holds all of them, and swap is
+	// where an agent's memory goes when the host's apps take their reserve.
 	if got := find(limitSteps("i", want, map[string]string{}, true)); got != "true" {
 		t.Errorf("inside the budget: swap = %q, want true", got)
 	}

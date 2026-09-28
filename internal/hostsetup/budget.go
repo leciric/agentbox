@@ -12,33 +12,28 @@ import (
 // needs root for: a top-level cgroup, /sys/fs/cgroup/agentbox, whose budget
 // files belong to the user the daemon runs as. It is made by a oneshot unit,
 // since cgroupfs forgets everything at reboot, and the unit only makes the
-// directory, enables the memory, CPU and io controllers for its children, and
+// directory, enables the memory and CPU controllers for its children, and
 // hands over those files. Incus, which is root, makes the agents' own cgroups
 // inside it and owns them.
 //
-// The disk's files are handed over on top (BudgetDiskFiles): the cgroup's
-// io.weight and io.max, and the root cgroup's io.cost.qos, the one file
-// outside it. io.cost is per disk and covers everyone on it, so the daemon
-// only turns it on for the disks under the host's filesystems while the budget
-// is on (agent/budgetdisk.go). They're optional: on a kernel without the io
-// controller or io.cost, the unit still makes the budget's memory and CPU
-// files, and Settings says what's missing.
+// It hands over one file more of each of systemd's user.slice and
+// system.slice, memory.low: the budget's reserve for the host's own apps
+// (agent/reserve.go). Nothing else of the slices', and nothing of the root's.
 //
-// Host setup installs it too (SetUpBudget), so that on a new host the budget
-// is usable, and so on, without anyone looking for it; `agentbox host budget`
-// is the same step on its own, for hosts set up before host setup did it.
+// Host setup installs it too (SetUpBudget), so the budget is there to turn on
+// without anyone looking for it; `agentbox host budget` is the same step on
+// its own, for hosts set up before host setup did it. Installing it doesn't
+// turn the budget on: that is the user's choice, in Settings.
 
 // BudgetCgroupDir is the shared budget's cgroup.
 const BudgetCgroupDir = "/sys/fs/cgroup/agentbox"
 
 // BudgetFiles are the parent cgroup's files the daemon writes the budget to.
-var BudgetFiles = []string{"memory.high", "memory.max", "memory.swap.max", "cpu.max"}
+var BudgetFiles = []string{"memory.max", "memory.swap.max", "cpu.max"}
 
-// BudgetDiskFiles are the parent cgroup's files for the budget's disk, and
-// CostQoSFile the root cgroup's file that turns io.cost on for a disk.
-var BudgetDiskFiles = []string{"io.weight", "io.max"}
-
-const CostQoSFile = "/sys/fs/cgroup/io.cost.qos"
+// ReserveSlices are the systemd slices whose memory.low the daemon writes the
+// budget's reserve to.
+var ReserveSlices = []string{"user.slice", "system.slice"}
 
 // BudgetUnitName is the unit that makes the cgroup at every boot.
 const BudgetUnitName = "agentbox-budget.service"
@@ -51,30 +46,30 @@ var budgetUnitDir = "/etc/systemd/system"
 
 // BudgetScript is the shell the unit runs, for the user with the given UID.
 // Enabling the controllers at the root is what lets the cgroup have them at
-// all; systemd has usually done it already, and it does no harm again. The io
-// part comes last and can't fail the unit: without it, the budget still holds
-// memory and CPU.
+// all; systemd has usually done it already, and it does no harm again. The
+// slices exist by then: the unit is ordered after them.
 func BudgetScript(uid string) string {
-	required := strings.Join([]string{
+	var lows []string
+	for _, slice := range ReserveSlices {
+		lows = append(lows, "/sys/fs/cgroup/"+slice+"/memory.low")
+	}
+	return strings.Join([]string{
 		"echo '+memory +cpu' > /sys/fs/cgroup/cgroup.subtree_control || true",
 		"mkdir -p " + BudgetCgroupDir,
 		"echo '+memory +cpu' > " + BudgetCgroupDir + "/cgroup.subtree_control",
 		"cd " + BudgetCgroupDir,
 		"chown " + uid + " " + strings.Join(BudgetFiles, " "),
+		"chown " + uid + " " + strings.Join(lows, " "),
 	}, " && ")
-	disk := strings.Join([]string{
-		"echo +io > /sys/fs/cgroup/cgroup.subtree_control",
-		"echo +io > " + BudgetCgroupDir + "/cgroup.subtree_control",
-		"chown " + uid + " " + strings.Join(BudgetDiskFiles, " ") + " " + CostQoSFile,
-	}, "; ")
-	return required + " && { " + disk + "; true; } 2>/dev/null"
 }
 
 // BudgetUnit is the systemd unit that runs BudgetScript at boot, before
-// Incus starts any agent.
+// Incus starts any agent, and once user.slice is there to hand over.
 func BudgetUnit(name, uid string) string {
 	return fmt.Sprintf(`[Unit]
 Description=AgentBox: the shared budget's cgroup, for %s
+Wants=user.slice
+After=user.slice
 Before=incus.service incus-startup.service
 
 [Service]
@@ -109,9 +104,6 @@ func InstallBudget(name, uid string, log func(string)) error {
 		}
 	}
 	log(fmt.Sprintf("%s is %s's to set; the unit makes it again at every boot.", BudgetCgroupDir, name))
-	if _, err := os.Stat(CostQoSFile); err != nil {
-		log("This kernel has no io.cost (" + CostQoSFile + "): the budget holds memory and CPU, but can't make agents give way on the disk.")
-	}
 	return nil
 }
 

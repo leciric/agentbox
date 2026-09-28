@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { cn, errorMessage, humanBytes, humanRate, shortCommit, shortRate } from '../lib/utils';
+import { cn, errorMessage, humanBytes, humanRate, parseBytes, shortCommit, shortRate } from '../lib/utils';
 import { aiLabel, StateBadge } from './state';
 import { AgentTokensCard } from './TokensPanel';
 import { Button } from './ui/button';
@@ -346,25 +346,6 @@ function limitWords(limits: T.Limits): string {
   const cores = limits.cpu ? `${limits.cpu} core${limits.cpu === '1' ? '' : 's'}` : 'every core';
   const memory = limits.memory ? `${limits.memory} of memory` : 'no memory limit';
   return [cores, memory, ...(limits.allowance ? [`a CPU share of ${limits.allowance}`] : [])].join(', ');
-}
-
-// parseBytes reads the sizes Incus takes, to show memory use as a fraction of
-// the agent's own ceiling.
-function parseBytes(size: string): number | undefined {
-  const match = /^\s*([0-9.]+)\s*(B|kB|MB|GB|TB|KiB|MiB|GiB|TiB)?\s*$/.exec(size);
-  if (!match) return undefined;
-  const units: Record<string, number> = {
-    B: 1,
-    kB: 1e3,
-    MB: 1e6,
-    GB: 1e9,
-    TB: 1e12,
-    KiB: 1024,
-    MiB: 1024 ** 2,
-    GiB: 1024 ** 3,
-    TiB: 1024 ** 4,
-  };
-  return Number(match[1]) * (units[match[2] ?? 'B'] ?? 1);
 }
 
 function Metric({ label, value, detail, fraction, hint }: { label: string; value: string; detail?: ReactNode; fraction?: number; hint?: string }) {

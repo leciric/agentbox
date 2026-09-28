@@ -232,7 +232,7 @@ func (w *ThrashWatch) Sample(ctx context.Context, now time.Time) (started, stopp
 
 // sampleGroup samples the shared budget's own cgroup, the agents in it
 // together, while any are, the same way as one agent's. Its limit hits are
-// memory.events.local's, the budget's own memory.max and memory.high: the
+// memory.events.local's, the budget's own memory.max: the
 // hierarchical memory.events also counts every agent hitting its own limit.
 // It returns the warning that started, or the one that stopped. Called with
 // w.mu held.

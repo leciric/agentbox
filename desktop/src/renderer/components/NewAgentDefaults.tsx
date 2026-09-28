@@ -6,7 +6,7 @@ import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { formatTokens } from '../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
-import { cn, errorMessage, humanBytes } from '../lib/utils';
+import { cn, errorMessage, humanBytes, parseBytes } from '../lib/utils';
 import { JobProgress } from './JobProgress';
 import { Button } from './ui/button';
 import { ModelByName } from './ModelByName';
@@ -576,8 +576,7 @@ export function NeverFreezeCPU() {
 // useEnableSharedBudget turns the shared budget on in one click: its cgroup
 // first, through pkexec, when it isn't set up yet, then the switch. Running
 // agents stay where they are until their next start, and the toast says so.
-// Settings' row and Setup's step both use it.
-export function useEnableSharedBudget() {
+function useEnableSharedBudget() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (notReady: boolean) => {
@@ -603,15 +602,15 @@ export function useEnableSharedBudget() {
 
 // SharedBudget puts every agent's machine under one cgroup with one memory,
 // swap and CPU budget between them (internal/agent/budget.go), so an idle
-// agent's share goes to a busy one instead of sitting reserved. The daemon
-// suggests a size from this host's memory, cores and swap; the fields show
-// it until you change them, and "Use suggested" goes back to it. The cgroup
-// needs root once, which host setup does; the daemon turns the budget on by
-// itself once it's there, unless you turned it off. Where it isn't there,
-// turning the switch on asks for your password through pkexec first. An
-// installation from before the budget was on by default is offered it
-// instead (SharedBudgetOffer). There is no row at all where the budget can't
-// be: in a Mac's VM, in WSL, or on a host without cgroup v2.
+// agent's share goes to a busy one instead of sitting reserved. Its memory is
+// what agents may use while your apps need theirs: the rest of the host's
+// memory is reserved for your apps, and agents only borrow it while they
+// don't. The daemon suggests a size from this host's memory, cores and swap;
+// the fields show it until you change them, and "Use suggested" goes back to
+// it. It's off unless you turn it on. Its cgroup needs root once, which host
+// setup does; where it isn't there, turning the switch on asks for your
+// password through pkexec first. There is no row at all where the budget
+// can't be: in a Mac's VM, in WSL, or on a host without cgroup v2.
 export function SharedBudget() {
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
@@ -634,12 +633,14 @@ export function SharedBudget() {
   if (!b || b.unsupported) return null;
   const busy = save.isPending || settings.isPending || enable.isPending;
   const suggested = b.suggested;
+  const agents = parseBytes(b.memory);
+  const reserved = agents !== undefined && b.hostMemory > agents ? b.hostMemory - agents : 0;
 
   return (
     <SettingRow
       label="Shared agent budget"
-      description="One memory, swap and CPU budget for all agents, so what an idle agent isn't using goes to a busy one. On the disk, agents give way to your own apps."
-      details="The host keeps the rest. Each agent's own limits still hold inside it. Agents already running move in when they restart. The size starts at what AgentBox suggests for this host."
+      description="Reserves memory for your own apps, and gives all agents one memory, swap and CPU budget between them, so what an idle agent isn't using goes to a busy one."
+      details="Agents may borrow the reserved memory as cache while your apps don't need it, and the computer takes it back from them first when they do. Each agent's own limits still hold inside it. Agents already running move in when they restart. The size starts at what AgentBox suggests for this host."
       control={
         <Switch
           data-shared-budget
@@ -653,7 +654,6 @@ export function SharedBudget() {
       }
     >
       <div className="grid gap-3">
-        {!b.on && b.offer && <SharedBudgetOffer budget={b} />}
         {b.on && (
           <>
             <div className="grid items-start gap-4 sm:grid-cols-3">
@@ -661,7 +661,7 @@ export function SharedBudget() {
                 id="shared-budget-memory"
                 label="Memory"
                 placeholder={suggested.memory}
-                hint={`All agents together. Suggested: ${suggested.memory}.`}
+                hint={`Agents may use up to ${b.memory} together${reserved > 0 ? `; ${humanBytes(reserved)} stays reserved for your apps` : ''}. Suggested: ${suggested.memory}.`}
                 value={b.memory}
                 disabled={busy}
                 onCommit={(sharedBudgetMemory) => save.mutate({ sharedBudgetMemory })}
@@ -671,7 +671,7 @@ export function SharedBudget() {
                   id="shared-budget-swap"
                   label="Swap"
                   placeholder={suggested.swap}
-                  hint={`Never 0: without swap, memory pressure stalls agents. Suggested: ${suggested.swap}.`}
+                  hint={`Never 0: it's where agents' memory goes when your apps need theirs back. Suggested: ${suggested.swap}.`}
                   value={b.swap}
                   disabled={busy}
                   onCommit={(sharedBudgetSwap) => save.mutate({ sharedBudgetSwap })}
@@ -694,33 +694,6 @@ export function SharedBudget() {
                 }}
               />
             </div>
-            <div className="grid items-start gap-4 sm:grid-cols-3" data-shared-budget-disk>
-              <ResourceField
-                id="shared-budget-disk-weight"
-                label="Disk weight"
-                placeholder={String(suggested.diskWeight)}
-                hint={`Against 100 for your own apps, while they need the disk. Suggested: ${suggested.diskWeight}.`}
-                value={String(b.diskWeight)}
-                disabled={busy}
-                onCommit={(value) => {
-                  const n = value === '' ? 0 : Math.trunc(Number(value));
-                  if (!Number.isFinite(n) || n < 0 || n > 100) {
-                    toast.error('Disk weight is a whole number from 1 to 100');
-                    return;
-                  }
-                  save.mutate({ sharedBudgetDiskWeight: n });
-                }}
-              />
-              <ResourceField
-                id="shared-budget-disk-write"
-                label="Disk writes a second"
-                placeholder={suggested.diskWrite}
-                hint={`All agents together, or max. Well under what a cheap SSD writes once its cache is full. Suggested: ${suggested.diskWrite}.`}
-                value={b.diskWrite}
-                disabled={busy}
-                onCommit={(sharedBudgetDiskWrite) => save.mutate({ sharedBudgetDiskWrite })}
-              />
-            </div>
             <SettingNote>
               <span data-shared-budget-why>{b.why}</span>
               {b.chosen && (
@@ -731,7 +704,7 @@ export function SharedBudget() {
                     className="text-secondary underline underline-offset-2 hover:text-primary disabled:opacity-50"
                     disabled={busy}
                     onClick={() =>
-                      save.mutate({ sharedBudgetMemory: '', sharedBudgetSwap: '', sharedBudgetCPU: 0, sharedBudgetDiskWeight: 0, sharedBudgetDiskWrite: '' })
+                      save.mutate({ sharedBudgetMemory: '', sharedBudgetSwap: '', sharedBudgetCPU: 0 })
                     }
                   >
                     Use suggested
@@ -752,14 +725,11 @@ export function SharedBudget() {
             {b.pending} running agent{b.pending === 1 ? '' : 's'} leave{b.pending === 1 ? 's' : ''} it when {b.pending === 1 ? 'it restarts' : 'they restart'}.
           </SettingNote>
         )}
-        {(b.problem || (b.notReady && !b.offer) || (b.on && b.diskNotReady)) && (
+        {(b.problem || b.notReady) && (
           <div className="grid gap-2" data-shared-budget-setup>
             <SettingNote tone={b.problem ? 'error' : 'warning'}>
               <CircleAlert className="mr-1 inline size-3.5 align-[-2px]" />
-              {b.problem ||
-                (b.notReady
-                  ? `${b.autoOn ? 'It turns itself on once it is set up' : 'Before it can be turned on'}: ${b.notReady}`
-                  : b.diskNotReady)}
+              {b.problem || `Before it can be turned on: ${b.notReady}`}
             </SettingNote>
             <div className="flex flex-wrap items-center gap-3">
               {b.on ? (
@@ -779,42 +749,6 @@ export function SharedBudget() {
         )}
       </div>
     </SettingRow>
-  );
-}
-
-// SharedBudgetOffer is the one-click enable for an installation from before
-// the shared budget was on by default, which the daemon doesn't turn it on
-// under: on, with its cgroup set up first when it needs that (a password,
-// through pkexec), or off for good. Settings' row and Setup's step show it.
-export function SharedBudgetOffer({ budget: b }: { budget: T.SharedBudget }) {
-  const queryClient = useQueryClient();
-  const enable = useEnableSharedBudget();
-  const decline = useMutation({
-    mutationFn: () => api.updateSettings({ sharedBudget: false }),
-    onSuccess: (next) => {
-      queryClient.setQueryData(['settings'], next);
-      void queryClient.invalidateQueries({ queryKey: ['setup'] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  const busy = enable.isPending || decline.isPending;
-  return (
-    <div className="grid gap-2" data-shared-budget-offer>
-      <SettingNote>
-        New installations have this on, so agents can't slow the computer down together. This one was set up before,
-        so it's off until you turn it on.
-        {b.notReady && ' Turning it on asks for your password once, to make the cgroup it needs.'} Agents already
-        running join it at their next start.
-      </SettingNote>
-      <div className="flex flex-wrap items-center gap-3">
-        <Button size="sm" disabled={busy} onClick={() => enable.mutate(!!b.notReady)}>
-          {enable.isPending ? (b.notReady ? 'Setting up…' : 'Turning on…') : 'Turn on'}
-        </Button>
-        <Button size="sm" variant="ghost" disabled={busy} onClick={() => decline.mutate()}>
-          Keep it off
-        </Button>
-      </div>
-    </div>
   );
 }
 

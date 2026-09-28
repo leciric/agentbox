@@ -53,7 +53,6 @@ import {
   OpenCodeInImage,
   ResumeAfterLimit,
   SharedBudget,
-  SharedBudgetOffer,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -130,7 +129,7 @@ const descriptions: Record<string, string> = {
     "KVM and an Android SDK with a system image, shared read-only with agents of Android projects.",
   preview: "Opens agents' dev servers from your own browser.",
   budget:
-    "One memory, CPU and disk budget for every agent together, so they can't slow this computer down. Change it in Settings, under Resources.",
+    "Reserves memory for your own apps and gives every agent together one memory, swap and CPU budget, so they can't slow this computer down. Off unless you turn it on, in Settings, under Resources.",
 };
 
 // The two groups the tabbed page sorts steps into, once the wizard is behind
@@ -176,8 +175,6 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
   });
   const [imageJob, setImageJob] = useState<string | null>(null);
   const [hostSetupRan, setHostSetupRan] = useState(false);
-  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
-  const budget = settings.data?.sharedBudget;
   const auth = useQuery({
     queryKey: ["auth"],
     queryFn: api.auth,
@@ -279,10 +276,6 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
 
   // What each daemon check offers to do about itself.
   const bodies: Record<string, ReactNode> = {
-    budget:
-      budget && !budget.on && budget.offer ? (
-        <SharedBudgetOffer budget={budget} />
-      ) : undefined,
     incus: (
       <HostSetup agentbox={agentbox} onRun={() => setHostSetupRan(true)} />
     ),
@@ -1041,7 +1034,7 @@ function InstalledSettings({
                   {
                     id: "shared-budget",
                     label: "Shared agent budget",
-                    keywords: "memory swap cpu cgroup pool limits zram",
+                    keywords: "memory swap cpu cgroup pool limits zram reserve protect apps",
                     modified: changed((s) => s.sharedBudget.on),
                     render: () => <SharedBudget />,
                   },

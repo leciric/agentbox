@@ -639,6 +639,23 @@ var migrations = []string{
 	// nothing is written there.
 	`INSERT INTO settings (key, value) SELECT 'shared_budget_offer', '1'
 	WHERE EXISTS (SELECT 1 FROM projects) AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'shared_budget')`,
+
+	// The shared budget is off again unless the user turned it on, so the
+	// choice is forgotten, and the budget off, where the daemon made it. Nothing records
+	// who wrote the "1", so it's told from when: the daemon only turned it on
+	// with no shared_budget_offer, which the entry above wrote on every
+	// installation that had projects and no choice yet. An installation
+	// with a project from before that version (1790600400 is 2026-09-28
+	// 13:00 UTC, before its first commit) and no offer had chosen already,
+	// so its "1" is the user's. One without is taken as the daemon's: a
+	// user of it who had turned the budget on in the few hours since turns
+	// it on again.
+	`DELETE FROM settings WHERE key = 'shared_budget' AND value = '1'
+	AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'shared_budget_offer')
+	AND NOT EXISTS (SELECT 1 FROM projects WHERE created_at < 1790600400)`,
+	// And with nothing turning it on by itself, there's nothing to offer
+	// instead; the budget's disk settings went with its disk controls.
+	`DELETE FROM settings WHERE key IN ('shared_budget_offer', 'shared_budget_disk_weight', 'shared_budget_disk_write')`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

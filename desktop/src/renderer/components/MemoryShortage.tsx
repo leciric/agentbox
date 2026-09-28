@@ -75,18 +75,14 @@ function readable(size: string): string {
 // group), which none of their own warnings catches — each may be well under
 // the bar alone, with no limit of its own. It comes with Settings, where
 // EventBudget has the app read it again when it starts or stops. There's no
-// one-click raise: the budget's memory is what the host keeps for itself, so
-// how much to give up is Settings' question.
+// one-click raise: whatever the agents get is taken from what's reserved for
+// the host's own apps, so how much to give up is Settings' question.
 export function BudgetShortageWarning({ onOpenSettings, className }: { onOpenSettings: () => void; className?: string }) {
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const b = settings.data?.sharedBudget;
   const short = b?.shortage;
   if (!b || !short) return null;
 
-  const disk =
-    b.diskNotReady || !b.diskWeight
-      ? ''
-      : ` They give way to your own apps on the disk${b.diskWrite && b.diskWrite !== 'max' ? `, and write at most ${readable(b.diskWrite)}/s` : ''}.`;
   return (
     <div
       className={cn('grid min-w-0 gap-1.5 rounded-lg border border-amber-400/25 bg-amber-400/[0.08] px-2.5 py-2 text-[11.5px]', className)}
@@ -98,7 +94,7 @@ export function BudgetShortageWarning({ onOpenSettings, className }: { onOpenSet
         <span className="min-w-0">The agents are short of memory together</span>
       </span>
       <span className="leading-snug text-secondary">
-        {`Held at the shared budget's ${humanBytes(short.limit)}, they're re-reading ${humanBytes(short.refaultRate)}/s from disk, and waiting on memory ${Math.round(short.pressure)}% of the time.${disk}`}
+        {`Held at the shared budget's ${humanBytes(short.limit)}, they're re-reading ${humanBytes(short.refaultRate)}/s from disk, and waiting on memory ${Math.round(short.pressure)}% of the time.`}
       </span>
       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
         <Button variant="default" className="h-7 shrink-0 px-2.5 text-[12px]" onClick={onOpenSettings}>
