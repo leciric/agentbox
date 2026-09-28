@@ -11,6 +11,7 @@ import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
 import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
+import { Skeleton, skeletonWidths } from './ui/skeleton';
 import { Tip } from './ui/tooltip';
 
 // AgentRail is a project's agents, kept visible beside whatever you're looking
@@ -112,6 +113,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
             <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} className={cn(onLead && 'ring-1 ring-brand-400')} />
           </button>
         </Tip>
+        {!agents.data && skeletonWidths.slice(0, 3).map((width) => <Skeleton key={width} className="m-0.5 size-10 rounded-xl" />)}
         {moving.map(icon)}
         {finished.length > 0 && (
           <>
@@ -174,7 +176,23 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           </span>
         </button>
 
-        {moving.length > 0 && <div className="my-1.5 border-t border-line-faint" />}
+        {(moving.length > 0 || !agents.data) && <div className="my-1.5 border-t border-line-faint" />}
+
+        {/* Until the first list arrives, rows where the agents will be: "No
+            agents yet" would be a guess. */}
+        {!agents.data && (
+          <div aria-busy data-rail-loading>
+            {skeletonWidths.slice(0, 3).map((width) => (
+              <div key={width} className="flex items-center gap-2.5 px-2.5 py-2 xl:py-2.5">
+                <Skeleton className="size-10 shrink-0 rounded-xl" />
+                <span className="grid min-w-0 flex-1 gap-1.5">
+                  <Skeleton className={cn('h-3.5', width)} />
+                  <Skeleton className="h-2.5 w-1/3" />
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {moving.map(row)}
 
@@ -193,7 +211,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           </section>
         )}
 
-        {mine.length === 0 && (
+        {agents.data && mine.length === 0 && (
           <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
             <p className="text-[12.5px] leading-relaxed text-subtle">No agents yet in {project}.</p>
             <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={() => onNewAgent(project)}>

@@ -5,13 +5,14 @@ import { useState } from 'react';
 import type { View } from '../App';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { githubErrorSentence, timeAgo } from '../lib/utils';
+import { cn, githubErrorSentence, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { ConfirmDialog } from './ConfirmDialog';
 import { LiveAgentAvatar, StateBadge } from './state';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { EmptyState } from './ui/card';
+import { Skeleton, skeletonWidths } from './ui/skeleton';
 
 // FleetPanel follows a project's agents: what each one is for, what it is doing
 // now, how much it has changed, what it has shown, and where its branch stands
@@ -44,7 +45,20 @@ export function FleetPanel({ project, onSelect }: { project: string; onSelect: (
   });
 
   if (!data) {
-    return <div className="p-6 text-sm text-subtle">{fleet.error ? 'The fleet is unavailable.' : 'Loading…'}</div>;
+    if (fleet.error) return <div className="p-6 text-sm text-subtle">The fleet is unavailable.</div>;
+    return (
+      <div className="flex flex-col gap-3" aria-busy data-fleet-loading>
+        {skeletonWidths.slice(0, 3).map((width) => (
+          <div key={width} className="panel flex items-center gap-3 rounded-2xl px-4 py-3.5">
+            <Skeleton className="size-10 shrink-0 rounded-xl" />
+            <span className="grid min-w-0 flex-1 gap-2">
+              <Skeleton className={cn('h-3.5', width)} />
+              <Skeleton className="h-2.5 w-1/3" />
+            </span>
+          </div>
+        ))}
+      </div>
+    );
   }
   if (data.agents.length === 0 && data.creating.length === 0) {
     return (
