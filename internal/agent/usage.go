@@ -20,6 +20,10 @@ type AgentUsage struct {
 	CPU       float64 // percent; 100 is one full core
 	Memory    int64   // bytes in use, without caches the kernel frees when it needs memory
 	Processes int64
+	// DiskRead and DiskWrite are what it read from and wrote to the host's
+	// disks over the sample, in bytes a second, from its cgroup's io.stat.
+	DiskRead  int64
+	DiskWrite int64
 	// Limits are the caps on this agent's machine, and Cores is how many cores
 	// its CPU figure can add up to: its limits.cpu, or the host's cores when
 	// it has none. A percentage of the host says whether the machine is busy;
@@ -36,6 +40,12 @@ type HostUsage struct {
 	MemTotal  int64
 	PoolUsed  int64
 	PoolTotal int64
+	// DiskRead and DiskWrite are what the host's physical disks read and
+	// wrote over the sample, in bytes a second.
+	DiskRead  int64
+	DiskWrite int64
+	// Pressure is nil when the kernel doesn't keep PSI.
+	Pressure *Pressure
 }
 
 // Usage samples the host and every agent twice, interval apart, to measure CPU use.
@@ -47,6 +57,15 @@ func (m *Manager) Usage(ctx context.Context, interval time.Duration) (HostUsage,
 	hostBefore, err := hostCPU()
 	if err != nil {
 		return HostUsage{}, nil, err
+	}
+	// Disk IO is a rate the same way CPU is: counters read on both sides of
+	// the interval. A host or agent whose counters can't be read shows none.
+	diskBefore, diskErr := hostDiskIO("/proc/diskstats", sysRoot)
+	ioBefore := map[string]ioBytes{}
+	for _, a := range agents {
+		if io, ok := cgroupIO(agentCgroup(cgroupRoot, a.Instance), sysRoot); ok {
+			ioBefore[a.Instance] = io
+		}
 	}
 	before, err := m.Incus.Instances(ctx)
 	if err != nil {
@@ -66,11 +85,18 @@ func (m *Manager) Usage(ctx context.Context, interval time.Duration) (HostUsage,
 	if err != nil {
 		return HostUsage{}, nil, err
 	}
+	diskAfter, diskAfterErr := hostDiskIO("/proc/diskstats", sysRoot)
 	elapsed := time.Since(start)
 
 	host := HostUsage{Cores: HostCores()}
 	if total := hostAfter.total - hostBefore.total; total > 0 {
 		host.CPU = 100 * (1 - float64(hostAfter.idle-hostBefore.idle)/float64(total))
+	}
+	if diskErr == nil && diskAfterErr == nil {
+		host.DiskRead, host.DiskWrite = ioRate(diskBefore, diskAfter, elapsed.Seconds())
+	}
+	if p, ok := hostPressure("/proc/pressure"); ok {
+		host.Pressure = &p
 	}
 	if host.MemTotal, host.MemUsed, err = hostMemory(); err != nil {
 		return HostUsage{}, nil, err
@@ -106,6 +132,11 @@ func (m *Manager) Usage(ctx context.Context, interval time.Duration) (HostUsage,
 				u.Processes = inst.State.Processes
 				if prev, ok := cpuBefore[a.Instance]; ok && inst.State.CPU.Usage >= prev {
 					u.CPU = 100 * float64(inst.State.CPU.Usage-prev) / float64(elapsed.Nanoseconds())
+				}
+				if prev, ok := ioBefore[a.Instance]; ok {
+					if io, ok := cgroupIO(agentCgroup(cgroupRoot, a.Instance), sysRoot); ok {
+						u.DiskRead, u.DiskWrite = ioRate(prev, io, elapsed.Seconds())
+					}
 				}
 			}
 		}

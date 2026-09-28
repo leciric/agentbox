@@ -30,9 +30,10 @@ func outCmd() (*cobra.Command, *bytes.Buffer) {
 func TestRenderTopShowsTheHostAndEveryAgent(t *testing.T) {
 	var buf bytes.Buffer
 	usage := api.Usage{
-		Host: api.HostUsage{CPU: 42.3, Cores: 8, MemUsed: 4 << 30, MemTotal: 16 << 30, PoolUsed: 10 << 30, PoolTotal: 100 << 30},
+		Host: api.HostUsage{CPU: 42.3, Cores: 8, MemUsed: 4 << 30, MemTotal: 16 << 30, PoolUsed: 10 << 30, PoolTotal: 100 << 30,
+			DiskRead: 30 << 20, DiskWrite: 2 << 20, Pressure: &api.HostPressure{IOFull: 35.2, MemoryFull: 19, Stalling: true}},
 		Agents: []api.AgentUsage{
-			{Ref: "pawly/agent-01", State: "running", CPU: 150, Memory: 512 << 20, Processes: 12, Cores: 4, Limits: api.Limits{CPU: "4", Memory: "8GiB"}},
+			{Ref: "pawly/agent-01", State: "running", CPU: 150, Memory: 512 << 20, Processes: 12, DiskRead: 25 << 20, Cores: 4, Limits: api.Limits{CPU: "4", Memory: "8GiB"}},
 			{Ref: "pawly/agent-02", State: "paused", CPU: 0, Memory: 100 << 20, Processes: 1},
 		},
 	}
@@ -45,6 +46,8 @@ func TestRenderTopShowsTheHostAndEveryAgent(t *testing.T) {
 		"pawly/agent-01", "38% of 4 cores", // 150/4 = 37.5 -> rounds to 38
 		"pawly/agent-02", "512.0 MiB / 8GiB",
 		"100.0 MiB / no limit", // agent-02 has no memory limit
+		"DISK IO read 30.0 MiB/s, write 2.0 MiB/s", "STALLED io 35%, memory 19% (the host is stalling)",
+		"25.0 MiB/s read, 0 B/s write",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("renderTop missing %q:\n%s", want, out)

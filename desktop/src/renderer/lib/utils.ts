@@ -16,6 +16,29 @@ export function humanBytes(n: number): string {
   return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`;
 }
 
+// humanRate is a rate in bytes a second, read the way humanBytes reads a size.
+export function humanRate(n: number): string {
+  return `${humanBytes(Math.round(n))}/s`;
+}
+
+// shortRate is a rate cut down to fit the rail and the agent list beside CPU
+// and memory: "118M/s", "4.2M/s", "96K/s", "0B/s".
+export function shortRate(n: number): string {
+  const units = ['B', 'K', 'M', 'G'];
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${i > 0 && n < 10 ? n.toFixed(1) : Math.round(n)}${units[i]}/s`;
+}
+
+// stallPressure is where a PSI "full" figure (the share of the last ten
+// seconds nothing could run, waiting on disk or memory) counts as a stall:
+// the user's desktop froze at io full ~35% and memory full ~19%. The daemon
+// sets HostPressure.stalling at the same line (agent.StallPressure).
+export const stallPressure = 10;
+
 export function timeAgo(iso: string, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
   if (s < 45) return 'just now';
