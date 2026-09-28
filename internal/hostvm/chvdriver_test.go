@@ -22,12 +22,13 @@ import (
 	"agentbox/internal/paths"
 )
 
-// clearEnv leaves the tests' AGENTBOX_ settings to the tests, and puts the
-// XDG directories in a temporary one, so paths.Default is the test's.
+// clearEnv leaves the tests' AGENTBOX_ settings (and where an Android SDK is)
+// to the tests, and puts the XDG directories in a temporary one, so
+// paths.Default is the test's.
 func clearEnv(t *testing.T) paths.Paths {
 	t.Helper()
 	for _, kv := range os.Environ() {
-		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "AGENTBOX_") {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "AGENTBOX_") || name == "ANDROID_HOME" || name == "ANDROID_SDK_ROOT" {
 			t.Setenv(name, "")
 			_ = os.Unsetenv(name)
 		}
@@ -98,9 +99,9 @@ func TestDefaultConfig(t *testing.T) {
 		memory, want int64
 		wantCPUs     int
 	}{
-		{16, 32 * chv.GiB, 24 * chv.GiB, 8},      // three quarters
-		{8, 64 * chv.GiB, 48 * chv.GiB, 4},       // three quarters
-		{4, 12 * chv.GiB, 8 * chv.GiB, 2},        // all but 4GiB
+		{16, 32 * chv.GiB, 24 * chv.GiB, 8},       // three quarters
+		{8, 64 * chv.GiB, 48 * chv.GiB, 4},        // three quarters
+		{4, 12 * chv.GiB, 8 * chv.GiB, 2},         // all but 4GiB
 		{2, 6 * chv.GiB, chv.DefaultMemoryMin, 2}, // never below what it boots with
 		{1, 0, chv.DefaultMemoryMin, 2},
 		{16, 31*chv.GiB + 300<<20, 23 * chv.GiB, 8}, // in whole GiB
@@ -369,6 +370,47 @@ func TestCHVForward(t *testing.T) {
 		"/usr/local/bin/agentbox", "create", "app"}
 	if !slices.Equal(got, wantArgs) {
 		t.Errorf("got  %q\nwant %q", got, wantArgs)
+	}
+}
+
+// The host's Android SDK is found with the host's settings and told to the
+// VM's agentbox, which sees it at the same path in the shared home; the host's
+// own AGENTBOX_ANDROID_SDK doesn't go as well, since what was found wins.
+func TestCHVAndroidSDK(t *testing.T) {
+	state, steps := api.VMOff, []string{}
+	vm, _ := fakeCHV(t, &state, &steps)
+	if env := vm.androidSDKEnv(); env != nil {
+		t.Errorf("no SDK: %q", env)
+	}
+	sdk := filepath.Join(vm.Home, "sdks", "android")
+	for _, f := range []string{"emulator/emulator", "platform-tools/adb", "system-images/android-34/google_apis/x86_64/system.img", "system-images/android-34/google_apis/x86_64/kernel-ranchu"} {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(sdk, f)), 0o755)
+		_ = os.WriteFile(filepath.Join(sdk, f), nil, 0o755)
+	}
+	// Found through a link, which the VM could only follow when it stays in
+	// the share: it's told where it leads.
+	_ = os.MkdirAll(filepath.Join(vm.Home, "Android"), 0o755)
+	if err := os.Symlink(sdk, filepath.Join(vm.Home, "Android", "Sdk")); err != nil {
+		t.Fatal(err)
+	}
+	real, _ := filepath.EvalSymlinks(sdk)
+	want := androidSDKEnvName + "=" + real
+	if env := vm.androidSDKEnv(); !slices.Equal(env, []string{want}) {
+		t.Errorf("an SDK in the home: %q, want %s", env, want)
+	}
+	t.Setenv("ANDROID_HOME", filepath.Join(vm.Home, "incomplete"))
+	t.Setenv(androidSDKEnvName, "/not/an/sdk")
+	var found []string
+	for _, kv := range vm.forwardEnv() {
+		if strings.HasPrefix(kv, androidSDKEnvName+"=") {
+			found = append(found, kv)
+		}
+	}
+	if !slices.Equal(found, []string{want}) {
+		t.Errorf("forwarded %q, want %s", found, want)
+	}
+	if !strings.Contains(vm.profile(), "export "+androidSDKEnvName+"="+shellQuote(real)+"\n") {
+		t.Errorf("the profile has no SDK:\n%s", vm.profile())
 	}
 }
 

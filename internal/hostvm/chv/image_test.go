@@ -54,6 +54,7 @@ func TestUserData(t *testing.T) {
 		"systemctl enable --now agentbox-vsock-1024.service agentbox-vsock-7777.service",
 		"incus storage create default btrfs source=/dev/disk/by-id/virtio-agentbox-pool",
 		"install vsock_loopback /bin/false",
+		"if getent group kvm >/dev/null; then usermod -aG kvm lint; fi\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("user-data has no %q", want)

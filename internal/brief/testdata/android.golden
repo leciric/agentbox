@@ -149,7 +149,7 @@ A walkthrough recorded through the desktop tools is slow, click-by-click work â€
 
 This project builds an Android app, and this machine can run its own Android emulator. The user watches it, and can take over, in AgentBox's Android tab.
 
-- `agentbox android start` starts the emulator and waits until Android has booted (about 20 seconds). `agentbox android stop` stops it: it uses a few GB of memory.
+- `agentbox android start` starts the emulator and waits until Android has booted (20 to 50 seconds). `agentbox android stop` stops it: it uses a few GB of memory.
 - `adb` works as usual. `ANDROID_HOME` is an Android SDK shared with the host, which builds can add platforms and build tools to. Install a JDK if the build needs one (for example `mise use -g java@21`).
 - `agentbox android install <apk>` installs an app. The emulator reaches servers on this machine, like Metro, at `10.0.2.2`.
 - Show your work there too: `agentbox android screenshot --name <name>`, `agentbox android record start --name <name>` then `agentbox android record stop`, and `agentbox android logs --package <app id>` for the app's logcat.

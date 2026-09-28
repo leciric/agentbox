@@ -118,6 +118,11 @@ write_files:
       systemctl daemon-reload
       mountpoint -q {{sh .Home}} || mount {{sh .Home}} || echo "warning: the host's home isn't shared into the VM" >&2
 
+      # Agents' Android emulators run on the VM's /dev/kvm (the host's KVM,
+      # nested), which udev gives to the kvm group, and the daemon checks it
+      # as the user (agent.CheckKVM). host setup does the same, but only once.
+      if getent group kvm >/dev/null; then usermod -aG kvm {{sh .User}}; fi
+
       # The ports the host reaches the VM on first, with the image's own socat.
       # (sshd is on vsock port {{.PortSSH}} already: systemd-ssh-generator puts
       # it there in a VM, from the first boot, before any of this.)

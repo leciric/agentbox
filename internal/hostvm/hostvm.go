@@ -51,6 +51,7 @@ import (
 
 	"golang.org/x/term"
 
+	"agentbox/internal/android"
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
 	"agentbox/internal/hostvm/chv"
@@ -557,7 +558,8 @@ const vmMemoryCapEnv = "AGENTBOX_VM_MEMORY_CAP"
 // it: the host's OS, its home directory, and where the worktrees go. A Cloud
 // Hypervisor VM's is also told the most memory it may be given, which is what
 // its agents' default limits are shares of (agent.HostMemory): its own
-// /proc/meminfo only has what it was granted so far.
+// /proc/meminfo only has what it was granted so far. And where the host's
+// Android SDK is, which its agents run emulators from (androidSDKEnv).
 func (v *VM) vmEnv() []string {
 	env := []string{
 		hostos.Env + "=" + runtime.GOOS,
@@ -567,8 +569,37 @@ func (v *VM) vmEnv() []string {
 	if v.CHV != nil {
 		env[0] = hostos.Env + "=" + hostos.Linux
 		env = append(env, fmt.Sprintf("%s=%d", vmMemoryCapEnv, v.CHV.Config.MemoryCap))
+		env = append(env, v.androidSDKEnv()...)
 	}
 	return env
+}
+
+// androidSDKEnvName is what the VM's daemon looks for the Android SDK in first
+// (android.Candidates).
+const androidSDKEnvName = "AGENTBOX_ANDROID_SDK"
+
+// androidSDKEnv tells a Cloud Hypervisor VM's agentbox where the host's
+// Android SDK is: found here, with the host's settings (ANDROID_HOME and the
+// rest, which the VM doesn't have) and the host's home, the way a host-mode
+// daemon finds it. The VM sees it at the same path when it's in the shared
+// home; when it isn't, the VM's daemon says that it can't see it
+// (android.FindSharedSDK). Symlinks are resolved here, since the VM can't
+// follow one out of the home. Nothing when the host has no SDK: the VM's
+// daemon still looks in the home's Android/Sdk, where one installed later
+// usually goes.
+func (v *VM) androidSDKEnv() []string {
+	sdk, err := android.FindSDK(android.Candidates(os.Getenv, v.Home))
+	if err != nil {
+		return nil
+	}
+	path := sdk.Path
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return []string{androidSDKEnvName + "=" + path}
 }
 
 // profile sets vmEnv in the VM's login shells, so an agentbox run by hand in
@@ -595,11 +626,17 @@ func (v *VM) writeProfile(ctx context.Context) error {
 // forwardEnv is what every command in the VM is told about the host: vmEnv,
 // and every other AGENTBOX_ setting of the host's (AGENTBOX_ENV,
 // AGENTBOX_PREVIEW_ADDR, AGENTBOX_IMAGE_URL…), which mean the same in the VM.
+// What vmEnv sets wins over the host's own setting of the same name.
 func (v *VM) forwardEnv() []string {
 	env := v.vmEnv()
+	set := map[string]bool{}
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		set[name] = true
+	}
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if hostos.Forwarded(name) && !hostOnly[name] {
+		if hostos.Forwarded(name) && !hostOnly[name] && !set[name] {
 			env = append(env, kv)
 		}
 	}

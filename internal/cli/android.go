@@ -80,7 +80,7 @@ func newAndroidStartCmd(a *app) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Starting the emulator; Android takes about 20 seconds to boot…")
+			_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Starting the emulator; Android takes 20 to 50 seconds to boot…")
 			status, err := c.StartAndroid(cmd.Context(), ref, req)
 			if err != nil {
 				return err
