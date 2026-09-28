@@ -38,6 +38,8 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { Tip } from '../ui/tooltip';
 import { DiffView, relativePath } from './ChangedFiles';
 import { ImageThumb } from './Images';
+import { VoiceButton } from './VoiceButton';
+import { voiceSettings } from '../../lib/voice/settings';
 
 export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; thread?: T.ChatThread; disabled: boolean; onSent: () => void }) {
   const [text, setText] = useState(() => getDraft(agent.ref));
@@ -184,6 +186,19 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
       return;
     }
     send.mutate({ text: text.trim(), images });
+  };
+  // What push-to-talk heard joins what's already typed, and is sent at once
+  // when Settings → Voice says so and nothing stands in the way; otherwise it
+  // waits in the composer to be edited.
+  const dictated = (words: string) => {
+    const next = [text.trim(), words].filter(Boolean).join(' ');
+    if (voiceSettings().after === 'send' && !disabled && !send.isPending && !held && !cacheCard) {
+      send.mutate({ text: next, images });
+      return;
+    }
+    pendingCursor.current = next.length;
+    setText(next);
+    area.current?.focus();
   };
   const pick = (command: T.ChatCommand) => {
     setText(`/${command.name} `);
@@ -435,6 +450,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />
+            <VoiceButton disabled={disabled} onText={dictated} scope={area} />
             {busy && (
               <Tip label="Stop">
                 <button
