@@ -33,7 +33,8 @@ func newHostSetupCmd() *cobra.Command {
 		Long: `Installs Incus (Arch, Debian/Ubuntu or Fedora), gives your user access to it — in the
 session running now, not only the next login — creates its storage pool and network,
 lets agents map your user, and keeps ufw and Docker from blocking the Incus bridge.
-Safe to run again. Run it with sudo:
+It also does what host budget does: the cgroup the shared agent budget lives in, which
+the daemon turns on by itself once it's there. Safe to run again. Run it with sudo:
 
   ` + hostsetup.Command + `
 
@@ -63,6 +64,20 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 			}
 			if os.Geteuid() != 0 {
 				return errors.New("host setup is for " + target + ", but it has to run as root: " + hostsetup.Command)
+			}
+			// The shared budget's cgroup first, which the daemon turns the
+			// budget on in once it's there, so the script's own result is
+			// what the output ends on. Here in the Mac's VM and WSL as well:
+			// the daemon leaves the budget off there, but the unit costs
+			// nothing and is ready if it ever doesn't.
+			out := cmd.OutOrStdout()
+			_, _ = fmt.Fprintln(out, "==> The shared agent budget's cgroup")
+			u, err := hostsetup.System().ByName(target)
+			if err == nil {
+				err = hostsetup.SetUpBudget(target, u.Uid, func(line string) { _, _ = fmt.Fprintln(out, line) })
+			}
+			if err != nil {
+				_, _ = fmt.Fprintf(out, "Couldn't make it, so agents have no shared budget yet (%v): Settings says what's missing, and %s tries again.\n", err, hostsetup.BudgetCommand)
 			}
 			f, err := os.CreateTemp("", "agentbox-host-setup-*.sh")
 			if err != nil {
@@ -102,7 +117,8 @@ is on, so agents give way to your own apps on the disk. Run it with sudo:
 
   ` + hostsetup.BudgetCommand + `
 
-Settings runs the same thing through pkexec. --remove takes the unit away again.`,
+Host setup does this too; it's here on its own for hosts set up before it did, and
+Settings runs it through pkexec. --remove takes the unit away again.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			log := func(line string) { _, _ = fmt.Fprintln(cmd.OutOrStdout(), line) }

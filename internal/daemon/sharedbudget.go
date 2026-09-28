@@ -23,14 +23,17 @@ import (
 // makes afresh with no budget in it.
 const sharedBudgetInterval = 10 * time.Second
 
-// watchSharedBudget keeps the budget applied while it's on. The first pass
-// also puts every agent's raw.lxc where the setting says, for agents made by
-// a daemon from before it was turned on.
+// watchSharedBudget keeps the budget applied while it's on, and turns it on
+// by default once its cgroup is usable (sharedBudgetByDefault). The first
+// pass also puts every agent's raw.lxc where the setting says, for agents
+// made by a daemon from before it was turned on.
 func (s *Server) watchSharedBudget(ctx context.Context) {
 	m := s.manager(nil)
-	if on, _, err := m.SharedBudget(ctx); err == nil && on {
-		if _, err := m.ApplySharedBudget(ctx); err != nil {
-			s.logf("shared budget: %v", err)
+	if !s.sharedBudgetByDefault(ctx) {
+		if on, _, err := m.SharedBudget(ctx); err == nil && on {
+			if _, err := m.ApplySharedBudget(ctx); err != nil {
+				s.logf("shared budget: %v", err)
+			}
 		}
 	}
 	ticker := time.NewTicker(sharedBudgetInterval)
@@ -42,6 +45,7 @@ func (s *Server) watchSharedBudget(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
+		s.sharedBudgetByDefault(ctx)
 		on, b, err := m.SharedBudget(ctx)
 		if err != nil || !on {
 			last = ""
@@ -57,6 +61,38 @@ func (s *Server) watchSharedBudget(ctx context.Context) {
 		}
 		last = msg
 	}
+}
+
+// sharedBudgetByDefault turns the budget on, at the size suggested for this
+// host, when nobody has chosen either way and its cgroup is usable — which,
+// on a host set up since host setup makes it, is from the first start. It
+// writes the choice down, so that from then on it is the user's to change,
+// and an off stays off. An installation from before this (state's
+// SettingSharedBudgetOffer) is offered it in Setup and Settings instead, and
+// so is a Mac's VM or WSL, never: BudgetSupport rules the budget out there.
+// It reports whether it turned the budget on.
+func (s *Server) sharedBudgetByDefault(ctx context.Context) bool {
+	if agent.BudgetSupport() != "" || agent.BudgetReady() != nil {
+		return false
+	}
+	if _, chosen, err := s.store.SettingValue(ctx, state.SettingSharedBudget); err != nil || chosen {
+		return false
+	}
+	if offer, err := s.store.Flag(ctx, state.SettingSharedBudgetOffer); err != nil || offer {
+		return false
+	}
+	if err := s.store.SetFlag(ctx, state.SettingSharedBudget, true); err != nil {
+		s.logf("shared budget: %v", err)
+		return false
+	}
+	_, b, _ := s.manager(nil).SharedBudget(ctx)
+	pending, err := s.manager(nil).ApplySharedBudget(ctx)
+	if err != nil {
+		s.logf("shared budget: %v", err)
+	}
+	s.logf("shared budget on by default: %s; %d running agent(s) join it when they restart", b.Describe(), pending)
+	s.events.publish(api.EventBudget, struct{}{})
+	return true
 }
 
 // sharedBudget is the budget's state, for Settings.
@@ -91,6 +127,10 @@ func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	}
 	if out.Unsupported != "" {
 		return out, nil
+	}
+	if _, set, err := s.store.SettingValue(ctx, state.SettingSharedBudget); err == nil && !set {
+		offer, _ := s.store.Flag(ctx, state.SettingSharedBudgetOffer)
+		out.Offer, out.AutoOn = offer, !offer
 	}
 	if host.Disk != nil {
 		out.Disk = host.Disk.Describe()

@@ -71,11 +71,14 @@ agents" instead: the daemon stops a running or paused agent once it has gone
 With no agent at all, --shared-budget and the --budget flags change the shared
 agent budget instead: every agent's machine under one cgroup, with one memory,
 swap and CPU budget between them, so an idle agent's share goes to a busy one.
-It needs a cgroup only root can make, once: ` + hostsetup.BudgetCommand + `.
-Agents already running move in when they restart. Pass "" (or 0 cores) to go
-back to what this host is suggested.
+It needs a cgroup only root can make, once, which host setup makes: the daemon
+turns the budget on by itself as soon as it's there, unless you turned it off.
+An installation from before that has it off until you turn it on, after
+` + hostsetup.BudgetCommand + ` if it has no cgroup yet. Agents already running move
+in when they restart. Pass "" (or 0 cores) to go back to what this host is
+suggested.
 
-  --shared-budget    on or off (true or false); off by default
+  --shared-budget    on or off (true or false); on by default
   --budget-memory    the agents' memory together, like 20GiB
   --budget-swap      the swap they may use together, like 8GiB; never 0
   --budget-cpu       the cores they share, like 12

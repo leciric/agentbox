@@ -452,6 +452,12 @@ type SharedBudget struct {
 	SetupCommand string `json:"setupCommand"`
 	// Problem is why the budget, while on, isn't applied right now.
 	Problem string `json:"problem,omitempty"`
+	// Nobody has turned the budget on or off yet. AutoOn: the daemon turns it
+	// on by itself as soon as its cgroup is usable. Offer: it won't, because
+	// this installation was in use before the budget was on by default, so
+	// Setup and Settings offer it instead.
+	AutoOn bool `json:"autoOn,omitempty"`
+	Offer  bool `json:"offer,omitempty"`
 	// Inside is how many running agents are in the budget, and Pending how
 	// many running agents are yet to move in, or out, when they restart.
 	Inside  int `json:"inside"`
@@ -1380,8 +1386,9 @@ const (
 	// setting behind it changed.
 	EventUpdate = "update"
 	// EventBudget says the agents in the shared budget started or stopped
-	// thrashing at its memory together (SharedBudget.Shortage), so a client
-	// reads Settings again.
+	// thrashing at its memory together (SharedBudget.Shortage), or that the
+	// daemon turned the budget on by itself (SharedBudget.AutoOn), so a
+	// client reads Settings again.
 	EventBudget = "budget"
 )
 

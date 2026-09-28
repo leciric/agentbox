@@ -180,3 +180,103 @@ func TestSharedBudget(t *testing.T) {
 		t.Errorf("off: %+v memory.max=%s cpu.max=%s", s.SharedBudget, read("memory.max"), read("cpu.max"))
 	}
 }
+
+// TestSharedBudgetByDefault: nobody having chosen, the budget turns itself on
+// once its cgroup is usable — but not under an installation from before that,
+// which is offered it instead, and never again once it's been turned off.
+// Setup says which of those it is. Not parallel: it points agent.BudgetDir at
+// a directory of its own.
+func TestSharedBudgetByDefault(t *testing.T) {
+	dir := t.TempDir()
+	old := agent.BudgetDir
+	agent.BudgetDir = dir
+	t.Cleanup(func() { agent.BudgetDir = old })
+	if agent.BudgetSupport() != "" {
+		t.Skip(agent.BudgetSupport())
+	}
+	d := startTestDaemon(t, t.TempDir(), cpuBudgetIncus)
+	ctx := context.Background()
+	budgetCheck := func() string {
+		t.Helper()
+		status, err := d.client.Setup(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range status.Checks {
+			if c.ID == "budget" {
+				return c.Status + ": " + c.Detail
+			}
+		}
+		t.Fatal("Setup has no budget check")
+		return ""
+	}
+	read := func() (on, auto, offer bool) {
+		t.Helper()
+		s, err := patchSettings(t, d, `{}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.SharedBudget.On, s.SharedBudget.AutoOn, s.SharedBudget.Offer
+	}
+
+	// No cgroup yet: it waits for one.
+	if d.srv.sharedBudgetByDefault(ctx) {
+		t.Error("turned on with no cgroup")
+	}
+	if on, auto, offer := read(); on || !auto || offer {
+		t.Errorf("before the cgroup: on=%v auto=%v offer=%v", on, auto, offer)
+	}
+	if c := budgetCheck(); !strings.Contains(c, "turns itself on") {
+		t.Errorf("Setup says %q", c)
+	}
+
+	// An installation from before: offered, not turned on.
+	if err := d.srv.store.SetSetting(ctx, state.SettingSharedBudgetOffer, "1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"memory.high", "memory.max", "memory.swap.max", "cpu.max"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("max\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d.srv.sharedBudgetByDefault(ctx) {
+		t.Error("turned on under an installation from before")
+	}
+	if on, auto, offer := read(); on || auto || !offer {
+		t.Errorf("offered: on=%v auto=%v offer=%v", on, auto, offer)
+	}
+	if c := budgetCheck(); !strings.Contains(c, "set up before") {
+		t.Errorf("Setup says %q", c)
+	}
+
+	// A new one: on, at the suggested size, and written down.
+	if err := d.srv.store.SetSetting(ctx, state.SettingSharedBudgetOffer, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !d.srv.sharedBudgetByDefault(ctx) {
+		t.Fatal("didn't turn on with its cgroup ready")
+	}
+	if on, auto, offer := read(); !on || auto || offer {
+		t.Errorf("turned on: on=%v auto=%v offer=%v", on, auto, offer)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "memory.max")); strings.TrimSpace(string(b)) == "max" {
+		t.Error("the budget wasn't written to its cgroup")
+	}
+	if c := budgetCheck(); !strings.HasPrefix(c, "ok: on: agents share") {
+		t.Errorf("Setup says %q", c)
+	}
+	if d.srv.sharedBudgetByDefault(ctx) {
+		t.Error("turned on twice")
+	}
+
+	// Off is the user's, and stays.
+	if _, err := patchSettings(t, d, `{"sharedBudget":false}`); err != nil {
+		t.Fatal(err)
+	}
+	if d.srv.sharedBudgetByDefault(ctx) {
+		t.Error("turned on again after being turned off")
+	}
+	if c := budgetCheck(); !strings.Contains(c, "you turned it off") {
+		t.Errorf("Setup says %q", c)
+	}
+}

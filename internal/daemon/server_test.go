@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
 	"agentbox/internal/image"
@@ -87,6 +88,10 @@ func TestMain(m *testing.M) {
 	_ = os.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	// The daemon runs git itself, so git's isolation from the developer's
 	// configuration has to be the whole process's too.
+	// Nor on this host's shared budget: the daemon turns it on by itself
+	// wherever its cgroup is usable, and a developer's may well be. A test
+	// that wants one points agent.BudgetDir at a directory of its own.
+	agent.BudgetDir = filepath.Join(os.TempDir(), fmt.Sprintf("agentbox-no-budget-%d", os.Getpid()))
 	cleanup, err := testutil.IsolateGit()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

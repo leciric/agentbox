@@ -70,10 +70,10 @@ func TestNameReuseMigrationCleansUpOrphans(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// The name-reuse migration set is 8 entries, followed since by 3 more
-	// (agent_prs, pr_watch, pr_watches) that don't touch what it does; stop
-	// just short of the name-reuse set, not of the very end.
-	start := len(migrations) - 8 - 3
+	// The name-reuse migration set is 8 entries, followed since by 4 more
+	// (agent_prs, pr_watch, pr_watches, shared_budget_offer) that don't touch
+	// what it does; stop just short of the name-reuse set, not of the very end.
+	start := len(migrations) - 8 - 4
 	for i, m := range migrations[:start] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)

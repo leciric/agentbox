@@ -573,21 +573,54 @@ export function NeverFreezeCPU() {
   );
 }
 
+// useEnableSharedBudget turns the shared budget on in one click: its cgroup
+// first, through pkexec, when it isn't set up yet, then the switch. Running
+// agents stay where they are until their next start, and the toast says so.
+// Settings' row and Setup's step both use it.
+export function useEnableSharedBudget() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (notReady: boolean) => {
+      if (notReady) await window.agentbox.hostSetup.budget();
+      return api.updateSettings({ sharedBudget: true });
+    },
+    onSuccess: (next) => {
+      queryClient.setQueryData(['settings'], next);
+      void queryClient.invalidateQueries({ queryKey: ['setup'] });
+      const n = next.sharedBudget.pending;
+      toast.success(
+        n > 0
+          ? `Shared agent budget on. ${n} running agent${n === 1 ? ' joins it at its' : 's join it at their'} next start.`
+          : 'Shared agent budget on.',
+      );
+    },
+    onError: (err) => {
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      toast.error(errorMessage(err));
+    },
+  });
+}
+
 // SharedBudget puts every agent's machine under one cgroup with one memory,
 // swap and CPU budget between them (internal/agent/budget.go), so an idle
 // agent's share goes to a busy one instead of sitting reserved. The daemon
 // suggests a size from this host's memory, cores and swap; the fields show
 // it until you change them, and "Use suggested" goes back to it. The cgroup
-// needs root once, so until it exists the switch stays off and the row says
-// what's missing, with a button that asks for your password through pkexec.
-// There is no row at all where the budget can't be: in a Mac's VM, in WSL,
-// or on a host without cgroup v2.
+// needs root once, which host setup does; the daemon turns the budget on by
+// itself once it's there, unless you turned it off. Where it isn't there,
+// turning the switch on asks for your password through pkexec first. An
+// installation from before the budget was on by default is offered it
+// instead (SharedBudgetOffer). There is no row at all where the budget can't
+// be: in a Mac's VM, in WSL, or on a host without cgroup v2.
 export function SharedBudget() {
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
-    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['settings'], next);
+      void queryClient.invalidateQueries({ queryKey: ['setup'] });
+    },
     onError: (err) => toast.error(errorMessage(err)),
   });
   const setup = useMutation({
@@ -595,10 +628,11 @@ export function SharedBudget() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
     onError: (err) => toast.error(errorMessage(err)),
   });
+  const enable = useEnableSharedBudget();
 
   const b = settings.data?.sharedBudget;
   if (!b || b.unsupported) return null;
-  const busy = save.isPending || settings.isPending;
+  const busy = save.isPending || settings.isPending || enable.isPending;
   const suggested = b.suggested;
 
   return (
@@ -610,13 +644,16 @@ export function SharedBudget() {
         <Switch
           data-shared-budget
           aria-label="Shared agent budget"
-          disabled={busy || (!b.on && !!b.notReady)}
-          checked={b.on}
-          onCheckedChange={(sharedBudget) => save.mutate({ sharedBudget })}
+          disabled={busy}
+          checked={b.on || enable.isPending}
+          onCheckedChange={(sharedBudget) =>
+            sharedBudget ? enable.mutate(!!b.notReady) : save.mutate({ sharedBudget })
+          }
         />
       }
     >
       <div className="grid gap-3">
+        {!b.on && b.offer && <SharedBudgetOffer budget={b} />}
         {b.on && (
           <>
             <div className="grid items-start gap-4 sm:grid-cols-3">
@@ -715,16 +752,25 @@ export function SharedBudget() {
             {b.pending} running agent{b.pending === 1 ? '' : 's'} leave{b.pending === 1 ? 's' : ''} it when {b.pending === 1 ? 'it restarts' : 'they restart'}.
           </SettingNote>
         )}
-        {(b.problem || b.notReady || (b.on && b.diskNotReady)) && (
+        {(b.problem || (b.notReady && !b.offer) || (b.on && b.diskNotReady)) && (
           <div className="grid gap-2" data-shared-budget-setup>
             <SettingNote tone={b.problem ? 'error' : 'warning'}>
               <CircleAlert className="mr-1 inline size-3.5 align-[-2px]" />
-              {b.problem || (b.notReady ? `Before it can be turned on, ${b.notReady}` : b.diskNotReady)}
+              {b.problem ||
+                (b.notReady
+                  ? `${b.autoOn ? 'It turns itself on once it is set up' : 'Before it can be turned on'}: ${b.notReady}`
+                  : b.diskNotReady)}
             </SettingNote>
             <div className="flex flex-wrap items-center gap-3">
-              <Button size="sm" disabled={setup.isPending} onClick={() => setup.mutate()}>
-                {setup.isPending ? 'Setting up…' : 'Set up'}
-              </Button>
+              {b.on ? (
+                <Button size="sm" disabled={setup.isPending} onClick={() => setup.mutate()}>
+                  {setup.isPending ? 'Setting up…' : 'Set up'}
+                </Button>
+              ) : (
+                <Button size="sm" disabled={busy} onClick={() => enable.mutate(true)}>
+                  {enable.isPending ? 'Setting up…' : 'Set up and turn on'}
+                </Button>
+              )}
               <span className="text-xs text-subtle">
                 or in a terminal: <code className="font-mono text-tertiary">{b.setupCommand}</code>
               </span>
@@ -733,6 +779,42 @@ export function SharedBudget() {
         )}
       </div>
     </SettingRow>
+  );
+}
+
+// SharedBudgetOffer is the one-click enable for an installation from before
+// the shared budget was on by default, which the daemon doesn't turn it on
+// under: on, with its cgroup set up first when it needs that (a password,
+// through pkexec), or off for good. Settings' row and Setup's step show it.
+export function SharedBudgetOffer({ budget: b }: { budget: T.SharedBudget }) {
+  const queryClient = useQueryClient();
+  const enable = useEnableSharedBudget();
+  const decline = useMutation({
+    mutationFn: () => api.updateSettings({ sharedBudget: false }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['settings'], next);
+      void queryClient.invalidateQueries({ queryKey: ['setup'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const busy = enable.isPending || decline.isPending;
+  return (
+    <div className="grid gap-2" data-shared-budget-offer>
+      <SettingNote>
+        New installations have this on, so agents can't slow the computer down together. This one was set up before,
+        so it's off until you turn it on.
+        {b.notReady && ' Turning it on asks for your password once, to make the cgroup it needs.'} Agents already
+        running join it at their next start.
+      </SettingNote>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button size="sm" disabled={busy} onClick={() => enable.mutate(!!b.notReady)}>
+          {enable.isPending ? (b.notReady ? 'Setting up…' : 'Turning on…') : 'Turn on'}
+        </Button>
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => decline.mutate()}>
+          Keep it off
+        </Button>
+      </div>
+    </div>
   );
 }
 
