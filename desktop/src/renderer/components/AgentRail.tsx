@@ -9,6 +9,7 @@ import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
+import { MemoryShortageWarning } from './MemoryShortage';
 import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
 import { Tip } from './ui/tooltip';
@@ -80,6 +81,9 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
         onClick={() => onSelect({ kind: 'agent', ref: agent.ref })}
       >
         <AgentAvatar ai={agent.ai} mood={mood(agent)} state={agent.state} seed={agent.ref} />
+        {agent.memoryShortage && (
+          <span className="absolute right-0 top-0 size-2.5 rounded-full bg-amber-400 ring-2 ring-rail" data-rail-short={agent.ref} aria-label="short of memory" />
+        )}
       </button>
     </Tip>
   );
@@ -292,6 +296,7 @@ function AgentRow({
           </span>
         </button>
         {pr && <PullRequestBadge pr={pr} />}
+        <MemoryShortageWarning agent={agent} className="mx-1 mb-1.5" />
       </div>
     </AgentContextMenu>
   );

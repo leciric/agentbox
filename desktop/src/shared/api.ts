@@ -205,6 +205,7 @@ export interface Agent {
   state: string;
   ip: string;
   limits: Limits;
+  memoryShortage?: MemoryShortage;
   createdAt: string;
 }
 
@@ -360,6 +361,16 @@ export interface MemoryUsage {
   agents: MemoryUsageAgent[];
 }
 
+export interface MemoryShortage {
+  since: string;
+  pressure: number;
+  refaultRate: number;
+  readRate: number;
+  limit: number;
+  inBudget: boolean;
+  raiseTo?: string;
+}
+
 export interface CPUUsageAgent {
   ref: string;
   title?: string;
@@ -418,6 +429,7 @@ export interface AgentChange {
   state: string;
   ip?: string;
   removed?: boolean;
+  shortOfMemory?: boolean;
 }
 
 export interface Theme {
@@ -794,6 +806,7 @@ export interface FleetAgent {
   state: string;
   ip: string;
   limits: Limits;
+  memoryShortage?: MemoryShortage;
   createdAt: string;
   changes: AgentChanges;
   media: number;

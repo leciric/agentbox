@@ -566,8 +566,33 @@ type Agent struct {
 	// Limits is what its machine is capped at, read from Incus rather than
 	// remembered: the machine is the truth, and it can be changed from
 	// outside AgentBox.
-	Limits    Limits    `json:"limits"`
-	CreatedAt time.Time `json:"createdAt"`
+	Limits Limits `json:"limits"`
+	// MemoryShortage is set while its machine is thrashing at its memory
+	// limit: held at it, and re-reading from disk what it had to drop to stay
+	// under it, which slows the whole host down. nil the rest of the time.
+	MemoryShortage *MemoryShortage `json:"memoryShortage,omitempty"`
+	CreatedAt      time.Time       `json:"createdAt"`
+}
+
+// MemoryShortage is how badly an agent is short of memory, measured from its
+// cgroup over the last half a minute (agent.ThrashWatch).
+type MemoryShortage struct {
+	Since time.Time `json:"since"`
+	// Pressure is the share of the last minute, in percent, that some of its
+	// processes were stalled waiting on memory (PSI's "some avg60").
+	Pressure float64 `json:"pressure"`
+	// RefaultRate is how fast it reads back pages it had only just dropped,
+	// and ReadRate how fast it reads from disk at all, in bytes a second.
+	RefaultRate int64 `json:"refaultRate"`
+	ReadRate    int64 `json:"readRate"`
+	// Limit is its own memory ceiling in bytes; 0 when it has none, and it's
+	// the shared budget it's held by (InBudget).
+	Limit    int64 `json:"limit"`
+	InBudget bool  `json:"inBudget"`
+	// RaiseTo is the memory limit to offer it, like "8GiB": twice what it
+	// has, within the shared budget or what the host can spare. Empty when
+	// there's no room to offer more; set it with UpdateAgentRequest.Memory.
+	RaiseTo string `json:"raiseTo,omitempty"`
 }
 
 // WorktreeFiles is an agent's or a project's lead's worktree files, for @
@@ -1346,6 +1371,10 @@ type AgentChange struct {
 	State   string `json:"state"`
 	IP      string `json:"ip,omitempty"`
 	Removed bool   `json:"removed,omitempty"`
+	// ShortOfMemory flips when the agent starts or stops thrashing at its
+	// memory limit (Agent.MemoryShortage), which the agent itself says more
+	// about.
+	ShortOfMemory bool `json:"shortOfMemory,omitempty"`
 }
 
 // Self is what the in-agent API reports about the agent calling it.

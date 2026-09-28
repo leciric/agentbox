@@ -65,10 +65,11 @@ type Server struct {
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
 	prLead  func(ctx context.Context, project, notice string, act bool)
-	files   *filesCache      // each agent's worktree file listing, served briefly stale
-	disks   *agentDiskCache  // each agent's machine and worktree sizes, for its info card
-	themes  *omarchy.Watcher // the desktop theme this machine is running, if any
-	updates updates          // what the daily update check last found
+	files   *filesCache        // each agent's worktree file listing, served briefly stale
+	disks   *agentDiskCache    // each agent's machine and worktree sizes, for its info card
+	thrash  *agent.ThrashWatch // which agents are thrashing at their memory limit (memorythrash.go)
+	themes  *omarchy.Watcher   // the desktop theme this machine is running, if any
+	updates updates            // what the daily update check last found
 	stop    context.CancelFunc
 
 	runCtx context.Context // Run's, for connections that outlive a request
@@ -150,6 +151,9 @@ func New(cfg Config) (*Server, error) {
 		updates:          updates{now: make(chan struct{}, 1)},
 		terminalActivity: map[string]time.Time{},
 	}
+	s.thrash = agent.NewThrashWatch(func(ctx context.Context, instance string, limit int64) string {
+		return s.manager(nil).MemoryRaise(ctx, instance, limit)
+	})
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.wakeAndTell, s.tellLead
 	s.chat = &chat.Manager{
@@ -222,6 +226,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
 	loops.Go(func() { s.watchSharedBudget(ctx) })
+	loops.Go(func() { s.watchMemoryThrash(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
