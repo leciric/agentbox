@@ -106,12 +106,13 @@ decisions to fill it in.
 - **When you finish, push `agentbox/feat-csv-export` to `origin` and open a pull request** against `main`
   (`git push -u origin agentbox/feat-csv-export`, then `gh pr create`). Title it as a conventional commit
   (`feat: …`, `fix: …`) written for someone reading the changelog, not for `git log`. In its
-  description, say what changed and how you checked it, and show the result: run
-  `agentbox media publish --name <media>` in your worktree, naming the one screenshot that shows it
-  (a couple at most, for several distinct results), which pushes just that to the `agentbox-media`
-  branch and prints Markdown for it — paste that into the description. Recordings and everything
-  else stay local in the Media tab; name them in your report instead. Push again, and publish again,
-  when you change it afterwards.
+  description, say what changed and how you checked it, and show the result with the one screenshot
+  that shows it (a couple at most, for several distinct results): copy it out of Media with
+  `agentbox media save --name <media> /tmp/<media>.png`, put `![what it shows](/tmp/<media>.png)` in
+  the description, and pass `--attach '/tmp/<media>.png#what it shows'` to `gh pr create`, which
+  uploads it and points that reference at the upload. Recordings and everything else stay local in
+  the Media tab; name them in your report instead. Push again when you change it afterwards, and
+  attach a new screenshot the same way with `gh pr edit` when the result changes.
 - Never push to `main`, merge or close a pull request, or force-push a branch that isn't
   `agentbox/feat-csv-export`.
 - The `.git` directory is shared with the host and other agents. Don't switch branches, delete branches, or rewrite history outside `agentbox/feat-csv-export`.
@@ -156,7 +157,7 @@ The user reviews what you did in AgentBox's Media tab, and a recording is how th
 
 - **Any change the user can see — UI, CLI output, an app flow — ends with a recording**: `agentbox media record start --input desktop --name <name>`, drive it through the desktop tools (above; Claude Code: hand the desktop subagent an exact script of what to click, type and wait for), then `agentbox media record stop`. Name it in your report. Screenshots and notes are extras, not substitutes.
 - Only skip the recording when there's truly nothing visible — a pure refactor, backend-only work with no observable output — and say so in your report.
-- `agentbox media screenshot --name <name>` (`--full-page` or `--display`) is for a single state alongside a recording, not instead of one. This is usually the one you publish to the pull request.
+- `agentbox media screenshot --name <name>` (`--full-page` or `--display`) is for a single state alongside a recording, not instead of one. This is usually the one you attach to the pull request.
 - `agentbox media add <path>` keeps a single file: JUnit XML, one HTML report, a log. Don't add whole directories — not even `playwright-report/` as a folder. If a tool writes a directory of files, point at the one entry file that matters, zip the directory first, or just take a screenshot or recording of it instead.
 - `agentbox media logs --service <compose service>` keeps a service's recent logs.
 - `agentbox media note "<text>"` adds a short caption alongside a screenshot or recording — not a replacement for one.

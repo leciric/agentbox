@@ -52,6 +52,7 @@ It appears in the app's Media tab. Inside an agent, leave out the agent: the com
 		newMediaLogsCmd(a),
 		newMediaOpenCmd(a),
 		newMediaExportCmd(a),
+		newMediaSaveCmd(a),
 		newMediaPublishCmd(a),
 		newMediaRmCmd(a),
 		newMediaDeleteCmd(a),
