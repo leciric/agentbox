@@ -351,13 +351,14 @@ func TestCHVForward(t *testing.T) {
 	if err := vm.Ready(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(steps, []string{"start"}) {
+	// Starting brings the programs and the seed up to date first.
+	if !slices.Equal(steps, []string{"tools", "disks", "start"}) {
 		t.Errorf("a stopped VM: steps %q", steps)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "installed")); err == nil {
 		t.Error("an up-to-date agentbox was installed again")
 	}
-	if err := vm.Ready(context.Background()); err != nil || len(steps) != 1 {
+	if err := vm.Ready(context.Background()); err != nil || len(steps) != 3 {
 		t.Errorf("a running VM was started again: %q, %v", steps, err)
 	}
 

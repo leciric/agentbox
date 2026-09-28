@@ -315,8 +315,18 @@ func (h *CHV) up(ctx context.Context, v *VM) error {
 func (h *CHV) start(ctx context.Context, v *VM) error {
 	if chvStatus(ctx, h.Config, h.Layout, v.Paths).State == api.VMPaused {
 		_, _ = fmt.Fprintf(v.Log, "==> Resuming AgentBox's VM (%s)\n", v.Name)
-	} else {
-		_, _ = fmt.Fprintf(v.Log, "==> Starting AgentBox's VM (%s)\n", v.Name)
+		return chvStart(ctx, h.Config, h.Layout, v.Paths, v.Log)
+	}
+	_, _ = fmt.Fprintf(v.Log, "==> Starting AgentBox's VM (%s)\n", v.Name)
+	// What an update of AgentBox changed reaches a VM made by an older one
+	// at its next start: programs at new pins, and a seed with the new
+	// user-data, which cloud-init applies on that boot (its instance-id is
+	// the seed's hash). Both do nothing when nothing changed.
+	if err := chvEnsureTools(ctx, h.Layout, v.Log); err != nil {
+		return err
+	}
+	if err := chvMakeDisks(ctx, h.Config, h.Layout, v.Log); err != nil {
+		return err
 	}
 	return chvStart(ctx, h.Config, h.Layout, v.Paths, v.Log)
 }

@@ -56,16 +56,22 @@ write_files:
       }
   - path: /etc/systemd/system/agentbox-host-guard.service
     content: |
+      # A firewall unit, like Debian's nftables.service: without
+      # DefaultDependencies=no, ordering it before network-pre.target makes a
+      # cycle through basic.target and sockets.target, and systemd breaks it
+      # by dropping some other job at boot (sshd-vsock.socket, incus.socket).
       [Unit]
       Description=AgentBox: keep agents off the host's loopback services
-      Before=incus.service network-pre.target
+      DefaultDependencies=no
       Wants=network-pre.target
+      Before=network-pre.target incus.service shutdown.target
+      Conflicts=shutdown.target
       [Service]
       Type=oneshot
       RemainAfterExit=yes
       ExecStart=/usr/sbin/nft -f /etc/agentbox/host-guard.nft
       [Install]
-      WantedBy=multi-user.target
+      WantedBy=sysinit.target
 {{- range .Forwards}}
   # vsock port {{.Port}} to {{.What}}, for the host's end (the supervisor).
   - path: /etc/systemd/system/agentbox-vsock-{{.Port}}.service
@@ -125,7 +131,10 @@ write_files:
 
       apt-get update -q --error-on=any
       apt-get install -y -q --no-install-recommends {{.Packages}}
-      systemctl enable --now agentbox-host-guard.service
+      # reenable: a VM set up before the unit moved to sysinit.target keeps
+      # no stale multi-user.target link.
+      systemctl reenable agentbox-host-guard.service
+      systemctl start agentbox-host-guard.service
 
       # Incus's pool, on the disk the host gives the VM for it. agentbox host
       # setup, run next, leaves a pool named default alone.
