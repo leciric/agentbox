@@ -192,7 +192,7 @@ func TestCHArgs(t *testing.T) {
 			t.Errorf("no %q in\n%s", want, args)
 		}
 	}
-	if macAddress("agentbox") != macAddress("agentbox") || macAddress("agentbox") == macAddress("other") {
+	if mac := macAddress("agentbox"); mac != macAddress("agent"+"box") || mac == macAddress("other") {
 		t.Error("the MAC address isn't one per VM name")
 	}
 }

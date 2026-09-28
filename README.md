@@ -84,6 +84,19 @@ The app's **Settings** walks you through the rest the first time it runs: instal
 [Incus](https://linuxcontainers.org/incus/) (with your password, no logout needed), building the
 agents' base image, and logging in to Claude Code, Codex or OpenCode.
 
+### Or in a VM, on Linux (preview)
+
+Settings also offers **Run in a VM**: the daemon, Incus and every agent in one
+[Cloud Hypervisor](https://www.cloudhypervisor.org) VM, with nothing installed on your system and no
+password asked. It needs `/dev/kvm` (your user in the `kvm` group) and an `ssh` client. From the
+command line it's `agentbox vm init`, which fetches Cloud Hypervisor, passt, virtiofsd and Debian's
+cloud image into `~/.local/share/agentbox/vm` and sets the VM up (about a minute). The VM starts
+with 4 GiB and takes more memory as its agents need it, up to a cap (`--memory-cap`, three quarters
+of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
+every agent and turns the VM off. Your home folder is shared with the VM at the same path, so
+projects and agents' worktrees stay where they are. `agentbox vm delete --yes` goes back to
+running on your system. GPU and Android emulators aren't available in the VM.
+
 ### macOS and Windows (alpha)
 
 AgentBox also runs on a **Mac**, in a Linux VM it makes for you with [Lima](https://lima-vm.io)

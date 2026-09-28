@@ -38,12 +38,14 @@ func (f *fakeCH) serve(t *testing.T) string {
 		f.calls = append(f.calls, call)
 		info, fail := f.info, f.fail
 		f.mu.Unlock()
-		switch {
-		case endpoint == fail:
+		if endpoint == fail {
 			http.Error(w, "Error from API: InvalidStateTransition", http.StatusInternalServerError)
-		case endpoint == "vm.info":
+			return
+		}
+		switch endpoint {
+		case "vm.info":
 			_, _ = io.WriteString(w, info)
-		case endpoint == "vmm.ping":
+		case "vmm.ping":
 			_, _ = io.WriteString(w, `{"version":"v53.0"}`)
 		default:
 			w.WriteHeader(http.StatusNoContent)
