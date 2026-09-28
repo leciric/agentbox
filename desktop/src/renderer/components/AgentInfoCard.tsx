@@ -6,7 +6,6 @@ import { chatKey, fetchThread } from '../lib/chat';
 import { choiceName } from '../lib/modelChoices';
 import { humanTokens, tps, usd } from '../lib/tokens';
 import { humanBytes, timeAgo } from '../lib/utils';
-import { MemoryShortageWarning } from './MemoryShortage';
 import { aiLabel, StateBadge } from './state';
 
 // AgentInfoCard is what hovering an agent row shows, and what its context
@@ -45,7 +44,6 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
         </span>
       </div>
       {agent.title && <span className="-mt-1.5 min-w-0 truncate font-mono text-[11px] text-faint">{agent.name}</span>}
-      <MemoryShortageWarning agent={agent} />
       <div className="grid min-w-0 gap-1">
         <Row label="AI tool" value={aiLabel(agent.ai)} />
         {model && <Row label="Model" value={model} />}
