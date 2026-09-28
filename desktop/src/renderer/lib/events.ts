@@ -3,8 +3,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { ConnectionState } from '../../preload';
-import * as T from '../../shared/api';
-import { applyChatEvent, resetChatEvents } from './chat';
+import * as T from '../../shared/api.ts';
+import { applyChatEvent, resetChatEvents } from './chat.ts';
 
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
