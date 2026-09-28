@@ -3,6 +3,26 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.8.0](https://github.com/leciric/agentbox/compare/v0.7.0...v0.8.0) (2026-09-28)
+
+
+### Added
+
+* a project base shows when the base image has moved on, and Refresh catches it up ([#104](https://github.com/leciric/agentbox/issues/104)) ([4b0737e](https://github.com/leciric/agentbox/commit/4b0737ec1d5319f17ac03a51de075fa39cc64662))
+* a reorganised Settings page, with sections, search and plain explanations ([#102](https://github.com/leciric/agentbox/issues/102)) ([71bb7ee](https://github.com/leciric/agentbox/commit/71bb7ee2308c991926b1aa4660e9470ca0d25cbe))
+* disk IO and a stall warning next to CPU and memory, on Home, the top bar and every agent ([#107](https://github.com/leciric/agentbox/issues/107)) ([cf143b1](https://github.com/leciric/agentbox/commit/cf143b14c11f5cad59845ffbb58abe9c78163ce4))
+* the shared agent budget is on by default, so agents can't freeze your computer ([#109](https://github.com/leciric/agentbox/issues/109)) ([946d4ae](https://github.com/leciric/agentbox/commit/946d4ae647f3552d976f92dbc73fd707ce11865d))
+* warn when an agent is short of memory and slowing the computer down, with a one-click raise ([#105](https://github.com/leciric/agentbox/issues/105)) ([730159a](https://github.com/leciric/agentbox/commit/730159a32e6f9970cae4b6cdbd653df2cba57e8f))
+
+
+### Fixed
+
+* agents in the shared budget give way to your apps on the disk, and you're warned when they run short of memory together ([#108](https://github.com/leciric/agentbox/issues/108)) ([b3ef825](https://github.com/leciric/agentbox/commit/b3ef8258f64225d0bc92fbb56518e17324b81e1f))
+* creating an agent no longer fails on Incus's "Failed to retrieve PID" hiccup ([#103](https://github.com/leciric/agentbox/issues/103)) ([6d452e1](https://github.com/leciric/agentbox/commit/6d452e138e3a3601ade473c24f4bc0fbf95193e4))
+* new agents start from the latest main, and the project's main stays up to date ([#100](https://github.com/leciric/agentbox/issues/100)) ([f2ab6ad](https://github.com/leciric/agentbox/commit/f2ab6adca0177cd552dec75b818122c78011aa9d))
+* turning on GPU for agents no longer fails on the project's lead ([#98](https://github.com/leciric/agentbox/issues/98)) ([1b80f1a](https://github.com/leciric/agentbox/commit/1b80f1abe2766b83d8f55c0887414211f36f0cd3))
+* windows in an agent's desktop fit the screen after it's resized ([#101](https://github.com/leciric/agentbox/issues/101)) ([cce99aa](https://github.com/leciric/agentbox/commit/cce99aa139d83c5d233f5d2f9961f9cde44608c2))
+
 ## [0.7.0](https://github.com/leciric/agentbox/compare/v0.6.0...v0.7.0) (2026-09-27)
 
 
