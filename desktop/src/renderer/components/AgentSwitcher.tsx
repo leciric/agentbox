@@ -4,7 +4,7 @@ import { ChevronsUpDown, MessagesSquare, Plus, Users } from 'lucide-react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { cn, humanBytes } from '../lib/utils';
+import { cn, humanBytes, humanRate, shortRate } from '../lib/utils';
 import { AIIcon, aiLabel, StatusDot } from './state';
 import { Menu, MenuContent, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 
@@ -81,8 +81,8 @@ function AgentRow({ agent, active, sample, onSelect }: { agent: T.Agent; active:
           <AIIcon ai={agent.ai} className="size-3 shrink-0" />
           <span className={cn('truncate', agent.title && 'font-mono')}>{agent.title ? agent.name : aiLabel(agent.ai)}</span>
           {sample && agent.state === 'running' && (
-            <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-subtle">
-              {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)}
+            <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-subtle" title={`CPU ${sample.cpu.toFixed(0)}% · memory ${humanBytes(sample.memory)} · disk ${humanRate(sample.diskRead)} read, ${humanRate(sample.diskWrite)} write`}>
+              {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)} · {shortRate(sample.diskRead + sample.diskWrite)}
             </span>
           )}
         </span>

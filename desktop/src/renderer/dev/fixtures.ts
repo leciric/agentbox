@@ -700,7 +700,7 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   devState.projects = structuredClone(data.projects);
   queryClient.setQueryData(['agents'], data.agents);
   devState.agents = data.agents;
-  queryClient.setQueryData(['usage'], { host: { cpu: 0, cores: 1, memUsed: 0, memTotal: 0, poolUsed: 0, poolTotal: 0 }, agents: [] });
+  queryClient.setQueryData(['usage'], { host: { cpu: 0, cores: 1, memUsed: 0, memTotal: 0, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['fleet', PROJECT], data.fleet);
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
   queryClient.setQueryData(['questions', PROJECT], data.questions);

@@ -74,6 +74,11 @@
 //                           zram, a CPU-capped agent and a plain one —
 //                           scenarios.json clicks the meter open before its
 //                           shot, since state here comes from the URL alone
+//   ?io=1|stalling          Home, the top bar and the rail with disk IO next to
+//                           CPU and memory: a quiet host, or one stalling on
+//                           disk and memory the way the user's desktop froze
+//                           (io full 35%, memory full 19%); ?io=agent is
+//                           agent-12's Overview, its disk IO beside its CPU
 //   ?media=project|agent    a project's Media, 360 items across four agents
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
@@ -91,7 +96,7 @@ import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
 import { HomeView } from '../components/HomeView';
 import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../components/NewAgentDefaults';
-import { LimitsEditor } from '../components/OverviewTab';
+import { LimitsEditor, OverviewTab } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
@@ -135,6 +140,7 @@ const pulls = params.get('pulls') === '1';
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "memory" | null
+const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
@@ -198,14 +204,51 @@ if (settingsPage) seedSettings(queryClient);
 if (budget === 'offer') seedBudgetOffer(queryClient);
 if (resources) {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['settings'], { ...queryClient.getQueryData(['settings']), hostCores: 8, hostMemory: 31 * GiB, seedMemory: '8GiB', defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
 }
 if (meters) {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0 }, agents: [] });
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
+}
+
+if (io) {
+  const GiB = 1024 ** 3;
+  const MiB = 1024 ** 2;
+  const stalling = io !== '1';
+  // What each running agent is doing: agent-12 re-reading what it had to
+  // drop, the rest reading and writing a little.
+  const disk: Record<string, [number, number]> = {
+    'agent-12': stalling ? [118 * MiB, 4.2 * MiB] : [1.2 * MiB, 0.4 * MiB],
+    'agent-96': [0.6 * MiB, 3.1 * MiB],
+    'agent-99': [0, 96 * 1024],
+  };
+  queryClient.setQueryData(['usage'], {
+    host: {
+      cpu: stalling ? 48 : 21,
+      cores: 16,
+      memUsed: stalling ? 29.4 * GiB : 14 * GiB,
+      memTotal: 31 * GiB,
+      poolUsed: 180 * GiB,
+      poolTotal: 400 * GiB,
+      diskRead: stalling ? 142 * MiB : 2.1 * MiB,
+      diskWrite: stalling ? 38 * MiB : 0.8 * MiB,
+      pressure: stalling
+        ? { ioSome: 61.2, ioFull: 35.4, memorySome: 27.8, memoryFull: 19.1, stalling: true }
+        : { ioSome: 1.4, ioFull: 0.3, memorySome: 0, memoryFull: 0, stalling: false },
+    },
+    agents: fixtures.agents
+      .filter((a) => a.state === 'running')
+      .map((a, i) => {
+        const [diskRead, diskWrite] = disk[a.name] ?? [0, 0];
+        return { ref: a.ref, state: 'running', cpu: [142, 38, 9, 71][i % 4], memory: [6.1, 2.4, 0.9, 3.3][i % 4] * GiB, processes: 40 + i, diskRead, diskWrite, limits: a.limits, cores: 16 };
+      }),
+  } satisfies T.Usage);
+  queryClient.setQueryData(['claudeLimits'], []);
+  queryClient.setQueryData(['diff', `${PROJECT}/agent-12`], '');
+  queryClient.setQueryData(['agentEvents', PROJECT], []);
 }
 
 if (usage) {
@@ -345,6 +388,21 @@ function Preview() {
     return (
       <div style={{ maxWidth: 640, padding: 24, font: '13px var(--font-sans)' }}>
         <AgentTokensCard agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+      </div>
+    );
+  }
+
+  if (io) {
+    const agent = fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-12`)!;
+    return (
+      <div data-preview-io style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', background: 'var(--color-ink)' }}>
+        <TopBar view={io === 'agent' ? { kind: 'agent', ref: agent.ref } : { kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {io === 'agent' ? <OverviewTab agent={agent} /> : <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />}
+          </div>
+          <AgentRail view={io === 'agent' ? { kind: 'agent', ref: agent.ref } : { kind: 'home' }} onSelect={() => {}} onNewAgent={() => {}} />
+        </div>
       </div>
     );
   }

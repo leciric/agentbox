@@ -2,12 +2,26 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
-import { duration, errorMessage, githubAccountLabel, githubErrorSentence, humanBytes, shortCommit, timeAgo, timeUntil } from './utils.ts';
+import { duration, errorMessage, githubAccountLabel, githubErrorSentence, humanBytes, humanRate, shortCommit, shortRate, timeAgo, timeUntil } from './utils.ts';
 
 test('humanBytes picks the largest unit that keeps the number small', () => {
   assert.equal(humanBytes(500), '500 B');
   assert.equal(humanBytes(1536), '1.5 KiB');
   assert.equal(humanBytes(1024 * 1024 * 3), '3.0 MiB');
+});
+
+test('humanRate is humanBytes a second', () => {
+  assert.equal(humanRate(0), '0 B/s');
+  assert.equal(humanRate(38 * 1024 * 1024), '38.0 MiB/s');
+  assert.equal(humanRate(1000.4), '1000 B/s');
+});
+
+test('shortRate fits a rate into a few characters', () => {
+  assert.equal(shortRate(0), '0B/s');
+  assert.equal(shortRate(96 * 1024), '96K/s');
+  assert.equal(shortRate(4.2 * 1024 * 1024), '4.2M/s');
+  assert.equal(shortRate(118.4 * 1024 * 1024), '118M/s');
+  assert.equal(shortRate(3 * 1024 ** 3), '3.0G/s');
 });
 
 test('timeAgo reads recent as "just now"', () => {

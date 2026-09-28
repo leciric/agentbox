@@ -55,6 +55,16 @@ func renderTop(w io.Writer, u api.Usage) error {
 	_, _ = fmt.Fprintf(w, "HOST   CPU %.0f%% of %d cores   MEMORY %s / %s   DISK POOL %s used, %s free\n\n",
 		host.CPU, host.Cores, humanBytes(host.MemUsed), humanBytes(host.MemTotal),
 		humanBytes(host.PoolUsed), humanBytes(host.PoolTotal-host.PoolUsed))
+	_, _ = fmt.Fprintf(w, "       DISK IO read %s/s, write %s/s", humanBytes(host.DiskRead), humanBytes(host.DiskWrite))
+	if p := host.Pressure; p != nil {
+		// Full, not some: the share of time nothing at all could run, which
+		// is what the desktop freezing feels like.
+		_, _ = fmt.Fprintf(w, "   STALLED io %.0f%%, memory %.0f%%", p.IOFull, p.MemoryFull)
+		if p.Stalling {
+			_, _ = fmt.Fprint(w, " (the host is stalling)")
+		}
+	}
+	_, _ = fmt.Fprint(w, "\n\n")
 	if len(u.Agents) == 0 {
 		_, _ = fmt.Fprintln(w, "No agents.")
 		return nil
@@ -64,7 +74,7 @@ func renderTop(w io.Writer, u api.Usage) error {
 	// close this agent is to its own ceiling — the one that decides whether it
 	// is the agent that needs more room. OF HOST is what it is costing the
 	// machine everything else is sharing.
-	_, _ = fmt.Fprintln(tw, "AGENT\tSTATE\tCPU\tOF LIMIT\tOF HOST\tMEMORY\tPROCESSES")
+	_, _ = fmt.Fprintln(tw, "AGENT\tSTATE\tCPU\tOF LIMIT\tOF HOST\tMEMORY\tDISK IO\tPROCESSES")
 	for _, a := range u.Agents {
 		ofLimit := "-" // uncapped: there is no limit to be a fraction of
 		if a.Limits.CPU != "" && a.Cores > 0 {
@@ -83,7 +93,8 @@ func renderTop(w io.Writer, u api.Usage) error {
 		if a.Limits.Memory != "" {
 			memory = humanBytes(a.Memory) + " / " + a.Limits.Memory
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%.0f%%\t%s\t%s\t%s\t%d\n", a.Ref, a.State, a.CPU, ofLimit, ofHost, memory, a.Processes)
+		disk := fmt.Sprintf("%s/s read, %s/s write", humanBytes(a.DiskRead), humanBytes(a.DiskWrite))
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%.0f%%\t%s\t%s\t%s\t%s\t%d\n", a.Ref, a.State, a.CPU, ofLimit, ofHost, memory, disk, a.Processes)
 	}
 	return tw.Flush()
 }
