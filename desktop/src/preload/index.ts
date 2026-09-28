@@ -49,6 +49,21 @@ export interface VMStatus {
   limits?: VMLimits; // what `agentbox vm resize` takes on this Mac
 }
 
+// VMPower is AgentBox's VM in VM mode (the daemon, Incus and every agent in
+// one Cloud Hypervisor VM on Linux): its state and its memory, as the host's
+// command-line tool reports them (main/vmpower.ts).
+export interface VMPower {
+  state: VMPowerState;
+  memoryUsed: number; // bytes in use inside the VM
+  memoryGranted: number; // bytes the VM holds of the host's memory right now
+  memoryCap: number; // bytes the VM may grow to at most
+  cpus: number;
+  error?: string; // why the VM can't be reached or controlled, if it can't
+}
+
+export type VMPowerState = 'off' | 'starting' | 'running' | 'pausing' | 'paused' | 'resuming' | 'stopping';
+export type VMPowerAction = 'start' | 'pause' | 'resume' | 'stop';
+
 export interface VMLimits {
   minCpus: number;
   maxCpus: number;
@@ -145,6 +160,11 @@ const bridge = {
   vm: {
     resize: (cpus: number, memory: string): Promise<void> => ipcRenderer.invoke('vm:resize', cpus, memory),
     onOutput: (fn: (text: string) => void) => listen('vm:output', fn),
+    // In VM mode, the VM's power and memory; null when AgentBox isn't in VM
+    // mode. act resolves once the VM is in its new state, and after start or
+    // resume, once the daemon inside answers.
+    power: (): Promise<VMPower | null> => ipcRenderer.invoke('vm:power'),
+    act: (action: VMPowerAction): Promise<VMPower> => ipcRenderer.invoke('vm:act', action),
   },
   // Hubs you signed in to, and their environments.
   hubs: {

@@ -781,6 +781,41 @@ type SaveBaseRequest struct {
 	Agent string `json:"agent"` // agent name within the project
 }
 
+// StopAgentsRequest is POST /v1/agents/stop, "Free resources": stop every
+// running or paused agent of every project, or only Refs when it names some.
+// It runs as a job of kind "stop-agents", whose result is a StopAgentsResult.
+type StopAgentsRequest struct {
+	Refs []string `json:"refs,omitempty"`
+}
+
+// StopAgentsResult is what stopping the agents gave back. Each agent's
+// Memory and CPU are what it held and used just before it was stopped, so
+// FreedMemory and FreedCPU are their sums; HostMemoryBefore and
+// HostMemoryAfter are the host's own memory in use around the whole job,
+// which is what the user actually gets back once the kernel settles.
+type StopAgentsResult struct {
+	Stopped          []StoppedAgent     `json:"stopped"`
+	Failed           []StopAgentFailure `json:"failed,omitempty"`
+	FreedMemory      int64              `json:"freedMemory"` // bytes of RAM and swap
+	FreedCPU         float64            `json:"freedCPU"`    // percent; 100 is one full core
+	HostMemoryBefore int64              `json:"hostMemoryBefore"`
+	HostMemoryAfter  int64              `json:"hostMemoryAfter"`
+}
+
+type StoppedAgent struct {
+	Ref     string  `json:"ref"`
+	Title   string  `json:"title,omitempty"`
+	Memory  int64   `json:"memory"` // RAM and swap its cgroup held, in bytes
+	CPU     float64 `json:"cpu"`    // percent; 100 is one full core
+	Working bool    `json:"working"`
+}
+
+type StopAgentFailure struct {
+	Ref   string `json:"ref"`
+	Title string `json:"title,omitempty"`
+	Error string `json:"error"`
+}
+
 type Job struct {
 	ID         string          `json:"id"`
 	Kind       string          `json:"kind"`   // create, fork, restore, base-save, image-build

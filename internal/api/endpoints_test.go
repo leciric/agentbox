@@ -883,6 +883,17 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "StopAgents", method: http.MethodPost, path: "/v1/agents/stop",
+			body: `{"refs":["pawly/agent-01"]}`,
+			resp: `{"id":"job-4","kind":"stop-agents","status":"running"}`,
+			run: func(t *testing.T, c *Client) {
+				job, err := c.StopAgents(context.Background(), StopAgentsRequest{Refs: []string{"pawly/agent-01"}})
+				if err != nil || job.ID != "job-4" || job.Kind != "stop-agents" {
+					t.Errorf("StopAgents() = %+v, %v; want ID job-4 of kind stop-agents, nil", job, err)
+				}
+			},
+		},
+		{
 			name: "CreateAgent", method: http.MethodPost, path: "/v1/agents",
 			body: `{"project":"pawly","ai":""}`,
 			resp: `{"id":"job-3","status":"running"}`,

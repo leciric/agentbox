@@ -87,6 +87,19 @@
 //   ?media=project|agent    a project's Media, 360 items across four agents
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
+//   ?power=host|host-start  the top bar's resource controls in host mode:
+//                           agents running (Free resources), or every one
+//                           stopped by it, with Start to bring them back
+//   ?power=running|paused|off|starting|stopping
+//                           in VM mode, the VM's pill in that state beside
+//                           them; scenarios.json clicks it open for its popover
+//                           or clicks Free resources for its confirmation.
+//                           Free resources runs start to finish against the
+//                           dev bridge (fixtures.ts)
+//   &free=progress|done|partial|error
+//                           Free resources' dialog part-way through stopping
+//                           the agents, with what it freed, with one agent
+//                           that wouldn't stop, or failed
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -113,6 +126,7 @@ import { AgentAvatar, aiLabel } from '../components/state';
 import { Panel } from '../components/ui/card';
 import type { Mood } from '../lib/agentStatus';
 import { Sidebar } from '../components/Sidebar';
+import { FreeResourcesDialog, type FreeRun } from '../components/ResourceControls';
 import { TopBar } from '../components/TopBar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
@@ -122,7 +136,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedPower, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -145,6 +159,8 @@ const pulls = params.get('pulls') === '1';
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "memory" | null
+const power = params.get('power');
+const free = params.get('free');
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
@@ -219,6 +235,9 @@ if (meters) {
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
 }
+
+if (power) seedPower(queryClient, power);
+const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
 if (io) {
   const GiB = 1024 ** 3;
@@ -295,6 +314,13 @@ function UsagePreview() {
   );
 }
 
+// SeededFreeRun is Free resources' dialog held in one phase (?free=), which
+// the top bar only reaches by running one: its agents as the phase left them.
+function SeededFreeRun({ run }: { run: FreeRun }) {
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  return <FreeResourcesDialog open onOpenChange={() => {}} run={run} agents={agents.data ?? []} onConfirm={() => {}} onStartAgain={() => {}} starting={false} />;
+}
+
 // AvatarRow is one mood's row of avatars: each AI tool at the rail's 40px
 // and blown up.
 function AvatarRow({ mood, big = true }: { mood: Mood; big?: boolean }) {
@@ -349,6 +375,15 @@ function Preview() {
 
   if (github) return <GitHubPreview />;
   if (usage) return <UsagePreview />;
+
+  if (power) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }} data-preview-power={power}>
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        {seededRun && <SeededFreeRun run={seededRun} />}
+      </div>
+    );
+  }
 
   if (meters) {
     return (

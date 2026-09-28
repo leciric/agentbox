@@ -167,6 +167,8 @@ export const webBridge: Bridge & { web: true } = {
   vm: {
     resize: unavailable("Resizing AgentBox's VM"),
     onOutput: () => () => {},
+    power: () => Promise.resolve(null),
+    act: unavailable("Turning AgentBox's VM on and off"),
   },
   hubs: {
     list: async () => {

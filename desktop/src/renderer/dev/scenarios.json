@@ -424,5 +424,130 @@
     "query": "loading=hold&theme=light",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "power-host-dark",
+    "description": "The top bar's Free resources button in host mode, with nine agents running or paused — dark",
+    "query": "power=host&theme=dark",
+    "width": 1280,
+    "height": 220
+  },
+  {
+    "id": "power-host-narrow-dark",
+    "description": "Same, at a narrow width where the button folds to its icon and count — dark",
+    "query": "power=host&theme=dark",
+    "width": 900,
+    "height": 220
+  },
+  {
+    "id": "power-confirm-dark",
+    "description": "Free resources' confirmation in host mode: who is working, who waits on you, long titles — dark",
+    "query": "power=host&theme=dark",
+    "width": 1280,
+    "height": 820,
+    "click": "[aria-label=\"Free resources\"]"
+  },
+  {
+    "id": "power-confirm-vm-dark",
+    "description": "Free resources' confirmation in VM mode, which turns the VM off too — dark",
+    "query": "power=running&theme=dark",
+    "width": 1280,
+    "height": 820,
+    "click": "[aria-label=\"Free resources\"]"
+  },
+  {
+    "id": "power-progress-dark",
+    "description": "Free resources part-way: five of nine agents stopped, the VM next — dark",
+    "query": "power=running&free=progress&theme=dark",
+    "width": 1280,
+    "height": 820
+  },
+  {
+    "id": "power-done-host-dark",
+    "description": "What Free resources freed in host mode: memory and CPU returned, the host's memory before and after — dark",
+    "query": "power=host&free=done&theme=dark",
+    "width": 1280,
+    "height": 820
+  },
+  {
+    "id": "power-done-vm-dark",
+    "description": "What Free resources freed in VM mode: all the memory the VM held — dark",
+    "query": "power=running&free=done&theme=dark",
+    "width": 1280,
+    "height": 820
+  },
+  {
+    "id": "power-done-light",
+    "description": "Same as power-done-host-dark, light",
+    "query": "power=host&free=done&theme=light",
+    "width": 1280,
+    "height": 820
+  },
+  {
+    "id": "power-partial-dark",
+    "description": "Free resources with one agent that wouldn't stop — dark",
+    "query": "power=host&free=partial&theme=dark",
+    "width": 1280,
+    "height": 820
+  },
+  {
+    "id": "power-error-dark",
+    "description": "Free resources that failed outright — dark",
+    "query": "power=host&free=error&theme=dark",
+    "width": 1280,
+    "height": 500
+  },
+  {
+    "id": "power-host-start-dark",
+    "description": "Host mode after Free resources: nothing runs, and Start brings the agents back — dark",
+    "query": "power=host-start&theme=dark",
+    "width": 1280,
+    "height": 220
+  },
+  {
+    "id": "power-vm-running-dark",
+    "description": "VM mode, the VM running: its pill and its popover, memory used, granted and cap — dark",
+    "query": "power=running&theme=dark",
+    "width": 1280,
+    "height": 480,
+    "click": "[data-vm-state]"
+  },
+  {
+    "id": "power-vm-running-light",
+    "description": "Same as power-vm-running-dark, light",
+    "query": "power=running&theme=light",
+    "width": 1280,
+    "height": 480,
+    "click": "[data-vm-state]"
+  },
+  {
+    "id": "power-vm-paused-dark",
+    "description": "VM mode, the VM paused: Resume, and why it still holds its memory — dark",
+    "query": "power=paused&theme=dark",
+    "width": 1280,
+    "height": 480,
+    "click": "[data-vm-state]"
+  },
+  {
+    "id": "power-vm-off-dark",
+    "description": "VM mode, everything off: the VM's pill says so, and Start is one click — dark",
+    "query": "power=off&theme=dark",
+    "width": 1280,
+    "height": 480,
+    "click": "[data-vm-state]"
+  },
+  {
+    "id": "power-vm-starting-dark",
+    "description": "VM mode, the VM starting — dark",
+    "query": "power=starting&theme=dark",
+    "width": 1280,
+    "height": 220
+  },
+  {
+    "id": "power-vm-stopping-narrow-dark",
+    "description": "VM mode, the VM stopping, at a narrow width — dark",
+    "query": "power=stopping&theme=dark",
+    "width": 760,
+    "height": 220
   }
 ]

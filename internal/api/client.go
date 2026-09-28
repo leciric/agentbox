@@ -747,6 +747,13 @@ func (c *Client) DestroyAgent(ctx context.Context, ref string, force, deleteBran
 
 // AgentAction runs start, stop, pause, resume or session (make sure the tmux
 // session exists) and returns the agent afterwards.
+// StopAgents starts the job that stops every running or paused agent, or
+// only those req.Refs names; its result is a StopAgentsResult.
+func (c *Client) StopAgents(ctx context.Context, req StopAgentsRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/agents/stop", req, &out)
+}
+
 func (c *Client) AgentAction(ctx context.Context, ref, action string) (Agent, error) {
 	var out Agent
 	return out, c.agentDo(ctx, http.MethodPost, ref, "/"+action, nil, &out)

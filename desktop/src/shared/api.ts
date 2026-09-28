@@ -307,6 +307,33 @@ export interface SaveBaseRequest {
   agent: string;
 }
 
+export interface StopAgentsRequest {
+  refs?: string[];
+}
+
+export interface StopAgentsResult {
+  stopped: StoppedAgent[];
+  failed?: StopAgentFailure[];
+  freedMemory: number;
+  freedCPU: number;
+  hostMemoryBefore: number;
+  hostMemoryAfter: number;
+}
+
+export interface StoppedAgent {
+  ref: string;
+  title?: string;
+  memory: number;
+  cpu: number;
+  working: boolean;
+}
+
+export interface StopAgentFailure {
+  ref: string;
+  title?: string;
+  error: string;
+}
+
 export interface Job {
   id: string;
   kind: string;

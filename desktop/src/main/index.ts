@@ -15,6 +15,7 @@ import { onWindows, startRelay, stopRelay } from './relay';
 import { Streams } from './streams';
 import { learnMode } from './vmmode';
 import { distro, linuxPath, windowsPath } from './wslpaths';
+import './vmpower';
 
 registerMediaScheme();
 
