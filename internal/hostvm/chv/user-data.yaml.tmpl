@@ -1,0 +1,137 @@
+#cloud-config
+# AgentBox's VM, set up by cloud-init on its first boot from the seed
+# `agentbox vm init` wrote (internal/hostvm/chv/user-data.yaml.tmpl). The rest
+# of it, Incus's bridge and profile and the user's access to Incus, is
+# `agentbox host setup`, run in here afterwards as on any Linux host.
+hostname: {{q .Hostname}}
+ssh_pwauth: false
+disable_root: true
+# The VM's host keys are made once and kept: a new seed (a new instance to
+# cloud-init) would otherwise make new ones, and the front end's known_hosts
+# would no longer match them.
+ssh_deletekeys: false
+
+# The host's user, with the same UID and GID so the files on the shared home
+# are theirs on both sides, but a home of their own on the VM's disk: the
+# host's home is mounted at its own path. bootcmd makes them, since cloud-init's
+# users can't be given a GID; users below finds them made and adds the rest.
+bootcmd:
+  - [cloud-init-per, instance, agentbox-user, sh, -c, {{q .MakeUser}}]
+users:
+  - name: {{q .User}}
+    gecos: AgentBox
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - {{q .AuthorizedKey}}
+
+write_files:
+  # Memory the host plugs in (virtio-mem) goes online at once, and where the
+  # kernel can still spare it, as ZONE_MOVABLE: memory in the Normal zone
+  # fills with the kernel's own pages and can't be unplugged again. auto-movable
+  # keeps movable memory to {{.MovableRatio}}% of the rest, so the kernel's own
+  # memory (page tables, slab, the memmap of every block plugged in) always has
+  # room: past that ratio, a plug goes to Normal. provision.sh sets the same
+  # at once on the first boot, which this only reaches on the next.
+  - path: /etc/default/grub.d/90-agentbox.cfg
+    content: |
+      GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX {{.KernelArgs}}"
+  # Agents' containers mustn't reach the host's own loopback services: passt
+  # maps the VM's connections to the gateway to the host's 127.0.0.1, and
+  # the DNS address answers DNS only. The VM itself may (the daemon needs
+  # nothing there, but ssh-ing out to the host is fine).
+  - path: /etc/agentbox/host-guard.nft
+    content: |
+      table inet agentbox-host
+      delete table inet agentbox-host
+      table inet agentbox-host {
+        chain forward {
+          type filter hook forward priority -10; policy accept;
+          iifname "incusbr0" ip daddr {{.Gateway}} drop
+          iifname "incusbr0" ip daddr {{.DNS}} udp dport != 53 drop
+          iifname "incusbr0" ip daddr {{.DNS}} tcp dport != 53 drop
+          iifname "incusbr0" ip daddr {{.DNS}} meta l4proto != { tcp, udp } drop
+        }
+      }
+  - path: /etc/systemd/system/agentbox-host-guard.service
+    content: |
+      [Unit]
+      Description=AgentBox: keep agents off the host's loopback services
+      Before=incus.service network-pre.target
+      Wants=network-pre.target
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/nft -f /etc/agentbox/host-guard.nft
+      [Install]
+      WantedBy=multi-user.target
+{{- range .Forwards}}
+  # vsock port {{.Port}} to {{.What}}, for the host's end (the supervisor).
+  - path: /etc/systemd/system/agentbox-vsock-{{.Port}}.service
+    content: |
+      [Unit]
+      Description=AgentBox: vsock port {{.Port}} to {{.What}}
+      After=network.target
+      [Service]
+{{- if .User}}
+      User={{.User}}
+{{- else}}
+      DynamicUser=yes
+{{- end}}
+      ExecStart=/usr/bin/socat VSOCK-LISTEN:{{.Port}},fork,reuseaddr {{.To}}
+      Restart=always
+      RestartSec=1
+      [Install]
+      WantedBy=multi-user.target
+{{- end}}
+  # Only the host is to reach those ports: vsock_loopback would let anything
+  # in the VM, an agent's container included, connect to them (and so to the
+  # daemon's socket) at CID 1.
+  - path: /etc/modprobe.d/agentbox-vsock.conf
+    content: |
+      install vsock_loopback /bin/false
+  - path: /usr/local/lib/agentbox/provision.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      set -x
+      export DEBIAN_FRONTEND=noninteractive
+
+      echo online >/sys/devices/system/memory/auto_online_blocks || true
+{{- range .KernelParams}}
+      echo {{.Value}} >/sys/module/memory_hotplug/parameters/{{.Name}} || true
+{{- end}}
+      update-grub
+
+      # The host's home, shared by virtiofsd, at its own path.
+      mkdir -p {{sh .Home}}
+      grep -q '^home ' /etc/fstab ||
+        echo {{sh .FstabLine}} >>/etc/fstab
+      systemctl daemon-reload
+      mountpoint -q {{sh .Home}} || mount {{sh .Home}} || echo "warning: the host's home isn't shared into the VM" >&2
+
+      # The ports the host reaches the VM on first, with the image's own socat.
+      # (sshd is on vsock port {{.PortSSH}} already: systemd-ssh-generator puts
+      # it there in a VM, from the first boot, before any of this.)
+      echo 'man-db man-db/auto-update boolean false' | debconf-set-selections
+      systemctl disable --now man-db.timer || true
+      if ! command -v socat >/dev/null; then
+        apt-get update -q --error-on=any
+        apt-get install -y -q --no-install-recommends socat
+      fi
+      systemctl enable --now{{range .Forwards}} agentbox-vsock-{{.Port}}.service{{end}}
+
+      apt-get update -q --error-on=any
+      apt-get install -y -q --no-install-recommends {{.Packages}}
+      systemctl enable --now agentbox-host-guard.service
+
+      # Incus's pool, on the disk the host gives the VM for it. agentbox host
+      # setup, run next, leaves a pool named default alone.
+      systemctl start incus.socket
+      incus storage show default >/dev/null 2>&1 ||
+        incus storage create default btrfs source={{sh .PoolDevice}}
+
+runcmd:
+  - [/usr/local/lib/agentbox/provision.sh]

@@ -149,14 +149,35 @@ func virtiofsdArgs(c Config, l Layout, sandbox string) []string {
 // are the same whatever network the host is on. No ports are forwarded to the
 // VM: what the host reaches in it goes over vsock.
 func passtArgs(l Layout) []string {
-	return []string{
+	args := []string{
 		"--vhost-user", "--socket", l.PasstSocket(),
 		"--foreground",
 		"--address", GuestAddr, "--netmask", "24",
 		"--gateway", GuestGateway,
-		"--dns-forward", GuestDNS,
+		"--dns-forward", GuestDNS, "--dns", GuestDNS,
 		"--tcp-ports", "none", "--udp-ports", "none",
 	}
+	// passt forwards the VM's DNS to the host's resolver, but skips one on a
+	// loopback address (systemd-resolved's 127.0.0.53), which leaves the VM
+	// with none: name it.
+	if ns := hostNameserver("/etc/resolv.conf"); ns != "" {
+		args = append(args, "--dns-host", ns)
+	}
+	return args
+}
+
+// hostNameserver is the first nameserver in resolv.conf, or "".
+func hostNameserver(file string) string {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	for line := range strings.Lines(string(b)) {
+		if f := strings.Fields(line); len(f) >= 2 && f[0] == "nameserver" {
+			return f[1]
+		}
+	}
+	return ""
 }
 
 // memHotplugAlign is what virtio-mem's region must be a multiple of.
@@ -195,7 +216,9 @@ func chArgs(c Config, l Layout) []string {
 		"path=" + l.PoolDisk() + ",image_type=raw,serial=agentbox-pool" + limit,
 	}
 	if _, err := os.Stat(l.Seed()); err == nil {
-		disks = append(disks, "path="+l.Seed()+",image_type=raw,readonly=on")
+		// sparse=off: Cloud Hypervisor probes discard with fallocate, which a
+		// read-only file fails, and says so on every boot.
+		disks = append(disks, "path="+l.Seed()+",image_type=raw,readonly=on,sparse=off")
 	}
 	args = append(args, "--disk")
 	args = append(args, disks...)
