@@ -42,6 +42,7 @@ var tsTypes = []any{
 	ResolveMemoryRequest{}, ConsolidateRequest{}, ConsolidationPass{}, MemoryConsolidation{}, MemoryDuplicate{},
 	Task{}, AddTaskRequest{}, UpdateTaskRequest{}, LinkTasksRequest{},
 	TokenCounts{}, ModelTokens{}, AgentTokens{}, TokenBucket{}, TokenReport{}, TokenTurn{}, ClaudeLimit{}, ClaudeLimitWindow{},
+	VMStatus{}, VMMemory{}, VMDisk{}, VMStopRequest{},
 }
 
 var tsConstants = [][2]string{
@@ -70,6 +71,8 @@ var tsConstants = [][2]string{
 	{"FeatureSettingsGeneral", FeatureSettingsGeneral}, {"FeatureSettingsModels", FeatureSettingsModels}, {"FeatureSettingsResources", FeatureSettingsResources}, {"FeatureSettingsProject", FeatureSettingsProject}, {"FeatureSettingsSearch", FeatureSettingsSearch},
 	{"FeatureMenuOpenChat", FeatureMenuOpenChat}, {"FeatureMenuOpenTerminal", FeatureMenuOpenTerminal}, {"FeatureMenuInfo", FeatureMenuInfo}, {"FeatureMenuLifecycle", FeatureMenuLifecycle}, {"FeatureMenuRetire", FeatureMenuRetire},
 	{"FeatureMenuCopyBranch", FeatureMenuCopyBranch}, {"FeatureMenuOpenPullRequest", FeatureMenuOpenPullRequest}, {"FeatureMenuDestroy", FeatureMenuDestroy},
+	{"ModeHost", ModeHost}, {"ModeVM", ModeVM}, {"VMDriverLima", VMDriverLima}, {"VMDriverCloudHypervisor", VMDriverCloudHypervisor},
+	{"VMOff", VMOff}, {"VMStarting", VMStarting}, {"VMRunning", VMRunning}, {"VMPaused", VMPaused}, {"VMStopping", VMStopping}, {"VMMissing", VMMissing},
 }
 
 func TestTypeScriptTypesAreUpToDate(t *testing.T) {

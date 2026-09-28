@@ -1579,6 +1579,35 @@ export interface ClaudeLimitWindow {
   resetsAt: string;
 }
 
+export interface VMStatus {
+  mode: string;
+  driver: string;
+  name?: string;
+  state: string;
+  since: string;
+  problem?: string;
+  cpus?: number;
+  memory: VMMemory;
+  disk: VMDisk;
+}
+
+export interface VMMemory {
+  min: number;
+  cap: number;
+  granted: number;
+  used: number;
+  resident: number;
+}
+
+export interface VMDisk {
+  size: number;
+  used: number;
+}
+
+export interface VMStopRequest {
+  agents?: boolean;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -1672,3 +1701,13 @@ export const FeatureMenuRetire = "menu.agent.retire";
 export const FeatureMenuCopyBranch = "menu.agent.copy_branch";
 export const FeatureMenuOpenPullRequest = "menu.agent.open_pr";
 export const FeatureMenuDestroy = "menu.agent.destroy";
+export const ModeHost = "host";
+export const ModeVM = "vm";
+export const VMDriverLima = "lima";
+export const VMDriverCloudHypervisor = "cloud-hypervisor";
+export const VMOff = "off";
+export const VMStarting = "starting";
+export const VMRunning = "running";
+export const VMPaused = "paused";
+export const VMStopping = "stopping";
+export const VMMissing = "missing";
