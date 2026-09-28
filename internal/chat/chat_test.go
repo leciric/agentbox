@@ -1784,6 +1784,10 @@ func TestHeldBackMessageIsLostAcrossRestart(t *testing.T) {
 		return acp.PromptResponse{StopReason: "end_turn"}
 	})
 	m, _ := newManager(t, store, f)
+	// The first turn stays running until the test is over: ending it would
+	// have the first manager deliver the held-back message while the second
+	// is reading the store, which a daemon that has stopped never does.
+	defer close(release)
 
 	if _, err := m.Send(testAgent, "Start"); err != nil {
 		t.Fatal(err)
@@ -1795,7 +1799,6 @@ func TestHeldBackMessageIsLostAcrossRestart(t *testing.T) {
 	waitThread(t, m, testAgent, "the message to be stored", func(th api.ChatThread) bool {
 		return find(th, "aside", 0).Delivery == api.ChatAsideDeferred
 	})
-	close(release)
 
 	// A new manager over the same store is the daemon starting again.
 	second, _ := newManager(t, store, newFakeTool(answerHello))
