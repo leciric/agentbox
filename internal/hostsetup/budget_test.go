@@ -39,6 +39,21 @@ func TestInstallBudgetRefusesANonUID(t *testing.T) {
 	}
 }
 
+// Host setup on a host without cgroup v2 skips the budget, saying so, and
+// doesn't fail over it.
+func TestSetUpBudgetSkipsWithoutCgroupV2(t *testing.T) {
+	old := cgroupControllers
+	cgroupControllers = filepath.Join(t.TempDir(), "cgroup.controllers")
+	t.Cleanup(func() { cgroupControllers = old })
+	var said []string
+	if err := SetUpBudget("lint", "1000", func(s string) { said = append(said, s) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(said) != 1 || !strings.Contains(said[0], "cgroup v2") {
+		t.Errorf("said %q", said)
+	}
+}
+
 func TestRemoveBudget(t *testing.T) {
 	old := budgetUnitDir
 	budgetUnitDir = t.TempDir()

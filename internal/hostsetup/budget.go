@@ -24,8 +24,9 @@ import (
 // controller or io.cost, the unit still makes the budget's memory and CPU
 // files, and Settings says what's missing.
 //
-// It is its own command rather than part of host setup: the budget is off by
-// default, and a host that never turns it on never gets the unit.
+// Host setup installs it too (SetUpBudget), so that on a new host the budget
+// is usable, and so on, without anyone looking for it; `agentbox host budget`
+// is the same step on its own, for hosts set up before host setup did it.
 
 // BudgetCgroupDir is the shared budget's cgroup.
 const BudgetCgroupDir = "/sys/fs/cgroup/agentbox"
@@ -113,6 +114,22 @@ func InstallBudget(name, uid string, log func(string)) error {
 	}
 	return nil
 }
+
+// SetUpBudget is InstallBudget as part of host setup: skipped, with a line
+// saying why, on a host without cgroup v2, where there can be no budget. An
+// error is the caller's to report; host setup carries on without the budget
+// rather than failing over it.
+func SetUpBudget(name, uid string, log func(string)) error {
+	if _, err := os.Stat(cgroupControllers); err != nil {
+		log("This host doesn't use cgroup v2, so there is no shared agent budget: skipping its cgroup.")
+		return nil
+	}
+	return InstallBudget(name, uid, log)
+}
+
+// cgroupControllers is the file only a cgroup v2 root has. A variable for
+// tests.
+var cgroupControllers = "/sys/fs/cgroup/cgroup.controllers"
 
 // RemoveBudget disables and deletes the unit. The cgroup itself stays until
 // the next reboot, since agents may still be running in it.

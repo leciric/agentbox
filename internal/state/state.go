@@ -632,6 +632,13 @@ var migrations = []string{
 	// the opposite so that zero, the default for every project existing and
 	// new, is on.
 	`ALTER TABLE projects ADD COLUMN base_sync_off INTEGER NOT NULL DEFAULT 0`,
+
+	// The shared budget turns itself on now for whoever hasn't chosen
+	// (SettingSharedBudget), but not under an installation already in use:
+	// one with projects is offered it instead. A fresh database has none, so
+	// nothing is written there.
+	`INSERT INTO settings (key, value) SELECT 'shared_budget_offer', '1'
+	WHERE EXISTS (SELECT 1 FROM projects) AND NOT EXISTS (SELECT 1 FROM settings WHERE key = 'shared_budget')`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

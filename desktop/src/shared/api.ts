@@ -143,6 +143,8 @@ export interface SharedBudget {
   notReady?: string;
   setupCommand: string;
   problem?: string;
+  autoOn?: boolean;
+  offer?: boolean;
   inside: number;
   pending: number;
   diskWeight: number;

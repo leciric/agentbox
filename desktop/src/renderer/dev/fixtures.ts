@@ -843,7 +843,28 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.gpuForAgents !== undefined) next.gpuForAgents = req.gpuForAgents;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
-  if (req.sharedBudget !== undefined) next.sharedBudget = { ...next.sharedBudget, on: req.sharedBudget };
+  // Turned on or off, it's chosen: no longer offered, and on, the cgroup is
+  // there (the dev bridge's hostSetup.budget stands in for pkexec) and the
+  // offer's two running agents are waiting for their next start.
+  if (req.sharedBudget !== undefined)
+    next.sharedBudget = {
+      ...next.sharedBudget,
+      on: req.sharedBudget,
+      offer: false,
+      autoOn: false,
+      ...(req.sharedBudget && next.sharedBudget.offer ? { notReady: undefined, pending: 2 } : {}),
+    };
+  if (req.sharedBudget !== undefined && devState.setup)
+    devState.setup = {
+      ...devState.setup,
+      checks: devState.setup.checks.map((c) =>
+        c.id !== 'budget'
+          ? c
+          : req.sharedBudget
+            ? { ...c, status: 'ok', fix: undefined, detail: `on: agents share ${next.sharedBudget.memory} of memory, ${next.sharedBudget.swap} of swap and ${next.sharedBudget.cpu} cores. 2 running agents join it at their next start` }
+            : { ...c, fix: undefined, detail: 'off: you turned it off in Settings' },
+      ),
+    };
   if (req.sharedBudgetDiskWeight !== undefined)
     next.sharedBudget = { ...next.sharedBudget, diskWeight: req.sharedBudgetDiskWeight || next.sharedBudget.suggested.diskWeight };
   if (req.sharedBudgetDiskWrite !== undefined)
@@ -882,6 +903,41 @@ export function seedBudget(queryClient: QueryClient, short: boolean): void {
     },
   };
   queryClient.setQueryData(['settings'], defaultsSettings);
+}
+
+// seedBudgetOffer is an installation from before the shared budget was on by
+// default (?budget=offer): off, never chosen, its cgroup not made yet, so
+// Settings and Setup offer to turn it on, in one click through pkexec.
+export function seedBudgetOffer(queryClient: QueryClient): void {
+  defaultsSettings = {
+    ...defaultsSettings,
+    sharedBudget: {
+      ...defaultsSettings.sharedBudget,
+      offer: true,
+      notReady:
+        'it needs /sys/fs/cgroup/agentbox, a cgroup only root can make: Set up asks for your password once, and installs a small unit that makes it at every boot. (/sys/fs/cgroup/agentbox doesn\'t exist)',
+    },
+  };
+  queryClient.setQueryData(['settings'], defaultsSettings);
+  const setup = queryClient.getQueryData<T.SetupStatus>(['setup']);
+  if (setup) {
+    devState.setup = {
+      ...setup,
+      checks: [
+        ...setup.checks,
+        {
+          id: 'budget',
+          title: 'Shared agent budget',
+          status: 'optional',
+          required: false,
+          detail:
+            'off: new installations have it on, and this one was set up before they did. Turning it on protects this computer\'s memory, CPU and disk from the agents',
+          fix: 'sudo "$(command -v agentbox)" host budget',
+        },
+      ],
+    };
+    queryClient.setQueryData(['setup'], devState.setup);
+  }
 }
 
 // seedDefaults puts defaultsSettings where the Settings components read them.
