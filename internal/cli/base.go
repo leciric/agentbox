@@ -90,10 +90,20 @@ func newBaseShowCmd(a *app) *cobra.Command {
 			_, _ = fmt.Fprintf(w, "base\t%s\n", base.Snapshot)
 			_, _ = fmt.Fprintf(w, "saved from\t%s\n", base.SavedFrom)
 			_, _ = fmt.Fprintf(w, "saved\t%s (%s)\n", base.SavedAt.Local().Format(time.DateTime), ago(base.SavedAt))
+			if base.Image != "" {
+				_, _ = fmt.Fprintf(w, "image\t%s, tools %s\n", base.Image, orUnknown(base.Tools))
+			}
 			if base.Previous != nil {
 				_, _ = fmt.Fprintf(w, "previous\t%s, saved from %s (%s)\n", base.Previous.Snapshot, base.Previous.SavedFrom, ago(base.Previous.SavedAt))
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			if base.Behind != nil {
+				_, _ = fmt.Fprintf(out, "\nThe base image has moved on since this base was saved:\n%s"+
+					"Refresh it: agentbox create %s --catch-up makes an agent from it and catches its machine up; check the project works in it, then save it with agentbox base save.\n", describeBehind(base.Behind), args[0])
+			}
+			return nil
 		},
 	}
 }
@@ -149,4 +159,42 @@ func newBaseRmCmd(a *app) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&previous, "previous", false, "delete only what the last save kept, giving its disk back")
 	return cmd
+}
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "unknown"
+	}
+	return s
+}
+
+// describeBehind lists what a base is behind the image on, a line each.
+func describeBehind(b *api.BaseBehind) string {
+	var out strings.Builder
+	switch {
+	case b.ImageTo != "" && b.ImageFrom == "":
+		fmt.Fprintf(&out, "  image: unknown → %s\n", b.ImageTo)
+	case b.ImageTo != "":
+		fmt.Fprintf(&out, "  image: %s → %s\n", b.ImageFrom, b.ImageTo)
+	}
+	for _, c := range b.Changes {
+		fmt.Fprintf(&out, "    %s: %s\n", c.Version, c.What)
+	}
+	if len(b.Components) > 0 {
+		fmt.Fprintf(&out, "  new in the image: %s\n", strings.Join(b.Components, ", "))
+	}
+	if b.ToolsUnknown {
+		out.WriteString("  tools: not recorded; a catch-up installs every pinned one\n")
+	}
+	for _, t := range b.Tools {
+		switch {
+		case t.From == "":
+			fmt.Fprintf(&out, "  %s: new, %s\n", t.Name, t.To)
+		case t.To == "":
+			fmt.Fprintf(&out, "  %s: %s, no longer pinned\n", t.Name, t.From)
+		default:
+			fmt.Fprintf(&out, "  %s: %s → %s\n", t.Name, t.From, t.To)
+		}
+	}
+	return out.String()
 }

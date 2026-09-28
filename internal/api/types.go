@@ -104,6 +104,12 @@ type Project struct {
 	// PRWatch is whether the daemon watches this project's agents' pull
 	// requests: "" to follow Settings.PRWatch, "on" or "off" to override it.
 	PRWatch string `json:"prWatch"`
+	// SyncBase is whether the daemon keeps this project's base branch (main)
+	// up to date with its remote: it fetches every few minutes and before it
+	// creates an agent, and fast-forwards the local branch when it is strictly
+	// behind — never a diverged branch, and a checked-out one only when its
+	// checkout has no changes. On by default.
+	SyncBase bool `json:"syncBase"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -242,6 +248,9 @@ type UpdateProjectRequest struct {
 	// PRWatch is "on" or "off" to override the installation's pull request
 	// watch for this project, or "" to follow it again.
 	PRWatch *string `json:"prWatch,omitempty"`
+	// SyncBase turns on or off keeping this project's base branch up to date
+	// with its remote.
+	SyncBase *bool `json:"syncBase,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -647,6 +656,12 @@ type CreateAgentRequest struct {
 	GitHubAccount string `json:"githubAccount,omitempty"`
 	NoEnv         bool   `json:"noEnv,omitempty"`
 	Clean         bool   `json:"clean,omitempty"`
+	// CatchUp brings the new agent's machine up to the base image AgentBox
+	// makes now, before it is given its task: the system packages and the
+	// agent tools its project's base is behind on. It is how refreshing a
+	// project base catches the base up, and the task is told what was done,
+	// or what failed. An agent that isn't behind is left as it is.
+	CatchUp bool `json:"catchUp,omitempty"`
 	// CPU, Memory and CPUAllowance cap this one agent's machine, whatever new
 	// agents are capped at. Absent falls back to that default; an explicit ""
 	// is a choice, and removes the cap for this agent alone, which is why all
@@ -709,10 +724,49 @@ type Base struct {
 	Snapshot  string    `json:"snapshot"`
 	SavedFrom string    `json:"savedFrom"`
 	SavedAt   time.Time `json:"savedAt"`
+	// Image is the version of the base image the base descends from, and
+	// Tools the version of its agent tools, as the machine it was saved from
+	// recorded them; either is empty for a base from before it was recorded.
+	Image string `json:"image,omitempty"`
+	Tools string `json:"tools,omitempty"`
+	// Behind is what the base image AgentBox makes now has that this base
+	// doesn't; nil when it has everything, or on Previous. Refreshing the base
+	// with CatchUp brings it up to date.
+	Behind *BaseBehind `json:"behind,omitempty"`
 	// Previous is the base this one replaced, kept by the save so it can be
 	// undone; nil when there is nothing to go back to. It is one step only:
 	// the next save keeps this base and drops that one.
 	Previous *Base `json:"previous,omitempty"`
+}
+
+// BaseBehind is how far a project base is behind the base image.
+type BaseBehind struct {
+	// ImageTo is the image version the base would catch up to, set when the
+	// image moved on since ImageFrom, which is empty when the base doesn't
+	// record one. Changes are what each version since changed, in words.
+	ImageFrom string            `json:"imageFrom,omitempty"`
+	ImageTo   string            `json:"imageTo,omitempty"`
+	Changes   []BaseImageChange `json:"changes,omitempty"`
+	// Components are the optional parts of the image the base lacks, named
+	// for a person: "Incus", "Codex".
+	Components []string `json:"components,omitempty"`
+	// Tools are the agent tools that move, and ToolsUnknown says the base
+	// doesn't record its tools, so a catch-up installs every pinned one.
+	Tools        []BaseToolChange `json:"tools,omitempty"`
+	ToolsUnknown bool             `json:"toolsUnknown,omitempty"`
+}
+
+type BaseImageChange struct {
+	Version string `json:"version"`
+	What    string `json:"what"`
+}
+
+// BaseToolChange is one agent tool that moves: From is empty for one the base
+// hasn't got, To for one that goes.
+type BaseToolChange struct {
+	Name string `json:"name"`
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
 }
 
 type SaveBaseRequest struct {
@@ -1842,6 +1896,11 @@ const (
 	FeatureSettingsAccounts    = "settings.view.accounts"
 	FeatureSettingsLead        = "settings.view.lead"
 	FeatureSettingsAgents      = "settings.view.agents"
+	FeatureSettingsGeneral     = "settings.view.general"
+	FeatureSettingsModels      = "settings.view.models"
+	FeatureSettingsResources   = "settings.view.resources"
+	FeatureSettingsProject     = "settings.view.project"
+	FeatureSettingsSearch      = "settings.search"
 	FeatureMenuOpenChat        = "menu.agent.open_chat"
 	FeatureMenuOpenTerminal    = "menu.agent.open_terminal"
 	FeatureMenuInfo            = "menu.agent.info"
@@ -1857,6 +1916,7 @@ var AppFeatures = []string{
 	FeatureDesktopOpen, FeatureTerminalOpen, FeatureAndroidOpen, FeatureAgentMediaView, FeatureProjectMediaView,
 	FeaturePullList, FeatureMemoryView, FeatureTokensView,
 	FeatureSettingsEnvironment, FeatureSettingsAccounts, FeatureSettingsLead, FeatureSettingsAgents,
+	FeatureSettingsGeneral, FeatureSettingsModels, FeatureSettingsResources, FeatureSettingsProject, FeatureSettingsSearch,
 	FeatureMenuOpenChat, FeatureMenuOpenTerminal, FeatureMenuInfo, FeatureMenuLifecycle, FeatureMenuRetire,
 	FeatureMenuCopyBranch, FeatureMenuOpenPullRequest, FeatureMenuDestroy,
 }

@@ -322,7 +322,7 @@ export function buildFixtures(): FixtureData {
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
-      finishNotices: 'all',
+      finishNotices: 'lead',
       rolloverThreshold: 0,
       contextBudget: 0,
       consolidation: 0,
@@ -331,6 +331,7 @@ export function buildFixtures(): FixtureData {
       position: 0,
       nesting: false,
       agentPRs: false,
+      syncBase: true,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -347,7 +348,7 @@ export function buildFixtures(): FixtureData {
       autonomy: 'ask',
       agentModel: '',
       branchPrefix: 'agentbox/',
-      finishNotices: 'all',
+      finishNotices: 'lead',
       rolloverThreshold: 0,
       contextBudget: 0,
       consolidation: 0,
@@ -356,6 +357,7 @@ export function buildFixtures(): FixtureData {
       position: 1,
       nesting: false,
       agentPRs: false,
+      syncBase: true,
       prWatch: '',
       prWatching: true,
       createdAt: new Date().toISOString(),
@@ -838,6 +840,10 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
   if (req.sharedBudget !== undefined) next.sharedBudget = { ...next.sharedBudget, on: req.sharedBudget };
+  // The rest are stored as they are sent, the way the daemon stores them.
+  for (const key of ['defaultClaudeEffort', 'defaultCPU', 'defaultCPUAllowance', 'defaultMemory', 'resumeAfterLimit', 'claudeCompactWindow', 'updateCheck', 'usageStats', 'prWatch', 'mediaRetention'] as const) {
+    if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
+  }
   for (const [model, win] of [
     [next.defaultClaudeModel || 'opus', next.defaultAgentContextWindow],
     [next.defaultLeadModel || 'default', next.defaultLeadContextWindow],
@@ -901,6 +907,58 @@ export function seedImageUpdate(queryClient: QueryClient): void {
   };
   devState.jobLog = imageToolsLog;
   queryClient.setQueryData(['job', imageToolsJob], devState.job);
+}
+
+// seedSettings is the whole Settings page on a machine that is set up
+// (?settings=<section>): every check the daemon makes, most of them ready, one
+// that wants a look and the optional ones skipped; two Claude Code accounts,
+// the Omarchy theme followed, and the defaults above, which the dev bridge
+// saves.
+export function seedSettings(queryClient: QueryClient): void {
+  const check = (id: string, title: string, status: string, detail: string, required = true, fix?: string): T.SetupCheck => ({ id, title, status, detail, required, fix });
+  const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
+  const setup = {
+    ready: true,
+    checks: [
+      check('incus', 'Incus', 'ok', 'installed, and you can use it'),
+      check('host', 'User mapping', 'ok', 'your files in agents\' worktrees are yours'),
+      check('image', 'Base image', 'ok', 'agentbox-base 2026.09.25.1, with its agent tools up to date', true, 'agentbox image build'),
+      check('storage', 'Storage', 'warn', 'dir: every new agent is a full copy of the base image (about 6 GB)', false),
+      check('claude', 'Claude Code', 'ok', 'signed in as default', false),
+      check('codex', 'Codex', 'optional', 'not signed in', false, 'agentbox auth codex'),
+      check('opencode', 'OpenCode', 'optional', 'not in the base image', false, 'agentbox image build --opencode'),
+      check('android', 'Android', 'optional', 'no Android SDK found', false),
+      check('preview', 'Preview proxy', 'ok', 'http://<port>.<agent>.agentbox.localhost:7777', false),
+    ],
+    image: { version: '2026.09.25.1', components: { ...none, incus: true }, installed: { ...none, incus: true }, downloads: [], hint: '' },
+  } as T.SetupStatus;
+  devState.setup = setup;
+  devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };
+  devState.auth = {
+    ...devState.auth!,
+    claude: true,
+    claudeAccounts: [
+      { name: 'default', default: true, savedAt: '2026-08-01T10:00:00Z', valid: 'valid' },
+      { name: 'work', default: false, savedAt: '2026-09-12T10:00:00Z' },
+    ],
+  };
+  queryClient.setQueryData(['setup'], setup);
+  queryClient.setQueryData(['cli'], devState.cli);
+  queryClient.setQueryData(['auth'], devState.auth);
+  queryClient.setQueryData(['settings'], defaultsSettings);
+  queryClient.setQueryData(['update'], { current: '0.7.0', enabled: true } satisfies T.UpdateStatus);
+  queryClient.setQueryData(['theme'], {
+    appearance: 'follow',
+    available: true,
+    name: 'Tokyo Night',
+    mode: 'dark',
+    background: '#1a1b26',
+    surface: '#24283b',
+    foreground: '#c0caf5',
+    muted: '#565f89',
+    accent: '#7aa2f7',
+  } satisfies T.Theme);
+  queryClient.setQueryData(['host-setup'], {});
 }
 
 // seedMeterUsage is the top bar's CPU and memory popovers (?meters=cpu,

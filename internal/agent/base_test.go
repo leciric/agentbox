@@ -2,11 +2,13 @@ package agent_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/image"
 	"agentbox/internal/state"
 )
 
@@ -144,4 +146,126 @@ func ran(t *testing.T, calls []string, want string) {
 	if !slices.Contains(calls, want) {
 		t.Errorf("incus was never given %q; it ran:\n  %s", want, strings.Join(calls, "\n  "))
 	}
+}
+
+// imageConfig is what an instance copied from an image of this version, with
+// these tools, carries in its configuration.
+func imageConfig(version string, incus bool, tools []string) string {
+	with := "0"
+	if incus {
+		with = "1"
+	}
+	return fmt.Sprintf(`{"config":{"user.agentbox.image-version":%q,"user.agentbox.with-incus":%q,"user.agentbox.tools":%q,"user.agentbox.saved-from":"organic/agent-03","user.agentbox.saved-at":"2026-09-21T10:00:00Z"}}`,
+		version, with, strings.Join(tools, " "))
+}
+
+func pinnedTools(claude string) []string {
+	var specs []string
+	for _, tool := range image.ToolsFor(image.Components{}) {
+		spec := tool.Spec
+		if claude != "" && tool.Name() == "claude" {
+			spec = "claude@" + claude
+		}
+		specs = append(specs, spec)
+	}
+	return specs
+}
+
+// A base saved before the image moved on — organic's, from 2026.09.21.1,
+// before Mesa went in — reads as behind it, on what changed since.
+func TestProjectBaseKnowsTheImageItDescendsFrom(t *testing.T) {
+	inc, _ := loggingIncus(t, fmt.Sprintf(`case "$1" in
+  query)
+    case "$2" in
+      */snapshots) echo "[\"$2/ready\"]" ;;
+      */agentbox-base) echo '%s' ;;
+      *) echo '%s' ;;
+    esac ;;
+esac
+exit 0`, imageConfig(image.Version, false, pinnedTools("")), imageConfig("2026.09.21.1", false, pinnedTools("0.0.1"))))
+	f := setup(t, inc)
+
+	base, ok, err := f.m.ProjectBase(context.Background(), "organic")
+	if err != nil || !ok {
+		t.Fatalf("ProjectBase() = %v, %v", ok, err)
+	}
+	if base.Built.Version != "2026.09.21.1" || len(base.Built.Tools) == 0 {
+		t.Errorf("Built = %+v", base.Built)
+	}
+	behind, err := f.m.BaseBehind(context.Background(), base)
+	if err != nil || !behind.Any() {
+		t.Fatalf("BaseBehind() = %+v, %v", behind, err)
+	}
+	said := agent.DescribeBehind(behind)
+	for _, want := range []string{"image 2026.09.21.1 → " + image.Version, "Mesa", "claude 0.0.1 → "} {
+		if !strings.Contains(said, want) {
+			t.Errorf("DescribeBehind() = %q, missing %q", said, want)
+		}
+	}
+}
+
+// The refresh agent's machine is caught up in place, then recorded as
+// descending from the current image, which is what a base saved from it
+// carries.
+func TestCatchUpTheRefreshAgent(t *testing.T) {
+	inc, calls := loggingIncus(t, fmt.Sprintf(`case "$1" in
+  query)
+    case "$2" in
+      */agentbox-base) echo '%s' ;;
+      *) echo '%s' ;;
+    esac ;;
+esac
+exit 0`, imageConfig(image.Version, true, pinnedTools("")), imageConfig("2026.09.21.1", false, pinnedTools("0.0.1"))))
+	f := setup(t, inc)
+	a := state.Agent{Project: "organic", Name: "agent-07", Instance: "ab-organic-agent-07"}
+
+	what, err := f.m.CatchUp(context.Background(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(what, "Incus, which the image has now") || !strings.Contains(what, "claude 0.0.1 → ") {
+		t.Errorf("CatchUp() said %q", what)
+	}
+	oneCall(t, calls(), "exec ab-organic-agent-07 -T --env AGENTBOX_WITH_ANDROID=0")
+	oneCall(t, calls(), "exec ab-organic-agent-07 -T -- /root/tools.sh install dev /root/tools.list")
+	oneCall(t, calls(), "config set ab-organic-agent-07 user.agentbox.image-version="+image.Version+" ")
+}
+
+// An agent made from a base that is up to date is left as it is.
+func TestCatchUpLeavesAnUpToDateAgentAlone(t *testing.T) {
+	current := imageConfig(image.Version, false, pinnedTools(""))
+	inc, calls := loggingIncus(t, fmt.Sprintf(`case "$1" in
+  query) echo '%s' ;;
+esac
+exit 0`, current))
+	f := setup(t, inc)
+	a := state.Agent{Project: "organic", Name: "agent-07", Instance: "ab-organic-agent-07"}
+
+	what, err := f.m.CatchUp(context.Background(), a)
+	if err != nil || what != "" {
+		t.Fatalf("CatchUp() = %q, %v", what, err)
+	}
+	noCall(t, calls(), "exec ")
+	noCall(t, calls(), "config set ")
+}
+
+// A save keeps what the agent's machine descends from: it is the machine's,
+// not the agent's, unlike its limits.
+func TestSaveBaseKeepsWhatTheImageRecorded(t *testing.T) {
+	inc, calls := loggingIncus(t, fmt.Sprintf(`case "$1" in
+  list) echo '[{"name":"ab-organic-base-next","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.9"}]}}}}]' ;;
+  query) echo '%s' ;;
+esac
+exit 0`, imageConfig(image.Version, false, pinnedTools(""))))
+	f := setup(t, inc)
+	a := state.Agent{Project: "organic", Name: "agent-07", Instance: "ab-organic-agent-07"}
+
+	base, err := f.m.SaveBase(context.Background(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.Built.Version != image.Version {
+		t.Errorf("Built = %+v", base.Built)
+	}
+	noCall(t, calls(), "config unset ab-organic-base-next user.agentbox.")
 }

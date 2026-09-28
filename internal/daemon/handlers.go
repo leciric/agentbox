@@ -49,7 +49,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, CreatedAt: p.CreatedAt}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -421,6 +421,15 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		s.prWatch.poke(p.Name)
 		rewriteBrief()
 	}
+	if req.SyncBase != nil {
+		if err := s.store.SetProjectBaseSync(r.Context(), p.Name, *req.SyncBase); err != nil {
+			return err
+		}
+		p.BaseSyncOff = !*req.SyncBase
+		if *req.SyncBase {
+			go s.syncBase(s.background(), p)
+		}
+	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
 
@@ -709,6 +718,12 @@ func (s *Server) getBase(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("project %s has no saved base: %w", project, state.ErrNotFound)
 	}
 	out := apiBase(base)
+	// How far it is behind the image is worth showing but not worth failing
+	// over: a machine whose base image is being rebuilt has none to compare
+	// with for a while.
+	if behind, err := m.BaseBehind(r.Context(), base); err == nil && behind.Any() {
+		out.Behind = apiBaseBehind(behind)
+	}
 	// What the last save replaced, when it kept one: the app offers going back
 	// to it, and says so beside the base that replaced it.
 	if previous, ok, err := m.PreviousBase(r.Context(), project); err != nil {
@@ -721,7 +736,24 @@ func (s *Server) getBase(w http.ResponseWriter, r *http.Request) error {
 }
 
 func apiBase(base agent.Base) api.Base {
-	return api.Base{Snapshot: base.SnapshotRef(), SavedFrom: base.SavedFrom, SavedAt: base.SavedAt}
+	return api.Base{Snapshot: base.SnapshotRef(), SavedFrom: base.SavedFrom, SavedAt: base.SavedAt,
+		Image: base.Built.Version, Tools: base.Built.ToolsVersion}
+}
+
+func apiBaseBehind(b image.Behind) *api.BaseBehind {
+	out := &api.BaseBehind{Components: b.Components, ToolsUnknown: b.ToolsUnknown}
+	if b.Image {
+		out.ImageFrom, out.ImageTo = b.From, image.Version
+		for _, c := range b.Changes {
+			out.Changes = append(out.Changes, api.BaseImageChange{Version: c.Version, What: c.What})
+		}
+	}
+	if !b.ToolsUnknown {
+		for _, c := range b.ToolChanges() {
+			out.Tools = append(out.Tools, api.BaseToolChange{Name: c.Name, From: c.From, To: c.To})
+		}
+	}
+	return out
 }
 
 func (s *Server) saveBase(w http.ResponseWriter, r *http.Request) error {
@@ -955,7 +987,7 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	if err := s.manager(nil).ChatChoices(r.Context(), req.AI, req.Model, req.Effort); err != nil {
 		return err
 	}
-	// The lead is held to Settings → Agents: the model and window chosen there
+	// The lead is held to Settings → Models: the model and window chosen there
 	// are either the only ones it may give an agent or the most it may, and
 	// the error tells it which, so it can ask again rather than have its
 	// choice quietly changed. The user, in the dialog or the command line,
@@ -984,6 +1016,13 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	// doing what every caller already asked for.
 	autonomous := req.Autonomous == nil || *req.Autonomous
 	return s.startJob(w, "create", req.Project, func(ctx context.Context, log io.Writer) (any, error) {
+		// What a catch-up ran is kept too, so a failed one can show the agent
+		// its last lines.
+		var ran *tailWriter
+		if req.CatchUp {
+			ran = &tailWriter{max: catchUpTail}
+			log = io.MultiWriter(log, ran)
+		}
 		a, err := s.manager(log).Create(ctx, req.Project, agent.CreateOptions{
 			Name:          req.Name,
 			Branch:        req.Branch,
@@ -1027,6 +1066,18 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 			s.countFeature(api.FeatureAgentCreateByLead)
 		}
 		task := strings.TrimSpace(req.Task)
+		// Before the task, which is why the agent was made from the base: a
+		// catch-up changes the machine the task then checks and saves.
+		send := task
+		if req.CatchUp {
+			what, err := s.manager(log).CatchUp(ctx, a)
+			if err != nil {
+				_, _ = fmt.Fprintf(log, "the agent was made, but it couldn't be caught up with the base image: %v\n", err)
+			}
+			if note := catchUpNote(what, err, ran.String()); note != "" && send != "" {
+				send = note + "\n\n---\n\n" + send
+			}
+		}
 		model := ""
 		if req.Model != nil {
 			model = *req.Model
@@ -1042,7 +1093,7 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 			if byLead {
 				s.leadAsked(a)
 			}
-			if _, err := s.chat.Send(a, task); err != nil {
+			if _, err := s.chat.Send(a, send); err != nil {
 				_, _ = fmt.Fprintf(log, "the agent was made, but its task couldn't be sent: %v\n", err)
 			}
 		}

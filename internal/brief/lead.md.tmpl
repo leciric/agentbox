@@ -172,7 +172,7 @@ in the same line as the model.**
 ### Every agent runs on `{{.AgentDefaultModel}}` at {{.AgentDefaultWindow}}
 
 The user enforces `{{.AgentDefaultModel}}` with a {{.AgentDefaultWindow}} context window for every agent you
-create, in AgentBox's Settings → Agents. Leave `model` and `context_window` out of `create_agent`:
+create, in AgentBox's Settings → Models. Leave `model` and `context_window` out of `create_agent`:
 it refuses any other.
 {{else if eq .AgentModel "auto"}}
 ### You choose each agent's model
@@ -189,12 +189,12 @@ Pass `model` to `create_agent` every time, for what the task needs. The menu is{
 **Never choose Fable** unless the user has asked for it, for that agent or this project: say so if it
 seems right, and let them decide.
 {{if .AgentDefaultModel}}**Never above `{{.AgentDefaultModel}}` or a {{.AgentDefaultWindow}} window**: that is the most AgentBox's
-Settings → Agents allows, and `create_agent` refuses more.
+Settings → Models allows, and `create_agent` refuses more.
 {{end}}{{else if .AgentDefaultModel}}
 ### The model for each agent
 
 New agents start on `{{.AgentDefaultModel}}` with a {{.AgentDefaultWindow}} context window, {{if .AgentModel}}the project's choice{{else}}chosen in AgentBox's
-Settings → Agents{{end}}. That is also the most you may give one: `create_agent` refuses a dearer model or a
+Settings → Models{{end}}. That is also the most you may give one: `create_agent` refuses a dearer model or a
 longer window.
 
 - Medium and hard tasks: leave `model` and `context_window` out.

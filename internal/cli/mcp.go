@@ -87,7 +87,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	var models, efforts, openCodeModels []string
 	var openCode bool
 	// The defaults an agent created with none of these gets, named in the
-	// descriptions below: Settings → Agents, with AgentBox's own defaults
+	// descriptions below: Settings → Models, with AgentBox's own defaults
 	// under them. The lead's own defaults are another section of Settings and
 	// never reach its agents.
 	defaultModel, defaultWindow := state.DefaultClaudeModel, "200k"
@@ -115,7 +115,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// thing at greater length; this is what a model reads at the moment it
 	// fills the tool call in.
 	var auto bool
-	defaultFrom := "the model new agents start on in AgentBox's Settings → Agents"
+	defaultFrom := "the model new agents start on in AgentBox's Settings → Models"
 	if p, err := c.ProjectSelf(ctx); err == nil {
 		auto = p.AgentModel == api.AgentModelAuto
 		if p.AgentModel != "" && !auto {
@@ -140,21 +140,21 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 			"design work, or a bug whose cause nobody has found. Say which you chose, and why, in one line as you create the agent. " +
 			"Never choose Fable unless the user has asked for it, for this agent or for this project. A model Claude Code won't " +
 			"accept is refused when the agent starts, and the agent says so in its own chat, so don't guess one. Leaving this out " +
-			"doesn't fail: the agent falls back to " + defaultModel + ", the model new agents start on in AgentBox's Settings → Agents."
+			"doesn't fail: the agent falls back to " + defaultModel + ", the model new agents start on in AgentBox's Settings → Models."
 	}
-	// Settings → Agents either fixes the model and window (enforced) or caps
+	// Settings → Models either fixes the model and window (enforced) or caps
 	// them, and create_agent refuses what breaks either (agent.CheckLeadChoice):
 	// saying so here is what keeps the lead from asking for it in the first
 	// place. Enforcing wins over a project that leaves the model to the lead.
 	if enforced {
-		model = "the model this agent runs on. AgentBox's Settings → Agents enforces " + defaultModel + " for every agent you " +
+		model = "the model this agent runs on. AgentBox's Settings → Models enforces " + defaultModel + " for every agent you " +
 			"create, so leave this out: any other model is refused."
 	} else if !auto {
 		model += " That model is also the most you may use: choose a cheaper one for an easy task (sonnet for small, " +
 			"well-defined work, haiku for a mechanical job like a rename or a config change) and keep " + defaultModel +
 			" for medium and hard ones. A model above it is refused."
 	} else {
-		model += " Never choose one above " + defaultModel + ": it is the most Settings → Agents allows, and a model above it is refused."
+		model += " Never choose one above " + defaultModel + ": it is the most Settings → Models allows, and a model above it is refused."
 	}
 	// The AI tool itself, offered only when an agent could really run the
 	// other one: OpenCode has to be in the base image and have a login, and
@@ -191,20 +191,20 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	params["effort"] = effort
 	params["context_window"] = str("where this agent's chat compacts, \"200k\" or \"1m\" — a Claude Code setting, checked " +
 		"against the model: Haiku has no 1M window, and asking for one is refused. Leave this out for " + defaultWindow +
-		", the window new agents start with in AgentBox's Settings → Agents (an agent whose model has no 1M window gets 200k). " +
+		", the window new agents start with in AgentBox's Settings → Models (an agent whose model has no 1M window gets 200k). " +
 		"200k (the installation's compact window) is right for nearly every task: past it, every step of the agent resends the " +
 		"whole conversation, so 1M costs up to five times as much per step late in a long task. Choose 1m only for work that " +
 		"really needs a very large codebase or log in view at once.")
 	switch {
 	case enforced:
-		params["context_window"] = str("where this agent's chat compacts. AgentBox's Settings → Agents enforces " + defaultWindow +
+		params["context_window"] = str("where this agent's chat compacts. AgentBox's Settings → Models enforces " + defaultWindow +
 			" for every agent you create, so leave this out: any other window is refused.")
 	case defaultWindow == "1m":
 		params["context_window"] = str(params["context_window"].(map[string]any)["description"].(string) +
-			" 1m is the most Settings → Agents allows.")
+			" 1m is the most Settings → Models allows.")
 	default:
 		params["context_window"] = str("where this agent's chat compacts, a Claude Code setting. Leave this out for " + defaultWindow +
-			", the window new agents start with in AgentBox's Settings → Agents. It is also the most Settings allows: a longer one is refused.")
+			", the window new agents start with in AgentBox's Settings → Models. It is also the most Settings allows: a longer one is refused.")
 	}
 	return params, auto, openCode
 }

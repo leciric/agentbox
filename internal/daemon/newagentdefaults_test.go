@@ -20,7 +20,7 @@ type launched struct {
 	window int64
 }
 
-// startWithAgentDefaults is a daemon whose Settings → Agents asks for Opus at
+// startWithAgentDefaults is a daemon whose Settings → Models asks for Opus at
 // its 1M window and medium effort, on an account where plain "opus" reported
 // a 200k window and "opus[1m]" a 1M one, with no "[1m]" entry on the model
 // menu: the settings a real installation had when every new agent still came
@@ -96,7 +96,7 @@ func createdWith(t *testing.T, d testDaemon, starts chan launched, job api.Job, 
 }
 
 // TestAgentDefaultsReachNewAgents is the bug where the model and
-// context window chosen in Settings → Agents didn't reach new agents, through
+// context window chosen in Settings → Models didn't reach new agents, through
 // each way an agent is made: the app's dialog and the command line, which
 // leave the model and window out unless one is picked, and the lead's
 // create_agent over its own socket.
@@ -134,7 +134,7 @@ func TestAgentDefaultsReachNewAgents(t *testing.T) {
 }
 
 // TestLeadDefaultsReachTheLead: the lead, which keeps no model or window of
-// its own until its composer picks one, starts on Settings → Lead's.
+// its own until its composer picks one, starts on Settings → Models's.
 func TestLeadDefaultsReachTheLead(t *testing.T) {
 	t.Parallel()
 	d, starts := startWithAgentDefaults(t)
@@ -170,7 +170,7 @@ func TestAgentDefaultsOffer1M(t *testing.T) {
 }
 
 // TestLeadCap: what the lead asks create_agent for is
-// checked against Settings → Agents before anything starts. Not enforced, the
+// checked against Settings → Models before anything starts. Not enforced, the
 // model and window chosen there are a ceiling: a cheaper model or a shorter
 // window goes through, a dearer model or a longer window is refused. Enforced,
 // they are the only ones. The app and the command line aren't held to either.
@@ -187,13 +187,13 @@ func TestLeadCap(t *testing.T) {
 		{"haiku", api.UpdateSettingsRequest{}, str("haiku"), str("200k"), ""},
 		{"at cap", api.UpdateSettingsRequest{}, str("opus"), str("1m"), ""},
 		{"model above", api.UpdateSettingsRequest{DefaultClaudeModel: str("sonnet")}, str("opus"), nil,
-			"opus is above sonnet, the model chosen in Settings → Agents"},
+			"opus is above sonnet, the model chosen in Settings → Models"},
 		{"window above", api.UpdateSettingsRequest{DefaultAgentContextWindow: str("200k")}, nil, str("1m"),
 			"a 1M window is above 200k"},
 		{"enf model", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, str("sonnet"), nil,
-			"the user enforces opus at 1M in Settings → Agents"},
+			"the user enforces opus at 1M in Settings → Models"},
 		{"enf window", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, nil, str("200k"),
-			"the user enforces opus at 1M in Settings → Agents"},
+			"the user enforces opus at 1M in Settings → Models"},
 		{"enf same", api.UpdateSettingsRequest{EnforceAgentDefaults: new(true)}, str("opus"), str("1m"), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

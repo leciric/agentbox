@@ -22,6 +22,7 @@ export interface Project {
   nesting: boolean;
   agentPRs: boolean;
   prWatch: string;
+  syncBase: boolean;
   prWatching: boolean;
   createdAt: string;
 }
@@ -53,6 +54,7 @@ export interface UpdateProjectRequest {
   nesting?: boolean;
   agentPRs?: boolean;
   prWatch?: string;
+  syncBase?: boolean;
 }
 
 export interface Section {
@@ -231,6 +233,7 @@ export interface CreateAgentRequest {
   githubAccount?: string;
   noEnv?: boolean;
   clean?: boolean;
+  catchUp?: boolean;
   cpu?: string;
   memory?: string;
   cpuAllowance?: string;
@@ -272,7 +275,30 @@ export interface Base {
   snapshot: string;
   savedFrom: string;
   savedAt: string;
+  image?: string;
+  tools?: string;
+  behind?: BaseBehind;
   previous?: Base;
+}
+
+export interface BaseBehind {
+  imageFrom?: string;
+  imageTo?: string;
+  changes?: BaseImageChange[];
+  components?: string[];
+  tools?: BaseToolChange[];
+  toolsUnknown?: boolean;
+}
+
+export interface BaseImageChange {
+  version: string;
+  what: string;
+}
+
+export interface BaseToolChange {
+  name: string;
+  from?: string;
+  to?: string;
 }
 
 export interface SaveBaseRequest {
@@ -1617,6 +1643,11 @@ export const FeatureSettingsEnvironment = "settings.view.environment";
 export const FeatureSettingsAccounts = "settings.view.accounts";
 export const FeatureSettingsLead = "settings.view.lead";
 export const FeatureSettingsAgents = "settings.view.agents";
+export const FeatureSettingsGeneral = "settings.view.general";
+export const FeatureSettingsModels = "settings.view.models";
+export const FeatureSettingsResources = "settings.view.resources";
+export const FeatureSettingsProject = "settings.view.project";
+export const FeatureSettingsSearch = "settings.search";
 export const FeatureMenuOpenChat = "menu.agent.open_chat";
 export const FeatureMenuOpenTerminal = "menu.agent.open_terminal";
 export const FeatureMenuInfo = "menu.agent.info";

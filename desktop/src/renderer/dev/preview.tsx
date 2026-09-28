@@ -45,6 +45,11 @@
 //   ?setup=updating         Settings while the daemon updates the base image's
 //                           agent tools in place: the image check updating,
 //                           with its job's log (fixtures.ts)
+//   ?settings=models        the whole Settings page on a set-up machine, open
+//                           at a section (general, models, agents, resources,
+//                           accounts, machine) or at a project's settings
+//                           (project:<name>), against fixtures the dev bridge
+//                           saves (fixtures.ts)
 //   ?resources=1            the resource limits' copy: Home's host stats,
 //                           Settings' defaults for new agents, and an agent's
 //                           limits editor, open
@@ -81,7 +86,7 @@ import { AgentRail } from '../components/AgentRail';
 import { HomeView } from '../components/HomeView';
 import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../components/NewAgentDefaults';
 import { LimitsEditor } from '../components/OverviewTab';
-import { GitHubAccountPicker } from '../components/ProjectView';
+import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
 import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
@@ -101,7 +106,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedMedia, seedImageUpdate, seedMeterUsage, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -125,6 +130,8 @@ const media = params.get('media'); // 'project' the project's Media, 'agent' age
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "memory" | null
 const imageUpdate = params.get('setup') === 'updating';
+const settingsPage = params.get('settings'); // a section of Settings, or a project's name
+if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
 
 const windowsBeforeSetup: HostSetupStatus = {
   pkexec: null,
@@ -179,6 +186,7 @@ if (defaults) seedDefaults(queryClient);
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media) seedMedia(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
+if (settingsPage) seedSettings(queryClient);
 if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB }, agents: [] });
@@ -350,7 +358,7 @@ function Preview() {
     );
   }
 
-  if (imageUpdate) {
+  if (imageUpdate || settingsPage) {
     return (
       <div style={{ height: '100vh' }}>
         <SettingsView />
