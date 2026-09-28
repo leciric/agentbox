@@ -8,8 +8,10 @@ import type * as T from '../../shared/api';
 import { limitTone, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
+import { useVMPower } from '../lib/vm';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
+import { ResourceControls } from './ResourceControls';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
 
@@ -28,6 +30,7 @@ export function TopBar({
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
   const connection = useConnection();
+  const vm = useVMPower().data;
   const host = usage.data?.host;
 
   const crumbs: { label: string; mono?: boolean; view?: View }[] = [];
@@ -89,6 +92,7 @@ export function TopBar({
             <span className="hidden sm:inline">Finish setup</span>
           </button>
         )}
+        <ResourceControls agents={agents.data ?? []} />
         <UsageMeter view={view} agents={agents.data ?? []} />
         {host && (
           <>
@@ -98,20 +102,25 @@ export function TopBar({
             {host.poolTotal > 0 && <StoragePoolMeter host={host} />}
           </>
         )}
-        <Tip label={connection.error ?? (connection.state === 'connected' ? 'Connected to the AgentBox daemon' : 'Connecting to the daemon…')}>
-          <span
-            className="flex items-center gap-2 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted"
-            data-connection={connection.state}
-          >
+        {/* In VM mode, the daemon of a VM that's off or paused can't answer:
+            the VM's own pill says why, and this one would only repeat it as
+            "Offline". */}
+        {(!vm || vm.state === 'running') && (
+          <Tip label={connection.error ?? (connection.state === 'connected' ? 'Connected to the AgentBox daemon' : 'Connecting to the daemon…')}>
             <span
-              className={cn(
-                'size-1.5 rounded-full',
-                connection.state === 'connected' ? 'bg-emerald-400 animate-glow' : connection.state === 'connecting' ? 'bg-amber-400' : 'bg-rose-400',
-              )}
-            />
-            <span className="hidden sm:inline">{connection.state === 'connected' ? 'Daemon' : connection.state === 'connecting' ? 'Connecting' : 'Offline'}</span>
-          </span>
-        </Tip>
+              className="flex items-center gap-2 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted"
+              data-connection={connection.state}
+            >
+              <span
+                className={cn(
+                  'size-1.5 rounded-full',
+                  connection.state === 'connected' ? 'bg-emerald-400 animate-glow' : connection.state === 'connecting' ? 'bg-amber-400' : 'bg-rose-400',
+                )}
+              />
+              <span className="hidden sm:inline">{connection.state === 'connected' ? 'Daemon' : connection.state === 'connecting' ? 'Connecting' : 'Offline'}</span>
+            </span>
+          </Tip>
+        )}
       </div>
     </header>
   );

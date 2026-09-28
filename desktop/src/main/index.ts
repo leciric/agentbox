@@ -14,6 +14,7 @@ import { handleMedia, registerMediaScheme } from './media';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { Streams } from './streams';
 import { distro, linuxPath, windowsPath } from './wslpaths';
+import './vmpower';
 
 registerMediaScheme();
 
