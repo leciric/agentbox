@@ -412,14 +412,23 @@ func notRunning(ag api.Agent) error {
 
 // newActionCmd builds start, stop, pause and resume.
 func newActionCmd(a *app, action, short, done string) *cobra.Command {
-	return &cobra.Command{
+	var all bool
+	cmd := &cobra.Command{
 		Use:   action + " <project/agent>",
 		Short: short,
-		Args:  cobra.ExactArgs(1),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if all {
+				return cobra.NoArgs(cmd, args)
+			}
+			return cobra.ExactArgs(1)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
+			}
+			if all {
+				return stopAll(cmd, c)
 			}
 			ag, err := c.AgentAction(cmd.Context(), args[0], action)
 			if err != nil {
@@ -433,6 +442,41 @@ func newActionCmd(a *app, action, short, done string) *cobra.Command {
 			return nil
 		},
 	}
+	if action == "stop" {
+		cmd.Use = "stop <project/agent> | --all"
+		cmd.Flags().BoolVar(&all, "all", false, "stop every running or paused agent of every project")
+	}
+	return cmd
+}
+
+// stopAll is `agentbox stop --all`: the app's "Free resources", followed as
+// a job, then what it freed.
+func stopAll(cmd *cobra.Command, c *api.Client) error {
+	j, err := c.StopAgents(cmd.Context(), api.StopAgentsRequest{})
+	if err != nil {
+		return err
+	}
+	final, err := waitJob(cmd, c, j)
+	if err != nil {
+		return err
+	}
+	var result api.StopAgentsResult
+	if err := json.Unmarshal(final.Result, &result); err != nil {
+		return err
+	}
+	out := cmd.OutOrStdout()
+	if len(result.Stopped) == 0 && len(result.Failed) == 0 {
+		_, _ = fmt.Fprintln(out, "No agent was running.")
+		return nil
+	}
+	_, _ = fmt.Fprintf(out, "Stopped %d, freeing %s of memory and %.1f cores\n", len(result.Stopped), humanBytes(result.FreedMemory), result.FreedCPU/100)
+	for _, f := range result.Failed {
+		_, _ = fmt.Fprintf(out, "Couldn't stop %s: %s\n", f.Ref, f.Error)
+	}
+	if len(result.Failed) > 0 {
+		return exitCodeError(1)
+	}
+	return nil
 }
 
 func newDestroyCmd(a *app) *cobra.Command {

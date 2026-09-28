@@ -432,6 +432,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/agents", s.listAgents)
 	h("POST /v1/agents", s.createAgent)
+	h("POST /v1/agents/stop", s.stopAgents)
 	h("GET /v1/agents/{project}/{agent}", s.getAgent)
 	h("PATCH /v1/agents/{project}/{agent}", s.updateAgent)
 	h("DELETE /v1/agents/{project}/{agent}", s.destroyAgent)
