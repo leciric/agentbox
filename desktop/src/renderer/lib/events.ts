@@ -92,11 +92,6 @@ export function connectEvents(queryClient: QueryClient): void {
         // hook on it (useHostTheme) is what restyles the window.
         queryClient.setQueryData(['theme'], event.data as T.Theme);
         break;
-      case T.EventBudget:
-        // The agents in the shared budget started or stopped thrashing at
-        // its memory together: the warning is read from Settings.
-        void queryClient.invalidateQueries({ queryKey: ['settings'] });
-        break;
       case T.EventUpdate:
         // The daily update check found something, or was turned on or off.
         queryClient.setQueryData(['update'], event.data as T.UpdateStatus);

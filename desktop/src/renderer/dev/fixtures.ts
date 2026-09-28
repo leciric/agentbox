@@ -871,10 +871,9 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
 }
 
-// seedBudget turns the shared budget on in defaultsSettings (?budget=on), and
-// with ?budget=short has the agents in it thrashing together at its 30 GiB
-// ceiling: Settings' fields, and the rail's warning for the group.
-export function seedBudget(queryClient: QueryClient, short: boolean): void {
+// seedBudget turns the shared budget on in defaultsSettings (?budget=on), for
+// Settings' fields.
+export function seedBudget(queryClient: QueryClient): void {
   defaultsSettings = {
     ...defaultsSettings,
     sharedBudget: {
@@ -882,9 +881,6 @@ export function seedBudget(queryClient: QueryClient, short: boolean): void {
       on: true,
       memory: '20GiB',
       inside: 4,
-      shortage: short
-        ? { since: new Date().toISOString(), pressure: 38.4, refaultRate: 1.9 * 2 ** 30, readRate: 2.1 * 2 ** 30, limit: 30 * 2 ** 30, inBudget: false }
-        : undefined,
     },
   };
   queryClient.setQueryData(['settings'], defaultsSettings);

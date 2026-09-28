@@ -39,9 +39,8 @@
 //                           the context window of each, which the dev bridge
 //                           saves (fixtures.ts)
 //   ?budget=on              the shared budget on, for Settings' fields and
-//                           the memory it reserves for your apps;
-//   ?budget=short           and its agents thrashing at its memory together:
-//                           the rail's warning for the group (fixtures.ts)
+//                           the memory it reserves for your apps
+//                           (fixtures.ts)
 //   ?budget=off             off, with its cgroup not made yet: Settings' "Set
 //                           up and turn on" (with ?settings=resources or
 //                           ?settings=machine)
@@ -197,7 +196,7 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: In
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 const budget = params.get('budget');
-if (budget === 'on' || budget === 'short') seedBudget(queryClient, budget === 'short');
+if (budget === 'on') seedBudget(queryClient);
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media) seedMedia(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
