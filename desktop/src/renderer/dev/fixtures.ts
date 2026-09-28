@@ -126,6 +126,14 @@ export function buildFixtures(): FixtureData {
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
     agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'codex', chat: 'running' }),
+    // Thrashing at its memory limit (agent.ThrashWatch): the rail row and its
+    // info card carry the warning and the one-click raise.
+    agent({
+      ref: `${PROJECT}/agent-88`,
+      title: 'Run the kind cluster and the Docker services',
+      chat: 'running',
+      memoryShortage: { since: new Date().toISOString(), pressure: 47.3, refaultRate: 143 * 2 ** 20, readRate: 160 * 2 ** 20, limit: 4 * 2 ** 30, inBudget: false, raiseTo: '8GiB' },
+    }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
@@ -682,6 +690,7 @@ const devState: {
   cli?: unknown;
   memoryUsage?: T.MemoryUsage;
   cpuUsage?: T.CPUUsage;
+  agents?: T.Agent[];
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -690,6 +699,7 @@ const devState: {
 export function seedQueryClient(queryClient: QueryClient, data: FixtureData): void {
   devState.projects = structuredClone(data.projects);
   queryClient.setQueryData(['agents'], data.agents);
+  devState.agents = data.agents;
   queryClient.setQueryData(['usage'], { host: { cpu: 0, cores: 1, memUsed: 0, memTotal: 0, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['fleet', PROJECT], data.fleet);
   queryClient.setQueryData(['agentEvents', PROJECT], data.events);
@@ -806,14 +816,18 @@ let defaultsSettings = {
     swap: '8GiB',
     cpu: 12,
     chosen: false,
-    suggested: { memory: '21GiB', swap: '8GiB', cpu: 12 },
-    why: 'Leaves this host 11.0 GiB of its 32.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap.',
+    suggested: { memory: '21GiB', swap: '8GiB', cpu: 12, diskWeight: 10, diskWrite: '64MiB' },
+    why:
+      "Leaves this host 11.0 GiB of its 32.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap. On its NVMe, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
     hostSwap: 16 * 1024 ** 3,
     hostSwapKind: 'zram',
     setupCommand: 'sudo "$(command -v agentbox)" host budget',
     inside: 0,
     pending: 0,
-  },
+    diskWeight: 10,
+    diskWrite: '64MiB',
+    disk: 'NVMe nvme0n1 (KINGSTON SNV3S1000G)',
+  } as T.SharedBudget,
 } as T.Settings;
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
@@ -830,6 +844,10 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
   if (req.sharedBudget !== undefined) next.sharedBudget = { ...next.sharedBudget, on: req.sharedBudget };
+  if (req.sharedBudgetDiskWeight !== undefined)
+    next.sharedBudget = { ...next.sharedBudget, diskWeight: req.sharedBudgetDiskWeight || next.sharedBudget.suggested.diskWeight };
+  if (req.sharedBudgetDiskWrite !== undefined)
+    next.sharedBudget = { ...next.sharedBudget, diskWrite: req.sharedBudgetDiskWrite || next.sharedBudget.suggested.diskWrite };
   // The rest are stored as they are sent, the way the daemon stores them.
   for (const key of ['defaultClaudeEffort', 'defaultCPU', 'defaultCPUAllowance', 'defaultMemory', 'resumeAfterLimit', 'claudeCompactWindow', 'updateCheck', 'usageStats', 'prWatch', 'mediaRetention'] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
@@ -845,6 +863,25 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   // that is the same object it already holds.
   defaultsSettings = next;
   return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
+}
+
+// seedBudget turns the shared budget on in defaultsSettings (?budget=on), and
+// with ?budget=short has the agents in it thrashing at its 20 GiB together:
+// Settings' disk fields, and the rail's warning for the group.
+export function seedBudget(queryClient: QueryClient, short: boolean): void {
+  defaultsSettings = {
+    ...defaultsSettings,
+    sharedBudget: {
+      ...defaultsSettings.sharedBudget,
+      on: true,
+      memory: '20GiB',
+      inside: 4,
+      shortage: short
+        ? { since: new Date().toISOString(), pressure: 38.4, refaultRate: 1.9 * 2 ** 30, readRate: 2.1 * 2 ** 30, limit: 20 * 2 ** 30, inBudget: false }
+        : undefined,
+    },
+  };
+  queryClient.setQueryData(['settings'], defaultsSettings);
 }
 
 // seedDefaults puts defaultsSettings where the Settings components read them.
@@ -1016,6 +1053,17 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(devState.media), contentType: 'application/json' };
       if (method === 'GET' && devState.media && path === `/v1/agents/${PROJECT}/agent-99/media`)
         return { status: 200, body: JSON.stringify(devState.media.filter((m) => m.agentName === 'agent-99')), contentType: 'application/json' };
+      // Raising a thrashing agent's memory from its warning (agent-88): the
+      // limit is applied, and the daemon's next sample, under the new limit,
+      // clears the warning, as it does on a real one.
+      const agentPath = /^\/v1\/agents\/([^/]+)\/([^/]+)$/.exec(path);
+      if (method === 'PATCH' && agentPath && devState.agents && (body as T.UpdateAgentRequest).memory !== undefined) {
+        const ref = `${decodeURIComponent(agentPath[1])}/${decodeURIComponent(agentPath[2])}`;
+        const memory = (body as T.UpdateAgentRequest).memory as string;
+        devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, limits: { ...a.limits, memory }, memoryShortage: undefined } : a));
+        return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
+      }
+      if (method === 'GET' && path === '/v1/agents' && devState.agents) return { status: 200, body: JSON.stringify(devState.agents), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/projects') return { status: 200, body: JSON.stringify(devState.projects), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/auth') return { status: 200, body: JSON.stringify(devState.auth), contentType: 'application/json' };
       // Picking a project's GitHub account, and renaming one (?github=1),

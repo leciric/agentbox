@@ -51,12 +51,14 @@ func ioRate(before, after ioBytes, seconds float64) (read, write int64) {
 // sysRoot is where sysfs is mounted.
 const sysRoot = "/sys"
 
-// wholeDisk is whether the block device major:minor is a physical disk:
+// isPhysicalDisk is whether the block device major:minor is a physical disk:
 // one with a device behind it. That leaves out partitions (already counted
 // in their disk), device-mapper and md (which pass every byte on to a disk
 // that counts it again, so LUKS or LVM would double the figure), and loop,
-// zram and ram disks, which aren't the disk the desktop waits on.
-func wholeDisk(sys, dev string) bool {
+// zram and ram disks, which aren't the disk the desktop waits on. Named
+// differently from budgetdisk.go's wholeDisk, which resolves a partition to
+// the whole disk's name rather than testing one.
+func isPhysicalDisk(sys, dev string) bool {
 	_, err := os.Stat(filepath.Join(sys, "dev", "block", dev, "device"))
 	return err == nil
 }
@@ -72,7 +74,7 @@ func hostDiskIO(procDiskstats, sys string) (ioBytes, error) {
 	for _, line := range strings.Split(string(b), "\n") {
 		// major minor name reads merged sectors-read ms writes merged sectors-written ...
 		f := strings.Fields(line)
-		if len(f) < 10 || !wholeDisk(sys, f[0]+":"+f[1]) {
+		if len(f) < 10 || !isPhysicalDisk(sys, f[0]+":"+f[1]) {
 			continue
 		}
 		read, err1 := strconv.ParseUint(f[5], 10, 64)
@@ -93,7 +95,7 @@ func hostDiskIO(procDiskstats, sys string) (ioBytes, error) {
 //
 // one line per device it has touched. The same bytes show up on a
 // device-mapper device and on the disk under it, so only physical disks are
-// counted, as on the host (wholeDisk); when none of its lines is one (a pool
+// counted, as on the host (isPhysicalDisk); when none of its lines is one (a pool
 // on a loop device, say) every line is, since that's all there is to go on.
 // ok is false when io.stat can't be read.
 func cgroupIO(dir, sys string) (io ioBytes, ok bool) {
@@ -121,7 +123,7 @@ func cgroupIO(dir, sys string) (io ioBytes, ok bool) {
 		}
 		all.read += v.read
 		all.write += v.write
-		if wholeDisk(sys, dev) {
+		if isPhysicalDisk(sys, dev) {
 			sawDisk = true
 			disks.read += v.read
 			disks.write += v.write

@@ -456,13 +456,31 @@ type SharedBudget struct {
 	// many running agents are yet to move in, or out, when they restart.
 	Inside  int `json:"inside"`
 	Pending int `json:"pending"`
+	// DiskWeight and DiskWrite are the budget's disk: its weight against the
+	// 100 of this host's own apps while they need the disk, and the most the
+	// agents write together a second, like "64MiB", or "max" for no
+	// ceiling. Disk names the disk under /, like "NVMe nvme0n1 (KINGSTON
+	// SNV3S1000G)", "" when it can't be told.
+	DiskWeight int    `json:"diskWeight"`
+	DiskWrite  string `json:"diskWrite"`
+	Disk       string `json:"disk,omitempty"`
+	// DiskNotReady says why the disk's part isn't applied — a budget set up
+	// before it existed, which Set up fixes, or a kernel without io.cost —
+	// while memory and CPU are. "" when it is.
+	DiskNotReady string `json:"diskNotReady,omitempty"`
+	// Shortage is set while the agents in the budget are thrashing at its
+	// memory together (agent.ThrashWatch's group), whether or not any one of
+	// them is on its own. EventBudget says when it starts and stops.
+	Shortage *MemoryShortage `json:"shortage,omitempty"`
 }
 
 // SharedBudgetSize is a shared budget's size alone.
 type SharedBudgetSize struct {
-	Memory string `json:"memory"`
-	Swap   string `json:"swap"`
-	CPU    int    `json:"cpu"`
+	Memory     string `json:"memory"`
+	Swap       string `json:"swap"`
+	CPU        int    `json:"cpu"`
+	DiskWeight int    `json:"diskWeight"`
+	DiskWrite  string `json:"diskWrite"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -523,6 +541,11 @@ type UpdateSettingsRequest struct {
 	SharedBudgetMemory *string `json:"sharedBudgetMemory,omitempty"`
 	SharedBudgetSwap   *string `json:"sharedBudgetSwap,omitempty"`
 	SharedBudgetCPU    *int    `json:"sharedBudgetCPU,omitempty"`
+	// SharedBudgetDiskWeight (1–100, 0 for the suggestion) and
+	// SharedBudgetDiskWrite (a size a second, "max", or "" for the
+	// suggestion) set its disk.
+	SharedBudgetDiskWeight *int    `json:"sharedBudgetDiskWeight,omitempty"`
+	SharedBudgetDiskWrite  *string `json:"sharedBudgetDiskWrite,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
@@ -575,8 +598,33 @@ type Agent struct {
 	// Limits is what its machine is capped at, read from Incus rather than
 	// remembered: the machine is the truth, and it can be changed from
 	// outside AgentBox.
-	Limits    Limits    `json:"limits"`
-	CreatedAt time.Time `json:"createdAt"`
+	Limits Limits `json:"limits"`
+	// MemoryShortage is set while its machine is thrashing at its memory
+	// limit: held at it, and re-reading from disk what it had to drop to stay
+	// under it, which slows the whole host down. nil the rest of the time.
+	MemoryShortage *MemoryShortage `json:"memoryShortage,omitempty"`
+	CreatedAt      time.Time       `json:"createdAt"`
+}
+
+// MemoryShortage is how badly an agent is short of memory, measured from its
+// cgroup over the last half a minute (agent.ThrashWatch).
+type MemoryShortage struct {
+	Since time.Time `json:"since"`
+	// Pressure is the share of the last minute, in percent, that some of its
+	// processes were stalled waiting on memory (PSI's "some avg60").
+	Pressure float64 `json:"pressure"`
+	// RefaultRate is how fast it reads back pages it had only just dropped,
+	// and ReadRate how fast it reads from disk at all, in bytes a second.
+	RefaultRate int64 `json:"refaultRate"`
+	ReadRate    int64 `json:"readRate"`
+	// Limit is its own memory ceiling in bytes; 0 when it has none, and it's
+	// the shared budget it's held by (InBudget).
+	Limit    int64 `json:"limit"`
+	InBudget bool  `json:"inBudget"`
+	// RaiseTo is the memory limit to offer it, like "8GiB": twice what it
+	// has, within the shared budget or what the host can spare. Empty when
+	// there's no room to offer more; set it with UpdateAgentRequest.Memory.
+	RaiseTo string `json:"raiseTo,omitempty"`
 }
 
 // WorktreeFiles is an agent's or a project's lead's worktree files, for @
@@ -1331,6 +1379,10 @@ const (
 	// EventUpdate carries a new UpdateStatus: a check found something, or the
 	// setting behind it changed.
 	EventUpdate = "update"
+	// EventBudget says the agents in the shared budget started or stopped
+	// thrashing at its memory together (SharedBudget.Shortage), so a client
+	// reads Settings again.
+	EventBudget = "budget"
 )
 
 // Appearance is the setting behind Theme: what AgentBox wears.
@@ -1426,6 +1478,10 @@ type AgentChange struct {
 	State   string `json:"state"`
 	IP      string `json:"ip,omitempty"`
 	Removed bool   `json:"removed,omitempty"`
+	// ShortOfMemory flips when the agent starts or stops thrashing at its
+	// memory limit (Agent.MemoryShortage), which the agent itself says more
+	// about.
+	ShortOfMemory bool `json:"shortOfMemory,omitempty"`
 }
 
 // Self is what the in-agent API reports about the agent calling it.

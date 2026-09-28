@@ -21,25 +21,25 @@ func TestSuggestBudget(t *testing.T) {
 		{
 			// The machine that froze: 30 GB, 16 cores, zram.
 			"30 GiB with zram", HostResources{Memory: 30 * gib, Swap: 16 * gib, SwapKind: "zram", Cores: 16},
-			Budget{Memory: "20GiB", Swap: "8GiB", CPU: 12},
-			"Leaves this host 10.0 GiB of its 30.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap.",
+			Budget{Memory: "20GiB", Swap: "8GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"},
+			"Leaves this host 10.0 GiB of its 30.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap. On its disk, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
 		},
 		{
 			// A third of 16 is less than 6 GiB: the host keeps 6.
 			"16 GiB, disk swap", HostResources{Memory: 16 * gib, Swap: 4 * gib, SwapKind: "disk", Cores: 8},
-			Budget{Memory: "10GiB", Swap: "2GiB", CPU: 6},
-			"Leaves this host 6.0 GiB of its 16.0 GiB of memory and 2 of its 8 cores, and lets agents use 2.0 GiB of its 4.0 GiB of swap.",
+			Budget{Memory: "10GiB", Swap: "2GiB", CPU: 6, DiskWeight: 10, DiskWrite: "64MiB"},
+			"Leaves this host 6.0 GiB of its 16.0 GiB of memory and 2 of its 8 cores, and lets agents use 2.0 GiB of its 4.0 GiB of swap. On its disk, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
 		},
 		{
 			// Too small to leave 6 GiB and have 1 GiB for agents: half.
 			"6 GiB, no swap", HostResources{Memory: 6 * gib, Cores: 2},
-			Budget{Memory: "3GiB", CPU: 1},
-			"Leaves this host 3.0 GiB of its 6.0 GiB of memory and 1 of its 2 cores. This host has no swap, so agents are only ever held at the hard limit: without swap, a soft one stalls them instead of freeing memory.",
+			Budget{Memory: "3GiB", CPU: 1, DiskWeight: 10, DiskWrite: "64MiB"},
+			"Leaves this host 3.0 GiB of its 6.0 GiB of memory and 1 of its 2 cores. This host has no swap, so agents are only ever held at the hard limit: without swap, a soft one stalls them instead of freeing memory. On its disk, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
 		},
 		{
 			// Swap is capped at half of the agents' memory.
 			"64 GiB, huge swap", HostResources{Memory: 64 * gib, Swap: 64 * gib, SwapKind: "disk", Cores: 32},
-			Budget{Memory: "42GiB", Swap: "21GiB", CPU: 24},
+			Budget{Memory: "42GiB", Swap: "21GiB", CPU: 24, DiskWeight: 10, DiskWrite: "64MiB"},
 			"",
 		},
 	} {
@@ -64,14 +64,19 @@ func TestBudgetValidate(t *testing.T) {
 		b    Budget
 		want string
 	}{
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12}, ""},
-		{Budget{Memory: "50%", Swap: "4GiB", CPU: 12}, "a size like 20GiB"},
-		{Budget{Memory: "40GiB", Swap: "4GiB", CPU: 12}, "more than this host has"},
-		{Budget{Memory: "100MiB", Swap: "4GiB", CPU: 12}, "at least 512MiB"},
-		{Budget{Memory: "20GiB", Swap: "", CPU: 12}, "never 0"},
-		{Budget{Memory: "20GiB", Swap: "0", CPU: 12}, "never 0"},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 0}, "between 1 and 16"},
-		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 17}, "between 1 and 16"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, ""},
+		{Budget{Memory: "50%", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "a size like 20GiB"},
+		{Budget{Memory: "40GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "more than this host has"},
+		{Budget{Memory: "100MiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "at least 512MiB"},
+		{Budget{Memory: "20GiB", Swap: "", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "never 0"},
+		{Budget{Memory: "20GiB", Swap: "0", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}, "never 0"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 0, DiskWrite: "64MiB"}, "disk weight"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 101, DiskWrite: "64MiB"}, "disk weight"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "max"}, ""},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "1MiB"}, "at least 8MiB"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 12, DiskWeight: 10, DiskWrite: "fast"}, "disk writes"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 0, DiskWeight: 10, DiskWrite: "64MiB"}, "between 1 and 16"},
+		{Budget{Memory: "20GiB", Swap: "4GiB", CPU: 17, DiskWeight: 10, DiskWrite: "64MiB"}, "between 1 and 16"},
 	} {
 		err := c.b.Validate(host)
 		if c.want == "" {
@@ -85,7 +90,7 @@ func TestBudgetValidate(t *testing.T) {
 		}
 	}
 	// A host with no swap has nothing to give: no swap is fine there.
-	if err := (Budget{Memory: "3GiB", CPU: 1}).Validate(HostResources{Memory: 6 * gib, Cores: 2}); err != nil {
+	if err := (Budget{Memory: "3GiB", CPU: 1, DiskWeight: 10, DiskWrite: "max"}).Validate(HostResources{Memory: 6 * gib, Cores: 2}); err != nil {
 		t.Errorf("no swap on a host with none: %v", err)
 	}
 }

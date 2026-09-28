@@ -94,10 +94,11 @@ func newHostBudgetCmd() *cobra.Command {
 		Use:   "budget",
 		Short: "Make the cgroup the shared agent budget needs (once, as root)",
 		Long: `Installs ` + hostsetup.BudgetUnitName + `, a oneshot systemd unit that makes
-` + hostsetup.BudgetCgroupDir + ` at every boot, enables the memory and CPU controllers for it,
-and gives its budget files (` + strings.Join(hostsetup.BudgetFiles, ", ") + `) to your user,
-so the daemon can put every agent under one shared budget and change it while they run.
-Nothing else on the host changes. Run it with sudo:
+` + hostsetup.BudgetCgroupDir + ` at every boot, enables the memory, CPU and io controllers for
+it, and gives its budget files (` + strings.Join(append(append([]string{}, hostsetup.BudgetFiles...), hostsetup.BudgetDiskFiles...), ", ") + `) and
+` + hostsetup.CostQoSFile + ` to your user, so the daemon can put every agent under one shared
+budget, change it while they run, and turn on io.cost for the host's disks while the budget
+is on, so agents give way to your own apps on the disk. Run it with sudo:
 
   ` + hostsetup.BudgetCommand + `
 

@@ -695,3 +695,20 @@ func mustJSON(t *testing.T, v any) []byte {
 	}
 	return b
 }
+
+func TestShortageWords(t *testing.T) {
+	got := shortageWords("organic/agent-03", &api.MemoryShortage{Pressure: 45, RefaultRate: 80 << 20, Limit: 4 << 30, RaiseTo: "8GiB"})
+	for _, want := range []string{"short of memory and slowing the whole computer down", "at its memory limit", "80.0 MiB/s", "45%", "raise it to 8GiB with: agentbox limits organic/agent-03 --raise"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("shortageWords missing %q:\n%s", want, got)
+		}
+	}
+	got = shortageWords("p/a", &api.MemoryShortage{Pressure: 30, InBudget: true})
+	if !strings.Contains(got, "at the shared budget's memory") || !strings.Contains(got, "--budget-memory") || strings.Contains(got, "--raise") {
+		t.Errorf("shortageWords, held by the shared budget:\n%s", got)
+	}
+	got = shortageWords("p/a", &api.MemoryShortage{Pressure: 30, Limit: 30 << 30})
+	if !strings.Contains(got, "no room to raise it") || strings.Contains(got, "--raise") {
+		t.Errorf("shortageWords, with no room to raise:\n%s", got)
+	}
+}
