@@ -662,7 +662,7 @@ export function SharedBudget() {
                 id="shared-budget-disk-weight"
                 label="Disk weight"
                 placeholder={String(suggested.diskWeight)}
-                hint={`Against 100 for your own apps, while they need the disk${b.disk ? ` (${b.disk})` : ''}. Suggested: ${suggested.diskWeight}.`}
+                hint={`Against 100 for your own apps, while they need the disk. Suggested: ${suggested.diskWeight}.`}
                 value={String(b.diskWeight)}
                 disabled={busy}
                 onCommit={(value) => {
