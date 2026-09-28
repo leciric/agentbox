@@ -1,6 +1,7 @@
 package chv
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,7 +25,7 @@ func TestMemPolicyTarget(t *testing.T) {
 		{"never above the cap", 20 * GiB, 10, 16 * GiB},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := p.target(*sample(tc.used, 16*GiB, tc.agents, 0)); got != tc.want {
+			if got := p.target(*sample(tc.used, 16*GiB, tc.agents, 0), 0); got != tc.want {
 				t.Errorf("target = %s, want %s", gib(got), gib(tc.want))
 			}
 		})
@@ -149,5 +150,92 @@ agents 3
 	}
 	if _, err := parseMemSample("sh: 1: cat: not found\n"); err == nil {
 		t.Error("parsed a sample out of nothing")
+	}
+}
+
+// A burst gets its memory ahead of it: headroom for what use would reach in
+// memLookahead at the rate it's rising, remembered through a flat sample.
+func TestMemPolicyGrowsAheadOfABurst(t *testing.T) {
+	p := memPolicy{Min: 4 * GiB, Cap: 24 * GiB}
+	st := memState{Requested: 4 * GiB}
+	now := time.Now()
+	p.decide(&st, sample(GiB, 4*GiB, 1, 0), now)
+	// 1 GiB in half a second: 2 GiB a second, so 6 GiB ahead of 2 GiB used.
+	d := p.decide(&st, sample(2*GiB, 4*GiB, 1, 0), now.Add(memTick))
+	if d.Target != 8*GiB || !strings.Contains(d.Reason, "rising") {
+		t.Fatalf("decide = %+v, want 8 GiB for a rise of 2 GiB a second", d)
+	}
+	// A flat sample within memRateWindow keeps the headroom.
+	if d := p.decide(&st, sample(2*GiB, 8*GiB, 1, 0), now.Add(2*memTick)); d.Target != 0 || st.rate < float64(GiB) {
+		t.Errorf("flat sample: %+v, rate %.0f", d, st.rate)
+	}
+	// Once the burst is over, the rate goes back to what it is.
+	for i := 3; i < 10; i++ {
+		p.decide(&st, sample(2*GiB, 8*GiB, 1, 0), now.Add(time.Duration(i)*memTick))
+	}
+	if st.rate != 0 {
+		t.Errorf("rate after the burst = %.0f, want 0", st.rate)
+	}
+}
+
+// A quiet VM whose host memory is mostly cache is told to reclaim it, once
+// in memReclaimEvery; a busy one, or one that holds no more than it uses,
+// isn't.
+func TestMemPolicyReclaimsWhenQuiet(t *testing.T) {
+	p := memPolicy{Min: 4 * GiB, Cap: 16 * GiB}
+	st := memState{Requested: 4 * GiB}
+	start := time.Now()
+	s := func(agents int, resident int64, busy uint64, i int) *memSample {
+		x := sample(GiB, 4*GiB, agents, 0)
+		x.Resident = resident
+		x.CPUTotal = uint64(i) * 100
+		x.CPUBusy = uint64(i) * busy
+		return x
+	}
+	var reclaims []int
+	for i := range 200 { // 100 s
+		// Agents run for the first 20 s, then none do.
+		agents := 0
+		if i < 40 {
+			agents = 1
+		}
+		if d := p.decide(&st, s(agents, 3*GiB+GiB/2, 50, i), start.Add(time.Duration(i)*memTick)); d.Reclaim {
+			reclaims = append(reclaims, i)
+			if !strings.Contains(d.Reason, "quiet") {
+				t.Errorf("reason %q", d.Reason)
+			}
+		}
+	}
+	// 30 s after the last agent stopped: sample 40 + 60.
+	if len(reclaims) != 1 || reclaims[0] != 100 {
+		t.Errorf("reclaimed at samples %v, want [100]", reclaims)
+	}
+
+	// An agent that runs but idles: its CPUs are quiet for memIdleAfter,
+	// once the smoothed use has come down (about 75 s).
+	st = memState{Requested: 4 * GiB}
+	reclaims = nil
+	for i := range 600 { // 300 s
+		if d := p.decide(&st, s(1, 3*GiB, 1, i), start.Add(time.Duration(i)*memTick)); d.Reclaim {
+			reclaims = append(reclaims, i)
+		}
+	}
+	if len(reclaims) != 1 {
+		t.Errorf("idle agent: reclaimed at samples %v, want once", reclaims)
+	}
+
+	// Busy, or holding little more than it uses: never.
+	for _, tc := range []struct {
+		name     string
+		resident int64
+		busy     uint64
+	}{{"busy", 8 * GiB, 60}, {"lean", GiB + GiB/2, 1}, {"unknown", 0, 1}} {
+		st = memState{Requested: 4 * GiB}
+		for i := range 400 {
+			if d := p.decide(&st, s(1, tc.resident, tc.busy, i), start.Add(time.Duration(i)*memTick)); d.Reclaim {
+				t.Errorf("%s: reclaimed at sample %d", tc.name, i)
+				break
+			}
+		}
 	}
 }

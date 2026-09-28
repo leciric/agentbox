@@ -478,17 +478,21 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		if !movable {
 			movable = s.ensureMovable(ctx, sample)
 		}
+		sample.Resident = resident(s.cloud.pid())
 		s.mu.Lock()
 		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
 		s.mu.Unlock()
+		if d.Reclaim {
+			started := time.Now()
+			if _, err := runSSHFor(ctx, s.c, s.l, s.self, reclaimScript, 30*time.Second); err != nil {
+				s.logf("reclaiming the VM's caches: %v", err)
+			} else if d.Target == 0 {
+				s.logf("memory: dropped the VM's caches (%s), in %s", d.Reason, time.Since(started).Round(time.Millisecond))
+			}
+		}
 		if d.Target == 0 {
 			continue
-		}
-		if d.Shrink {
-			if _, err := runSSHFor(ctx, s.c, s.l, s.self, "sync; echo 1 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null", 30*time.Second); err != nil {
-				s.logf("dropping the VM's page cache: %v", err)
-			}
 		}
 		started := time.Now()
 		if err := s.ch.Resize(ctx, d.Target); err != nil {
@@ -498,6 +502,11 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		s.logf("memory: %s → %s (%s), asked in %s", gib(sample.Total), gib(d.Target), d.Reason, time.Since(started).Round(time.Millisecond))
 	}
 }
+
+// reclaimScript drops the guest's page cache and the kernel's reclaimable
+// caches (dentries, inodes), then compacts its free memory into whole blocks,
+// which is what free page reporting hands back to the host.
+const reclaimScript = "sync; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; echo 1 | sudo -n tee /proc/sys/vm/compact_memory >/dev/null"
 
 // ensureMovable makes the guest online the memory it's given as movable,
 // which is what lets it unplug that memory again: memory onlined as normal

@@ -191,7 +191,13 @@ func hotplugSize(c Config) int64 {
 
 // chArgs is Cloud Hypervisor's command line for the VM.
 func chArgs(c Config, l Layout) []string {
-	mem := fmt.Sprintf("size=%d,shared=on", c.MemoryMin)
+	// shared=on: vhost-user (passt) and virtiofsd map the VM's memory.
+	// thp=on asks for transparent huge pages on it, which shared memory only
+	// gets when asked (shmem_enabled=advise, the usual default): each 2 MiB
+	// page the guest first touches is then one fault on the host instead of
+	// 512. A host too fragmented to find free 2 MiB blocks falls back to
+	// small pages, and fresh memory comes in at a few hundred MB/s.
+	mem := fmt.Sprintf("size=%d,shared=on,thp=on", c.MemoryMin)
 	if hp := hotplugSize(c); hp > 0 {
 		mem += fmt.Sprintf(",hotplug_method=virtio-mem,hotplug_size=%d", hp)
 	}

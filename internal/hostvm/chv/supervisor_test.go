@@ -164,7 +164,7 @@ func TestCHArgs(t *testing.T) {
 	args := strings.Join(chArgs(c, l), " ")
 	for _, want := range []string{
 		"--cpus boot=4",
-		"--memory size=4294967296,shared=on,hotplug_method=virtio-mem,hotplug_size=8589934592",
+		"--memory size=4294967296,shared=on,thp=on,hotplug_method=virtio-mem,hotplug_size=8589934592",
 		"--balloon size=0,free_page_reporting=on",
 		"path=" + l.PoolDisk() + ",image_type=raw,serial=agentbox-pool ",
 		"vhost_mode=client,mac=" + macAddress("agentbox"),
