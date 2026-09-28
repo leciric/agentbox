@@ -14,7 +14,7 @@
 //   agentbox vm stop            the last line of stderr
 //
 // A tool without `vm power` (every one before VM mode) is host mode. The mode
-// is asked once and kept: it doesn't change while the app runs.
+// is asked once and kept, until a setup run switches the machine to a VM.
 //
 // AGENTBOX_FAKE_VM=1 stands a made-up VM in for the real one, to see the top
 // bar's VM controls working in `npm start` before VM mode exists; the daemon
@@ -23,6 +23,7 @@ import { execFile } from 'node:child_process';
 import { ipcMain } from 'electron';
 import type { VMPower, VMPowerAction, VMPowerState } from '../preload';
 import { agentboxBin } from './cli';
+import { linuxVM } from './vmmode';
 
 const onLinux = process.platform === 'linux';
 
@@ -44,7 +45,9 @@ const transition: Record<VMPowerAction, VMPowerState> = {
 
 export async function vmPower(): Promise<VMPower | null> {
   if (process.env.AGENTBOX_FAKE_VM) return fake.power();
-  if (mode === 'host') return null;
+  // Setup's "Run in a VM" switches a Linux machine to VM mode while the app
+  // runs: vmmode.ts learns it again after a setup run.
+  if (mode === 'host' && !linuxVM()) return null;
   let parsed: VMPower | { mode: 'host' };
   try {
     parsed = JSON.parse(await run(['vm', 'power', '--json'])) as VMPower | { mode: 'host' };

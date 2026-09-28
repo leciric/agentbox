@@ -12,8 +12,9 @@ const listeners = new Set<() => void>();
 const changed = () => listeners.forEach((fn) => fn());
 
 // useVMPower is the VM's power and memory, or null outside VM mode. It is
-// asked once when null (the mode doesn't change while the app runs), every
-// second while the VM is on its way up or down, and every five otherwise.
+// asked every ten seconds when null (Setup can switch a machine to a VM),
+// every second while the VM is on its way up or down, and every five
+// otherwise.
 export function useVMPower() {
   const queryClient = useQueryClient();
   useEffect(() => {
@@ -26,7 +27,9 @@ export function useVMPower() {
     queryFn: () => window.agentbox.vm.power(),
     refetchInterval: (query) => {
       const vm = query.state.data;
-      if (!vm) return false;
+      // No VM yet: cheap to ask again (the main process answers from what it
+      // knows), and Setup's "Run in a VM" can make one while the app runs.
+      if (!vm) return 10_000;
       return vmTransitions.includes(vm.state) ? 1_000 : 5_000;
     },
   });
