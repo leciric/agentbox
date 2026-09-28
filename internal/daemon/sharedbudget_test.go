@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,11 +16,12 @@ import (
 
 // TestSharedBudget goes through the setting the way Settings does: off with a
 // suggestion, refused until the cgroup is set up, then on — which writes the
-// budget into the cgroup and puts every agent's raw.lxc in it — resized live,
-// and off again. Not parallel: it points agent.BudgetDir at a directory of
-// its own.
+// budget into the cgroup and the host's reserve into its slices, and puts
+// every agent's raw.lxc in it — resized live, and off again. Not parallel: it
+// points agent.BudgetDir at a cgroup root of its own.
 func TestSharedBudget(t *testing.T) {
-	dir := t.TempDir()
+	root := t.TempDir()
+	dir := filepath.Join(root, agent.BudgetCgroup)
 	old := agent.BudgetDir
 	agent.BudgetDir = dir
 	t.Cleanup(func() { agent.BudgetDir = old })
@@ -56,14 +58,34 @@ func TestSharedBudget(t *testing.T) {
 	if !strings.Contains(b.NotReady, "only root can make") {
 		t.Errorf("NotReady = %q, want it to say what's missing", b.NotReady)
 	}
+	if b.HostMemory != agent.HostMemory() {
+		t.Errorf("HostMemory = %d", b.HostMemory)
+	}
+	// Off until the user turns it on, and Setup says where.
+	if status, err := d.client.Setup(ctx); err != nil {
+		t.Fatal(err)
+	} else {
+		detail := ""
+		for _, c := range status.Checks {
+			if c.ID == "budget" {
+				detail = c.Detail
+			}
+		}
+		if !strings.HasPrefix(detail, "off: turn it on in Settings") {
+			t.Errorf("Setup's budget check says %q", detail)
+		}
+	}
 
 	// Refused, and clearly, before the cgroup exists.
 	if _, err := patchSettings(t, d, `{"sharedBudget":true}`); err == nil || !strings.Contains(err.Error(), "can't be turned on yet") {
 		t.Fatalf("turning it on with no cgroup = %v", err)
 	}
 
-	for _, name := range []string{"memory.high", "memory.max", "memory.swap.max", "cpu.max"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("max\n"), 0o644); err != nil {
+	for _, path := range agent.BudgetPaths() {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("max\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -79,8 +101,23 @@ func TestSharedBudget(t *testing.T) {
 		b, _ := os.ReadFile(filepath.Join(dir, name))
 		return strings.TrimSpace(string(b))
 	}
-	if read("memory.max") != "2147483648" || read("cpu.max") != "100000 100000" || read("memory.swap.max") != "1073741824" {
+	// The agents are held a safety margin short of the host's memory, and
+	// what's past their 2 GiB is reserved for the host's apps.
+	ceiling := func(agents int64) string { return strconv.FormatInt(max(agents, agent.HostMemory()-2<<30), 10) }
+	reserve := func() int64 {
+		var sum int64
+		for _, slice := range []string{"user.slice", "system.slice"} {
+			b, _ := os.ReadFile(filepath.Join(root, slice, "memory.low"))
+			n, _ := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+			sum += n
+		}
+		return sum
+	}
+	if read("memory.max") != ceiling(2<<30) || read("cpu.max") != "100000 100000" || read("memory.swap.max") != "1073741824" {
 		t.Errorf("the cgroup has memory.max=%s cpu.max=%s memory.swap.max=%s", read("memory.max"), read("cpu.max"), read("memory.swap.max"))
+	}
+	if got, want := reserve(), max(agent.HostMemory()-2<<30, 0); got != want {
+		t.Errorf("reserved %d for the host's apps, want %d", got, want)
 	}
 	for _, inst := range []string{"ab-p-a1", "ab-p-a2"} {
 		if want := "config set " + inst + " raw.lxc=lxc.cgroup.dir.container=agentbox/" + inst; !strings.Contains(log(), want) {
@@ -100,34 +137,11 @@ func TestSharedBudget(t *testing.T) {
 	if _, err := patchSettings(t, d, `{"sharedBudgetMemory":"3GiB"}`); err != nil {
 		t.Fatal(err)
 	}
-	if read("memory.max") != "3221225472" {
+	if read("memory.max") != ceiling(3<<30) {
 		t.Errorf("resized: memory.max=%s", read("memory.max"))
 	}
-
-	// The disk: the suggestion until chosen, checked, and said to be missing
-	// while the cgroup has no io files of its own (a budget set up before).
-	if b := s.SharedBudget; b.DiskWeight != 10 || b.DiskWrite == "" || b.DiskWrite != b.Suggested.DiskWrite || b.DiskNotReady == "" {
-		t.Errorf("the budget's disk = weight %d, writes %q (suggested %q), not ready %q", b.DiskWeight, b.DiskWrite, b.Suggested.DiskWrite, b.DiskNotReady)
-	}
-	if _, err := patchSettings(t, d, `{"sharedBudgetDiskWeight":500}`); err == nil || !strings.Contains(err.Error(), "disk weight") {
-		t.Errorf("a disk weight of 500 = %v", err)
-	}
-	if _, err := patchSettings(t, d, `{"sharedBudgetDiskWrite":"1MiB"}`); err == nil || !strings.Contains(err.Error(), "at least 8MiB") {
-		t.Errorf("a write ceiling of 1MiB = %v", err)
-	}
-	s, err = patchSettings(t, d, `{"sharedBudgetDiskWeight":25,"sharedBudgetDiskWrite":"max"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b := s.SharedBudget; b.DiskWeight != 25 || b.DiskWrite != "max" {
-		t.Errorf("chosen: weight %d, writes %q", b.DiskWeight, b.DiskWrite)
-	}
-	s, err = patchSettings(t, d, `{"sharedBudgetDiskWeight":0,"sharedBudgetDiskWrite":""}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b := s.SharedBudget; b.DiskWeight != b.Suggested.DiskWeight || b.DiskWrite != b.Suggested.DiskWrite {
-		t.Errorf("back to the suggestion: weight %d, writes %q", b.DiskWeight, b.DiskWrite)
+	if got, want := reserve(), max(agent.HostMemory()-3<<30, 0); got != want {
+		t.Errorf("resized: reserved %d, want %d", got, want)
 	}
 
 	// The agents in it thrashing together reach Settings, though the one
@@ -176,107 +190,7 @@ func TestSharedBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.SharedBudget.On || read("memory.max") != "max" || read("cpu.max") != "max 100000" {
-		t.Errorf("off: %+v memory.max=%s cpu.max=%s", s.SharedBudget, read("memory.max"), read("cpu.max"))
-	}
-}
-
-// TestSharedBudgetByDefault: nobody having chosen, the budget turns itself on
-// once its cgroup is usable — but not under an installation from before that,
-// which is offered it instead, and never again once it's been turned off.
-// Setup says which of those it is. Not parallel: it points agent.BudgetDir at
-// a directory of its own.
-func TestSharedBudgetByDefault(t *testing.T) {
-	dir := t.TempDir()
-	old := agent.BudgetDir
-	agent.BudgetDir = dir
-	t.Cleanup(func() { agent.BudgetDir = old })
-	if agent.BudgetSupport() != "" {
-		t.Skip(agent.BudgetSupport())
-	}
-	d := startTestDaemon(t, t.TempDir(), cpuBudgetIncus)
-	ctx := context.Background()
-	budgetCheck := func() string {
-		t.Helper()
-		status, err := d.client.Setup(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, c := range status.Checks {
-			if c.ID == "budget" {
-				return c.Status + ": " + c.Detail
-			}
-		}
-		t.Fatal("Setup has no budget check")
-		return ""
-	}
-	read := func() (on, auto, offer bool) {
-		t.Helper()
-		s, err := patchSettings(t, d, `{}`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return s.SharedBudget.On, s.SharedBudget.AutoOn, s.SharedBudget.Offer
-	}
-
-	// No cgroup yet: it waits for one.
-	if d.srv.sharedBudgetByDefault(ctx) {
-		t.Error("turned on with no cgroup")
-	}
-	if on, auto, offer := read(); on || !auto || offer {
-		t.Errorf("before the cgroup: on=%v auto=%v offer=%v", on, auto, offer)
-	}
-	if c := budgetCheck(); !strings.Contains(c, "turns itself on") {
-		t.Errorf("Setup says %q", c)
-	}
-
-	// An installation from before: offered, not turned on.
-	if err := d.srv.store.SetSetting(ctx, state.SettingSharedBudgetOffer, "1"); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"memory.high", "memory.max", "memory.swap.max", "cpu.max"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("max\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if d.srv.sharedBudgetByDefault(ctx) {
-		t.Error("turned on under an installation from before")
-	}
-	if on, auto, offer := read(); on || auto || !offer {
-		t.Errorf("offered: on=%v auto=%v offer=%v", on, auto, offer)
-	}
-	if c := budgetCheck(); !strings.Contains(c, "set up before") {
-		t.Errorf("Setup says %q", c)
-	}
-
-	// A new one: on, at the suggested size, and written down.
-	if err := d.srv.store.SetSetting(ctx, state.SettingSharedBudgetOffer, ""); err != nil {
-		t.Fatal(err)
-	}
-	if !d.srv.sharedBudgetByDefault(ctx) {
-		t.Fatal("didn't turn on with its cgroup ready")
-	}
-	if on, auto, offer := read(); !on || auto || offer {
-		t.Errorf("turned on: on=%v auto=%v offer=%v", on, auto, offer)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "memory.max")); strings.TrimSpace(string(b)) == "max" {
-		t.Error("the budget wasn't written to its cgroup")
-	}
-	if c := budgetCheck(); !strings.HasPrefix(c, "ok: on: agents share") {
-		t.Errorf("Setup says %q", c)
-	}
-	if d.srv.sharedBudgetByDefault(ctx) {
-		t.Error("turned on twice")
-	}
-
-	// Off is the user's, and stays.
-	if _, err := patchSettings(t, d, `{"sharedBudget":false}`); err != nil {
-		t.Fatal(err)
-	}
-	if d.srv.sharedBudgetByDefault(ctx) {
-		t.Error("turned on again after being turned off")
-	}
-	if c := budgetCheck(); !strings.Contains(c, "you turned it off") {
-		t.Errorf("Setup says %q", c)
+	if s.SharedBudget.On || read("memory.max") != "max" || read("cpu.max") != "max 100000" || reserve() != 0 {
+		t.Errorf("off: %+v memory.max=%s cpu.max=%s reserve=%d", s.SharedBudget, read("memory.max"), read("cpu.max"), reserve())
 	}
 }

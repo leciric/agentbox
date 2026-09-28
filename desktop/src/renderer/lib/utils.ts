@@ -16,6 +16,25 @@ export function humanBytes(n: number): string {
   return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`;
 }
 
+// parseBytes reads the sizes Incus takes: an agent's memory limit, or the
+// shared budget's memory.
+export function parseBytes(size: string): number | undefined {
+  const match = /^\s*([0-9.]+)\s*(B|kB|MB|GB|TB|KiB|MiB|GiB|TiB)?\s*$/.exec(size);
+  if (!match) return undefined;
+  const units: Record<string, number> = {
+    B: 1,
+    kB: 1e3,
+    MB: 1e6,
+    GB: 1e9,
+    TB: 1e12,
+    KiB: 1024,
+    MiB: 1024 ** 2,
+    GiB: 1024 ** 3,
+    TiB: 1024 ** 4,
+  };
+  return Number(match[1]) * (units[match[2] ?? 'B'] ?? 1);
+}
+
 // humanRate is a rate in bytes a second, read the way humanBytes reads a size.
 export function humanRate(n: number): string {
   return `${humanBytes(Math.round(n))}/s`;

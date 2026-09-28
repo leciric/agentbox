@@ -18,22 +18,25 @@ import (
 
 // sharedBudgetInterval is how often the daemon writes the budget again while
 // it's on. Writing is a no-op when nothing changed; what does change on its
-// own is memory.high, which is lifted to memory.max while the budget's swap is
-// nearly full (agent.ApplyBudget), and the cgroup itself, which a reboot
+// own is the reserve on systemd's slices, which systemd puts back to 0 when
+// it reloads them (agent/reserve.go), and the cgroup itself, which a reboot
 // makes afresh with no budget in it.
 const sharedBudgetInterval = 10 * time.Second
 
-// watchSharedBudget keeps the budget applied while it's on, and turns it on
-// by default once its cgroup is usable (sharedBudgetByDefault). The first
-// pass also puts every agent's raw.lxc where the setting says, for agents
-// made by a daemon from before it was turned on.
+// watchSharedBudget keeps the budget applied while it's on. The first pass
+// also puts every agent's raw.lxc where the setting says, for agents made by
+// a daemon from before it was turned on, and resets what an earlier version's
+// budget left on the host's disk (agent.ResetLegacyBudget).
 func (s *Server) watchSharedBudget(ctx context.Context) {
 	m := s.manager(nil)
-	if !s.sharedBudgetByDefault(ctx) {
-		if on, _, err := m.SharedBudget(ctx); err == nil && on {
-			if _, err := m.ApplySharedBudget(ctx); err != nil {
-				s.logf("shared budget: %v", err)
-			}
+	if reset, err := agent.ResetLegacyBudget(); err != nil {
+		s.logf("shared budget: %v", err)
+	} else if len(reset) > 0 {
+		s.logf("shared budget: reset what an earlier version set: %s", strings.Join(reset, ", "))
+	}
+	if on, _, err := m.SharedBudget(ctx); err == nil && on {
+		if _, err := m.ApplySharedBudget(ctx); err != nil {
+			s.logf("shared budget: %v", err)
 		}
 	}
 	ticker := time.NewTicker(sharedBudgetInterval)
@@ -45,7 +48,6 @@ func (s *Server) watchSharedBudget(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
-		s.sharedBudgetByDefault(ctx)
 		on, b, err := m.SharedBudget(ctx)
 		if err != nil || !on {
 			last = ""
@@ -63,38 +65,6 @@ func (s *Server) watchSharedBudget(ctx context.Context) {
 	}
 }
 
-// sharedBudgetByDefault turns the budget on, at the size suggested for this
-// host, when nobody has chosen either way and its cgroup is usable — which,
-// on a host set up since host setup makes it, is from the first start. It
-// writes the choice down, so that from then on it is the user's to change,
-// and an off stays off. An installation from before this (state's
-// SettingSharedBudgetOffer) is offered it in Setup and Settings instead, and
-// so is a Mac's VM or WSL, never: BudgetSupport rules the budget out there.
-// It reports whether it turned the budget on.
-func (s *Server) sharedBudgetByDefault(ctx context.Context) bool {
-	if agent.BudgetSupport() != "" || agent.BudgetReady() != nil {
-		return false
-	}
-	if _, chosen, err := s.store.SettingValue(ctx, state.SettingSharedBudget); err != nil || chosen {
-		return false
-	}
-	if offer, err := s.store.Flag(ctx, state.SettingSharedBudgetOffer); err != nil || offer {
-		return false
-	}
-	if err := s.store.SetFlag(ctx, state.SettingSharedBudget, true); err != nil {
-		s.logf("shared budget: %v", err)
-		return false
-	}
-	_, b, _ := s.manager(nil).SharedBudget(ctx)
-	pending, err := s.manager(nil).ApplySharedBudget(ctx)
-	if err != nil {
-		s.logf("shared budget: %v", err)
-	}
-	s.logf("shared budget on by default: %s; %d running agent(s) join it when they restart", b.Describe(), pending)
-	s.events.publish(api.EventBudget, struct{}{})
-	return true
-}
-
 // sharedBudget is the budget's state, for Settings.
 func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	m := s.manager(nil)
@@ -105,7 +75,7 @@ func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	host := agent.ReadHostResources()
 	suggested, why := agent.SuggestBudget(host)
 	chosen := false
-	for _, key := range []string{state.SettingSharedBudgetMemory, state.SettingSharedBudgetSwap, state.SettingSharedBudgetCPU, state.SettingSharedBudgetDiskWeight, state.SettingSharedBudgetDiskWrite} {
+	for _, key := range []string{state.SettingSharedBudgetMemory, state.SettingSharedBudgetSwap, state.SettingSharedBudgetCPU} {
 		v, err := s.store.Setting(ctx, key)
 		if err != nil {
 			return api.SharedBudget{}, err
@@ -114,12 +84,9 @@ func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	}
 	out := api.SharedBudget{
 		On: on, Memory: b.Memory, Swap: b.Swap, CPU: b.CPU, Chosen: chosen,
-		DiskWeight: b.DiskWeight, DiskWrite: b.DiskWrite,
-		Suggested: api.SharedBudgetSize{
-			Memory: suggested.Memory, Swap: suggested.Swap, CPU: suggested.CPU,
-			DiskWeight: suggested.DiskWeight, DiskWrite: suggested.DiskWrite,
-		},
+		Suggested:    api.SharedBudgetSize{Memory: suggested.Memory, Swap: suggested.Swap, CPU: suggested.CPU},
 		Why:          why,
+		HostMemory:   host.Memory,
 		HostSwap:     host.Swap,
 		HostSwapKind: host.SwapKind,
 		Unsupported:  agent.BudgetSupport(),
@@ -128,20 +95,13 @@ func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	if out.Unsupported != "" {
 		return out, nil
 	}
-	if _, set, err := s.store.SettingValue(ctx, state.SettingSharedBudget); err == nil && !set {
-		offer, _ := s.store.Flag(ctx, state.SettingSharedBudgetOffer)
-		out.Offer, out.AutoOn = offer, !offer
-	}
-	if host.Disk != nil {
-		out.Disk = host.Disk.Describe()
-	}
 	if err := agent.BudgetReady(); err != nil {
 		out.NotReady = budgetNotReady(err)
 		if on {
 			out.Problem = "The budget is on, but not applied: " + out.NotReady
 		}
-	} else if err := agent.BudgetDiskReady(); err != nil {
-		out.DiskNotReady = diskNotReady(err)
+	} else if on && !agent.ReserveReachesApps() {
+		out.Problem = "The memory reserved for your apps doesn't reach them: /sys/fs/cgroup is mounted without memory_recursiveprot, which systemd has set since version 247. Agents still share one budget, but nothing makes them give memory back to your apps first."
 	}
 	out.Inside, out.Pending = s.budgetMembers(ctx, on)
 	if on {
@@ -150,19 +110,10 @@ func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	return out, nil
 }
 
-// diskNotReady says what BudgetDiskReady found missing, and what fixes it.
-func diskNotReady(err error) string {
-	why := strings.TrimPrefix(err.Error(), agent.ErrDiskNotReady.Error()+": ")
-	if strings.Contains(why, "isn't yours to write") {
-		return "Agents don't give way to your apps on the disk yet: the budget was set up before it could do that. Set up again once to add it. (" + why + ")"
-	}
-	return "Agents can't be made to give way on the disk here: " + why + "."
-}
-
 // budgetNotReady says what BudgetReady found missing, and what fixes it.
 func budgetNotReady(err error) string {
-	return "it needs " + hostsetup.BudgetCgroupDir + ", a cgroup only root can make: " +
-		"Set up asks for your password once, and installs a small unit that makes it at every boot. (" + strings.TrimPrefix(err.Error(), agent.ErrBudgetNotReady.Error()+": ") + ")"
+	return "it needs " + hostsetup.BudgetCgroupDir + ", a cgroup only root can make, and the memory.low of user.slice and system.slice, where it reserves memory for your apps: " +
+		"Set up asks for your password once, and installs a small unit that makes it and hands those over at every boot. (" + strings.TrimPrefix(err.Error(), agent.ErrBudgetNotReady.Error()+": ") + ")"
 }
 
 // budgetMembers counts the running agents inside the budget, and those that
@@ -192,8 +143,7 @@ func (s *Server) budgetMembers(ctx context.Context, on bool) (inside, pending in
 // size first, checked against this host, then the switch, and then brings
 // the cgroup and every agent in line.
 func (s *Server) updateSharedBudget(ctx context.Context, req api.UpdateSettingsRequest) error {
-	if req.SharedBudget == nil && req.SharedBudgetMemory == nil && req.SharedBudgetSwap == nil && req.SharedBudgetCPU == nil &&
-		req.SharedBudgetDiskWeight == nil && req.SharedBudgetDiskWrite == nil {
+	if req.SharedBudget == nil && req.SharedBudgetMemory == nil && req.SharedBudgetSwap == nil && req.SharedBudgetCPU == nil {
 		return nil
 	}
 	if why := agent.BudgetSupport(); why != "" {
@@ -232,26 +182,6 @@ func (s *Server) updateSharedBudget(ctx context.Context, req api.UpdateSettingsR
 		b.CPU = n
 		if n <= 0 {
 			b.CPU = suggested.CPU
-		}
-	}
-	if req.SharedBudgetDiskWeight != nil {
-		n := *req.SharedBudgetDiskWeight
-		v := ""
-		if n > 0 {
-			v = strconv.Itoa(n)
-		}
-		writes = append(writes, [2]string{state.SettingSharedBudgetDiskWeight, v})
-		b.DiskWeight = n
-		if n <= 0 {
-			b.DiskWeight = suggested.DiskWeight
-		}
-	}
-	if req.SharedBudgetDiskWrite != nil {
-		v := strings.TrimSpace(*req.SharedBudgetDiskWrite)
-		writes = append(writes, [2]string{state.SettingSharedBudgetDiskWrite, v})
-		b.DiskWrite = v
-		if v == "" {
-			b.DiskWrite = suggested.DiskWrite
 		}
 	}
 	if err := b.Validate(agent.ReadHostResources()); err != nil {

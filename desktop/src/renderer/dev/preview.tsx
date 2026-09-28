@@ -38,12 +38,13 @@
 //   ?defaults=1             Settings' Lead and Agents defaults, the model and
 //                           the context window of each, which the dev bridge
 //                           saves (fixtures.ts)
-//   ?budget=on              the shared budget on, for Settings' disk fields;
+//   ?budget=on              the shared budget on, for Settings' fields and
+//                           the memory it reserves for your apps;
 //   ?budget=short           and its agents thrashing at its memory together:
 //                           the rail's warning for the group (fixtures.ts)
-//   ?budget=offer           an installation from before the budget was on by
-//                           default: Settings and Setup offer it (with
-//                           ?settings=resources or ?settings=machine)
+//   ?budget=off             off, with its cgroup not made yet: Settings' "Set
+//                           up and turn on" (with ?settings=resources or
+//                           ?settings=machine)
 //   ?github=1               a project's GitHub account picker, on a project
 //                           that limits its Claude Code accounts, beside
 //                           Settings' GitHub accounts with a rename the dev
@@ -117,7 +118,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOffer, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedQueryClient } from './fixtures';
 
 installDevBridge();
 
@@ -201,7 +202,7 @@ if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media) seedMedia(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
-if (budget === 'offer') seedBudgetOffer(queryClient);
+if (budget === 'off') seedBudgetOff(queryClient);
 if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });

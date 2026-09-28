@@ -428,7 +428,9 @@ type Settings struct {
 type SharedBudget struct {
 	On bool `json:"on"`
 	// Memory, Swap and CPU are the budget: what was chosen, or Suggested
-	// where nothing was. Swap is "" on a host with no swap.
+	// where nothing was. Swap is "" on a host with no swap. Memory is what
+	// agents may use while the host's apps need theirs: HostMemory less it is
+	// reserved for those apps, which agents may borrow while they don't.
 	Memory string `json:"memory"`
 	Swap   string `json:"swap"`
 	CPU    int    `json:"cpu"`
@@ -439,7 +441,9 @@ type SharedBudget struct {
 	// Why says how, in one line.
 	Suggested SharedBudgetSize `json:"suggested"`
 	Why       string           `json:"why"`
-	// HostSwap and HostSwapKind ("zram", "disk" or "") are the host's swap.
+	// HostMemory is the host's memory, and HostSwap and HostSwapKind
+	// ("zram", "disk" or "") its swap.
+	HostMemory   int64  `json:"hostMemory"`
 	HostSwap     int64  `json:"hostSwap"`
 	HostSwapKind string `json:"hostSwapKind"`
 	// Unsupported says why this machine can't have the budget at all — a VM
@@ -452,28 +456,10 @@ type SharedBudget struct {
 	SetupCommand string `json:"setupCommand"`
 	// Problem is why the budget, while on, isn't applied right now.
 	Problem string `json:"problem,omitempty"`
-	// Nobody has turned the budget on or off yet. AutoOn: the daemon turns it
-	// on by itself as soon as its cgroup is usable. Offer: it won't, because
-	// this installation was in use before the budget was on by default, so
-	// Setup and Settings offer it instead.
-	AutoOn bool `json:"autoOn,omitempty"`
-	Offer  bool `json:"offer,omitempty"`
 	// Inside is how many running agents are in the budget, and Pending how
 	// many running agents are yet to move in, or out, when they restart.
 	Inside  int `json:"inside"`
 	Pending int `json:"pending"`
-	// DiskWeight and DiskWrite are the budget's disk: its weight against the
-	// 100 of this host's own apps while they need the disk, and the most the
-	// agents write together a second, like "64MiB", or "max" for no
-	// ceiling. Disk names the disk under /, like "NVMe nvme0n1 (KINGSTON
-	// SNV3S1000G)", "" when it can't be told.
-	DiskWeight int    `json:"diskWeight"`
-	DiskWrite  string `json:"diskWrite"`
-	Disk       string `json:"disk,omitempty"`
-	// DiskNotReady says why the disk's part isn't applied — a budget set up
-	// before it existed, which Set up fixes, or a kernel without io.cost —
-	// while memory and CPU are. "" when it is.
-	DiskNotReady string `json:"diskNotReady,omitempty"`
 	// Shortage is set while the agents in the budget are thrashing at its
 	// memory together (agent.ThrashWatch's group), whether or not any one of
 	// them is on its own. EventBudget says when it starts and stops.
@@ -482,11 +468,9 @@ type SharedBudget struct {
 
 // SharedBudgetSize is a shared budget's size alone.
 type SharedBudgetSize struct {
-	Memory     string `json:"memory"`
-	Swap       string `json:"swap"`
-	CPU        int    `json:"cpu"`
-	DiskWeight int    `json:"diskWeight"`
-	DiskWrite  string `json:"diskWrite"`
+	Memory string `json:"memory"`
+	Swap   string `json:"swap"`
+	CPU    int    `json:"cpu"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -547,11 +531,6 @@ type UpdateSettingsRequest struct {
 	SharedBudgetMemory *string `json:"sharedBudgetMemory,omitempty"`
 	SharedBudgetSwap   *string `json:"sharedBudgetSwap,omitempty"`
 	SharedBudgetCPU    *int    `json:"sharedBudgetCPU,omitempty"`
-	// SharedBudgetDiskWeight (1–100, 0 for the suggestion) and
-	// SharedBudgetDiskWrite (a size a second, "max", or "" for the
-	// suggestion) set its disk.
-	SharedBudgetDiskWeight *int    `json:"sharedBudgetDiskWeight,omitempty"`
-	SharedBudgetDiskWrite  *string `json:"sharedBudgetDiskWrite,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
@@ -1386,9 +1365,8 @@ const (
 	// setting behind it changed.
 	EventUpdate = "update"
 	// EventBudget says the agents in the shared budget started or stopped
-	// thrashing at its memory together (SharedBudget.Shortage), or that the
-	// daemon turned the budget on by itself (SharedBudget.AutoOn), so a
-	// client reads Settings again.
+	// thrashing at its memory together (SharedBudget.Shortage), so a client
+	// reads Settings again.
 	EventBudget = "budget"
 )
 

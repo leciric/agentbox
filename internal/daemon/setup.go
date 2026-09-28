@@ -546,17 +546,15 @@ func cmpOr(value, fallback string) string {
 }
 
 // sharedBudgetCheck is the shared agent budget's line in Setup: there where
-// the budget can be at all, and never required. It's where an installation
-// from before the budget was on by default is offered it (the app's body for
-// "budget" has the button), and where running agents still outside it are
-// said to join it at their next start.
+// the budget can be at all, and never required. It's where running agents
+// still outside it are said to join it at their next start.
 func (s *Server) sharedBudgetCheck(ctx context.Context) (api.SetupCheck, bool) {
 	b, err := s.sharedBudget(ctx)
 	if err != nil || b.Unsupported != "" {
 		return api.SetupCheck{}, false
 	}
 	c := api.SetupCheck{ID: "budget", Title: "Shared agent budget", Status: api.SetupOptional}
-	size := agent.Budget{Memory: b.Memory, Swap: b.Swap, CPU: b.CPU, DiskWeight: b.DiskWeight, DiskWrite: b.DiskWrite}.Describe()
+	size := agent.Budget{Memory: b.Memory, Swap: b.Swap, CPU: b.CPU}.DescribeOn(b.HostMemory)
 	switch {
 	case b.On && b.Problem != "":
 		c.Status, c.Detail, c.Fix = api.SetupWarn, b.Problem, b.SetupCommand
@@ -569,16 +567,8 @@ func (s *Server) sharedBudgetCheck(ctx context.Context) (api.SetupCheck, bool) {
 				c.Detail += fmt.Sprintf(". %d running agents join it at their next start", b.Pending)
 			}
 		}
-	case b.Offer:
-		c.Detail = "off: new installations have it on, and this one was set up before they did. Turning it on protects this computer's memory, CPU and disk from the agents"
-		if b.NotReady != "" {
-			c.Fix = b.SetupCommand
-		}
-	case b.AutoOn:
-		c.Detail = "turns itself on once its cgroup is set up, which host setup does"
-		c.Fix = b.SetupCommand
 	default:
-		c.Detail = "off: you turned it off in Settings"
+		c.Detail = "off: turn it on in Settings, under Resources, to reserve memory for your own apps and keep agents to the rest"
 	}
 	return c, true
 }

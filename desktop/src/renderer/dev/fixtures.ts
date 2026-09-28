@@ -816,17 +816,15 @@ let defaultsSettings = {
     swap: '8GiB',
     cpu: 12,
     chosen: false,
-    suggested: { memory: '21GiB', swap: '8GiB', cpu: 12, diskWeight: 10, diskWrite: '64MiB' },
+    suggested: { memory: '21GiB', swap: '8GiB', cpu: 12 },
     why:
-      "Leaves this host 11.0 GiB of its 32.0 GiB of memory and 4 of its 16 cores, and lets agents use 8.0 GiB of its 16.0 GiB of zram swap. On its NVMe, agents give way to this host's own apps whenever those need it, and write at most 64.0 MiB/s together, which even a budget SSD keeps up with once its write cache is full.",
+      "Reserves 11.0 GiB of this host's 32.0 GiB of memory for your own apps, and keeps 4 of its 16 cores free; agents may use 8.0 GiB of its 16.0 GiB of zram swap. Agents may borrow the reserved memory while your apps aren't using it, and give it back first when they are.",
+    hostMemory: 32 * 1024 ** 3,
     hostSwap: 16 * 1024 ** 3,
     hostSwapKind: 'zram',
     setupCommand: 'sudo "$(command -v agentbox)" host budget',
     inside: 0,
     pending: 0,
-    diskWeight: 10,
-    diskWrite: '64MiB',
-    disk: 'NVMe nvme0n1 (KINGSTON SNV3S1000G)',
   } as T.SharedBudget,
 } as T.Settings;
 
@@ -843,16 +841,13 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.gpuForAgents !== undefined) next.gpuForAgents = req.gpuForAgents;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
-  // Turned on or off, it's chosen: no longer offered, and on, the cgroup is
-  // there (the dev bridge's hostSetup.budget stands in for pkexec) and the
-  // offer's two running agents are waiting for their next start.
+  // Turned on, the cgroup is there (the dev bridge's hostSetup.budget stands
+  // in for pkexec) and two running agents are waiting for their next start.
   if (req.sharedBudget !== undefined)
     next.sharedBudget = {
       ...next.sharedBudget,
       on: req.sharedBudget,
-      offer: false,
-      autoOn: false,
-      ...(req.sharedBudget && next.sharedBudget.offer ? { notReady: undefined, pending: 2 } : {}),
+      ...(req.sharedBudget && next.sharedBudget.notReady ? { notReady: undefined, pending: 2 } : {}),
     };
   if (req.sharedBudget !== undefined && devState.setup)
     devState.setup = {
@@ -862,13 +857,11 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
           ? c
           : req.sharedBudget
             ? { ...c, status: 'ok', fix: undefined, detail: `on: agents share ${next.sharedBudget.memory} of memory, ${next.sharedBudget.swap} of swap and ${next.sharedBudget.cpu} cores. 2 running agents join it at their next start` }
-            : { ...c, fix: undefined, detail: 'off: you turned it off in Settings' },
+            : { ...c, fix: undefined, detail: 'off: turn it on in Settings, under Resources, to reserve memory for your own apps and keep agents to the rest' },
       ),
     };
-  if (req.sharedBudgetDiskWeight !== undefined)
-    next.sharedBudget = { ...next.sharedBudget, diskWeight: req.sharedBudgetDiskWeight || next.sharedBudget.suggested.diskWeight };
-  if (req.sharedBudgetDiskWrite !== undefined)
-    next.sharedBudget = { ...next.sharedBudget, diskWrite: req.sharedBudgetDiskWrite || next.sharedBudget.suggested.diskWrite };
+  if (req.sharedBudgetMemory !== undefined)
+    next.sharedBudget = { ...next.sharedBudget, memory: req.sharedBudgetMemory || next.sharedBudget.suggested.memory, chosen: req.sharedBudgetMemory !== '' };
   // The rest are stored as they are sent, the way the daemon stores them.
   for (const key of ['defaultClaudeEffort', 'defaultCPU', 'defaultCPUAllowance', 'defaultMemory', 'resumeAfterLimit', 'claudeCompactWindow', 'updateCheck', 'usageStats', 'prWatch', 'mediaRetention'] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
@@ -887,8 +880,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
 }
 
 // seedBudget turns the shared budget on in defaultsSettings (?budget=on), and
-// with ?budget=short has the agents in it thrashing at its 20 GiB together:
-// Settings' disk fields, and the rail's warning for the group.
+// with ?budget=short has the agents in it thrashing together at its 30 GiB
+// ceiling: Settings' fields, and the rail's warning for the group.
 export function seedBudget(queryClient: QueryClient, short: boolean): void {
   defaultsSettings = {
     ...defaultsSettings,
@@ -898,24 +891,23 @@ export function seedBudget(queryClient: QueryClient, short: boolean): void {
       memory: '20GiB',
       inside: 4,
       shortage: short
-        ? { since: new Date().toISOString(), pressure: 38.4, refaultRate: 1.9 * 2 ** 30, readRate: 2.1 * 2 ** 30, limit: 20 * 2 ** 30, inBudget: false }
+        ? { since: new Date().toISOString(), pressure: 38.4, refaultRate: 1.9 * 2 ** 30, readRate: 2.1 * 2 ** 30, limit: 30 * 2 ** 30, inBudget: false }
         : undefined,
     },
   };
   queryClient.setQueryData(['settings'], defaultsSettings);
 }
 
-// seedBudgetOffer is an installation from before the shared budget was on by
-// default (?budget=offer): off, never chosen, its cgroup not made yet, so
-// Settings and Setup offer to turn it on, in one click through pkexec.
-export function seedBudgetOffer(queryClient: QueryClient): void {
+// seedBudgetOff is the shared budget as a new installation has it
+// (?budget=off): off, and its cgroup not made yet, so Settings offers to set
+// it up and turn it on in one click, through pkexec, and Setup says where.
+export function seedBudgetOff(queryClient: QueryClient): void {
   defaultsSettings = {
     ...defaultsSettings,
     sharedBudget: {
       ...defaultsSettings.sharedBudget,
-      offer: true,
       notReady:
-        'it needs /sys/fs/cgroup/agentbox, a cgroup only root can make: Set up asks for your password once, and installs a small unit that makes it at every boot. (/sys/fs/cgroup/agentbox doesn\'t exist)',
+        "it needs /sys/fs/cgroup/agentbox, a cgroup only root can make, and the memory.low of user.slice and system.slice, where it reserves memory for your apps: Set up asks for your password once, and installs a small unit that makes it and hands those over at every boot. (/sys/fs/cgroup/agentbox doesn't exist)",
     },
   };
   queryClient.setQueryData(['settings'], defaultsSettings);
@@ -930,9 +922,7 @@ export function seedBudgetOffer(queryClient: QueryClient): void {
           title: 'Shared agent budget',
           status: 'optional',
           required: false,
-          detail:
-            'off: new installations have it on, and this one was set up before they did. Turning it on protects this computer\'s memory, CPU and disk from the agents',
-          fix: 'sudo "$(command -v agentbox)" host budget',
+          detail: 'off: turn it on in Settings, under Resources, to reserve memory for your own apps and keep agents to the rest',
         },
       ],
     };

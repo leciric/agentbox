@@ -15,9 +15,9 @@ func TestBudgetUnit(t *testing.T) {
 		"RemainAfterExit=yes",
 		"mkdir -p /sys/fs/cgroup/agentbox",
 		"echo '+memory +cpu' > /sys/fs/cgroup/agentbox/cgroup.subtree_control",
-		"chown 1000 memory.high memory.max memory.swap.max cpu.max && {",
-		"echo +io > /sys/fs/cgroup/agentbox/cgroup.subtree_control",
-		"chown 1000 io.weight io.max /sys/fs/cgroup/io.cost.qos; true; }",
+		"chown 1000 memory.max memory.swap.max cpu.max && ",
+		"chown 1000 /sys/fs/cgroup/user.slice/memory.low /sys/fs/cgroup/system.slice/memory.low",
+		"After=user.slice",
 		"WantedBy=multi-user.target",
 	} {
 		if !strings.Contains(unit, want) {
@@ -26,10 +26,13 @@ func TestBudgetUnit(t *testing.T) {
 	}
 	// It hands over the budget files and nothing else: not the
 	// directory, which would let the user make cgroups of their own in it,
-	// and not cgroup.procs, which would let them move processes.
+	// not cgroup.procs, which would let them move processes, and nothing of
+	// the disk's, which the budget no longer touches.
 	script := BudgetScript("1000")
-	if strings.Contains(script, "chown 1000 "+BudgetCgroupDir) || strings.Contains(script, "cgroup.procs") || strings.Contains(script, "-R") {
-		t.Errorf("the script hands over more than the budget files: %s", script)
+	for _, never := range []string{"chown 1000 " + BudgetCgroupDir, "cgroup.procs", "-R", "io.", "+io", "memory.high"} {
+		if strings.Contains(script, never) {
+			t.Errorf("the script hands over more than the budget files (%q): %s", never, script)
+		}
 	}
 }
 
