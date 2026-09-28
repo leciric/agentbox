@@ -15,3 +15,6 @@ node_modules
 
 # scripts/record/ still writes its own output here.
 /docs/implementation/evidence/
+
+# scripts/bench/ writes its results here.
+/bench-results/
