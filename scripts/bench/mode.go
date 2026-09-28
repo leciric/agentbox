@@ -232,7 +232,7 @@ func agentName(i int) string { return fmt.Sprintf("bench-%d", i) }
 // recorded and the plan carries on with what doesn't depend on it; setup or
 // the first agent failing ends the mode.
 func runMode(ctx context.Context, opts *options, d driver) *modeResult {
-	res := &modeResult{Mode: d.name(), Config: d.describe(), Metrics: map[string]float64{}, Notes: map[string]string{},
+	res := &modeResult{Mode: d.name(), Metrics: map[string]float64{}, Notes: map[string]string{},
 		Windows: map[string]*window{}, Samples: map[string]any{}, Started: time.Now()}
 	logf, err := os.Create(filepath.Join(opts.out, "logs", d.name()+".log"))
 	if err != nil {
@@ -287,6 +287,9 @@ func runMode(ctx context.Context, opts *options, d driver) *modeResult {
 	for _, e := range errs {
 		res.Errors = append(res.Errors, "sampler: "+e)
 	}
+	// Read after the run: preflight and setup fill some of it in, like the
+	// bridge the VM joined.
+	res.Config = d.describe()
 	res.Finished = time.Now()
 	return res
 }

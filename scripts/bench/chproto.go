@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -50,6 +51,7 @@ type chDriver struct {
 
 	proc   *exec.Cmd
 	exited chan struct{}
+	pid    atomic.Int64 // the running VM's, for held, which the sampler calls from its own goroutine
 	ip     string
 	incus  bool // Incus is set up in the guest: boot waits for it
 }
@@ -377,7 +379,8 @@ func (d *chDriver) boot(ctx context.Context) error {
 	d.proc, d.exited = cmd, make(chan struct{})
 	_ = os.WriteFile(filepath.Join(d.work, "ch.pid"), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
 	exited := d.exited
-	go func() { _ = cmd.Wait(); _ = logf.Close(); close(exited) }()
+	d.pid.Store(int64(cmd.Process.Pid))
+	go func() { _ = cmd.Wait(); d.pid.Store(0); _ = logf.Close(); close(exited) }()
 
 	wctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -535,10 +538,11 @@ func (d *chDriver) dropCaches(ctx context.Context) error {
 }
 
 func (d *chDriver) held() int64 {
-	if d.proc == nil || !d.running() {
+	pid := d.pid.Load()
+	if pid == 0 {
 		return 0
 	}
-	return processRSS("", strconv.Itoa(d.proc.Process.Pid))
+	return processRSS("", strconv.FormatInt(pid, 10))
 }
 
 func (d *chDriver) cleanup(ctx context.Context) error {
