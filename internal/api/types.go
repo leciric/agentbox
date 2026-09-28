@@ -456,13 +456,31 @@ type SharedBudget struct {
 	// many running agents are yet to move in, or out, when they restart.
 	Inside  int `json:"inside"`
 	Pending int `json:"pending"`
+	// DiskWeight and DiskWrite are the budget's disk: its weight against the
+	// 100 of this host's own apps while they need the disk, and the most the
+	// agents write together a second, like "64MiB", or "max" for no
+	// ceiling. Disk names the disk under /, like "NVMe nvme0n1 (KINGSTON
+	// SNV3S1000G)", "" when it can't be told.
+	DiskWeight int    `json:"diskWeight"`
+	DiskWrite  string `json:"diskWrite"`
+	Disk       string `json:"disk,omitempty"`
+	// DiskNotReady says why the disk's part isn't applied — a budget set up
+	// before it existed, which Set up fixes, or a kernel without io.cost —
+	// while memory and CPU are. "" when it is.
+	DiskNotReady string `json:"diskNotReady,omitempty"`
+	// Shortage is set while the agents in the budget are thrashing at its
+	// memory together (agent.ThrashWatch's group), whether or not any one of
+	// them is on its own. EventBudget says when it starts and stops.
+	Shortage *MemoryShortage `json:"shortage,omitempty"`
 }
 
 // SharedBudgetSize is a shared budget's size alone.
 type SharedBudgetSize struct {
-	Memory string `json:"memory"`
-	Swap   string `json:"swap"`
-	CPU    int    `json:"cpu"`
+	Memory     string `json:"memory"`
+	Swap       string `json:"swap"`
+	CPU        int    `json:"cpu"`
+	DiskWeight int    `json:"diskWeight"`
+	DiskWrite  string `json:"diskWrite"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -523,6 +541,11 @@ type UpdateSettingsRequest struct {
 	SharedBudgetMemory *string `json:"sharedBudgetMemory,omitempty"`
 	SharedBudgetSwap   *string `json:"sharedBudgetSwap,omitempty"`
 	SharedBudgetCPU    *int    `json:"sharedBudgetCPU,omitempty"`
+	// SharedBudgetDiskWeight (1–100, 0 for the suggestion) and
+	// SharedBudgetDiskWrite (a size a second, "max", or "" for the
+	// suggestion) set its disk.
+	SharedBudgetDiskWeight *int    `json:"sharedBudgetDiskWeight,omitempty"`
+	SharedBudgetDiskWrite  *string `json:"sharedBudgetDiskWrite,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
@@ -1330,6 +1353,10 @@ const (
 	// EventUpdate carries a new UpdateStatus: a check found something, or the
 	// setting behind it changed.
 	EventUpdate = "update"
+	// EventBudget says the agents in the shared budget started or stopped
+	// thrashing at its memory together (SharedBudget.Shortage), so a client
+	// reads Settings again.
+	EventBudget = "budget"
 )
 
 // Appearance is the setting behind Theme: what AgentBox wears.

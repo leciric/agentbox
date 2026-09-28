@@ -153,6 +153,8 @@ func TestBudgetDescribeAndHost(t *testing.T) {
 	for b, want := range map[Budget]string{
 		{Memory: "20GiB", Swap: "8GiB", CPU: 12}: "20GiB of memory, 8GiB of swap and 12 cores",
 		{Memory: "3GiB", CPU: 1}:                 "3GiB of memory, no swap and 1 core",
+		{Memory: "20GiB", Swap: "8GiB", CPU: 12, DiskWeight: 10, DiskWrite: "64MiB"}: "20GiB of memory, 8GiB of swap and 12 cores; disk weight 10, writes up to 64MiB/s",
+		{Memory: "20GiB", Swap: "8GiB", CPU: 12, DiskWeight: 25, DiskWrite: "max"}:   "20GiB of memory, 8GiB of swap and 12 cores; disk weight 25, no write ceiling",
 	} {
 		if got := b.Describe(); got != want {
 			t.Errorf("Describe(%+v) = %q, want %q", b, got, want)

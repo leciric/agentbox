@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,6 +102,73 @@ func TestSharedBudget(t *testing.T) {
 	}
 	if read("memory.max") != "3221225472" {
 		t.Errorf("resized: memory.max=%s", read("memory.max"))
+	}
+
+	// The disk: the suggestion until chosen, checked, and said to be missing
+	// while the cgroup has no io files of its own (a budget set up before).
+	if b := s.SharedBudget; b.DiskWeight != 10 || b.DiskWrite == "" || b.DiskWrite != b.Suggested.DiskWrite || b.DiskNotReady == "" {
+		t.Errorf("the budget's disk = weight %d, writes %q (suggested %q), not ready %q", b.DiskWeight, b.DiskWrite, b.Suggested.DiskWrite, b.DiskNotReady)
+	}
+	if _, err := patchSettings(t, d, `{"sharedBudgetDiskWeight":500}`); err == nil || !strings.Contains(err.Error(), "disk weight") {
+		t.Errorf("a disk weight of 500 = %v", err)
+	}
+	if _, err := patchSettings(t, d, `{"sharedBudgetDiskWrite":"1MiB"}`); err == nil || !strings.Contains(err.Error(), "at least 8MiB") {
+		t.Errorf("a write ceiling of 1MiB = %v", err)
+	}
+	s, err = patchSettings(t, d, `{"sharedBudgetDiskWeight":25,"sharedBudgetDiskWrite":"max"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := s.SharedBudget; b.DiskWeight != 25 || b.DiskWrite != "max" {
+		t.Errorf("chosen: weight %d, writes %q", b.DiskWeight, b.DiskWrite)
+	}
+	s, err = patchSettings(t, d, `{"sharedBudgetDiskWeight":0,"sharedBudgetDiskWrite":""}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := s.SharedBudget; b.DiskWeight != b.Suggested.DiskWeight || b.DiskWrite != b.Suggested.DiskWrite {
+		t.Errorf("back to the suggestion: weight %d, writes %q", b.DiskWeight, b.DiskWrite)
+	}
+
+	// The agents in it thrashing together reach Settings, though the one
+	// agent inside is well under the bar on its own.
+	cgroups := t.TempDir()
+	d.srv.thrash.Root = cgroups
+	inside := filepath.Join(cgroups, agent.BudgetCgroup)
+	if err := os.MkdirAll(filepath.Join(inside, "ab-p-a1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now()
+	for i := range 7 {
+		n := int64(i) * 100_000
+		for dir, files := range map[string]map[string]string{
+			inside: {
+				"memory.pressure":     "some avg10=50.00 avg60=40.00 avg300=10.00 total=1\n",
+				"memory.stat":         fmt.Sprintf("workingset_refault_file %d\n", n),
+				"memory.events":       fmt.Sprintf("high 0\nmax %d\n", n),
+				"memory.events.local": fmt.Sprintf("high 0\nmax %d\n", n),
+				"memory.max":          "3221225472\n",
+			},
+			filepath.Join(inside, "ab-p-a1"): {
+				"memory.pressure": "some avg10=0.00 avg60=5.00 avg300=0.00 total=1\n",
+				"memory.max":      "max\n",
+			},
+		} {
+			for name, body := range files {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		d.srv.thrash.Sample(ctx, at)
+		at = at.Add(agent.ThrashInterval)
+	}
+	s, err = patchSettings(t, d, `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if short := s.SharedBudget.Shortage; short == nil || short.Pressure != 40 || short.Limit != 3<<30 {
+		t.Errorf("Shortage = %+v, want the agents together at 40%%", short)
 	}
 
 	// Off: nothing holds the agents still inside, and their raw.lxc goes.

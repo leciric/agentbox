@@ -23,14 +23,30 @@ func (s *Server) watchMemoryThrash(ctx context.Context) {
 		case <-ticker.C:
 		}
 		started, stopped := s.thrash.Sample(ctx, time.Now())
+		agents, group := false, false
 		for _, t := range started {
+			if t.Group {
+				group = true
+				s.logf("the agents in the shared budget are thrashing at its memory together: %.0f%% memory pressure, re-reading %s/s of what they dropped, %s/s read from disk", t.Pressure, agent.HumanBytes(t.RefaultRate), agent.HumanBytes(t.ReadRate))
+				continue
+			}
+			agents = true
 			s.logf("%s is thrashing at its memory limit: %.0f%% memory pressure, re-reading %s/s of what it dropped, %s/s read from disk", t.Instance, t.Pressure, agent.HumanBytes(t.RefaultRate), agent.HumanBytes(t.ReadRate))
 		}
 		for _, t := range stopped {
+			if t.Group {
+				group = true
+				s.logf("the agents in the shared budget are no longer thrashing at its memory")
+				continue
+			}
+			agents = true
 			s.logf("%s is no longer thrashing at its memory limit", t.Instance)
 		}
-		if len(started)+len(stopped) > 0 {
+		if agents {
 			s.refreshAgents(ctx)
+		}
+		if group {
+			s.events.publish(api.EventBudget, struct{}{})
 		}
 	}
 }
@@ -42,6 +58,20 @@ func (s *Server) memoryShortage(instance string) *api.MemoryShortage {
 	if !ok {
 		return nil
 	}
+	return toAPIShortage(t)
+}
+
+// budgetShortage is the shared budget's MemoryShortage: nil unless the agents
+// in it are thrashing at its memory together.
+func (s *Server) budgetShortage() *api.MemoryShortage {
+	t, ok := s.thrash.GroupThrashing()
+	if !ok {
+		return nil
+	}
+	return toAPIShortage(t)
+}
+
+func toAPIShortage(t agent.MemoryThrash) *api.MemoryShortage {
 	return &api.MemoryShortage{
 		Since:       t.Since,
 		Pressure:    t.Pressure,

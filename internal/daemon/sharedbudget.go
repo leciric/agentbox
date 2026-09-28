@@ -69,7 +69,7 @@ func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	host := agent.ReadHostResources()
 	suggested, why := agent.SuggestBudget(host)
 	chosen := false
-	for _, key := range []string{state.SettingSharedBudgetMemory, state.SettingSharedBudgetSwap, state.SettingSharedBudgetCPU} {
+	for _, key := range []string{state.SettingSharedBudgetMemory, state.SettingSharedBudgetSwap, state.SettingSharedBudgetCPU, state.SettingSharedBudgetDiskWeight, state.SettingSharedBudgetDiskWrite} {
 		v, err := s.store.Setting(ctx, key)
 		if err != nil {
 			return api.SharedBudget{}, err
@@ -78,7 +78,11 @@ func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	}
 	out := api.SharedBudget{
 		On: on, Memory: b.Memory, Swap: b.Swap, CPU: b.CPU, Chosen: chosen,
-		Suggested:    api.SharedBudgetSize{Memory: suggested.Memory, Swap: suggested.Swap, CPU: suggested.CPU},
+		DiskWeight: b.DiskWeight, DiskWrite: b.DiskWrite,
+		Suggested: api.SharedBudgetSize{
+			Memory: suggested.Memory, Swap: suggested.Swap, CPU: suggested.CPU,
+			DiskWeight: suggested.DiskWeight, DiskWrite: suggested.DiskWrite,
+		},
 		Why:          why,
 		HostSwap:     host.Swap,
 		HostSwapKind: host.SwapKind,
@@ -88,14 +92,31 @@ func (s *Server) sharedBudget(ctx context.Context) (api.SharedBudget, error) {
 	if out.Unsupported != "" {
 		return out, nil
 	}
+	if host.Disk != nil {
+		out.Disk = host.Disk.Describe()
+	}
 	if err := agent.BudgetReady(); err != nil {
 		out.NotReady = budgetNotReady(err)
 		if on {
 			out.Problem = "The budget is on, but not applied: " + out.NotReady
 		}
+	} else if err := agent.BudgetDiskReady(); err != nil {
+		out.DiskNotReady = diskNotReady(err)
 	}
 	out.Inside, out.Pending = s.budgetMembers(ctx, on)
+	if on {
+		out.Shortage = s.budgetShortage()
+	}
 	return out, nil
+}
+
+// diskNotReady says what BudgetDiskReady found missing, and what fixes it.
+func diskNotReady(err error) string {
+	why := strings.TrimPrefix(err.Error(), agent.ErrDiskNotReady.Error()+": ")
+	if strings.Contains(why, "isn't yours to write") {
+		return "Agents don't give way to your apps on the disk yet: the budget was set up before it could do that. Set up again once to add it. (" + why + ")"
+	}
+	return "Agents can't be made to give way on the disk here: " + why + "."
 }
 
 // budgetNotReady says what BudgetReady found missing, and what fixes it.
@@ -131,7 +152,8 @@ func (s *Server) budgetMembers(ctx context.Context, on bool) (inside, pending in
 // size first, checked against this host, then the switch, and then brings
 // the cgroup and every agent in line.
 func (s *Server) updateSharedBudget(ctx context.Context, req api.UpdateSettingsRequest) error {
-	if req.SharedBudget == nil && req.SharedBudgetMemory == nil && req.SharedBudgetSwap == nil && req.SharedBudgetCPU == nil {
+	if req.SharedBudget == nil && req.SharedBudgetMemory == nil && req.SharedBudgetSwap == nil && req.SharedBudgetCPU == nil &&
+		req.SharedBudgetDiskWeight == nil && req.SharedBudgetDiskWrite == nil {
 		return nil
 	}
 	if why := agent.BudgetSupport(); why != "" {
@@ -170,6 +192,26 @@ func (s *Server) updateSharedBudget(ctx context.Context, req api.UpdateSettingsR
 		b.CPU = n
 		if n <= 0 {
 			b.CPU = suggested.CPU
+		}
+	}
+	if req.SharedBudgetDiskWeight != nil {
+		n := *req.SharedBudgetDiskWeight
+		v := ""
+		if n > 0 {
+			v = strconv.Itoa(n)
+		}
+		writes = append(writes, [2]string{state.SettingSharedBudgetDiskWeight, v})
+		b.DiskWeight = n
+		if n <= 0 {
+			b.DiskWeight = suggested.DiskWeight
+		}
+	}
+	if req.SharedBudgetDiskWrite != nil {
+		v := strings.TrimSpace(*req.SharedBudgetDiskWrite)
+		writes = append(writes, [2]string{state.SettingSharedBudgetDiskWrite, v})
+		b.DiskWrite = v
+		if v == "" {
+			b.DiskWrite = suggested.DiskWrite
 		}
 	}
 	if err := b.Validate(agent.ReadHostResources()); err != nil {
