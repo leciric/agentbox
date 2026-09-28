@@ -33,6 +33,7 @@ import { useNow } from '../../lib/useNow';
 import { imageFiles, imageTypes, maxImages, prepareImage, previewUrl, type PendingImage } from '../../lib/chatImages';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
+import { stop as stopReading } from '../../lib/voice/reader';
 import { AIIcon, aiLabel } from '../state';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
@@ -132,7 +133,8 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
     if (files.length === 0) toast.error('Only images can be attached.');
     else void attach(files);
   };
-  const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  // Cancelling the turn stops its reply being read aloud too.
+  const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onMutate: stopReading, onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
   useEffect(() => {

@@ -7,6 +7,11 @@ export default defineConfig({
   root: fileURLToPath(new URL('./src/renderer', import.meta.url)),
   base: './',
   plugins: [react(), tailwindcss()],
+  // kokoro-js imports eSpeak NG, which is GPL-3.0, as the package "phonemizer":
+  // this one fetches it when the voice is first used instead of bundling it
+  // (src/renderer/lib/voice/espeak.ts).
+  resolve: { alias: { phonemizer: fileURLToPath(new URL('./src/renderer/lib/voice/espeak.ts', import.meta.url)) } },
+  worker: { format: 'es' },
   build: {
     outDir: fileURLToPath(new URL('./out/renderer', import.meta.url)),
     emptyOutDir: true,
