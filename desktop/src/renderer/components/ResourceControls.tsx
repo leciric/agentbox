@@ -49,6 +49,9 @@ export function ResourceControls({ agents }: { agents: T.Agent[] }) {
   const [run, setRun] = useState<FreeRun | null>(null);
   const [open, setOpen] = useState(false);
   const [starting, setStarting] = useState(false);
+  // While Free resources runs, the VM is on its way off, whatever it's doing
+  // meanwhile: a paused one is resumed first, so its agents stop cleanly, and
+  // the pill says Stopping throughout rather than Paused, then Resuming.
   const running = run?.phase === 'stopping' || run?.phase === 'vm';
   // While agents stop, the list is what the progress counts: events move it,
   // and this covers a stream that's reconnecting.
@@ -137,7 +140,7 @@ export function ResourceControls({ agents }: { agents: T.Agent[] }) {
 
   return (
     <>
-      {vm && <VMIndicator vm={vm} onStop={begin} />}
+      {vm && <VMIndicator vm={running && vm.state !== 'off' ? { ...vm, state: 'stopping' } : vm} onStop={begin} />}
       <FreeButton
         mode={starting ? 'busy' : mode}
         vm={vm}
