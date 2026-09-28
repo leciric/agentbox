@@ -36,11 +36,10 @@ type options struct {
 	skip                                 map[string]bool
 	goCold, goWarm, npm                  string
 
-	vmEnv                                        string
+	vmEnv, vmAgentbox, vmRef                     string
 	vmSetup                                      []string
 	vmStart, vmStop, vmPause, vmResume, vmDelete string
-	vmStatus, vmProcess, vmShell                 string
-	freshVM                                      bool
+	vmStatus, vmShell                            string
 
 	chMemory, chDisk, chBridge, chBinary string
 	chCPUs                               int
@@ -65,7 +64,7 @@ func parseFlags(args []string) (*options, error) {
 	}
 	var modes, skip string
 	var vmSetup listFlag
-	fs.StringVar(&modes, "modes", "containers,chproto", "the modes to run, in order: containers (today's), vm (agentbox's Cloud Hypervisor front end), chproto (Cloud Hypervisor driven directly)")
+	fs.StringVar(&modes, "modes", "containers,vm", "the modes to run, in order: containers (today's), vm (agentbox's Cloud Hypervisor front end), chproto (Cloud Hypervisor driven directly)")
 	fs.StringVar(&o.out, "out", "", "where the results go (default bench-results/<time> in the current directory)")
 	fs.StringVar(&o.cache, "cache", filepath.Join(cache, "agentbox-bench"), "downloads, the project's clone and the prototype's VM")
 	fs.StringVar(&o.repo, "repo", "", "the repository the agents build (default: the one this harness is in)")
@@ -87,17 +86,17 @@ func parseFlags(args []string) (*options, error) {
 	fs.StringVar(&o.goWarm, "go-warm", "go test -count=1 ./...", "the warm Go build: -count=1 runs the tests again rather than reading their cached results")
 	fs.StringVar(&o.npm, "npm", "npm --prefix desktop ci && npm --prefix desktop run build", `the desktop build, cold then warm ("" skips it)`)
 
-	fs.StringVar(&o.vmEnv, "vm-env", "AGENTBOX_FRONT_END=vm AGENTBOX_VM_TYPE=cloud-hypervisor", "environment for agentbox in vm mode, space-separated")
+	fs.StringVar(&o.vmAgentbox, "vm-agentbox", "", "the agentbox for vm mode (default: built from --vm-ref)")
+	fs.StringVar(&o.vmRef, "vm-ref", "origin/agentbox/feat-cloud-hypervisor-vm", "the commit vm mode's agentbox is built from, in --repo")
+	fs.StringVar(&o.vmEnv, "vm-env", "", "more environment for agentbox in vm mode, space-separated")
 	fs.Var(&vmSetup, "vm-setup", `a command that sets vm mode up from nothing, timed as one setup step; repeat it for each (default "$AGENTBOX" vm init, then "$AGENTBOX" image build)`)
 	fs.StringVar(&o.vmStart, "vm-start", `"$AGENTBOX" vm start`, "starts the VM (vm mode)")
 	fs.StringVar(&o.vmStop, "vm-stop", `"$AGENTBOX" vm stop`, "shuts the VM down (vm mode)")
 	fs.StringVar(&o.vmPause, "vm-pause", `"$AGENTBOX" vm pause`, "pauses the VM (vm mode)")
 	fs.StringVar(&o.vmResume, "vm-resume", `"$AGENTBOX" vm resume`, "resumes the VM (vm mode)")
-	fs.StringVar(&o.vmDelete, "vm-delete", `"$AGENTBOX" vm delete --force`, "deletes the VM, only one the harness set up (vm mode)")
-	fs.StringVar(&o.vmStatus, "vm-status", `"$AGENTBOX" vm status --json`, `prints JSON with "exists" (vm mode)`)
+	fs.StringVar(&o.vmDelete, "vm-delete", `"$AGENTBOX" vm delete --yes`, "deletes the VM in the harness's data directory (vm mode)")
+	fs.StringVar(&o.vmStatus, "vm-status", `"$AGENTBOX" vm status --json`, `prints the VM's state, with its "memory" (vm mode)`)
 	fs.StringVar(&o.vmShell, "vm-shell", `"$AGENTBOX" vm shell --`, "runs a command in the VM itself, for its page cache and memory pressure (vm mode; \"\" for none)")
-	fs.StringVar(&o.vmProcess, "vm-process", "cloud-hypervisor", "the VM's process name, whose memory is what the host holds (vm mode)")
-	fs.BoolVar(&o.freshVM, "vm-fresh", false, "vm mode: refuse to run on a VM that's already there, rather than use it and not time its set-up")
 
 	fs.StringVar(&o.chMemory, "ch-memory", "16G", "the prototype VM's memory")
 	fs.IntVar(&o.chCPUs, "ch-cpus", runtime.NumCPU(), "the prototype VM's CPUs")
@@ -184,10 +183,13 @@ func parseFlags(args []string) (*options, error) {
 }
 
 func newDriver(mode string, o *options) driver {
-	if mode == "chproto" {
+	switch mode {
+	case "chproto":
 		return newCHDriver(o)
+	case "vm":
+		return newVMDriver(o)
 	}
-	return newAgentboxDriver(mode, o)
+	return newAgentboxDriver(o)
 }
 
 type results struct {

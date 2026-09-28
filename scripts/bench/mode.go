@@ -62,6 +62,8 @@ type memPoint struct {
 	HostUsedGiB float64 `json:"hostUsedGiB"` // MemTotal - MemAvailable
 	DeltaGiB    float64 `json:"deltaGiB"`    // over the mode's baseline, taken before it set anything up
 	HeldGiB     float64 `json:"heldGiB"`     // what the driver holds: agents' cgroups, or the VM process
+	// The VM's memory as its front end reports it (vm mode), in GiB.
+	VM map[string]float64 `json:"vm,omitempty"`
 }
 
 type modeResult struct {
@@ -201,10 +203,18 @@ func (m *modeRun) memPoint(name string) {
 		m.baseGiB = mp.HostUsedGiB
 	}
 	mp.DeltaGiB = mp.HostUsedGiB - m.baseGiB
+	if d, ok := m.d.(interface {
+		memDetail(context.Context) map[string]float64
+	}); ok {
+		mp.VM = d.memDetail(context.Background())
+	}
 	m.mu.Lock()
 	m.res.Memory = append(m.res.Memory, mp)
 	m.res.Metrics["mem."+name+".delta"] = mp.DeltaGiB
 	m.res.Metrics["mem."+name+".held"] = mp.HeldGiB
+	if g, ok := mp.VM["granted"]; ok {
+		m.res.Metrics["mem."+name+".granted"] = g
+	}
 	m.mu.Unlock()
 	m.say("memory %s: host +%.2f GiB over baseline, agents/VM hold %.2f GiB", name, mp.DeltaGiB, mp.HeldGiB)
 }
@@ -432,9 +442,16 @@ func (m *modeRun) plan(ctx context.Context) {
 
 	// Stop every agent: does the memory come back?
 	if ctx.Err() == nil {
-		for i := 1; i <= made; i++ {
-			a := agentName(i)
-			_ = m.step0(ctx, "stop "+a, func(ctx context.Context) error { return d.action(ctx, a, "stop") })
+		if s, ok := d.(interface{ stopAll(context.Context) error }); ok {
+			// The VM's front end stops every agent at once: the app's Free
+			// resources. Today's agentbox has no such thing, and stop --all
+			// there would stop the user's own agents too.
+			_ = m.timed(ctx, "agent.stopall", "free resources: stop every agent (agentbox stop --all)", s.stopAll)
+		} else {
+			for i := 1; i <= made; i++ {
+				a := agentName(i)
+				_ = m.step0(ctx, "stop "+a, func(ctx context.Context) error { return d.action(ctx, a, "stop") })
+			}
 		}
 		_ = sleepCtx(ctx, o.settle)
 		m.memPoint("stopped")

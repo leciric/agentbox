@@ -172,6 +172,7 @@ func tableRows(write float64, reclaim string) []row {
 		secsRow("Agent start", "agent.start"),
 		secsRow("Agent pause", "agent.pause"),
 		secsRow("Agent resume", "agent.resume"),
+		secsRow("Free resources: every agent stopped at once", "agent.stopall"),
 		secsRow("Build, one agent: Go, cold", "build.go.cold"),
 		secsRow("Build, one agent: Go, warm", "build.go.warm"),
 		secsRow("Build, one agent: desktop, cold", "build.npm.cold"),
@@ -186,6 +187,18 @@ func tableRows(write float64, reclaim string) []row {
 		memRow("Memory: "+reclaim+" later", "stopped_later"),
 		memRow("Memory: guest caches dropped", "caches_dropped"),
 		memRow("Memory: VM shut down", "vm_off"),
+		{"VM memory granted to the guest, GiB: idle / 1 / 3 / 5 agents / stopped / later", "mem.granted", func(m *modeResult) (string, bool) {
+			var parts []string
+			any := false
+			for _, p := range []string{"idle", "agents1", "agents3", "agents5", "stopped", "stopped_later"} {
+				if g, ok := m.Metrics["mem."+p+".granted"]; ok {
+					parts, any = append(parts, fmt.Sprintf("%.1f", g)), true
+				} else {
+					parts = append(parts, "—")
+				}
+			}
+			return strings.Join(parts, " / "), any
+		}},
 	}
 	rows = append(rows, windowRows("idle", "Idle host")...)
 	rows = append(rows, secsRow(fmt.Sprintf("Sustained write, %.0f GiB in one agent: time", write), "write.seconds"),

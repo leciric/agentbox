@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,9 +20,10 @@ import (
 // kills the whole tree it started — a build's compilers as well as its shell —
 // and not only the shell.
 type runner struct {
-	mu  sync.Mutex
-	log io.Writer
-	env []string // added to this process's own environment
+	mu    sync.Mutex
+	log   io.Writer
+	env   []string // added to this process's own environment
+	unset []string // taken out of it
 }
 
 // run runs argv and returns its standard output, which is logged too. The
@@ -29,7 +31,7 @@ type runner struct {
 // results and not only in the log.
 func (r *runner) run(ctx context.Context, stdin string, argv ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Env = append(os.Environ(), r.env...)
+	cmd.Env = append(r.environ(), r.env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
@@ -56,6 +58,18 @@ func (r *runner) run(ctx context.Context, stdin string, argv ...string) (string,
 		return out.String(), fmt.Errorf("%s: %w", argv[0], err)
 	}
 	return out.String(), nil
+}
+
+// environ is this process's environment, less what the runner unsets.
+func (r *runner) environ() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(r.unset, name) {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // sh runs a shell command line: the configurable commands (--vm-*) are given

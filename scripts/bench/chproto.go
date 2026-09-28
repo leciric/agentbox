@@ -547,7 +547,7 @@ func (d *chDriver) held() int64 {
 	if pid == 0 {
 		return 0
 	}
-	return processRSS("", strconv.FormatInt(pid, 10))
+	return processRSS(strconv.FormatInt(pid, 10))
 }
 
 func (d *chDriver) cleanup(ctx context.Context) error {

@@ -6,28 +6,36 @@ this host, samples the host itself while it does, and writes one markdown table
 `logs/<mode>.log`.
 
 ```bash
-scripts/bench/run.sh                                  # containers, then the Cloud Hypervisor prototype
-scripts/bench/run.sh --modes containers,vm            # with agentbox/feat-cloud-hypervisor-vm's front end
-scripts/bench/run.sh --quick                          # ~10 minutes, to check it works on a machine
-scripts/bench/run.sh --cleanup --modes containers,chproto   # remove what a killed run left
+git fetch origin agentbox/feat-cloud-hypervisor-vm       # what vm mode builds its agentbox from
+scripts/bench/run.sh                                  # containers, then the Cloud Hypervisor VM (agentbox vm)
+scripts/bench/run.sh --modes containers,vm,chproto    # and the prototype that drives Cloud Hypervisor directly
+scripts/bench/run.sh --quick                          # a short run, to check it works on a machine
+scripts/bench/run.sh --cleanup --modes containers,vm  # remove what a killed run left
 ```
 
 Results go to `bench-results/<time>/` in the current directory (`--out` to change it).
-A full run takes roughly an hour per mode; `run.sh -h` lists every option.
+On a 16-core host, a full run took about 10 minutes for `containers` and 17 for `vm`
+(5 of them its fresh install); allow 45 minutes for both on a slower disk. `run.sh -h`
+lists every option.
 
 ## The modes
 
 - **`containers`**: today's AgentBox. Agents are Incus containers on the host, made with
   the `agentbox` on your `PATH` (`--agentbox` for another) and its running daemon.
-- **`vm`**: AgentBox in one Cloud Hypervisor VM, through agentbox's front end, from
-  `agentbox/feat-cloud-hypervisor-vm`. The harness drives it with the same `agentbox`
-  commands as `containers`, plus the VM commands `--vm-start`, `--vm-stop`,
-  `--vm-pause`, `--vm-resume`, `--vm-delete`, `--vm-status`, `--vm-setup` and
-  `--vm-shell` (a command run in the VM itself, for its page cache and memory
-  pressure), and the environment in `--vm-env`. The defaults (`agentbox vm init|start|stop|pause|resume|delete`,
-  `vm status --json` printing `"exists"`, `AGENTBOX_FRONT_END=vm
-  AGENTBOX_VM_TYPE=cloud-hypervisor`) follow the Lima front end's names: check them
-  against that branch before running, and pass what it actually uses.
+- **`vm`**: AgentBox in one Cloud Hypervisor VM, through agentbox's own front end
+  (`agentbox vm init`, from `agentbox/feat-cloud-hypervisor-vm`). The harness builds that
+  `agentbox` from `--vm-ref` (default `origin/agentbox/feat-cloud-hypervisor-vm`, so
+  fetch it first) with `git archive`, leaving your checkout alone, and runs it with a
+  data directory of its own: `XDG_DATA_HOME` and `XDG_CONFIG_HOME` under
+  `~/.cache/agentbox-bench/vm`. That's where it keeps the VM, what runs it, the
+  forwarded daemon socket and the agents' worktrees, so your own AgentBox, and a VM of
+  your own, are never touched. Its fresh install is `agentbox vm init` then `agentbox
+  image build` (`--vm-setup` to change them, like `--vm-setup '"$AGENTBOX" vm init
+  --memory-cap 16GiB' --vm-setup '"$AGENTBOX" image build'`), its lifecycle `vm
+  start|stop|pause|resume`, what it holds the resident memory of its Cloud Hypervisor,
+  virtiofsd and passt, and its memory as `vm status --json` reports it. At the end,
+  `agentbox stop --all` (Free resources) stops its agents, the VM is shut down, and
+  `vm delete --yes` removes it with the directory.
 - **`chproto`**: the prototype, for until `vm` runs. The harness drives Cloud Hypervisor
   directly, in the same shape: one VM (Debian 13, 16 GiB and every core by default), with
   Incus inside on a btrfs pool on the VM's second disk, and every agent an Incus
@@ -52,8 +60,14 @@ For every mode:
 `agentbox host check` shows no ✗ for Incus, the storage pool and the base image. No
 Claude Code login is needed: the harness's agents run no AI tool (`--ai none`).
 
-`vm`: an `agentbox` built from `agentbox/feat-cloud-hypervisor-vm` (`--agentbox
-path/to/it`), and the `--vm-*` flags set to its commands.
+`vm`: `/dev/kvm` (the `kvm` group), `ssh`, the branch fetched (`git fetch origin
+agentbox/feat-cloud-hypervisor-vm`), the internet (the VM fetches Cloud Hypervisor,
+passt, virtiofsd and Debian's cloud image, then builds its base image), and the cache in
+your home folder, which the VM shares. No sudo, no Incus on the host, and no Claude login.
+It runs beside your own AgentBox: stop your agents for clean numbers, but the daemon can
+stay. Run it from a shell whose group is your own, not under `sg` or `newgrp`: virtiofsd
+maps only the group it starts with, and the VM then can't create files in your home
+folder. `--vm-agentbox path/to/agentbox` runs a build of your own instead.
 
 `chproto`:
 
@@ -76,8 +90,8 @@ In this order, for each mode:
 
 1. **Setup** from a fresh install: every step and its time. `containers` doesn't rebuild
    the base image, which would replace the one your agents are copied from: its time
-   is the last image build in the daemon's job history. `vm` times `--vm-setup` when
-   the harness makes the VM; with a VM already there, it uses it and times nothing.
+   is the last image build in the daemon's job history. `vm` times `vm init` and `image
+   build`, from nothing, every run.
    `chproto` times download (0 when cached), disks, first boot with cloud-init, Incus,
    and the agents' base.
 2. **The VM**: pause and resume (until it answers), and shutdown and boot (until agents
@@ -95,8 +109,9 @@ In this order, for each mode:
 8. **A sustained 10 GiB write** in one agent (`dd` from `/dev/urandom`, so btrfs can't
    compress it away, with `conv=fsync`), while the host is sampled, and for a minute
    after, for the writeback.
-9. **Memory after every agent stops**, and again a minute later: does it come back? In
-   `chproto`, again after the guest drops its caches, and after the VM shuts down.
+9. **Memory after every agent stops** (in `vm`, all at once with `agentbox stop --all`,
+   timed), and again a minute later: does it come back? In `chproto`, again after the
+   guest drops its caches; in both VM modes, after the VM shuts down.
 
 The host sampler runs in the harness, on the host, for the whole of each mode:
 
@@ -119,10 +134,11 @@ The host sampler runs in the harness, on the host, for the whole of each mode:
 
 It makes a project named `agentbox-bench`, from a clone of this repository in
 `~/.cache/agentbox-bench/<mode>/repo`, and agents `bench-1` to `bench-5` in it, with no AI
-tool. `chproto` makes its VM in `~/.cache/agentbox-bench/chproto/` and the tap `abbench0`.
-Nothing else: it never touches your projects, agents or base image, never runs `agentbox
-host setup` or `image build`, and never deletes a VM it didn't make. It refuses to start
-over what an earlier run left, and says to run `--cleanup`.
+tool. `vm` makes its VM, with its own daemon, projects and agents, in
+`~/.cache/agentbox-bench/vm/`; `chproto` makes its VM in `~/.cache/agentbox-bench/chproto/`
+and the tap `abbench0`. Nothing else: it never touches your projects, agents, base image or
+VM, and never runs `agentbox host setup`, or `image build` on your own AgentBox. It refuses
+to start over what an earlier run left, and says to run `--cleanup`.
 
 Ctrl-C stops the run, destroys the bench agents and project, shuts the VM down, deletes
 the tap and the VM's disks, and still writes the results so far. A second Ctrl-C abandons

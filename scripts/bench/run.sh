@@ -3,10 +3,10 @@
 # one Cloud Hypervisor VM, on this host, and writes one markdown table and the
 # raw JSON. README.md next to this says what it needs and what it does.
 #
-#   scripts/bench/run.sh                                  # containers, then the Cloud Hypervisor prototype
-#   scripts/bench/run.sh --modes containers,vm            # with agentbox/feat-cloud-hypervisor-vm's front end
+#   scripts/bench/run.sh                                  # containers, then the Cloud Hypervisor VM (agentbox vm)
+#   scripts/bench/run.sh --modes containers,vm,chproto    # and the prototype that drives Cloud Hypervisor directly
 #   scripts/bench/run.sh --quick                          # a short run, to check it works here
-#   scripts/bench/run.sh --cleanup --modes containers,chproto
+#   scripts/bench/run.sh --cleanup --modes containers,vm
 #
 # Ctrl-C stops it and removes what it made; a second Ctrl-C abandons that
 # cleanup, which --cleanup then finishes.
@@ -26,7 +26,7 @@ fi
 
 # The prototype VM's tap is the one thing that needs root: ask for sudo now,
 # before anything starts, and keep it fresh until the harness has cleaned up.
-modes="containers,chproto" help="" cleanup=""
+modes="containers,vm" help="" cleanup=""
 for ((i = 1; i <= $#; i++)); do
   case "${!i}" in
     --modes=*|-modes=*) modes="${!i#*=}" ;;
