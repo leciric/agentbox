@@ -1,6 +1,6 @@
-import { Play } from 'lucide-react';
+import { LoaderCircle, Play, Square } from 'lucide-react';
 import type { SettingGroup } from '../lib/settingsSearch';
-import { speak, stop } from '../lib/voice/reader';
+import { speak, stop, unlock, useReader } from '../lib/voice/reader';
 import { setReadAloud, speeds, useReadAloudSettings, voices } from '../lib/voice/settings';
 import { Button } from './ui/button';
 import { Select, SelectOption } from './ui/select';
@@ -42,13 +42,17 @@ function ReadAloudOn() {
           </p>
         </>
       }
-      control={<Switch aria-label="Read replies aloud" checked={on} onCheckedChange={(checked) => setReadAloud({ on: checked })} />}
+      control={<Switch aria-label="Read replies aloud" checked={on} onCheckedChange={(checked) => {
+            if (checked) unlock();
+            setReadAloud({ on: checked });
+          }} />}
     />
   );
 }
 
 function ReadAloudVoice() {
   const { voice } = useReadAloudSettings();
+  const reader = useReader();
   return (
     <SettingRow
       label="Voice"
@@ -65,14 +69,16 @@ function ReadAloudVoice() {
           <Button
             variant="ghost"
             className="h-9 shrink-0 px-2.5"
-            aria-label="Try this voice"
-            data-voice-try
+            aria-label={reader.status === 'idle' ? 'Try this voice' : 'Stop'}
+            title={reader.error ? `The voice failed: ${reader.error}` : undefined}
+            data-voice-try={reader.status}
             onClick={() => {
               stop();
-              speak(voices.find((v) => v.id === voice)?.language === 'pt' ? 'Olá! Eu leio as respostas do agente em voz alta.' : 'Hello! I read the agent’s replies aloud.');
+              if (reader.status === 'idle') speak(voices.find((v) => v.id === voice)?.language === 'pt' ? 'Olá! Eu leio as respostas do agente em voz alta.' : 'Hello! I read the agent’s replies aloud.');
             }}
           >
-            <Play />
+            {reader.status === 'loading' ? <LoaderCircle className="animate-spin" /> : reader.status === 'speaking' ? <Square /> : <Play />}
+            {reader.status === 'loading' && reader.progress !== undefined && <span className="text-[11.5px] tabular-nums">{Math.round(reader.progress * 100)}%</span>}
           </Button>
         </div>
       }

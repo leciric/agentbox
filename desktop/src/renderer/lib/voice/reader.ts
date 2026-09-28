@@ -97,11 +97,17 @@ function status() {
   set({ status: queue.length === 0 ? 'idle' : ready ? 'speaking' : 'loading' });
 }
 
+// unlock makes the audio output ready while a click is still being handled:
+// a browser (the web app) keeps sound started any later muted.
+export function unlock(): void {
+  context ??= new AudioContext();
+  void context.resume().catch(() => {});
+}
+
 // speak queues a sentence in the voice and speed the settings have now.
 export function speak(text: string): void {
   const { voice, speed } = readAloudSettings();
-  context ??= new AudioContext();
-  void context.resume().catch(() => {});
+  unlock();
   const entry: Entry = { id: nextId++ };
   queue.push(entry);
   if (state.error) set({ error: undefined });

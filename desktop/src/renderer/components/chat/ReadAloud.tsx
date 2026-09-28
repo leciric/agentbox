@@ -1,5 +1,5 @@
 import { LoaderCircle, SkipForward, Square, Volume2, VolumeOff } from 'lucide-react';
-import { skip, stop, useReader } from '../../lib/voice/reader';
+import { skip, stop, unlock, useReader } from '../../lib/voice/reader';
 import { setReadAloud, useReadAloudSettings } from '../../lib/voice/settings';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
@@ -44,7 +44,10 @@ export function ReadAloudControls() {
           className={cn('h-7 px-2', on && 'text-brand-300', reader.error && on && 'text-rose-400')}
           aria-label={on ? 'Stop reading replies aloud' : 'Read replies aloud'}
           aria-pressed={on}
-          onClick={() => setReadAloud({ on: !on })}
+          onClick={() => {
+            if (!on) unlock();
+            setReadAloud({ on: !on });
+          }}
         >
           {loading ? <LoaderCircle className="animate-spin" /> : on ? <Volume2 /> : <VolumeOff />}
           {loading && reader.progress !== undefined && <span className="text-[11.5px] tabular-nums">{Math.round(reader.progress * 100)}%</span>}
