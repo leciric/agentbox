@@ -29,6 +29,7 @@ func TestOS(t *testing.T) {
 		{"WSL2, found from its kernel", "", "6.6.87.2-microsoft-standard-WSL2", Windows, true},
 		{"a front end that says so", "darwin", "6.12.9-arch1-1", "darwin", true},
 		{"what a front end says wins", "darwin", "6.6.87.2-microsoft-standard-WSL2", "darwin", true},
+		{"a Linux front end's VM", Linux, "6.12.9-arch1-1", Linux, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(Env, tc.env)
@@ -55,6 +56,13 @@ func TestHome(t *testing.T) {
 		t.Errorf("Home() = %q", got)
 	}
 	if got := Name(); got != "a Mac" {
+		t.Errorf("Name() = %q", got)
+	}
+}
+
+func TestNameOnALinuxHost(t *testing.T) {
+	t.Setenv(Env, Linux)
+	if got := Name(); got != "a Linux host" {
 		t.Errorf("Name() = %q", got)
 	}
 }

@@ -689,3 +689,24 @@ func TestRenderLeadPRWatch(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderLeadShellByHost checks that the lead is told which computer its
+// shell is on: a VM on a Linux host isn't WSL, and one on a Mac isn't either.
+func TestRenderLeadShellByHost(t *testing.T) {
+	for host, want := range map[string]string{
+		"a Linux host": "a shell in the Linux VM AgentBox runs in on the user's Linux machine",
+		"a Mac":        "a shell in the Linux VM AgentBox runs in on the user's Mac",
+		"Windows":      "a shell in the Linux distro AgentBox runs in on Windows",
+	} {
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/home/dev/www/pawly", Worktree: "/w", BaseRef: "main",
+			Autonomy: "ask", VM: true, Host: host,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, want) {
+			t.Errorf("%s: the lead's brief doesn't say %q", host, want)
+		}
+	}
+}

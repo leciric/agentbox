@@ -8,22 +8,25 @@ import "time"
 // Hypervisor, internal/hostvm/chv). The daemon is in the VM, so it can't say
 // whether the VM runs: these types are served by the host's side instead.
 //
-// The contract, for the app's top bar and "Free resources":
+// The contract, for the app's top bar and "Free resources"
+// (desktop/src/main/vmpower.ts):
 //
-//   - `agentbox vm status --json` prints a VMStatus, whatever the mode: Mode
-//     says whether this installation runs in a VM at all ("host" when it
-//     doesn't, and then nothing else is set).
-//   - While the Cloud Hypervisor VM runs, its supervisor also serves
-//     GET /v1/vm (a VMStatus) on paths.VMSocket, the app's cheap way to poll
-//     it; no supervisor there means the VM is off. POST /v1/vm/pause,
-//     /v1/vm/resume and /v1/vm/stop (a VMStopRequest) act on it.
-//   - `agentbox vm start`, `agentbox vm stop [--agents]`, `agentbox vm pause`
-//     and `agentbox vm resume` are the same actions from the command line; the
-//     app's main process runs these (IPC vm:status, vm:start, vm:stop,
-//     vm:pause, vm:resume).
-//   - Stopping with Agents set stops every running agent through the daemon
-//     first, so none restarts with the VM; then the VM powers off and gives
-//     all of its memory back. That is "Free resources".
+//   - `agentbox vm power --json` prints what the top bar shows:
+//     {state, memoryUsed, memoryGranted, memoryCap, cpus, error?}, or
+//     {"mode":"host"} when this installation doesn't run in a VM. The app's
+//     main process serves it to the renderer as IPC vm:power.
+//   - `agentbox vm start|pause|resume|stop` each return once the VM is in its
+//     new state, start and resume only once the daemon inside answers, and on
+//     failure exit non-zero with why on the last line of stderr (IPC vm:act).
+//   - "Free resources" is POST /v1/agents/stop (`agentbox stop --all`), which
+//     stops every running agent so none comes back when the VM next starts,
+//     then `agentbox vm stop`, which powers the VM off and gives all of its
+//     memory back.
+//   - `agentbox vm status --json` prints the whole VMStatus below, in either
+//     mode ("host" when there's no VM; on a Mac, Lima's older shape). While
+//     the Cloud Hypervisor VM runs, its supervisor also serves it as
+//     GET /v1/vm on paths.VMSocket, with POST /v1/vm/pause, /v1/vm/resume and
+//     /v1/vm/stop (a VMStopRequest); nothing there means the VM is off.
 
 // Modes of an installation: where the daemon, Incus and the agents run.
 const (

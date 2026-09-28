@@ -83,11 +83,12 @@ func (m *Manager) AndroidHost() (android.SDK, error) {
 
 // AndroidUnsupported says why this machine can't run emulators whatever is
 // installed on it, or nil. They are x86_64 throughout (android.sh runs
-// qemu-system-x86_64 on x86_64 system images), and AgentBox's VM on a Mac has
-// no KVM to run them with: Android is off there.
+// qemu-system-x86_64 on x86_64 system images), and AgentBox's VM (on a Mac, or
+// the Cloud Hypervisor one on Linux) doesn't pass KVM on to its agents:
+// Android is off there.
 func AndroidUnsupported() error {
 	if hostos.InVM() {
-		return errors.New("this AgentBox runs in a VM on a Mac, which has no Android emulators")
+		return errors.New("this AgentBox runs in a VM on " + hostos.Name() + ", which has no Android emulators")
 	}
 	if runtime.GOARCH != "amd64" {
 		return fmt.Errorf("this machine is %s, and Android emulators need x86_64", runtime.GOARCH)

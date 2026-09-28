@@ -7,12 +7,13 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
-import { ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopStartingDaemon } from './daemon';
+import { ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon } from './daemon';
 import { EventStream } from './events';
-import { hostSetupStatus, onMac, runBudgetSetup, runHostSetup, stopVM } from './hostsetup';
+import { hostSetupStatus, onMac, runBudgetSetup, runHostSetup, stopVM, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { Streams } from './streams';
+import { learnMode } from './vmmode';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 
 registerMediaScheme();
@@ -136,8 +137,10 @@ ipcMain.handle('cli:install', () => installCli());
 // daemon: the daemon runs as you, and root is the point. Its output goes to
 // the Setup page as it comes, like a job's log.
 ipcMain.handle('hostsetup:status', () => hostSetupStatus());
-ipcMain.handle('hostsetup:run', async () => {
-  await runHostSetup((text) => send('hostsetup:output', text));
+// On Linux, { vm: true } runs AgentBox in a VM instead (vmmode.ts), after
+// stopping the daemon this machine ran itself.
+ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm'>) => {
+  await runHostSetup((text) => send('hostsetup:output', text), { vm: options?.vm === true, before: stopHostDaemon });
   // A daemon that started before this ran found no Incus; the one started now
   // does, and the Setup page turns green without anyone logging out.
   const restarted = await restartDaemon().catch(() => false);
@@ -205,12 +208,15 @@ void app.whenReady().then(async () => {
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.
   if (onWindows) await startRelay(agentboxBin()).catch(() => {});
+  await learnMode();
   await restartIfStale().catch(() => {});
   events.start();
 });
 
 // On Linux, closing the app leaves the daemon and every agent running: they're
-// this machine's own, and the command-line tool keeps using them.
+// this machine's own, and the command-line tool keeps using them. In VM mode
+// that includes the VM: stopping it is the top bar's Free resources, not
+// quitting (vmmode.ts).
 app.on('window-all-closed', () => {
   events.stop();
   stopRelay();

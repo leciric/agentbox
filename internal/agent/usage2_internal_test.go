@@ -49,3 +49,23 @@ func TestHostDiskIOReadsTheRealProc(t *testing.T) {
 		t.Errorf("hostPressure() = %+v, want percentages", p)
 	}
 }
+
+// In a Cloud Hypervisor VM, HostMemory is the cap the front end says the VM
+// may grow to, not the little it has been granted so far; what's in use still
+// comes from /proc/meminfo.
+func TestHostMemoryHonoursTheVMsCap(t *testing.T) {
+	t.Setenv(VMMemoryCapEnv, "25769803776") // 24 GiB
+	if got := HostMemory(); got != 24<<30 {
+		t.Errorf("HostMemory() = %d, want the VM's cap", got)
+	}
+	if total, _, err := hostMemory(); err != nil || total <= 0 {
+		t.Errorf("hostMemory() = %d, %v: it should still read /proc/meminfo", total, err)
+	}
+	for _, bad := range []string{"", "0", "-1", "lots"} {
+		t.Setenv(VMMemoryCapEnv, bad)
+		total, _, _ := hostMemory()
+		if got := HostMemory(); got != total {
+			t.Errorf("with %s=%q, HostMemory() = %d, want /proc/meminfo's %d", VMMemoryCapEnv, bad, got, total)
+		}
+	}
+}

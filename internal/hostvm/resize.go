@@ -101,7 +101,13 @@ func sizeWords(bytes int64) string {
 // agent with it — edited, started again, and its daemon restarted, the way
 // `vm upgrade` restarts it. A stopped VM is edited and left stopped: it has
 // the new size when it next starts.
+//
+// A Cloud Hypervisor VM's memory is its cap instead, and neither is changed
+// live: see CHV.resize.
 func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
+	if v.CHV != nil {
+		return v.CHV.resize(ctx, v, cpus, memory)
+	}
 	unlock, err := v.lock(ctx, true)
 	if err != nil {
 		return err
@@ -124,7 +130,7 @@ func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 	running := st.Status == "Running"
 	if running {
 		_, _ = fmt.Fprintln(v.Log, "==> Stopping AgentBox's VM, and every agent in it")
-		if err := v.Stop(ctx); err != nil {
+		if err := v.Stop(ctx, false); err != nil {
 			return err
 		}
 	}
@@ -166,6 +172,6 @@ func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 func (v *VM) restartDaemon(ctx context.Context) error {
 	_, _ = fmt.Fprintln(v.Log, "==> Starting the daemon")
 	// A daemon that isn't running has nothing to stop.
-	_ = v.shellLog(ctx, vmBinary, "daemon", "stop")
-	return v.shellLog(ctx, append([]string{"env"}, append(v.forwardEnv(), vmBinary, "daemon", "start")...)...)
+	_ = v.execLog(ctx, vmBinary, "daemon", "stop")
+	return v.execLog(ctx, append([]string{"env"}, append(v.forwardEnv(), vmBinary, "daemon", "start")...)...)
 }

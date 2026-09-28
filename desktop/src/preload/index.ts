@@ -26,6 +26,15 @@ export interface HostSetupStatus {
   // `agentbox wsl init`: what `agentbox wsl status --json` says about that
   // distro. null elsewhere.
   wsl: WSLStatus | null;
+  // On Linux, whether AgentBox runs on the machine itself (host setup) or in
+  // a VM of its own (`agentbox vm init`), and whether it could run in a VM:
+  // the Setup page offers both. null elsewhere; missing from the web app.
+  linux?: LinuxSetup | null;
+}
+
+export interface LinuxSetup {
+  mode: 'host' | 'vm';
+  kvm: boolean; // /dev/kvm is there for this user, which the VM needs
 }
 
 export interface VMStatus {
@@ -123,7 +132,9 @@ const bridge = {
   // the setup succeeded; its output arrives on onOutput as it is printed.
   hostSetup: {
     status: (): Promise<HostSetupStatus> => ipcRenderer.invoke('hostsetup:status'),
-    run: (): Promise<{ restarted: boolean }> => ipcRenderer.invoke('hostsetup:run'),
+    // { vm: true } runs AgentBox in a VM instead, on a Linux machine (`agentbox
+    // vm init`, no password), stopping the daemon it ran itself first.
+    run: (options?: { vm?: boolean }): Promise<{ restarted: boolean }> => ipcRenderer.invoke('hostsetup:run', options),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
     // `agentbox host budget` as root: the shared agent budget's cgroup.
     budget: (): Promise<void> => ipcRenderer.invoke('hostsetup:budget'),

@@ -11,8 +11,12 @@ import (
 )
 
 func main() {
-	// On a Mac, AgentBox runs in a Linux VM, and this binary is its front end.
-	if hostvm.Front() {
+	// On a Mac, AgentBox runs in a Linux VM, and this binary is its front end;
+	// on Linux too once `agentbox vm init` made one (Cloud Hypervisor). On a
+	// Linux machine running AgentBox itself, `agentbox vm …` is still the
+	// front end's: vm init is how the machine becomes one, and vm status says
+	// which it is.
+	if hostvm.Handles(os.Args[1:]) {
 		os.Exit(hostvm.Main(os.Args[1:], cli.Version()))
 	}
 	// On Windows it runs in a WSL distro, and this is that front end.

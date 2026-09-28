@@ -5,6 +5,10 @@
 // setting it up is `agentbox vm init`, which makes the VM and runs host setup
 // inside it (internal/hostvm). It needs no password.
 //
+// On Linux the user chooses: host setup, or a VM of AgentBox's own, made with
+// Cloud Hypervisor by `agentbox vm init` with no password, the way a Mac's is
+// made with Lima (vmmode.ts). Once it's in a VM, setting up means the VM.
+//
 // On Windows there is no host to set up either: AgentBox runs in a WSL distro
 // of its own, and setting it up is `agentbox.exe wsl init`, which makes the
 // distro and runs host setup inside it as the distro's root (internal/hostwsl,
@@ -28,6 +32,7 @@ import { delimiter, isAbsolute, join } from "node:path";
 import { app, ipcMain } from "electron";
 import { agentboxBin } from "./cli";
 import { onWindows } from "./relay";
+import { learnMode, linuxVM } from "./vmmode";
 
 export interface HostSetupStatus {
   pkexec: string | null; // the pkexec on this machine, if it has one
@@ -36,6 +41,14 @@ export interface HostSetupStatus {
   resizing: boolean; // `agentbox vm resize` is running
   vm: VMStatus | null; // AgentBox's VM, on a Mac; null elsewhere
   wsl: WSLStatus | null; // AgentBox's WSL distro, on Windows; null elsewhere
+  linux: LinuxSetup | null; // the choice of mode, on Linux; null elsewhere
+}
+
+// LinuxSetup is which way a Linux machine runs AgentBox, and whether it could
+// run it in a VM instead.
+export interface LinuxSetup {
+  mode: "host" | "vm"; // on the machine itself, or in AgentBox's VM
+  kvm: boolean; // /dev/kvm is there for this user, which the VM needs
 }
 
 // WSLStatus is `agentbox wsl status --json` (hostwsl.Status).
@@ -128,7 +141,17 @@ export async function hostSetupStatus(): Promise<HostSetupStatus> {
     resizing: resizing !== undefined,
     vm: await vmStatus(),
     wsl: await wslStatus(),
+    linux: onMac || onWindows ? null : { mode: linuxVM() ? "vm" : "host", kvm: canUseKVM() },
   };
+}
+
+function canUseKVM(): boolean {
+  try {
+    accessSync("/dev/kvm", constants.R_OK | constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 let lastVM: { at: number; value: VMStatus } | undefined;
@@ -240,20 +263,48 @@ export function wslStatus(): Promise<WSLStatus | null> {
   });
 }
 
+// HostSetupOptions are a setup run's. vm switches a Linux machine that runs
+// AgentBox itself to a VM (`agentbox vm init`); before runs first, and stops
+// the machine's own daemon, which vm init won't switch it under.
+export interface HostSetupOptions {
+  vm?: boolean;
+  before?: (onOutput: (text: string) => void) => Promise<void>;
+}
+
+// initing is a Linux `agentbox vm init` under way, which the app's own
+// daemon start waits for (vmInitDone).
+let initing: Promise<void> | undefined;
+
+// vmInitDone settles once no `agentbox vm init` is running on Linux.
+export function vmInitDone(): Promise<void> {
+  return initing?.catch(() => {}) ?? Promise.resolve();
+}
+
 // runHostSetup runs host setup as root and streams what it prints, line by
 // line, to onOutput. It resolves when the setup succeeded.
-export function runHostSetup(onOutput: (text: string) => void): Promise<void> {
+export function runHostSetup(
+  onOutput: (text: string) => void,
+  options: HostSetupOptions = {},
+): Promise<void> {
   if (running)
     return Promise.reject(new Error("host setup is already running"));
-  running = run(onOutput).finally(() => {
+  const linuxVMInit = !onMac && !onWindows && (options.vm === true || linuxVM());
+  running = (async () => {
+    if (linuxVMInit && !linuxVM()) await options.before?.(onOutput);
+    await run(onOutput, linuxVMInit);
+  })().finally(() => {
     running = undefined;
+    initing = undefined;
   });
+  if (linuxVMInit) initing = running;
   return running;
 }
 
-function run(onOutput: (text: string) => void): Promise<void> {
+function run(onOutput: (text: string) => void, linuxVMInit: boolean): Promise<void> {
   if (onMac) return initVM(onOutput);
   if (onWindows) return initWSL(onOutput);
+  if (linuxVMInit)
+    return runVM(["init"], "setting up AgentBox's VM failed", onOutput).finally(learnMode);
   return runAsRoot(["host", "setup"], onOutput);
 }
 

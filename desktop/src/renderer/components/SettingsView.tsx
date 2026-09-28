@@ -2260,6 +2260,11 @@ export function appendOutput(lines: string[], text: string): string[] {
 //
 // One run fixes Incus and the user mapping both, so there is one of these, on
 // the Incus step; the user mapping points at it.
+//
+// On Linux it offers the other way too: AgentBox in a VM of its own, made with
+// `agentbox vm init` (no password, needs /dev/kvm), which stops the daemon this
+// machine runs and brings up the VM's in its place. Once the machine runs in a
+// VM, this sets that VM up, as on a Mac.
 function HostSetup({
   agentbox,
   onRun,
@@ -2305,10 +2310,29 @@ function HostSetup({
     },
   });
 
+  // AgentBox in a VM on this Linux machine, from now on: every page's data is
+  // another daemon's afterwards.
+  const toVM = useMutation({
+    mutationFn: () => window.agentbox.hostSetup.run({ vm: true }),
+    onMutate: () => {
+      setLines([]);
+      onRun();
+    },
+    onSuccess: async () => {
+      toast("AgentBox runs in its VM now", {
+        description: "Next, build the base image your agents are copied from.",
+      });
+      await queryClient.invalidateQueries();
+    },
+  });
+
   // On a Mac, AgentBox runs in a Linux VM, and this sets the VM up instead:
-  // `agentbox vm init`, with no password to ask for.
-  const mac = status.data?.vm != null;
-  const busy = run.isPending || status.data?.running === true;
+  // `agentbox vm init`, with no password to ask for. So on a Linux machine
+  // that chose a VM.
+  const linux = status.data?.linux ?? null;
+  const mac = status.data?.vm != null || linux?.mode === "vm";
+  const busy =
+    run.isPending || toVM.isPending || status.data?.running === true;
   // On Windows, host setup is `agentbox wsl init`, in AgentBox's WSL distro,
   // which needs no password either (D94).
   const wsl = status.data?.wsl != null;
@@ -2347,10 +2371,42 @@ function HostSetup({
           </span>
         </div>
       )}
+      {linux?.mode === "host" && (
+        <div className="mt-1 grid gap-2 border-t border-line pt-3">
+          <p className="text-[13px] text-muted">
+            Or run AgentBox in a VM of its own instead: the daemon, Incus and
+            every agent in one Cloud Hypervisor VM, with your home folder
+            shared into it. It needs /dev/kvm and about 4 GiB of memory to
+            start, and no password.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              disabled={busy || !linux.kvm}
+              onClick={() => toVM.mutate()}
+            >
+              {toVM.isPending ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <Monitor />
+              )}
+              Run in a VM
+            </Button>
+            <span className="text-xs text-subtle">
+              {toVM.isPending
+                ? "Making the VM. This takes a few minutes the first time."
+                : linux.kvm
+                  ? "No password needed"
+                  : "This machine has no /dev/kvm you can use"}
+            </span>
+          </div>
+        </div>
+      )}
       {(lines.length > 0 || busy) && (
         <SetupLog lines={lines} label="Host setup log" />
       )}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
+      {toVM.error && <Notice>{errorMessage(toVM.error)}</Notice>}
       {(noDialog || run.error) && (
         <div className="grid gap-2">
           <p className="text-[13px] text-muted">
