@@ -1112,23 +1112,6 @@ function InstalledSettings({
               },
             ]
           : []),
-        ...(moving
-          ? [
-              {
-                id: "vm-migrate",
-                title: "AgentBox's VM",
-                cards: true,
-                entries: [
-                  {
-                    id: "vm-migrate",
-                    label: moving.state === "verified" ? "Moved into the VM" : "Run in a VM",
-                    keywords: "vm virtual machine migrate move cloud hypervisor host mode incus old machines remove",
-                    render: () => <VMMigrate migration={moving} kvm={hostSetup.data?.linux?.kvm ?? true} />,
-                  },
-                ],
-              },
-            ]
-          : []),
         ...(vm?.exists || chv
           ? [
               {
@@ -1205,7 +1188,7 @@ function InstalledSettings({
         </div>
       ),
       groups: [
-        ...(hostMode
+        ...(hostMode || moving
           ? [
               {
                 id: "where",
@@ -1215,13 +1198,19 @@ function InstalledSettings({
                   {
                     id: "move-to-vm",
                     label: "Move to a VM",
-                    keywords: moveToVMKeywords,
-                    render: () => (
-                      <MoveToVM
-                        kvm={linux.kvm}
-                        command={<CommandBox command={`${agentbox} vm migrate`} />}
-                      />
-                    ),
+                    keywords: `${moveToVMKeywords} old machines remove`,
+                    // Once moved, the machine is in VM mode: what's left is
+                    // the move's result, and removing the old machines.
+                    render: () =>
+                      moving && ["verified", "removed"].includes(moving.state) ? (
+                        <VMMigrate migration={moving} kvm />
+                      ) : (
+                        <MoveToVM
+                          kvm={linux?.kvm ?? false}
+                          command={<CommandBox command={`${agentbox} vm migrate`} />}
+                          action={moving ? <VMMigrate migration={moving} kvm={linux?.kvm ?? false} embedded /> : undefined}
+                        />
+                      ),
                   },
                 ],
               },

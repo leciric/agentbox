@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowRightLeft, CheckCircle2, LoaderCircle, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { VMMigration } from '../../preload';
 import { errorMessage } from '../lib/utils';
@@ -16,7 +16,10 @@ import { Notice, Panel } from './ui/card';
 // machine's Incus until a second step the user confirms once they've looked
 // at the VM: `agentbox vm migrate --remove-old`, which removes AgentBox's own
 // machines by name and nothing else there.
-export function VMMigrate({ migration, kvm }: { migration: VMMigration; kvm: boolean }) {
+//
+// embedded is inside Settings' "Move to a VM" (RunInVM.tsx), which says why
+// already: it leaves out its own panel and title.
+export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration; kvm: boolean; embedded?: boolean }) {
   const queryClient = useQueryClient();
   const [lines, setLines] = useState<string[]>([]);
   const [confirming, setConfirming] = useState<'move' | 'remove' | null>(null);
@@ -49,7 +52,7 @@ export function VMMigrate({ migration, kvm }: { migration: VMMigration; kvm: boo
   const moved = (migration.state === 'verified' || migration.state === 'removed') && !move.isPending;
 
   return (
-    <Panel className="mt-3 grid gap-3 p-4" data-vm-migrate={migration.state}>
+    <Box embedded={embedded} data-vm-migrate={migration.state}>
       {moved ? (
         <div className="grid gap-2">
           <div className="flex items-center gap-2 text-[13px] font-medium text-primary">
@@ -89,13 +92,13 @@ export function VMMigrate({ migration, kvm }: { migration: VMMigration; kvm: boo
         </div>
       ) : (
         <div className="grid gap-2">
-          <div className="text-[13px] font-medium text-primary">
+          <div className={embedded && !started && !move.isPending ? 'hidden' : 'text-[13px] font-medium text-primary'}>
             {move.isPending ? 'Moving into the VM…' : started ? 'A move into the VM is half-way' : 'Run AgentBox in a VM instead'}
           </div>
           <p className="text-[12px] leading-relaxed text-subtle">
             {started
               ? 'It stopped before it was done. Nothing of this machine was removed: carry on and it picks up where it was.'
-              : `Moves the daemon, Incus and every agent into one Cloud Hypervisor VM, with your home folder shared into it. Everything comes along: ${projects} project${projects === 1 ? '' : 's'}, ${agents} agent${agents === 1 ? '' : 's'} with their branches, worktrees and uncommitted changes, titles, models and limits, and your settings, accounts, notes, memory, chats and media. Each agent gets a new machine, from the VM's base image.`}
+              : `${embedded ? '' : 'Moves the daemon, Incus and every agent into one Cloud Hypervisor VM, with your home folder shared into it. '}Everything comes along: ${projects} project${projects === 1 ? '' : 's'}, ${agents} agent${agents === 1 ? '' : 's'} with their branches, worktrees and uncommitted changes, titles, models and limits, and your settings, accounts, notes, memory, chats and media. Each agent gets a new machine, from the VM's base image.`}
           </p>
           <p className="text-[12px] leading-relaxed text-subtle">
             What doesn't come along: anything installed inside an agent's old machine, and its home folder outside the worktree. Agents stop while
@@ -155,6 +158,18 @@ export function VMMigrate({ migration, kvm }: { migration: VMMigration; kvm: boo
         destructive
         onConfirm={async () => removeOld.mutate()}
       />
+    </Box>
+  );
+}
+
+function Box({ embedded, children, ...rest }: { embedded?: boolean; children: ReactNode; 'data-vm-migrate': string }) {
+  return embedded ? (
+    <div className="grid gap-3" {...rest}>
+      {children}
+    </div>
+  ) : (
+    <Panel className="grid gap-3 p-4" {...rest}>
+      {children}
     </Panel>
   );
 }
