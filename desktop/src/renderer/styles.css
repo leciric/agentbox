@@ -874,8 +874,8 @@
   --ab-night: rgb(99 102 241 / 0.16);
 }
 :root[data-appearance="light"] {
-  --ab-star: rgb(79 70 229 / 0.45);
-  --ab-night: rgb(99 102 241 / 0.1);
+  --ab-star: rgb(79 70 229 / 0.75);
+  --ab-night: rgb(99 102 241 / 0.14);
 }
 
 .nightly-sky {
@@ -929,4 +929,6 @@
 }
 :root[data-appearance="light"] .nightly-badge {
   color: var(--ab-brand-deep);
+  background: color-mix(in srgb, var(--ab-brand-mid) 12%, white);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ab-brand-mid) 45%, transparent);
 }
