@@ -75,6 +75,9 @@ export interface WSLStatus {
 
 // VMStatus is `agentbox vm status --json`.
 export interface VMStatus {
+  // "vz" when the VM is the experimental vz driver's, which Lima doesn't run;
+  // missing for Lima's.
+  driver?: "vz";
   lima: string;
   problem?: string;
   name: string;
@@ -325,6 +328,9 @@ export interface HostSetupOptions {
   // `agentbox vm init`'s own defaults when missing.
   cpus?: number;
   memoryCap?: string;
+  // On a Mac, "vz" makes the VM with Apple's Virtualization framework, run by
+  // AgentBox itself, instead of with Lima: experimental.
+  driver?: "vz";
   before?: (onOutput: (text: string) => void) => Promise<void>;
 }
 
@@ -358,7 +364,7 @@ export function runHostSetup(
 }
 
 function run(onOutput: (text: string) => void, linuxVMInit: boolean, options: HostSetupOptions): Promise<void> {
-  if (onMac) return initVM(onOutput);
+  if (onMac) return initVM(onOutput, options.driver);
   if (onWindows) return initWSL(onOutput);
   if (linuxVMInit) {
     const args = ["init"];
@@ -521,9 +527,10 @@ function initWSL(onOutput: (text: string) => void): Promise<void> {
 
 // initVM makes AgentBox's VM on a Mac and sets AgentBox up in it: `agentbox vm
 // init`, which is safe to run again. It takes a few minutes the first time:
-// Lima downloads Debian, and host setup installs Incus inside.
-function initVM(onOutput: (text: string) => void): Promise<void> {
-  return runVM(["init"], "setting up AgentBox's VM failed", onOutput);
+// Lima downloads Debian, and host setup installs Incus inside. With driver
+// "vz" the VM is the experimental vz driver's, which needs no Lima.
+function initVM(onOutput: (text: string) => void, driver?: "vz"): Promise<void> {
+  return runVM(driver === "vz" ? ["init", "--driver", "vz"] : ["init"], "setting up AgentBox's VM failed", onOutput);
 }
 
 let resizing: Promise<void> | undefined;

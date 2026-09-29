@@ -17,8 +17,9 @@
 //                           credential request
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
-//   ?vm=create|lima         a Mac's first screen in the middle: the VM to set up,
-//                           or Lima to install first
+//   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
+//                           or Lima to install first, or the experimental vz
+//                           driver's VM, made and not finished (no Lima needed)
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?chat=compaction        a project chat's timeline with compaction cards,
@@ -579,7 +580,9 @@ function Preview() {
             vm={
               vm === 'lima'
                 ? { lima: '', name: 'agentbox', exists: false, problem: "AgentBox runs in a Linux VM made with Lima, which isn't installed: brew install lima" }
-                : { lima: '/opt/homebrew/bin/limactl', name: 'agentbox', exists: false, problem: "AgentBox's Linux VM isn't set up: run agentbox vm init" }
+                : vm === 'vz'
+                  ? { driver: 'vz', lima: '', name: 'agentbox', exists: true, status: 'Stopped', cpus: 4, memory: 8 * 1024 ** 3 }
+                  : { lima: '/opt/homebrew/bin/limactl', name: 'agentbox', exists: false, problem: "AgentBox's Linux VM isn't set up: run agentbox vm init" }
             }
           />
         ) : (

@@ -141,10 +141,12 @@ ipcMain.handle('cli:install', () => installCli());
 // the Setup page as it comes, like a job's log.
 ipcMain.handle('hostsetup:status', () => hostSetupStatus());
 // On Linux, { vm: true } runs AgentBox in a VM instead (vmmode.ts), after
-// stopping the daemon this machine ran itself.
-ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap'>) => {
+// stopping the daemon this machine ran itself. On a Mac, { driver: 'vz' }
+// makes the experimental vz driver's VM instead of Lima's.
+ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap' | 'driver'>) => {
   await runHostSetup((text) => send('hostsetup:output', text), {
     vm: options?.vm === true,
+    driver: options?.driver === 'vz' ? 'vz' : undefined,
     cpus: typeof options?.cpus === 'number' ? options.cpus : undefined,
     memoryCap: typeof options?.memoryCap === 'string' ? options.memoryCap : undefined,
     before: stopHostDaemon,

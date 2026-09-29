@@ -60,6 +60,9 @@ export interface LinuxSetup {
 }
 
 export interface VMStatus {
+  // "vz" when the VM is run by Apple's Virtualization framework through
+  // AgentBox itself, without Lima (experimental); missing for Lima's.
+  driver?: 'vz';
   lima: string; // the limactl in use, "" when Lima isn't installed
   problem?: string; // why there's no VM to use, and what to run
   name: string;
@@ -171,8 +174,9 @@ const bridge = {
     status: (): Promise<HostSetupStatus> => ipcRenderer.invoke('hostsetup:status'),
     // { vm: true } runs AgentBox in a VM instead, on a Linux machine (`agentbox
     // vm init`, no password), stopping the daemon it ran itself first; cpus
-    // and memoryCap (like 12GiB) size it.
-    run: (options?: { vm?: boolean; cpus?: number; memoryCap?: string }): Promise<{ restarted: boolean }> =>
+    // and memoryCap (like 12GiB) size it. On a Mac, { driver: 'vz' } makes the
+    // experimental vz driver's VM instead of Lima's.
+    run: (options?: { vm?: boolean; cpus?: number; memoryCap?: string; driver?: 'vz' }): Promise<{ restarted: boolean }> =>
       ipcRenderer.invoke('hostsetup:run', options),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
     // `agentbox host budget` as root: the shared agent budget's cgroup.
