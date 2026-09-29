@@ -858,7 +858,34 @@ function fakeVM() {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    resize: async (cpus: number, memory: string) => {
+    resize: async (cpus: number, memory: string, restart?: boolean) => {
+      // On Linux (?chv=), the Cloud Hypervisor VM changes while it runs.
+      const chv = devState.hostSetup?.chv;
+      if (chv) {
+        const lines = restart
+          ? [
+              `$ agentbox vm resize --cpus ${cpus} --memory-cap ${memory} --restart\n`,
+              `==> Restarting AgentBox's VM to give it ${cpus} CPUs and a memory cap of ${memory}: every agent in it stops\n`,
+              "AgentBox's VM is off (1.6s).\n",
+              "AgentBox's VM is up (6.3s).\n",
+              '==> Starting the daemon\n',
+              `AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} now.\n`,
+            ]
+          : [
+              `$ agentbox vm resize --cpus ${cpus} --memory-cap ${memory}\n`,
+              `==> Giving AgentBox's VM ${cpus} CPUs and a memory cap of ${memory}, while it runs\n`,
+              '==> Starting the daemon\n',
+              `AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} now, and every agent kept running.\n`,
+            ];
+        for (const line of lines) {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          for (const fn of listeners) fn(line);
+        }
+        const GiB = 1024 ** 3;
+        const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB };
+        devState.hostSetup = { ...devState.hostSetup!, chv: { ...chv, cpus, memory: { ...chv.memory, cap: parseFloat(memory) * GiB }, live: room } };
+        return;
+      }
       const lines = [
         `$ agentbox vm resize --cpus ${cpus} --memory ${memory}\n`,
         '==> Stopping AgentBox\'s VM, and every agent in it\n',
@@ -1183,7 +1210,40 @@ export function seedLinuxHost(queryClient: QueryClient, kvm: boolean, fresh: boo
   } else {
     seedSettings(queryClient);
   }
-  devState.hostSetup = { pkexec: '/usr/bin/pkexec', user: 'leandro', running: false, resizing: false, vm: null, wsl: null, linux: { mode: 'host', kvm } };
+  devState.hostSetup = { pkexec: '/usr/bin/pkexec', user: 'leandro', running: false, resizing: false, vm: null, wsl: null, linux: { mode: 'host', kvm, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 }, chv: null };
+  queryClient.setQueryData(['host-setup'], devState.hostSetup);
+}
+
+// seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
+// Resources section, whose VM size card sizes the Cloud Hypervisor VM:
+// running with room to grow (live), started by an older AgentBox with none
+// (old), or off.
+export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
+  seedSettings(queryClient);
+  const GiB = 1024 ** 3;
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB };
+  const chv: T.VMStatus = {
+    mode: 'vm',
+    driver: 'cloud-hypervisor',
+    name: 'agentbox',
+    state: kind === 'off' ? 'off' : 'running',
+    since: new Date(Date.now() - 3_600_000).toISOString(),
+    cpus: 8,
+    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0 },
+    disk: { size: 120 * GiB, used: 14 * GiB },
+    limits: room,
+    live: kind === 'live' ? room : undefined,
+  };
+  devState.hostSetup = {
+    pkexec: '/usr/bin/pkexec',
+    user: 'leandro',
+    running: false,
+    resizing: false,
+    vm: null,
+    wsl: null,
+    linux: { mode: 'vm', kvm: true, cores: 16, memory: 32 * GiB, defaultCpus: 8, defaultMemoryCap: 24 * GiB },
+    chv,
+  };
   queryClient.setQueryData(['host-setup'], devState.hostSetup);
 }
 

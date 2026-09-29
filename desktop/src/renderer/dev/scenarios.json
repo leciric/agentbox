@@ -578,5 +578,19 @@
     "click": "[data-vm-suggestion] button",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "linux-vm-size-live-dark",
+    "description": "Settings' Resources on Linux in VM mode: the Cloud Hypervisor VM's CPUs and memory cap, which change while it runs — dark",
+    "query": "chv=live&theme=dark",
+    "width": 1280,
+    "height": 1600
+  },
+  {
+    "id": "linux-vm-size-old-light",
+    "description": "The same for a VM started by an older AgentBox, with no room to resize live: a resize restarts it — light",
+    "query": "chv=old&theme=light",
+    "width": 1280,
+    "height": 1600
   }
 ]

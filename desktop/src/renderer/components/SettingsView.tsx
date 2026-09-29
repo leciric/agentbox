@@ -62,8 +62,17 @@ import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
-import { VMSize } from "./VMSize";
-import { ModeChoice, MoveToVM, moveToVMKeywords, type RunMode } from "./RunInVM";
+import { CHVSize, VMSize } from "./VMSize";
+import {
+  ModeChoice,
+  MoveToVM,
+  moveToVMKeywords,
+  vmSize,
+  vmSizeDefaults,
+  VMSizeFields,
+  type RunMode,
+  type VMSizeForm,
+} from "./RunInVM";
 
 type Status =
   | "ok"
@@ -768,6 +777,8 @@ function InstalledSettings({
     refetchInterval: 2_000,
   });
   const vm = hostSetup.data?.vm;
+  // On Linux in VM mode, AgentBox's Cloud Hypervisor VM, sized here too.
+  const chv = hostSetup.data?.chv?.mode === "vm" ? hostSetup.data.chv : null;
   // On Linux, a machine set up to run agents itself, which Setup suggests
   // moving to AgentBox's VM (Home's suggestion opens it here).
   const linux = hostSetup.data?.linux;
@@ -1070,7 +1081,7 @@ function InstalledSettings({
               },
             ]
           : []),
-        ...(vm?.exists
+        ...(vm?.exists || chv
           ? [
               {
                 id: "vm",
@@ -1080,10 +1091,13 @@ function InstalledSettings({
                   {
                     id: "vm-size",
                     label: "VM size",
-                    keywords: "mac lima cpus memory resize virtual machine",
-                    render: () => (
-                      <VMSize vm={vm} busy={hostSetup.data?.resizing === true} />
-                    ),
+                    keywords: "mac lima cloud hypervisor cpus memory cap resize virtual machine",
+                    render: () =>
+                      chv ? (
+                        <CHVSize vm={chv} busy={hostSetup.data?.resizing === true} />
+                      ) : (
+                        <VMSize vm={vm!} busy={hostSetup.data?.resizing === true} />
+                      ),
                   },
                 ],
               },
@@ -2346,7 +2360,8 @@ function HostSetup({
   // AgentBox in a VM on this Linux machine, from now on: every page's data is
   // another daemon's afterwards.
   const toVM = useMutation({
-    mutationFn: () => window.agentbox.hostSetup.run({ vm: true }),
+    mutationFn: (size: { cpus: number; memoryCap: string } | null) =>
+      window.agentbox.hostSetup.run({ vm: true, ...size }),
     onMutate: () => {
       setLines([]);
       onRun();
@@ -2376,6 +2391,10 @@ function HostSetup({
   const [choice, setChoice] = useState<RunMode | null>(null);
   const picked: RunMode = choice ?? (linux?.kvm === false ? "host" : "vm");
   const vmPicked = choosing && picked === "vm";
+  // The VM's size, from vm init's defaults until it's changed.
+  const [sizeForm, setSizeForm] = useState<VMSizeForm | null>(null);
+  const size = linux && (sizeForm ?? vmSizeDefaults(linux));
+  const sized = linux && size ? vmSize(size, linux) : null;
   const noDialog =
     status.data !== undefined &&
     !mac &&
@@ -2388,12 +2407,22 @@ function HostSetup({
       data-host-setup={noDialog ? "terminal" : "button"}
     >
       {choosing ? (
-        <ModeChoice
-          picked={picked}
-          kvm={linux.kvm}
-          disabled={busy}
-          onPick={setChoice}
-        />
+        <>
+          <ModeChoice
+            picked={picked}
+            kvm={linux.kvm}
+            disabled={busy}
+            onPick={setChoice}
+          />
+          {vmPicked && linux.kvm && size && (
+            <VMSizeFields
+              linux={linux}
+              form={size}
+              disabled={busy}
+              onChange={setSizeForm}
+            />
+          )}
+        </>
       ) : (
         <p className="text-[13px] text-muted">
           {mac
@@ -2407,8 +2436,8 @@ function HostSetup({
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="primary"
-            disabled={busy || (vmPicked && !linux?.kvm)}
-            onClick={() => (vmPicked ? toVM.mutate() : run.mutate())}
+            disabled={busy || (vmPicked && (!linux?.kvm || !sized))}
+            onClick={() => (vmPicked ? toVM.mutate(sized) : run.mutate())}
           >
             {busy ? (
               <LoaderCircle className="animate-spin" />

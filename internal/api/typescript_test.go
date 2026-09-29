@@ -43,7 +43,7 @@ var tsTypes = []any{
 	ResolveMemoryRequest{}, ConsolidateRequest{}, ConsolidationPass{}, MemoryConsolidation{}, MemoryDuplicate{},
 	Task{}, AddTaskRequest{}, UpdateTaskRequest{}, LinkTasksRequest{},
 	TokenCounts{}, ModelTokens{}, AgentTokens{}, TokenBucket{}, TokenReport{}, TokenTurn{}, ClaudeLimit{}, ClaudeLimitWindow{},
-	VMStatus{}, VMMemory{}, VMDisk{}, VMStopRequest{},
+	VMStatus{}, VMMemory{}, VMDisk{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
 }
 
 var tsConstants = [][2]string{
