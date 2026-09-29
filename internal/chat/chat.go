@@ -1187,6 +1187,10 @@ type adapter struct {
 	spend     spend  // what it has cost, for the token ledger (tokens.go)
 	window    int64  // the compact window it was started with, 0 for the whole (window.go)
 	sizeOf    string // the model and window last remembered from its usage_update
+	// models is what the store knew of Claude model windows when it started,
+	// and what its own results have said since: the model's whole window the
+	// context ring measures against (contextSize).
+	models state.ClaudeWindows
 	// account is the Claude Code account it was started with. A session keeps
 	// its token until it restarts, while c.agent follows the store (a
 	// project's chat moves with its project's account), so what the session
@@ -1439,6 +1443,7 @@ func (c *conversation) connect(ad *adapter) error {
 	a := c.agent
 	model, window := c.launchSettings()
 	ad.window = window
+	ad.models, _ = c.windows()
 	ad.account = a.ClaudeAccount
 	c.windowRestart = false
 	c.mu.Unlock()
@@ -1975,7 +1980,7 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		c.markSession()
 		return
 	case "usage_update":
-		c.session.ContextUsed, c.session.ContextSize = u.Used, c.contextSize(h.ad, u.Size)
+		c.session.ContextUsed, c.session.ContextSize = u.Used, c.contextSize(h.ad, u)
 		if model := optionValueOf(c.session.Options, "model"); c.agent.AI == "claude" && u.Cost != nil && !h.ad.replaying && u.Size > 0 && model != "" && h.ad.sizeOf != model+"="+strconv.FormatInt(u.Size, 10) {
 			// The account's own answer to how long this model's window is,
 			// which is what the context window offers next time (D91). Only

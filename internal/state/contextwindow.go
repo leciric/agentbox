@@ -244,6 +244,26 @@ func (w ClaudeWindows) Launch(model, chosen string, installation int64) (name st
 	return w.Model(model, compact), compact
 }
 
+// Room is the context a session running on model really has, started with a
+// compact window of compact tokens (0 for the whole): that compact window, or
+// the model's whole window when it is shorter or there is none. It is what the
+// composer's ring measures a chat against.
+//
+// It never takes the size claude-agent-acp streams before a turn's result: that
+// is its guess from the model's name, 200000 for plain "opus". Measured on
+// claude-agent-acp 0.81.0 and Claude Code 2.1.280, an "opus" session at
+// autoCompactWindow 1000000 — /context "/ 1m" — reports size 200000 on every
+// usage_update of a fresh adapter's first turn, and 1000000 only with the
+// result. An agent's first turn is often its whole task, so a ring that took
+// the smaller of the two showed "of 200k" for all of it.
+func (w ClaudeWindows) Room(model string, compact int64) int64 {
+	whole := w.Window(model)
+	if compact > 0 && compact < whole {
+		return compact
+	}
+	return whole
+}
+
 // ParseContextWindow reads a context window the way people write one: "200k",
 // "1m", "1M" or a number of tokens. "" is 0, for the installation's.
 func ParseContextWindow(s string) (int64, error) {
