@@ -184,40 +184,22 @@ func (m *Manager) ProjectPeak(ctx context.Context, project string) (peak int64, 
 	return defaultSlotPeak, false, nil
 }
 
-// RecordMemoryPeaks samples the memory every running agent's machine holds
-// now, counted the way the Host memory popover counts it (agentMemory, so
-// without the file cache the kernel can drop), and keeps the most each was
-// seen at: what ProjectPeak learns from. It returns how many were sampled.
-func (m *Manager) RecordMemoryPeaks(ctx context.Context, now time.Time) (int, error) {
-	agents, err := m.Store.Agents(ctx, "")
+// SampleUsage measures every agent's CPU and memory over interval (Usage,
+// so memory without the file cache the kernel can drop) and keeps the most
+// each running agent was seen at: what ProjectPeak learns from. It returns
+// the readings.
+func (m *Manager) SampleUsage(ctx context.Context, now time.Time, interval time.Duration) ([]AgentUsage, error) {
+	_, agents, err := m.Usage(ctx, interval)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	instances, err := m.Incus.Instances(ctx)
-	if err != nil {
-		return 0, err
-	}
-	running := make(map[string]int64, len(instances))
-	for _, inst := range instances {
-		if inst.Status != "Running" {
-			continue
-		}
-		var fallback int64
-		if inst.State != nil {
-			fallback = inst.State.Memory.Usage
-		}
-		running[inst.Name] = fallback
-	}
-	sampled := 0
 	for _, a := range agents {
-		fallback, ok := running[a.Instance]
-		if a.IsLead() || a.Status != state.AgentReady || !ok {
+		if a.IsLead() || a.Status != state.AgentReady || a.State != "running" {
 			continue
 		}
-		if err := m.Store.RecordMemoryPeak(ctx, a.Project, a.Name, agentMemory(cgroupRoot, a.Instance, fallback), now); err != nil {
-			return sampled, err
+		if err := m.Store.RecordUsagePeak(ctx, a.Project, a.Name, a.Memory, a.CPU, now); err != nil {
+			return agents, err
 		}
-		sampled++
 	}
-	return sampled, nil
+	return agents, nil
 }

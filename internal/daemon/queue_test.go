@@ -47,6 +47,9 @@ func newQueueTest(t *testing.T, budget int64, peaks map[string]int64, instances 
 	q := &queueTest{}
 	q.testDaemon = startTestDaemon(t, t.TempDir(), cpuBudgetIncus, testConfig{instances: instances, queue: func(s *Server) {
 		s.queueEvery = 0 // the test looks at the queue itself
+		if err := s.store.SetFlag(context.Background(), state.SettingAgentQueue, true); err != nil {
+			t.Fatal(err)
+		}
 		s.slotBudget = func(context.Context) (int64, error) { return budget, nil }
 		s.projectPeak = func(_ context.Context, project string) (int64, bool, error) { return peaks[project], true, nil }
 		s.queueStart = func(_ context.Context, a state.QueuedAgent) error {
@@ -288,6 +291,9 @@ func TestQueuedCreateStartsWhenASlotIsFree(t *testing.T) {
 	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentQueue: ptr(true)}); err != nil {
+		t.Fatal(err)
+	}
 	// Two slots, whatever this machine's memory says.
 	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{Slots: ptr(2)}); err != nil {
 		t.Fatal(err)
@@ -355,4 +361,54 @@ func TestQueuedCreateStartsWhenASlotIsFree(t *testing.T) {
 
 func memoryTask(project, goal string) memory.Task {
 	return memory.Task{Project: project, Goal: goal, Status: memory.TaskOpen}
+}
+
+// With "agent queue" off, which it is until turned on, everything is as it
+// was: a create asked to queue makes its agent now, and an agent left queued
+// from when it was on starts whatever the slots say.
+func TestQueueOffQueuesNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := newQueueTest(t, 4*gib, map[string]int64{"p": 4 * gib}, runningInstances(agent.InstanceName("p", "a1")))
+	q.addProject(t, "p")
+	q.addRunning(t, "p", "a1")
+	q.enqueue(t, "p", "q1")
+	q.enqueue(t, "p", "q2")
+	q.srv.admitQueued(ctx)
+	if got := q.startedSoFar(); len(got) != 0 {
+		t.Fatalf("queue on, one slot taken: started %v", got)
+	}
+	settings, err := q.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentQueue: ptr(false)})
+	if err != nil || settings.AgentQueue {
+		t.Fatalf("turning the queue off = %v, %v", settings.AgentQueue, err)
+	}
+	q.srv.admitQueued(ctx)
+	if got := q.startedSoFar(); !sameList(got, "p/q1", "p/q2") {
+		t.Errorf("queue off: started %v, want both", got)
+	}
+	status, err := q.client.Queue(ctx, "")
+	if err != nil || status.Enabled {
+		t.Errorf("queue status enabled = %v, %v", status.Enabled, err)
+	}
+}
+
+func TestQueueOffCreatesNow(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), recordingIncus, testConfig{instances: runningAgent01})
+	ctx := context.Background()
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{AlwaysQueue: ptr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none", Queue: ptr(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Kind != "create" {
+		t.Errorf("with the queue off, a queued create started a %q job", job.Kind)
+	}
+	waitFor(t, "the job", func() bool { j, err := d.client.Job(ctx, job.ID); return err == nil && j.Done() })
 }

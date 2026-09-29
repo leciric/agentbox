@@ -1045,6 +1045,11 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	if req.Queue != nil {
 		queue = *req.Queue
 	}
+	// With the agent queue off, nothing queues: every create makes its agent
+	// now, as it always has.
+	if on, err := s.store.Flag(r.Context(), state.SettingAgentQueue); err != nil || !on {
+		queue = false
+	}
 	if queue {
 		return s.enqueueAgent(w, r.Context(), req, byLead)
 	}

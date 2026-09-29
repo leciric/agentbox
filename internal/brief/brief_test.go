@@ -710,3 +710,32 @@ func TestRenderLeadShellByHost(t *testing.T) {
 		}
 	}
 }
+
+// The queue and the recheck are only in the lead's brief when they're on,
+// and the recheck comes with its one hard rule.
+func TestRenderLeadQueueAndRecheck(t *testing.T) {
+	render := func(queue, recheck bool) string {
+		t.Helper()
+		got, err := brief.RenderLead(brief.LeadData{
+			Project: "pawly", Root: "/src/pawly", Worktree: "/w/pawly/lead", BaseRef: "main",
+			Autonomy: "ask", CanSpawn: true, Queue: queue, Recheck: recheck,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	off := render(false, false)
+	if strings.Contains(off, "agent queue") || strings.Contains(off, "[recheck]") {
+		t.Errorf("with both off, the brief mentions them:\n%s", off)
+	}
+	on := render(true, true)
+	for _, want := range []string{
+		"**This project has an agent queue.**", "`create_agent`\nwith `queue` true",
+		"**Rechecks.**", "`[recheck]`", "**Never retire one with uncommitted or unpushed\nwork**",
+	} {
+		if !strings.Contains(on, want) {
+			t.Errorf("with both on, the brief doesn't say %q", want)
+		}
+	}
+}

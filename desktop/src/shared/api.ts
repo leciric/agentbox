@@ -130,6 +130,9 @@ export interface Settings {
   gpuForAgents: boolean;
   autoStopIdle: boolean;
   idleTimeSeconds: number;
+  agentQueue: boolean;
+  leadRecheck: boolean;
+  leadRecheckMinutes: number;
   sharedBudget: SharedBudget;
 }
 
@@ -180,6 +183,9 @@ export interface UpdateSettingsRequest {
   gpuForAgents?: boolean;
   autoStopIdle?: boolean;
   idleTimeSeconds?: number;
+  agentQueue?: boolean;
+  leadRecheck?: boolean;
+  leadRecheckMinutes?: number;
   sharedBudget?: boolean;
   sharedBudgetMemory?: string;
   sharedBudgetSwap?: string;
@@ -342,6 +348,7 @@ export interface StopAgentFailure {
 }
 
 export interface QueueStatus {
+  enabled: boolean;
   budget: number;
   reserve: number;
   projects: ProjectSlots[];
@@ -356,6 +363,7 @@ export interface ProjectSlots {
   peakLearned: boolean;
   running: number;
   queued: number;
+  agents: SlotAgent[];
 }
 
 export interface QueuedAgent {
@@ -372,6 +380,16 @@ export interface QueuedAgent {
 
 export interface MoveQueuedRequest {
   position: number;
+}
+
+export interface SlotAgent {
+  name: string;
+  title: string;
+  state: string;
+  memory: number;
+  memoryPeak: number;
+  cpu: number;
+  cpuPeak: number;
 }
 
 export interface Job {

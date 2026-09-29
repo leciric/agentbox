@@ -100,13 +100,17 @@ func TestTypicalMemoryPeak(t *testing.T) {
 	}
 	at := time.Now()
 	for i, gb := range []int64{2, 9, 3, 1, 2} {
-		if err := s.RecordMemoryPeak(ctx, "p", string(rune('a'+i)), gb<<30, at); err != nil {
+		if err := s.RecordUsagePeak(ctx, "p", string(rune('a'+i)), gb<<30, float64(i*10), at); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// A lower reading doesn't lower a peak.
-	if err := s.RecordMemoryPeak(ctx, "p", "b", 1<<30, at); err != nil {
+	if err := s.RecordUsagePeak(ctx, "p", "b", 1<<30, 5, at); err != nil {
 		t.Fatal(err)
+	}
+	peaks, err := s.UsagePeaks(ctx, "p")
+	if err != nil || peaks["b"].Memory != 9<<30 || peaks["b"].CPU != 10 || peaks["e"].CPU != 40 {
+		t.Errorf("peaks = %v, %v", peaks, err)
 	}
 	if peak, _ := s.TypicalMemoryPeak(ctx, "p"); peak != 2<<30 {
 		t.Errorf("median of 1 2 2 3 9 GiB = %d, want 2 GiB", peak>>30)

@@ -682,13 +682,14 @@ var migrations = []string{
 		queued_at INTEGER NOT NULL,
 		PRIMARY KEY (project, name)
 	)`,
-	// The most memory each agent's machine was seen to hold, kept after the
-	// agent is gone: a project's typical peak is learned from these, and is
-	// what auto slots are worked out from.
+	// The most memory each agent's machine was seen to hold, and the most
+	// CPU, kept after the agent is gone: a project's typical peak is learned
+	// from these, and is what auto slots are worked out from.
 	`CREATE TABLE agent_memory_peaks (
 		project    TEXT NOT NULL,
 		agent      TEXT NOT NULL,
 		peak       INTEGER NOT NULL,
+		cpu_peak   REAL NOT NULL DEFAULT 0,
 		updated_at INTEGER NOT NULL,
 		PRIMARY KEY (project, agent)
 	)`,

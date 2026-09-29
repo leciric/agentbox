@@ -137,6 +137,16 @@ type Server struct {
 	queueStart     func(ctx context.Context, q state.QueuedAgent) error
 	slotBudget     func(ctx context.Context) (int64, error)
 	projectPeak    func(ctx context.Context, project string) (int64, bool, error)
+	// usageNow is what each agent used when last sampled, by ref, under mu.
+	usageNow map[string]agent.AgentUsage
+	// The lead recheck (leadrecheck.go), under mu: when each project's lead
+	// was last rechecked, and what it was told then, so the same state isn't
+	// sent twice.
+	recheckedAt   map[string]time.Time
+	recheckedWhat map[string]string
+	// recheckTell wakes a lead with its recheck: tellLead acting, or a
+	// test's recorder.
+	recheckTell func(ctx context.Context, project, note string)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -169,8 +179,11 @@ func New(cfg Config) (*Server, error) {
 		queueKick:        make(chan struct{}, 1),
 		queueEvery:       queueInterval,
 		startingQueued:   map[string]bool{},
+		recheckedAt:      map[string]time.Time{},
+		recheckedWhat:    map[string]string{},
 	}
 	s.queueStart = s.startQueuedAgent
+	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.slotBudget = func(ctx context.Context) (int64, error) { return s.manager(nil).SlotBudget(ctx) }
 	s.projectPeak = func(ctx context.Context, project string) (int64, bool, error) {
 		return s.manager(nil).ProjectPeak(ctx, project)

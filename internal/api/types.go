@@ -429,6 +429,18 @@ type Settings struct {
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
+	// AgentQueue is "agent queue": while on, a create may queue its agent
+	// (CreateAgentRequest.Queue, Project.AlwaysQueue) and queued agents wait
+	// for one of their project's slots (QueueStatus). Off unless it was
+	// turned on, and off, nothing queues and no slots are enforced.
+	AgentQueue bool `json:"agentQueue"`
+	// LeadRecheck is "lead rechecks agents": while on, every
+	// LeadRecheckMinutes the daemon wakes each project's chat with a short
+	// status of its running agents and its queue — only when an agent has
+	// been idle a while or agents are queued, and not twice for the same
+	// state — so it can retire finished agents and free their slots.
+	LeadRecheck        bool `json:"leadRecheck"`
+	LeadRecheckMinutes int  `json:"leadRecheckMinutes"`
 	// SharedBudget is the shared agent budget: every agent's machine under
 	// one parent cgroup with one memory, swap and CPU budget between them.
 	SharedBudget SharedBudget `json:"sharedBudget"`
@@ -535,6 +547,12 @@ type UpdateSettingsRequest struct {
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
+	// AgentQueue turns "agent queue" on or off.
+	AgentQueue *bool `json:"agentQueue,omitempty"`
+	// LeadRecheck turns "lead rechecks agents" on or off, and
+	// LeadRecheckMinutes is how often, from 5 to 1440.
+	LeadRecheck        *bool `json:"leadRecheck,omitempty"`
+	LeadRecheckMinutes *int  `json:"leadRecheckMinutes,omitempty"`
 	// SharedBudget turns the shared agent budget on or off. On is refused
 	// until its cgroup is set up (SharedBudget.NotReady).
 	SharedBudget *bool `json:"sharedBudget,omitempty"`
@@ -715,6 +733,9 @@ type CreateAgentRequest struct {
 // QueueStatus is the agent queue: how many agents each project may run at
 // once, and the agents waiting for one of those slots.
 type QueueStatus struct {
+	// Enabled is Settings.AgentQueue: off, nothing queues and the slots
+	// below are only what they would be.
+	Enabled bool `json:"enabled"`
 	// Budget is the memory auto slots are shared from, in bytes: the shared
 	// budget, the VM's memory in VM mode, or what the shared budget would be
 	// on this host. Reserve is what's kept free of it, so auto slots share
@@ -744,6 +765,22 @@ type ProjectSlots struct {
 	// being made. Queued is how many wait.
 	Running int `json:"running"`
 	Queued  int `json:"queued"`
+	// Agents are its agents that hold a slot, with what they use, as last
+	// sampled (every half a minute while the queue or the recheck is on).
+	Agents []SlotAgent `json:"agents"`
+}
+
+// SlotAgent is what one agent holding a slot uses: now, as last sampled, and
+// the most it was ever seen at, which is what its project's peak is learned
+// from.
+type SlotAgent struct {
+	Name       string  `json:"name"`
+	Title      string  `json:"title"`
+	State      string  `json:"state"`
+	Memory     int64   `json:"memory"`     // bytes
+	MemoryPeak int64   `json:"memoryPeak"` // bytes
+	CPU        float64 `json:"cpu"`        // percent; 100 is one core
+	CPUPeak    float64 `json:"cpuPeak"`
 }
 
 // QueuedAgent is one agent waiting in its project's queue.

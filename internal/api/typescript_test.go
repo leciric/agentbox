@@ -20,7 +20,7 @@ var tsTypes = []any{
 	ProjectLayout{}, SectionProjects{}, Notes{}, NotesRequest{}, Settings{}, SharedBudget{}, SharedBudgetSize{}, UpdateSettingsRequest{}, Limits{}, Agent{}, WorktreeFiles{}, CreateAgentRequest{}, ForkRequest{}, UpdateAgentRequest{},
 	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
-	QueueStatus{}, ProjectSlots{}, QueuedAgent{}, MoveQueuedRequest{},
+	QueueStatus{}, ProjectSlots{}, QueuedAgent{}, MoveQueuedRequest{}, SlotAgent{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{},
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, MemoryShortage{}, CPUUsageAgent{}, CPUUsage{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
 	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},

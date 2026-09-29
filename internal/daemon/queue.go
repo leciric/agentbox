@@ -57,13 +57,24 @@ func (s *Server) kickQueue() {
 }
 
 // runQueue is the queue's loop: it starts queued agents into free slots when
-// kicked and on a timer, and samples running agents' memory on the timer.
+// kicked and on a timer, and on the timer samples what running agents use and
+// rechecks the leads that are due (leadrecheck.go). With both "agent queue"
+// and "lead rechecks agents" off, the timer does nothing at all.
 func (s *Server) runQueue(ctx context.Context) {
 	if s.queueEvery <= 0 {
 		return // a test drives admitQueued itself
 	}
-	s.sampleMemoryPeaks(ctx)
-	s.admitQueued(ctx)
+	tick := func() {
+		queueOn, recheckOn := s.queueFeatures(ctx)
+		if queueOn || recheckOn {
+			s.sampleUsage(ctx)
+		}
+		s.admitQueued(ctx)
+		if recheckOn {
+			s.recheckLeads(ctx, time.Now())
+		}
+	}
+	tick()
 	ticker := time.NewTicker(s.queueEvery)
 	defer ticker.Stop()
 	for {
@@ -71,18 +82,46 @@ func (s *Server) runQueue(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.sampleMemoryPeaks(ctx)
-			s.admitQueued(ctx)
+			tick()
 		case <-s.queueKick:
 			s.admitQueued(ctx)
 		}
 	}
 }
 
-func (s *Server) sampleMemoryPeaks(ctx context.Context) {
-	if _, err := s.manager(nil).RecordMemoryPeaks(ctx, time.Now()); err != nil {
-		s.logf("agent queue: sampling memory: %v", err)
+// queueFeatures reads the two switches: "agent queue" and "lead rechecks
+// agents".
+func (s *Server) queueFeatures(ctx context.Context) (queue, recheck bool) {
+	queue, _ = s.store.Flag(ctx, state.SettingAgentQueue)
+	recheck, _, _ = s.store.LeadRecheck(ctx)
+	return queue, recheck
+}
+
+// usageSample is how long each sample of the agents' CPU is taken over.
+const usageSample = time.Second
+
+// sampleUsage measures what every agent uses now, keeps it for the slot page
+// and the recheck, and records each running agent's peaks.
+func (s *Server) sampleUsage(ctx context.Context) {
+	agents, err := s.manager(nil).SampleUsage(ctx, time.Now(), usageSample)
+	if err != nil {
+		s.logf("agent queue: sampling usage: %v", err)
 	}
+	now := make(map[string]agent.AgentUsage, len(agents))
+	for _, a := range agents {
+		now[a.Ref()] = a
+	}
+	s.mu.Lock()
+	s.usageNow = now
+	s.mu.Unlock()
+}
+
+// lastUsage is what an agent was using when last sampled.
+func (s *Server) lastUsage(ref string) (agent.AgentUsage, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.usageNow[ref]
+	return u, ok
 }
 
 // holdsSlot reports whether an agent in this state holds one of its project's
@@ -126,7 +165,11 @@ func (s *Server) slotStatus(ctx context.Context) (api.QueueStatus, error) {
 			queued[q.Project]++
 		}
 	}
-	out := api.QueueStatus{Budget: budget, Reserve: agent.SlotReserve(budget), Projects: []api.ProjectSlots{}, Queued: []api.QueuedAgent{}}
+	enabled, err := s.store.Flag(ctx, state.SettingAgentQueue)
+	if err != nil {
+		return api.QueueStatus{}, err
+	}
+	out := api.QueueStatus{Enabled: enabled, Budget: budget, Reserve: agent.SlotReserve(budget), Projects: []api.ProjectSlots{}, Queued: []api.QueuedAgent{}}
 	var shares []agent.SlotProject
 	for _, p := range projects {
 		peak, learned, err := s.projectPeak(ctx, p.Name)
@@ -136,6 +179,7 @@ func (s *Server) slotStatus(ctx context.Context) (api.QueueStatus, error) {
 		shares = append(shares, agent.SlotProject{Name: p.Name, Peak: peak, Pinned: p.Slots, Running: running[p.Name], Queued: queued[p.Name]})
 		out.Projects = append(out.Projects, api.ProjectSlots{
 			Project: p.Name, Pinned: p.Slots, Peak: peak, PeakLearned: learned, Running: running[p.Name], Queued: queued[p.Name],
+			Agents: s.slotAgents(ctx, p.Name, statuses),
 		})
 	}
 	slots := agent.SplitSlots(max(budget-out.Reserve, 0), shares)
@@ -156,6 +200,27 @@ func (s *Server) slotStatus(ctx context.Context) (api.QueueStatus, error) {
 		})
 	}
 	return out, nil
+}
+
+// slotAgents are a project's agents that hold a slot, with what they use.
+func (s *Server) slotAgents(ctx context.Context, project string, statuses []agent.Status) []api.SlotAgent {
+	peaks, err := s.store.UsagePeaks(ctx, project)
+	if err != nil {
+		peaks = nil
+	}
+	out := []api.SlotAgent{}
+	for _, st := range statuses {
+		if st.Project != project || st.IsLead() || !holdsSlot(st.State) {
+			continue
+		}
+		row := api.SlotAgent{Name: st.Name, Title: st.Title, State: st.State,
+			MemoryPeak: peaks[st.Name].Memory, CPUPeak: peaks[st.Name].CPU}
+		if u, ok := s.lastUsage(st.Ref()); ok {
+			row.Memory, row.CPU = u.Memory, u.CPU
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // admitQueued starts as many queued agents as there are free slots, each
@@ -179,6 +244,10 @@ func (s *Server) admitQueued(ctx context.Context) {
 	free := map[string]int{}
 	for _, p := range status.Projects {
 		free[p.Project] = p.Slots - p.Running
+		if !status.Enabled {
+			// The queue is off: nothing waits, whatever the slots say.
+			free[p.Project] = len(queue)
+		}
 	}
 	started := 0
 	for _, q := range queue {

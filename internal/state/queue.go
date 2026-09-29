@@ -199,17 +199,44 @@ func (s *Store) StartQueued(ctx context.Context, a Agent) error {
 	return tx.Commit()
 }
 
-// RecordMemoryPeak remembers the most memory an agent's machine was seen to
-// hold, keeping the larger of what was recorded and peak.
-func (s *Store) RecordMemoryPeak(ctx context.Context, project, agent string, peak int64, at time.Time) error {
-	if peak <= 0 {
+// RecordUsagePeak remembers the most memory an agent's machine was seen to
+// hold, and the most CPU it was seen to use (percent, 100 a core), keeping the
+// larger of what was recorded and each reading.
+func (s *Store) RecordUsagePeak(ctx context.Context, project, agent string, memory int64, cpu float64, at time.Time) error {
+	if memory <= 0 && cpu <= 0 {
 		return nil
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_memory_peaks (project, agent, peak, updated_at) VALUES (?, ?, ?, ?)
-		ON CONFLICT (project, agent) DO UPDATE SET peak = MAX(peak, excluded.peak),
-			updated_at = CASE WHEN excluded.peak > peak THEN excluded.updated_at ELSE updated_at END`,
-		project, agent, peak, at.Unix())
+	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_memory_peaks (project, agent, peak, cpu_peak, updated_at) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (project, agent) DO UPDATE SET cpu_peak = MAX(cpu_peak, excluded.cpu_peak),
+			updated_at = CASE WHEN excluded.peak > peak THEN excluded.updated_at ELSE updated_at END,
+			peak = MAX(peak, excluded.peak)`,
+		project, agent, max(memory, 0), max(cpu, 0), at.Unix())
 	return err
+}
+
+// UsagePeak is the most an agent was seen to use.
+type UsagePeak struct {
+	Memory int64
+	CPU    float64
+}
+
+// UsagePeaks are the peaks of a project's agents, by name.
+func (s *Store) UsagePeaks(ctx context.Context, project string) (map[string]UsagePeak, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT agent, peak, cpu_peak FROM agent_memory_peaks WHERE project = ?`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]UsagePeak{}
+	for rows.Next() {
+		var name string
+		var p UsagePeak
+		if err := rows.Scan(&name, &p.Memory, &p.CPU); err != nil {
+			return nil, err
+		}
+		out[name] = p
+	}
+	return out, rows.Err()
 }
 
 // memoryPeakSample is how many of a project's agents its typical peak is
@@ -219,7 +246,7 @@ const memoryPeakSample = 10
 // TypicalMemoryPeak is the median of the memory peaks of a project's latest
 // agents, or 0 when none was ever seen.
 func (s *Store) TypicalMemoryPeak(ctx context.Context, project string) (int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT peak FROM agent_memory_peaks WHERE project = ? ORDER BY updated_at DESC LIMIT ?`, project, memoryPeakSample)
+	rows, err := s.db.QueryContext(ctx, `SELECT peak FROM agent_memory_peaks WHERE project = ? AND peak > 0 ORDER BY updated_at DESC LIMIT ?`, project, memoryPeakSample)
 	if err != nil {
 		return 0, err
 	}
