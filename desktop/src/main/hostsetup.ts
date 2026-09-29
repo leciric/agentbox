@@ -86,6 +86,15 @@ export interface VMStatus {
   // The sizes `agentbox vm resize` takes on this Mac. Missing from a front end
   // older than the command.
   limits?: VMLimits;
+  vmType?: string; // vz, krunkit
+  // Whether `agentbox vm init` would make the VM with krunkit, which gives
+  // memory back to the Mac: only before there's a VM, on Apple Silicon.
+  krunkit?: KrunkitCheck;
+}
+
+export interface KrunkitCheck {
+  available: boolean;
+  missing?: "krunkit" | "driver"; // what isn't installed
 }
 
 export interface VMLimits {

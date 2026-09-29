@@ -19,6 +19,8 @@
 //                           its agents are waiting on at its end
 //   ?vm=create|lima         a Mac's first screen in the middle: the VM to set up,
 //                           or Lima to install first
+//   ?vm=krunkit|nokrunkit   the VM to set up on Apple Silicon, with krunkit
+//                           installed (it gives memory back), or without it
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?chat=compaction        a project chat's timeline with compaction cards,
@@ -579,7 +581,13 @@ function Preview() {
             vm={
               vm === 'lima'
                 ? { lima: '', name: 'agentbox', exists: false, problem: "AgentBox runs in a Linux VM made with Lima, which isn't installed: brew install lima" }
-                : { lima: '/opt/homebrew/bin/limactl', name: 'agentbox', exists: false, problem: "AgentBox's Linux VM isn't set up: run agentbox vm init" }
+                : {
+                    lima: '/opt/homebrew/bin/limactl',
+                    name: 'agentbox',
+                    exists: false,
+                    problem: "AgentBox's Linux VM isn't set up: run agentbox vm init",
+                    krunkit: vm === 'krunkit' ? { available: true } : vm === 'nokrunkit' ? { available: false, missing: 'krunkit' } : undefined,
+                  }
             }
           />
         ) : (

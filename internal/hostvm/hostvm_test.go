@@ -16,16 +16,27 @@ import (
 )
 
 // fakeLima is a limactl that records its arguments, one call per line, keeps
-// what it's sent on stdin, and answers `list` and the digest check the way
-// Lima does.
+// what it's sent on stdin and the last definition it was asked to create, and
+// answers `list`, `info`, the digest check and the balloon's features the way
+// Lima does. With refuse-krunkit, it refuses to create a krunkit VM, as Lima
+// does with a krunkit too old.
 const fakeLima = `#!/bin/sh
 log=$FAKE_DIR/calls
 printf '%s\n' "$*" >>"$log"
 case "$1" in
   list) cat "$FAKE_DIR/list" 2>/dev/null ;;
+  info) cat "$FAKE_DIR/info" 2>/dev/null || exit 1 ;;
+  create)
+    for f; do :; done
+    cp "$f" "$FAKE_DIR/created.yaml"
+    if [ -e "$FAKE_DIR/refuse-krunkit" ] && grep -q '^vmType: krunkit' "$f"; then
+      echo 'krunkit version "1.1.0" is older than required minimum 1.2.1' >&2
+      exit 1
+    fi ;;
   shell)
     case "$*" in
       *sha256sum*) cat "$FAKE_DIR/digest" 2>/dev/null ;;
+      */sys/bus/virtio/devices*) cat "$FAKE_DIR/reporting" 2>/dev/null ;;
       *"id -un"*) echo alice ;;
       *"sudo sh -c"*) cat >"$FAKE_DIR/installed" ;;
     esac ;;

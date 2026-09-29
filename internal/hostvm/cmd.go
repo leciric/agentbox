@@ -397,7 +397,7 @@ func newInitCmd() *cobra.Command {
 				return err
 			}
 			if !st.Exists {
-				if err := vm.Create(cmd.Context(), size); err != nil {
+				if err := vm.createVM(cmd.Context(), size); err != nil {
 					return err
 				}
 			}
@@ -406,6 +406,9 @@ func newInitCmd() *cobra.Command {
 			}
 			if err := vm.Setup(cmd.Context()); err != nil {
 				return err
+			}
+			if st, err := vm.State(cmd.Context()); err == nil {
+				vm.checkReporting(cmd.Context(), st)
 			}
 			_, _ = fmt.Fprintln(cmd.OutOrStdout(), `AgentBox's VM is ready. Next:
   agentbox image build          the machine every agent is copied from (the app's Setup page does this too)
@@ -474,6 +477,10 @@ type Status struct {
 	State
 	// Limits are the sizes `agentbox vm resize` takes on this machine.
 	Limits Limits `json:"limits"`
+	// Krunkit is whether `vm init` would make the VM with krunkit, which gives
+	// memory back to the Mac: set before there's a VM, on a Mac with Apple
+	// Silicon.
+	Krunkit *KrunkitCheck `json:"krunkit,omitempty"`
 }
 
 func newStatusCmd() *cobra.Command {
@@ -504,6 +511,7 @@ func newStatusCmd() *cobra.Command {
 				st.Problem = err.Error()
 			} else if !st.Exists {
 				st.Problem = ErrNotCreated.Error()
+				st.Krunkit = vm.krunkitCheck(cmd.Context())
 			}
 			if asJSON {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(st)
@@ -512,8 +520,12 @@ func newStatusCmd() *cobra.Command {
 			case st.Problem != "":
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), st.Problem)
 			default:
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s, %d CPUs, %s of memory, %s disk (%s)\n",
-					st.Name, st.Status, st.CPUs, gib(st.Memory), gib(st.Disk), st.Dir)
+				made := ""
+				if st.VMType != "" {
+					made = ", made with " + st.VMType
+				}
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s, %d CPUs, %s of memory, %s disk%s (%s)\n",
+					st.Name, st.Status, st.CPUs, gib(st.Memory), gib(st.Disk), made, st.Dir)
 			}
 			return nil
 		},

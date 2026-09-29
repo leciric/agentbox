@@ -69,6 +69,10 @@ export interface VMStatus {
   memory?: number; // bytes
   disk?: number; // bytes
   limits?: VMLimits; // what `agentbox vm resize` takes on this Mac
+  vmType?: string; // vz, krunkit
+  // Whether `agentbox vm init` would make the VM with krunkit, which gives
+  // memory back to the Mac: only before there's a VM, on Apple Silicon.
+  krunkit?: { available: boolean; missing?: 'krunkit' | 'driver' };
 }
 
 // VMPower is AgentBox's VM in VM mode (the daemon, Incus and every agent in

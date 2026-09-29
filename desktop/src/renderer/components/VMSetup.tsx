@@ -50,13 +50,16 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
           <CommandBox command="brew install lima" />
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate()}>
-            {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
-            {vm.exists ? 'Finish setting up the VM' : 'Set up the VM'}
-          </Button>
-          <span className="text-xs text-subtle">{run.isPending ? 'This takes a few minutes the first time.' : 'No password needed'}</span>
-        </div>
+        <>
+          {!vm.exists && vm.krunkit && <KrunkitNote check={vm.krunkit} />}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate()}>
+              {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
+              {vm.exists ? 'Finish setting up the VM' : 'Set up the VM'}
+            </Button>
+            <span className="text-xs text-subtle">{run.isPending ? 'This takes a few minutes the first time.' : 'No password needed'}</span>
+          </div>
+        </>
       )}
       {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label="VM setup log" />}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
@@ -68,5 +71,34 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
         </div>
       )}
     </Panel>
+  );
+}
+
+// KrunkitNote says whether the VM about to be made gives memory back to the
+// Mac. Made with krunkit, it hands back what its agents stop using; made with
+// Apple's Virtualization framework, Lima's default, it keeps whatever it has
+// used until it stops. Setup doesn't install krunkit itself: it says how.
+function KrunkitNote({ check }: { check: NonNullable<VMStatus['krunkit']> }) {
+  if (check.available)
+    return (
+      <p className="text-[13px] text-muted" data-krunkit="available">
+        krunkit is installed, so the VM is made with it and gives the memory its agents stop using back to your Mac.
+      </p>
+    );
+  if (check.missing === 'driver')
+    return (
+      <p className="text-[13px] text-muted" data-krunkit="driver">
+        Your Lima has no krunkit driver (lima-driver-krunkit), so the VM is made with Apple's Virtualization framework and keeps the memory it
+        has used until it stops.
+      </p>
+    );
+  return (
+    <div className="grid gap-2" data-krunkit="missing">
+      <p className="text-[13px] text-muted">
+        Install krunkit first and the VM gives the memory its agents stop using back to your Mac. Without it, the VM is made with Apple's
+        Virtualization framework and keeps what it has used until it stops:
+      </p>
+      <CommandBox command="brew tap slp/krun && brew install krunkit" />
+    </div>
   );
 }

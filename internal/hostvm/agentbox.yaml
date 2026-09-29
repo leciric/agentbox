@@ -55,6 +55,53 @@ provision:
         }
       }
       EOF
+[[- if eq .VMType "krunkit"]]
+  # krunkit hands the memory the VM frees back to the Mac (free page
+  # reporting), but Linux keeps what it has read cached until it runs short,
+  # so a VM that has built something holds on to it. Every 10 minutes, when
+  # the VM has been quiet (its CPUs under 5% busy for half a minute) and caches
+  # more than 1 GiB, this drops the page cache and the kernel's reclaimable
+  # caches and compacts what's free into the whole blocks reporting returns:
+  # what AgentBox's VM on Linux does when it's quiet (internal/hostvm/chv).
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eu -o pipefail
+      cat >/usr/local/sbin/agentbox-reclaim <<'EOF'
+      #!/bin/sh
+      set -eu
+      cached=$(awk '/^(Buffers|Cached|SReclaimable):/ { n += $2 } END { print n }' /proc/meminfo)
+      [ "$cached" -ge 1048576 ] || exit 0
+      read -r _ u1 n1 s1 i1 w1 q1 r1 t1 _ </proc/stat
+      sleep 30
+      read -r _ u2 n2 s2 i2 w2 q2 r2 t2 _ </proc/stat
+      busy=$(( (u2 + n2 + s2 + q2 + r2 + t2) - (u1 + n1 + s1 + q1 + r1 + t1) ))
+      total=$(( busy + (i2 + w2) - (i1 + w1) ))
+      [ "$total" -gt 0 ] && [ $(( busy * 100 / total )) -lt 5 ] || exit 0
+      sync
+      echo 3 >/proc/sys/vm/drop_caches
+      echo 1 >/proc/sys/vm/compact_memory
+      EOF
+      chmod 0755 /usr/local/sbin/agentbox-reclaim
+      cat >/etc/systemd/system/agentbox-reclaim.service <<'EOF'
+      [Unit]
+      Description=Give the Mac back the memory AgentBox's VM keeps cached, when it's quiet
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/agentbox-reclaim
+      EOF
+      cat >/etc/systemd/system/agentbox-reclaim.timer <<'EOF'
+      [Unit]
+      Description=Give the Mac back the memory AgentBox's VM keeps cached, when it's quiet
+      [Timer]
+      OnBootSec=10min
+      OnUnitActiveSec=10min
+      [Install]
+      WantedBy=timers.target
+      EOF
+      systemctl daemon-reload
+      systemctl enable --now agentbox-reclaim.timer
+[[- end]]
 
 # The daemon's socket, out to where the Mac's app and command look for it.
 portForwards:

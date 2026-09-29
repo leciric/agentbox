@@ -121,8 +121,10 @@ type VM struct {
 	Paths paths.Paths
 	// Binary is the Linux agentbox kept in the VM.
 	Binary string
-	// VMType is Lima's vmType; "" is its default (vz on a Mac). The Linux
-	// tests set qemu through AGENTBOX_VM_TYPE.
+	// VMType is Lima's vmType for a VM `vm init` makes: AGENTBOX_VM_TYPE, or
+	// "" for createVM to choose (krunkit.go), which leaves it "" for Lima's
+	// default (vz on a Mac) when it doesn't choose krunkit. The Linux tests set
+	// qemu.
 	VMType string
 	// Log is where progress goes: the front end's stderr.
 	Log io.Writer
@@ -168,6 +170,9 @@ func New() (*VM, error) {
 	vm.Limactl, err = FindLimactl()
 	if err != nil {
 		return vm, err
+	}
+	if runtime.GOOS == "darwin" {
+		krunkitOnPath()
 	}
 	vm.Binary, err = FindLinuxBinary()
 	return vm, err
@@ -219,6 +224,7 @@ type State struct {
 	Memory int64  `json:"memory,omitempty"` // bytes
 	Disk   int64  `json:"disk,omitempty"`   // bytes
 	Arch   string `json:"arch,omitempty"`
+	VMType string `json:"vmType,omitempty"` // vz, krunkit, qemu
 }
 
 func (v *VM) State(ctx context.Context) (State, error) {
@@ -236,6 +242,7 @@ func (v *VM) State(ctx context.Context) (State, error) {
 			Memory int64  `json:"memory"`
 			Disk   int64  `json:"disk"`
 			Arch   string `json:"arch"`
+			VMType string `json:"vmType"`
 		}
 		if err := dec.Decode(&inst); errors.Is(err, io.EOF) {
 			return State{}, nil
@@ -243,7 +250,7 @@ func (v *VM) State(ctx context.Context) (State, error) {
 			return State{}, fmt.Errorf("reading limactl list: %w", err)
 		}
 		if inst.Name == v.Name {
-			return State{Exists: true, Status: inst.Status, Dir: inst.Dir, CPUs: inst.CPUs, Memory: inst.Memory, Disk: inst.Disk, Arch: inst.Arch}, nil
+			return State{Exists: true, Status: inst.Status, Dir: inst.Dir, CPUs: inst.CPUs, Memory: inst.Memory, Disk: inst.Disk, Arch: inst.Arch, VMType: inst.VMType}, nil
 		}
 	}
 }
