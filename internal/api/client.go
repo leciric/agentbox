@@ -783,6 +783,18 @@ func (c *Client) Restore(ctx context.Context, ref, snapshot string) (Job, error)
 	return out, c.agentDo(ctx, http.MethodPost, ref, "/restore", RestoreRequest{Snapshot: snapshot}, &out)
 }
 
+// Recreate starts a job that gives an agent whose machine is gone a new one.
+func (c *Client) Recreate(ctx context.Context, ref string, req RecreateRequest) (Job, error) {
+	var out Job
+	return out, c.agentDo(ctx, http.MethodPost, ref, "/recreate", req, &out)
+}
+
+// CheckMigration compares the daemon's state with the state.db it was made from.
+func (c *Client) CheckMigration(ctx context.Context, req MigrationCheckRequest) (MigrationCheck, error) {
+	var out MigrationCheck
+	return out, c.do(ctx, http.MethodPost, "/v1/migration/check", req, &out)
+}
+
 func (c *Client) Fork(ctx context.Context, ref string, req ForkRequest) (Job, error) {
 	var out Job
 	return out, c.agentDo(ctx, http.MethodPost, ref, "/fork", req, &out)

@@ -728,6 +728,43 @@ type RestoreRequest struct {
 	Snapshot string `json:"snapshot"`
 }
 
+// RecreateRequest gives an agent whose machine is gone a new one from the base
+// image, for its worktree, branch and chat, which stay as they are: what
+// `agentbox vm migrate` does for each agent it moves into AgentBox's VM.
+type RecreateRequest struct {
+	// CPU, Memory and CPUAllowance cap the new machine, as CreateAgentRequest's
+	// do: absent is what new agents get, and an explicit "" is no cap. Limits
+	// the machine can't have (more memory than it has) fall back to what new
+	// agents get.
+	CPU          *string `json:"cpu,omitempty"`
+	Memory       *string `json:"memory,omitempty"`
+	CPUAllowance *string `json:"cpuAllowance,omitempty"`
+	// Home is a directory, on the daemon's machine, whose contents go into
+	// the agent user's home before its AI tool starts: the old machine's chat
+	// sessions, so its chat resumes where it was.
+	Home string `json:"home,omitempty"`
+	// Stopped leaves the new machine stopped, for an agent that wasn't running.
+	Stopped bool `json:"stopped,omitempty"`
+}
+
+// MigrationCheckRequest asks the daemon to compare what it has with a copy of
+// another installation's state.db it was made from (POST /v1/migration/check).
+type MigrationCheckRequest struct {
+	// Backup is that copy, a path on the daemon's machine.
+	Backup string `json:"backup"`
+}
+
+// MigrationCheck is what the daemon found: everything Backup had, and whether
+// it's here. OK is no problems.
+type MigrationCheck struct {
+	OK bool `json:"ok"`
+	// Found are the things that arrived, one line each, like "2 projects:
+	// blog, shop".
+	Found []string `json:"found"`
+	// Problems are what's missing, one line each.
+	Problems []string `json:"problems"`
+}
+
 type Base struct {
 	Snapshot  string    `json:"snapshot"`
 	SavedFrom string    `json:"savedFrom"`

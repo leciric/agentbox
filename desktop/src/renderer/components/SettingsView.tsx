@@ -62,6 +62,7 @@ import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
+import { VMMigrate } from "./VMMigrate";
 import { VMSize } from "./VMSize";
 
 type Status =
@@ -763,6 +764,19 @@ function InstalledSettings({
     refetchInterval: 2_000,
   });
   const vm = hostSetup.data?.vm;
+  // On a Linux machine that runs AgentBox itself: what there is to move into
+  // AgentBox's VM, and how far a move got.
+  const migration = useQuery({
+    queryKey: ["vm-migration"],
+    queryFn: () => window.agentbox.vmMigrate.status(),
+    refetchInterval: 15_000,
+  });
+  const moving =
+    migration.data &&
+    (["available", "started"].includes(migration.data.state) ||
+      (migration.data.state === "verified" && (migration.data.oldMachines?.length ?? 0) > 0))
+      ? migration.data
+      : null;
   const s = settings.data;
   // changed is undefined until settings arrive, so nothing is marked on a
   // guess.
@@ -1054,6 +1068,23 @@ function InstalledSettings({
                     keywords: "gpu graphics render amd nvidia intel acceleration",
                     modified: changed((s) => s.gpuForAgents),
                     render: () => <GPUForAgents />,
+                  },
+                ],
+              },
+            ]
+          : []),
+        ...(moving
+          ? [
+              {
+                id: "vm-migrate",
+                title: "AgentBox's VM",
+                cards: true,
+                entries: [
+                  {
+                    id: "vm-migrate",
+                    label: moving.state === "verified" ? "Moved into the VM" : "Run in a VM",
+                    keywords: "vm virtual machine migrate move cloud hypervisor host mode incus old machines remove",
+                    render: () => <VMMigrate migration={moving} kvm={hostSetup.data?.linux?.kvm ?? true} />,
                   },
                 ],
               },

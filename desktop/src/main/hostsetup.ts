@@ -308,6 +308,58 @@ function run(onOutput: (text: string) => void, linuxVMInit: boolean): Promise<vo
   return runAsRoot(["host", "setup"], onOutput);
 }
 
+// VMMigration is `agentbox vm migrate --status --json` (hostvm.MigrationStatus):
+// on a Linux machine that runs AgentBox itself, what there is to move into
+// AgentBox's VM, and how far a move got.
+export interface VMMigration {
+  state: "none" | "available" | "started" | "verified" | "removed";
+  projects?: string[];
+  agents?: string[];
+  oldMachines?: string[]; // what --remove-old removes, once the move is checked
+  backup?: string; // the state.db from before the move
+  found?: string[]; // what the check found in the VM
+}
+
+// vmMigration asks the command-line tool; null where there's nothing it could
+// say (a Mac, Windows, or a tool from before vm migrate).
+export function vmMigration(): Promise<VMMigration | null> {
+  if (onMac || onWindows) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile(agentboxBin(), ["vm", "migrate", "--status", "--json"], { timeout: 15_000 }, (err, stdout) => {
+      if (err) return resolve(null);
+      try {
+        resolve(JSON.parse(stdout) as VMMigration);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+// runVMMigration is `agentbox vm migrate`: this machine's own AgentBox,
+// projects, agents and all, moved into AgentBox's VM. The command stops this
+// machine's daemon itself, and the app's own daemon start waits for it
+// (vmInitDone), as it waits for vm init: the daemon it finds afterwards is
+// the VM's. removeOld runs `vm migrate --remove-old --yes`, which the app
+// asks the user about first.
+export function runVMMigration(
+  onOutput: (text: string) => void,
+  removeOld = false,
+): Promise<void> {
+  if (running)
+    return Promise.reject(new Error("host setup is already running"));
+  running = (
+    removeOld
+      ? runVM(["migrate", "--remove-old", "--yes"], "removing the old machines failed", onOutput)
+      : runVM(["migrate"], "moving AgentBox into its VM failed", onOutput).finally(learnMode)
+  ).finally(() => {
+    running = undefined;
+    initing = undefined;
+  });
+  if (!removeOld) initing = running;
+  return running;
+}
+
 // runBudgetSetup makes the shared agent budget's cgroup: `agentbox host
 // budget`, as root through pkexec, which installs a oneshot unit that makes
 // /sys/fs/cgroup/agentbox at every boot and hands its budget files to you

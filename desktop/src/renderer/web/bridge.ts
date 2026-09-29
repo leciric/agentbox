@@ -164,6 +164,12 @@ export const webBridge: Bridge & { web: true } = {
     onOutput: () => () => {},
     budget: unavailable('Setting the shared budget up'),
   },
+  vmMigrate: {
+    status: () => Promise.resolve(null),
+    run: unavailable("Moving AgentBox into its VM"),
+    removeOld: unavailable("Removing AgentBox's old machines"),
+    onOutput: () => () => {},
+  },
   vm: {
     resize: unavailable("Resizing AgentBox's VM"),
     onOutput: () => () => {},

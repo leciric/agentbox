@@ -162,13 +162,16 @@ func checkConfig(c chv.Config, hostCPUs int, hostMem int64) error {
 	return errors.Join(errs...)
 }
 
-// hostModeInUse says why this Linux machine can't be switched to a VM yet, or
-// nil: a daemon of its own answering on the socket (the VM's daemon would be
-// forwarded to the same one), or agents of its own. Those agents run in Incus
-// on this machine, and stay there: nothing moves them into the VM, and the
-// VM's agents would get worktrees where theirs are. So the switch waits until
-// the user has stopped the daemon and removed them, rather than doing either.
+// hostModeInUse says why `vm init` can't switch this Linux machine to a VM, or
+// nil: projects of its own (state.db), a daemon of its own answering on the
+// socket (the VM's daemon would be forwarded to the same one), or agents of
+// its own. vm init would leave all of that behind, and the VM's agents would
+// get worktrees where the host's are: `vm migrate` is the switch that takes
+// them along.
 func hostModeInUse(ctx context.Context, p paths.Paths) error {
+	if inst, err := readHostInstall(ctx, p); err == nil && len(inst.Projects) > 0 {
+		return fmt.Errorf("this machine runs AgentBox itself (host setup), with %s: agentbox vm migrate moves all of it into the VM, and makes the VM too", inst.describe())
+	}
 	var why []string
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -180,7 +183,7 @@ func hostModeInUse(ctx context.Context, p paths.Paths) error {
 		if len(shown) > 3 {
 			shown = append(shown[:3:3], "…")
 		}
-		why = append(why, fmt.Sprintf("It has %d agent(s) of its own (%s), which stay on this machine and aren't moved into the VM: finish with them and remove them first, with agentbox destroy <project/agent>.", len(agents), strings.Join(shown, ", ")))
+		why = append(why, fmt.Sprintf("It has %d agent(s) of its own (%s): agentbox vm migrate moves them into the VM, with everything else of this machine's AgentBox.", len(agents), strings.Join(shown, ", ")))
 	}
 	if len(why) == 0 {
 		return nil
@@ -261,7 +264,7 @@ func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool,
 		return err
 	}
 	vm.Log = log
-	err = vm.CHV.setUp(ctx, vm)
+	err = vm.CHV.setUp(ctx, vm, true)
 	if err != nil && made {
 		err = fmt.Errorf("%w\nThis machine now runs AgentBox in a VM: run agentbox vm init again to carry on, or agentbox vm delete --yes to go back", err)
 	}
@@ -271,7 +274,10 @@ func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool,
 	return err
 }
 
-func (h *CHV) setUp(ctx context.Context, v *VM) error {
+// setUp fetches what runs the VM, makes its disks, boots it, waits for its
+// first boot and sets AgentBox up in it: the daemon too with daemon set, which
+// `vm migrate` leaves out until the host's state is in the VM.
+func (h *CHV) setUp(ctx context.Context, v *VM, daemon bool) error {
 	// Commands waiting to use the VM (the app's agentbox daemon start) wait
 	// for this instead of booting it under it.
 	unlock, err := v.lock(ctx, true)
@@ -295,7 +301,7 @@ func (h *CHV) setUp(ctx context.Context, v *VM) error {
 		}
 		v.took(start)
 	}
-	return v.Setup(ctx)
+	return v.setup(ctx, daemon)
 }
 
 // up starts the VM unless it runs, or resumes it when it's paused.
@@ -421,6 +427,12 @@ func (h *CHV) delete(ctx context.Context, v *VM) error {
 		return err
 	}
 	if err := os.Remove(chv.ConfigFile(v.Paths, v.Name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	// A move into the VM is undone with it: its record goes, and a later move
+	// starts afresh. The host's own state and machines were never removed
+	// before it was checked, so host mode carries on from them.
+	if err := os.Remove(migrationFile(v.Paths)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	_, _ = fmt.Fprintln(v.Log, "AgentBox's VM is gone: this machine runs AgentBox itself again, once it's set up for it (agentbox host setup).")

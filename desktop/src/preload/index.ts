@@ -32,6 +32,18 @@ export interface HostSetupStatus {
   linux?: LinuxSetup | null;
 }
 
+// VMMigration is `agentbox vm migrate --status --json`: on a Linux machine
+// that runs AgentBox itself, what there is to move into AgentBox's VM, and how
+// far a move got. main/hostsetup.ts has the same.
+export interface VMMigration {
+  state: 'none' | 'available' | 'started' | 'verified' | 'removed';
+  projects?: string[];
+  agents?: string[];
+  oldMachines?: string[]; // what removing the old machines removes, once the move is checked
+  backup?: string; // the state.db from before the move
+  found?: string[]; // what the check found in the VM
+}
+
 export interface LinuxSetup {
   mode: 'host' | 'vm';
   kvm: boolean; // /dev/kvm is there for this user, which the VM needs
@@ -153,6 +165,16 @@ const bridge = {
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
     // `agentbox host budget` as root: the shared agent budget's cgroup.
     budget: (): Promise<void> => ipcRenderer.invoke('hostsetup:budget'),
+  },
+  // On Linux, `agentbox vm migrate`: this machine's own AgentBox moved into
+  // AgentBox's VM, and afterwards its old machines removed from its Incus.
+  // status is null where there's nothing to say; run resolves when it's done,
+  // and its output arrives on onOutput as it is printed.
+  vmMigrate: {
+    status: (): Promise<VMMigration | null> => ipcRenderer.invoke('vmmigrate:status'),
+    run: (): Promise<void> => ipcRenderer.invoke('vmmigrate:run', false),
+    removeOld: (): Promise<void> => ipcRenderer.invoke('vmmigrate:run', true),
+    onOutput: (fn: (text: string) => void) => listen('vmmigrate:output', fn),
   },
   // On a Mac, `agentbox vm resize`: new CPUs and memory (like 12GiB) for
   // AgentBox's VM, which restarts it and stops every agent. resize resolves

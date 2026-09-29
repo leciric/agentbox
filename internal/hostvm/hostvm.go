@@ -499,7 +499,10 @@ func (v *VM) took(start time.Time) {
 // binary, the same host setup a Linux machine gets (Incus, its btrfs pool, the
 // bridge, the user mapping), the host's git identity, the host's settings for
 // the VM's login shells, and the daemon.
-func (v *VM) Setup(ctx context.Context) error {
+func (v *VM) Setup(ctx context.Context) error { return v.setup(ctx, true) }
+
+// setup is Setup, starting the daemon only with daemon set.
+func (v *VM) setup(ctx context.Context, daemon bool) error {
 	start := time.Now()
 	if err := v.Install(ctx); err != nil {
 		return err
@@ -531,6 +534,9 @@ func (v *VM) Setup(ctx context.Context) error {
 	// would put new worktrees on the VM's disk instead of the share.
 	if err := v.writeProfile(ctx); err != nil {
 		return err
+	}
+	if !daemon {
+		return nil
 	}
 	_, _ = fmt.Fprintln(v.Log, "==> Starting the daemon")
 	start = time.Now()
