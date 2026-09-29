@@ -107,8 +107,16 @@ shared with the VM at the same path, so projects and agents' worktrees stay wher
 agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in 30–50
 seconds rather than 20–25; GPUs aren't available in the VM.
 
-An installation that already runs agents directly on your computer can move into the VM with
-`agentbox vm migrate`; Home suggests it once, and Settings → Setup keeps the way to it.
+An installation that already runs agents directly on your computer can move into the VM: Home
+suggests it once, and Settings → Setup → **Move to a VM**, or `agentbox vm migrate`, moves all of it
+in one step: projects, settings, accounts, notes, memory, chats and media, and every
+agent with its branch, worktree (uncommitted changes included), title, model and limits. Each agent
+gets a new machine in the VM, and its chat carries on; what was installed inside its old machine,
+and its home folder outside the worktree, don't come along. It backs `state.db` up first, checks
+that everything arrived, and can be run again if it stops half-way. Your system's Incus, and
+everything else in it, stays as it was: the agents' old machines stay there, stopped, until you
+remove them with `agentbox vm migrate --remove-old` (or the same place in Settings), which removes
+only AgentBox's own.
 
 ### macOS and Windows (alpha)
 

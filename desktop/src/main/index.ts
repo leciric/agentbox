@@ -9,7 +9,7 @@ import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon } from './daemon';
 import { EventStream } from './events';
-import { hostSetupStatus, onMac, runBudgetSetup, runHostSetup, stopVM, type HostSetupOptions } from './hostsetup';
+import { hostSetupStatus, onMac, runBudgetSetup, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { Streams } from './streams';
@@ -154,6 +154,14 @@ ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 
   const restarted = await restartDaemon().catch(() => false);
   return { restarted };
 });
+
+// Moving this Linux machine's own AgentBox into AgentBox's VM (`agentbox vm
+// migrate`), and removing its old machines afterwards: no password, like vm
+// init. Every page's data is the VM's daemon's afterwards.
+ipcMain.handle('vmmigrate:status', () => vmMigration());
+ipcMain.handle('vmmigrate:run', (_event, removeOld?: boolean) =>
+  runVMMigration((text) => send('vmmigrate:output', text), removeOld === true),
+);
 
 // The shared agent budget's cgroup, made as root through pkexec for the same
 // reason: the daemon runs as you. Settings asks the daemon again afterwards.

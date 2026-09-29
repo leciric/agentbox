@@ -64,6 +64,7 @@ import { useVoiceSettings } from "../lib/voice/settings";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
+import { VMMigrate } from "./VMMigrate";
 import { CHVSize, VMSize } from "./VMSize";
 import {
   ModeChoice,
@@ -781,6 +782,24 @@ function InstalledSettings({
     refetchInterval: 2_000,
   });
   const vm = hostSetup.data?.vm;
+  // On a Linux machine that runs AgentBox itself: what there is to move into
+  // AgentBox's VM, and how far a move got.
+  const migration = useQuery({
+    queryKey: ["vm-migration"],
+    queryFn: () => window.agentbox.vmMigrate.status(),
+    refetchInterval: 15_000,
+  });
+  const offered =
+    migration.data &&
+    (["available", "started"].includes(migration.data.state) ||
+      (migration.data.state === "verified" && (migration.data.oldMachines?.length ?? 0) > 0));
+  // Once shown, it stays for as long as the page is open, so the end of a
+  // move, and of removing the old machines, can be read.
+  const [migrationShown, setMigrationShown] = useState(false);
+  useEffect(() => {
+    if (offered) setMigrationShown(true);
+  }, [offered]);
+  const moving = offered || (migrationShown && migration.data?.state !== "none") ? (migration.data ?? null) : null;
   const voice = useVoiceSettings();
   // On Linux in VM mode, AgentBox's Cloud Hypervisor VM, sized here too.
   const chv = hostSetup.data?.chv?.mode === "vm" ? hostSetup.data.chv : null;
@@ -1169,7 +1188,7 @@ function InstalledSettings({
         </div>
       ),
       groups: [
-        ...(hostMode
+        ...(hostMode || moving
           ? [
               {
                 id: "where",
@@ -1179,13 +1198,19 @@ function InstalledSettings({
                   {
                     id: "move-to-vm",
                     label: "Move to a VM",
-                    keywords: moveToVMKeywords,
-                    render: () => (
-                      <MoveToVM
-                        kvm={linux.kvm}
-                        command={<CommandBox command={`${agentbox} vm migrate`} />}
-                      />
-                    ),
+                    keywords: `${moveToVMKeywords} old machines remove`,
+                    // Once moved, the machine is in VM mode: what's left is
+                    // the move's result, and removing the old machines.
+                    render: () =>
+                      moving && ["verified", "removed"].includes(moving.state) ? (
+                        <VMMigrate migration={moving} kvm />
+                      ) : (
+                        <MoveToVM
+                          kvm={linux?.kvm ?? false}
+                          command={<CommandBox command={`${agentbox} vm migrate`} />}
+                          action={moving ? <VMMigrate migration={moving} kvm={linux?.kvm ?? false} embedded /> : undefined}
+                        />
+                      ),
                   },
                 ],
               },

@@ -602,6 +602,31 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	if step, err := m.makeMachine(ctx, a, pl.repo, pl.source, pl.limits, envFiles, pl.task, "", &undo); err != nil {
+		return fail(step, err)
+	}
+	m.logf("Taking the %q snapshot", initialSnapshot)
+	if _, err := m.takeSnapshot(ctx, a, initialSnapshot, false); err != nil {
+		return fail("snapshot", err)
+	}
+	if err := m.Store.SetAgentStatus(ctx, a.Project, a.Name, state.AgentReady); err != nil {
+		return fail("state", err)
+	}
+	a.Status = state.AgentReady
+	m.EnsureBrowser(ctx, a)
+	m.EnsureNesting(ctx, a, pl.project)
+	return a, nil
+}
+
+// makeMachine makes a's machine from the instance snapshot source, for a's
+// worktree, which exists already: the Incus instance, its mounts and limits,
+// the in-agent API, its configuration and the tmux session. home, when set,
+// is a directory whose contents are copied into the agent user's home before
+// the AI tool first starts (Recreate's, for what the old machine's chat
+// sessions were). What undoes the instance is appended to undo; on failure it
+// returns the step that failed, as build names them.
+func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.Repo, source string, limits Limits, envFiles []string, task, home string, undo *[]func()) (string, error) {
+	cleanup := context.WithoutCancel(ctx)
 	// Instance commands run to completion even after Ctrl-C, and cancellation is
 	// checked between them, so the rollback never races an unfinished Incus operation.
 	run := func(step incusStep) error {
@@ -611,23 +636,23 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		return step(cleanup, m.Incus)
 	}
 
-	m.logf("Creating instance %s from %s", a.Instance, pl.source)
+	m.logf("Creating instance %s from %s", a.Instance, source)
 	// The base image can't be swapped for a new one while it is copied, and
 	// a copy started during a swap waits for the new one.
 	release := func() {}
-	if pl.source == image.SnapshotRef() {
+	if source == image.SnapshotRef() {
 		release = image.UseBase()
 	}
-	err := run(func(ctx context.Context, c incus.Client) error { return c.Copy(ctx, pl.source, a.Instance) })
+	err := run(func(ctx context.Context, c incus.Client) error { return c.Copy(ctx, source, a.Instance) })
 	release()
 	if err != nil {
-		return fail("instance", err)
+		return "instance", err
 	}
-	undo = append(undo, func() { _ = m.Incus.Delete(cleanup, a.Instance) })
+	*undo = append(*undo, func() { _ = m.Incus.Delete(cleanup, a.Instance) })
 
 	copied, err := m.Incus.Details(cleanup, a.Instance)
 	if err != nil {
-		return fail("instance", err)
+		return "instance", err
 	}
 	var steps []incusStep
 	// A copy of another agent brings that agent's devices along: replace them.
@@ -643,14 +668,14 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 			return c.AddDevice(ctx, a.Instance, "worktree", "disk", "source="+a.Worktree, "path="+a.Worktree)
 		},
 		func(ctx context.Context, c incus.Client) error {
-			return c.AddDevice(ctx, a.Instance, "gitdir", "disk", "source="+pl.repo.GitDir, "path="+pl.repo.GitDir)
+			return c.AddDevice(ctx, a.Instance, "gitdir", "disk", "source="+repo.GitDir, "path="+repo.GitDir)
 		},
 	)
-	steps = append(steps, limitSteps(a.Instance, pl.limits, copied.Config, m.budgetOn(ctx))...)
+	steps = append(steps, limitSteps(a.Instance, limits, copied.Config, m.budgetOn(ctx))...)
 	steps = append(steps, budgetSteps(a.Instance, m.budgetOn(ctx), copied.Config)...)
-	steps = append(steps, configuredCPUSteps(a.Instance, pl.limits.CPU, copied.Config)...)
+	steps = append(steps, configuredCPUSteps(a.Instance, limits.CPU, copied.Config)...)
 	if on, status, err := gpuOn(ctx, m); err != nil {
-		return fail("instance", err)
+		return "instance", err
 	} else if on {
 		_, has := copied.Devices[gpuDevice]
 		steps = append(steps, gpuCreateSteps(a.Instance, status, has)...)
@@ -658,50 +683,46 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 	steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) })
 	for _, step := range steps {
 		if err := run(step); err != nil {
-			return fail("instance", err)
+			return "instance", err
 		}
 	}
 	inst, err := m.Incus.WaitReady(ctx, a.Instance, readyTimeout)
 	if err != nil {
-		return fail("instance", err)
+		return "instance", err
 	}
 	// A mount can be hidden by one the agent's OS makes at boot, so check, as the
 	// agent's user, that git works in the worktree.
 	var gitOut bytes.Buffer
 	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, "git -C "+shellQuote(a.Worktree)+" rev-parse --git-dir", nil, &gitOut, &gitOut); err != nil {
-		return fail("instance", fmt.Errorf("the worktree isn't usable inside the agent: %w: %s", err, strings.TrimSpace(gitOut.String())))
+		return "instance", fmt.Errorf("the worktree isn't usable inside the agent: %w: %s", err, strings.TrimSpace(gitOut.String()))
 	}
 	// Tools that find a monorepo's root through git write next to the main
 	// checkout's .git: Turborepo keeps its cache there. Inside the agent that
 	// directory only holds the .git mount, and root made it. Give it to the
 	// agent's user, so those writes land in the agent's own filesystem; the
 	// project's checkout on the host isn't mounted, and stays untouched.
-	if _, err := m.Incus.Exec(ctx, a.Instance, "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(pl.repo.GitDir)); err != nil {
-		return fail("instance", err)
+	if _, err := m.Incus.Exec(ctx, a.Instance, "chown", fmt.Sprintf("%d:%d", m.User.UID, m.User.GID), filepath.Dir(repo.GitDir)); err != nil {
+		return "instance", err
 	}
 	if err := m.EnsureAgentAPI(ctx, a); err != nil {
-		return fail("in-agent API", err)
+		return "in-agent API", err
 	}
 
+	if home != "" {
+		m.logf("Copying what the old machine's chats need into the new one")
+		if err := m.pushHome(ctx, a, home); err != nil {
+			return "home", err
+		}
+	}
 	m.logf("Configuring git, AI tool logins and the agent brief")
-	if err := m.configure(ctx, a, inst.IPv4(), envFiles, pl.task); err != nil {
-		return fail("configure", err)
+	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
+		return "configure", err
 	}
 	m.logf("Starting the tmux session")
 	if err := m.ensureSession(ctx, a); err != nil {
-		return fail("session", err)
+		return "session", err
 	}
-	m.logf("Taking the %q snapshot", initialSnapshot)
-	if _, err := m.takeSnapshot(ctx, a, initialSnapshot, false); err != nil {
-		return fail("snapshot", err)
-	}
-	if err := m.Store.SetAgentStatus(ctx, a.Project, a.Name, state.AgentReady); err != nil {
-		return fail("state", err)
-	}
-	a.Status = state.AgentReady
-	m.EnsureBrowser(ctx, a)
-	m.EnsureNesting(ctx, a, pl.project)
-	return a, nil
+	return "", nil
 }
 
 // CheckLogin reports that AgentBox can log the new agent in to its AI tool,

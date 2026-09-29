@@ -176,7 +176,7 @@ func TestHostModeInUse(t *testing.T) {
 	}
 	_ = os.MkdirAll(p.Worktree("app", "agent-1"), 0o755)
 	err := hostModeInUse(ctx, p)
-	if err == nil || !strings.Contains(err.Error(), "app/agent-1") || !strings.Contains(err.Error(), "agentbox destroy") {
+	if err == nil || !strings.Contains(err.Error(), "app/agent-1") || !strings.Contains(err.Error(), "agentbox vm migrate") {
 		t.Fatalf("an agent on the machine: %v", err)
 	}
 	_ = os.RemoveAll(p.Worktrees())
@@ -323,7 +323,7 @@ func TestCHVSetUp(t *testing.T) {
 	state, steps := api.VMOff, []string{}
 	vm, dir := fakeCHV(t, &state, &steps)
 	_ = os.WriteFile(filepath.Join(vm.Home, ".gitconfig"), []byte("[user]\n"), 0o644)
-	if err := vm.CHV.setUp(context.Background(), vm); err != nil {
+	if err := vm.CHV.setUp(context.Background(), vm, true); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"tools", "disks", "start", "provisioned"}; !slices.Equal(steps, want) {

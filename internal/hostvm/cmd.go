@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -82,7 +83,7 @@ A machine that already runs AgentBox itself moves into the VM with agentbox vm m
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newCHVInitCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(),
+	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(),
 		newShellCmd(), newCHVResizeCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
 	return root
 }
@@ -154,6 +155,119 @@ agentbox vm delete --yes goes back.`,
 	cmd.Flags().StringVar(&memoryMin, "memory-min", sizeWords(chv.DefaultMemoryMin), "the memory the VM boots with, and never gives back")
 	cmd.Flags().StringVar(&disk, "disk", sizeWords(chv.DefaultDisk), "the VM's disk for agents, like 100GiB (allocated as it's used)")
 	return cmd
+}
+
+func newMigrateCmd() *cobra.Command {
+	var cpus int
+	var memoryCap, memoryMin, disk string
+	var removeOld, yes, status, asJSON bool
+	defaults, defaultsErr := currentConfig(env("AGENTBOX_VM", chv.DefaultName))
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Move this machine's own AgentBox into AgentBox's VM: projects, agents, chats and all (safe to run again)",
+		Long: `Moves a machine that runs AgentBox itself (host setup) into AgentBox's VM, making the
+VM first when there's none (as agentbox vm init does; the size flags are its).
+
+Everything comes along: projects, settings, accounts, notes, memory, chats and their
+history, media, and every agent, with its title, model, limits, branch and worktree,
+uncommitted changes included (worktrees stay where they are, on your home, which the
+VM shares). Each agent gets a new machine in the VM, from the VM's base image, and
+its chat resumes its session. What was only inside an agent's old machine doesn't
+come along: packages installed in it, and its home directory outside the worktree.
+
+It stops this machine's AgentBox, backs its state.db up, and checks that everything
+arrived before it calls the move done. Stopped half-way, it carries on where it was
+when run again. Nothing of this machine's is deleted: its agents' old machines stay,
+stopped, in its Incus until you remove them, once you've checked the VM, with
+agentbox vm migrate --remove-old. That removes only AgentBox's own machines, by name:
+anything else in Incus, its network, its storage pool and Incus itself stay.
+Until then, agentbox vm delete --yes goes back to running AgentBox on this machine.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p, err := paths.Default()
+			if err != nil {
+				return err
+			}
+			switch {
+			case status:
+				st, err := migrationStatus(cmd.Context(), p)
+				if err != nil {
+					return err
+				}
+				if asJSON {
+					enc := json.NewEncoder(cmd.OutOrStdout())
+					enc.SetIndent("", "  ")
+					return enc.Encode(st)
+				}
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), describeMigration(st))
+				return nil
+			case removeOld:
+				confirm := func(names []string) bool {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "AgentBox's old machines in this machine's Incus:\n  %s\n", strings.Join(names, "\n  "))
+					if yes {
+						return true
+					}
+					if !stdinTerminal() {
+						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Run it again with --yes to remove them.")
+						return false
+					}
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Remove these %d? Nothing else in Incus is touched. [y/N] ", len(names))
+					var answer string
+					_, _ = fmt.Fscanln(cmd.InOrStdin(), &answer)
+					return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")
+				}
+				return removeOldMachines(cmd.Context(), p, confirm, cmd.ErrOrStderr())
+			}
+			if defaultsErr != nil {
+				return defaultsErr
+			}
+			c := defaults
+			c.CPUs = cpus
+			if c.MemoryCap, err = ParseMemory(memoryCap); err != nil {
+				return fmt.Errorf("--memory-cap: %w", err)
+			}
+			if c.MemoryMin, err = ParseMemory(memoryMin); err != nil {
+				return fmt.Errorf("--memory-min: %w", err)
+			}
+			if c.Disk, err = ParseMemory(disk); err != nil {
+				return fmt.Errorf("--disk: %w", err)
+			}
+			if err := checkConfig(c, numCPU(), hostMemory()); err != nil {
+				return err
+			}
+			f := cmd.Flags()
+			sizes := f.Changed("cpus") || f.Changed("memory-cap") || f.Changed("memory-min") || f.Changed("disk")
+			return migrateCHV(cmd.Context(), p, MigrateOptions{Want: c, SizesSet: sizes, Log: cmd.ErrOrStderr()})
+		},
+	}
+	cmd.Flags().IntVar(&cpus, "cpus", defaults.CPUs, "CPUs for the VM, when it's made")
+	cmd.Flags().StringVar(&memoryCap, "memory-cap", sizeWords(defaults.MemoryCap), "the most memory the VM is given, like 20GiB")
+	cmd.Flags().StringVar(&memoryMin, "memory-min", sizeWords(chv.DefaultMemoryMin), "the memory the VM boots with, and never gives back")
+	cmd.Flags().StringVar(&disk, "disk", sizeWords(chv.DefaultDisk), "the VM's disk for agents, like 100GiB (allocated as it's used)")
+	cmd.Flags().BoolVar(&removeOld, "remove-old", false, "once the move is checked: remove AgentBox's old machines from this machine's Incus")
+	cmd.Flags().BoolVar(&yes, "yes", false, "with --remove-old: don't ask first")
+	cmd.Flags().BoolVar(&status, "status", false, "say what there is to move, and how far a move got")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "with --status: print it as JSON")
+	return cmd
+}
+
+// describeMigration is --status the way a person reads it.
+func describeMigration(st MigrationStatus) string {
+	switch st.State {
+	case "none":
+		return "This machine has no AgentBox of its own to move into the VM."
+	case "available":
+		return fmt.Sprintf("This machine runs AgentBox itself, with %d project(s) (%s) and %d agent(s): agentbox vm migrate moves them into the VM.",
+			len(st.Projects), strings.Join(st.Projects, ", "), len(st.Agents))
+	case "started":
+		return "A move into the VM was started and isn't finished: agentbox vm migrate carries on with it."
+	case "verified":
+		if len(st.OldMachines) == 0 {
+			return "This machine's AgentBox was moved into the VM, and checked there."
+		}
+		return fmt.Sprintf("This machine's AgentBox was moved into the VM, and checked there. Its old machines are still in this machine's Incus (%s): agentbox vm migrate --remove-old removes them.", strings.Join(st.OldMachines, ", "))
+	}
+	return "This machine's AgentBox was moved into the VM, and its old machines removed."
 }
 
 func newPauseCmd() *cobra.Command {

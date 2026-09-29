@@ -184,8 +184,9 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
 // MoveToVM is Settings' way out of host mode, on a Linux machine already set
 // up to run agents itself. The move is `agentbox vm migrate`
 // (feat-migrate-host-to-vm), which takes this installation into AgentBox's VM;
-// this is where the app opens it. command is the command, in a box to copy.
-export function MoveToVM({ kvm, command }: { kvm: boolean; command: ReactNode }) {
+// this is where the app opens it. action is the move itself, in the app
+// (VMMigrate); without it, command is the command, in a box to copy.
+export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: ReactNode; action?: ReactNode }) {
   return (
     <Panel className="grid gap-3 p-4" data-move-to-vm>
       <div className="flex items-center gap-2">
@@ -198,7 +199,9 @@ export function MoveToVM({ kvm, command }: { kvm: boolean; command: ReactNode })
         AgentBox's VM, they get the VM's CPUs and memory, up to a cap, instead. Your projects stay where they are: your home folder is shared with
         the VM at the same path.
       </p>
-      {kvm ? (
+      {action ? (
+        action
+      ) : kvm ? (
         <div className="grid gap-2">
           <p className="text-[13px] text-muted">
             Run this in a terminal to move this installation into the VM. It needs no password.
