@@ -100,6 +100,12 @@
 //                           Free resources' dialog part-way through stopping
 //                           the agents, with what it freed, with one agent
 //                           that wouldn't stop, or failed
+//   ?linux=setup|nokvm      a Linux machine not set up yet, on Setup's Incus
+//                           step: where agents run, the VM recommended and
+//                           picked, or host mode picked for want of /dev/kvm
+//   ?linux=home             a Linux machine set up to run agents itself: Home
+//                           suggests moving to the VM, and its button opens
+//                           Settings' Setup at the move
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -136,7 +142,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedPower, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedPower, seedQueryClient, seedLinuxHost } from './fixtures';
 
 installDevBridge();
 
@@ -165,6 +171,7 @@ const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | nu
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
+const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'home' | null
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
 
 const windowsBeforeSetup: HostSetupStatus = {
@@ -224,6 +231,10 @@ if (media) seedMedia(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (budget === 'off') seedBudgetOff(queryClient);
+if (linuxHost) {
+  seedLinuxHost(queryClient, linuxHost !== 'nokvm', linuxHost !== 'home');
+  if (linuxHost === 'home') localStorage.removeItem('agentbox.suggest-vm.dismissed');
+}
 if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
@@ -466,7 +477,9 @@ function Preview() {
     );
   }
 
-  if (imageUpdate || settingsPage) {
+  if (linuxHost === 'home') return <LinuxHomePreview />;
+
+  if (imageUpdate || settingsPage || linuxHost) {
     return (
       <div style={{ height: '100vh' }}>
         <SettingsView />
@@ -618,6 +631,20 @@ function slowListsBridge(hold: number | null, refetches = false): void {
   };
   // What the app does when an agent is removed, as the daemon announces it.
   if (refetches) (window as unknown as { refetchLists: () => void }).refetchLists = () => void loadingClient.invalidateQueries();
+}
+
+// Home on a Linux machine that runs agents itself, and the Settings its
+// suggestion opens.
+function LinuxHomePreview() {
+  const [view, setView] = useState<View>({ kind: 'home' });
+  return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--color-ink)' }} data-preview-linux={view.kind}>
+      <Sidebar view={view} onSelect={setView} onAddProject={() => {}} onNewAgent={() => {}} />
+      <div className="min-w-0 flex-1">
+        {view.kind === 'settings' ? <SettingsView /> : <HomeView onSelect={setView} onAddProject={() => {}} onNewAgent={() => {}} />}
+      </div>
+    </div>
+  );
 }
 
 // The sidebar, Home and the rail side by side, against a client nothing is

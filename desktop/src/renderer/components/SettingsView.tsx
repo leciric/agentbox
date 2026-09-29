@@ -63,6 +63,7 @@ import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { VMSize } from "./VMSize";
+import { ModeChoice, MoveToVM, moveToVMKeywords, type RunMode } from "./RunInVM";
 
 type Status =
   | "ok"
@@ -445,6 +446,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
       info={info.data}
       imageJob={imageJob}
       hostSetupRan={hostSetupRan}
+      agentbox={cli.data?.path ? "agentbox" : (cli.data?.binary ?? "agentbox")}
       onWizard={() => setPage("wizard")}
     />
   );
@@ -739,6 +741,7 @@ function InstalledSettings({
   info,
   imageJob,
   hostSetupRan,
+  agentbox,
   onWizard,
 }: {
   steps: Step[];
@@ -750,6 +753,8 @@ function InstalledSettings({
   // hostSetupRan keeps the Incus step open once host setup has gone green, so
   // its log stays readable.
   hostSetupRan: boolean;
+  // The agentbox to name in a command run without sudo.
+  agentbox: string;
   onWizard: () => void;
 }) {
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -763,6 +768,12 @@ function InstalledSettings({
     refetchInterval: 2_000,
   });
   const vm = hostSetup.data?.vm;
+  // On Linux, a machine set up to run agents itself, which Setup suggests
+  // moving to AgentBox's VM (Home's suggestion opens it here).
+  const linux = hostSetup.data?.linux;
+  const hostMode =
+    linux?.mode === "host" &&
+    steps.some((step) => step.id === "incus" && step.status === "ok");
   const s = settings.data;
   // changed is undefined until settings arrive, so nothing is marked on a
   // guess.
@@ -1132,6 +1143,28 @@ function InstalledSettings({
         </div>
       ),
       groups: [
+        ...(hostMode
+          ? [
+              {
+                id: "where",
+                title: "Where agents run",
+                cards: true,
+                entries: [
+                  {
+                    id: "move-to-vm",
+                    label: "Move to a VM",
+                    keywords: moveToVMKeywords,
+                    render: () => (
+                      <MoveToVM
+                        kvm={linux.kvm}
+                        command={<CommandBox command={`${agentbox} vm migrate`} />}
+                      />
+                    ),
+                  },
+                ],
+              },
+            ]
+          : []),
         {
           id: "required",
           title: "Required",
@@ -2261,10 +2294,10 @@ export function appendOutput(lines: string[], text: string): string[] {
 // One run fixes Incus and the user mapping both, so there is one of these, on
 // the Incus step; the user mapping points at it.
 //
-// On Linux it offers the other way too: AgentBox in a VM of its own, made with
-// `agentbox vm init` (no password, needs /dev/kvm), which stops the daemon this
-// machine runs and brings up the VM's in its place. Once the machine runs in a
-// VM, this sets that VM up, as on a Mac.
+// On Linux it asks which way first, and recommends the other one: AgentBox in
+// a VM of its own, made with `agentbox vm init` (no password, needs /dev/kvm),
+// which stops the daemon this machine runs and brings up the VM's in its
+// place. Once the machine runs in a VM, this sets that VM up, as on a Mac.
 function HostSetup({
   agentbox,
   onRun,
@@ -2336,70 +2369,67 @@ function HostSetup({
   // On Windows, host setup is `agentbox wsl init`, in AgentBox's WSL distro,
   // which needs no password either (D94).
   const wsl = status.data?.wsl != null;
+  // A Linux machine that hasn't chosen a VM chooses here: the VM is the
+  // recommended way, picked unless there's no /dev/kvm to run it with, and
+  // host setup the other (RunInVM.tsx says why).
+  const choosing = linux?.mode === "host";
+  const [choice, setChoice] = useState<RunMode | null>(null);
+  const picked: RunMode = choice ?? (linux?.kvm === false ? "host" : "vm");
+  const vmPicked = choosing && picked === "vm";
   const noDialog =
-    status.data !== undefined && !mac && !wsl && status.data.pkexec === null;
+    status.data !== undefined &&
+    !mac &&
+    !wsl &&
+    !vmPicked &&
+    status.data.pkexec === null;
   return (
     <div
       className="grid gap-2"
       data-host-setup={noDialog ? "terminal" : "button"}
     >
-      <p className="text-[13px] text-muted">
-        {mac
-          ? "Sets AgentBox's Linux VM up: Incus, its storage and network, and your user's mapping, inside the VM."
-          : wsl
-            ? "Installs Incus in AgentBox's WSL distro and gives its user access to it. It needs no password."
-            : "Installs Incus and gives your user access to it, in this session too. It changes system files, so it asks for your password."}
-      </p>
+      {choosing ? (
+        <ModeChoice
+          picked={picked}
+          kvm={linux.kvm}
+          disabled={busy}
+          onPick={setChoice}
+        />
+      ) : (
+        <p className="text-[13px] text-muted">
+          {mac
+            ? "Sets AgentBox's Linux VM up: Incus, its storage and network, and your user's mapping, inside the VM."
+            : wsl
+              ? "Installs Incus in AgentBox's WSL distro and gives its user access to it. It needs no password."
+              : "Installs Incus and gives your user access to it, in this session too. It changes system files, so it asks for your password."}
+        </p>
+      )}
       {!noDialog && (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="primary"
-            disabled={busy}
-            onClick={() => run.mutate()}
+            disabled={busy || (vmPicked && !linux?.kvm)}
+            onClick={() => (vmPicked ? toVM.mutate() : run.mutate())}
           >
-            {busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}
-            {mac ? "Set up the VM" : "Set up host"}
+            {busy ? (
+              <LoaderCircle className="animate-spin" />
+            ) : vmPicked ? (
+              <Monitor />
+            ) : (
+              <ShieldCheck />
+            )}
+            {mac ? "Set up the VM" : vmPicked ? "Run in a VM" : "Set up host"}
           </Button>
           <span className="text-xs text-subtle">
-            {busy
-              ? mac
-                ? "Setting the VM up. This takes a few minutes the first time."
-                : "Installing Incus. This takes a few minutes."
-              : mac || wsl
-                ? "No password needed"
-                : "Your system asks for the password"}
-          </span>
-        </div>
-      )}
-      {linux?.mode === "host" && (
-        <div className="mt-1 grid gap-2 border-t border-line pt-3">
-          <p className="text-[13px] text-muted">
-            Or run AgentBox in a VM of its own instead: the daemon, Incus and
-            every agent in one Cloud Hypervisor VM, with your home folder
-            shared into it. It needs /dev/kvm and about 4 GiB of memory to
-            start, and no password.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="secondary"
-              disabled={busy || !linux.kvm}
-              onClick={() => toVM.mutate()}
-            >
-              {toVM.isPending ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <Monitor />
-              )}
-              Run in a VM
-            </Button>
-            <span className="text-xs text-subtle">
-              {toVM.isPending
-                ? "Making the VM. This takes a few minutes the first time."
-                : linux.kvm
+            {toVM.isPending
+              ? "Making the VM. This takes a few minutes the first time."
+              : busy
+                ? mac
+                  ? "Setting the VM up. This takes a few minutes the first time."
+                  : "Installing Incus. This takes a few minutes."
+                : mac || wsl || vmPicked
                   ? "No password needed"
-                  : "This machine has no /dev/kvm you can use"}
-            </span>
-          </div>
+                  : "Your system asks for the password"}
+          </span>
         </div>
       )}
       {(lines.length > 0 || busy) && (
