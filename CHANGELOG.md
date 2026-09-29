@@ -3,6 +3,22 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.10.0](https://github.com/leciric/agentbox/compare/v0.9.1...v0.10.0) (2026-09-29)
+
+
+### Added
+
+* an experimental Mac VM that runs without Lima ([#126](https://github.com/leciric/agentbox/issues/126)) ([8bd7800](https://github.com/leciric/agentbox/commit/8bd7800fb479e217015fa09553624ee7bc2f9e7e))
+* chat from your phone's browser on your local network, paired with a QR code ([#130](https://github.com/leciric/agentbox/issues/130)) ([46690b4](https://github.com/leciric/agentbox/commit/46690b4217c0d86945351b3b6d99c52038237551))
+* the Mac VM gives memory back when krunkit is installed ([#125](https://github.com/leciric/agentbox/issues/125)) ([bce201a](https://github.com/leciric/agentbox/commit/bce201a1abf1ad22a932aac8df285a650bdba155))
+
+
+### Fixed
+
+* agents given a 1M context window really get it ([#128](https://github.com/leciric/agentbox/issues/128)) ([d4fc514](https://github.com/leciric/agentbox/commit/d4fc5147f8b9539403c5cc07cc285640eb0987bf))
+* agents start reliably in the Linux VM, git over ssh works there, and the VM can't be broken from inside itself ([#129](https://github.com/leciric/agentbox/issues/129)) ([aa21ef1](https://github.com/leciric/agentbox/commit/aa21ef1bc7f063f9429ea3058f5bb715fb13b18d))
+* merging a pull request no longer empties the list ([#127](https://github.com/leciric/agentbox/issues/127)) ([8d7eabd](https://github.com/leciric/agentbox/commit/8d7eabdc7d60dd8bf6c24fc29443fc1734546634))
+
 ## [0.9.1](https://github.com/leciric/agentbox/compare/v0.9.0...v0.9.1) (2026-09-29)
 
 
