@@ -55,6 +55,13 @@ export function request(method: string, path: string, body?: unknown): Promise<A
   });
 }
 
+// unreachable is the answer to a request that never reached a daemon: the
+// error's message, as the daemon's own refusals give theirs.
+export function unreachable(err: unknown): ApiResponse {
+  const error = err instanceof Error ? err.message : String(err);
+  return { status: 503, body: JSON.stringify({ error, code: 'daemon_unreachable' }), contentType: 'application/json' };
+}
+
 // notListening tells whether a request failed before it reached a daemon, so
 // it's safe to start one and send the request again.
 export function notListening(err: unknown): boolean {

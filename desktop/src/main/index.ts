@@ -7,18 +7,20 @@ import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
-import { ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon } from './daemon';
+import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
 import { EventStream } from './events';
 import { hostSetupStatus, onMac, runBudgetSetup, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
+import { guardStdio } from './stdio';
 import { Streams } from './streams';
 import { learnMode } from './vmmode';
 import { allowMicrophone, enableWebGPU } from './voice';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import './vmpower';
 
+guardStdio();
 registerMediaScheme();
 enableWebGPU();
 
@@ -39,13 +41,23 @@ const events = new EventStream(
   },
 );
 
-ipcMain.handle('api:request', async (_event, method: string, path: string, body?: unknown) => {
+// api:request answers a request the daemon never saw, because there was no
+// daemon to reach, as the daemon would refuse it: a 503 saying why. That's an
+// expected state, not an error, while the VM stops, starts or is paused (the
+// forward to its daemon closes each connection then): the renderer shows it
+// from the event stream's connection state, and a rejection here would be
+// logged by Electron for every call.
+ipcMain.handle('api:request', async (_event, method: string, path: string, body?: unknown): Promise<ApiResponse> => {
   try {
     return await request(method, path, body);
   } catch (err) {
-    if (!isLocal() || !notListening(err)) throw err;
+    if (!isLocal() || !notListening(err)) return unreachable(err);
+  }
+  try {
     await ensureDaemon();
-    return request(method, path, body);
+    return await request(method, path, body);
+  } catch (err) {
+    return unreachable(err);
   }
 });
 ipcMain.handle('daemon:connection', () => events.state);
