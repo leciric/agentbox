@@ -137,6 +137,12 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 			handle(route.method+" /v1/self/memory"+route.path, s.memoryHandler(route.action, s.agentMemoryScope(instance)))
 		}
 	}
+	// Its connectors: what it is given, and the relay to each, which adds
+	// the credentials the agent never holds (connectors.go).
+	handle("GET /v1/self/connectors", s.selfConnectors(instance))
+	for _, method := range []string{"POST", "GET", "DELETE"} {
+		mux.HandleFunc(method+" /v1/self/connectors/{name}/mcp", s.selfConnectorMCP(instance))
+	}
 	// Nothing else: an agent must not reach projects, other agents or the daemon itself.
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "not available inside an agent"})

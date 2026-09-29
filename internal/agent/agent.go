@@ -1021,20 +1021,23 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	// project's memory. In Claude Code the desktop server is its desktop
 	// subagent's rather than the agent's own
 	// (D83).
-	servers := agentMCPServers(home)
+	// And one for each of the connectors it is given (connectors.go).
+	connectorNames, err := m.connectorNames(ctx, a)
+	if err != nil {
+		return err
+	}
+	servers := agentMCPServers(home, connectorNames)
 	// Claude Code gets every server but the desktop one, which is declared in
 	// the desktop subagent's definition instead, so that screenshots land in
 	// the subagent's context rather than the agent's (subagents.go, D83).
-	claudeServers := map[string]any{}
+	claudeServers := claudeMCPServers(servers)
 	var desktopDefinition string
 	for _, s := range servers {
 		if s.name == "desktop" {
 			if desktopDefinition, err = desktopAgent(s); err != nil {
 				return err
 			}
-			continue
 		}
-		claudeServers[s.name] = map[string]any{"type": "stdio", "command": s.command, "args": s.args}
 	}
 	exploreDefinition, err := exploreAgent()
 	if err != nil {
@@ -1197,10 +1200,13 @@ func codexConfigFor(worktree string, servers []mcpServer, compactWindow int64) s
 
 // agentMCPServers is the MCP servers every AI tool is given, written into
 // Claude Code's ~/.claude.json, Codex's ~/.codex/config.toml and OpenCode's
-// ~/.config/opencode/opencode.json — at creation, and again whenever
-// PrepareChatModel rewrites Codex's or OpenCode's configuration.
-func agentMCPServers(home string) []mcpServer {
-	return []mcpServer{
+// ~/.config/opencode/opencode.json — at creation, again whenever
+// PrepareChatModel rewrites Codex's or OpenCode's configuration, and whenever
+// the agent's connectors change (SyncConnectors). connectors are the names of
+// the enabled connectors it is given, each a relay to the daemon, which holds
+// its sign-in: `agentbox connector mcp <name>` (internal/connectors).
+func agentMCPServers(home string, connectors []string) []mcpServer {
+	servers := []mcpServer{
 		// Playwright's page snapshots go outside the worktree, so they don't
 		// end up on the agent's branch. --image-responses omit keeps a
 		// screenshot out of the agent's own context the way the desktop tools
@@ -1218,6 +1224,22 @@ func agentMCPServers(home string) []mcpServer {
 		// has to outlast (D95).
 		{"memory", AgentBinaryPath, []string{"memory", "mcp"}, true},
 	}
+	for _, name := range connectors {
+		servers = append(servers, mcpServer{name, AgentBinaryPath, []string{"connector", "mcp", name}, false})
+	}
+	return servers
+}
+
+// claudeMCPServers is Claude Code's mcpServers: every server but the desktop
+// one, which its desktop subagent declares instead (D83).
+func claudeMCPServers(servers []mcpServer) map[string]any {
+	out := map[string]any{}
+	for _, s := range servers {
+		if s.name != "desktop" {
+			out[s.name] = map[string]any{"type": "stdio", "command": s.command, "args": s.args}
+		}
+	}
+	return out
 }
 
 // waitingToolTimeout is how long a tool that waits on a person may take: a

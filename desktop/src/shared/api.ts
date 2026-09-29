@@ -886,6 +886,51 @@ export interface SetSecretRequest {
   value: string;
 }
 
+export interface Connector {
+  name: string;
+  scope: string;
+  project: string;
+  agent?: string;
+  url: string;
+  auth: string;
+  secret?: string;
+  header?: string;
+  scheme?: string;
+  enabled: boolean;
+  status: string;
+  error?: string;
+  issuer?: string;
+  scopes?: string;
+  expiresAt?: string;
+  connectedAt?: string;
+  updatedAt: string;
+  agents: string[];
+  removed?: boolean;
+}
+
+export interface SetConnectorRequest {
+  url: string;
+  auth?: string;
+  secret?: string;
+  header?: string;
+  scheme?: string;
+  enabled?: boolean;
+}
+
+export interface ConnectResult {
+  authorizationUrl: string;
+  redirectUri: string;
+  expiresAt: string;
+  connector: Connector;
+}
+
+export interface SelfConnector {
+  name: string;
+  url: string;
+  status: string;
+  error?: string;
+}
+
 export interface PullRequest {
   number: number;
   title: string;
@@ -1876,6 +1921,14 @@ export const AgentAsked = "asked";
 export const AgentAnswered = "answered";
 export const CredentialGitHub = "github";
 export const CredentialSecret = "secret";
+export const ConnectorOAuth = "oauth";
+export const ConnectorSecret = "secret";
+export const ConnectorNone = "none";
+export const ConnectorConnected = "connected";
+export const ConnectorDisconnected = "disconnected";
+export const ConnectorConnecting = "connecting";
+export const ConnectorError = "error";
+export const EventConnector = "connector";
 export const GitHubNoAccount = "noAccount";
 export const GitHubNoAccess = "noAccess";
 export const GitHubBadToken = "badToken";

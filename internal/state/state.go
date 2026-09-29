@@ -701,6 +701,40 @@ var migrations = []string{
 	// keeping a guess at which were the user's.
 	`DELETE FROM task_dependencies`,
 	`DELETE FROM tasks`,
+
+	// Connectors: remote MCP servers a project's agents use, at project
+	// scope (agent '') or for one agent, like secrets. access_token,
+	// refresh_token and client_secret are ciphertext, sealed by package
+	// secrets under the same key: this file never holds a plaintext token.
+	// The OAuth columns are filled in by a sign-in and emptied by
+	// disconnecting; a 'secret' connector names one of the project's
+	// secrets instead, and holds nothing of its own.
+	`CREATE TABLE connectors (
+		project        TEXT NOT NULL,
+		agent          TEXT NOT NULL DEFAULT '',
+		name           TEXT NOT NULL,
+		url            TEXT NOT NULL,
+		auth           TEXT NOT NULL DEFAULT 'oauth',
+		secret         TEXT NOT NULL DEFAULT '',
+		header         TEXT NOT NULL DEFAULT '',
+		scheme         TEXT NOT NULL DEFAULT '',
+		enabled        INTEGER NOT NULL DEFAULT 1,
+		issuer         TEXT NOT NULL DEFAULT '',
+		token_endpoint TEXT NOT NULL DEFAULT '',
+		resource       TEXT NOT NULL DEFAULT '',
+		client_id      TEXT NOT NULL DEFAULT '',
+		client_secret  BLOB,
+		token_auth     TEXT NOT NULL DEFAULT '',
+		redirect_uri   TEXT NOT NULL DEFAULT '',
+		access_token   BLOB,
+		refresh_token  BLOB,
+		expires_at     INTEGER NOT NULL DEFAULT 0,
+		scope          TEXT NOT NULL DEFAULT '',
+		error          TEXT NOT NULL DEFAULT '',
+		connected_at   INTEGER NOT NULL DEFAULT 0,
+		updated_at     INTEGER NOT NULL,
+		PRIMARY KEY (project, agent, name)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1168,8 +1202,12 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 	if err := s.renumberProjects(ctx); err != nil {
 		return err
 	}
-	// Its secrets go with it: nothing left can read them, and a project added
-	// again at the same path shouldn't inherit the old one's keys.
+	// Its secrets and connectors go with it: nothing left can read them, and
+	// a project added again at the same path shouldn't inherit the old one's
+	// keys or sign-ins.
+	if err := s.RemoveProjectConnectors(ctx, name); err != nil {
+		return err
+	}
 	return s.RemoveProjectSecrets(ctx, name)
 }
 
@@ -1869,6 +1907,9 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 	}
 	// A queued agent leaves the queue with its row.
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM agent_queue WHERE project = ? AND name = ?`, project, name); err != nil {
+		return err
+	}
+	if err := s.RemoveAgentConnectors(ctx, project, name); err != nil {
 		return err
 	}
 	if err := s.removeAgentEvents(ctx, project, name); err != nil {
