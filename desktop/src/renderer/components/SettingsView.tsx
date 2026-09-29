@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  AudioLines,
   ArrowRight,
   Bot,
   Check,
@@ -16,6 +15,7 @@ import {
   ListChecks,
   LoaderCircle,
   LogIn,
+  Mic,
   Monitor,
   Moon,
   PartyPopper,
@@ -60,11 +60,12 @@ import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
+import { useVoiceSettings } from "../lib/voice/settings";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { VMSize } from "./VMSize";
-import { useReadAloudGroup } from "./VoiceSettings";
+import { pushToTalkGroup, useReadAloudGroup } from "./VoiceSettings";
 
 type Status =
   | "ok"
@@ -766,6 +767,7 @@ function InstalledSettings({
     refetchInterval: 2_000,
   });
   const vm = hostSetup.data?.vm;
+  const voice = useVoiceSettings();
   const s = settings.data;
   // changed is undefined until settings arrive, so nothing is marked on a
   // guess.
@@ -846,9 +848,9 @@ function InstalledSettings({
     {
       id: "voice",
       title: "Voice",
-      description: "Hearing the agents' replies read aloud.",
+      description: "Talking to chats and hearing them, on this machine.",
       scope: "installation",
-      groups: [readAloud],
+      groups: [pushToTalkGroup(voice), readAloud],
     },
     {
       id: "models",
@@ -1194,8 +1196,8 @@ function InstalledSettings({
 
 const sectionIcons: SectionIcons = {
   general: SlidersHorizontal,
-  voice: AudioLines,
   models: Sparkles,
+  voice: Mic,
   agents: Bot,
   resources: Cpu,
   accounts: KeyRound,
