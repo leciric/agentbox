@@ -107,7 +107,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
         </div>
       ) : (
         <>
-          {!vm.exists && vm.krunkit && <KrunkitNote check={vm.krunkit} />}
+          {!vm.exists && !vz && vm.krunkit && <KrunkitNote check={vm.krunkit} />}
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate()}>
               {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
