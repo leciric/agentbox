@@ -744,6 +744,9 @@ in the VM, remove the old machines with:
   agentbox vm migrate --remove-old
 To go back to running AgentBox on this machine instead: agentbox vm delete --yes
 `, rec.Backup)
+		if rec.Service {
+			_, _ = fmt.Fprintln(log, "(and agentbox daemon install, which makes its daemon a service again: the move turned agentbox.service off)")
+		}
 	}
 }
 
