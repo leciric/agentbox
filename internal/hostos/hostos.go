@@ -41,15 +41,41 @@ func Forwarded(name string) bool {
 // and says so ("6.6.87.2-microsoft-standard-WSL2"). A variable for tests.
 var osrelease = "/proc/sys/kernel/osrelease"
 
+// markers are the files that say this is AgentBox's own VM, to an agentbox
+// run in it without the front end's Env: by hand, as root, from a unit. The
+// first holds the host's OS: cloud-init writes it in a Cloud Hypervisor VM
+// (internal/hostvm/chv), Lima's provisioning in a Mac's. The second is only
+// in a Cloud Hypervisor VM, and in every one, made before the first was.
+// Variables for tests.
+var markers = []struct{ file, os string }{
+	{"/etc/agentbox/vm", ""},
+	{"/etc/agentbox/host-guard.nft", Linux},
+}
+
 // OS is the OS of the computer this Linux runs in a VM on: what Env says, or
 // "windows" in WSL2 whether or not anyone said so, since a shell opened in the
-// distro runs agentbox without the front end. "" on a Linux machine of its own.
+// distro runs agentbox without the front end, or what AgentBox's VM says it
+// is on (markers), whoever runs agentbox in it. "" on a Linux machine of its
+// own.
 func OS() string {
 	if v := os.Getenv(Env); v != "" {
 		return v
 	}
 	if WSL() {
 		return Windows
+	}
+	for _, m := range markers {
+		b, err := os.ReadFile(m.file)
+		if err != nil {
+			continue
+		}
+		if m.os != "" {
+			return m.os
+		}
+		if v := strings.TrimSpace(string(b)); v != "" {
+			return v
+		}
+		return Linux
 	}
 	return ""
 }

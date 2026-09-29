@@ -32,6 +32,16 @@ var kernelParams = []struct{ Name, Value string }{
 	{"auto_movable_ratio", fmt.Sprint(movableRatio)},
 }
 
+// fuseInodeLimit is how many of the shared home's inodes the VM's kernel may
+// keep cached before it drops them (trim-share-inodes in the user-data), each
+// being a file descriptor virtiofsd holds: well under the 524288 a systemd
+// session's RLIMIT_NOFILE allows it, with room for a minute's work between
+// checks. minVirtiofsdFiles is the least the supervisor is content with.
+const (
+	fuseInodeLimit    = 200_000
+	minVirtiofsdFiles = 2 * fuseInodeLimit
+)
+
 type vsockForward struct {
 	Port uint32
 	What string
@@ -48,6 +58,7 @@ type userDataParams struct {
 	MovableRatio                                   int
 	KernelParams                                   []struct{ Name, Value string }
 	Packages                                       string
+	FuseInodeLimit                                 int
 	// VZ is a VM the Virtualization framework runs, on a Mac (vz.go): its
 	// network is the framework's NAT, with DHCP, and the Mac is its gateway.
 	VZ bool
@@ -121,11 +132,12 @@ func newUserDataParams(c Config, authorizedKey string) (userDataParams, error) {
 			{Port: PortDaemon, What: "the daemon's socket", To: "UNIX-CONNECT:" + c.GuestHome + "/.local/share/agentbox/run/agentbox.sock", User: c.User},
 			{Port: PortPreview, What: "the preview proxy", To: "TCP:127.0.0.1:7777"},
 		},
-		PortSSH:      PortSSH,
-		MovableRatio: movableRatio,
-		KernelParams: kernelParams,
-		Packages:     packages,
-		VZ:           c.VZ(),
+		PortSSH:        PortSSH,
+		MovableRatio:   movableRatio,
+		KernelParams:   kernelParams,
+		Packages:       packages,
+		FuseInodeLimit: fuseInodeLimit,
+		VZ:             c.VZ(),
 	}, nil
 }
 

@@ -1060,6 +1060,51 @@ export interface RemoteConnectRequest {
   token: string;
 }
 
+export interface LANStatus {
+  enabled: boolean;
+  port: number;
+  listening: boolean;
+  error?: string;
+  urls: string[];
+  webVersion?: string;
+  phones: LANPhone[];
+}
+
+export interface LANPhone {
+  id: string;
+  name: string;
+  paired: string;
+  lastSeen?: string;
+  lastAddr?: string;
+}
+
+export interface UpdateLANRequest {
+  enabled?: boolean;
+  port?: number;
+}
+
+export interface LANPairing {
+  urls: string[];
+  qr: string[];
+  expires: string;
+}
+
+export interface LANHostReport {
+  port: number;
+  listening: boolean;
+  error?: string;
+  addresses: string[];
+}
+
+export interface LANPairRequest {
+  secret: string;
+  name: string;
+}
+
+export interface LANSession {
+  phone: LANPhone;
+}
+
 export interface ChatThread {
   agent: string;
   seq: number;
@@ -1663,6 +1708,7 @@ export const EventPulls = "pulls";
 export const EventTheme = "theme";
 export const EventUpdate = "update";
 export const EventBudget = "budget";
+export const EventLAN = "lan";
 export const SetupOK = "ok";
 export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";

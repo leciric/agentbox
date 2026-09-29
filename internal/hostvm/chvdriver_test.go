@@ -90,10 +90,24 @@ func TestFrontAndHandles(t *testing.T) {
 		t.Error("a Linux machine's VM is Lima's")
 	}
 
-	// The agentbox in the VM is never a front end, whatever its files say.
+	// The agentbox in the VM is never a front end, whatever its files say:
+	// with HOME the host's, shared into it, it sees the host's VM. agentbox vm
+	// there only says so, and does nothing else: it would start the VM again,
+	// removing the running one's sockets on the share.
 	t.Setenv(hostos.Env, hostos.Linux)
-	if Front() || Handles([]string{"vm", "status"}) {
+	if Front() || Handles([]string{"ls"}) {
 		t.Error("the VM's own agentbox thinks it's a front end")
+	}
+	if !inVM() {
+		t.Error("the VM's own agentbox doesn't know it's in the VM")
+	}
+	for _, args := range [][]string{{"vm", "start"}, {"vm", "run"}, {"status"}} {
+		if code := Main(args, "test"); code != 1 {
+			t.Errorf("Main(%q) in the VM = %d, want it refused", args, code)
+		}
+	}
+	if _, err := os.Stat(p.VMSocket()); err == nil {
+		t.Error("agentbox vm in the VM touched the host's VM")
 	}
 	t.Setenv(hostos.Env, "")
 	// Nor is the Windows front end being tested on Linux.
@@ -618,5 +632,18 @@ func TestCommandsPerDriver(t *testing.T) {
 	got := names()
 	if slices.Contains(got, "pause") || slices.Contains(got, "run") || !slices.Contains(got, "power") {
 		t.Errorf("Lima's commands: %q", got)
+	}
+}
+
+func TestHelp(t *testing.T) {
+	for _, args := range [][]string{nil, {"help"}, {"help", "create"}, {"--help"}, {"-h"}, {"create", "--help"}, {"exec", "agent-1", "-h", "--", "x"}} {
+		if !Help(args) {
+			t.Errorf("Help(%q) = false, want the front end to answer it", args)
+		}
+	}
+	for _, args := range [][]string{{"status"}, {"vm", "--help"}, {"vm", "start", "-h"}, {"exec", "agent-1", "--", "ls", "--help"}, {"ask", "what's --help for?"}} {
+		if Help(args) {
+			t.Errorf("Help(%q) = true, want it forwarded (or the front end's own vm)", args)
+		}
 	}
 }

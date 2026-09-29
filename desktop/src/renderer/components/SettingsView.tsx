@@ -23,6 +23,7 @@ import {
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
+  Smartphone,
   Sparkles,
   SquareTerminal,
   Sun,
@@ -59,6 +60,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
+import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { useVoiceSettings } from "../lib/voice/settings";
 import { SettingNote, SettingRow } from "./ui/settings";
@@ -801,6 +803,10 @@ function InstalledSettings({
   }, [offered]);
   const moving = offered || (migrationShown && migration.data?.state !== "none") ? (migration.data ?? null) : null;
   const voice = useVoiceSettings();
+  // Phones pair with this machine's own daemon: not from a browser, nor with
+  // an environment on a hub.
+  const target = useQuery({ queryKey: ["target"], queryFn: () => window.agentbox.target.get(), staleTime: Infinity });
+  const local = !("web" in window.agentbox) && target.data?.kind === "local";
   // On Linux in VM mode, AgentBox's Cloud Hypervisor VM, sized here too.
   const chv = hostSetup.data?.chv?.mode === "vm" ? hostSetup.data.chv : null;
   // On Linux, a machine set up to run agents itself, which Setup suggests
@@ -886,6 +892,17 @@ function InstalledSettings({
         </p>
       ),
     },
+    ...(local
+      ? [
+          {
+            id: "phone",
+            title: "Phone",
+            description: "Chatting from your phone's browser, on this computer's network.",
+            scope: "installation" as const,
+            groups: phoneGroups(),
+          },
+        ]
+      : []),
     {
       id: "voice",
       title: "Voice",
@@ -1270,6 +1287,7 @@ const sectionIcons: SectionIcons = {
   general: SlidersHorizontal,
   models: Sparkles,
   voice: Mic,
+  phone: Smartphone,
   agents: Bot,
   resources: Cpu,
   accounts: KeyRound,

@@ -363,14 +363,15 @@ func (h *CHV) setUp(ctx context.Context, v *VM, daemon bool) error {
 
 // up starts the VM unless it runs, or resumes it when it's paused.
 func (h *CHV) up(ctx context.Context, v *VM) error {
-	switch st := chvStatus(ctx, h.Config, h.Layout, v.Paths); st.State {
-	case api.VMRunning:
+	switch st := chvStatus(ctx, h.Config, h.Layout, v.Paths); {
+	case st.State == api.VMRunning:
 		return nil
-	case api.VMMissing:
-		if st.Problem != "" {
-			return errors.New(st.Problem)
-		}
+	case st.State == api.VMMissing && st.Problem == "":
 		return ErrNotCreated
+	case st.Problem != "":
+		// Missing, or running where it can't be reached: starting it again
+		// can't help.
+		return errors.New(st.Problem)
 	}
 	return h.start(ctx, v)
 }

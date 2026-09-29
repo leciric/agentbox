@@ -2421,3 +2421,57 @@ func TestOnlyTheReadingAfterAResultIsAModelsWindow(t *testing.T) {
 		t.Errorf("the adapter started on %v, want once at 1M", started)
 	}
 }
+
+// TestTheRingShowsTheWindowTheChatRunsAtMidTurn: a chat on plain "opus" given
+// 1M really runs at 1M — /context says "/ 1m" at autoCompactWindow 1000000 —
+// but a fresh claude-agent-acp streams size 200000 on every usage_update of its
+// first turn, and says 1000000 only with the result. An agent's first turn is
+// often its whole task, and the ring took the smaller of that guess and the
+// compact window: "of 200k" for all of it, beside a select that said 1M. The
+// ring measures against the window the chat was started on, mid-turn too, and
+// the guess never makes it smaller than that; a chat left at 200k still shows
+// 200k.
+func TestTheRingShowsTheWindowTheChatRunsAtMidTurn(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		chosen string
+		want   int64
+	}{
+		{"1000000", 1_000_000},
+		{"", state.DefaultClaudeCompactWindow},
+	} {
+		t.Run("window "+tc.chosen, func(t *testing.T) {
+			t.Parallel()
+			store := openStore(t)
+			if err := store.SaveChat(context.Background(), testAgent.Project, testAgent.Name, state.Chat{Options: map[string]string{
+				"model": "opus", state.ChatOptionContextWindow: tc.chosen,
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			release := make(chan struct{})
+			f := newFakeTool(func(f *fakeTool, s, _ string) acp.PromptResponse {
+				f.update(s, `{"sessionUpdate":"usage_update","used":15267,"size":200000}`)
+				<-release
+				f.update(s, `{"sessionUpdate":"usage_update","used":15300,"size":1000000,"cost":{"amount":0.05,"currency":"USD"}}`)
+				return acp.PromptResponse{StopReason: "end_turn"}
+			})
+			f.values["model"] = "opus"
+			m, _ := newManager(t, store, f)
+			if _, err := m.Send(testAgent, "hi"); err != nil {
+				t.Fatal(err)
+			}
+			th := waitThread(t, m, testAgent, "the guessed reading", func(th api.ChatThread) bool { return th.Session.ContextUsed == 15267 })
+			if th.Session.ContextSize != tc.want {
+				t.Errorf("mid-turn context size = %d, want %d", th.Session.ContextSize, tc.want)
+			}
+			if got := optionValue(th.Session, state.ChatOptionContextWindow); got != strconv.FormatInt(tc.want, 10) {
+				t.Errorf("the select says %q, the ring %d", got, th.Session.ContextSize)
+			}
+			close(release)
+			th = waitThread(t, m, testAgent, "the turn", turnsEnded(1))
+			if th.Session.ContextSize != tc.want {
+				t.Errorf("context size after the result = %d, want %d", th.Session.ContextSize, tc.want)
+			}
+		})
+	}
+}

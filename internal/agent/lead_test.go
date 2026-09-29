@@ -465,7 +465,7 @@ func TestLeadFollowsTheProjectsClaudeAccount(t *testing.T) {
 	}
 	tools := filepath.Join(f.m.Paths.Tools(), ".local", "bin")
 	adapter := filepath.Join(f.m.Paths.Tools(), "node_modules", ".bin")
-	for _, stub := range []string{filepath.Join(tools, "claude"), filepath.Join(adapter, "claude-agent-acp")} {
+	for _, stub := range []string{filepath.Join(tools, "claude"), filepath.Join(adapter, "claude-agent-acp"), f.m.GHPath()} {
 		if err := os.MkdirAll(filepath.Dir(stub), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -511,6 +511,7 @@ func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
 	for _, path := range []string{
 		filepath.Join(f.m.Paths.Tools(), ".local", "bin", "claude"),
 		filepath.Join(f.m.Paths.Tools(), "node_modules", ".bin", "claude-agent-acp"),
+		f.m.GHPath(),
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)

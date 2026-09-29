@@ -29,3 +29,8 @@ func hostMemory() int64 {
 	}
 	return int64(n)
 }
+
+// lockHolder would be the supervisor holding a flock on file, from
+// /proc/locks; there is no such thing on a Mac, so lockFile's own error is
+// all there is.
+func lockHolder(string) int { return 0 }

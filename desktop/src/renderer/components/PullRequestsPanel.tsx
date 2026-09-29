@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, GitBranch, GitMerge, GitPullRequest, MessageSquare, User } from 'lucide-react';
+import { ExternalLink, GitBranch, GitMerge, GitPullRequest, LoaderCircle, MessageSquare, User } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -42,15 +42,37 @@ export function PullRequestsPanel({
   const [filter, setFilter] = useState<Filter>('open');
   const [merging, setMerging] = useState<T.PullRequest | null>(null);
   const [method, setMethod] = useState('merge');
+  // What each merge is doing, by pull request number. The confirmation closes
+  // the moment it's confirmed, and the row says the rest: a spinner on its
+  // button while the merge runs, or why it failed. Merges are independent,
+  // so every other row stays usable meanwhile.
+  const [running, setRunning] = useState<ReadonlySet<number>>(() => new Set());
+  const [failed, setFailed] = useState<Readonly<Record<number, string>>>({});
 
   const merge = useMutation({
     mutationFn: ({ number, method }: { number: number; method: string }) => api.mergePullRequest(project, number, method),
+    onMutate: ({ number }) => {
+      setRunning((r) => new Set(r).add(number));
+      setFailed((f) => without(f, number));
+    },
     onSuccess: async (pr) => {
       toast(`Merged #${pr.number}`, { description: pr.title });
-      await queryClient.invalidateQueries({ queryKey: ['pulls', project] });
-      await queryClient.invalidateQueries({ queryKey: ['fleet', project] });
+      // The daemon answers with the list it had, this pull request marked
+      // merged, and re-reads GitHub behind it; the list on screen stays
+      // until that answer replaces it. The spinner lasts until then too, so
+      // the row never flicks back to an open one with a Merge button.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['pulls', project] }),
+        queryClient.invalidateQueries({ queryKey: ['fleet', project] }),
+      ]);
     },
-    onError: (err) => toast.error(errorMessage(err)),
+    onError: (err, { number }) => setFailed((f) => ({ ...f, [number]: errorMessage(err) })),
+    onSettled: (_pr, _err, { number }) =>
+      setRunning((r) => {
+        const next = new Set(r);
+        next.delete(number);
+        return next;
+      }),
   });
 
   const data = pulls.data;
@@ -165,6 +187,8 @@ export function PullRequestsPanel({
                     key={pr.number}
                     pr={pr}
                     canMerge={canOfferMerge}
+                    mergeRunning={running.has(pr.number)}
+                    mergeError={failed[pr.number]}
                     onOpenAgent={pr.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${pr.agent}` }) : undefined}
                     onMerge={() => {
                       setMethod(methods[0]);
@@ -194,8 +218,7 @@ export function PullRequestsPanel({
         }
         confirmLabel="Merge"
         onConfirm={async () => {
-          if (!merging) return;
-          await merge.mutateAsync({ number: merging.number, method });
+          if (merging) merge.mutate({ number: merging.number, method });
         }}
       >
         <label className="grid gap-1.5 text-[13px] text-tertiary">
@@ -260,17 +283,27 @@ function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubErro
   }
 }
 
+function without(errors: Readonly<Record<number, string>>, number: number): Record<number, string> {
+  const rest = { ...errors };
+  delete rest[number];
+  return rest;
+}
+
 const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
 const checksVariants: Record<string, BadgeVariant> = { passing: 'success', failing: 'danger', pending: 'warning' };
 
 function PullRequestRow({
   pr,
   canMerge,
+  mergeRunning,
+  mergeError,
   onOpenAgent,
   onMerge,
 }: {
   pr: T.PullRequest;
   canMerge: boolean;
+  mergeRunning: boolean;
+  mergeError?: string;
   onOpenAgent?: () => void;
   onMerge: () => void;
 }) {
@@ -325,12 +358,15 @@ function PullRequestRow({
         )}
         <span className="ml-auto text-faint">{pr.updatedAt && timeAgo(pr.updatedAt)}</span>
         {canMerge && (
-          <Button size="sm" variant="ghost" onClick={onMerge}>
-            <GitMerge className="size-3.5" />
+          <Button size="sm" variant="ghost" disabled={mergeRunning} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
+            {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
             Merge
           </Button>
         )}
       </div>
+      {mergeError && (
+        <Notice className="mt-2.5">Merge failed: {mergeError}</Notice>
+      )}
     </div>
   );
 }

@@ -84,6 +84,11 @@ const tokenParams = (q: TokenQuery, extra: Record<string, string> = {}) => {
 
 export const api = {
   settings: () => call<T.Settings>('GET', '/v1/settings'),
+  // Chatting from a phone on the local network.
+  lan: () => call<T.LANStatus>('GET', '/v1/lan'),
+  updateLAN: (req: T.UpdateLANRequest) => call<T.LANStatus>('PATCH', '/v1/lan', req),
+  pairLAN: () => call<T.LANPairing>('POST', '/v1/lan/pairings'),
+  removeLANPhone: (id: string) => call<void>('DELETE', `/v1/lan/phones/${encodeURIComponent(id)}`),
   update: () => call<T.UpdateStatus>('GET', '/v1/update'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
   countFeature: (feature: string) => call<void>('POST', `/v1/usage-stats/${encodeURIComponent(feature)}`),

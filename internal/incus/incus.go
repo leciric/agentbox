@@ -427,6 +427,11 @@ func (c Client) WaitReady(ctx context.Context, name string, timeout time.Duratio
 		if err == nil && inst.IPv4() != "" {
 			return inst, nil
 		}
+		// A container whose init died won't get an address however long it's
+		// waited for: say so at once, with what it printed on the way down.
+		if err == nil && (inst.Status == "Stopped" || inst.Status == "Error") {
+			return inst, c.stoppedError(name, inst.Status)
+		}
 		select {
 		case <-ctx.Done():
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -436,4 +441,54 @@ func (c Client) WaitReady(ctx context.Context, name string, timeout time.Duratio
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// stoppedError is an instance that stopped while it was starting, with the end
+// of its console log, which is where its init says why.
+func (c Client) stoppedError(name, status string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	msg := fmt.Sprintf("%s stopped while it was starting (%s)", name, strings.ToLower(status))
+	log, err := c.ConsoleLog(ctx, name)
+	if err != nil {
+		return fmt.Errorf("%s, and its console log can't be read: %w", msg, err)
+	}
+	if tail := lastLines(log, consoleTail); tail != "" {
+		return fmt.Errorf("%s; the end of its console log:\n%s", msg, tail)
+	}
+	return errors.New(msg + ", with nothing in its console log")
+}
+
+// consoleTail is how many lines of a console log an error carries.
+const consoleTail = 25
+
+// ConsoleLog is what an instance printed on its console: `incus console
+// --show-log`, which for a container is its init's output.
+func (c Client) ConsoleLog(ctx context.Context, name string) (string, error) {
+	if c.cli() {
+		return c.run(ctx, "console", name, "--show-log")
+	}
+	var log []byte
+	err := c.do(ctx, []string{"console", name, "--show-log"}, func(s incusclient.InstanceServer) error {
+		r, err := s.GetInstanceConsoleLog(name, &incusclient.InstanceConsoleLogArgs{})
+		if err != nil {
+			return err
+		}
+		defer func() { _ = r.Close() }()
+		log, err = io.ReadAll(io.LimitReader(r, 1<<20))
+		return err
+	})
+	return string(log), err
+}
+
+// lastLines is s's last n non-blank lines.
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(s, "\r\n", "\n"), "\n"), "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }

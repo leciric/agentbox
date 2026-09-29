@@ -42,6 +42,20 @@
     "height": 900
   },
   {
+    "id": "mac-vm-krunkit-dark",
+    "description": "A Mac's first screen on Apple Silicon with krunkit installed: the VM will give memory back \u2014 dark, xl width",
+    "query": "vm=krunkit&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "mac-vm-nokrunkit-light",
+    "description": "A Mac's first screen on Apple Silicon without krunkit: how to install it first \u2014 light, lg width",
+    "query": "vm=nokrunkit&theme=light",
+    "width": 1024,
+    "height": 800
+  },
+  {
     "id": "mac-vm-lima-light",
     "description": "A Mac's first screen without Lima: brew install lima first \u2014 light, lg width",
     "query": "vm=lima&theme=light",

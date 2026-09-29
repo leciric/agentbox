@@ -61,7 +61,7 @@ func (s *Server) startRemote(ctx context.Context) {
 func (s *Server) remoteHandler() http.Handler {
 	routes := s.routes()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/shutdown" || r.URL.Path == "/v1/remote" {
+		if r.URL.Path == "/v1/shutdown" || r.URL.Path == "/v1/remote" || r.URL.Path == "/v1/lan" || strings.HasPrefix(r.URL.Path, "/v1/lan/") {
 			_ = writeJSON(w, http.StatusForbidden, api.Error{Error: fmt.Sprintf("%s %s works only on the machine itself", r.Method, r.URL.Path)})
 			return
 		}

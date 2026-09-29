@@ -389,6 +389,31 @@ esac`)
 	}
 }
 
+func TestWaitReadyFailsAtOnceWhenTheInstanceStops(t *testing.T) {
+	c := fakeIncus(t, `case "$1" in
+  exec) exit 1 ;;
+  list) echo '[{"name": "agent-01", "status": "Stopped"}]' ;;
+  console) printf 'systemd 257 running\nFailed to create control group inotify object: Too many open files\nFreezing execution.\n' ;;
+esac`)
+	start := time.Now()
+	_, err := c.WaitReady(context.Background(), "agent-01", time.Minute)
+	if err == nil || !strings.Contains(err.Error(), "stopped while it was starting") || !strings.Contains(err.Error(), "Too many open files") {
+		t.Errorf("WaitReady() error = %v, want the instance's stop with its console log", err)
+	}
+	if time.Since(start) > 10*time.Second {
+		t.Errorf("WaitReady() took %s on a stopped instance, want it at once", time.Since(start))
+	}
+}
+
+func TestLastLinesKeepsTheEnd(t *testing.T) {
+	if got := lastLines("\n\na\nb\nc\n\n", 2); got != "b\nc" {
+		t.Errorf("lastLines() = %q, want %q", got, "b\nc")
+	}
+	if got := lastLines("\r\nx\r\n", 5); got != "x" {
+		t.Errorf("lastLines() = %q, want %q", got, "x")
+	}
+}
+
 func TestWaitReadyStopsWhenTheContextIsCancelled(t *testing.T) {
 	c := fakeIncus(t, `case "$1" in
   exec) exit 0 ;;

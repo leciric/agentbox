@@ -23,7 +23,7 @@ func lockFile(file string) (func(), error) {
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, errors.New("the VM already runs")
+			return nil, errLocked
 		}
 		return nil, err
 	}

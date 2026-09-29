@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"agentbox/internal/acp"
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
@@ -182,12 +183,30 @@ func (c *conversation) restartIfWindowMoved() {
 		name, ToolNames[c.agent.AI])
 }
 
-// contextSize is the window a usage_update reading is measured against: the
-// model's, or the compact window the adapter started with when that is
-// smaller, since that is where the chat really compacts. Caller holds c.mu.
-func (c *conversation) contextSize(ad *adapter, size int64) int64 {
-	if c.agent.AI == "claude" && ad.window > 0 && ad.window < size {
-		return ad.window
+// contextSize is the window a usage_update reading is measured against. For
+// Claude Code it is the room the session really has (state.ClaudeWindows.Room):
+// the compact window the adapter started with, within the model's whole window
+// as the adapter's own results have said it, else as the store knew it when
+// the adapter started. The size on the update itself is only believed when it
+// comes with a result's cost: every other one is claude-agent-acp's guess from
+// the model's name, 200k for plain "opus", which showed a chat running at 1M as
+// "of 200k" through the whole of its first turn. Caller holds c.mu.
+func (c *conversation) contextSize(ad *adapter, u acp.SessionUpdate) int64 {
+	if c.agent.AI != "claude" {
+		return u.Size
 	}
-	return size
+	model := optionValueOf(c.session.Options, "model")
+	if model == "" { // no model to know the window of: the reading, within the compact window
+		if ad.window > 0 && ad.window < u.Size {
+			return ad.window
+		}
+		return u.Size
+	}
+	if u.Cost != nil && u.Size > 0 && !ad.replaying {
+		if ad.models.Seen == nil {
+			ad.models.Seen = map[string]int64{}
+		}
+		ad.models.Seen[model] = u.Size
+	}
+	return ad.models.Room(model, ad.window)
 }

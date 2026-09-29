@@ -55,6 +55,18 @@ func TestUserData(t *testing.T) {
 		"incus storage create default btrfs source=/dev/disk/by-id/virtio-agentbox-pool",
 		"install vsock_loopback /bin/false",
 		"if getent group kvm >/dev/null; then usermod -aG kvm lint; fi\n",
+		"path: /etc/sysctl.d/60-agentbox.conf",
+		"fs.inotify.max_user_instances = 8192\n",
+		"fs.inotify.max_user_watches = 524288\n",
+		"kernel.keys.maxkeys = 2000\n",
+		"sysctl -q --system ||",
+		"path: /etc/agentbox/vm\n",
+		`[ "${n:-0}" -gt 200000 ] || exit 0`,
+		"systemctl enable --now agentbox-trim-share-inodes.timer\n",
+		"      host=/home/lint/.ssh\n      vm=/home/lint.linux/.ssh\n",
+		"      Include $host/config\n",
+		"RequiresMountsFor=/home/lint\n",
+		"systemctl enable agentbox-share-ssh.service\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("user-data has no %q", want)
@@ -73,7 +85,7 @@ func TestUserData(t *testing.T) {
 		cmd := exec.Command("python3", "-c", `import sys, yaml
 d = yaml.safe_load(sys.stdin)
 assert d["users"][0]["name"] == "lint", d["users"]
-assert len(d["write_files"]) == 7, len(d["write_files"])
+assert len(d["write_files"]) == 14, len(d["write_files"])
 assert d["runcmd"] == [["/usr/local/lib/agentbox/provision.sh"]]
 assert d["bootcmd"][0][:5] == ["cloud-init-per", "instance", "agentbox-user", "sh", "-c"]
 `)
@@ -356,5 +368,100 @@ func TestWaitCloudInit(t *testing.T) {
 	defer cancel()
 	if err := waitCloudInit(ctx, run, io.Discard, time.Millisecond); err == nil || !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// writeFile is the content user-data writes to path, from its block scalar.
+func writeFile(t *testing.T, userData, path string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(userData, "  - path: "+path+"\n")
+	if !ok {
+		t.Fatalf("user-data writes no %s", path)
+	}
+	var b strings.Builder
+	inContent := false
+	for line := range strings.Lines(rest) {
+		switch {
+		case !inContent && strings.HasPrefix(line, "    content: |"):
+			inContent = true
+		case !inContent:
+		case strings.HasPrefix(line, "      "):
+			b.WriteString(line[6:])
+		case strings.TrimSpace(line) == "":
+			b.WriteString("\n")
+		default:
+			return b.String()
+		}
+	}
+	return b.String()
+}
+
+// The VM's ssh is the host user's: share-ssh links the host's .ssh into the
+// VM user's, leaving what that has of its own, and writes a config that
+// includes the host's; run again, it keeps up with the host's.
+func TestShareSSH(t *testing.T) {
+	dir := t.TempDir()
+	c := testConfig()
+	c.Home, c.GuestHome = filepath.Join(dir, "host"), filepath.Join(dir, "guest")
+	b, err := renderUserData(c, testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(dir, "share-ssh")
+	if err := os.WriteFile(script, []byte(writeFile(t, string(b), "/usr/local/lib/agentbox/share-ssh")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	host, guest := filepath.Join(c.Home, ".ssh"), filepath.Join(c.GuestHome, ".ssh")
+	for _, f := range []string{"id_ed25519", "known_hosts", "config", "authorized_keys", "github"} {
+		mustWrite(t, filepath.Join(host, f), f)
+	}
+	mustWrite(t, filepath.Join(guest, "authorized_keys"), "front end's")
+	run := func() {
+		t.Helper()
+		if out, err := exec.Command("sh", script).CombinedOutput(); err != nil {
+			t.Fatalf("share-ssh: %v\n%s", err, out)
+		}
+	}
+	run()
+	for _, f := range []string{"id_ed25519", "known_hosts", "github"} {
+		if to, err := os.Readlink(filepath.Join(guest, f)); err != nil || to != filepath.Join(host, f) {
+			t.Errorf("%s links to %q (%v), want the host's", f, to, err)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(guest, "authorized_keys")); string(b) != "front end's" {
+		t.Errorf("authorized_keys = %q, want the VM's own kept", b)
+	}
+	config, _ := os.ReadFile(filepath.Join(guest, "config"))
+	if !strings.Contains(string(config), "Include "+host+"/config\n") || !strings.Contains(string(config), "UserKnownHostsFile ~/.ssh/known_hosts "+host+"/known_hosts\n") {
+		t.Errorf("config =\n%s", config)
+	}
+	if fi, err := os.Stat(guest); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("the VM's .ssh: %v, %v", fi.Mode(), err)
+	}
+
+	// A key gone from the host goes; a new one comes; a config of the VM
+	// user's own, without the marker, stays.
+	_ = os.Remove(filepath.Join(host, "github"))
+	mustWrite(t, filepath.Join(host, "id_rsa"), "id_rsa")
+	mustWrite(t, filepath.Join(guest, "config"), "Host x\n")
+	run()
+	if _, err := os.Lstat(filepath.Join(guest, "github")); !os.IsNotExist(err) {
+		t.Errorf("the link to a key the host no longer has stays: %v", err)
+	}
+	if _, err := os.Readlink(filepath.Join(guest, "id_rsa")); err != nil {
+		t.Errorf("a new key of the host's isn't linked: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(guest, "config")); string(b) != "Host x\n" {
+		t.Errorf("the VM user's own config was replaced: %q", b)
+	}
+}
+
+func mustWrite(t *testing.T, file, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

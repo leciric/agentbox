@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hostos"
 	"agentbox/internal/paths"
 )
 
@@ -54,6 +55,9 @@ type supervisor struct {
 // forwards its sockets to the host, sizes its
 // memory, and serves its state on p.VMSocket, until the VM powers off.
 func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
+	if hostos.InVM() {
+		return errInVM
+	}
 	ctx, stopSignals := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer stopSignals()
 	self, err := os.Executable()
@@ -96,7 +100,7 @@ func (s *supervisor) run(ctx context.Context) error {
 	if err := os.MkdirAll(s.l.Run(), 0o700); err != nil {
 		return err
 	}
-	unlock, err := lockFile(filepath.Join(s.l.Run(), "supervisor.lock"))
+	unlock, err := lockFile(s.l.LockFile())
 	if err != nil {
 		return err
 	}
@@ -157,6 +161,14 @@ func (s *supervisor) run(ctx context.Context) error {
 	loops, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
 	go s.waitDaemon(loops, started)
+	lanDone := make(chan struct{})
+	go func() {
+		defer close(lanDone)
+		dial := func(ctx context.Context) (net.Conn, error) { return dialVsock(ctx, s.l.VsockSocket(), PortDaemon) }
+		newLANForward(dial, func() bool { return s.getState() != api.VMPaused }, s.logf).run(loops)
+	}()
+	// Phones' port closes with the other forwards, before the VM stops.
+	defer func() { stopLoops(); <-lanDone }()
 	go s.memoryLoop(loops)
 
 	var req api.VMStopRequest

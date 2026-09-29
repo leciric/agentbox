@@ -656,6 +656,17 @@ var migrations = []string{
 	// And with nothing turning it on by itself, there's nothing to offer
 	// instead; the budget's disk settings went with its disk controls.
 	`DELETE FROM settings WHERE key IN ('shared_budget_offer', 'shared_budget_disk_weight', 'shared_budget_disk_write')`,
+
+	// The phones paired to chat from the local network (phones.go). Only a
+	// hash of each phone's token is kept: the phone holds the token itself.
+	`CREATE TABLE phones (
+		id           TEXT PRIMARY KEY,
+		name         TEXT NOT NULL,
+		token_hash   TEXT NOT NULL UNIQUE,
+		created_at   INTEGER NOT NULL,
+		last_seen_at INTEGER NOT NULL DEFAULT 0,
+		last_addr    TEXT NOT NULL DEFAULT ''
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

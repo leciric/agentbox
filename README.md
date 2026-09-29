@@ -129,6 +129,18 @@ and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg`
 `-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
 same [Releases](https://github.com/leciric/agentbox/releases/latest) page.
 
+On a Mac with Apple Silicon, install [krunkit](https://lima-vm.io/docs/config/vmtype/krunkit/)
+before setting AgentBox up, and the VM gives the memory its agents stop using back to your Mac:
+
+```bash
+brew tap slp/krun && brew trust slp/krun && brew install krunkit
+```
+
+Without it, the VM is made with Apple's Virtualization framework and keeps whatever memory it has
+used until it stops. A VM keeps the kind it was made with: to switch an existing one,
+`agentbox vm delete --yes` then `agentbox vm init`, which removes every agent's machine (your
+projects and worktrees stay).
+
 On a Mac there is also an **experimental** way without Lima: `agentbox vm init --driver vz` (or
 **Apple Virtualization, without Lima** in the app's Setup) has AgentBox run the VM itself with
 Apple's Virtualization framework, on macOS 13 or later. It hasn't been tried on a real Mac yet; its

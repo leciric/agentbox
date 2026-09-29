@@ -1,11 +1,13 @@
 // The app in a browser, served by a hub: sign in, pick an environment, then the
-// same app as the desktop one, on the web bridge.
+// same app as the desktop one, on the web bridge. Or served by a daemon to a
+// phone on its local network (web/bridge.ts's lan): pair, then the chats.
 import '@fontsource-variable/inter';
 import './styles.css';
 import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { restoreMode } from './lib/theme';
-import { currentWebTarget, installWebBridge } from './web/bridge';
+import { currentWebTarget, followPhoneEvents, installWebBridge, lan } from './web/bridge';
+import { currentSession, NotPaired, pairFromURL } from './web/PhonePair';
 import { SignIn } from './web/SignIn';
 
 installWebBridge();
@@ -23,7 +25,29 @@ async function start(): Promise<void> {
   await import('./main');
 }
 
+async function bootPhone(): Promise<void> {
+  const paired = await pairFromURL();
+  const session = paired?.session ?? (await currentSession().catch(() => null));
+  if (session) {
+    root?.unmount();
+    root = undefined;
+    followPhoneEvents();
+    const { startPhone } = await import('./phone');
+    return startPhone(session.phone);
+  }
+  // Opening a pairing link on this very page changes only its fragment.
+  window.addEventListener('hashchange', () => {
+    if (/[#&]pair=/.test(location.hash)) location.reload();
+  });
+  root!.render(
+    <StrictMode>
+      <NotPaired error={paired?.error} />
+    </StrictMode>,
+  );
+}
+
 async function boot(): Promise<void> {
+  if (lan) return bootPhone();
   const signedIn = await fetch('/v1/me', { credentials: 'same-origin' }).then((res) => res.ok).catch(() => false);
   if (signedIn && currentWebTarget().environmentId) return start();
   root!.render(
