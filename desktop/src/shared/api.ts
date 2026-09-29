@@ -1066,8 +1066,19 @@ export interface LANStatus {
   listening: boolean;
   error?: string;
   urls: string[];
+  tunnel: LANTunnel;
   webVersion?: string;
   phones: LANPhone[];
+}
+
+export interface LANTunnel {
+  enabled: boolean;
+  named: boolean;
+  hostname?: string;
+  state: string;
+  url?: string;
+  error?: string;
+  origin: string;
 }
 
 export interface LANPhone {
@@ -1081,6 +1092,9 @@ export interface LANPhone {
 export interface UpdateLANRequest {
   enabled?: boolean;
   port?: number;
+  tunnel?: boolean;
+  tunnelToken?: string;
+  tunnelHostname?: string;
 }
 
 export interface LANPairing {

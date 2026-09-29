@@ -47,6 +47,11 @@ import (
 // cookie is HttpOnly and SameSite=Strict, and a phone reaches only the chat
 // (lanAllowed), so what someone on the same network could take by listening
 // is a chat, not the machine.
+//
+// From anywhere else, a Cloudflare Tunnel brings the same page to an https
+// address on the internet (lantunnel.go). Pairing is as mandatory there, the
+// cookie is Secure, and wrong pairing codes and tokens are counted (lan.Limiter)
+// so they can't be guessed at speed, whichever way the page is reached.
 
 // pairingTTL is how long a QR code pairs a phone.
 const pairingTTL = 10 * time.Minute
@@ -73,6 +78,14 @@ type lanState struct {
 	open      map[string]map[*context.CancelFunc]struct{} // what each phone has open, by phone
 	seen      map[string]time.Time                        // when each phone's last visit was recorded
 	api       http.Handler                                // routes(), as phones reach it
+	limiter   *lan.Limiter                                // wrong pairing codes and tokens, by address
+	tunnel    *lanTunnel                                  // the Cloudflare Tunnel, when it runs (lantunnel.go)
+
+	// cloudflared finds cloudflared, downloading it the first time, and
+	// tunnelPort is where a named tunnel reaches the daemon (0: any free
+	// port). Fields for tests: nil is tunnel.Installer's.
+	cloudflared func(ctx context.Context, status func(string)) (string, error)
+	tunnelPort  int
 
 	// own says the daemon opens the port itself: everywhere but in the
 	// Linux host's VM, whose supervisor opens it on the host. addresses are
@@ -85,6 +98,7 @@ func newLANState() *lanState {
 	return &lanState{
 		pairings: map[string]time.Time{}, open: map[string]map[*context.CancelFunc]struct{}{}, seen: map[string]time.Time{},
 		own: hostos.OS() != hostos.Linux, addresses: lan.Addresses,
+		limiter: lan.NewLimiter(), tunnelPort: state.DefaultLANTunnelPort,
 	}
 }
 
@@ -109,9 +123,16 @@ func (s *Server) applyLAN(ctx context.Context) {
 		return
 	}
 	port, _ := s.lanPort(ctx)
+	tun := s.lanTunnelConfig(ctx, on)
 	l := s.lan
 	l.mu.Lock()
-	defer l.mu.Unlock()
+	stop := s.applyTunnelLocked(ctx, tun)
+	defer func() {
+		l.mu.Unlock()
+		if stop != nil {
+			stop()
+		}
+	}()
 	if !on {
 		for _, conns := range l.open {
 			for cancel := range conns {
@@ -136,7 +157,7 @@ func (s *Server) applyLAN(ctx context.Context) {
 		return
 	}
 	srv := &http.Server{
-		Handler:           s.lanHandler(false),
+		Handler:           s.lanHandler(lanDirect),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
@@ -147,10 +168,15 @@ func (s *Server) applyLAN(ctx context.Context) {
 
 func (s *Server) closeLAN() {
 	s.lan.mu.Lock()
-	defer s.lan.mu.Unlock()
 	if s.lan.srv != nil {
 		_ = s.lan.srv.Close()
 		s.lan.srv = nil
+	}
+	t := s.lan.tunnel
+	s.lan.tunnel = nil
+	s.lan.mu.Unlock()
+	if t != nil {
+		t.stop()
 	}
 }
 
@@ -164,6 +190,12 @@ func (s *Server) lanStatus(ctx context.Context) (api.LANStatus, error) {
 		return api.LANStatus{}, err
 	}
 	out := api.LANStatus{Enabled: on, Port: port, URLs: []string{}, Phones: []api.LANPhone{}, WebVersion: s.lanWebVersion()}
+	if out.Tunnel, err = s.lanTunnelStatus(ctx); err != nil {
+		return api.LANStatus{}, err
+	}
+	if out.Tunnel.URL != "" {
+		out.URLs = append(out.URLs, out.Tunnel.URL)
+	}
 	phones, err := s.store.Phones(ctx)
 	if err != nil {
 		return api.LANStatus{}, err
@@ -194,7 +226,7 @@ func (s *Server) lanStatus(ctx context.Context) (api.LANStatus, error) {
 		out.Error = "waiting for AgentBox's VM to open the port on this computer"
 	}
 	l.mu.Unlock()
-	if on && out.Error == "" && out.Listening && len(addrs) == 0 {
+	if on && out.Error == "" && out.Listening && len(addrs) == 0 && out.Tunnel.URL == "" {
 		out.Error = "this computer isn't on a network a phone could reach it on"
 	}
 	for _, a := range addrs {
@@ -236,6 +268,9 @@ func (s *Server) updateLAN(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if err := s.updateLANTunnel(ctx, req); err != nil {
+		return err
+	}
 	if req.Enabled != nil {
 		if err := s.store.SetFlag(ctx, state.SettingLAN, *req.Enabled); err != nil {
 			return err
@@ -256,8 +291,13 @@ func (s *Server) addLANPairing(w http.ResponseWriter, r *http.Request) error {
 	}
 	if len(st.URLs) == 0 {
 		msg := "there's no address a phone could open"
-		if st.Error != "" {
+		switch {
+		case st.Error != "":
 			msg += ": " + st.Error
+		case st.Tunnel.Enabled && st.Tunnel.Error != "":
+			msg += ": " + st.Tunnel.Error
+		case st.Tunnel.Enabled:
+			msg += " yet: the tunnel is starting"
 		}
 		return errors.New(msg)
 	}
@@ -408,10 +448,24 @@ func (s *Server) installLANWeb(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// lanVia is how a phone's request reached the daemon.
+type lanVia int
+
+const (
+	// lanDirect is the daemon's own port on the network.
+	lanDirect lanVia = iota
+	// lanViaSocket is the VM's supervisor, over the daemon's socket, which
+	// says in X-Forwarded-For who it came from.
+	lanViaSocket
+	// lanViaTunnel is cloudflared, from the internet, over https: it says
+	// in Cf-Connecting-IP who it came from.
+	lanViaTunnel
+)
+
 // lanHandler is what a phone reaches: the web app, pairing, and the chat's
-// part of the API. viaSocket says the request came from the VM's supervisor
-// over the daemon's socket, which says in X-Forwarded-For who it came from.
-func (s *Server) lanHandler(viaSocket bool) http.Handler {
+// part of the API.
+func (s *Server) lanHandler(via lanVia) http.Handler {
+	viaSocket := via == lanViaSocket
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
@@ -423,13 +477,21 @@ func (s *Server) lanHandler(viaSocket bool) http.Handler {
 			return
 		}
 		addr := r.RemoteAddr
-		if viaSocket {
+		switch {
+		case viaSocket:
 			if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 				parts := strings.Split(fwd, ",")
 				addr = strings.TrimSpace(parts[len(parts)-1])
 			}
-		} else if host, _, err := net.SplitHostPort(addr); err == nil {
-			addr = host
+		case via == lanViaTunnel && r.Header.Get("Cf-Connecting-IP") != "":
+			addr = r.Header.Get("Cf-Connecting-IP")
+		default:
+			if host, _, err := net.SplitHostPort(addr); err == nil {
+				addr = host
+			}
+		}
+		if via == lanViaTunnel {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r, viaSocket) {
 			writeLANError(w, http.StatusForbidden, "this request didn't come from AgentBox's own page")
@@ -437,19 +499,19 @@ func (s *Server) lanHandler(viaSocket bool) http.Handler {
 		}
 		switch {
 		case r.URL.Path == "/lan/pair" && r.Method == http.MethodPost:
-			s.lanPair(w, r, addr)
+			s.lanPair(w, r, addr, via)
 		case r.URL.Path == "/lan/session" && r.Method == http.MethodGet:
-			p, ok := s.lanPhoneOf(w, r)
+			p, ok := s.lanPhoneOf(w, r, addr)
 			if ok {
 				_ = writeJSON(w, http.StatusOK, api.LANSession{Phone: lanPhone(p)})
 			}
 		case r.URL.Path == "/lan/unpair" && r.Method == http.MethodPost:
-			p, ok := s.lanPhoneOf(w, r)
+			p, ok := s.lanPhoneOf(w, r, addr)
 			if !ok {
 				return
 			}
 			_ = s.store.RemovePhone(r.Context(), p.ID)
-			http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, Secure: via == lanViaTunnel, SameSite: http.SameSiteStrictMode})
 			s.publishLAN(r.Context())
 			w.WriteHeader(http.StatusNoContent)
 		case strings.HasPrefix(r.URL.Path, "/api/"):
@@ -483,7 +545,18 @@ func writeLANError(w http.ResponseWriter, status int, msg string) {
 	_ = writeJSON(w, status, api.Error{Error: msg})
 }
 
-func (s *Server) lanPair(w http.ResponseWriter, r *http.Request, addr string) {
+// tooMany answers a request from an address that has got a pairing code or
+// a token wrong too often: it waits for the limiter's window to end.
+func (s *Server) tooMany(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", strconv.Itoa(int(s.lan.limiter.RetryAfter().Seconds())+1))
+	writeLANError(w, http.StatusTooManyRequests, "too many wrong attempts to pair: try again in a few minutes")
+}
+
+func (s *Server) lanPair(w http.ResponseWriter, r *http.Request, addr string, via lanVia) {
+	if s.lan.limiter.Blocked(addr, true) {
+		s.tooMany(w)
+		return
+	}
 	var req api.LANPairRequest
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := readJSON(r, &req); err != nil {
@@ -495,6 +568,8 @@ func (s *Server) lanPair(w http.ResponseWriter, r *http.Request, addr string) {
 	delete(s.lan.pairings, req.Secret)
 	s.lan.mu.Unlock()
 	if req.Secret == "" || !ok || time.Now().After(expires) {
+		s.lan.limiter.Fail(addr)
+		s.logf("phones: a pairing from %s with a code that has expired, was used, or never was", addr)
 		writeLANError(w, http.StatusForbidden, "this QR code has expired or was used already: show a new one in AgentBox on your computer")
 		return
 	}
@@ -511,15 +586,24 @@ func (s *Server) lanPair(w http.ResponseWriter, r *http.Request, addr string) {
 	s.lan.seen[p.ID] = now
 	s.lan.mu.Unlock()
 	// 400 days is the longest a browser keeps a cookie.
-	http.SetCookie(w, &http.Cookie{Name: lanCookie, Value: token, Path: "/", MaxAge: 400 * 24 * 60 * 60, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	// Secure over the tunnel, which is https: the cookie then never goes out
+	// in the clear. On the local network there's only plain HTTP.
+	http.SetCookie(w, &http.Cookie{Name: lanCookie, Value: token, Path: "/", MaxAge: 400 * 24 * 60 * 60, HttpOnly: true, Secure: via == lanViaTunnel, SameSite: http.SameSiteStrictMode})
 	s.logf("phones: paired %s (%s) from %s", p.Name, p.ID, addr)
 	s.publishLAN(r.Context())
 	_ = writeJSON(w, http.StatusOK, api.LANSession{Phone: lanPhone(p)})
 }
 
-func (s *Server) lanPhoneOf(w http.ResponseWriter, r *http.Request) (state.Phone, bool) {
+// lanPhoneOf is the phone a request's cookie says it is. A cookie that is no
+// phone's counts against its address, as a wrong pairing code does: a
+// request with none, a phone that isn't paired yet, doesn't.
+func (s *Server) lanPhoneOf(w http.ResponseWriter, r *http.Request, addr string) (state.Phone, bool) {
 	c, err := r.Cookie(lanCookie)
 	if err == nil {
+		if s.lan.limiter.Blocked(addr, false) {
+			s.tooMany(w)
+			return state.Phone{}, false
+		}
 		p, err := s.store.PhoneByToken(r.Context(), c.Value)
 		if err == nil {
 			return p, true
@@ -528,6 +612,10 @@ func (s *Server) lanPhoneOf(w http.ResponseWriter, r *http.Request) (state.Phone
 			writeLANError(w, http.StatusInternalServerError, err.Error())
 			return state.Phone{}, false
 		}
+		s.lan.limiter.Fail(addr)
+		// The browser forgets it, so a revoked phone asking again and again
+		// doesn't count against its address as a guesser would.
+		http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	}
 	writeLANError(w, http.StatusUnauthorized, "this phone isn't paired with AgentBox: scan the QR code in AgentBox's settings on your computer")
 	return state.Phone{}, false
@@ -536,7 +624,7 @@ func (s *Server) lanPhoneOf(w http.ResponseWriter, r *http.Request) (state.Phone
 // lanAPI passes a paired phone's request on to the API, if a phone may make
 // it, and ends it when the phone is revoked or the whole thing turned off.
 func (s *Server) lanAPI(w http.ResponseWriter, r *http.Request, addr string) {
-	p, ok := s.lanPhoneOf(w, r)
+	p, ok := s.lanPhoneOf(w, r, addr)
 	if !ok {
 		return
 	}

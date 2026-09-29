@@ -137,6 +137,42 @@ func (s Store) Set(ctx context.Context, project, agent, secretName, value string
 	return Secret{Project: project, Agent: agent, Name: secretName, UpdatedAt: stored.UpdatedAt}, nil
 }
 
+// SetSetting keeps a secret of AgentBox's own, not of any project's agents —
+// the phone tunnel's token, say — sealed like the others, in the daemon's
+// setting of that name. An empty value removes it.
+func (s Store) SetSetting(ctx context.Context, setting, value string) error {
+	if err := s.ready(); err != nil {
+		return err
+	}
+	if value == "" {
+		return s.State.SetSetting(ctx, setting, "")
+	}
+	if err := validateValue(setting, value); err != nil {
+		return err
+	}
+	sealed, err := s.seal(value)
+	if err != nil {
+		return err
+	}
+	return s.State.SetSetting(ctx, setting, base64.StdEncoding.EncodeToString(sealed))
+}
+
+// Setting opens what SetSetting kept: "" when there's nothing.
+func (s Store) Setting(ctx context.Context, setting string) (string, error) {
+	if err := s.ready(); err != nil {
+		return "", err
+	}
+	v, err := s.State.Setting(ctx, setting)
+	if err != nil || v == "" {
+		return "", err
+	}
+	sealed, err := base64.StdEncoding.DecodeString(v)
+	if err != nil {
+		return "", fmt.Errorf("the stored %s isn't a sealed secret: set it again", setting)
+	}
+	return s.open(sealed)
+}
+
 // validateValue refuses what could never become an environment variable, and
 // says which secret it was about: the value itself must never be echoed back.
 func validateValue(secretName, value string) error {

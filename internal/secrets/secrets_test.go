@@ -347,3 +347,29 @@ func run(t *testing.T, script string) (string, error) {
 	out, err := exec.Command("/bin/sh", "-c", script).Output()
 	return string(out), err
 }
+
+// TestSettingIsSealed: AgentBox's own secrets, like the phone tunnel's token,
+// are sealed in a setting the same way.
+func TestSettingIsSealed(t *testing.T) {
+	s, st, _ := store(t)
+	ctx := context.Background()
+	if v, err := s.Setting(ctx, "tunnel_token"); err != nil || v != "" {
+		t.Fatalf("nothing stored: %q, %v", v, err)
+	}
+	if err := s.SetSetting(ctx, "tunnel_token", "eyJ-the-token"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := st.Setting(ctx, "tunnel_token")
+	if raw == "" || strings.Contains(raw, "eyJ-the-token") {
+		t.Fatalf("stored as %q", raw)
+	}
+	if v, err := s.Setting(ctx, "tunnel_token"); err != nil || v != "eyJ-the-token" {
+		t.Fatalf("got %q, %v", v, err)
+	}
+	if err := s.SetSetting(ctx, "tunnel_token", ""); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := s.Setting(ctx, "tunnel_token"); err != nil || v != "" {
+		t.Fatalf("removed: %q, %v", v, err)
+	}
+}
