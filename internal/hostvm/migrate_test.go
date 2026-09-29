@@ -263,3 +263,30 @@ func copyTestFile(t *testing.T, from, to string) {
 		t.Fatal(err)
 	}
 }
+
+// A home reached through a symlink (macOS's /tmp, Silverblue's /home) is the
+// same home for a path under it that doesn't exist yet, like a worktrees
+// directory no agent has made.
+func TestWithinThroughASymlink(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	if err := os.MkdirAll(filepath.Join(real, "u"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(real, "u")
+	for path, want := range map[string]bool{
+		filepath.Join(link, "u", ".local/share/agentbox/worktrees"): true,
+		filepath.Join(link, "u"):                                    true,
+		filepath.Join(real, "u", "x"):                               true,
+		filepath.Join(link, "other"):                                false,
+		"/elsewhere/agentbox":                                       false,
+	} {
+		if got := within(home, path); got != want {
+			t.Errorf("within(%s, %s) = %v, want %v", home, path, got, want)
+		}
+	}
+}

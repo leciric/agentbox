@@ -312,13 +312,29 @@ func migrateCHV(ctx context.Context, p paths.Paths, opts MigrateOptions) error {
 
 func step(log io.Writer, what string) { _, _ = fmt.Fprintf(log, "==> %s\n", what) }
 
-// within reports whether path is dir or under it.
+// within reports whether path is dir or under it, dir having no symlinks in
+// it: path's are resolved as far as it exists, since a directory not made yet
+// (the worktrees, before any agent) is under a home reached through a
+// symlink all the same.
 func within(dir, path string) bool {
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		path = real
-	}
+	path = resolveExisting(filepath.Clean(path))
 	rel, err := filepath.Rel(dir, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
+// resolveExisting resolves the symlinks in the longest part of path that
+// exists, and keeps the rest as it is.
+func resolveExisting(path string) string {
+	rest := ""
+	for p := path; ; p = filepath.Dir(p) {
+		if real, err := filepath.EvalSymlinks(p); err == nil {
+			return filepath.Join(real, rest)
+		}
+		if filepath.Dir(p) == p {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+	}
 }
 
 // stopHost stops the host's AgentBox, so nothing changes its state or its
