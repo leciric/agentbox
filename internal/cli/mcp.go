@@ -291,7 +291,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Name: "list_agents",
 			Description: "List this project's agents: what each one is for, what it is doing now, " +
 				"how much it has changed, what it has shown, its pull request, and whether it has " +
-				"finished and is holding a machine for nothing.",
+				"finished and is holding a machine for nothing. Queued agents are listed too, with their " +
+				"place in the queue: they have a name and a branch, but no machine until a slot is free.",
 			Run: func(json.RawMessage) (string, error) {
 				fleet, err := c.ProjectFleet(ctx)
 				if err != nil {
@@ -345,6 +346,11 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"from the title. A branch that is already taken gets -2, -3… appended."),
 				"from":     str("the branch or agent branch to start from; the project's branch by default"),
 				"research": map[string]any{"type": "boolean", "description": "it only investigates, so it gets no branch of its own"},
+				"queue": map[string]any{"type": "boolean", "description": "put it in this project's queue instead of starting it now: " +
+					"it gets its name and branch at once, and its machine and task when one of the project's slots is free " +
+					"(you're told in one line when it starts). Use it for work that can wait, so agents don't all compete for " +
+					"memory at once. Left out, the project's own setting decides, which is to start now unless the user " +
+					"chose to always queue."},
 				"notify": choiceOf("what a genuine finish does to your chat: \"chat\" to be told and woken when this agent finishes, "+
 					"\"off\" to only have the finish recorded — for a small, mechanical job you don't need to react to. This only "+
 					"matters when this project's finish notices are set to \"lead\"; otherwise the project's own setting decides for "+
@@ -360,6 +366,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					Title, Task, From, AI, Branch string
 					ClaudeAccount                 string `json:"claude_account"`
 					Research                      bool
+					Queue                         *bool
 					// Pointers: an agent given no model is not the same as one
 					// asked for the empty model, and only the first falls back
 					// to what new agents start on.
@@ -403,9 +410,16 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					ContextWindow: in.ContextWindow,
 					ClaudeAccount: in.ClaudeAccount,
 					FinishNotice:  notify,
+					Queue:         in.Queue,
 				})
 				if err != nil {
 					return "", err
+				}
+				if job.Kind == "queue" {
+					var ag api.Agent
+					_ = json.Unmarshal(job.Result, &ag)
+					return fmt.Sprintf("Queued %q as %s, #%d in this project's queue; it starts on the task by itself when a slot is free.",
+						in.Title, ag.Name, ag.QueuePosition), nil
 				}
 				return fmt.Sprintf("Creating %q%s; it starts on the task by itself. Job %s.",
 					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, in.ClaudeAccount)+windowChoice(in.ContextWindow), job.ID), nil
@@ -1013,6 +1027,10 @@ func describeFleet(fleet api.Fleet) string {
 		fmt.Fprintf(&b, "- %s", f.Name)
 		if f.Title != "" {
 			fmt.Fprintf(&b, " — %s", f.Title)
+		}
+		if f.State == "queued" {
+			fmt.Fprintf(&b, "\n  queued #%d: no machine until one of the project's slots is free, branch: %s\n", f.QueuePosition, dash(f.Branch))
+			continue
 		}
 		fmt.Fprintf(&b, "\n  branch: %s, machine: %s", dash(f.Branch), f.State)
 		if doing := chatDoing(f.Chat); doing != "" {

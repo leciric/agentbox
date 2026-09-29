@@ -110,6 +110,12 @@ type Project struct {
 	// behind — never a diverged branch, and a checked-out one only when its
 	// checkout has no changes. On by default.
 	SyncBase bool `json:"syncBase"`
+	// Slots is how many of the project's agents may run at once before its
+	// queued ones wait: 0 is auto, shared out from memory (QueueStatus).
+	Slots int `json:"slots"`
+	// AlwaysQueue queues the project's new agents unless a create says
+	// otherwise (CreateAgentRequest.Queue).
+	AlwaysQueue bool `json:"alwaysQueue"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -251,6 +257,12 @@ type UpdateProjectRequest struct {
 	// SyncBase turns on or off keeping this project's base branch up to date
 	// with its remote.
 	SyncBase *bool `json:"syncBase,omitempty"`
+	// Slots pins how many of the project's agents run at once; 0 goes back
+	// to auto.
+	Slots *int `json:"slots,omitempty"`
+	// AlwaysQueue sets whether the project's new agents queue unless a
+	// create says otherwise.
+	AlwaysQueue *bool `json:"alwaysQueue,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -578,8 +590,11 @@ type Agent struct {
 	// or cli, its own command line in the terminal.
 	Interface string `json:"interface"`
 	Chat      string `json:"chat,omitempty"` // the chat session's state, while this daemon has one
-	State     string `json:"state"`          // running, stopped, paused, initializing, incomplete or missing
-	IP        string `json:"ip"`
+	State     string `json:"state"`          // running, stopped, paused, initializing, incomplete, missing or queued
+	// QueuePosition is a queued agent's place in its project's queue, 1 for
+	// the next to start; absent for any other agent.
+	QueuePosition int    `json:"queuePosition,omitempty"`
+	IP            string `json:"ip"`
 	// Limits is what its machine is capped at, read from Incus rather than
 	// remembered: the machine is the truth, and it can be changed from
 	// outside AgentBox.
@@ -684,6 +699,70 @@ type CreateAgentRequest struct {
 	// agent and this is ignored. Empty defers to the project, which for
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
+	// Queue puts the agent in its project's queue rather than making it now:
+	// it is given its name, title, branch and task at once, and its machine
+	// when one of the project's slots is free (QueueStatus). Absent follows
+	// the project's AlwaysQueue; false makes it now whatever that says. The
+	// job the request starts ends as soon as the agent is queued, with the
+	// agent in state "queued".
+	Queue *bool `json:"queue,omitempty"`
+	// TaskID is the task in the project's plan the agent is made for, which
+	// it then works on rather than a task of its own. Task defaults to that
+	// task's goal and detail, and Title to its goal.
+	TaskID string `json:"taskId,omitempty"`
+}
+
+// QueueStatus is the agent queue: how many agents each project may run at
+// once, and the agents waiting for one of those slots.
+type QueueStatus struct {
+	// Budget is the memory auto slots are shared from, in bytes: the shared
+	// budget, the VM's memory in VM mode, or what the shared budget would be
+	// on this host. Reserve is what's kept free of it, so auto slots share
+	// Budget - Reserve.
+	Budget  int64 `json:"budget"`
+	Reserve int64 `json:"reserve"`
+	// Projects is every project, the ones with nothing queued or running
+	// included: their Slots say what they would get alongside the others.
+	Projects []ProjectSlots `json:"projects"`
+	// Queued is every queued agent, by project and then place in line.
+	Queued []QueuedAgent `json:"queued"`
+}
+
+// ProjectSlots is one project's share of the agents that run at once.
+type ProjectSlots struct {
+	Project string `json:"project"`
+	// Slots is how many of its agents may run at once: Pinned when the user
+	// chose a number, otherwise its share of the budget.
+	Slots  int `json:"slots"`
+	Pinned int `json:"pinned"` // 0 is auto
+	// Peak is the memory one of its agents is expected to reach, in bytes:
+	// the median of its latest agents' peaks when PeakLearned, and before any
+	// was seen, the memory limit new agents get.
+	Peak        int64 `json:"peak"`
+	PeakLearned bool  `json:"peakLearned"`
+	// Running is how many of its agents hold a slot: running, paused or
+	// being made. Queued is how many wait.
+	Running int `json:"running"`
+	Queued  int `json:"queued"`
+}
+
+// QueuedAgent is one agent waiting in its project's queue.
+type QueuedAgent struct {
+	Ref      string    `json:"ref"`
+	Project  string    `json:"project"`
+	Name     string    `json:"name"`
+	Title    string    `json:"title"`
+	Branch   string    `json:"branch"`
+	Task     string    `json:"task,omitempty"`
+	TaskID   string    `json:"taskId,omitempty"`
+	Position int       `json:"position"` // 1 is next
+	QueuedAt time.Time `json:"queuedAt"`
+}
+
+// MoveQueuedRequest puts a queued agent at Position in its project's queue,
+// 1 for next; past the end is the end.
+type MoveQueuedRequest struct {
+	Position int `json:"position"`
 }
 
 type ForkRequest struct {
@@ -1539,6 +1618,9 @@ type AgentChange struct {
 	// memory limit (Agent.MemoryShortage), which the agent itself says more
 	// about.
 	ShortOfMemory bool `json:"shortOfMemory,omitempty"`
+	// QueuePosition is a queued agent's place in its project's queue
+	// (Agent.QueuePosition), so the sidebar's "Queued #N" follows it.
+	QueuePosition int `json:"queuePosition,omitempty"`
 }
 
 // Self is what the in-agent API reports about the agent calling it.

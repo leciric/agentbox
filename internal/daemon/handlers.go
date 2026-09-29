@@ -49,7 +49,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, Slots: p.Slots, AlwaysQueue: p.AlwaysQueue, CreatedAt: p.CreatedAt}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -432,6 +432,25 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		if *req.SyncBase {
 			go s.syncBase(s.background(), p)
 		}
+	}
+	if req.Slots != nil {
+		if *req.Slots < 0 || *req.Slots > maxPinnedSlots {
+			return fmt.Errorf("slots is 0 for auto, or a number of agents from 1 to %d", maxPinnedSlots)
+		}
+		if err := s.store.SetProjectSlots(r.Context(), p.Name, *req.Slots); err != nil {
+			return err
+		}
+		p.Slots = *req.Slots
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+		// More slots may let a queued agent start now.
+		s.kickQueue()
+	}
+	if req.AlwaysQueue != nil {
+		if err := s.store.SetProjectAlwaysQueue(r.Context(), p.Name, *req.AlwaysQueue); err != nil {
+			return err
+		}
+		p.AlwaysQueue = *req.AlwaysQueue
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
 	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
@@ -838,10 +857,11 @@ func toAPIAgent(st agent.Status) api.Agent {
 		GitHubAccount: a.GitHubAccount,
 		Interface:     a.Interface,
 
-		State:     st.State,
-		IP:        st.IP,
-		Limits:    api.Limits{CPU: st.Limits.CPU, Allowance: st.Limits.Allowance, Memory: st.Limits.Memory, ConfiguredCPU: st.Limits.ConfiguredCPU},
-		CreatedAt: a.CreatedAt,
+		State:         st.State,
+		QueuePosition: st.QueuePosition,
+		IP:            st.IP,
+		Limits:        api.Limits{CPU: st.Limits.CPU, Allowance: st.Limits.Allowance, Memory: st.Limits.Memory, ConfiguredCPU: st.Limits.ConfiguredCPU},
+		CreatedAt:     a.CreatedAt,
 	}
 }
 
@@ -1014,11 +1034,35 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	if _, err := s.manager(nil).CheckLogin(req.AI, p, req.ClaudeAccount); err != nil {
 		return err
 	}
+	// A task of the plan the agent is for: its words are the agent's task
+	// unless the request brings its own.
+	if req.TaskID != "" {
+		if err := s.taskForAgent(r.Context(), &req); err != nil {
+			return err
+		}
+	}
+	queue := p.AlwaysQueue
+	if req.Queue != nil {
+		queue = *req.Queue
+	}
+	if queue {
+		return s.enqueueAgent(w, r.Context(), req, byLead)
+	}
+	return s.startJob(w, "create", req.Project, s.createJob(req, byLead, ""))
+}
+
+// createJob is the job that makes an agent from req: a new one, or, when
+// queued names one, the queued agent of that name, which the queue is
+// starting (queue.go).
+func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued string) func(context.Context, io.Writer) (any, error) {
 	// Absent means autonomous: that is what the command line, the app's dialog
 	// and a project's chat have all always sent, so an omitted field keeps
 	// doing what every caller already asked for.
 	autonomous := req.Autonomous == nil || *req.Autonomous
-	return s.startJob(w, "create", req.Project, func(ctx context.Context, log io.Writer) (any, error) {
+	if queued != "" {
+		req.Name = queued
+	}
+	return func(ctx context.Context, log io.Writer) (any, error) {
 		// What a catch-up ran is kept too, so a failed one can show the agent
 		// its last lines.
 		var ran *tailWriter
@@ -1047,6 +1091,7 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 
 			FinishNotice: req.FinishNotice,
 			Task:         strings.TrimSpace(req.Task),
+			Queued:       queued != "",
 		})
 		if err != nil {
 			if byLead {
@@ -1089,6 +1134,11 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 			"title": a.Title, "task": task, "model": model, "branch": a.Branch,
 		}, "")
 		s.addActiveAgent(ctx, a.Project, a.Name)
+		// A task of the plan it was made for is its task: captureAgentTask
+		// starts it rather than writing another.
+		if req.TaskID != "" {
+			s.assignTask(ctx, a.Project, req.TaskID, a.Name)
+		}
 		// An agent is made for something, and that something is a row in the
 		// project's plan (D77) rather than only a line in its history.
 		s.captureAgentTask(ctx, a, task)
@@ -1104,7 +1154,7 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 		// chat made is there from the start rather than at its first finish.
 		s.record(ctx, createdEvent(a, task, time.Now()))
 		return s.agentReady(ctx, a)
-	})
+	}
 }
 
 func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
@@ -1117,8 +1167,14 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	deleteBranch, _ := strconv.ParseBool(q.Get("deleteBranch"))
 	deleteMedia, _ := strconv.ParseBool(q.Get("deleteMedia"))
 	opts := agent.DestroyOptions{Force: force, DeleteBranch: deleteBranch, DeleteMedia: deleteMedia}
+	if a.Status == state.AgentQueued && s.queueStarting(a.Ref()) {
+		return fmt.Errorf("%s is leaving the queue and being made now: destroy it once it's made", a.Ref())
+	}
 	if err := s.destroyAgentNow(r.Context(), s.manager(s.cfg.Log), a, opts); err != nil {
 		return err
+	}
+	if a.Status == state.AgentQueued {
+		s.releaseQueuedTasks(r.Context(), a)
 	}
 	s.captureEvent(r.Context(), a.Project, a.Name, "agent_retired", map[string]any{"how": "destroy", "branch": a.Branch}, "")
 	s.countFeature(api.FeatureAgentDestroy)

@@ -75,6 +75,9 @@ type testConfig struct {
 	previewAddr string
 	// updateURL is Config.UpdateURL; empty is a port nothing listens on.
 	updateURL string
+	// queue, when set, is given the daemon before it runs, so its queue loop
+	// never sees the real hooks (queue_test.go).
+	queue func(*Server)
 }
 
 // TestMain sets what every test's daemon needs the same way, once, before any
@@ -156,6 +159,9 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	srv.prWatch.every = 0 // tests drive the pull request watch themselves
 	srv.askAside = func(context.Context, state.Agent, string, string) (string, string, error) {
 		return "", "", errors.New("this test starts no AI tool")
+	}
+	if tc.queue != nil {
+		tc.queue(srv)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

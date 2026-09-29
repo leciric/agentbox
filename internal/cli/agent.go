@@ -152,7 +152,7 @@ func newCreateCmd(a *app) *cobra.Command {
 	// agents start on", and --autonomous=false is a real choice, so each is
 	// read from the flag only when it was actually typed.
 	var (
-		autonomous                bool
+		autonomous, queue         bool
 		model, effort, window     string
 		cpu, memory, cpuAllowance string
 	)
@@ -172,6 +172,10 @@ func newCreateCmd(a *app) *cobra.Command {
 			}
 			if f.Changed("context-window") {
 				req.ContextWindow = &window
+			}
+			// Left off, the project's "always queue new agents" decides.
+			if f.Changed("queue") {
+				req.Queue = &queue
 			}
 			// The limits are read the same way, and for a sharper reason:
 			// --cpu "" is a real choice (this agent gets every core), so an
@@ -211,6 +215,8 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.From, "from", "", "branch or commit to start from (default: the branch checked out in the project)")
 	f.StringVar(&req.ClaudeAccount, "claude-account", "", "a stored Claude Code account for this agent (default: the project's, then this machine's default)")
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
+	f.BoolVar(&queue, "queue", false, "queue it: it gets its name, branch and task now, and its machine when one of the project's slots is free (agentbox queue); --queue=false makes it now even in a project that always queues (default: the project's setting)")
+	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
 	f.BoolVar(&req.CatchUp, "catch-up", false, "bring the machine up to the current base image's packages and agent tools before its task: how a project base is refreshed")
@@ -236,6 +242,11 @@ func finishAgentJob(cmd *cobra.Command, c *api.Client, j api.Job, start time.Tim
 
 func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	out := cmd.OutOrStdout()
+	if ag.State == "queued" {
+		_, _ = fmt.Fprintf(out, "\nAgent %s queued, #%d in line: it starts when one of %s's slots is free (agentbox queue %s)\n", ag.Ref, ag.QueuePosition, ag.Project, ag.Project)
+		_, _ = fmt.Fprintf(out, "  branch  %s (made when it starts)\n", ag.Branch)
+		return
+	}
 	_, _ = fmt.Fprintf(out, "\nAgent %s ready in %s\n\n", ag.Ref, took.Round(100*time.Millisecond))
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if ag.Title != "" {

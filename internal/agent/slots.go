@@ -1,0 +1,223 @@
+package agent
+
+import (
+	"context"
+	"time"
+
+	"agentbox/internal/hostos"
+	"agentbox/internal/state"
+)
+
+// Slots: how many of a project's agents may run at once before its queued
+// ones wait. A queued agent is started only into a free slot, and nothing
+// already running is ever stopped or paused to make one; an agent created
+// without queueing starts at once, as it always has, and simply takes a slot.
+//
+// Auto slots come from memory. The budget is what agents may use — the
+// shared budget when it is on, the VM's memory in VM mode, and otherwise what
+// the shared budget would be on this host — less a reserve, so the agents'
+// peaks never quite add up to all of it. Each project's agents are assumed to
+// peak where its latest agents did (state.TypicalMemoryPeak), and the budget
+// is shared between the projects that have work, running or queued, fairly in
+// memory rather than in agents: a project whose agents peak at 6 GiB and one
+// whose agents peak at 2 GiB each get about half the budget, so about three
+// times as many of the second's. A project pinned to a number gets that number,
+// and the memory those agents need is set aside before the rest is shared.
+
+// SlotProject is one project, as far as sharing slots goes.
+type SlotProject struct {
+	Name string
+	// Peak is the memory one of its agents is expected to reach, in bytes.
+	Peak int64
+	// Pinned is the user's own number of slots; 0 is auto.
+	Pinned int
+	// Running is how many of its agents hold memory now: running, paused, or
+	// being made. Queued is how many wait.
+	Running int
+	Queued  int
+}
+
+// Active reports whether the project has work that wants slots.
+func (p SlotProject) Active() bool { return p.Running+p.Queued > 0 }
+
+// SlotReserve is what the budget keeps free of the agents' expected peaks: an
+// eighth of it, and at least 2 GiB. A peak is a median, and agents above it
+// need somewhere to go.
+func SlotReserve(budget int64) int64 {
+	return max(budget/8, int64(2)<<30)
+}
+
+// SplitSlots shares usable bytes of memory into slots between projects. Only
+// active projects share the budget, but every project gets an answer: an idle
+// one is given what it would get if it had work now, alongside the active
+// ones, which is what the app shows before anything is queued.
+//
+// Every active project gets at least one slot, however large its peak, so
+// nothing waits forever; beyond that a project is only given a slot its peak
+// fits in. Slots go first to the projects with the least memory given so far,
+// up to what each has work for, and then whatever is left goes the same way
+// regardless of work, so a project's number says what it could run.
+func SplitSlots(usable int64, projects []SlotProject) map[string]int {
+	out := make(map[string]int, len(projects))
+	var active []SlotProject
+	for _, p := range projects {
+		if p.Active() {
+			active = append(active, p)
+		}
+	}
+	for name, n := range splitActive(usable, active) {
+		out[name] = n
+	}
+	for _, p := range projects {
+		if p.Active() {
+			continue
+		}
+		with := append(append([]SlotProject(nil), active...), SlotProject{Name: p.Name, Peak: p.Peak, Pinned: p.Pinned, Queued: 1})
+		out[p.Name] = splitActive(usable, with)[p.Name]
+	}
+	return out
+}
+
+// splitActive is SplitSlots for projects that all count as having work.
+func splitActive(usable int64, projects []SlotProject) map[string]int {
+	out := make(map[string]int, len(projects))
+	pool := usable
+	type share struct {
+		SlotProject
+		given int
+		full  bool // no further slot of its peak fits
+	}
+	var auto []*share
+	for _, p := range projects {
+		if p.Pinned > 0 {
+			out[p.Name] = p.Pinned
+			// What its agents will hold: the pinned number, or fewer when it
+			// has less work than that, or more when agents made without the
+			// queue already went past it.
+			pool -= int64(max(min(p.Pinned, p.Running+p.Queued), p.Running)) * max(p.Peak, 1)
+			continue
+		}
+		auto = append(auto, &share{SlotProject: p})
+	}
+	// Smallest memory given first; then the smaller peak, then the name, so
+	// the same inputs always give the same answer.
+	next := func(capped bool) *share {
+		var best *share
+		for _, s := range auto {
+			if s.full || (capped && s.given >= s.Running+s.Queued) {
+				continue
+			}
+			if best == nil {
+				best = s
+				continue
+			}
+			mine, theirs := int64(s.given)*s.Peak, int64(best.given)*best.Peak
+			if mine < theirs || (mine == theirs && (s.Peak < best.Peak || (s.Peak == best.Peak && s.Name < best.Name))) {
+				best = s
+			}
+		}
+		return best
+	}
+	// Everyone's first slot comes first, fitting or not.
+	for _, s := range auto {
+		s.given = 1
+		pool -= max(s.Peak, 1)
+	}
+	for _, capped := range []bool{true, false} {
+		for s := next(capped); s != nil; s = next(capped) {
+			if max(s.Peak, 1) > pool {
+				s.full = true
+				continue
+			}
+			s.given++
+			pool -= max(s.Peak, 1)
+		}
+	}
+	for _, s := range auto {
+		out[s.Name] = s.given
+	}
+	return out
+}
+
+// SlotBudget is the memory auto slots are shared from, before the reserve:
+// the shared budget's memory when it's on, the VM's memory in VM mode, and
+// otherwise what the shared budget would suggest for this host.
+func (m *Manager) SlotBudget(ctx context.Context) (int64, error) {
+	host := ReadHostResources()
+	on, b, err := m.SharedBudget(ctx)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case on:
+		if n, err := ParseBytes(b.Memory); err == nil && n > 0 {
+			return n, nil
+		}
+	case hostos.InVM():
+		// The VM's memory is its cap, and nothing but agents runs in it.
+		return host.Memory, nil
+	}
+	suggested, _ := SuggestBudget(host)
+	if n, err := ParseBytes(suggested.Memory); err == nil && n > 0 {
+		return n, nil
+	}
+	return host.Memory, nil
+}
+
+// defaultSlotPeak is the peak assumed for a project nothing is known about,
+// with no memory limit to go on either.
+const defaultSlotPeak = int64(4) << 30
+
+// ProjectPeak is the memory one of a project's agents is expected to reach:
+// what its latest agents did, or, before any was seen, the memory limit new
+// agents are given.
+func (m *Manager) ProjectPeak(ctx context.Context, project string) (peak int64, learned bool, err error) {
+	peak, err = m.Store.TypicalMemoryPeak(ctx, project)
+	if err != nil || peak > 0 {
+		return peak, peak > 0, err
+	}
+	if d, err := m.Defaults(ctx); err == nil {
+		if n := limitBytes(d.Memory, ReadHostResources().Memory); n > 0 {
+			return n, false, nil
+		}
+	}
+	return defaultSlotPeak, false, nil
+}
+
+// RecordMemoryPeaks samples the memory every running agent's machine holds
+// now, counted the way the Host memory popover counts it (agentMemory, so
+// without the file cache the kernel can drop), and keeps the most each was
+// seen at: what ProjectPeak learns from. It returns how many were sampled.
+func (m *Manager) RecordMemoryPeaks(ctx context.Context, now time.Time) (int, error) {
+	agents, err := m.Store.Agents(ctx, "")
+	if err != nil {
+		return 0, err
+	}
+	instances, err := m.Incus.Instances(ctx)
+	if err != nil {
+		return 0, err
+	}
+	running := make(map[string]int64, len(instances))
+	for _, inst := range instances {
+		if inst.Status != "Running" {
+			continue
+		}
+		var fallback int64
+		if inst.State != nil {
+			fallback = inst.State.Memory.Usage
+		}
+		running[inst.Name] = fallback
+	}
+	sampled := 0
+	for _, a := range agents {
+		fallback, ok := running[a.Instance]
+		if a.IsLead() || a.Status != state.AgentReady || !ok {
+			continue
+		}
+		if err := m.Store.RecordMemoryPeak(ctx, a.Project, a.Name, agentMemory(cgroupRoot, a.Instance, fallback), now); err != nil {
+			return sampled, err
+		}
+		sampled++
+	}
+	return sampled, nil
+}

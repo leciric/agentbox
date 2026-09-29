@@ -125,6 +125,18 @@ type Server struct {
 
 	terminalMu       sync.Mutex
 	terminalActivity map[string]time.Time // last input typed into a terminal, by ref (autostopidle.go)
+
+	// The agent queue (queue.go). queueMu makes one pass of it at a time;
+	// startingQueued, under mu, are the queued agents handed to a create job
+	// that hasn't ended. queueStart, slotBudget and projectPeak are
+	// startQueuedAgent and the manager's, or a test's.
+	queueKick      chan struct{}
+	queueEvery     time.Duration // queueInterval; 0 runs no loop
+	queueMu        sync.Mutex
+	startingQueued map[string]bool
+	queueStart     func(ctx context.Context, q state.QueuedAgent) error
+	slotBudget     func(ctx context.Context) (int64, error)
+	projectPeak    func(ctx context.Context, project string) (int64, bool, error)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -154,6 +166,14 @@ func New(cfg Config) (*Server, error) {
 		updates:          updates{now: make(chan struct{}, 1)},
 		terminalActivity: map[string]time.Time{},
 		lan:              newLANState(),
+		queueKick:        make(chan struct{}, 1),
+		queueEvery:       queueInterval,
+		startingQueued:   map[string]bool{},
+	}
+	s.queueStart = s.startQueuedAgent
+	s.slotBudget = func(ctx context.Context) (int64, error) { return s.manager(nil).SlotBudget(ctx) }
+	s.projectPeak = func(ctx context.Context, project string) (int64, bool, error) {
+		return s.manager(nil).ProjectPeak(ctx, project)
 	}
 	s.thrash = agent.NewThrashWatch(func(ctx context.Context, instance string, limit int64) string {
 		return s.manager(nil).MemoryRaise(ctx, instance, limit)
@@ -230,6 +250,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
+	loops.Go(func() { s.runQueue(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
 	loops.Go(func() { s.watchSharedBudget(ctx) })
 	loops.Go(func() { s.watchMemoryThrash(ctx) })
@@ -458,6 +479,9 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/projects/{project}/base", s.removeBase)
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
+	h("GET /v1/queue", s.getQueue)
+	h("POST /v1/queue/{project}/{agent}/move", s.moveQueued)
+	h("DELETE /v1/queue/{project}/{agent}", s.removeQueued)
 	h("GET /v1/agents", s.listAgents)
 	h("POST /v1/agents", s.createAgent)
 	h("POST /v1/agents/stop", s.stopAgents)

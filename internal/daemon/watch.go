@@ -36,6 +36,8 @@ func (s *Server) watch(ctx context.Context) {
 
 // refreshAgents publishes an event for every agent whose state changed.
 func (s *Server) refreshAgents(ctx context.Context) {
+	// Whatever changed may have freed a slot for a queued agent.
+	s.kickQueue()
 	if s.events.subscribers() == 0 {
 		return
 	}
@@ -52,7 +54,7 @@ func (s *Server) publishAgentChanges(statuses []agent.Status) {
 	seen := map[string]bool{}
 	for _, st := range statuses {
 		_, short := s.thrash.Thrashing(st.Instance)
-		change := api.AgentChange{Ref: st.Ref(), State: st.State, IP: st.IP, ShortOfMemory: short}
+		change := api.AgentChange{Ref: st.Ref(), State: st.State, IP: st.IP, ShortOfMemory: short, QueuePosition: st.QueuePosition}
 		seen[change.Ref] = true
 		if s.lastStates[change.Ref] != change {
 			s.lastStates[change.Ref] = change
