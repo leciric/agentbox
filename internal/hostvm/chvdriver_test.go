@@ -33,7 +33,7 @@ func clearEnv(t *testing.T) paths.Paths {
 			_ = os.Unsetenv(name)
 		}
 	}
-	dir := t.TempDir()
+	dir := shortTempDir(t)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	p, err := paths.Default()
@@ -41,6 +41,27 @@ func clearEnv(t *testing.T) paths.Paths {
 		t.Fatal(err)
 	}
 	return p
+}
+
+// shortTempDir is a temporary directory the daemon's socket fits under. A
+// unix socket's path can't be longer than 104 bytes on macOS (108 on Linux),
+// and macOS's TMPDIR (/var/folders/…) with a test's name, and the socket's own
+// path under XDG_DATA_HOME, is longer than that; a real home's
+// ~/.local/share/agentbox/run/agentbox.sock isn't. A short directory in /tmp
+// stands in for the home when t.TempDir is too long.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	const socketSuffix = len("/data/agentbox/run/agentbox.sock")
+	if len(dir)+socketSuffix < 100 || runtime.GOOS == "windows" {
+		return dir
+	}
+	dir, err := os.MkdirTemp("/tmp", "ab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }
 
 func TestFrontAndHandles(t *testing.T) {
