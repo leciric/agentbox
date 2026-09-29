@@ -16,8 +16,7 @@ jobs:
       - name: Install Lima and krunkit
         run: |
           brew install lima jq
-          brew tap slp/krun
-          brew install krunkit
+          brew install slp/krun/krunkit
           sw_vers; uname -m
           limactl --version; krunkit --version
           brew info --json=v2 --installed | jq -r '.formulae[] | select(.name | test("krun|lima")) | "\(.name) \(.installed[0].version)"'

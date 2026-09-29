@@ -104,8 +104,10 @@ func krunkitOnPath() {
 	}
 }
 
-// krunkitInstall is how to install krunkit, as Lima's documentation says.
-const krunkitInstall = "brew tap slp/krun && brew install krunkit"
+// krunkitInstall is how to install krunkit. Lima's documentation says brew tap
+// slp/krun, then brew install krunkit, which Homebrew now refuses from a tap
+// it hasn't been told to trust; naming the formula in full is that.
+const krunkitInstall = "brew install slp/krun/krunkit"
 
 // krunkitNote is what `vm init` says about krunkit before it makes a VM: that
 // it's making it with krunkit, or why not and what that costs. "" when there
