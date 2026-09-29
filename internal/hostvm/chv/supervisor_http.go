@@ -75,7 +75,7 @@ func (s *supervisor) pause(ctx context.Context) error {
 	case api.VMStopping:
 		return errConflict("the VM is stopping")
 	}
-	if err := s.ch.Pause(ctx); err != nil {
+	if err := s.m.pause(ctx); err != nil {
 		return err
 	}
 	s.setState(api.VMPaused)
@@ -90,7 +90,7 @@ func (s *supervisor) resume(ctx context.Context) error {
 	default:
 		return nil
 	}
-	if err := s.ch.Resume(ctx); err != nil {
+	if err := s.m.resume(ctx); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -117,7 +117,7 @@ func (s *supervisor) resize(ctx context.Context, req api.VMResizeRequest) error 
 	s.mu.Lock()
 	c := s.c
 	s.mu.Unlock()
-	live := s.live(c)
+	live := s.m.live(c)
 	if req.CPUs != 0 && (req.CPUs < live.MinCPUs || req.CPUs > live.MaxCPUs) {
 		return errConflict(fmt.Sprintf("the VM booted with room for %d CPUs: %d needs a restart", live.MaxCPUs, req.CPUs))
 	}
@@ -125,7 +125,7 @@ func (s *supervisor) resize(ctx context.Context, req api.VMResizeRequest) error 
 		return errConflict(fmt.Sprintf("the VM booted with room for %s of memory: a cap of %s needs a restart", gib(live.MaxMemory), gib(req.MemoryCap)))
 	}
 	if req.CPUs != 0 && req.CPUs != c.CPUs {
-		if err := s.ch.ResizeCPUs(ctx, req.CPUs); err != nil {
+		if err := s.m.setCPUs(ctx, req.CPUs); err != nil {
 			return err
 		}
 		s.logf("CPUs: %d → %d", c.CPUs, req.CPUs)
@@ -150,7 +150,7 @@ func (s *supervisor) resize(ctx context.Context, req api.VMResizeRequest) error 
 	s.mu.Unlock()
 	if over {
 		// Down to the new cap now, rather than when the policy next shrinks.
-		if err := s.ch.Resize(ctx, target); err != nil {
+		if err := s.m.setMemory(ctx, target); err != nil {
 			s.logf("resizing the VM's memory to its new cap %s: %v", gib(target), err)
 		}
 	}
@@ -172,19 +172,15 @@ func (s *supervisor) onlineCPUs(ctx context.Context) {
 
 const onlineCPUsScript = `for f in /sys/devices/system/cpu/cpu[0-9]*/online; do [ "$(cat "$f")" = 1 ] || echo 1 | sudo -n tee "$f" >/dev/null; done`
 
-// live is what the running VM can be resized to without a restart.
-func (s *supervisor) live(c Config) api.VMLimits {
-	return api.VMLimits{MinCPUs: 1, MaxCPUs: s.room.CPUs, MinMemory: c.MemoryMin, MaxMemory: c.MemoryMin + regionSize(c, s.room)}
-}
-
 // status is the VM as the supervisor sees it.
 func (s *supervisor) status(ctx context.Context) api.VMStatus {
 	s.mu.Lock()
 	c := s.c
 	s.mu.Unlock()
 	st := offStatus(c, s.l)
-	if s.cloud != nil && !s.cloud.exited() {
-		live := s.live(c)
+	running := s.m.running()
+	if running {
+		live := s.m.live(c)
 		st.Live = &live
 	}
 	s.mu.Lock()
@@ -194,21 +190,15 @@ func (s *supervisor) status(ctx context.Context) api.VMStatus {
 	}
 	requested := s.mem.Requested
 	s.mu.Unlock()
-	// What's plugged, which lags what was asked for while the guest plugs
-	// or unplugs it.
+	// What the machine says the guest has, which lags what was asked for
+	// while it's given or gives back memory.
 	st.Memory.Granted = requested
-	if s.cloud != nil && !s.cloud.exited() {
-		ctx, cancel := context.WithTimeout(ctx, time.Second)
-		if info, err := s.ch.Info(ctx); err == nil && info.MemoryActualSize > 0 {
-			st.Memory.Granted = info.MemoryActualSize
-		}
-		cancel()
-	}
-	for _, c := range []*child{s.cloud, s.passt, s.fs} {
-		if c != nil && !c.exited() {
-			st.Memory.Resident += resident(c.pid())
+	if running {
+		if granted := s.m.granted(ctx); granted > 0 {
+			st.Memory.Granted = granted
 		}
 	}
+	_, st.Memory.Resident = s.m.resident()
 	return st
 }
 
@@ -217,7 +207,7 @@ func (s *supervisor) status(ctx context.Context) api.VMStatus {
 func offStatus(c Config, l Layout) api.VMStatus {
 	st := api.VMStatus{
 		Mode:   api.ModeVM,
-		Driver: api.VMDriverCloudHypervisor,
+		Driver: c.DriverName(),
 		Name:   c.Name,
 		State:  api.VMOff,
 		CPUs:   c.CPUs,

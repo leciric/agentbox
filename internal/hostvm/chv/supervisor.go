@@ -36,12 +36,9 @@ type supervisor struct {
 	p    paths.Paths
 	self string // this agentbox, ssh's proxy command
 	log  *log.Logger
-	ch   *chClient
-
-	cloud, passt, fs *child
+	m    machine
 
 	policy memPolicy
-	room   Room                   // how far it can be resized without a restart
 	stopc  chan api.VMStopRequest // a stop asked for over vm.sock
 
 	mu          sync.Mutex
@@ -53,7 +50,8 @@ type supervisor struct {
 }
 
 // Supervise is `agentbox vm run`: it runs the VM in the foreground (passt,
-// virtiofsd, cloud-hypervisor), forwards its sockets to the host, sizes its
+// virtiofsd and cloud-hypervisor, or on a Mac the Virtualization framework),
+// forwards its sockets to the host, sizes its
 // memory, and serves its state on p.VMSocket, until the VM powers off.
 func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 	ctx, stopSignals := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
@@ -65,12 +63,14 @@ func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 	s := &supervisor{
 		c: c, l: l, p: p, self: self,
 		log:    log.New(os.Stderr, "", log.LstdFlags),
-		ch:     newCHClient(l.APISocket()),
 		policy: memPolicy{Min: c.MemoryMin, Cap: c.MemoryMin + hotplugSize(c)},
-		room:   roomFor(c, hostCPUs(), hostMemory()),
 		stopc:  make(chan api.VMStopRequest, 1),
 		state:  api.VMStarting,
 		since:  time.Now(),
+	}
+	s.m, err = newMachine(c, l, s.log.Writer(), s.logf)
+	if err != nil {
+		return err
 	}
 	s.mem.Requested = c.MemoryMin
 	return s.run(ctx)
@@ -138,11 +138,11 @@ func (s *supervisor) run(ctx context.Context) error {
 
 	s.logf("starting VM %s: %d CPUs, %s of memory (up to %s)", s.c.Name, s.c.CPUs, gib(s.policy.Min), gib(s.policy.Cap))
 	started := time.Now()
-	if err := s.startVM(ctx); err != nil {
+	if err := s.m.boot(ctx); err != nil {
 		s.stopChildren()
 		return err
 	}
-	s.logf("cloud-hypervisor is up in %s", time.Since(started).Round(time.Millisecond))
+	s.logf("the VM is up in %s", time.Since(started).Round(time.Millisecond))
 
 	fwdCtx, stopForwards := context.WithCancel(context.Background())
 	forwards := s.forwards(fwdCtx, daemonLn)
@@ -161,13 +161,13 @@ func (s *supervisor) run(ctx context.Context) error {
 
 	var req api.VMStopRequest
 	select {
-	case <-s.cloud.done:
+	case <-s.m.done():
 		stopLoops()
 		closeForwards()
 		s.setState(api.VMStopping)
 		s.stopChildren()
-		if s.cloud.err != nil {
-			return fmt.Errorf("cloud-hypervisor exited: %v; its log: %s", s.cloud.err, s.l.Log())
+		if err := s.m.exitErr(); err != nil {
+			return fmt.Errorf("%v; its log: %s", err, s.l.Log())
 		}
 		s.logf("the VM powered off")
 		return nil
@@ -184,75 +184,6 @@ func (s *supervisor) run(ctx context.Context) error {
 	closeForwards()
 	s.shutdown(true)
 	return nil
-}
-
-// startVM starts virtiofsd, passt and Cloud Hypervisor, and waits for Cloud
-// Hypervisor's API to answer.
-func (s *supervisor) startVM(ctx context.Context) error {
-	logw := s.log.Writer()
-	if s.c.Home != "" {
-		var err error
-		s.fs, err = s.startVirtiofsd(ctx, "namespace")
-		if err != nil {
-			s.logf("virtiofsd can't sandbox itself in namespaces here (%v): sharing the home directory without its sandbox", err)
-			if s.fs, err = s.startVirtiofsd(ctx, "none"); err != nil {
-				return err
-			}
-		}
-	}
-	var err error
-	if s.passt, err = startChild("passt", s.l.Bin("passt"), passtArgs(s.l), logw); err != nil {
-		return err
-	}
-	if err := waitSocket(ctx, s.passt, s.l.PasstSocket()); err != nil {
-		return err
-	}
-	if s.cloud, err = startChild("cloud-hypervisor", s.l.Bin("cloud-hypervisor"), chArgs(s.c, s.l, s.room), logw); err != nil {
-		return err
-	}
-	if err := waitSocket(ctx, s.cloud, s.l.APISocket()); err != nil {
-		return err
-	}
-	for range 50 {
-		if err := s.ch.Ping(ctx); err == nil {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return errors.New("cloud-hypervisor's API didn't answer")
-}
-
-func (s *supervisor) startVirtiofsd(ctx context.Context, sandbox string) (*child, error) {
-	c, err := startChild("virtiofsd", s.l.Bin("virtiofsd"), virtiofsdArgs(s.c, s.l, sandbox), s.log.Writer())
-	if err != nil {
-		return nil, err
-	}
-	if err := waitSocket(ctx, c, s.l.FSSocket()); err != nil {
-		c.stop(childGrace)
-		return nil, err
-	}
-	return c, nil
-}
-
-// waitSocket waits for a child to make its socket. It only looks for the
-// file: passt and virtiofsd serve one client, and exit when it leaves, so
-// connecting to see whether they answer would end them.
-func waitSocket(ctx context.Context, c *child, socket string) error {
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(socket); err == nil {
-			time.Sleep(20 * time.Millisecond) // from bind to listen
-			return nil
-		}
-		select {
-		case <-c.done:
-			return fmt.Errorf("%s exited: %v", c.name, c.err)
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(20 * time.Millisecond):
-		}
-	}
-	return fmt.Errorf("%s didn't make %s", c.name, socket)
 }
 
 // forwards serves the daemon's socket and its preview proxy on the host,
@@ -390,15 +321,11 @@ func daemonJSON(ctx context.Context, client *http.Client, method, path string, o
 // button, and up to guestShutdownTimeout for it), and then ends everything
 // that ran it.
 func (s *supervisor) shutdown(graceful bool) {
-	ctx := context.Background()
 	started := time.Now()
-	if graceful && s.cloud != nil && !s.cloud.exited() {
-		if info, err := s.ch.Info(ctx); err == nil && info.State == chPaused {
-			_ = s.ch.Resume(ctx)
-		}
-		if err := s.ch.PowerButton(ctx); err != nil {
+	if graceful && s.m.running() {
+		if off, err := s.m.powerOff(guestShutdownTimeout); err != nil {
 			s.logf("pressing the VM's power button: %v", err)
-		} else if s.waitPoweroff(guestShutdownTimeout) {
+		} else if off {
 			s.logf("the VM powered off in %s", time.Since(started).Round(time.Millisecond))
 		} else {
 			s.logf("the VM didn't power off within %s: ending it", guestShutdownTimeout)
@@ -407,53 +334,14 @@ func (s *supervisor) shutdown(graceful bool) {
 	s.stopChildren()
 }
 
-// waitPoweroff waits for the guest to power off, and for Cloud Hypervisor to
-// exit with it.
-func (s *supervisor) waitPoweroff(timeout time.Duration) bool {
-	deadline := time.After(timeout)
-	tick := time.NewTicker(250 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		select {
-		case <-s.cloud.done:
-			return true
-		case <-deadline:
-			return false
-		case <-tick.C:
-			// Cloud Hypervisor stays up with a guest that's shut down only
-			// if it was told to; end it all the same.
-			if info, err := s.ch.Info(context.Background()); err == nil && info.State == chShutdown {
-				_ = s.ch.ShutdownVMM(context.Background())
-			}
-		}
-	}
-}
-
 // runFiles are the sockets the VM runs with, and what its programs leave
 // beside them.
 func (s *supervisor) runFiles() []string {
-	return []string{
-		s.l.APISocket(), s.l.APISocket() + ".lock",
-		s.l.VsockSocket(),
-		s.l.PasstSocket(), s.l.PasstSocket() + ".repair",
-		s.l.FSSocket(), s.l.FSSocket() + ".pid",
-		s.l.ControlSocket(),
-	}
+	return append(s.m.runFiles(), s.l.ControlSocket())
 }
 
 func (s *supervisor) stopChildren() {
-	if s.cloud != nil && !s.cloud.exited() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = s.ch.ShutdownVMM(ctx)
-		cancel()
-		select {
-		case <-s.cloud.done:
-		case <-time.After(3 * time.Second):
-		}
-	}
-	s.cloud.stop(childGrace)
-	s.passt.stop(childGrace)
-	s.fs.stop(childGrace)
+	s.m.halt()
 	for _, f := range s.runFiles() {
 		_ = os.Remove(f)
 	}
@@ -477,10 +365,10 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		if err != nil {
 			continue // not booted yet, or ssh is down: leave it as it is
 		}
-		if !movable {
+		if !movable && s.m.balloon() == 0 {
 			movable = s.ensureMovable(ctx, sample)
 		}
-		sample.Resident = resident(s.cloud.pid())
+		sample.Resident, _ = s.m.resident()
 		s.mu.Lock()
 		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
@@ -497,7 +385,7 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 			continue
 		}
 		started := time.Now()
-		if err := s.ch.Resize(ctx, d.Target); err != nil {
+		if err := s.m.setMemory(ctx, d.Target); err != nil {
 			s.logf("resizing the VM's memory to %s: %v", gib(d.Target), err)
 			continue
 		}
@@ -535,11 +423,20 @@ func (s *supervisor) ensureMovable(ctx context.Context, sample memSample) bool {
 }
 
 func (s *supervisor) sampleMemory(ctx context.Context) (memSample, error) {
-	out, err := s.ssh(ctx, memScript)
+	booted := s.m.balloon()
+	script := memScript
+	if booted > 0 {
+		script += "\n" + balloonScript
+	}
+	out, err := s.ssh(ctx, script)
 	if err != nil {
 		return memSample{}, err
 	}
-	return parseMemSample(out)
+	sample, err := parseMemSample(out)
+	if err == nil && booted > 0 {
+		sample = withBalloon(sample, out, booted)
+	}
+	return sample, err
 }
 
 // ssh runs a shell command in the VM, through the ControlMaster every

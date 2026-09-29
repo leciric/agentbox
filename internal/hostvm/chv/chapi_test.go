@@ -112,9 +112,9 @@ func TestSupervisorResize(t *testing.T) {
 	f := &fakeCH{}
 	c := Config{Name: "agentbox", CPUs: 4, MemoryMin: 4 * GiB, MemoryCap: 12 * GiB}
 	s := &supervisor{
-		c: c, log: log.New(io.Discard, "", 0), ch: newCHClient(f.serve(t)),
+		c: c, log: log.New(io.Discard, "", 0),
+		m:      &chMachine{ch: newCHClient(f.serve(t)), room: Room{CPUs: 16, Memory: 32 * GiB}},
 		policy: memPolicy{Min: c.MemoryMin, Cap: CapFor(c)},
-		room:   Room{CPUs: 16, Memory: 32 * GiB},
 		state:  api.VMRunning,
 	}
 	s.mem.Requested = 10 * GiB

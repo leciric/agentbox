@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package chv
 
@@ -8,9 +8,10 @@ import (
 	"syscall"
 )
 
-// The VM only runs on a Linux host; elsewhere this package only has to build.
+// The VM only runs on Linux, or on a Mac with the vz driver; elsewhere this
+// package only has to build.
 
-var errLinuxOnly = errors.New("AgentBox's Cloud Hypervisor VM only runs on Linux")
+var errLinuxOnly = errors.New("AgentBox's VM only runs on Linux and macOS")
 
 func childAttr() *syscall.SysProcAttr    { return nil }
 func detachedAttr() *syscall.SysProcAttr { return nil }

@@ -48,13 +48,20 @@ type userDataParams struct {
 	MovableRatio                                   int
 	KernelParams                                   []struct{ Name, Value string }
 	Packages                                       string
+	// VZ is a VM the Virtualization framework runs, on a Mac (vz.go): its
+	// network is the framework's NAT, with DHCP, and the Mac is its gateway.
+	VZ bool
 }
 
-// KernelArgs is what the VM adds to its kernel's command line.
+// KernelArgs is what the VM adds to its kernel's command line: the memory
+// hotplug settings, and for vz its console, which is virtio's (hvc0).
 func (p userDataParams) KernelArgs() string {
 	args := []string{"memhp_default_state=online"}
 	for _, k := range p.KernelParams {
 		args = append(args, "memory_hotplug."+k.Name+"="+k.Value)
+	}
+	if p.VZ {
+		args = append(args, "console=hvc0")
 	}
 	return strings.Join(args, " ")
 }
@@ -118,6 +125,7 @@ func newUserDataParams(c Config, authorizedKey string) (userDataParams, error) {
 		MovableRatio: movableRatio,
 		KernelParams: kernelParams,
 		Packages:     packages,
+		VZ:           c.VZ(),
 	}, nil
 }
 
@@ -140,8 +148,19 @@ func renderUserData(c Config, authorizedKey string) ([]byte, error) {
 
 // networkConfig is the seed's network-config: passt's fixed addresses, on
 // whichever virtio NIC the VM has, rather than cloud-init's default of DHCP
-// on the first boot's MAC address, which the next boot may not have.
-func networkConfig() []byte {
+// on the first boot's MAC address, which the next boot may not have. The
+// Virtualization framework's NAT (vz) has no fixed addresses: DHCP, on
+// whichever virtio NIC.
+func networkConfig(c Config) []byte {
+	if c.VZ() {
+		return []byte(`version: 2
+ethernets:
+  vm:
+    match:
+      driver: virtio_net
+    dhcp4: true
+`)
+	}
 	return fmt.Appendf(nil, `version: 2
 ethernets:
   vm:
@@ -164,7 +183,7 @@ func seedFiles(c Config, authorizedKey string) ([]seedFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	network := networkConfig()
+	network := networkConfig(c)
 	h := sha256.New()
 	h.Write(userData)
 	h.Write(network)

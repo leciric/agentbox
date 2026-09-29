@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"agentbox/internal/api"
 	"agentbox/internal/paths"
 )
 
@@ -85,8 +86,26 @@ type Config struct {
 	Home      string `json:"home"`
 	GuestHome string `json:"guestHome"`
 	// IOLimit caps the VM's disk writes, in bytes a second; 0 is none.
-	IOLimit int64     `json:"ioLimit,omitempty"`
+	IOLimit int64 `json:"ioLimit,omitempty"`
+	// Driver is what runs the VM: "" for Cloud Hypervisor, on Linux, or
+	// DriverVZ, on a Mac (vz.go).
+	Driver  string    `json:"driver,omitempty"`
 	Created time.Time `json:"created"`
+}
+
+// DriverVZ is a VM run by Apple's Virtualization framework, in the
+// supervisor's own process, on a Mac: experimental, beside Lima (vz.go).
+const DriverVZ = "vz"
+
+// VZ reports whether c's VM is run by Apple's Virtualization framework.
+func (c Config) VZ() bool { return c.Driver == DriverVZ }
+
+// DriverName is c's driver, as api.VMStatus names it.
+func (c Config) DriverName() string {
+	if c.VZ() {
+		return api.VMDriverVZ
+	}
+	return api.VMDriverCloudHypervisor
 }
 
 // ErrNotCreated is a VM `agentbox vm init` hasn't made.

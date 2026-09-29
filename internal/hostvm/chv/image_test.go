@@ -160,8 +160,14 @@ func TestToolPins(t *testing.T) {
 	if len(names) != len(tools) {
 		t.Error("two tools of the same name")
 	}
-	if !regexp.MustCompile(`^[0-9a-f]{128}$`).MatchString(debianImageSHA512) || !strings.Contains(debianImageURL, "/"+debianBuild+"/") {
-		t.Error("bad Debian pin")
+	for _, arch := range []string{"amd64", "arm64"} {
+		file, url, sha512, err := debianImage(arch)
+		if err != nil || !regexp.MustCompile(`^[0-9a-f]{128}$`).MatchString(sha512) || !strings.HasSuffix(url, "/"+debianBuild+"/"+file) || !strings.Contains(file, "-"+arch+"-") {
+			t.Errorf("bad Debian pin for %s: %s %s %v", arch, url, sha512, err)
+		}
+	}
+	if _, _, _, err := debianImage("riscv64"); err == nil {
+		t.Error("an image for riscv64")
 	}
 }
 

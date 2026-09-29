@@ -1,7 +1,7 @@
 // Package hostvm runs AgentBox in a Linux VM, with this machine as its front
 // end. Nothing of AgentBox is ported: the daemon, Incus and every agent run in
 // the VM exactly as they run on a Linux machine, and the agentbox command here
-// is a front end for that VM. The VM has one of two drivers:
+// is a front end for that VM. The VM has one of three drivers:
 //
 //   - Lima, on a Mac (D92), and on Linux with AGENTBOX_FRONT_END=vm, which is
 //     how the Mac's front end is tested without a Mac.
@@ -9,6 +9,11 @@
 //     at setup (`agentbox vm init`) over installing Incus on the machine
 //     itself (`agentbox host setup`). Its Config file is what makes the
 //     machine a front end (Front); chvdriver.go is its side of this package.
+//   - vz, on a Mac whose user asked for it (`agentbox vm init --driver vz`):
+//     experimental. Apple's Virtualization framework, driven by AgentBox
+//     itself under package chv's supervisor instead of by Lima (chv/vz.go),
+//     with a chv.Config like Cloud Hypervisor's, which is what makes the Mac
+//     use it rather than Lima (useLima).
 //
 // What they share is here: the binary kept in the VM, the host setup done in
 // it, what its agentbox is told about the host, and forwarding commands. What
@@ -103,10 +108,21 @@ func Handles(args []string) bool {
 		os.Getenv("AGENTBOX_FRONT_END") == "" && os.Getenv(hostos.Env) == "" && !hostos.WSL()
 }
 
-// useLima reports whether this machine's VM is Lima's rather than Cloud
-// Hypervisor's.
+// useLima reports whether this machine's VM is Lima's rather than one of
+// package chv's: Cloud Hypervisor's on Linux, or on a Mac whose VM `agentbox
+// vm init --driver vz` made, the vz driver's.
 func useLima() bool {
-	return runtime.GOOS == "darwin" || os.Getenv("AGENTBOX_FRONT_END") == "vm"
+	if os.Getenv("AGENTBOX_FRONT_END") == "vm" {
+		return true
+	}
+	return runtime.GOOS == "darwin" && !vzMade()
+}
+
+// vzMade reports whether this Mac's VM is the vz driver's: whether `agentbox
+// vm init --driver vz` saved its Config. It is a stat, on every command.
+func vzMade() bool {
+	p, err := paths.Default()
+	return err == nil && chv.Exists(p, env("AGENTBOX_VM", DefaultName))
 }
 
 // VM is AgentBox's VM, seen from the host.
@@ -131,10 +147,10 @@ type VM struct {
 	CHV *CHV
 }
 
-// Driver is api.VMDriverLima or api.VMDriverCloudHypervisor.
+// Driver is api.VMDriverLima, api.VMDriverCloudHypervisor or api.VMDriverVZ.
 func (v *VM) Driver() string {
 	if v.CHV != nil {
-		return api.VMDriverCloudHypervisor
+		return v.CHV.Config.DriverName()
 	}
 	return api.VMDriverLima
 }
@@ -565,7 +581,9 @@ const vmMemoryCapEnv = "AGENTBOX_VM_MEMORY_CAP"
 // Hypervisor VM's is also told the most memory it may be given, which is what
 // its agents' default limits are shares of (agent.HostMemory): its own
 // /proc/meminfo only has what it was granted so far. And where the host's
-// Android SDK is, which its agents run emulators from (androidSDKEnv).
+// Android SDK is, which its agents run emulators from (androidSDKEnv). A vz
+// VM's is on a Mac, like Lima's, and has no Android either: it's only told
+// its cap, which its balloon keeps it under.
 func (v *VM) vmEnv() []string {
 	env := []string{
 		hostos.Env + "=" + runtime.GOOS,
@@ -573,8 +591,10 @@ func (v *VM) vmEnv() []string {
 		"AGENTBOX_WORKTREES=" + v.Paths.Worktrees(),
 	}
 	if v.CHV != nil {
-		env[0] = hostos.Env + "=" + hostos.Linux
 		env = append(env, fmt.Sprintf("%s=%d", vmMemoryCapEnv, v.CHV.Config.MemoryCap))
+	}
+	if v.CHV != nil && !v.CHV.Config.VZ() {
+		env[0] = hostos.Env + "=" + hostos.Linux
 		env = append(env, v.androidSDKEnv()...)
 	}
 	return env

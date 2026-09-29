@@ -38,6 +38,9 @@ const (
 const (
 	VMDriverLima            = "lima"
 	VMDriverCloudHypervisor = "cloud-hypervisor"
+	// VMDriverVZ is Apple's Virtualization framework, driven by AgentBox
+	// itself rather than Lima, on a Mac: experimental.
+	VMDriverVZ = "vz"
 )
 
 // States of the VM.
@@ -53,7 +56,7 @@ const (
 // VMStatus is AgentBox's VM as the host sees it.
 type VMStatus struct {
 	Mode   string `json:"mode"`   // ModeHost or ModeVM
-	Driver string `json:"driver"` // VMDriverLima or VMDriverCloudHypervisor; "" in ModeHost
+	Driver string `json:"driver"` // VMDriverLima, VMDriverCloudHypervisor or VMDriverVZ; "" in ModeHost
 	Name   string `json:"name,omitempty"`
 	State  string `json:"state"` // VMOff, VMStarting, VMRunning, VMPaused, VMStopping or VMMissing
 	// Since is when it got to State, when that's known.
