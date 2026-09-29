@@ -3,7 +3,9 @@
 import { useSyncExternalStore } from 'react';
 import type { VoiceLanguage } from './speakable.ts';
 
-export type ReadAloudSettings = { on: boolean; voice: string; speed: number };
+// voices is the voice for each language: a reply is read by the one for its
+// own (language.ts).
+export type ReadAloudSettings = { on: boolean; voices: Record<VoiceLanguage, string>; speed: number };
 
 // Kokoro's voices, a few of each language: its best-rated English ones, and
 // all three Brazilian Portuguese.
@@ -20,13 +22,18 @@ export const voices: { id: string; label: string; language: VoiceLanguage }[] = 
 
 export const speeds = [0.8, 0.9, 1, 1.1, 1.25, 1.5];
 
-export const languageOf = (voice: string): VoiceLanguage => voices.find((v) => v.id === voice)?.language ?? 'en';
+export const languageOf = (voice: string): VoiceLanguage | undefined => voices.find((v) => v.id === voice)?.language;
 
 const storageKey = 'agentbox.voice.readAloud';
 
+// fallbackLanguage is what a reply is taken to be in when its words don't say:
+// this computer's.
+export function fallbackLanguage(): VoiceLanguage {
+  return typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('pt') ? 'pt' : 'en';
+}
+
 function defaults(): ReadAloudSettings {
-  const pt = typeof navigator !== 'undefined' && navigator.language.toLowerCase().startsWith('pt');
-  return { on: false, voice: pt ? 'pf_dora' : 'af_heart', speed: 1 };
+  return { on: false, voices: { en: 'af_heart', pt: 'pf_dora' }, speed: 1 };
 }
 
 let current: ReadAloudSettings | undefined;
@@ -36,9 +43,13 @@ export function readAloudSettings(): ReadAloudSettings {
   if (!current) {
     current = defaults();
     try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<ReadAloudSettings>;
+      const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<ReadAloudSettings> & { voice?: string };
       if (typeof saved.on === 'boolean') current.on = saved.on;
-      if (voices.some((v) => v.id === saved.voice)) current.voice = saved.voice!;
+      // One voice for everything, as it was before: it stays its language's.
+      for (const id of [saved.voice, saved.voices?.en, saved.voices?.pt]) {
+        const language = languageOf(id ?? '');
+        if (language) current.voices = { ...current.voices, [language]: id! };
+      }
       if (typeof saved.speed === 'number' && speeds.includes(saved.speed)) current.speed = saved.speed;
     } catch {
       // Nothing saved, or no storage: the defaults.

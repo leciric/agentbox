@@ -1,10 +1,11 @@
-// The one voice the app has: sentences queued to Kokoro's worker, and played
+// The app's voice: sentences queued to Kokoro's worker, and played
 // in order as their audio comes back, while the next ones are being made.
 // Skip ends the sentence playing; stop drops everything queued, and whatever
 // the worker is still making for it.
 import { useSyncExternalStore } from 'react';
 import type { WorkerReply, WorkerRequest } from './kokoro.worker';
 import { readAloudSettings } from './settings.ts';
+import type { VoiceLanguage } from './speakable.ts';
 
 export type ReaderState = {
   // loading is the first use: Kokoro and eSpeak NG downloading, or starting.
@@ -104,9 +105,11 @@ export function unlock(): void {
   void context.resume().catch(() => {});
 }
 
-// speak queues a sentence in the voice and speed the settings have now.
-export function speak(text: string): void {
-  const { voice, speed } = readAloudSettings();
+// speak queues a sentence in the settings' voice for its language, at their
+// speed, as they are now.
+export function speak(text: string, language: VoiceLanguage): void {
+  const { voices, speed } = readAloudSettings();
+  const voice = voices[language];
   unlock();
   const entry: Entry = { id: nextId++ };
   queue.push(entry);

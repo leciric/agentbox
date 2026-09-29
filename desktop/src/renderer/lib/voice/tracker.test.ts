@@ -26,9 +26,9 @@ test('a new reply is read as it streams, and only the assistant says anything', 
       item('hid', 'assistant', 'Hidden. Text.', { hidden: true }),
       item('a2', 'assistant', 'Fixed the bug. Now', { streaming: true }),
     ]),
-    ['Fixed the bug.'],
+    [{ text: 'Fixed the bug.', language: 'en' }],
   );
-  assert.deepEqual(t.next([...old, user, item('a2', 'assistant', 'Fixed the bug. Now the tests pass.')]), ['Now the tests pass.']);
+  assert.deepEqual(t.next([...old, user, item('a2', 'assistant', 'Fixed the bug. Now the tests pass.')]), [{ text: 'Now the tests pass.', language: 'en' }]);
 });
 
 test('older messages loaded in front are not read', () => {
@@ -41,5 +41,22 @@ test('older messages loaded in front are not read', () => {
 test('a new chat replacing the thread is read', () => {
   const t = new ReplyTracker('en');
   t.next([item('u1', 'user', 'Hi'), item('a1', 'assistant', 'Hello.')]);
-  assert.deepEqual(t.next([item('u9', 'user', 'New'), item('a9', 'assistant', 'Fresh start.')]), ['Fresh start.']);
+  assert.deepEqual(t.next([item('u9', 'user', 'New'), item('a9', 'assistant', 'Fresh start.')]), [{ text: 'Fresh start.', language: 'en' }]);
+});
+
+test('each reply is read in its own language', () => {
+  const t = new ReplyTracker('en');
+  t.next([item('u1', 'user', 'Oi')]);
+  assert.deepEqual(
+    t.next([
+      item('u1', 'user', 'Oi'),
+      item('a1', 'assistant', 'Corrigi o bug e os testes passam. Veja o `parser`.'),
+      item('a2', 'assistant', 'The build is green now.'),
+    ]),
+    [
+      { text: 'Corrigi o bug e os testes passam.', language: 'pt' },
+      { text: 'Veja o parser.', language: 'pt' },
+      { text: 'The build is green now.', language: 'en' },
+    ],
+  );
 });

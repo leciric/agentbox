@@ -53,3 +53,11 @@ test('turning reading on mid-reply starts from the next sentence', () => {
   const settled = new SentenceFeed('en', 'All done.', true);
   assert.deepEqual(settled.next('All done.', true), []);
 });
+
+test('a reply keeps the language of its first sentence', () => {
+  const feed = new SentenceFeed('en');
+  assert.deepEqual(feed.next('Rodei os testes e tudo passou. Look', false), ['Rodei os testes e tudo passou.']);
+  assert.equal(feed.language, 'pt');
+  assert.deepEqual(feed.next('Rodei os testes e tudo passou. Look at the logs, the build is in the chat. ', false), ['Look at the logs, the build is in the chat.']);
+  assert.equal(feed.language, 'pt');
+});

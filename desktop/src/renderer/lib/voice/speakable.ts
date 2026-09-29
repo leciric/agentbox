@@ -2,6 +2,8 @@
 // sentences, and the sentences of a reply that is still streaming handed out
 // as each one ends. Pure text, so it is tested without a voice to hear it.
 
+import { detectLanguage } from './language.ts';
+
 export type VoiceLanguage = 'en' | 'pt';
 
 // What a code block is read as: the code itself is no use heard.
@@ -106,26 +108,34 @@ function cut(sentence: string): string[] {
 // of a line still being written can read differently once it ends (a `**`
 // that closes), but only in the sentence that hasn't ended, which isn't
 // handed out yet.
+//
+// The reply's language is settled by what it says up to its first sentence
+// handed out (language.ts), and kept: one voice reads the whole reply.
 export class SentenceFeed {
   private said = 0;
-  private readonly language: VoiceLanguage;
+  private readonly fallback: VoiceLanguage;
+  language: VoiceLanguage | undefined;
 
   // skipText starts the feed past what the reply had already said when
   // reading was turned on, so turning it on mid-reply picks up from there.
-  constructor(language: VoiceLanguage, skipText?: string, skipDone = false) {
-    this.language = language;
-    if (skipText !== undefined) this.said = this.ended(skipText, skipDone).length;
+  constructor(fallback: VoiceLanguage, skipText?: string, skipDone = false) {
+    this.fallback = fallback;
+    if (skipText !== undefined) {
+      this.said = this.ended(skipText, skipDone).length;
+      if (this.said > 0) this.language = detectLanguage(skipText, fallback);
+    }
   }
 
   next(text: string, done: boolean): string[] {
     const all = this.ended(text, done);
     const fresh = all.slice(this.said);
     this.said = Math.max(this.said, all.length);
+    if (fresh.length > 0) this.language ??= detectLanguage(text, this.fallback);
     return fresh;
   }
 
   private ended(text: string, done: boolean): string[] {
-    const all = sentences(speakableText(text, this.language));
+    const all = sentences(speakableText(text, this.language ?? detectLanguage(text, this.fallback)));
     if (done || all.length === 0) return all;
     // The last piece has ended if the text goes on past its end: a space, or a
     // new line, after its full stop.

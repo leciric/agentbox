@@ -1,7 +1,8 @@
 /// <reference lib="webworker" />
 // Kokoro-82M, run in a worker so the chat never waits on it: sentences come in,
 // audio goes out, one at a time and in order. WebGPU when this machine's
-// Chromium has an adapter, WebAssembly otherwise. The weights come from
+// Chromium has an adapter (with onnxruntime-web patched, ortPatch.mts),
+// WebAssembly otherwise. The weights come from
 // Hugging Face the first time and stay in the cache; eSpeak NG comes the same
 // way (espeak.ts). onnxruntime's own WebAssembly is bundled: it is MIT.
 import { env as transformers } from '@huggingface/transformers';
@@ -49,12 +50,21 @@ const report = (file: string, loaded: number, total: number) => {
 onEspeakProgress(({ file, loaded, total }) => report(file, loaded, total));
 
 let tts: Promise<KokoroTTS> | undefined;
+let device: 'webgpu' | 'wasm' = 'wasm';
+
+const progress_callback = (p: { status: string; file?: string; loaded?: number; total?: number }) => {
+  if (p.status === 'progress' && p.file) report(p.file, p.loaded ?? 0, p.total ?? 0);
+};
+
+async function onWasm(): Promise<KokoroTTS> {
+  const k = await KokoroTTS.from_pretrained(model, { dtype: 'q8', device: 'wasm', progress_callback });
+  device = 'wasm';
+  post({ type: 'ready', device });
+  return k;
+}
 
 function load(): Promise<KokoroTTS> {
   tts ??= (async () => {
-    const progress_callback = (p: { status: string; file?: string; loaded?: number; total?: number }) => {
-      if (p.status === 'progress' && p.file) report(p.file, p.loaded ?? 0, p.total ?? 0);
-    };
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
     const adapter = await gpu?.requestAdapter().catch(() => null);
     const [kokoro] = await Promise.all([
@@ -62,15 +72,14 @@ function load(): Promise<KokoroTTS> {
         if (adapter) {
           try {
             const k = await KokoroTTS.from_pretrained(model, { dtype: 'fp32', device: 'webgpu', progress_callback });
-            post({ type: 'ready', device: 'webgpu' });
+            device = 'webgpu';
+            post({ type: 'ready', device });
             return k;
           } catch (err) {
             console.warn('Kokoro on WebGPU failed, using WebAssembly', err);
           }
         }
-        const k = await KokoroTTS.from_pretrained(model, { dtype: 'q8', device: 'wasm', progress_callback });
-        post({ type: 'ready', device: 'wasm' });
-        return k;
+        return onWasm();
       })(),
       loadEspeak(),
     ]);
@@ -80,8 +89,23 @@ function load(): Promise<KokoroTTS> {
   return tts;
 }
 
+// Kokoro's speech stays within ±1. A GPU that gets one of its operations
+// wrong makes a loud buzz instead, far outside it: onnxruntime-web's
+// ConvTranspose did on AMD's Vulkan driver (ortPatch.mts), and whatever does
+// next is caught here, and the rest is read on the CPU.
+const speech = (samples: Float32Array) => samples.every((x) => Math.abs(x) <= 2);
+
 async function speak(text: string, voice: string, speed: number): Promise<Float32Array> {
   const kokoro = await load();
+  const samples = await generate(kokoro, text, voice, speed);
+  if (device === 'wasm' || speech(samples)) return samples;
+  console.warn('Kokoro on WebGPU made noise, not speech: using WebAssembly');
+  tts = onWasm();
+  tts.catch(() => (tts = undefined));
+  return generate(await tts, text, voice, speed);
+}
+
+async function generate(kokoro: KokoroTTS, text: string, voice: string, speed: number): Promise<Float32Array> {
   // kokoro-js reads English itself; Portuguese goes through Kokoro's own
   // eSpeak NG rules (g2p.ts), with the voice kokoro-js has no entry for.
   if (voice.startsWith('p')) {
