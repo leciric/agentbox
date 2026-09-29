@@ -39,6 +39,17 @@ sequenceDiagram
 - `request_connector`, an agent asking the user for one
   ([`internal/daemon/connectorrequests.go`](../internal/daemon/connectorrequests.go)), and the
   lead's `list_connectors` and `create_agent`'s `connectors` ([`internal/cli/mcp.go`](../internal/cli/mcp.go)).
+- The app's Connectors tab, on a project and on an agent
+  ([`desktop/src/renderer/components/ConnectorsTab.tsx`](../desktop/src/renderer/components/ConnectorsTab.tsx)):
+  a catalog of Notion, Linear, Sentry and Figma plus a custom URL, and each connector with its
+  status, its token's expiry, Connect and Disconnect. Connect opens the sign-in in the user's own
+  browser and the row updates from `EventConnector`. Figma's preset asks for a personal access
+  token straight away, stored as the secret `FIGMA_TOKEN` and sent as `X-Figma-Token`. The presets
+  are in [`desktop/src/renderer/lib/connectors.ts`](../desktop/src/renderer/lib/connectors.ts),
+  along with the app's `request_connector` card: a question of kind `connector` naming the
+  connector (`Question.connector`, or `secretName`) and its `url` when it isn't a preset, answered
+  on the credential route with `{"connector": "<name>"}` or a refusal
+  ([`ConnectorRequestCard.tsx`](../desktop/src/renderer/components/ConnectorRequestCard.tsx)).
 
 ## Scope
 

@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api } from '../lib/api';
+import { RequestConnector } from '../lib/connectors';
 import { cn, errorMessage } from '../lib/utils';
+import { ConnectorRequestCard } from './ConnectorRequestCard';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
@@ -16,6 +18,7 @@ import { Input } from './ui/input';
 // variable a secret is in, or that you refused — and never the value, which
 // is the whole reason this is a card and not a question you answer in words.
 export function CredentialCard({ question }: { question: T.Question }) {
+  if (question.kind === RequestConnector) return <ConnectorRequestCard question={question} />;
   const waiting = question.status === 'pending' || question.status === 'escalated';
   return (
     <div className="mt-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5" data-thread-credential={question.id}>
@@ -142,6 +145,7 @@ function isOpen(q: T.Question): boolean {
 // agent was told, which is written for the agent.
 function answeredLine(q: T.Question): string {
   if (q.answer?.startsWith('refused')) return 'You refused it.';
+  if (q.kind === RequestConnector) return 'The agent has the connector now.';
   return q.kind === A.CredentialSecret ? `$${q.secretName} is saved for the project's agents.` : 'The agent has a GitHub account now.';
 }
 

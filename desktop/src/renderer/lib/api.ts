@@ -1,6 +1,7 @@
 // Typed calls to the daemon's HTTP API, sent through the main process.
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
+import type { AnswerConnectorRequest } from './connectors.ts';
 import { errorMessage } from './utils.ts';
 import { ensureVMRunning } from './vm.ts';
 
@@ -62,6 +63,9 @@ const filesBase = (ref: string) => {
 // A secrets target is a project ("pawly") or one agent ("pawly/agent-01"),
 // the same two scopes the command line takes.
 const secretsBase = (target: string) => (target.includes('/') ? `${agent(target)}/secrets` : `${project(target)}/secrets`);
+// Connectors take the same two targets.
+const connectorsBase = (target: string) => (target.includes('/') ? `${agent(target)}/connectors` : `${project(target)}/connectors`);
+const connectorPath = (target: string, name: string) => `${connectorsBase(target)}/${encodeURIComponent(name)}`;
 
 export type AgentAction = 'start' | 'stop' | 'pause' | 'resume';
 
@@ -183,6 +187,14 @@ export const api = {
     call<T.Secret>('PUT', `${secretsBase(target)}/${encodeURIComponent(name)}`, { value } satisfies T.SetSecretRequest),
   removeSecret: (target: string, name: string) => call<void>('DELETE', `${secretsBase(target)}/${encodeURIComponent(name)}`),
 
+  // Connectors: remote MCP servers the agents use, signed in on the host. No
+  // answer carries a token (docs/connectors.md).
+  connectors: (target: string) => call<T.Connector[]>('GET', connectorsBase(target)),
+  setConnector: (target: string, name: string, req: T.SetConnectorRequest) => call<T.Connector>('PUT', connectorPath(target, name), req),
+  removeConnector: (target: string, name: string) => call<void>('DELETE', connectorPath(target, name)),
+  connectConnector: (target: string, name: string) => call<T.ConnectResult>('POST', `${connectorPath(target, name)}/connect`),
+  disconnectConnector: (target: string, name: string) => call<T.Connector>('POST', `${connectorPath(target, name)}/disconnect`),
+
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
 
   // The agent queue (per-project slots): every project's slots always, and
@@ -202,6 +214,10 @@ export const api = {
   // An agent's credential request: the value goes to the daemon, which puts it
   // into the agent, and the agent is told only what happened (D95).
   answerCredential: (name: string, id: string, req: T.AnswerCredentialRequest) =>
+    call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/credential`, req),
+  // A request_connector is answered on the credential route too, with the
+  // connector it now has. Expected, not settled: see lib/connectors.ts.
+  answerConnector: (name: string, id: string, req: AnswerConnectorRequest) =>
     call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/credential`, req),
   retire: (project: string, req: T.RetireRequest) => call<T.RetireResult>('POST', `/v1/projects/${encodeURIComponent(project)}/retire`, req),
   projectMedia: (project: string, agent = '', kind = '') => {

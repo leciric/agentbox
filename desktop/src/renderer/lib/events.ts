@@ -86,6 +86,17 @@ export function connectEvents(queryClient: QueryClient): void {
         void queryClient.invalidateQueries({ queryKey: ['questions', question.project] });
         break;
       }
+      case T.EventConnector: {
+        // A connector was added, changed or removed, or a sign-in finished.
+        // Every list it can be in is refetched: its project's, and each of
+        // the project's agents', which carry the project's connectors too.
+        const connector = event.data as T.Connector;
+        void queryClient.invalidateQueries({
+          queryKey: ['connectors'],
+          predicate: (query) => String(query.queryKey[1]).split('/')[0] === connector.project,
+        });
+        break;
+      }
       case T.EventTheme:
         // The desktop this machine runs changed its theme, or the setting
         // that decides whether to follow it did. The query holds it; the

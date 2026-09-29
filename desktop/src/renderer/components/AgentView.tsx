@@ -20,6 +20,7 @@ import {
   Pause,
   Pencil,
   Play,
+  Plug,
   Smartphone,
   Square,
   SquareTerminal,
@@ -35,6 +36,7 @@ import { cn, errorMessage } from '../lib/utils';
 import { AndroidTab } from './AndroidTab';
 import { BrowserTab } from './BrowserTab';
 import { ChatHeaderControls, ChatTab } from './chat/ChatTab';
+import { ConnectorsTab } from './ConnectorsTab';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { MediaTab } from './MediaTab';
 import { OverviewTab } from './OverviewTab';
@@ -48,7 +50,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/me
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 
-export type AgentTab = 'chat' | 'terminal' | 'browser' | 'android' | 'media' | 'overview' | 'secrets' | 'snapshots';
+export type AgentTab = 'chat' | 'terminal' | 'browser' | 'android' | 'media' | 'overview' | 'secrets' | 'connectors' | 'snapshots';
 
 export function AgentView({
   agentRef,
@@ -245,6 +247,10 @@ export function AgentView({
               <KeyRound />
               Secrets
             </TabsTrigger>
+            <TabsTrigger value="connectors">
+              <Plug />
+              Connectors
+            </TabsTrigger>
             <TabsTrigger value="snapshots">
               <Camera />
               Snapshots
@@ -281,6 +287,9 @@ export function AgentView({
           </TabsContent>
           <TabsContent value="secrets" className="flex flex-col">
             <SecretsTab target={agent.ref} />
+          </TabsContent>
+          <TabsContent value="connectors" className="flex flex-col">
+            <ConnectorsTab target={agent.ref} />
           </TabsContent>
           <TabsContent value="snapshots">
             <SnapshotsTab agent={agent} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
