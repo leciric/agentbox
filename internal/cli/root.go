@@ -295,6 +295,7 @@ func NewRootCmd() *cobra.Command {
 		newWhoamiCmd(),
 		newVersionCmd(a),
 		newRemoteCmd(a),
+		newPhoneCmd(a),
 		newLoginCmd(a),
 		newLogoutCmd(a),
 		newEnvCmd(a),

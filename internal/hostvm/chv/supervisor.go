@@ -157,6 +157,14 @@ func (s *supervisor) run(ctx context.Context) error {
 	loops, stopLoops := context.WithCancel(ctx)
 	defer stopLoops()
 	go s.waitDaemon(loops, started)
+	lanDone := make(chan struct{})
+	go func() {
+		defer close(lanDone)
+		dial := func(ctx context.Context) (net.Conn, error) { return dialVsock(ctx, s.l.VsockSocket(), PortDaemon) }
+		newLANForward(dial, func() bool { return s.getState() != api.VMPaused }, s.logf).run(loops)
+	}()
+	// Phones' port closes with the other forwards, before the VM stops.
+	defer func() { stopLoops(); <-lanDone }()
 	go s.memoryLoop(loops)
 
 	var req api.VMStopRequest
