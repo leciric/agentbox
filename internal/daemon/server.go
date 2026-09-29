@@ -114,6 +114,7 @@ type Server struct {
 	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
+	lan          *lanState                // phones chatting from the local network (lan.go)
 	remoteStop   context.CancelFunc
 	// openCodeModels is the state of the background ask that fills OpenCode's
 	// model menu: whether one is running, and when the last one started.
@@ -152,6 +153,7 @@ func New(cfg Config) (*Server, error) {
 		files:            newFilesCache(),
 		updates:          updates{now: make(chan struct{}, 1)},
 		terminalActivity: map[string]time.Time{},
+		lan:              newLANState(),
 	}
 	s.thrash = agent.NewThrashWatch(func(ctx context.Context, instance string, limit int64) string {
 		return s.manager(nil).MemoryRaise(ctx, instance, limit)
@@ -209,6 +211,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.reconcile(ctx)
 	s.servePreview(ctx)
+	s.applyLAN(ctx)
+	defer s.closeLAN()
 	s.watchTheme(ctx)
 	// Run's own loops end with it, and it waits for them: deferred after the
 	// store's Close, this runs before it, so none of them outlives the
@@ -503,6 +507,15 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/remote", s.getRemote)
 	h("PUT /v1/remote", s.connectRemote)
 	h("DELETE /v1/remote", s.disconnectRemote)
+	// Chatting from a phone on the local network (lan.go).
+	h("GET /v1/lan", s.getLAN)
+	h("PATCH /v1/lan", s.updateLAN)
+	h("POST /v1/lan/pairings", s.addLANPairing)
+	h("DELETE /v1/lan/phones/{id}", s.removeLANPhone)
+	h("PUT /v1/lan/host", s.lanHostReport)
+	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
+	h("POST /v1/lan/web/{version}", s.installLANWeb)
+	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(true)))
 
 	h("GET /v1/jobs", s.listJobs)
 	h("GET /v1/jobs/{id}", s.getJob)

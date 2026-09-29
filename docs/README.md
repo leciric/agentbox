@@ -59,6 +59,8 @@ flowchart LR
   tool it can call.
 - [Chat over ACP](chat.md) — how AgentBox drives Claude Code, Codex and OpenCode through the
   Agent Client Protocol, and how a turn becomes chat history.
+- [Chatting from your phone](phone.md) — reading and answering your chats from a phone's browser
+  on the same network: pairing it, unpairing it, and what it can reach.
 - [Project memory](memory.md) — events, memories, tasks, artifacts, reports, consolidation, and
   the context builder that assembles what an agent is told.
 - [The token ledger and Claude accounts](tokens.md) — `token_usage`, `agentbox tokens`, multiple

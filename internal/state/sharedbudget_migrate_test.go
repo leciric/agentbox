@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -51,7 +53,9 @@ func TestSharedBudgetOffByDefaultMigration(t *testing.T) {
 			}
 			// Up to just before the offer, then what the database had, the
 			// offer, and what the daemon did after it.
-			offer := len(migrations) - 3
+			offer := slices.IndexFunc(migrations, func(q string) bool {
+				return strings.Contains(q, "INSERT INTO settings (key, value) SELECT 'shared_budget_offer'")
+			})
 			run := func(qs ...string) {
 				t.Helper()
 				for _, q := range qs {

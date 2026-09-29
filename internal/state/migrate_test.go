@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -70,11 +72,10 @@ func TestNameReuseMigrationCleansUpOrphans(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// The name-reuse migration set is 8 entries, followed since by 6 more
-	// (agent_prs, pr_watch, pr_watches, shared_budget_offer and the two that
-	// undo it) that don't touch what it does; stop just short of the
+	// The name-reuse migration set is the 8 entries just before agent_prs,
+	// and those after it don't touch what it does; stop just short of the
 	// name-reuse set, not of the very end.
-	start := len(migrations) - 8 - 6
+	start := slices.IndexFunc(migrations, func(q string) bool { return strings.Contains(q, "ADD COLUMN agent_prs") }) - 8
 	for i, m := range migrations[:start] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)

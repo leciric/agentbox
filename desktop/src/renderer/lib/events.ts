@@ -99,6 +99,10 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventUsage:
         queryClient.setQueryData(['usage'], event.data as T.Usage);
         break;
+      case T.EventLAN:
+        // Phones: turned on or off, one paired or revoked (Settings, Phone).
+        void queryClient.invalidateQueries({ queryKey: ['lan'] });
+        break;
       case T.EventProject:
         void queryClient.invalidateQueries({ queryKey: ['projects'] });
         // The project's notes change with it: the lead writes them too.

@@ -42,6 +42,9 @@ import { ImageThumb } from './Images';
 import { VoiceButton } from './VoiceButton';
 import { voiceSettings } from '../../lib/voice/settings';
 
+// onPhone is the app on a phone paired with the daemon (web/bridge.ts's lan).
+const onPhone = (window.agentbox as { lan?: boolean } | undefined)?.lan === true;
+
 export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; thread?: T.ChatThread; disabled: boolean; onSent: () => void }) {
   const [text, setText] = useState(() => getDraft(agent.ref));
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -452,7 +455,9 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />
-            <VoiceButton disabled={disabled} onText={dictated} scope={area} />
+            {/* A phone (web/bridge.ts's lan) has its own keyboard's dictation,
+                and isn't sent the models the button runs. */}
+            {!onPhone && <VoiceButton disabled={disabled} onText={dictated} scope={area} />}
             {busy && (
               <Tip label="Stop">
                 <button
