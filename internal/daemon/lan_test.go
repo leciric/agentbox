@@ -141,9 +141,13 @@ func TestPhoneOnTheLocalNetwork(t *testing.T) {
 	}
 	secret := secretOf(t, pairing)
 	pair := `{"secret":"` + secret + `","name":"Pixel 8"}`
-	// Another site's page can't pair, even with the secret.
+	// Another site's page can't pair, even with the secret, nor by saying
+	// it was forwarded.
 	if code, _ := phone.do("POST", "/lan/pair", pair, "Origin", "http://evil.example"); code != http.StatusForbidden {
 		t.Errorf("pairing from another origin = %d", code)
+	}
+	if code, _ := phone.do("POST", "/lan/pair", pair, "Origin", "http://evil.example", "X-Forwarded-Host", "evil.example"); code != http.StatusForbidden {
+		t.Errorf("pairing from another origin, forwarded = %d", code)
 	}
 	code, body := phone.do("POST", "/lan/pair", pair, "Origin", base)
 	if code != 200 || !strings.Contains(body, `"name":"Pixel 8"`) {
@@ -242,7 +246,8 @@ func TestPhoneThroughTheVMsHost(t *testing.T) {
 	}
 	socket := d.client.HTTPClient().Transport
 	phone := newPhone(t, "http://daemon"+lanNetPrefix, socket)
-	code, _ := phone.do("POST", "/lan/pair", `{"secret":"`+secretOf(t, pairing)+`","name":"iPhone"}`, "X-Forwarded-For", "192.168.1.77")
+	code, _ := phone.do("POST", "/lan/pair", `{"secret":"`+secretOf(t, pairing)+`","name":"iPhone"}`,
+		"X-Forwarded-For", "192.168.1.77", "X-Forwarded-Host", "192.168.1.5:7780", "Origin", "http://192.168.1.5:7780")
 	if code != 200 {
 		t.Fatalf("pairing through the socket = %d", code)
 	}

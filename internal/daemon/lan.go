@@ -431,7 +431,7 @@ func (s *Server) lanHandler(viaSocket bool) http.Handler {
 		} else if host, _, err := net.SplitHostPort(addr); err == nil {
 			addr = host
 		}
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r, viaSocket) {
 			writeLANError(w, http.StatusForbidden, "this request didn't come from AgentBox's own page")
 			return
 		}
@@ -463,15 +463,16 @@ func (s *Server) lanHandler(viaSocket bool) http.Handler {
 // sameOrigin says a request that changes something came from a page of this
 // same origin, as far as the browser says: a page elsewhere can't send the
 // phone's cookie anyway (SameSite=Strict), and this also stops one that
-// rebinds its own name to this address.
-func sameOrigin(r *http.Request) bool {
+// rebinds its own name to this address. Through the VM's supervisor, the
+// host the phone asked for is in X-Forwarded-Host.
+func sameOrigin(r *http.Request, viaSocket bool) bool {
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
 		return false
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
-		host := r.Header.Get("X-Forwarded-Host")
-		if host == "" {
-			host = r.Host
+		host := r.Host
+		if fwd := r.Header.Get("X-Forwarded-Host"); viaSocket && fwd != "" {
+			host = fwd
 		}
 		return origin == "http://"+host || origin == "https://"+host
 	}
