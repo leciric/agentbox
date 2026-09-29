@@ -1,0 +1,41 @@
+# Temporary: checks krunkit detection against Homebrew's real Lima and krunkit
+# on a Mac runner, for the PR that adds it. Removed before merging.
+name: krunkit check
+on:
+  push:
+    branches: [agentbox/feat-lima-memory-balloon]
+jobs:
+  krunkit:
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go
+      - name: Install Lima and krunkit
+        run: |
+          brew install lima jq
+          brew tap slp/krun
+          brew install krunkit
+          sw_vers; uname -m
+          limactl --version; krunkit --version
+          brew info --json=v2 --installed | jq -r '.formulae[] | select(.name | test("krun|lima")) | "\(.name) \(.installed[0].version)"'
+          limactl info | jq '{hostOS, hostArch, vmTypesEx}'
+      - name: Build agentbox
+        run: |
+          go build -o bin/agentbox ./cmd/agentbox
+          GOOS=linux GOARCH=arm64 go build -o bin/agentbox-linux ./cmd/agentbox
+      - name: vm status, with the PATH an app opened from the Finder gets
+        run: env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin:/usr/sbin:/sbin bin/agentbox vm status --json | tee status.json
+      - name: vm init, with that PATH (the runner can't boot VMs, so start is expected to fail)
+        continue-on-error: true
+        timeout-minutes: 20
+        run: env -i HOME="$HOME" USER="$USER" PATH=/usr/bin:/bin:/usr/sbin:/sbin bin/agentbox vm init
+      - name: What Lima made
+        if: always()
+        run: |
+          limactl list --format json | jq '{name, status, vmType, memory}'
+          grep -E '^(vmType|memory|mountType):' ~/.lima/agentbox/lima.yaml || true
+          tail -40 ~/.lima/agentbox/ha.stderr.log 2>/dev/null || true
+          tail -20 ~/.lima/agentbox/krunkit.log 2>/dev/null || true
