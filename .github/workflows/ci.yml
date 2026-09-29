@@ -58,7 +58,7 @@ jobs:
   # driver's own with a test binary signed the same way. The runner can't
   # boot a VM: what only a real Mac shows is in the vz driver's PR.
   macos:
-    name: Go on a Mac
+    name: Go on macOS
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
