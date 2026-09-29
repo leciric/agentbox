@@ -14,7 +14,7 @@ import (
 )
 
 // The lead runs its AI tool on the host, so Claude Code and its ACP adapter
-// have to be there. They are not bundled in the app: the binary alone is
+// have to be there (and the GitHub CLI, hostgh.go). They are not bundled in the app: the binary alone is
 // larger than the AppImage, and a bundled copy would go stale. They are
 // installed on first use instead, into AgentBox's own directory, reported
 // through the chat's status line the same way an agent's adapter is.
@@ -43,7 +43,8 @@ func (m *Manager) adapterPath() string {
 	return filepath.Join(m.toolsHome(), "node_modules", ".bin", ChatAdapters["claude"].Command)
 }
 
-// hostTools finds Claude Code and its adapter, installing whichever is missing.
+// hostTools finds Claude Code, its adapter and the GitHub CLI, installing
+// whichever is missing.
 // status reports what it is doing, which the chat shows while it starts.
 func (m *Manager) hostTools(ctx context.Context, status func(detail string)) (hostTools, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostInstallTimeout)
@@ -58,6 +59,12 @@ func (m *Manager) hostTools(ctx context.Context, status func(detail string)) (ho
 		return hostTools{}, err
 	}
 	bin := []string{filepath.Dir(claude), filepath.Dir(adapter)}
+	// The chat works without gh, so a failed install costs the lead only gh.
+	if gh, err := m.ensureGH(ctx, status); err != nil {
+		m.logf("The project chat starts without the GitHub CLI: %v", err)
+	} else {
+		bin = append(bin, filepath.Dir(gh))
+	}
 	// The adapter is a Node script, so node has to be findable too, and node is
 	// usually a shim as well.
 	if node := onPath("node"); node != "" {

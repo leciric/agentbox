@@ -242,6 +242,10 @@ type Manager struct {
 	// in — the host's Omarchy theme, when AgentBox is following one. Unset is
 	// BrandDesktopTheme, which is what the command-line tool gets.
 	DesktopTheme func() DesktopTheme
+
+	// ghReleases, when set, is where the lead's GitHub CLI is downloaded from
+	// instead of GitHub's releases (hostgh.go). Tests point it at a server.
+	ghReleases string
 }
 
 func InstanceName(project, agent string) string { return "ab-" + project + "-" + agent }
