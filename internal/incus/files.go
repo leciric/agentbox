@@ -76,6 +76,11 @@ func pullTree(conn *sftp.Client, from, target string) error {
 	}
 }
 
+// sftpChunk is how much pullFile asks an instance's SFTP server for at a
+// time: no more than a packet, whatever the client's maximum, since sftp's
+// own default is 32 KiB and Incus's is 128 KiB.
+const sftpChunk = 32 * 1024
+
 func pullFile(conn *sftp.Client, from, target string, mode os.FileMode) error {
 	src, err := conn.Open(from)
 	if err != nil {
@@ -86,7 +91,15 @@ func pullFile(conn *sftp.Client, from, target string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(dst, src); err != nil {
+	// Not io.Copy(dst, src): that hands the copy to src.WriteTo, which reads
+	// a large file in concurrent maxPacket-sized requests and trusts each to
+	// come back whole. Incus asks for 128 KiB packets and its server answers
+	// with 32 KiB, so every 128 KiB kept its first 32 and lost the rest: a
+	// recording came out a quarter of its size, and played as black. Reads
+	// of at most a packet are sent one at a time, and pkg/sftp asks again
+	// for whatever a short answer left out; sftp's ReadAt, for a larger
+	// buffer, takes a short answer for the end of the file instead.
+	if _, err := io.CopyBuffer(dst, struct{ io.Reader }{src}, make([]byte, sftpChunk)); err != nil {
 		_ = dst.Close()
 		return err
 	}
@@ -144,7 +157,15 @@ func (c Client) PushFile(ctx context.Context, local, name, file string, mode os.
 				return fmt.Errorf("Failed to open target file %q: %w", target, err)
 			}
 			defer func() { _ = dst.Close() }()
-			if _, err := io.Copy(dst, src); err != nil {
+			// Not io.Copy(dst, src): that hands the copy to src.WriteTo, which reads
+	// a large file in concurrent maxPacket-sized requests and trusts each to
+	// come back whole. Incus asks for 128 KiB packets and its server answers
+	// with 32 KiB, so every 128 KiB kept its first 32 and lost the rest: a
+	// recording came out a quarter of its size, and played as black. Reads
+	// of at most a packet are sent one at a time, and pkg/sftp asks again
+	// for whatever a short answer left out; sftp's ReadAt, for a larger
+	// buffer, takes a short answer for the end of the file instead.
+	if _, err := io.CopyBuffer(dst, struct{ io.Reader }{src}, make([]byte, sftpChunk)); err != nil {
 				return err
 			}
 			if !exists {
