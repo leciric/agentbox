@@ -28,6 +28,11 @@ type chMachine struct {
 // Hypervisor's API to answer.
 func (m *chMachine) boot(ctx context.Context) error {
 	if m.c.Home != "" {
+		// virtiofsd takes as many files as it may: the hard limit, or a
+		// million. What the VM keeps cached of the home costs one each.
+		if n := maxOpenFiles(); n > 0 && n < minVirtiofsdFiles {
+			m.logf("warning: this session may only open %d files (ulimit -Hn), and virtiofsd needs one for every file of your home the VM has in its cache: reads there may fail with \"Too many open files in system\". Raise it to %d or more (DefaultLimitNOFILE in systemd's user.conf).", n, minVirtiofsdFiles)
+		}
 		var err error
 		m.fs, err = m.startVirtiofsd(ctx, "namespace")
 		if err != nil {

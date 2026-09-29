@@ -34,3 +34,6 @@ func hostMemory() int64 {
 // /proc/locks; there is no such thing on a Mac, so lockFile's own error is
 // all there is.
 func lockHolder(string) int { return 0 }
+
+// maxOpenFiles is only Cloud Hypervisor's virtiofsd's concern, on Linux.
+func maxOpenFiles() uint64 { return 0 }
