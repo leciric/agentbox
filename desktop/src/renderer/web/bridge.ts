@@ -1,13 +1,25 @@
-// The app's bridge in a browser, when the hub serves the app: the same surface
-// as the desktop app's preload script, over the hub's HTTP API with the session
-// cookie. There's one hub (this page's origin); the environment you pick is
-// remembered in this browser. What needs your own machine (installing the
-// command-line tool, its folder picker, opening local folders) isn't available.
+// The app's bridge in a browser: the same surface as the desktop app's preload
+// script, over HTTP with a cookie. Two things serve the app this way.
+//
+// A hub: its API with the session cookie. There's one hub (this page's
+// origin); the environment you pick is remembered in this browser.
+//
+// A daemon, to a phone on its local network (internal/daemon/lan.go), which
+// marks the page it serves with <meta name="agentbox-lan">: its API is under
+// /api, for a phone paired with it, and there are no environments to pick.
+//
+// What needs your own machine (installing the command-line tool, its folder
+// picker, opening local folders) isn't available either way.
 import type { ApiResponse, Bridge, CliStatus, ConnectionState, EnvironmentTarget, HostSetupStatus, HubAccount, HubEnvironment } from '../../preload';
+import * as T from '../../shared/api.ts';
+
+// lan says a daemon serves this page to a phone, not a hub.
+export const lan = document.querySelector('meta[name="agentbox-lan"]') !== null;
 
 const storageKey = 'agentbox.environment';
 
 function loadTarget(): EnvironmentTarget {
+  if (lan) return { kind: 'local' };
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null') as EnvironmentTarget | null;
     if (saved?.kind === 'hub' && saved.environmentId) return { ...saved, hub: location.origin };
@@ -19,7 +31,7 @@ function loadTarget(): EnvironmentTarget {
 
 let target = loadTarget();
 const targetListeners = new Set<(t: EnvironmentTarget) => void>();
-const apiBase = () => `/v1/environments/${encodeURIComponent(target.environmentId ?? '')}/api`;
+const apiBase = () => (lan ? '/api' : `/v1/environments/${encodeURIComponent(target.environmentId ?? '')}/api`);
 
 async function hubCall<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -55,13 +67,24 @@ function setConnection(next: ConnectionState) {
 function followEvents() {
   source?.close();
   source = undefined;
-  if (!target.environmentId) return;
+  if (!lan && !target.environmentId) return;
   setConnection({ state: 'connecting' });
   const es = new EventSource(`${apiBase()}/v1/events`, { withCredentials: true });
   source = es;
   es.onopen = () => setConnection({ state: 'connected' });
   es.onerror = () => {
     if (source !== es) return;
+    if (lan) {
+      // EventSource retries by itself. A phone that was unpaired meanwhile
+      // is sent back to pairing.
+      setConnection({ state: 'disconnected', error: "AgentBox on your computer isn't reachable" });
+      void fetch('/lan/session', { credentials: 'same-origin' })
+        .then((res) => {
+          if (res.status === 401) location.reload();
+        })
+        .catch(() => {});
+      return;
+    }
     // EventSource retries by itself; say why when the hub can tell.
     setConnection({ state: 'disconnected', error: `${target.environmentName ?? 'the environment'} isn't reachable` });
     void hubCall<HubEnvironment[]>('GET', '/v1/environments')
@@ -79,7 +102,8 @@ function followEvents() {
       // not an event we understand
     }
   };
-  for (const type of ['job', 'job.log', 'agent', 'usage', 'project', 'media', 'chat']) es.addEventListener(type, deliver as EventListener);
+  const types = [T.EventJob, T.EventJobLog, T.EventAgent, T.EventUsage, T.EventProject, T.EventMedia, T.EventPulls, T.EventTheme, T.EventUpdate, T.EventBudget, T.EventLAN, T.EventChat, T.EventChatCache, T.EventQuestion, T.EventAgentEvent];
+  for (const type of types) es.addEventListener(type, deliver as EventListener);
 }
 
 // WebSocket streams: terminals, and the browser and Android views.
@@ -103,8 +127,9 @@ function closeStreams() {
 
 const unavailable = (what: string) => () => Promise.reject(new Error(`${what} works in the desktop app, on the machine itself`));
 
-export const webBridge: Bridge & { web: true } = {
+export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
+  lan,
   request: async (method: string, path: string, body?: unknown): Promise<ApiResponse> => {
     const res = await fetch(apiBase() + path, {
       method,
@@ -178,6 +203,7 @@ export const webBridge: Bridge & { web: true } = {
   },
   hubs: {
     list: async () => {
+      if (lan) return [];
       const me = await hubCall<{ email: string }>('GET', '/v1/me');
       return [{ url: location.origin, email: me.email }] satisfies HubAccount[];
     },
@@ -219,9 +245,14 @@ export const webBridge: Bridge & { web: true } = {
   readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
 };
 
-// installWebBridge makes the bridge the app uses, and follows the chosen environment's events.
+// installWebBridge makes the bridge the app uses, and follows the chosen
+// environment's events; a phone's once it's paired (followPhoneEvents).
 export function installWebBridge(): void {
   (window as unknown as { agentbox: typeof webBridge }).agentbox = webBridge;
+  if (!lan) followEvents();
+}
+
+export function followPhoneEvents(): void {
   followEvents();
 }
 

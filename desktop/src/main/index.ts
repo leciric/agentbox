@@ -11,6 +11,7 @@ import { ensureDaemon, notListening, request, restartDaemon, restartIfStale, soc
 import { EventStream } from './events';
 import { hostSetupStatus, onMac, runBudgetSetup, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
+import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { Streams } from './streams';
 import { learnMode } from './vmmode';
@@ -29,7 +30,13 @@ const send = (channel: string, ...args: unknown[]) => {
 const streams = new Streams(send);
 const events = new EventStream(
   (event) => send('daemon:event', event),
-  (state) => send('daemon:connection', state),
+  (state) => {
+    send('daemon:connection', state);
+    // Each time the daemon is back, it may be one that hasn't the web
+    // version phones are served (phoneweb.ts).
+    if (state.state === 'connected')
+      void installPhoneWeb(app.getVersion()).catch((err: unknown) => console.error('phones:', err));
+  },
 );
 
 ipcMain.handle('api:request', async (_event, method: string, path: string, body?: unknown) => {
