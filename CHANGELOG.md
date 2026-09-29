@@ -3,6 +3,14 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.9.1](https://github.com/leciric/agentbox/compare/v0.9.0...v0.9.1) (2026-09-29)
+
+
+### Fixed
+
+* the project chat can reach GitHub when AgentBox runs in a VM ([#122](https://github.com/leciric/agentbox/issues/122)) ([39c88d6](https://github.com/leciric/agentbox/commit/39c88d6b651fe5d9e2f3f7d83c18accecbdd7fde))
+* the project chat has the GitHub CLI ([#124](https://github.com/leciric/agentbox/issues/124)) ([25dc944](https://github.com/leciric/agentbox/commit/25dc944343d1b5b9b6d7475a02f3ea4948b31622))
+
 ## [0.9.0](https://github.com/leciric/agentbox/compare/v0.8.0...v0.9.0) (2026-09-29)
 
 
