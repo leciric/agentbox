@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -293,34 +294,7 @@ func TestLeadChatCommandLetsItsToolsFindThemselves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A stub adapter on the PATH, so no download is attempted.
-	tools := filepath.Join(f.m.Paths.Tools(), ".local", "bin")
-	if err := os.MkdirAll(tools, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"claude"} {
-		if err := os.WriteFile(filepath.Join(tools, name), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	adapter := filepath.Join(f.m.Paths.Tools(), "node_modules", ".bin")
-	if err := os.MkdirAll(adapter, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(adapter, "claude-agent-acp"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	cmd, err := f.m.LeadChatCommand(ctx, a, func(string) {})
-	if err != nil {
-		t.Fatal(err)
-	}
-	env := map[string]string{}
-	for _, kv := range cmd.Env {
-		if name, value, ok := strings.Cut(kv, "="); ok {
-			env[name] = value
-		}
-	}
+	env := leadEnv(t, f, a)
 	// Its own HOME, which is what the permission rules live in.
 	if env["HOME"] != f.m.Paths.LeadHome("hello-stack") {
 		t.Errorf("HOME = %q, want the lead's own", env["HOME"])
@@ -526,5 +500,157 @@ func TestLeadFollowsTheProjectsClaudeAccount(t *testing.T) {
 	}
 	if got := stored(); got != "personal" {
 		t.Errorf("a refused account moved the lead to %q", got)
+	}
+}
+
+// leadEnv is the environment LeadChatCommand gives a's chat, with stub tools
+// on the PATH so no download is attempted.
+func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
+	t.Helper()
+	stub := []byte("#!/bin/sh\nexit 0\n")
+	for _, path := range []string{
+		filepath.Join(f.m.Paths.Tools(), ".local", "bin", "claude"),
+		filepath.Join(f.m.Paths.Tools(), "node_modules", ".bin", "claude-agent-acp"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, stub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd, err := f.m.LeadChatCommand(context.Background(), a, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{}
+	for _, kv := range cmd.Env {
+		if name, value, ok := strings.Cut(kv, "="); ok {
+			env[name] = value
+		}
+	}
+	return env
+}
+
+// In the VM the lead's remote, git@github.com, needs an ssh key the VM's home
+// doesn't have ("Host key verification failed"), and the lead had no token
+// either. It now gets the GitHub account its project's agents default to: the
+// token in its environment, and a git config in its own HOME that sends
+// github.com over HTTPS with that token, with no gh needed.
+func TestLeadGetsTheProjectsGitHubAccount(t *testing.T) {
+	ctx := context.Background()
+	f := leadFixture(t)
+	// The user's own git config (the fixture points GIT_CONFIG_GLOBAL at a
+	// file of its own), which the lead's identity comes from and which must
+	// be left as it is.
+	userConfig := os.Getenv("GIT_CONFIG_GLOBAL")
+	if userConfig == "" {
+		t.Fatal("the fixture set no GIT_CONFIG_GLOBAL")
+	}
+	testutil.Git(t, f.repo.Root, "config", "--global", "user.name", "Ada Lovelace")
+	testutil.Git(t, f.repo.Root, "config", "--global", "user.email", "ada@example.com")
+	userBefore, err := os.ReadFile(userConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{"personal", "work"} {
+		if err := f.m.Creds.SaveGitHubToken(account, "gho_"+account); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.m.Creds.SetDefaultGitHubAccount("personal"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Store.SetProjectGitHubAccount(ctx, "hello-stack", "work"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := f.m.EnsureLead(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The project's account wins over the machine's default, as for an agent.
+	env := leadEnv(t, f, a)
+	if env["GH_TOKEN"] != "gho_work" || env["GITHUB_TOKEN"] != "gho_work" {
+		t.Errorf("GH_TOKEN = %q, GITHUB_TOKEN = %q, want the project's account, gho_work", env["GH_TOKEN"], env["GITHUB_TOKEN"])
+	}
+
+	home := f.m.Paths.LeadHome("hello-stack")
+	config, err := os.ReadFile(filepath.Join(home, ".gitconfig"))
+	if err != nil {
+		t.Fatalf("the lead has no .gitconfig: %v", err)
+	}
+	if !strings.Contains(string(config), "Ada Lovelace") {
+		t.Errorf(".gitconfig has no identity from the user's own:\n%s", config)
+	}
+	// Real git, reading the lead's HOME and nothing else, as its chat does.
+	git := func(stdin string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = a.Worktree
+		cmd.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH"), "GH_TOKEN=" + env["GH_TOKEN"], "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0"}
+		cmd.Stdin = strings.NewReader(stdin)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	for _, remote := range []string{"git@github.com:octo/repo.git", "ssh://git@github.com/octo/repo.git"} {
+		if got := git("", "ls-remote", "--get-url", remote); got != "https://github.com/octo/repo.git" {
+			t.Errorf("%s resolves to %q, want it rewritten to HTTPS", remote, got)
+		}
+	}
+	creds := git("protocol=https\nhost=github.com\n\n", "credential", "fill")
+	if !strings.Contains(creds, "username=x-access-token\n") || !strings.Contains(creds, "password=gho_work") {
+		t.Errorf("git credential fill answered:\n%s\nwant the project's token", creds)
+	}
+	if got := git("", "config", "user.email"); got != "ada@example.com" {
+		t.Errorf("user.email = %q, want the user's own", got)
+	}
+
+	// Once the project has no account left, the token and the config go.
+	for _, account := range []string{"personal", "work"} {
+		if err := f.m.Creds.RemoveGitHubAccount(account); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.m.Store.SetProjectGitHubAccount(ctx, "hello-stack", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.ReconfigureLead(ctx, "hello-stack"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".gitconfig")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the lead's .gitconfig is still there with no GitHub account: %v", err)
+	}
+	env = leadEnv(t, f, a)
+	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN"} {
+		if _, ok := env[name]; ok {
+			t.Errorf("%s is set with no GitHub account", name)
+		}
+	}
+	if got, _ := os.ReadFile(userConfig); string(got) != string(userBefore) {
+		t.Errorf("the user's own .gitconfig changed:\n%s", got)
+	}
+}
+
+// A project naming an account that is gone leaves its chat without GitHub,
+// not without a chat.
+func TestLeadStartsWithAGitHubAccountThatIsGone(t *testing.T) {
+	ctx := context.Background()
+	f := leadFixture(t)
+	if err := f.m.Store.SetProjectGitHubAccount(ctx, "hello-stack", "gone"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := f.m.EnsureLead(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := leadEnv(t, f, a); env["GH_TOKEN"] != "" {
+		t.Errorf("GH_TOKEN = %q, want none", env["GH_TOKEN"])
+	}
+	if _, err := os.Stat(filepath.Join(f.m.Paths.LeadHome("hello-stack"), ".gitconfig")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the lead has a .gitconfig with no GitHub account: %v", err)
 	}
 }

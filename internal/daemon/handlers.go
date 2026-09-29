@@ -338,6 +338,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		// other one says nothing about this one: a 404 there can be a list
 		// here. Dropped the same way as when an account is saved or removed.
 		s.pulls.reset()
+		// The chat uses the project's account too, and its git config says
+		// whether it has one. Its session keeps the token it started with.
+		rewriteBrief()
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
 		if req.MoveGitHubAgents {
 			if newResolved, err := mgr.GitHubAccountFor(p, ""); err == nil {
@@ -1495,7 +1498,24 @@ func (s *Server) saveGitHubToken(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.pulls.reset()
+	s.reconfigureLeads(r.Context())
 	return writeJSON(w, http.StatusOK, map[string]string{"user": login})
+}
+
+// reconfigureLeads writes every project's chat again, for a change to the
+// GitHub accounts: a chat uses its project's, or the machine's default, and
+// its git config is there only while it has one (configureLead).
+func (s *Server) reconfigureLeads(ctx context.Context) {
+	projects, err := s.store.Projects(ctx)
+	if err != nil {
+		s.logf("reconfiguring the chats: %v", err)
+		return
+	}
+	for _, p := range projects {
+		if err := s.manager(nil).ReconfigureLead(ctx, p.Name); err != nil {
+			s.logf("reconfiguring the %s chat: %v", p.Name, err)
+		}
+	}
 }
 
 // removeGitHubAccount forgets a stored GitHub account. Agents already created
@@ -1505,6 +1525,7 @@ func (s *Server) removeGitHubAccount(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	s.pulls.reset()
+	s.reconfigureLeads(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -1513,6 +1534,7 @@ func (s *Server) setDefaultGitHubAccount(w http.ResponseWriter, r *http.Request)
 	if err := s.manager(nil).Creds.SetDefaultGitHubAccount(r.PathValue("account")); err != nil {
 		return err
 	}
+	s.reconfigureLeads(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

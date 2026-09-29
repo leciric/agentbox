@@ -1954,18 +1954,27 @@ func gitIdentity() (name, email string) {
 // (configure, Start, SetGitHubAccount) so losing the account removes this
 // config again rather than leaving it stale.
 func gitConfig(hasGitHub bool) string {
+	if !hasGitHub {
+		return gitConfigWith("")
+	}
+	return gitConfigWith("!gh auth git-credential")
+}
+
+// gitConfigWith is gitConfig with the github.com credential helper spelled out,
+// already encoded as a git config value; "" leaves GitHub out altogether.
+func gitConfigWith(helper string) string {
 	var b strings.Builder
 	if name, email := gitIdentity(); name != "" && email != "" {
 		fmt.Fprintf(&b, "[user]\n\tname = %s\n\temail = %s\n", gitQuote(name), gitQuote(email))
 	}
-	if hasGitHub {
-		b.WriteString(`[credential "https://github.com"]
+	if helper != "" {
+		fmt.Fprintf(&b, `[credential "https://github.com"]
 	helper =
-	helper = !gh auth git-credential
+	helper = %s
 [url "https://github.com/"]
 	insteadOf = git@github.com:
 	insteadOf = ssh://git@github.com/
-`)
+`, helper)
 	}
 	return b.String()
 }

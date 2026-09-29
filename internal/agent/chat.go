@@ -83,6 +83,15 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 	if token != "" {
 		env = append(env, "CLAUDE_CODE_OAUTH_TOKEN="+token)
 	}
+	// The project's GitHub account, as its agents have it (agentEnv), for gh
+	// and for git through the helper configureLead wrote.
+	p, err := m.Store.Project(ctx, a.Project)
+	if err != nil {
+		return nil, err
+	}
+	if gh := m.leadGitHubToken(p); gh != "" {
+		env = append(env, "GH_TOKEN="+gh, "GITHUB_TOKEN="+gh)
+	}
 	cmd.Env = env
 	return cmd, nil
 }

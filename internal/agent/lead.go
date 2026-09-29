@@ -384,6 +384,16 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		"AGENTBOX.md":           []byte(text),
 		exploreAgentFile:        []byte(explore),
 	}
+	// Git and GitHub, the way an agent has them (see gitConfig): the lead's
+	// HOME is its own, so this is the only git config it reads, and the user's
+	// ~/.gitconfig and ~/.ssh are never touched. Without an account the file
+	// goes, so a lead on the host falls back to whatever ssh finds there.
+	gitconfig := filepath.Join(home, ".gitconfig")
+	if m.leadGitHubToken(p) != "" {
+		files[".gitconfig"] = []byte(leadGitConfig())
+	} else if err := os.Remove(gitconfig); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	for rel, content := range files {
 		path := filepath.Join(home, rel)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -395,6 +405,38 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	}
 	return nil
 }
+
+// leadGitHubToken is the token of the GitHub account the project's agents get
+// when none is named for them (GitHubAccountFor), which the lead uses too: in
+// its chat's environment (LeadChatCommand) and, through leadGitConfig, for git.
+// GitHub is optional, so an account that no longer resolves leaves the lead
+// without one rather than without a chat.
+func (m *Manager) leadGitHubToken(p state.Project) string {
+	account, err := m.GitHubAccountFor(p, "")
+	if err == nil && account == "" {
+		return ""
+	}
+	var token string
+	if err == nil {
+		token, err = m.Creds.GitHubToken(account)
+	}
+	if err != nil {
+		m.logf("The %s chat has no GitHub account: %v", p.Name, err)
+		return ""
+	}
+	return token
+}
+
+// leadCredentialHelper answers git's credential requests for github.com with
+// GH_TOKEN, as `gh auth git-credential` would, without needing gh: the lead
+// runs on the host (or AgentBox's VM), which need not have it.
+const leadCredentialHelper = `!f() { test "$1" = get && test -n "$GH_TOKEN" || return 0; echo username=x-access-token; echo "password=$GH_TOKEN"; }; f`
+
+// leadGitConfig is the lead's ~/.gitconfig: an agent's (gitConfig), with a
+// credential helper of its own. The lead's git would otherwise reach
+// git@github.com over ssh, which works on a host whose user has keys but not
+// in the VM, whose home has none (and no known_hosts either).
+func leadGitConfig() string { return gitConfigWith(gitQuote(leadCredentialHelper)) }
 
 // leadSettings is the lead's permission policy: none of its own (D89). It
 // runs on the user's machine as the user, with every tool Claude Code has and
