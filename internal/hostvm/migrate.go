@@ -312,12 +312,11 @@ func migrateCHV(ctx context.Context, p paths.Paths, opts MigrateOptions) error {
 
 func step(log io.Writer, what string) { _, _ = fmt.Fprintf(log, "==> %s\n", what) }
 
-// within reports whether path is dir or under it, dir having no symlinks in
-// it: path's are resolved as far as it exists, since a directory not made yet
-// (the worktrees, before any agent) is under a home reached through a
-// symlink all the same.
+// within reports whether path is dir or under it, with the symlinks in both
+// resolved as far as they exist: a directory not made yet (the worktrees,
+// before any agent) is under a home reached through a symlink all the same.
 func within(dir, path string) bool {
-	path = resolveExisting(filepath.Clean(path))
+	dir, path = resolveExisting(filepath.Clean(dir)), resolveExisting(filepath.Clean(path))
 	rel, err := filepath.Rel(dir, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../")
 }
