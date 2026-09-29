@@ -1,11 +1,13 @@
 package gitrepo_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"agentbox/internal/gitrepo"
@@ -422,5 +424,40 @@ func TestMergedIntoOnRemoteAndPushed(t *testing.T) {
 	}
 	if !repo.Pushed(behind) || repo.Pushed(ahead) || !repo.Pushed(pushed) {
 		t.Errorf("Pushed(behind, ahead, pushed) = %v, %v, %v; want true, false, true", repo.Pushed(behind), repo.Pushed(ahead), repo.Pushed(pushed))
+	}
+}
+
+// TestAddWorktreeConcurrently adds worktrees to one repository from several
+// goroutines at once, as a lead creating agents together does. git reads the
+// other worktrees' entries as it adds one, and fails on an entry another add
+// has made but not yet written, unless AgentBox's adds take turns.
+func TestAddWorktreeConcurrently(t *testing.T) {
+	root := t.TempDir()
+	testutil.Git(t, root, "init", "-q", "-b", "main")
+	testutil.Git(t, root, "commit", "-q", "--allow-empty", "-m", "first")
+	r, err := gitrepo.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "HEAD"))
+	wts := filepath.Join(t.TempDir(), "wt")
+	errs := make(chan error, 160)
+	for round := range 20 {
+		var wg sync.WaitGroup
+		for i := range 8 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				name := fmt.Sprintf("agent-%d-%d", round, i)
+				errs <- r.AddWorktree(filepath.Join(wts, name), "agentbox/"+name, commit, "agentbox: "+name)
+			}()
+		}
+		wg.Wait()
+	}
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 }
