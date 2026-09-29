@@ -92,6 +92,10 @@ func TestLaunch(t *testing.T) {
 	}{
 		{"nothing chosen", long, "opus", "", 200_000, "opus", 200_000},
 		{"1M chosen", long, "opus", "1000000", 200_000, "opus", 1_000_000},
+		// agent-167's chat: plain "opus", 1M chosen, on a store that has seen
+		// nothing run yet. Plain "opus" at autoCompactWindow 1000000 is a 1M
+		// session (/context "/ 1m" on Claude Code 2.1.280): no "[1m]" needed.
+		{"1M chosen, nothing seen yet", state.ClaudeWindows{}, "opus", "1000000", 200_000, "opus", 1_000_000},
 		{"1M written as people do", long, "opus", "1m", 200_000, "opus", 1_000_000},
 		{"a stored opus[1m] from before D91", long, "opus[1m]", "", 200_000, "opus", 200_000},
 		{"installation uncapped", long, "opus", "1000000", 0, "opus", 0},
@@ -103,6 +107,32 @@ func TestLaunch(t *testing.T) {
 		name, compact := tc.w.Launch(tc.model, tc.chosen, tc.installation)
 		if name != tc.wantName || compact != tc.wantCompact {
 			t.Errorf("%s: Launch(%q, %q, %d) = %q, %d; want %q, %d", tc.name, tc.model, tc.chosen, tc.installation, name, compact, tc.wantName, tc.wantCompact)
+		}
+	}
+}
+
+// Room is what the context ring measures against: the compact window a session
+// started with, within its model's whole window — never the adapter's streamed
+// guess, which says 200k for a plain "opus" running at 1M.
+func TestRoom(t *testing.T) {
+	short := state.ClaudeWindows{Seen: map[string]int64{"opus": 200_000}, OneM: map[string]bool{"opus": true}}
+	for _, tc := range []struct {
+		name    string
+		w       state.ClaudeWindows
+		model   string
+		compact int64
+		want    int64
+	}{
+		{"opus at 1M, nothing seen yet", state.ClaudeWindows{}, "opus", 1_000_000, 1_000_000},
+		{"opus at 200k", state.ClaudeWindows{}, "opus", 200_000, 200_000},
+		{"opus at its whole window", state.ClaudeWindows{}, "opus", 0, 1_000_000},
+		{"haiku has no more than 200k", state.ClaudeWindows{}, "haiku", 1_000_000, 200_000},
+		{"a model seen at 1M", state.ClaudeWindows{Seen: map[string]int64{"something-new": 1_000_000}}, "something-new", 1_000_000, 1_000_000},
+		{"a short opus, run plain", short, "opus", 200_000, 200_000},
+		{"a short opus, run through its variant", short, "opus[1m]", 0, 1_000_000},
+	} {
+		if got := tc.w.Room(tc.model, tc.compact); got != tc.want {
+			t.Errorf("%s: Room(%q, %d) = %d, want %d", tc.name, tc.model, tc.compact, got, tc.want)
 		}
 	}
 }
