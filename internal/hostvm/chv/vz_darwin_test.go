@@ -45,19 +45,19 @@ func TestVZConfiguration(t *testing.T) {
 	if _, err := vm.configuration(); err != nil {
 		t.Fatalf("making it again: %v", err)
 	}
+	if got := vm.live(c); got.MinCPUs != 2 || got.MaxCPUs != 2 || got.MaxMemory != 2*GiB {
+		t.Errorf("live %+v", got)
+	}
 	ok, err := config.Validate()
 	switch {
 	case ok && err == nil:
 		t.Log("the Virtualization framework validated the VM's configuration")
 	case !signed() && err != nil && strings.Contains(err.Error(), VZEntitlement):
 		t.Skipf("unsigned, so the framework won't validate it: %v", err)
-	case err != nil && strings.Contains(strings.ToLower(err.Error()), "not supported"):
+	case err != nil && (strings.Contains(err.Error(), "not available on this hardware") || strings.Contains(strings.ToLower(err.Error()), "not supported")):
 		t.Skipf("this Mac can't virtualize (a CI runner is a VM itself): %v", err)
 	default:
 		t.Fatalf("the framework refused the VM's configuration: ok %v, %v", ok, err)
-	}
-	if got := vm.live(c); got.MinCPUs != 2 || got.MaxCPUs != 2 || got.MaxMemory != 2*GiB {
-		t.Errorf("live %+v", got)
 	}
 }
 
