@@ -60,8 +60,10 @@ func (g *slowGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"message":"No commit found for SHA: %s"}`, commit)
 	case strings.HasSuffix(r.URL.Path, "/check-runs"):
 		_, _ = w.Write([]byte(`{"total_count":0}`))
+	case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/merge"):
+		_, _ = w.Write([]byte(`{"merged":true}`))
 	case strings.Contains(r.URL.Path, "/pulls/"):
-		_, _ = w.Write([]byte(`{"additions":1,"deletions":0,"comments":0}`))
+		_, _ = w.Write([]byte(`{"state":"open","draft":false,"additions":1,"deletions":0,"comments":0}`))
 	case strings.HasSuffix(r.URL.Path, "/pulls"):
 		time.Sleep(delay)
 		_, _ = w.Write([]byte(list))
@@ -209,6 +211,75 @@ func TestPullRequestsAreServedStaleWhileGitHubIsReRead(t *testing.T) {
 	waitFor(t, "the refreshed list", func() bool {
 		out, err := d.client.ProjectPullRequests(context.Background(), "hello-stack")
 		return err == nil && len(out.PullRequests) == 2
+	})
+}
+
+// Merging from the app refetches the list at once. It must answer with the
+// list it had, the merged pull request marked, and re-read GitHub behind it —
+// not with nothing, which the app showed as an empty tab.
+func TestMergingKeepsThePullRequestsListed(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	gh := newSlowGitHub(t, d, pullsList("agentbox/agent-01", "agentbox/agent-02"), 0)
+	pullsProject(t, d)
+	if out := pullsOf(t, d, "hello-stack"); len(out.PullRequests) != 2 {
+		t.Fatalf("before the merge = %+v", out.PullRequests)
+	}
+
+	gh.mu.Lock()
+	gh.delay = 700 * time.Millisecond
+	gh.mu.Unlock()
+	gh.setList(pullsPage(listedPR{11, "agentbox/agent-02", "sha-1"}))
+	ctx := context.Background()
+	if _, err := d.client.MergePullRequest(ctx, "hello-stack", 10, "merge"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := d.client.ProjectPullRequests(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.PullRequests) != 2 || after.FetchedAt == nil || !after.Refreshing {
+		t.Fatalf("right after the merge = %+v, want the old list, with its age, being re-read", after)
+	}
+	for _, pr := range after.PullRequests {
+		if want := map[int]string{10: "merged", 11: "open"}[pr.Number]; pr.State != want {
+			t.Errorf("#%d is %q right after the merge, want %q", pr.Number, pr.State, want)
+		}
+	}
+	if fleet, err := d.client.Fleet(ctx, "hello-stack"); err != nil || fleet.PullsFetchedAt == nil {
+		t.Errorf("the fleet right after the merge = %+v, %v; want the answer it had", fleet, err)
+	}
+
+	waitFor(t, "the list read after the merge", func() bool {
+		out, err := d.client.ProjectPullRequests(ctx, "hello-stack")
+		return err == nil && !out.Refreshing && len(out.PullRequests) == 1
+	})
+}
+
+// A merge that overtakes a read already in flight drops what it read, and
+// reads again on its own: nothing else would until the app next polls.
+func TestAReadAMergeOvertookIsReadAgain(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	offset := testClock(d)
+	gh := newSlowGitHub(t, d, pullsList("agentbox/agent-01", "agentbox/agent-02"), 0)
+	pullsProject(t, d)
+	pullsOf(t, d, "hello-stack")
+
+	gh.mu.Lock()
+	gh.delay = 700 * time.Millisecond
+	gh.mu.Unlock()
+	offset.Store(int64(2 * pullsTTL))
+	ctx := context.Background()
+	if out, err := d.client.ProjectPullRequests(ctx, "hello-stack"); err != nil || !out.Refreshing {
+		t.Fatalf("aged answer = %+v, %v; want a read started", out, err)
+	}
+	if _, err := d.client.MergePullRequest(ctx, "hello-stack", 10, "merge"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "a read after the overtaken one", func() bool {
+		entry, refreshing := d.srv.pulls.state("acme/hello-stack")
+		return !refreshing && !entry.stale && gh.count("/repos/acme/hello-stack/pulls") == 3
 	})
 }
 
@@ -540,13 +611,13 @@ func TestPullsCacheClaimsOneRefreshAtATime(t *testing.T) {
 	}
 }
 
-// A merge invalidates the repository. A refresh that was already in flight
-// must not put the pre-merge list back over it.
+// A merge overtakes the repository's answer. A refresh that was already in
+// flight must not put the pre-merge list back over it.
 func TestPullsCacheDropsARefreshAMergeOvertook(t *testing.T) {
 	t.Parallel()
 	c := newPullsCache()
 	gen, _ := c.claim("acme/x", nil)
-	c.invalidate("acme/x")
+	c.merged("acme/x", 1)
 	if _, changed := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1, State: "open"}}}); changed {
 		t.Error("a refresh that a merge overtook was stored anyway")
 	}
@@ -555,6 +626,38 @@ func TestPullsCacheDropsARefreshAMergeOvertook(t *testing.T) {
 	}
 	if _, ok := c.claim("acme/x", nil); !ok {
 		t.Error("the repository was left unable to refresh")
+	}
+}
+
+// A merge keeps what the cache holds, with the merged pull request marked so,
+// and has the next request re-read GitHub however fresh the answer was: an
+// empty answer after a merge emptied the app's list until GitHub was read.
+func TestPullsCacheKeepsItsAnswerOverAMerge(t *testing.T) {
+	t.Parallel()
+	c := newPullsCache()
+	gen, _ := c.claim("acme/x", nil)
+	read, _ := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1, State: "open"}, {Number: 2, State: "open"}}})
+
+	c.merged("acme/x", 1)
+	entry, _ := c.state("acme/x")
+	if len(entry.prs) != 2 || entry.prs[0].State != "merged" || entry.prs[1].State != "open" || entry.at.IsZero() {
+		t.Errorf("after the merge the cache holds %+v, read at %v; want both, #1 merged", entry.prs, entry.at)
+	}
+	if read.prs[0].State != "open" {
+		t.Error("the merge was marked on the answer readers already hold, not on a copy")
+	}
+
+	gen, ok := c.claim("acme/x", nil)
+	if !ok {
+		t.Fatal("a fresh answer a merge overtook wasn't re-read")
+	}
+	// GitHub agreeing with the mark is still news: the app was told the
+	// list was being read, and has to hear that it has been.
+	if _, changed := c.finish("acme/x", gen, pullsEntry{prs: entry.prs}); !changed {
+		t.Error("the read after a merge wasn't announced")
+	}
+	if _, ok := c.claim("acme/x", nil); ok {
+		t.Error("the answer read after the merge was re-read again")
 	}
 }
 
