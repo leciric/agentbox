@@ -305,6 +305,10 @@ type CreateOptions struct {
 	// state.FinishNoticesOff, or "" to leave it unsaid. It only matters when
 	// the project's own FinishNotices is state.FinishNoticesLead.
 	FinishNotice string
+	// Connectors limits which of the project's connectors the agent is
+	// given, by name: nil for every one, empty for none. Each must be one
+	// of the project's.
+	Connectors []string
 	// Task is what the agent is about to be asked to do. It is not stored and
 	// not sent — the daemon sends it as the agent's first message — it only
 	// seeds the "What the project knows" section of the brief, so an agent
@@ -328,6 +332,9 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	}
 	// Before a machine is copied: a choice that could never apply says so now.
 	if err := m.ChatChoices(ctx, opts.AI, opts.Model, opts.Effort); err != nil {
+		return state.Agent{}, err
+	}
+	if err := m.CheckConnectorLimit(ctx, project, opts.Connectors); err != nil {
 		return state.Agent{}, err
 	}
 	if err := validateName(opts.Name); err != nil {
@@ -442,6 +449,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		copyEnv:       opts.CopyEnv,
 		limits:        limits,
 		finishNotice:  opts.FinishNotice,
+		connectors:    opts.Connectors,
 		task:          opts.Task,
 		queued:        queued,
 	})
@@ -519,6 +527,7 @@ type plan struct {
 	copyEnv       bool
 	limits        Limits       // already resolved: what this machine is capped at
 	finishNotice  string       // this agent's own choice; see CreateOptions.FinishNotice
+	connectors    []string     // see CreateOptions.Connectors
 	task          string       // what it is about to be asked to do; see CreateOptions.Task
 	queued        *state.Agent // the queued agent this makes, when it isn't a new one
 }
@@ -560,6 +569,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		GitHubAccount: pl.githubAccount,
 		Interface:     pl.iface,
 		FinishNotice:  pl.finishNotice,
+		Connectors:    pl.connectors,
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)

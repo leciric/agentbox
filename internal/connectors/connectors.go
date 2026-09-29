@@ -33,9 +33,9 @@ import (
 var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,39}$`)
 
 // Reserved are the names of the MCP servers AgentBox gives every agent
-// itself (agentMCPServers in internal/agent): a connector of the same name
-// would replace one.
-var Reserved = []string{"playwright", "desktop", "memory"}
+// itself (agentMCPServers in internal/agent), and the one it gives a
+// project's chat: a connector of the same name would replace one.
+var Reserved = []string{"playwright", "desktop", "memory", "agentbox"}
 
 // ValidateName refuses a name no AI tool could be given.
 func ValidateName(name string) error {
@@ -83,7 +83,7 @@ func (s *Service) Set(ctx context.Context, project, agent, name string, req api.
 		return state.Connector{}, err
 	}
 	req.URL = strings.TrimSpace(req.URL)
-	if err := s.OAuth.checkURL(req.URL); err != nil {
+	if err := s.OAuth.CheckURL(req.URL); err != nil {
 		return state.Connector{}, err
 	}
 	auth := req.Auth

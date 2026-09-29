@@ -195,6 +195,34 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "request_connector",
+			Description: "Ask the user to connect a remote MCP server you need as tools — Notion, Linear, Sentry, Figma, " +
+				"a company's own — and wait for their answer. Use it when the task needs a service you have no tools for: " +
+				"the spec is in Notion, the bug is in Linear. The user adds and signs in to it in the app, and AgentBox " +
+				"keeps the sign-in: no token ever reaches you. What you get back is what happened — that it's connected " +
+				"and how to use it right away, or that they declined and why. Ask once, for what you actually need.",
+			Schema: object([]string{"name", "reason"}, map[string]any{
+				"name": str("the connector, in lowercase: notion, linear, sentry, figma, or a short name for another " +
+					"server. Its tools are called by it (mcp__notion__* in Claude Code)"),
+				"url": str("the server's MCP endpoint, when the project may not have this connector yet: " +
+					"https://mcp.notion.com/mcp, https://mcp.linear.app/mcp, https://mcp.sentry.dev/mcp, " +
+					"https://mcp.figma.com/mcp. Left out for one the project has"),
+				"reason": str("what you need it for, in a sentence or two, so the user can decide"),
+			}),
+			// It waits on the user like request_credential.
+			Wait: func(ctx context.Context, args json.RawMessage) (string, error) {
+				var in struct{ Name, URL, Reason string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				q, err := c.RequestConnector(ctx, api.ConnectorRequest{Name: in.Name, URL: in.URL, Reason: in.Reason})
+				if err != nil {
+					return "", err
+				}
+				return q.Answer, nil
+			},
+		},
+		{
 			Name: "record_artifact",
 			Description: "Record where something you produced lives, so it can be found again: a file you wrote, " +
 				"a branch, a pull request, a recording. It is a reference and nothing more — the contents stay " +

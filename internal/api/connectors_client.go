@@ -74,3 +74,17 @@ func (c *Client) SelfConnectors(ctx context.Context) ([]SelfConnector, error) {
 func (c *Client) SelfConnectorURL(name string) string {
 	return c.base + "/v1/self/connectors/" + url.PathEscape(name) + "/mcp"
 }
+
+// RequestConnector asks the user, from inside an agent, to connect a
+// connector it needs, and waits for their answer.
+func (c *Client) RequestConnector(ctx context.Context, req ConnectorRequest) (Question, error) {
+	var out Question
+	return out, c.do(ctx, http.MethodPost, "/v1/self/connector", req, &out)
+}
+
+// ProjectConnectors lists the connectors of the project behind the lead
+// socket, and where each stands. Never a token.
+func (c *Client) ProjectConnectors(ctx context.Context) ([]Connector, error) {
+	var out []Connector
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/connectors"), nil, &out)
+}

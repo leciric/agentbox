@@ -30,6 +30,9 @@ const (
 	QuestionDecision = ""
 	QuestionGitHub   = "github"
 	QuestionSecret   = "secret"
+	// QuestionConnector is an agent asking the user to connect a connector
+	// it needs (request_connector): answered when the user has, or refuses.
+	QuestionConnector = "connector"
 )
 
 type Question struct {
@@ -39,10 +42,14 @@ type Question struct {
 	Kind    string
 	// SecretName is the variable a secret request's value goes into.
 	SecretName string
-	Text       string
-	Context    string // what the agent was doing, for whoever answers
-	Status     string
-	Answer     string
+	// Connector is the connector a connector request asks for, and
+	// ConnectorURL where its server is.
+	Connector    string
+	ConnectorURL string
+	Text         string
+	Context      string // what the agent was doing, for whoever answers
+	Status       string
+	Answer       string
 	// AnsweredBy is "lead" or "user"; Escalation is why the lead passed it on.
 	AnsweredBy string
 	Escalation string
@@ -59,12 +66,12 @@ func (q Question) Credential() bool { return q.Kind != QuestionDecision }
 // Waiting reports whether somebody still has to answer.
 func (q Question) Waiting() bool { return q.Status == QuestionPending || q.Status == QuestionEscalated }
 
-const questionColumns = `id, project, agent, kind, secret_name, text, context, status, answer, answered_by, escalation, created_at, answered_at`
+const questionColumns = `id, project, agent, kind, secret_name, connector, connector_url, text, context, status, answer, answered_by, escalation, created_at, answered_at`
 
 func (s *Store) AddQuestion(ctx context.Context, q Question) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO questions (`+questionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		q.ID, q.Project, q.Agent, q.Kind, q.SecretName, q.Text, q.Context, q.Status, q.Answer, q.AnsweredBy, q.Escalation,
+		`INSERT INTO questions (`+questionColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		q.ID, q.Project, q.Agent, q.Kind, q.SecretName, q.Connector, q.ConnectorURL, q.Text, q.Context, q.Status, q.Answer, q.AnsweredBy, q.Escalation,
 		q.CreatedAt.UnixMilli(), unixMilli(q.AnsweredAt))
 	return err
 }
@@ -169,6 +176,13 @@ func (s *Store) WaitingCredentialRequests(ctx context.Context, project, agent st
 	return s.queryQuestions(ctx, where+` ORDER BY created_at, rowid`, args...)
 }
 
+// WaitingConnectorRequests lists a project's connector requests still
+// waiting, oldest first.
+func (s *Store) WaitingConnectorRequests(ctx context.Context, project string) ([]Question, error) {
+	return s.queryQuestions(ctx, `WHERE project = ? AND kind = ? AND status IN (?, ?) ORDER BY created_at, rowid`,
+		project, QuestionConnector, QuestionPending, QuestionEscalated)
+}
+
 func (s *Store) queryQuestions(ctx context.Context, clause string, args ...any) ([]Question, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+questionColumns+` FROM questions `+clause, args...)
 	if err != nil {
@@ -179,7 +193,7 @@ func (s *Store) queryQuestions(ctx context.Context, clause string, args ...any) 
 	for rows.Next() {
 		var q Question
 		var created, answered int64
-		if err := rows.Scan(&q.ID, &q.Project, &q.Agent, &q.Kind, &q.SecretName, &q.Text, &q.Context, &q.Status,
+		if err := rows.Scan(&q.ID, &q.Project, &q.Agent, &q.Kind, &q.SecretName, &q.Connector, &q.ConnectorURL, &q.Text, &q.Context, &q.Status,
 			&q.Answer, &q.AnsweredBy, &q.Escalation, &created, &answered); err != nil {
 			return nil, err
 		}

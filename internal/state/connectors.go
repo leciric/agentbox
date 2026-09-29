@@ -2,6 +2,9 @@ package state
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -91,9 +94,16 @@ func (s *Store) AllConnectors(ctx context.Context) ([]Connector, error) {
 }
 
 // AgentConnectors is what one agent gets, enabled or not: its project's
-// connectors and its own, by name, an agent's own replacing its project's of
-// the same name.
+// connectors that its limit lets through (Agent.Connectors) and its own, by
+// name, an agent's own replacing its project's of the same name.
 func (s *Store) AgentConnectors(ctx context.Context, project, agent string) ([]Connector, error) {
+	a, err := s.Agent(ctx, project, agent)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		a = Agent{} // not made yet, or gone: nothing limits it
+	case err != nil:
+		return nil, err
+	}
 	found, err := s.queryConnectors(ctx, `WHERE project = ? AND agent IN ('', ?) ORDER BY name, agent = ''`, project, agent)
 	if err != nil {
 		return nil, err
@@ -105,9 +115,42 @@ func (s *Store) AgentConnectors(ctx context.Context, project, agent string) ([]C
 		if len(out) > 0 && out[len(out)-1].Name == c.Name {
 			continue
 		}
+		if c.Agent == "" && !a.GetsConnector(c.Name) {
+			continue
+		}
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+// SetAgentConnectors changes which of its project's connectors an agent is
+// given: nil for every one.
+func (s *Store) SetAgentConnectors(ctx context.Context, project, name string, connectors []string) error {
+	limit, err := connectorLimit(connectors)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE agents SET connectors = ? WHERE project = ? AND name = ?`, limit, project, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("agent %s/%s: %w", project, name, ErrNotFound)
+	}
+	return nil
+}
+
+// connectorLimit is Agent.Connectors as its column holds it: NULL for no
+// limit, a JSON array otherwise.
+func connectorLimit(names []string) (sql.NullString, error) {
+	if names == nil {
+		return sql.NullString{}, nil
+	}
+	b, err := json.Marshal(names)
+	if err != nil {
+		return sql.NullString{}, err
+	}
+	return sql.NullString{String: string(b), Valid: true}, nil
 }
 
 // RemoveConnector forgets one connector, sign-in and all.

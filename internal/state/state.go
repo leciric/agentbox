@@ -4,6 +4,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -735,6 +736,15 @@ var migrations = []string{
 		updated_at     INTEGER NOT NULL,
 		PRIMARY KEY (project, agent, name)
 	)`,
+	// Which of its project's connectors an agent is given: NULL for every
+	// one, or a JSON array of their names (create_agent's connectors). Its
+	// own connectors aren't limited by it.
+	`ALTER TABLE agents ADD COLUMN connectors TEXT`,
+	// A connector request (request_connector) is a question of kind
+	// 'connector': the connector it asks for, and where its server is when
+	// the project has none of that name yet.
+	`ALTER TABLE questions ADD COLUMN connector TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE questions ADD COLUMN connector_url TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1683,6 +1693,16 @@ type Agent struct {
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
 	ID string
+	// Connectors limits which of its project's connectors the agent is
+	// given, by name: nil for every one, empty for none. Its own connectors
+	// are always its.
+	Connectors []string
+}
+
+// GetsConnector reports whether a project connector of that name reaches the
+// agent, as far as its limit goes.
+func (a Agent) GetsConnector(name string) bool {
+	return a.Connectors == nil || slices.Contains(a.Connectors, name)
 }
 
 // IsLead reports whether the agent is a project's lead, which runs on the host
@@ -1706,7 +1726,7 @@ const LeadName = "lead"
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -1718,9 +1738,13 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.ID == "" {
 		a.ID = NewAgentID()
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID)
+	connectors, err := connectorLimit(a.Connectors)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -1932,9 +1956,16 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	for rows.Next() {
 		var a Agent
 		var created, pausedAt int64
+		var connectors sql.NullString
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
-			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &pausedAt); err != nil {
+			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors, &pausedAt); err != nil {
 			return nil, err
+		}
+		if connectors.Valid {
+			a.Connectors = []string{}
+			if err := json.Unmarshal([]byte(connectors.String), &a.Connectors); err != nil {
+				return nil, fmt.Errorf("agent %s's connectors: %w", a.Ref(), err)
+			}
 		}
 		a.CreatedAt = time.Unix(created, 0)
 		if pausedAt != 0 {

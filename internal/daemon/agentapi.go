@@ -113,6 +113,7 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	// Asking the user for a credential it lacks, which the user answers in the
 	// app: the agent is told what happened, and never the value (D95).
 	handle("POST /v1/self/credential", s.requestCredential(instance))
+	handle("POST /v1/self/connector", s.requestConnector(instance))
 	handle("GET /v1/self/browser", s.browser("status", self))
 	for _, action := range []string{"start", "stop", "open"} {
 		handle("POST /v1/self/browser/"+action, s.browser(action, self))

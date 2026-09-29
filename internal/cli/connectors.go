@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -42,7 +43,8 @@ sent one of the project's secrets as a header instead:
   agentbox connector add pawly figma --url https://mcp.figma.com/mcp --secret FIGMA_TOKEN --header X-Figma-Token`,
 	}
 	cmd.AddCommand(newConnectorAddCmd(a), newConnectorListCmd(a), newConnectorConnectCmd(a),
-		newConnectorDisconnectCmd(a), newConnectorRemoveCmd(a), newConnectorMCPCmd(a))
+		newConnectorDisconnectCmd(a), newConnectorRemoveCmd(a), newConnectorMCPCmd(a),
+		newConnectorToolsCmd(a), newConnectorCallCmd(a))
 	return cmd
 }
 
@@ -272,6 +274,123 @@ func newConnectorRemoveCmd(a *app) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// selfRelay is a connector's relay on the in-agent socket, for a command run
+// inside an agent.
+func selfRelay(cmd *cobra.Command, name, what string) (*connectors.Relay, error) {
+	socket := inAgentSocket()
+	if _, err := os.Stat(socket); err != nil {
+		return nil, fmt.Errorf("agentbox connector %s runs inside an agent, for the connectors it is given", what)
+	}
+	c := api.NewClient(socket)
+	return &connectors.Relay{HTTP: c.HTTPClient(), URL: c.SelfConnectorURL(name), Log: cmd.ErrOrStderr()}, nil
+}
+
+// newConnectorToolsCmd lists a connector's tools from an agent's shell, for a
+// connector its AI tool's session started without: one connected while it
+// worked.
+func newConnectorToolsCmd(_ *app) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "tools NAME",
+		Short: "Inside an agent: list a connector's tools and what each takes",
+		Long: `Lists a connector's tools, each with the JSON its arguments take, for
+agentbox connector call. Your AI tool has a connector's tools natively from the
+session after it is connected (mcp__NAME__* in Claude Code); until then, these
+two reach it from the shell.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			relay, err := selfRelay(cmd, args[0], "tools")
+			if err != nil {
+				return err
+			}
+			tools, err := relay.Tools(cmd.Context())
+			if err != nil {
+				return fmt.Errorf("%s: %w", args[0], err)
+			}
+			out := cmd.OutOrStdout()
+			if asJSON {
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				return enc.Encode(tools)
+			}
+			for i, t := range tools {
+				if i > 0 {
+					_, _ = fmt.Fprintln(out)
+				}
+				_, _ = fmt.Fprintln(out, t.Name)
+				if d := strings.TrimSpace(t.Description); d != "" {
+					_, _ = fmt.Fprintln(out, "  "+strings.ReplaceAll(d, "\n", "\n  "))
+				}
+				if len(t.InputSchema) > 0 {
+					_, _ = fmt.Fprintf(out, "  arguments: %s\n", t.InputSchema)
+				}
+			}
+			if len(tools) == 0 {
+				_, _ = fmt.Fprintf(out, "%s has no tools.\n", args[0])
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print the tools as JSON")
+	return cmd
+}
+
+// newConnectorCallCmd calls one of a connector's tools from an agent's shell.
+func newConnectorCallCmd(_ *app) *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:   "call NAME TOOL [ARGUMENTS | -]",
+		Short: "Inside an agent: call one of a connector's tools",
+		Long: `Calls one of a connector's tools with its arguments as a JSON object, or
+read from stdin with -, and prints what it answered: its text, or with --json
+the whole result. agentbox connector tools NAME says what each tool takes.
+
+  agentbox connector call notion notion-search '{"query": "onboarding spec"}'`,
+		Args: cobra.RangeArgs(2, 3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var arguments json.RawMessage
+			if len(args) == 3 {
+				raw := []byte(args[2])
+				if args[2] == "-" {
+					var err error
+					if raw, err = io.ReadAll(cmd.InOrStdin()); err != nil {
+						return err
+					}
+				}
+				var object map[string]json.RawMessage
+				if err := json.Unmarshal(raw, &object); err != nil {
+					return fmt.Errorf("the arguments aren't a JSON object: %w", err)
+				}
+				arguments = raw
+			}
+			relay, err := selfRelay(cmd, args[0], "call")
+			if err != nil {
+				return err
+			}
+			res, err := relay.CallTool(cmd.Context(), args[1], arguments)
+			if err != nil {
+				return fmt.Errorf("%s %s: %w", args[0], args[1], err)
+			}
+			out := cmd.OutOrStdout()
+			if asJSON {
+				enc := json.NewEncoder(out)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(res); err != nil {
+					return err
+				}
+			} else if text := res.Text(); text != "" {
+				_, _ = fmt.Fprintln(out, text)
+			}
+			if res.IsError {
+				return fmt.Errorf("%s %s answered with an error", args[0], args[1])
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print the whole result as JSON")
+	return cmd
 }
 
 // newConnectorMCPCmd is the relay inside an agent: the MCP server its AI tools

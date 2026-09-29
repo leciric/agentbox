@@ -180,7 +180,7 @@ func (s *Server) disconnectConnector(w http.ResponseWriter, r *http.Request, of 
 
 // connectorInfo is a connector as the API shows it, with the agents it
 // reaches: a project connector reaches every agent of the project that has no
-// connector of its own by that name.
+// connector of its own by that name, and whose limit lets it through.
 func (s *Server) connectorInfo(ctx context.Context, c state.Connector) (api.Connector, error) {
 	var refs []string
 	if c.Agent != "" {
@@ -191,7 +191,7 @@ func (s *Server) connectorInfo(ctx context.Context, c state.Connector) (api.Conn
 			return api.Connector{}, err
 		}
 		for _, a := range agents {
-			if a.IsLead() {
+			if a.IsLead() || !a.GetsConnector(c.Name) {
 				continue
 			}
 			if _, err := s.store.Connector(ctx, a.Project, a.Name, c.Name); err == nil {
@@ -220,6 +220,11 @@ func (s *Server) connectorChanged(c state.Connector, removed bool) {
 		}
 	}
 	s.events.publish(api.EventConnector, info)
+	if !removed {
+		// A sign-in finishing, or a connector turned on, may be what an
+		// agent's request is waiting for.
+		s.resolveConnectorRequests(ctx, c.Project)
+	}
 	given := !removed && c.Enabled
 	s.mu.Lock()
 	k := scopeRef(c.Project, c.Agent) + "\x00" + c.Name
@@ -318,5 +323,43 @@ func (s *Server) selfConnectorMCP(instance string) http.HandlerFunc {
 			}
 		}
 		connectors.RelayError(w, http.StatusNotFound, fmt.Sprintf("%s has no connector %q", a.Ref(), name))
+	}
+}
+
+// leadConnectors is what a project's chat is given, on its own socket: its
+// project's enabled connectors, for `agentbox connector list` there.
+func (s *Server) leadConnectors(w http.ResponseWriter, r *http.Request) error {
+	found, err := s.store.Connectors(r.Context(), r.PathValue("project"), "")
+	if err != nil {
+		return err
+	}
+	out := []api.SelfConnector{}
+	for _, c := range found {
+		if !c.Enabled {
+			continue
+		}
+		status, why := s.connectors.Status(r.Context(), c, "")
+		out = append(out, api.SelfConnector{Name: c.Name, URL: c.URL, Status: status, Error: why})
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// leadConnectorMCP relays a project's chat's MCP traffic to one of its
+// project's connectors: the same relay an agent's AI tools start, pointed at
+// the lead's socket (agent.leadMCPServers). A project connector's secret is the
+// project's.
+func (s *Server) leadConnectorMCP(project string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		c, err := s.store.Connector(r.Context(), project, "", name)
+		switch {
+		case errors.Is(err, state.ErrNotFound):
+			connectors.RelayError(w, http.StatusNotFound, fmt.Sprintf("%s has no connector %q", project, name))
+			return
+		case err != nil:
+			connectors.RelayError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.connectors.Proxy(w, r, c, "")
 	}
 }

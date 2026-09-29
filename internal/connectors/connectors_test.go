@@ -65,7 +65,8 @@ type session struct {
 	err chan error
 }
 
-func relayTo(t *testing.T, s *Service, c state.Connector) *session {
+// relayFor is a relay to connector c through a stand-in for the daemon.
+func relayFor(t *testing.T, s *Service, c state.Connector) *Relay {
 	t.Helper()
 	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fresh, err := s.State.Connector(r.Context(), c.Project, c.Agent, c.Name)
@@ -76,9 +77,14 @@ func relayTo(t *testing.T, s *Service, c state.Connector) *session {
 		s.Proxy(w, r, fresh, "")
 	}))
 	t.Cleanup(daemon.Close)
+	return &Relay{HTTP: daemon.Client(), URL: daemon.URL}
+}
+
+func relayTo(t *testing.T, s *Service, c state.Connector) *session {
+	t.Helper()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	r := &Relay{HTTP: daemon.Client(), URL: daemon.URL}
+	r := relayFor(t, s, c)
 	sess := &session{in: inW, out: bufio.NewScanner(outR), err: make(chan error, 1)}
 	go func() {
 		sess.err <- r.Serve(context.Background(), inR, outW)

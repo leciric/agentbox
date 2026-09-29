@@ -124,3 +124,23 @@ type SelfConnector struct {
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
 }
+
+// QuestionConnector is the Kind of a Question that is a connector request:
+// an agent asking the user to connect a connector it needs, with
+// request_connector. Like a credential request, only the user answers it,
+// from the app; unlike one, it carries nothing secret either way — the user
+// signs in on the server's own page, and the tokens stay with the daemon.
+const QuestionConnector = "connector"
+
+// ConnectorRequest is the body of POST /v1/self/connector, on the in-agent
+// socket: request_connector. The call waits until the user has connected it
+// (answered) or declined (an error, with their reason), and says so.
+type ConnectorRequest struct {
+	// Name is the connector: one the project has, or the name to add it as.
+	Name string `json:"name"`
+	// URL is the server's streamable HTTP endpoint, for a connector the
+	// project doesn't have yet. It is ignored for one it has.
+	URL string `json:"url,omitempty"`
+	// Reason is what the agent needs it for, for the user to decide on.
+	Reason string `json:"reason"`
+}

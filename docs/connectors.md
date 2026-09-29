@@ -34,14 +34,30 @@ sequenceDiagram
 - [`internal/agent/connectors.go`](../internal/agent/connectors.go): enabled connectors join
   `agentMCPServers`, so Claude Code, Codex and OpenCode all get them, and running agents have
   their MCP configuration rewritten when the set changes.
-- `agentbox connector …` ([`internal/cli/connectors.go`](../internal/cli/connectors.go)).
+- `agentbox connector …` ([`internal/cli/connectors.go`](../internal/cli/connectors.go)), and
+  `tools` and `call` inside an agent ([`internal/connectors/call.go`](../internal/connectors/call.go)).
+- `request_connector`, an agent asking the user for one
+  ([`internal/daemon/connectorrequests.go`](../internal/daemon/connectorrequests.go)), and the
+  lead's `list_connectors` and `create_agent`'s `connectors` ([`internal/cli/mcp.go`](../internal/cli/mcp.go)).
 
 ## Scope
 
 A connector belongs to a project (every agent of it gets it) or to one agent. An agent's own
 connector of the same name as its project's replaces the project's for that agent, the way an
 agent's own secret does. An agent connector goes with its agent; project connectors go with their
-project. A project's chat (the lead) runs on the host with no machine and gets none.
+project.
+
+An agent can be limited to some of its project's connectors when it is made: `create_agent`'s
+`connectors: ["notion"]` (`CreateAgentRequest.connectors`), `[]` for none, left out for every one.
+The limit is the agent's `connectors` column, `NULL` for no limit; it names project connectors only,
+and one the project doesn't have is refused. A fork is given what its source was. Answering a
+`request_connector` for a connector the limit left out adds it to the limit.
+
+A project's chat (the lead) runs on the host with no machine, and is given its project's enabled
+connectors all the same, through the same relay: its `~/.claude.json` starts
+`agentbox connector mcp <name>` with `AGENTBOX_IN_AGENT_SOCKET` pointed at the lead's socket, which
+relays the project's connectors (never an agent's own) on `/v1/self/connectors/{name}/mcp`. Its
+MCP servers are rewritten when the project's connectors change, the way a running agent's are.
 
 ## How a connector signs in (`auth`)
 
@@ -106,11 +122,66 @@ On the agent's own socket (`/run/agentbox.sock` inside it):
 | --- | --- |
 | `GET /v1/self/connectors` | `SelfConnector[]`: the enabled connectors this agent has. |
 | `POST`, `GET`, `DELETE /v1/self/connectors/{name}/mcp` | The server's streamable HTTP endpoint, relayed. |
+| `POST /v1/self/connector` | `request_connector`, below: waits, then answers with the `Question`. |
+
+The lead's socket has the first two, for its project's connectors, and `GET /v1/project/connectors`
+(`Connector[]`, what `list_connectors` describes).
 
 The relay passes `Content-Type`, `Accept`, `Mcp-Session-Id`, `Mcp-Protocol-Version` and
 `Last-Event-ID` through, and back `Content-Type`, `Mcp-Session-Id` and `Cache-Control`; nothing else crosses in
 either direction, cookies included. A connector that isn't connected answers `409` with the reason,
 which the stdio relay turns into a JSON-RPC error for the request.
+
+## `request_connector`
+
+An agent that needs a service it has no tools for asks the user with the `memory` MCP server's
+`request_connector`, the way it asks for a credential with `request_credential`. The call waits —
+up to two hours, like any question — until the agent can use the connector, or the user declines.
+
+The agent sends (`ConnectorRequest`, `POST /v1/self/connector`):
+
+```json
+{"name": "notion", "url": "https://mcp.notion.com/mcp", "reason": "the onboarding spec is in Notion"}
+```
+
+`url` is needed only when the project has no connector of that name. A connector the agent can
+already use answers at once, and nothing is recorded. Otherwise the request is a `Question` of kind
+`connector`, waiting on the user (`escalated`), published as `EventQuestion` like any other:
+
+```json
+{
+  "id": "4b1f…", "project": "pawly", "agent": "agent-03", "ref": "pawly/agent-03",
+  "kind": "connector", "connector": "notion", "url": "https://mcp.notion.com/mcp",
+  "question": "the onboarding spec is in Notion", "status": "escalated", "createdAt": "…"
+}
+```
+
+`url` is the project's connector's when it has one, else the one the agent gave. The app answers it
+on the credential route, `POST /v1/projects/{project}/questions/{id}/credential`
+(`AnswerCredentialRequest`), with exactly one of:
+
+```json
+{"connector": "notion"}
+{"refuse": true, "reason": "not this sprint"}
+```
+
+The card adds the connector and signs in with the routes above first. `{"connector": …}` turns it on
+if it is off and gives it to the agent past its `create_agent` limit; a connector that still can't
+be used (not signed in, its secret not set) is refused with why, and the request keeps waiting.
+**The request is also answered on its own** as soon as the connector the agent asked for becomes
+usable — a sign-in finishing, from the card, the Connectors tab or `agentbox connector connect` — so
+the card's own `{"connector": …}` right behind it answers `200` with the request as it is. The lead
+can't answer one, nor can a written answer.
+
+The agent is told it's connected, and how to use it at once: every AI tool reads its MCP servers when
+its session starts, so a connector connected while it works reaches its native tools
+(`mcp__notion__*`) only with its next session. Until then it has them from its shell, through the
+same relay, as one short MCP session each:
+
+```bash
+agentbox connector tools notion                                          # each tool and the JSON it takes
+agentbox connector call notion notion-search '{"query": "onboarding spec"}'   # its text, or --json
+```
 
 ## The command line
 
@@ -148,8 +219,8 @@ Checked on 29 September 2026:
 
 ## What it can't do yet
 
-- There is no UI: the app's connectors page, `request_connector` for agents, and lead tools are
-  separate work, built on the routes above.
+- A session already running doesn't get a connector connected on its request: the agent reaches
+  it with `agentbox connector call` until its next session. Nothing restarts the session for it.
 - A server that refuses dynamic registration but would take a client ID registered by hand has no
   way to be given one.
 - On a Mac, or on Windows, the daemon runs in a VM: the callback is on the VM's `127.0.0.1`, which

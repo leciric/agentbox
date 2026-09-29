@@ -104,9 +104,9 @@ const maxMetadata = 1 << 20
 
 // CheckURL refuses anything but https, and plain http to this machine: a token
 // goes wherever these URLs say, so none of them may be sniffable.
-func CheckURL(raw string) error { return OAuth{}.checkURL(raw) }
+func CheckURL(raw string) error { return OAuth{}.CheckURL(raw) }
 
-func (o OAuth) checkURL(raw string) error {
+func (o OAuth) CheckURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("%q isn't a URL: %w", raw, err)
@@ -138,7 +138,7 @@ func isLoopback(host string) bool {
 // all is taken to be its own authorization server, as the 2025-03-26 spec had
 // it.
 func (o OAuth) Discover(ctx context.Context, server string) (Discovery, error) {
-	if err := o.checkURL(server); err != nil {
+	if err := o.CheckURL(server); err != nil {
 		return Discovery{}, err
 	}
 	metadataURL, scope, err := o.challenge(ctx, server)
@@ -154,7 +154,7 @@ func (o OAuth) Discover(ctx context.Context, server string) (Discovery, error) {
 	var prm ResourceMetadata
 	found := false
 	for _, u := range candidates {
-		if err := o.checkURL(u); err != nil {
+		if err := o.CheckURL(u); err != nil {
 			return Discovery{}, fmt.Errorf("the server's resource metadata: %w", err)
 		}
 		ok, err := o.getJSON(ctx, u, &prm)
@@ -186,7 +186,7 @@ func (o OAuth) Discover(ctx context.Context, server string) (Discovery, error) {
 		u, _ := url.Parse(server)
 		issuer = u.Scheme + "://" + u.Host
 	}
-	if err := o.checkURL(issuer); err != nil {
+	if err := o.CheckURL(issuer); err != nil {
 		return Discovery{}, fmt.Errorf("the authorization server: %w", err)
 	}
 	meta, err := o.serverMetadata(ctx, issuer, !found)
@@ -198,7 +198,7 @@ func (o OAuth) Discover(ctx context.Context, server string) (Discovery, error) {
 		return Discovery{}, fmt.Errorf("%s doesn't support PKCE with S256, which the MCP spec requires", issuer)
 	}
 	for _, u := range []string{meta.AuthorizationEndpoint, meta.TokenEndpoint} {
-		if err := o.checkURL(u); err != nil {
+		if err := o.CheckURL(u); err != nil {
 			return Discovery{}, fmt.Errorf("the authorization server's endpoints: %w", err)
 		}
 	}
@@ -372,7 +372,7 @@ func (o OAuth) Register(ctx context.Context, meta ServerMetadata, redirectURI, s
 	if meta.RegistrationEndpoint == "" {
 		return Client{}, fmt.Errorf("%w: %s has no registration endpoint", ErrRegistration, meta.Issuer)
 	}
-	if err := o.checkURL(meta.RegistrationEndpoint); err != nil {
+	if err := o.CheckURL(meta.RegistrationEndpoint); err != nil {
 		return Client{}, err
 	}
 	method := tokenAuthMethod(meta.TokenEndpointAuthMethodsSupported)
@@ -498,7 +498,7 @@ func (o OAuth) Refresh(ctx context.Context, tokenEndpoint string, c Client, refr
 var ErrGrant = errors.New("the authorization server refused the grant")
 
 func (o OAuth) token(ctx context.Context, endpoint string, c Client, form url.Values) (Token, error) {
-	if err := o.checkURL(endpoint); err != nil {
+	if err := o.CheckURL(endpoint); err != nil {
 		return Token{}, err
 	}
 	switch c.AuthMethod {

@@ -262,6 +262,7 @@ export interface CreateAgentRequest {
   finishNotice?: string;
   queue?: boolean;
   taskId?: string;
+  connectors?: string[];
 }
 
 export interface ForkRequest {
@@ -931,6 +932,12 @@ export interface SelfConnector {
   error?: string;
 }
 
+export interface ConnectorRequest {
+  name: string;
+  url?: string;
+  reason: string;
+}
+
 export interface PullRequest {
   number: number;
   title: string;
@@ -1067,6 +1074,8 @@ export interface Question {
   ref: string;
   kind?: string;
   secretName?: string;
+  connector?: string;
+  url?: string;
   question: string;
   context?: string;
   status: string;
@@ -1099,6 +1108,7 @@ export interface CredentialRequest {
 export interface AnswerCredentialRequest {
   githubAccount?: string;
   value?: string;
+  connector?: string;
   refuse?: boolean;
   reason?: string;
 }
@@ -1929,6 +1939,7 @@ export const ConnectorDisconnected = "disconnected";
 export const ConnectorConnecting = "connecting";
 export const ConnectorError = "error";
 export const EventConnector = "connector";
+export const QuestionConnector = "connector";
 export const GitHubNoAccount = "noAccount";
 export const GitHubNoAccess = "noAccess";
 export const GitHubBadToken = "badToken";
