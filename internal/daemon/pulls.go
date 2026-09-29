@@ -168,8 +168,8 @@ type pullsCache struct {
 	branchTTL time.Duration // how long a per-branch answer is believed
 	byRepo    map[string]pullsEntry
 	fetching  map[string]bool
-	// gen counts how often a repository was invalidated, so a refresh that
-	// was in flight over a merge doesn't put the pre-merge list back.
+	// gen counts how often a merge overtook a repository's answer, so a
+	// refresh that was in flight over it doesn't put the pre-merge list back.
 	gen map[string]int
 	now func() time.Time
 }
@@ -189,6 +189,10 @@ type pullsEntry struct {
 	listErr pullsErr
 	infoErr pullsErr
 	at      time.Time // when GitHub answered; zero means it never has
+	// stale is set when a merge made through AgentBox overtook the answer:
+	// it's still served, so no list empties while GitHub is re-read, but
+	// the next request re-reads it whatever its age.
+	stale bool
 	// lookups holds what a lookup found for an agent the list page had no
 	// pull request for, by the commit its branch was at — including that it
 	// found nothing, so an agent whose work was never pushed isn't one GitHub
@@ -234,7 +238,7 @@ func (c *pullsCache) claim(key string, heads []agentHead) (int, bool) {
 	e, ok := c.byRepo[key]
 	// An entry whose list failed is only retried on the TTL: an unknown
 	// branch must never turn a broken GitHub into a call per request.
-	if ok && c.now().Sub(e.at) < c.ttl && (e.listErr.failed() || e.knows(heads, c.now(), c.branchTTL)) {
+	if ok && !e.stale && c.now().Sub(e.at) < c.ttl && (e.listErr.failed() || e.knows(heads, c.now(), c.branchTTL)) {
 		return 0, false
 	}
 	c.fetching[key] = true
@@ -243,7 +247,7 @@ func (c *pullsCache) claim(key string, heads []agentHead) (int, bool) {
 
 // finish stores a refresh's answer, and reports whether anything a client can
 // see moved. An answer for a generation the cache has moved past — a merge
-// invalidated it while the refresh was in flight — is dropped.
+// overtook it while the refresh was in flight — is dropped.
 func (c *pullsCache) finish(key string, gen int, e pullsEntry) (pullsEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -254,16 +258,35 @@ func (c *pullsCache) finish(key string, gen int, e pullsEntry) (pullsEntry, bool
 	e.at = c.now()
 	before, had := c.byRepo[key]
 	c.byRepo[key] = e
-	return e, !had || !before.same(e)
+	// A stale answer was being served as "reading GitHub": the read that
+	// replaces it is news even when GitHub agrees with it.
+	return e, !had || before.stale || !before.same(e)
 }
 
-// invalidate drops a repository's answer, and makes the cache ignore any
-// refresh already in flight for it.
-func (c *pullsCache) invalidate(key string) {
+// merged records that a pull request of a repository was merged, and makes
+// the cache ignore any refresh already in flight for it. What it holds stays:
+// dropping it answered the app's refetch after a merge with an empty list, as
+// though nothing had ever been read, and emptied the Pull requests tab and
+// every agent's pull request badge until GitHub was read again. It is marked
+// stale instead, so the next request re-reads GitHub behind it, and the one
+// pull request is marked merged on it, which the merge has just proved.
+func (c *pullsCache) merged(key string, number int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gen[key]++
-	delete(c.byRepo, key)
+	e, ok := c.byRepo[key]
+	if !ok {
+		return
+	}
+	// e.prs is shared with whoever is reading it, so the mark goes on a copy.
+	e.prs = slices.Clone(e.prs)
+	for i := range e.prs {
+		if e.prs[i].Number == number {
+			e.prs[i].State = "merged"
+		}
+	}
+	e.stale = true
+	c.byRepo[key] = e
 }
 
 // reset forgets everything, for when the GitHub account behind it changed:
@@ -407,6 +430,14 @@ func (s *Server) refreshPulls(project string, client github.Client, repo github.
 	defer cancel()
 	entry, changed := s.pulls.finish(key, gen, s.fetchPulls(ctx, client, repo, heads, before))
 	if !changed {
+		// A merge overtook this read, so what it read was dropped. Nothing
+		// else will read again until the app next polls, and it is showing
+		// the pre-merge list, "reading GitHub", meanwhile: read again now.
+		if e, _ := s.pulls.state(key); e.stale || e.at.IsZero() {
+			if gen, ok := s.pulls.claim(key, heads); ok {
+				s.refreshPulls(project, client, repo, gen, heads)
+			}
+		}
 		return
 	}
 	// Something moved — a pull request opened, pushed to, its checks — so
@@ -677,7 +708,7 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	pr.State = "merged"
-	s.pulls.invalidate(repo.String())
+	s.pulls.merged(repo.String(), number)
 	s.captureEvent(ctx, project, agentOfCommit(s.agentsOf(ctx, p), pr.HeadSHA), "pr_merged", map[string]any{
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
 	}, "")
