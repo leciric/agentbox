@@ -3,6 +3,24 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.9.0](https://github.com/leciric/agentbox/compare/v0.8.0...v0.9.0) (2026-09-29)
+
+
+### Added
+
+* have the chat read the agents' replies aloud, with a local voice in English or Brazilian Portuguese ([#116](https://github.com/leciric/agentbox/issues/116)) ([8936a9e](https://github.com/leciric/agentbox/commit/8936a9e92981239736ed300437c492e55cd8d4fc))
+* push-to-talk in every chat, transcribed on your own GPU by Whisper ([#118](https://github.com/leciric/agentbox/issues/118)) ([28e72c5](https://github.com/leciric/agentbox/commit/28e72c55fbc100276fac1f80bdaaa39e954cff98))
+* run AgentBox on Linux inside one lightweight VM, with no host setup and no sudo ([#119](https://github.com/leciric/agentbox/issues/119)) ([b7664aa](https://github.com/leciric/agentbox/commit/b7664aa89a221943115fea9e623d4de285336d00))
+
+
+### Fixed
+
+* agents attach PR screenshots with gh instead of pushing them to a media branch ([#114](https://github.com/leciric/agentbox/issues/114)) ([3a1d5c5](https://github.com/leciric/agentbox/commit/3a1d5c57571cc785a4ab78e96b13d3fa72fb3a94))
+* agents no longer show a card offering to raise their memory ([#113](https://github.com/leciric/agentbox/issues/113)) ([1b1204d](https://github.com/leciric/agentbox/commit/1b1204d95add9c549572527952e1b553d50bff7f))
+* the agents' rail no longer warns that they're short of memory at the shared budget ([#115](https://github.com/leciric/agentbox/issues/115)) ([f774873](https://github.com/leciric/agentbox/commit/f774873a96d44c83f1d0a25c171f553b7041ca71))
+* the app shows loading placeholders instead of empty lists while it loads ([#117](https://github.com/leciric/agentbox/issues/117)) ([9b61bde](https://github.com/leciric/agentbox/commit/9b61bded28e6da771688f604bf8f5fce54a62975))
+* the shared agent budget protects your apps' memory instead of fencing agents in, no longer throttles the disk, and is off unless you turn it on ([#110](https://github.com/leciric/agentbox/issues/110)) ([f3a35ff](https://github.com/leciric/agentbox/commit/f3a35ffd9995444a1e963fbecc3c5e1b2f3dd66d))
+
 ## [0.8.0](https://github.com/leciric/agentbox/compare/v0.7.0...v0.8.0) (2026-09-28)
 
 
