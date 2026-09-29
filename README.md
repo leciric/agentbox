@@ -129,6 +129,12 @@ and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg`
 `-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
 same [Releases](https://github.com/leciric/agentbox/releases/latest) page.
 
+On a Mac there is also an **experimental** way without Lima: `agentbox vm init --driver vz` (or
+**Apple Virtualization, without Lima** in the app's Setup) has AgentBox run the VM itself with
+Apple's Virtualization framework, on macOS 13 or later. It hasn't been tried on a real Mac yet; its
+VM holds all of its memory while it runs, and `agentbox vm delete --yes` goes back to Lima's. A
+build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
+
 ## Quick start
 
 1. **Add project** in the app, and pick a git repository.
