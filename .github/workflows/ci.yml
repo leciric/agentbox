@@ -51,6 +51,56 @@ jobs:
           GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
           GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
 
+  # The macOS agentbox, as a release builds it: with cgo, which the
+  # experimental vz driver's bindings to Apple's Virtualization framework need
+  # (internal/hostvm/chv/vz_darwin.go), for Apple silicon and Intel, and
+  # signed with its entitlement. The unit tests run here too, and the vz
+  # driver's own with a test binary signed the same way. The runner can't
+  # boot a VM: what only a real Mac shows is in the vz driver's PR.
+  macos:
+    name: Go on a Mac
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/Library/Caches/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - name: Build the macOS agentbox, with cgo, and sign it
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go vet ./...
+          GOARCH=arm64 go build -o bin/agentbox-arm64 ./cmd/agentbox
+          GOARCH=amd64 go build -o bin/agentbox-amd64 ./cmd/agentbox
+          scripts/mac-sign.sh bin/agentbox-arm64 bin/agentbox-amd64
+          bin/agentbox-arm64 --version
+          bin/agentbox-arm64 vm init --help | grep -q -- '--driver'
+
+      - name: Unit tests
+        env:
+          CGO_ENABLED: "1"
+        run: go test ./...
+
+      # The vz driver's configuration, validated by the framework, and its
+      # checks, from a test binary signed with the entitlement as agentbox is.
+      - name: The vz driver, signed
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go test -c -o bin/chv.test ./internal/hostvm/chv
+          scripts/mac-sign.sh bin/chv.test
+          AGENTBOX_TEST_SIGNED=1 bin/chv.test -test.run 'VZ' -test.v
+
   lint:
     name: Go lint
     runs-on: ubuntu-24.04

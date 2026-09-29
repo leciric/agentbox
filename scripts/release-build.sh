@@ -6,7 +6,9 @@
 # AgentBox's Linux VM), and their checksums, in desktop/dist/release/v<version>/.
 # The Windows build runs on Linux, and needs wine for the installer's
 # uninstaller. The Mac app is built by the release workflow's macos job, on a
-# Mac, and never goes through this script.
+# Mac, and never goes through this script; the macOS command-line tool is
+# built there too (--mac-cli), since it needs cgo and the macOS SDK for the
+# experimental vz driver, and signing with its entitlement (scripts/mac-sign.sh).
 #
 # It publishes nothing. .github/workflows/release.yml calls it for every part,
 # so what a release is — and what it has to pass — has one definition wherever
@@ -15,15 +17,16 @@
 # this ever runs: there is no local equivalent of this script that also tags
 # and pushes, since release-please owns both.
 #
-#   scripts/release-build.sh --tag v0.7.1 [--check | --linux | --windows]
+#   scripts/release-build.sh --tag v0.7.1 [--check | --linux | --windows | --mac-cli]
 #
 # --tag is the tag the caller means to publish: the build refuses to produce
 # anything else, so a workflow run can't be given the wrong version by hand.
 #
-# With no part given, it checks and builds everything (Linux then Windows) and
-# writes SHA256SUMS over the lot. The release workflow instead runs the three
-# parts as separate jobs, in parallel: --check once, then --linux and
-# --windows alongside each other and the Mac app, each part writing only what
+# With no part given, it checks and builds everything but the Mac's (Linux
+# then Windows) and writes SHA256SUMS over the lot. The release workflow
+# instead runs the parts as separate jobs, in parallel: --check once, then
+# --linux and --windows alongside each other and the Mac app and its
+# command-line tool (--mac-cli), each part writing only what
 # it built to desktop/dist/release/, without a checksum file — the workflow's
 # publish job sums the merged result once every part has finished.
 set -euo pipefail
@@ -38,8 +41,8 @@ part=all
 while [ $# -gt 0 ]; do
   case $1 in
     --tag) want=${2:-}; [ -n "$want" ] || { echo "--tag needs a tag" >&2; exit 2; }; shift 2 ;;
-    --check|--linux|--windows) part=${1#--}; shift ;;
-    *) echo "usage: scripts/release-build.sh [--tag v<version>] [--check | --linux | --windows]" >&2; exit 2 ;;
+    --check|--linux|--windows|--mac-cli) part=${1#--}; shift ;;
+    *) echo "usage: scripts/release-build.sh [--tag v<version>] [--check | --linux | --windows | --mac-cli]" >&2; exit 2 ;;
   esac
 done
 
@@ -55,6 +58,8 @@ check() {
   [ "$is_draft" = "true" ] || { echo "$tag is already published: a published release doesn't get rebuilt" >&2; exit 1; }
 }
 
+ldflags="-s -w -X agentbox/internal/cli.version=$version -X agentbox/internal/daemon.Version=$version"
+
 build_linux() {
   echo "==> Building AgentBox $version (Linux)"
   npm --prefix "$root/desktop" run dist
@@ -63,16 +68,28 @@ build_linux() {
   cp "$root/desktop/dist/AgentBox-$version-amd64.deb" "$out/"
   cp "$root/desktop/dist/AgentBox-$version-x64.pacman" "$out/"
   cp "$root/bin/agentbox" "$out/agentbox-$version-linux-amd64"
-  # The command-line tool for a Mac is two files: the macOS agentbox, and the
-  # Linux one it installs in the VM, which it looks for beside itself as
-  # agentbox-linux (the README's "On a Mac"). Both are plain cross-compiles,
-  # so they're built here rather than waiting on the Mac job.
-  ldflags="-s -w -X agentbox/internal/cli.version=$version -X agentbox/internal/daemon.Version=$version"
-  for target in linux/arm64 darwin/arm64 darwin/amd64; do
-    (cd "$root" && CGO_ENABLED=0 GOOS=${target%/*} GOARCH=${target#*/} go build -trimpath -ldflags "$ldflags" -o "$out/agentbox-$version-${target%/*}-${target#*/}" ./cmd/agentbox)
-  done
+  # The command-line tool for a Mac is two files: the macOS agentbox, built
+  # on a Mac (--mac-cli), and the Linux one it installs in the VM, which it
+  # looks for beside itself as agentbox-linux (the README's "On a Mac"):
+  # linux-arm64 for Apple silicon, linux-amd64 above for Intel.
+  (cd "$root" && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$ldflags" -o "$out/agentbox-$version-linux-arm64" ./cmd/agentbox)
   chmod +x "$out"/*
   "$out/agentbox-$version-linux-amd64" --version | grep -qx "agentbox version $version" || { echo "the binary isn't version $version" >&2; exit 1; }
+}
+
+# build_mac_cli builds the macOS agentbox for Apple silicon and Intel, with
+# cgo, and signs each with the Virtualization entitlement: with
+# MAC_SIGN_IDENTITY's certificate when it's set, ad hoc when it isn't.
+build_mac_cli() {
+  echo "==> Building AgentBox $version's command-line tool (macOS)"
+  [ "$(uname -s)" = Darwin ] || { echo "the macOS agentbox is built on a Mac: it needs cgo and the macOS SDK" >&2; exit 1; }
+  mkdir -p "$out"
+  for arch in arm64 amd64; do
+    (cd "$root" && CGO_ENABLED=1 GOOS=darwin GOARCH=$arch go build -trimpath -ldflags "$ldflags" -o "$out/agentbox-$version-darwin-$arch" ./cmd/agentbox)
+  done
+  "$root/scripts/mac-sign.sh" ${MAC_SIGN_IDENTITY:+--identity "$MAC_SIGN_IDENTITY"} "$out"/agentbox-"$version"-darwin-*
+  here=$(uname -m); [ "$here" = x86_64 ] && here=amd64
+  "$out/agentbox-$version-darwin-$here" --version | grep -qx "agentbox version $version" || { echo "the binary isn't version $version" >&2; exit 1; }
 }
 
 build_windows() {
@@ -87,6 +104,7 @@ case $part in
   check) check ;;
   linux) rm -rf "$out"; mkdir -p "$out"; build_linux ;;
   windows) rm -rf "$out"; mkdir -p "$out"; build_windows ;;
+  mac-cli) rm -rf "$out"; mkdir -p "$out"; build_mac_cli ;;
   all)
     check
     rm -rf "$out"
