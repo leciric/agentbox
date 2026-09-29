@@ -43,6 +43,9 @@ type Config struct {
 	// UpdateURL is where the daily update check asks; empty is
 	// update.DefaultURL.
 	UpdateURL string
+	// ReleasesURL is where the nightly channel looks for nightlies; empty is
+	// update.DefaultReleasesURL.
+	ReleasesURL string
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string

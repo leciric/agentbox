@@ -1,0 +1,422 @@
+name: Nightly
+
+# Nightly builds: everything release.yml builds — the AppImage, .deb and
+# .pacman, the Windows installer and portable .exe, the command-line tool for
+# linux-amd64, linux-arm64, darwin-arm64 and darwin-amd64, and the Mac app —
+# from the head of release-please's PR, published as a GitHub prerelease with
+# SHA256SUMS, while that PR carries the `nightly` label. The PR's head is the
+# next release as it stands (its commit already bumps desktop/package.json),
+# so a nightly is versioned <next release>-nightly.<YYYYMMDD>.<run>: a semver
+# prerelease, ordered by date then run, before the release it leads up to.
+# scripts/release-build.sh --nightly stamps that version and builds it, the
+# same script and the same checks as a release.
+#
+# What makes one:
+# - Putting the label on the release PR, or taking it off and putting it back
+#   (pull_request: labeled). Any other label doesn't.
+# - A push to the PR while it's labelled: a person's push arrives as
+#   pull_request: synchronize, and release-please's own update of the PR,
+#   which it pushes with GITHUB_TOKEN and so triggers no pull_request event,
+#   arrives as the Release workflow finishing on main (workflow_run). That
+#   path skips a commit a nightly was already built from, since most pushes
+#   to main don't change the release PR at all.
+# - workflow_dispatch, by hand: builds everything from the release PR's head
+#   (or `ref`), and publishes only when `publish` is on and no `ref` was given.
+#   Off, it is the dry run: every build job runs, SHA256SUMS is written into
+#   the run's artifacts, and nothing is tagged or released.
+#
+# Stable releasing is untouched: release.yml neither reads nor makes a nightly
+# tag. release-please finds its last release by the version in
+# .release-please-manifest.json, so a vX.Y.Z-nightly.* tag never matches one,
+# and agentbox.linting.dev's update check skips prereleases. A nightly is
+# created with --prerelease --latest=false, so GitHub never shows it as the
+# latest release. Only the newest $KEEP nightlies are kept: older ones, their
+# releases and their tags, are deleted when a new one is published, so they
+# never crowd the stable releases out of the first page of GitHub's release
+# list that agentbox.linting.dev reads.
+
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish it as a prerelease (off: build everything, publish nothing)'
+        type: boolean
+        default: false
+      ref:
+        description: "Build this ref instead of the release PR's head (never published)"
+        type: string
+        default: ''
+
+# Tagging and releasing need contents: write; reading the PR's labels needs
+# pull-requests: read.
+permissions:
+  contents: write
+  pull-requests: read
+
+# One nightly at a time, queued rather than cancelled: a run that has started
+# publishing shouldn't be cut off, and the queued one checks again whether its
+# commit was built meanwhile (workflow_run) or builds the newer head.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+env:
+  RELEASE_BRANCH: release-please--branches--main
+  KEEP: 10
+
+jobs:
+  resolve:
+    name: Resolve the nightly to build
+    # A pull_request event only counts on the release PR itself, from this
+    # repository, while it has the label: and a `labeled` one only when the
+    # label just put on is `nightly`.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.ref == 'release-please--branches--main' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       contains(github.event.pull_request.labels.*.name, 'nightly') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'nightly'))
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.pick.outputs.build }}
+      sha: ${{ steps.pick.outputs.sha }}
+      pr: ${{ steps.pick.outputs.pr }}
+      publish: ${{ steps.pick.outputs.publish }}
+      nightly: ${{ steps.version.outputs.nightly }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EVENT: ${{ github.event_name }}
+      PR_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      INPUT_PUBLISH: ${{ inputs.publish }}
+      INPUT_REF: ${{ inputs.ref }}
+    steps:
+      - name: Pick the commit
+        id: pick
+        run: |
+          publish=true
+          case $EVENT in
+            pull_request)
+              sha=$PR_SHA pr=$PR_NUMBER
+              ;;
+            workflow_run)
+              read -r pr sha < <(gh pr list -R "$GITHUB_REPOSITORY" --head "$RELEASE_BRANCH" --state open --label nightly \
+                --json number,headRefOid --jq '.[0] | "\(.number) \(.headRefOid)"') || true
+              if [ -z "${sha:-}" ] || [ "$sha" = null ]; then
+                echo "The release PR is closed or isn't labelled nightly: nothing to build."
+                echo "build=false" >>"$GITHUB_OUTPUT"
+                exit 0
+              fi
+              built=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                --jq "[.[] | select(.prerelease and (.tag_name | test(\"-nightly\\\\.\")) and .target_commitish == \"$sha\")][0].tag_name // \"\"")
+              if [ -n "$built" ]; then
+                echo "$built was already built from $sha: nothing new."
+                echo "build=false" >>"$GITHUB_OUTPUT"
+                exit 0
+              fi
+              ;;
+            workflow_dispatch)
+              publish=$INPUT_PUBLISH
+              if [ -n "$INPUT_REF" ]; then
+                sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$INPUT_REF" --jq .sha) pr=
+                publish=false
+              else
+                read -r pr sha < <(gh pr list -R "$GITHUB_REPOSITORY" --head "$RELEASE_BRANCH" --state open \
+                  --json number,headRefOid --jq '.[0] | "\(.number) \(.headRefOid)"') || true
+                if [ -z "${sha:-}" ] || [ "$sha" = null ]; then
+                  echo "::error::There is no open release PR to build: give a ref instead."
+                  exit 1
+                fi
+              fi
+              ;;
+          esac
+          {
+            echo "build=true"
+            echo "sha=$sha"
+            echo "pr=$pr"
+            echo "publish=$publish"
+          } >>"$GITHUB_OUTPUT"
+          echo "Building $sha${pr:+ (release PR #$pr)}; publish: $publish"
+
+      - uses: actions/checkout@v7
+        if: steps.pick.outputs.build == 'true'
+        with:
+          ref: ${{ steps.pick.outputs.sha }}
+
+      - uses: jdx/mise-action@v4
+        if: steps.pick.outputs.build == 'true'
+        with:
+          install_args: node
+
+      # The version comes from the checkout's desktop/package.json and the
+      # date and run number: scripts/release-build.sh --check then refuses a
+      # checkout that isn't clean, a package version that isn't a release,
+      # and a tag that is already taken.
+      - name: Version it and check it
+        id: version
+        if: steps.pick.outputs.build == 'true'
+        run: |
+          nightly=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
+          release=$(node -p "require('./desktop/package.json').version.split('-')[0]")
+          version=$release-nightly.$nightly
+          scripts/release-build.sh --nightly "$nightly" --tag "v$version" --check
+          {
+            echo "nightly=$nightly"
+            echo "version=$version"
+            echo "tag=v$version"
+          } >>"$GITHUB_OUTPUT"
+          echo "### AgentBox $version" >>"$GITHUB_STEP_SUMMARY"
+
+  # The same Linux build as release.yml's, through the same script.
+  linux:
+    name: Linux build
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go node
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: release-npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: release-npm-${{ runner.os }}-
+
+      - name: Install what electron-builder wants
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libarchive-tools
+
+      - run: npm --prefix desktop ci
+
+      - name: Build the Linux nightly
+        run: scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --linux
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-linux
+          path: desktop/dist/release/${{ needs.resolve.outputs.tag }}/
+          if-no-files-found: error
+
+  windows:
+    name: Windows build
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go node
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: go-${{ runner.os }}-
+
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.npm
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: release-npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: release-npm-${{ runner.os }}-
+
+      - name: Install what electron-builder wants
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libarchive-tools wine wine32:i386 wine64
+
+      - run: npm --prefix desktop ci
+
+      - name: Build the Windows nightly
+        run: scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --windows
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-windows
+          path: desktop/dist/release/${{ needs.resolve.outputs.tag }}/
+          if-no-files-found: error
+
+  # As release.yml's: signed and notarized with the repository's Apple
+  # secrets when it has them, ad hoc signed when it doesn't.
+  macos:
+    name: Mac app
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: macos-15
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go node
+
+      - run: npm --prefix desktop ci
+
+      # The Mac app doesn't go through release-build.sh, so the nightly's
+      # version is stamped into desktop/package.json for it first.
+      - name: Build the Mac app
+        run: |
+          scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --stamp
+          if [ -z "$CSC_LINK" ]; then
+            echo "::warning::No signing certificate: building an ad hoc signed, unnotarized app"
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+          fi
+          npm --prefix desktop run dist -- --mac --arm64 --x64
+
+      - name: Build the command-line tool for a Mac
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            keychain=$RUNNER_TEMP/agentbox.keychain-db
+            password=$(openssl rand -hex 16)
+            security create-keychain -p "$password" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$password" "$keychain"
+            echo "$CSC_LINK" | base64 --decode >"$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+            # shellcheck disable=SC2046 # one keychain path a word, as release.yml does
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            MAC_SIGN_IDENTITY=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+            [ -n "$MAC_SIGN_IDENTITY" ] || { echo "::error::the certificate has no Developer ID Application identity"; exit 1; }
+            export MAC_SIGN_IDENTITY
+          else
+            echo "::warning::No signing certificate: the command-line tool is signed ad hoc, and not notarized"
+          fi
+          scripts/release-build.sh --nightly "$NIGHTLY" --tag "$TAG" --mac-cli
+          if [ -n "${MAC_SIGN_IDENTITY:-}" ] && [ -n "$APPLE_ID" ]; then
+            for f in desktop/dist/release/"$TAG"/agentbox-*-darwin-*; do
+              ditto -c -k "$f" "$RUNNER_TEMP/notarize.zip"
+              xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+              rm -f "$RUNNER_TEMP/notarize.zip"
+            done
+          fi
+
+      # From $VERSION, not desktop/package.json, which --mac-cli has put back.
+      - name: Collect it
+        run: |
+          mkdir -p mac
+          cp desktop/dist/AgentBox-"$VERSION"-mac-*.dmg desktop/dist/AgentBox-"$VERSION"-mac-*.zip mac/
+          cp desktop/dist/release/"$TAG"/agentbox-"$VERSION"-darwin-* mac/
+          cd mac
+          shasum -a 256 -- * >SHA256SUMS-mac
+          cat SHA256SUMS-mac
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nightly-mac
+          path: mac/
+          if-no-files-found: error
+
+  # Once every build has succeeded: SHA256SUMS over the lot, and — unless this
+  # is a dry run — the prerelease, tagged at the commit it was built from,
+  # never marked latest; then the nightlies past the newest $KEEP go.
+  publish:
+    name: Publish
+    needs: [resolve, linux, windows, macos]
+    if: >-
+      always() &&
+      needs.resolve.outputs.build == 'true' &&
+      needs.linux.result == 'success' &&
+      needs.windows.result == 'success' &&
+      (needs.macos.result == 'success' || needs.macos.result == 'skipped')
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.resolve.outputs.tag }}
+      VERSION: ${{ needs.resolve.outputs.version }}
+      SHA: ${{ needs.resolve.outputs.sha }}
+      PR: ${{ needs.resolve.outputs.pr }}
+      PUBLISH: ${{ needs.resolve.outputs.publish }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: nightly-*
+          path: out
+          merge-multiple: true
+
+      - name: Sum the assets
+        run: |
+          cd out
+          rm -f SHA256SUMS-mac
+          sha256sum AgentBox-* agentbox-* >SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Keep the build (dry run)
+        if: needs.resolve.outputs.publish != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: nightly-dry-run
+          path: out/SHA256SUMS
+
+      - name: Publish the prerelease
+        if: needs.resolve.outputs.publish == 'true'
+        run: |
+          short=${SHA:0:7}
+          notes="A nightly build of what's coming in the next release, from ${PR:+the release PR #$PR, }commit $short. Not a release: it may break, and it is never marked latest. Pick **Nightly** under Settings → Update channel (or run \`agentbox version --channel nightly\`) to be offered the next one."
+          gh release create "$TAG" out/* -R "$GITHUB_REPOSITORY" --target "$SHA" \
+            --prerelease --latest=false --title "AgentBox $VERSION" --notes "$notes"
+          url=$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json url --jq .url)
+          echo "Published [$TAG]($url)" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the newest nightlies
+        if: needs.resolve.outputs.publish == 'true'
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.prerelease and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-nightly\\.[0-9]{8}\\.[0-9]+$"))) | "\(.created_at) \(.tag_name)"' |
+            sort -r | tail -n +"$((KEEP + 1))" | while read -r _ old; do
+              echo "Deleting $old"
+              gh release delete "$old" -R "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            done

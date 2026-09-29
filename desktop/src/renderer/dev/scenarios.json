@@ -613,5 +613,19 @@
     "query": "chv=old&theme=light",
     "width": 1280,
     "height": 1600
+  },
+  {
+    "id": "nightly-dark",
+    "description": "A nightly build: the sidebar's starry header and Nightly badge, and Settings' Update channel on Nightly with the About line saying Nightly \u2014 dark",
+    "query": "nightly=1&settings=general&theme=dark",
+    "width": 1280,
+    "height": 1400
+  },
+  {
+    "id": "nightly-light",
+    "description": "The same nightly build \u2014 light",
+    "query": "nightly=1&settings=general&theme=light",
+    "width": 1280,
+    "height": 1400
   }
 ]

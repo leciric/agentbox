@@ -213,6 +213,16 @@ counts it never got are dropped after 31 days. Switch off **Share anonymous usag
 **Settings → General** to stop them and delete what wasn't sent yet; they are also off whenever
 the update check is.
 
+**Nightly builds** are built from the next release as it stands, and published as GitHub
+prereleases named `<next version>-nightly.<date>.<run>`, such as `0.11.0-nightly.20260929.12`.
+They are for trying what's coming, and are never marked as the latest release. To be offered them,
+pick **Nightly** under **Update channel** in **Settings → General**, or run
+`agentbox version --channel nightly`; a nightly build starts out on that channel, and shows
+**Nightly** in the app's sidebar. On the nightly channel the check also asks GitHub for its list of
+releases (`GET https://api.github.com/repos/leciric/agentbox/releases`, a public page, with nothing
+added to it), since `agentbox.linting.dev` only answers with stable releases. Going back to
+**Stable** offers the latest stable release, even though its version is lower than the nightly's.
+
 **To turn the check off**, and the usage stats with it, switch off **Check for updates** in the app under **Settings → General**,
 or set `AGENTBOX_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` in the daemon's environment (restart it with
 `agentbox daemon stop` afterwards). Builds from source, which report version `dev`, never check.

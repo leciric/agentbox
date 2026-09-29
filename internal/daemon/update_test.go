@@ -154,3 +154,53 @@ func TestUpdateCheckBlocked(t *testing.T) {
 		})
 	}
 }
+
+// fakeReleases stands in for GitHub's list of releases, with one nightly.
+func fakeReleases(t *testing.T, nightly string) string {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"tag_name":"v` + nightly + `","html_url":"https://github.com/leciric/agentbox/releases/tag/v` + nightly + `","prerelease":true},
+			{"tag_name":"v0.17.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.17.0"}]`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// TestUpdateChannel: a nightly build follows the nightly channel until told
+// otherwise, and switching it to stable offers the latest stable even though
+// that is a lower version.
+func TestUpdateChannel(t *testing.T) {
+	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
+	t.Setenv("DO_NOT_TRACK", "")
+	asVersion(t, "0.18.0-nightly.20260929.3")
+	var fake fakeLatest
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{
+		updateURL:   fake.start(t, "0.17.0"),
+		releasesURL: fakeReleases(t, "0.18.0-nightly.20260930.4"),
+	})
+	ctx := context.Background()
+
+	waitFor(t, "the check as the daemon starts", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.Available != nil
+	})
+	status, _ := d.client.Update(ctx)
+	if status.Channel != "nightly" || !status.Nightly || status.Available.Version != "0.18.0-nightly.20260930.4" {
+		t.Errorf("on a nightly, Update() = %+v", status)
+	}
+
+	if _, err := patchSettings(t, d, `{"updateChannel": "stable"}`); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the check after switching to stable", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.Available != nil && status.Available.Version == "0.17.0"
+	})
+	if status, _ := d.client.Update(ctx); status.Channel != "stable" {
+		t.Errorf("after switching, Update() = %+v", status)
+	}
+
+	if _, err := patchSettings(t, d, `{"updateChannel": "beta"}`); err == nil {
+		t.Error("an unknown channel was taken")
+	}
+}

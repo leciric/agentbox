@@ -18,6 +18,7 @@ import {
   Mic,
   Monitor,
   Moon,
+  MoonStar,
   PartyPopper,
   Pencil,
   RefreshCw,
@@ -36,6 +37,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import type * as T from "../../shared/api";
 import { api } from "../lib/api";
+import { isNightly, isUpgrade } from "../lib/nightly";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
@@ -774,6 +776,7 @@ function InstalledSettings({
 }) {
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const theme = useQuery({ queryKey: ["theme"], queryFn: api.theme });
+  const update = useQuery({ queryKey: ["update"], queryFn: api.update, staleTime: Infinity });
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const readAloud = useReadAloudGroup();
@@ -867,6 +870,13 @@ function InstalledSettings({
               render: () => <UpdateCheck />,
             },
             {
+              id: "update-channel",
+              label: "Update channel",
+              keywords: "update channel nightly stable beta prerelease preview version release",
+              modified: update.data ? update.data.channel !== (update.data.nightly ? "nightly" : "stable") : undefined,
+              render: () => <UpdateChannel />,
+            },
+            {
               id: "usage-stats",
               label: "Share anonymous usage stats",
               keywords: "telemetry analytics anonymous features privacy tracking",
@@ -888,7 +898,7 @@ function InstalledSettings({
       ],
       footer: info && (
         <p className="text-center font-mono text-[11px] text-faint">
-          AgentBox {info.version} · Electron {info.electron} · {info.socket}
+          AgentBox {isNightly(info.version) ? `Nightly ${info.version}` : info.version} · Electron {info.electron} · {info.socket}
         </p>
       ),
     },
@@ -1396,7 +1406,7 @@ function UpdateCheck() {
       }
     >
       {blocked && <SettingNote>Off, because {blocked}.</SettingNote>}
-      {available && (
+      {available && isUpgrade(available.version, update.data!.current) && (
         <SettingNote>
           AgentBox {available.version} is out.{" "}
           <button
@@ -1404,6 +1414,82 @@ function UpdateCheck() {
             onClick={() => void window.agentbox.openExternal(available.url)}
           >
             See what's new
+          </button>
+        </SettingNote>
+      )}
+    </SettingRow>
+  );
+}
+
+const channels = [
+  { value: "stable", label: "Stable", icon: CircleCheck },
+  { value: "nightly", label: "Nightly", icon: MoonStar },
+] as const;
+
+// UpdateChannel picks what the update check offers: stable releases only, or
+// the nightly builds as well (internal/update's Offer). A nightly build starts
+// out on nightly. Going back to stable offers the latest stable release though
+// its version is lower, which the note says rather than calling it an update.
+function UpdateChannel() {
+  const update = useQuery({
+    queryKey: ["update"],
+    queryFn: api.update,
+    staleTime: Infinity,
+  });
+  const queryClient = useQueryClient();
+  const set = useMutation({
+    mutationFn: (updateChannel: string) => api.updateSettings({ updateChannel }),
+    // The daemon answers with the settings, and pushes the new update status
+    // as an event once it has checked again; until then, show the choice.
+    onSuccess: (_, updateChannel) =>
+      queryClient.setQueryData<T.UpdateStatus>(["update"], (old) => old && { ...old, channel: updateChannel, available: undefined }),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const current = update.data?.channel;
+  const available = update.data?.available;
+  const backToStable = !!available && current === "stable" && !!update.data?.nightly && !isUpgrade(available.version, update.data.current);
+  return (
+    <SettingRow
+      label="Update channel"
+      description="Stable offers releases only. Nightly also offers the builds made each day from what's coming next."
+      details="Nightlies are built from the next release as it stands, and are published on GitHub as prereleases: they're for trying what's coming, and may break. To see them, the daily check also asks GitHub for its public list of releases, sending nothing more than any page request does. Going back to Stable offers the latest release, even though its version is lower than the nightly's."
+    >
+      <div
+        className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
+        role="radiogroup"
+        aria-label="Update channel"
+        data-update-channel={current}
+      >
+        {channels.map(({ value, label, icon: Icon }) => (
+          <button
+            key={value}
+            role="radio"
+            aria-checked={current === value}
+            data-channel={value}
+            disabled={set.isPending || update.data === undefined || !!update.data.blocked}
+            onClick={() => set.mutate(value)}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              current === value
+                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                : "text-muted hover:text-primary",
+            )}
+          >
+            <Icon className="size-[15px]" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {update.data?.blocked && <SettingNote>Off, because {update.data.blocked}.</SettingNote>}
+      {backToStable && (
+        <SettingNote>
+          This is a nightly. AgentBox {available.version} is the latest stable release.{" "}
+          <button
+            className="rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
+            onClick={() => void window.agentbox.openExternal(available.url)}
+          >
+            Get it
           </button>
         </SettingNote>
       )}

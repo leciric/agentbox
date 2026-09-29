@@ -144,6 +144,10 @@ const (
 	// SettingUpdateCheck says whether the daemon asks once a day whether a
 	// newer AgentBox is out. On until somebody turns it off (FlagOn).
 	SettingUpdateCheck = "update_check"
+	// SettingUpdateChannel is which releases the update check offers:
+	// update.ChannelStable or update.ChannelNightly. Empty means the channel
+	// the running build came from (update.DefaultChannel).
+	SettingUpdateChannel = "update_channel"
 	// SettingUsageStats says whether the update check also sends the
 	// feature_usage counts. On until somebody turns it off (FlagOn), and
 	// never sent while SettingUpdateCheck is off.

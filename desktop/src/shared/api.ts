@@ -168,6 +168,7 @@ export interface UpdateSettingsRequest {
   resumeAfterLimit?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
+  updateChannel?: string;
   usageStats?: boolean;
   prWatch?: boolean;
   mediaRetention?: string;
@@ -519,6 +520,8 @@ export interface UpdateThemeRequest {
 export interface UpdateStatus {
   current: string;
   enabled: boolean;
+  channel: string;
+  nightly?: boolean;
   blocked?: string;
   available?: UpdateAvailable;
   checkedAt?: string;

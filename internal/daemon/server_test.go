@@ -75,6 +75,8 @@ type testConfig struct {
 	previewAddr string
 	// updateURL is Config.UpdateURL; empty is a port nothing listens on.
 	updateURL string
+	// releasesURL is Config.ReleasesURL; empty is a port nothing listens on.
+	releasesURL string
 }
 
 // TestMain sets what every test's daemon needs the same way, once, before any
@@ -143,6 +145,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 		Incus:       incus.Client{Bin: bin},
 		User:        image.User{Name: "dev", UID: 1000, GID: 1000},
 		UpdateURL:   cmp.Or(tc.updateURL, "http://127.0.0.1:1"),
+		ReleasesURL: cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
 		PreviewAddr: cmp.Or(tc.previewAddr, "off"),
 		GitHubAPI:   gh.URL,
 	})

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, ListChecks, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, ListChecks, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 import type { ComponentType, DragEvent, KeyboardEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -7,6 +7,7 @@ import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
+import { isNightly, isUpgrade } from '../lib/nightly';
 import { buildLists, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
 import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -55,6 +56,10 @@ export function Sidebar({
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
   // Pushed by the daemon whenever it changes (EventUpdate); read once here.
   const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
+  // The app's own version says whether it is a nightly; the daemon's is the
+  // fallback, for the web app, which has no build of its own to ask.
+  const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
+  const nightly = isNightly(info.data?.version) || !!update.data?.nightly;
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
   const queryClient = useQueryClient();
 
@@ -254,11 +259,19 @@ export function Sidebar({
 
   return (
     <aside className="flex w-[272px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl">
-      <div className="flex h-14 shrink-0 items-center px-4">
+      <div className={cn('flex h-14 shrink-0 items-center px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
         <button className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none" aria-label="AgentBox home" onClick={() => onSelect({ kind: 'home' })}>
           <Logo />
           <span className="text-[15px] font-semibold tracking-tight text-title">AgentBox</span>
         </button>
+        {nightly && (
+          <Tip label={`A nightly build${info.data?.version ? `, ${info.data.version}` : ''}: what's coming in the next release, not a release`}>
+            <span className="nightly-badge ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium">
+              <MoonStar className="size-3" aria-hidden />
+              Nightly
+            </span>
+          </Tip>
+        )}
       </div>
 
       <div className="px-3 pb-2">
@@ -368,7 +381,7 @@ export function Sidebar({
           // how AgentBox was installed decides how it's updated.
           <NavItem icon={CircleArrowUp} onClick={() => void window.agentbox.openExternal(update.data!.available!.url)}>
             <span className="text-emerald-300" data-update-available={update.data.available.version}>
-              Update available
+              {isUpgrade(update.data.available.version, update.data.current) ? 'Update available' : 'Latest stable'}
             </span>
             <span className="ml-auto rounded-full bg-emerald-400/15 px-1.5 text-[10.5px] text-emerald-300">{update.data.available.version}</span>
           </NavItem>
