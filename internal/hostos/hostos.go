@@ -23,6 +23,10 @@ const (
 
 	// Windows is OS's answer inside WSL2 (package hostwsl, D94).
 	Windows = "windows"
+	// Linux is Env's value in the Cloud Hypervisor VM a Linux host runs
+	// AgentBox in (package hostvm/chv): a Linux front end, which is still a
+	// VM whose agents the host can't reach at their own addresses.
+	Linux = "linux"
 )
 
 // Forwarded reports whether a variable of the front end's environment goes to
@@ -74,8 +78,8 @@ func Home() string {
 	return os.Getenv(HomeEnv)
 }
 
-// Name is how a brief or an error names the user's computer: "Windows" or
-// "a Mac", or "" on a Linux machine of its own.
+// Name is how a brief or an error names the user's computer: "Windows", "a
+// Mac" or "a Linux host", or "" on a Linux machine of its own.
 func Name() string {
 	switch OS() {
 	case "":
@@ -84,6 +88,8 @@ func Name() string {
 		return "Windows"
 	case "darwin":
 		return "a Mac"
+	case Linux:
+		return "a Linux host"
 	default:
 		return OS()
 	}

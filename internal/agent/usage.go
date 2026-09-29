@@ -151,9 +151,21 @@ type cpuTimes struct{ idle, total uint64 }
 // is carved out of.
 func HostCores() int { return runtime.NumCPU() }
 
-// HostMemory is how much memory the host has, in bytes; 0 when /proc/meminfo
-// can't be read.
+// VMMemoryCapEnv is set by a Linux front end (package hostvm) on everything
+// it runs in its Cloud Hypervisor VM: the most memory, in bytes, the VM may be
+// given. The VM boots small and is granted memory with virtio-mem as agents
+// need it, so its /proc/meminfo only says what it has been granted so far.
+const VMMemoryCapEnv = "AGENTBOX_VM_MEMORY_CAP"
+
+// HostMemory is how much memory the host has for agents, in bytes: what the
+// limits and budgets computed from it are shares of. It is /proc/meminfo's
+// total, or in a Cloud Hypervisor VM the cap it may grow to
+// (VMMemoryCapEnv); 0 when neither can be read. What is in use right now
+// (Usage, MemoryUsage) reads /proc/meminfo itself: the memory granted so far.
 func HostMemory() int64 {
+	if n, err := strconv.ParseInt(os.Getenv(VMMemoryCapEnv), 10, 64); err == nil && n > 0 {
+		return n
+	}
 	total, _, err := hostMemory()
 	if err != nil {
 		return 0

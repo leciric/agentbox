@@ -19,6 +19,7 @@ var tsTypes = []any{
 	Project{}, AddProjectRequest{}, UpdateProjectRequest{}, Section{}, AddSectionRequest{}, UpdateSectionRequest{},
 	ProjectLayout{}, SectionProjects{}, Notes{}, NotesRequest{}, Settings{}, SharedBudget{}, SharedBudgetSize{}, UpdateSettingsRequest{}, Limits{}, Agent{}, WorktreeFiles{}, CreateAgentRequest{}, ForkRequest{}, UpdateAgentRequest{},
 	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
+	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{},
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, MemoryShortage{}, CPUUsageAgent{}, CPUUsage{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
 	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
@@ -42,6 +43,7 @@ var tsTypes = []any{
 	ResolveMemoryRequest{}, ConsolidateRequest{}, ConsolidationPass{}, MemoryConsolidation{}, MemoryDuplicate{},
 	Task{}, AddTaskRequest{}, UpdateTaskRequest{}, LinkTasksRequest{},
 	TokenCounts{}, ModelTokens{}, AgentTokens{}, TokenBucket{}, TokenReport{}, TokenTurn{}, ClaudeLimit{}, ClaudeLimitWindow{},
+	VMStatus{}, VMMemory{}, VMDisk{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
 }
 
 var tsConstants = [][2]string{
@@ -70,6 +72,8 @@ var tsConstants = [][2]string{
 	{"FeatureSettingsGeneral", FeatureSettingsGeneral}, {"FeatureSettingsModels", FeatureSettingsModels}, {"FeatureSettingsResources", FeatureSettingsResources}, {"FeatureSettingsProject", FeatureSettingsProject}, {"FeatureSettingsSearch", FeatureSettingsSearch},
 	{"FeatureMenuOpenChat", FeatureMenuOpenChat}, {"FeatureMenuOpenTerminal", FeatureMenuOpenTerminal}, {"FeatureMenuInfo", FeatureMenuInfo}, {"FeatureMenuLifecycle", FeatureMenuLifecycle}, {"FeatureMenuRetire", FeatureMenuRetire},
 	{"FeatureMenuCopyBranch", FeatureMenuCopyBranch}, {"FeatureMenuOpenPullRequest", FeatureMenuOpenPullRequest}, {"FeatureMenuDestroy", FeatureMenuDestroy},
+	{"ModeHost", ModeHost}, {"ModeVM", ModeVM}, {"VMDriverLima", VMDriverLima}, {"VMDriverCloudHypervisor", VMDriverCloudHypervisor},
+	{"VMOff", VMOff}, {"VMStarting", VMStarting}, {"VMRunning", VMRunning}, {"VMPaused", VMPaused}, {"VMStopping", VMStopping}, {"VMMissing", VMMissing},
 }
 
 func TestTypeScriptTypesAreUpToDate(t *testing.T) {

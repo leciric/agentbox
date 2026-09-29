@@ -7,9 +7,15 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
+
+	"agentbox/internal/api"
+	"agentbox/internal/hostvm/chv"
+	"agentbox/internal/paths"
 )
 
 // Main is the agentbox command on a host that runs AgentBox in a VM: the `vm`
@@ -39,6 +45,9 @@ func Main(args []string, version string) int {
 }
 
 func newVMCmd(version string) *cobra.Command {
+	if !useLima() {
+		return newCHVCmd(version)
+	}
 	root := &cobra.Command{
 		Use:   "agentbox vm",
 		Short: "Manage the Linux VM AgentBox runs in on this machine",
@@ -49,8 +58,327 @@ Your home directory is shared with the VM at the same path.`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newShellCmd(), newResizeCmd(), newUpgradeCmd(), newDeleteCmd())
+	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newShellCmd(), newResizeCmd(), newUpgradeCmd(), newDeleteCmd())
 	return root
+}
+
+// newCHVCmd is `agentbox vm` on Linux, where the VM is Cloud Hypervisor's and
+// optional: a machine runs AgentBox either itself (agentbox host setup) or in
+// the VM, as `vm init` chose.
+func newCHVCmd(version string) *cobra.Command {
+	root := &cobra.Command{
+		Use:   "agentbox vm",
+		Short: "Run AgentBox in a Linux VM on this machine, and manage that VM",
+		Long: `AgentBox runs in a VM of its own, made with Cloud Hypervisor (agentbox vm init, which
+needs no password), or on this machine itself (agentbox host setup, which installs
+Incus). The VM is the recommended way: the daemon, Incus and every agent are in
+there, with the CPUs and memory you give it rather than all of this machine's, and
+every agentbox command other than these runs there too. Your home directory is
+shared with the VM at the same path. The VM starts with a little memory, takes more
+as its agents need it, up to a cap, and gives it back; stopping it gives back all of
+it. agentbox vm resize changes its CPUs and cap, while it runs.
+
+A machine that already runs AgentBox itself moves into the VM with agentbox vm migrate.`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Version:       version,
+	}
+	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(),
+		newShellCmd(), newCHVResizeCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
+	return root
+}
+
+// chvVM is the command's VM on Linux, or ErrNotCreated.
+func chvVM() (*VM, error) {
+	vm, err := New()
+	if err != nil {
+		return nil, err
+	}
+	if vm.CHV == nil {
+		return nil, ErrNotCreated
+	}
+	return vm, nil
+}
+
+func newCHVInitCmd() *cobra.Command {
+	var cpus int
+	var memoryCap, memoryMin, disk string
+	defaults, defaultsErr := currentConfig(env("AGENTBOX_VM", chv.DefaultName))
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Make AgentBox's VM, set AgentBox up in it and start its daemon (safe to run again)",
+		Long: `Makes AgentBox's VM and runs AgentBox in it from now on, instead of on this machine
+itself. It needs /dev/kvm, and no password: what runs the VM is fetched into
+~/.local/share/agentbox/vm and runs as you. The VM boots with --memory-min and takes
+more as its agents need it, up to --memory-cap.
+
+A machine already set up to run AgentBox itself keeps its agents there: they aren't
+moved into the VM, so this stops until its daemon is stopped and its agents removed.
+agentbox vm delete --yes goes back.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if defaultsErr != nil {
+				return defaultsErr
+			}
+			c := defaults
+			c.CPUs = cpus
+			var err error
+			if c.MemoryCap, err = ParseMemory(memoryCap); err != nil {
+				return fmt.Errorf("--memory-cap: %w", err)
+			}
+			if c.MemoryMin, err = ParseMemory(memoryMin); err != nil {
+				return fmt.Errorf("--memory-min: %w", err)
+			}
+			if c.Disk, err = ParseMemory(disk); err != nil {
+				return fmt.Errorf("--disk: %w", err)
+			}
+			if err := checkConfig(c, numCPU(), hostMemory()); err != nil {
+				return err
+			}
+			p, err := paths.Default()
+			if err != nil {
+				return err
+			}
+			f := cmd.Flags()
+			sizes := f.Changed("cpus") || f.Changed("memory-cap") || f.Changed("memory-min") || f.Changed("disk")
+			if err := initCHV(cmd.Context(), p, c, sizes, cmd.ErrOrStderr()); err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), `AgentBox's VM is ready. Next:
+  agentbox image build          the machine every agent is copied from (the app's Setup page does this too)
+  agentbox auth claude          a Claude Code login for your agents`)
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&cpus, "cpus", defaults.CPUs, "CPUs for the VM")
+	cmd.Flags().StringVar(&memoryCap, "memory-cap", sizeWords(defaults.MemoryCap), "the most memory the VM is given, like 20GiB")
+	cmd.Flags().StringVar(&memoryMin, "memory-min", sizeWords(chv.DefaultMemoryMin), "the memory the VM boots with, and never gives back")
+	cmd.Flags().StringVar(&disk, "disk", sizeWords(chv.DefaultDisk), "the VM's disk for agents, like 100GiB (allocated as it's used)")
+	return cmd
+}
+
+func newMigrateCmd() *cobra.Command {
+	var cpus int
+	var memoryCap, memoryMin, disk string
+	var removeOld, yes, status, asJSON bool
+	defaults, defaultsErr := currentConfig(env("AGENTBOX_VM", chv.DefaultName))
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Move this machine's own AgentBox into AgentBox's VM: projects, agents, chats and all (safe to run again)",
+		Long: `Moves a machine that runs AgentBox itself (host setup) into AgentBox's VM, making the
+VM first when there's none (as agentbox vm init does; the size flags are its).
+
+Everything comes along: projects, settings, accounts, notes, memory, chats and their
+history, media, and every agent, with its title, model, limits, branch and worktree,
+uncommitted changes included (worktrees stay where they are, on your home, which the
+VM shares). Each agent gets a new machine in the VM, from the VM's base image, and
+its chat resumes its session. What was only inside an agent's old machine doesn't
+come along: packages installed in it, and its home directory outside the worktree.
+
+It stops this machine's AgentBox, backs its state.db up, and checks that everything
+arrived before it calls the move done. Stopped half-way, it carries on where it was
+when run again. Nothing of this machine's is deleted: its agents' old machines stay,
+stopped, in its Incus until you remove them, once you've checked the VM, with
+agentbox vm migrate --remove-old. That removes only AgentBox's own machines, by name:
+anything else in Incus, its network, its storage pool and Incus itself stay.
+Until then, agentbox vm delete --yes goes back to running AgentBox on this machine.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p, err := paths.Default()
+			if err != nil {
+				return err
+			}
+			switch {
+			case status:
+				st, err := migrationStatus(cmd.Context(), p)
+				if err != nil {
+					return err
+				}
+				if asJSON {
+					enc := json.NewEncoder(cmd.OutOrStdout())
+					enc.SetIndent("", "  ")
+					return enc.Encode(st)
+				}
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), describeMigration(st))
+				return nil
+			case removeOld:
+				confirm := func(names []string) bool {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "AgentBox's old machines in this machine's Incus:\n  %s\n", strings.Join(names, "\n  "))
+					if yes {
+						return true
+					}
+					if !stdinTerminal() {
+						_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Run it again with --yes to remove them.")
+						return false
+					}
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Remove these %d? Nothing else in Incus is touched. [y/N] ", len(names))
+					var answer string
+					_, _ = fmt.Fscanln(cmd.InOrStdin(), &answer)
+					return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes")
+				}
+				return removeOldMachines(cmd.Context(), p, confirm, cmd.ErrOrStderr())
+			}
+			if defaultsErr != nil {
+				return defaultsErr
+			}
+			c := defaults
+			c.CPUs = cpus
+			if c.MemoryCap, err = ParseMemory(memoryCap); err != nil {
+				return fmt.Errorf("--memory-cap: %w", err)
+			}
+			if c.MemoryMin, err = ParseMemory(memoryMin); err != nil {
+				return fmt.Errorf("--memory-min: %w", err)
+			}
+			if c.Disk, err = ParseMemory(disk); err != nil {
+				return fmt.Errorf("--disk: %w", err)
+			}
+			if err := checkConfig(c, numCPU(), hostMemory()); err != nil {
+				return err
+			}
+			f := cmd.Flags()
+			sizes := f.Changed("cpus") || f.Changed("memory-cap") || f.Changed("memory-min") || f.Changed("disk")
+			return migrateCHV(cmd.Context(), p, MigrateOptions{Want: c, SizesSet: sizes, Log: cmd.ErrOrStderr()})
+		},
+	}
+	cmd.Flags().IntVar(&cpus, "cpus", defaults.CPUs, "CPUs for the VM, when it's made")
+	cmd.Flags().StringVar(&memoryCap, "memory-cap", sizeWords(defaults.MemoryCap), "the most memory the VM is given, like 20GiB")
+	cmd.Flags().StringVar(&memoryMin, "memory-min", sizeWords(chv.DefaultMemoryMin), "the memory the VM boots with, and never gives back")
+	cmd.Flags().StringVar(&disk, "disk", sizeWords(chv.DefaultDisk), "the VM's disk for agents, like 100GiB (allocated as it's used)")
+	cmd.Flags().BoolVar(&removeOld, "remove-old", false, "once the move is checked: remove AgentBox's old machines from this machine's Incus")
+	cmd.Flags().BoolVar(&yes, "yes", false, "with --remove-old: don't ask first")
+	cmd.Flags().BoolVar(&status, "status", false, "say what there is to move, and how far a move got")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "with --status: print it as JSON")
+	return cmd
+}
+
+// describeMigration is --status the way a person reads it.
+func describeMigration(st MigrationStatus) string {
+	switch st.State {
+	case "none":
+		return "This machine has no AgentBox of its own to move into the VM."
+	case "available":
+		return fmt.Sprintf("This machine runs AgentBox itself, with %d project(s) (%s) and %d agent(s): agentbox vm migrate moves them into the VM.",
+			len(st.Projects), strings.Join(st.Projects, ", "), len(st.Agents))
+	case "started":
+		return "A move into the VM was started and isn't finished: agentbox vm migrate carries on with it."
+	case "verified":
+		if len(st.OldMachines) == 0 {
+			return "This machine's AgentBox was moved into the VM, and checked there."
+		}
+		return fmt.Sprintf("This machine's AgentBox was moved into the VM, and checked there. Its old machines are still in this machine's Incus (%s): agentbox vm migrate --remove-old removes them.", strings.Join(st.OldMachines, ", "))
+	}
+	return "This machine's AgentBox was moved into the VM, and its old machines removed."
+}
+
+func newPauseCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "pause",
+		Short: "Freeze the VM: its agents stop using CPU, and keep their memory",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			vm, err := chvVM()
+			if err != nil {
+				return err
+			}
+			return chv.Pause(cmd.Context(), vm.CHV.Layout, vm.Paths)
+		},
+	}
+}
+
+func newResumeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "resume",
+		Short: "Carry on running a paused VM, and wait for its daemon",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			vm, err := chvVM()
+			if err != nil {
+				return err
+			}
+			if err := chv.Resume(cmd.Context(), vm.CHV.Layout, vm.Paths); err != nil {
+				return err
+			}
+			return vm.daemonUp(cmd.Context())
+		},
+	}
+}
+
+// newRunCmd is the VM's supervisor, which chv.Start runs in the background.
+func newRunCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "run",
+		Short:  "Run the VM in the foreground (agentbox vm start runs this in the background)",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			vm, err := chvVM()
+			if err != nil {
+				return err
+			}
+			return chv.Supervise(cmd.Context(), vm.CHV.Config, vm.CHV.Layout, vm.Paths)
+		},
+	}
+}
+
+// newProxyCmd is ssh's ProxyCommand into the VM, over vsock.
+func newProxyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "proxy PORT",
+		Short:  "Connect stdin and stdout to one of the VM's vsock ports",
+		Args:   cobra.ExactArgs(1),
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			port, err := strconv.ParseUint(args[0], 10, 32)
+			if err != nil {
+				return fmt.Errorf("%q isn't a port", args[0])
+			}
+			vm, err := chvVM()
+			if err != nil {
+				return err
+			}
+			return chv.Proxy(cmd.Context(), vm.CHV.Layout, uint32(port), cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
+}
+
+func newCHVResizeCmd() *cobra.Command {
+	var cpus int
+	var memoryCap string
+	var restart bool
+	cmd := &cobra.Command{
+		Use:   "resize",
+		Short: "Change the VM's CPUs and memory cap, while it runs when it can",
+		Long: `Gives the VM another number of CPUs, or another memory cap (the most memory it takes
+as its agents need it), or both: 1 CPU to every core this machine has, and a cap from
+the memory the VM boots with to all of this machine's.
+
+A running VM changes at once, and its agents keep running: it boots with room for
+every core and all of this machine's memory, and only uses what its size says. The
+daemon in it restarts to see the new size. A VM started by an older agentbox has no
+such room: it gets the new size when it next starts, or now with --restart, which
+restarts the VM and stops every agent. The disk stays the size it was made with.`,
+		Example: "  agentbox vm resize --cpus 6 --memory-cap 24GiB",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			f := cmd.Flags()
+			if !f.Changed("cpus") && !f.Changed("memory-cap") {
+				return errors.New("say what to change: --cpus, --memory-cap, or both")
+			}
+			vm, err := chvVM()
+			if err != nil {
+				return err
+			}
+			cpus, bytes, err := resizeArgs(f.Changed("cpus"), cpus, f.Changed("memory-cap"), memoryCap, chvLimits(vm.CHV.Config, numCPU(), hostMemory()))
+			if err != nil {
+				return err
+			}
+			return vm.CHV.resize(cmd.Context(), vm, cpus, bytes, restart)
+		},
+	}
+	cmd.Flags().IntVar(&cpus, "cpus", 0, "CPUs for the VM")
+	cmd.Flags().StringVar(&memoryCap, "memory-cap", "", "the most memory the VM is given, like 24GiB")
+	cmd.Flags().BoolVar(&restart, "restart", false, "restart the VM, stopping every agent, when the new size can't be given while it runs")
+	return cmd
 }
 
 func newInitCmd() *cobra.Command {
@@ -94,31 +422,48 @@ func newInitCmd() *cobra.Command {
 func newStartCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "start",
-		Short: "Start the VM, and bring its agentbox up to date",
+		Short: "Start the VM, and bring its agentbox up to date (on Linux, and its daemon)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			vm, err := New()
 			if err != nil {
 				return err
 			}
-			return vm.Ready(cmd.Context())
+			if err := vm.Ready(cmd.Context()); err != nil {
+				return err
+			}
+			if vm.CHV != nil {
+				// The memory cap may have changed since (vm resize).
+				if err := vm.writeProfile(cmd.Context()); err != nil {
+					return err
+				}
+				// The app's Start returns when there's a daemon to talk to.
+				return vm.daemonUp(cmd.Context())
+			}
+			return nil
 		},
 	}
 }
 
 func newStopCmd() *cobra.Command {
-	return &cobra.Command{
+	var agents bool
+	cmd := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop the VM, and with it the daemon and every agent",
-		Args:  cobra.NoArgs,
+		Long: `Stops the VM, and with it the daemon and every agent, and gives back all of its
+memory. The agents that ran start again with the VM, unless --agents stopped them
+first (on a Mac, where the VM is Lima's, --agents does nothing more).`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			vm, err := New()
 			if err != nil {
 				return err
 			}
-			return vm.Stop(cmd.Context())
+			return vm.Stop(cmd.Context(), agents)
 		},
 	}
+	cmd.Flags().BoolVar(&agents, "agents", false, "stop every running agent first, so they stay stopped when the VM starts again")
+	return cmd
 }
 
 // Status is what `agentbox vm status --json` prints, for the app.
@@ -138,6 +483,12 @@ func newStatusCmd() *cobra.Command {
 		Short: "Say whether the VM exists and runs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !useLima() {
+				return linuxStatus(cmd, asJSON)
+			}
+			// On Lima this is Status, which the Mac's app parses as it is
+			// (desktop/src/main/hostsetup.ts); an api.VMStatus is made from
+			// it there. Don't change its shape without changing the app.
 			vm, err := New()
 			if vm == nil {
 				return err
@@ -171,6 +522,115 @@ func newStatusCmd() *cobra.Command {
 	return cmd
 }
 
+// linuxStatus is `agentbox vm status` on Linux: an api.VMStatus, which says
+// ModeHost when this machine runs AgentBox itself.
+func linuxStatus(cmd *cobra.Command, asJSON bool) error {
+	vm, err := New()
+	st := hostModeStatus()
+	switch {
+	case err == nil && vm.CHV != nil:
+		st = chvStatus(cmd.Context(), vm.CHV.Config, vm.CHV.Layout, vm.Paths)
+	case err != nil && !errors.Is(err, ErrNotCreated):
+		return err
+	}
+	if asJSON {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(st)
+	}
+	if vm == nil || vm.CHV == nil {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "This machine runs AgentBox itself, not in a VM: agentbox vm init switches it to one.")
+		return nil
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), describe(st))
+	return nil
+}
+
+// Power is `agentbox vm power --json`: the VM's state and memory, which the
+// app's top bar polls (desktop/src/main/vmpower.ts, its VMPower). State is
+// one of off, starting, running, pausing, paused, resuming and stopping;
+// sizes are bytes. On a machine with no VM it prints {"mode":"host"} instead.
+type Power struct {
+	State         string `json:"state"`
+	MemoryUsed    int64  `json:"memoryUsed"`
+	MemoryGranted int64  `json:"memoryGranted"`
+	MemoryCap     int64  `json:"memoryCap"`
+	CPUs          int    `json:"cpus"`
+	Error         string `json:"error,omitempty"` // why it can't be used, and what to run
+}
+
+// powerFrom is a Cloud Hypervisor VM's Power. A VM vm init hasn't finished
+// making is off, with why.
+func powerFrom(st api.VMStatus) Power {
+	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs, Error: st.Problem}
+	if st.State == api.VMMissing {
+		p.State = api.VMOff
+		if p.Error == "" {
+			p.Error = ErrNotCreated.Error()
+		}
+	}
+	return p
+}
+
+// limaPower is a Lima VM's Power, whose memory is all granted while it runs.
+func limaPower(st State, err error) Power {
+	switch {
+	case err != nil:
+		return Power{State: api.VMOff, Error: err.Error()}
+	case !st.Exists:
+		return Power{State: api.VMOff, Error: ErrNotCreated.Error()}
+	}
+	p := Power{State: api.VMOff, MemoryCap: st.Memory, CPUs: st.CPUs}
+	switch st.Status {
+	case "Running":
+		p.State, p.MemoryGranted = api.VMRunning, st.Memory
+	case "Broken":
+		p.Error = "AgentBox's VM is broken, Lima says: see limactl list"
+	}
+	return p
+}
+
+func newPowerCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:    "power",
+		Short:  "Say whether the VM runs, and how much memory it holds (for the app)",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			vm, err := New()
+			var p Power
+			switch {
+			case !useLima() && errors.Is(err, ErrNotCreated):
+				if asJSON {
+					_, _ = fmt.Fprintln(cmd.OutOrStdout(), `{"mode":"host"}`)
+				} else {
+					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "This machine runs AgentBox itself, not in a VM.")
+				}
+				return nil
+			case err != nil && (vm == nil || vm.Limactl == ""):
+				if vm == nil {
+					return err
+				}
+				p = limaPower(State{}, err)
+			case vm.CHV != nil:
+				p = powerFrom(chvStatus(cmd.Context(), vm.CHV.Config, vm.CHV.Layout, vm.Paths))
+			default:
+				p = limaPower(vm.State(cmd.Context()))
+			}
+			if asJSON {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(p)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s, %d CPUs, %s of memory held (%s in use) of at most %s\n",
+				p.State, p.CPUs, sizeWords(p.MemoryGranted), sizeWords(p.MemoryUsed), sizeWords(p.MemoryCap))
+			if p.Error != "" {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), p.Error)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print it as JSON")
+	return cmd
+}
+
 func newShellCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "shell [-- command...]",
@@ -182,6 +642,10 @@ func newShellCmd() *cobra.Command {
 			}
 			if err := vm.Up(cmd.Context()); err != nil {
 				return err
+			}
+			if vm.CHV != nil {
+				// No command is a login shell (chv.SSHArgs).
+				return execve(vm.command(vm.workdir(), stdinTerminal(), args))
 			}
 			argv := append([]string{vm.Limactl, "shell", "--workdir", vm.workdir(), vm.Name}, args...)
 			return syscall.Exec(argv[0], argv, os.Environ())
@@ -254,6 +718,11 @@ func newUpgradeCmd() *cobra.Command {
 			if err := vm.Install(cmd.Context()); err != nil {
 				return err
 			}
+			if vm.CHV != nil {
+				if err := vm.writeProfile(cmd.Context()); err != nil {
+					return err
+				}
+			}
 			return vm.restartDaemon(cmd.Context())
 		},
 	}
@@ -266,14 +735,18 @@ func newDeleteCmd() *cobra.Command {
 		Short: "Remove the VM, and every agent and base image in it",
 		Long: `Removes the VM, and with it everything AgentBox keeps in it: agents, their machines,
 the base image and AgentBox's state. Your projects and the agents' worktrees are on
-your own disk, in your home directory, and stay.`,
+your own disk, in your home directory, and stay. On Linux this machine then runs
+AgentBox itself again, as it did before agentbox vm init.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if !yes {
 				return errors.New("this removes every agent's machine: run it with --yes if you mean it")
 			}
 			vm, err := New()
-			if vm == nil || vm.Limactl == "" {
+			if !useLima() && vm != nil && vm.CHV == nil {
+				return errors.New("this machine has no VM of AgentBox's to remove")
+			}
+			if vm == nil || (vm.CHV == nil && vm.Limactl == "") {
 				return err
 			}
 			return vm.Delete(cmd.Context())

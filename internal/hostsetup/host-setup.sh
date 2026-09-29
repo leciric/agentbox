@@ -171,6 +171,11 @@ step "Installing incus"
 # now use Incus, without logging in again.
 if command -v pacman >/dev/null; then
   pacman -S --needed --noconfirm incus btrfs-progs acl
+elif command -v apt-get >/dev/null && dpkg -s incus-base >/dev/null 2>&1 && command -v incus >/dev/null; then
+  # incus-base is Incus without its virtual machines (no QEMU, OVMF or
+  # swtpm): what AgentBox's Cloud Hypervisor VM installs (internal/hostvm/chv),
+  # since its agents are containers. Don't pull the rest in over it.
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -q btrfs-progs acl
 elif command -v apt-get >/dev/null; then
   DEBIAN_FRONTEND=noninteractive apt-get update -q
   # Debian 13 has incus 6.0 and Ubuntu 24.04 has 6.0 in universe. Debian 12 has

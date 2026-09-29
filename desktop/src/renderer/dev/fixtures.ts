@@ -5,7 +5,10 @@
 // JSON payload. Kept separate from preview.tsx so a future scenario (a new
 // component, a new kind of wide content) can reuse it without copying it.
 import type { QueryClient } from '@tanstack/react-query';
+import type { HostSetupStatus, VMPower, VMPowerAction, VMPowerState } from '../../preload';
 import type * as T from '../../shared/api';
+import type { FreeRun } from '../components/ResourceControls';
+import { freeTargets } from '../lib/freeResources';
 
 export const PROJECT = 'agentbox';
 
@@ -683,6 +686,8 @@ const devState: {
   memoryUsage?: T.MemoryUsage;
   cpuUsage?: T.CPUUsage;
   agents?: T.Agent[];
+  vmPower?: VMPower | null;
+  hostSetup?: HostSetupStatus;
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -731,6 +736,119 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['auth'], devState.auth);
 }
 
+// What each running agent holds and uses, for the stop-agents job's result:
+// a made-up figure per agent, largest for the ones working.
+function agentFootprint(a: T.Agent, i: number): { memory: number; cpu: number } {
+  const GiB = 1024 ** 3;
+  if (a.state === 'paused') return { memory: 5.5 * GiB, cpu: 0 };
+  return a.chat === 'running' ? { memory: (2.4 + (i % 3) * 0.9) * GiB, cpu: 60 + (i % 4) * 35 } : { memory: (0.9 + (i % 2) * 0.4) * GiB, cpu: 3 };
+}
+
+// stopAgentsResult is what the daemon's stop-agents job would answer for
+// refs, out of agents as they were before it.
+export function stopAgentsResult(agents: T.Agent[], refs: string[]): T.StopAgentsResult {
+  const GiB = 1024 ** 3;
+  const stopped = agents
+    .map((a, i) => ({ a, ...agentFootprint(a, i) }))
+    .filter(({ a }) => refs.includes(a.ref))
+    .map(({ a, memory, cpu }): T.StoppedAgent => ({ ref: a.ref, title: a.title, memory, cpu, working: a.chat === 'running' }))
+    .sort((x, y) => y.memory - x.memory);
+  const freedMemory = stopped.reduce((n, a) => n + a.memory, 0);
+  const freedCPU = stopped.reduce((n, a) => n + a.cpu, 0);
+  return { stopped, freedMemory, freedCPU, hostMemoryBefore: 9 * GiB + freedMemory, hostMemoryAfter: 9.4 * GiB };
+}
+
+// stopAgents plays the daemon's stop-agents job: a job whose agents stop one
+// after another, then its result, so the preview's Free resources runs
+// start to finish against it.
+function stopAgents(refs: string[]) {
+  const before = devState.agents ?? [];
+  const job: T.Job = { id: 'stop-agents-1', kind: 'stop-agents', target: `${refs.length} agents`, status: 'running', createdAt: new Date().toISOString() };
+  devState.job = job;
+  devState.jobLog = '';
+  refs.forEach((ref, i) => {
+    setTimeout(() => {
+      devState.agents = (devState.agents ?? []).map((a) => (a.ref === ref ? { ...a, state: 'stopped', chat: 'off' } : a));
+      devState.jobLog += `Stopped ${ref}\n`;
+    }, 600 * (i + 1));
+  });
+  setTimeout(
+    () => {
+      devState.job = { ...job, status: 'succeeded', result: stopAgentsResult(before, refs), finishedAt: new Date().toISOString() };
+    },
+    600 * (refs.length + 1),
+  );
+  return { status: 202, body: JSON.stringify(job), contentType: 'application/json' };
+}
+
+// seedPower is the top bar's resource controls (?power=): in host mode with
+// agents running (host) or with every one stopped by Free resources and
+// Start to bring them back (host-start); or in VM mode with the VM in a
+// state: running, paused, off, starting or stopping.
+export function seedPower(queryClient: QueryClient, power: string): void {
+  const GiB = 1024 ** 3;
+  queryClient.setQueryData(['usage'], { host: { cpu: 38, cores: 16, memUsed: 21 * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
+  queryClient.setQueryData(['claudeLimits'], []);
+  localStorage.removeItem('agentbox.freed');
+  if (power === 'host') {
+    devState.vmPower = null;
+    return;
+  }
+  if (power === 'host-start') {
+    devState.vmPower = null;
+    const agents = (devState.agents ?? []).map((a) => (a.state === 'running' || a.state === 'paused' ? { ...a, state: 'stopped', chat: 'off' } : a));
+    localStorage.setItem('agentbox.freed', JSON.stringify(freeTargets(devState.agents ?? []).map((t) => t.ref)));
+    devState.agents = agents;
+    queryClient.setQueryData(['agents'], agents);
+    return;
+  }
+  const state = power as VMPowerState;
+  const up = state !== 'off' && state !== 'starting';
+  devState.vmPower = { state, memoryUsed: up ? 11.3 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: 24 * GiB, cpus: 12 };
+  if (state === 'off') {
+    const agents = (devState.agents ?? []).map((a) => (a.state === 'running' || a.state === 'paused' ? { ...a, state: 'stopped', chat: 'off' } : a));
+    localStorage.setItem('agentbox.freed', JSON.stringify(freeTargets(devState.agents ?? []).map((t) => t.ref)));
+    devState.agents = agents;
+    queryClient.setQueryData(['agents'], agents);
+  }
+  queryClient.setQueryData(['vmPower'], devState.vmPower);
+}
+
+// freeRun is a Free resources in one of its phases (?free=), against the
+// fixtures' agents: part-way through stopping them, or done — in VM mode
+// once the VM is off too.
+export function freeRun(queryClient: QueryClient, phase: string): FreeRun {
+  const agents = devState.agents ?? [];
+  const targets = freeTargets(agents);
+  const vmBefore = devState.vmPower ?? null;
+  if (phase === 'progress') {
+    const done = new Set(targets.slice(0, 5).map((t) => t.ref));
+    devState.agents = agents.map((a) => (done.has(a.ref) ? { ...a, state: 'stopped' } : a));
+    queryClient.setQueryData(['agents'], devState.agents);
+    return { phase: 'stopping', targets, vmBefore };
+  }
+  if (phase === 'error') return { phase: 'error', targets, vmBefore, error: "Couldn't reach the daemon: connect ENOENT /home/you/.local/share/agentbox/run/agentbox.sock" };
+  const result = stopAgentsResult(
+    agents,
+    targets.map((t) => t.ref),
+  );
+  if (phase === 'partial') {
+    const [failed, ...rest] = result.stopped;
+    return {
+      phase: 'done',
+      targets,
+      vmBefore: null,
+      result: {
+        ...result,
+        stopped: rest,
+        freedMemory: result.freedMemory - failed.memory,
+        failed: [{ ref: failed.ref, title: failed.title, error: 'Failed to stop instance: the instance is busy (operation 4f1c… is still running)' }],
+      },
+    };
+  }
+  return { phase: 'done', targets, vmBefore, result, vmStopped: !!vmBefore };
+}
+
 // fakeVM prints what `agentbox vm resize` prints, a line at a time, so the
 // preview shows a resize in progress and after.
 function fakeVM() {
@@ -740,7 +858,34 @@ function fakeVM() {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    resize: async (cpus: number, memory: string) => {
+    resize: async (cpus: number, memory: string, restart?: boolean) => {
+      // On Linux (?chv=), the Cloud Hypervisor VM changes while it runs.
+      const chv = devState.hostSetup?.chv;
+      if (chv) {
+        const lines = restart
+          ? [
+              `$ agentbox vm resize --cpus ${cpus} --memory-cap ${memory} --restart\n`,
+              `==> Restarting AgentBox's VM to give it ${cpus} CPUs and a memory cap of ${memory}: every agent in it stops\n`,
+              "AgentBox's VM is off (1.6s).\n",
+              "AgentBox's VM is up (6.3s).\n",
+              '==> Starting the daemon\n',
+              `AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} now.\n`,
+            ]
+          : [
+              `$ agentbox vm resize --cpus ${cpus} --memory-cap ${memory}\n`,
+              `==> Giving AgentBox's VM ${cpus} CPUs and a memory cap of ${memory}, while it runs\n`,
+              '==> Starting the daemon\n',
+              `AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} now, and every agent kept running.\n`,
+            ];
+        for (const line of lines) {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          for (const fn of listeners) fn(line);
+        }
+        const GiB = 1024 ** 3;
+        const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB };
+        devState.hostSetup = { ...devState.hostSetup!, chv: { ...chv, cpus, memory: { ...chv.memory, cap: parseFloat(memory) * GiB }, live: room } };
+        return;
+      }
       const lines = [
         `$ agentbox vm resize --cpus ${cpus} --memory ${memory}\n`,
         '==> Stopping AgentBox\'s VM, and every agent in it\n',
@@ -757,6 +902,24 @@ function fakeVM() {
         await new Promise((resolve) => setTimeout(resolve, 450));
         for (const fn of listeners) fn(line);
       }
+    },
+    // The ?power= scenarios' VM (seedPower): each action takes a moment in
+    // its transition, the way `agentbox vm start` and friends do.
+    power: async () => devState.vmPower ?? null,
+    act: async (action: VMPowerAction) => {
+      const vm = devState.vmPower;
+      if (!vm) throw new Error('AgentBox is not in VM mode');
+      const transition = { start: 'starting', pause: 'pausing', resume: 'resuming', stop: 'stopping' } as const;
+      devState.vmPower = { ...vm, state: transition[action] };
+      await new Promise((resolve) => setTimeout(resolve, action === 'pause' || action === 'resume' ? 700 : 1800));
+      const GiB = 1024 ** 3;
+      devState.vmPower =
+        action === 'stop'
+          ? { ...vm, state: 'off', memoryUsed: 0, memoryGranted: 0 }
+          : action === 'pause'
+            ? { ...vm, state: 'paused' }
+            : { ...vm, state: 'running', memoryGranted: vm.memoryGranted || 8 * GiB, memoryUsed: vm.memoryUsed || 3.1 * GiB };
+      return devState.vmPower;
     },
   };
 }
@@ -1022,6 +1185,68 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['host-setup'], {});
 }
 
+// seedLinuxHost is a Linux machine that runs AgentBox itself (?linux=…),
+// with /dev/kvm or without. fresh is one not set up yet, whose Setup asks
+// which way to run agents; otherwise it's set up (seedSettings), and Home
+// suggests moving to the VM.
+export function seedLinuxHost(queryClient: QueryClient, kvm: boolean, fresh: boolean): void {
+  if (fresh) {
+    const check = (id: string, title: string, status: string, detail: string, required = true): T.SetupCheck => ({ id, title, status, detail, required });
+    const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
+    const setup = {
+      ready: false,
+      checks: [
+        check('incus', 'Incus', 'missing', 'incus: command not found'),
+        check('host', 'User mapping', 'missing', 'no subuid range for leandro'),
+        check('image', 'Base image', 'missing', 'agentbox-base not found'),
+        check('claude', 'Claude Code', 'optional', 'not signed in', false),
+      ],
+      image: { version: '2026.09.25.1', components: none, installed: none, downloads: [], hint: '' },
+    } as T.SetupStatus;
+    devState.setup = setup;
+    devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };
+    queryClient.setQueryData(['setup'], setup);
+    queryClient.setQueryData(['cli'], devState.cli);
+  } else {
+    seedSettings(queryClient);
+  }
+  devState.hostSetup = { pkexec: '/usr/bin/pkexec', user: 'leandro', running: false, resizing: false, vm: null, wsl: null, linux: { mode: 'host', kvm, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 }, chv: null };
+  queryClient.setQueryData(['host-setup'], devState.hostSetup);
+}
+
+// seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
+// Resources section, whose VM size card sizes the Cloud Hypervisor VM:
+// running with room to grow (live), started by an older AgentBox with none
+// (old), or off.
+export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
+  seedSettings(queryClient);
+  const GiB = 1024 ** 3;
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB };
+  const chv: T.VMStatus = {
+    mode: 'vm',
+    driver: 'cloud-hypervisor',
+    name: 'agentbox',
+    state: kind === 'off' ? 'off' : 'running',
+    since: new Date(Date.now() - 3_600_000).toISOString(),
+    cpus: 8,
+    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0 },
+    disk: { size: 120 * GiB, used: 14 * GiB },
+    limits: room,
+    live: kind === 'live' ? room : undefined,
+  };
+  devState.hostSetup = {
+    pkexec: '/usr/bin/pkexec',
+    user: 'leandro',
+    running: false,
+    resizing: false,
+    vm: null,
+    wsl: null,
+    linux: { mode: 'vm', kvm: true, cores: 16, memory: 32 * GiB, defaultCpus: 8, defaultMemoryCap: 24 * GiB },
+    chv,
+  };
+  queryClient.setQueryData(['host-setup'], devState.hostSetup);
+}
+
 // seedMeterUsage is the top bar's CPU and memory popovers (?meters=cpu,
 // ?meters=memory) against three agents: one paused but still holding RAM and
 // zram swap, one capped below its configured cores by "Never freeze my CPU",
@@ -1087,6 +1312,13 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(devState.media), contentType: 'application/json' };
       if (method === 'GET' && devState.media && path === `/v1/agents/${PROJECT}/agent-99/media`)
         return { status: 200, body: JSON.stringify(devState.media.filter((m) => m.agentName === 'agent-99')), contentType: 'application/json' };
+      if (method === 'POST' && path === '/v1/agents/stop') return stopAgents((body as T.StopAgentsRequest).refs ?? []);
+      const started = method === 'POST' ? /^\/v1\/agents\/([^/]+)\/([^/]+)\/start$/.exec(path) : null;
+      if (started && devState.agents) {
+        const ref = `${decodeURIComponent(started[1])}/${decodeURIComponent(started[2])}`;
+        devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, state: 'running', chat: 'ready' } : a));
+        return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
+      }
       if (method === 'GET' && path === '/v1/agents' && devState.agents) return { status: 200, body: JSON.stringify(devState.agents), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/projects') return { status: 200, body: JSON.stringify(devState.projects), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/auth') return { status: 200, body: JSON.stringify(devState.auth), contentType: 'application/json' };
@@ -1126,7 +1358,8 @@ export function installDevBridge(): void {
     info: async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'darwin' }),
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
     cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
-    hostSetup: { status: async () => ({}), run: async () => ({ restarted: false }), onOutput: () => () => {}, budget: async () => {} },
+    hostSetup: { status: async () => devState.hostSetup ?? {}, run: async () => ({ restarted: false }), onOutput: () => () => {}, budget: async () => {} },
+    vmMigrate: { status: async () => null, run: async () => {}, removeOld: async () => {}, onOutput: () => () => {} },
     vm: fakeVM(),
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },

@@ -87,6 +87,29 @@
 //   ?media=project|agent    a project's Media, 360 items across four agents
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
+//   ?power=host|host-start  the top bar's resource controls in host mode:
+//                           agents running (Free resources), or every one
+//                           stopped by it, with Start to bring them back
+//   ?power=running|paused|off|starting|stopping
+//                           in VM mode, the VM's pill in that state beside
+//                           them; scenarios.json clicks it open for its popover
+//                           or clicks Free resources for its confirmation.
+//                           Free resources runs start to finish against the
+//                           dev bridge (fixtures.ts)
+//   &free=progress|done|partial|error
+//                           Free resources' dialog part-way through stopping
+//                           the agents, with what it freed, with one agent
+//                           that wouldn't stop, or failed
+//   ?linux=setup|nokvm      a Linux machine not set up yet, on Setup's Incus
+//                           step: where agents run, the VM recommended and
+//                           picked, or host mode picked for want of /dev/kvm
+//   ?linux=home             a Linux machine set up to run agents itself: Home
+//                           suggests moving to the VM, and its button opens
+//                           Settings' Setup at the move
+//   ?chv=live|old|off       Settings' Resources on a Linux machine in VM mode:
+//                           the Cloud Hypervisor VM's size, running with room
+//                           to resize it live, started by an older AgentBox
+//                           (a resize restarts it), or off
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -113,6 +136,7 @@ import { AgentAvatar, aiLabel } from '../components/state';
 import { Panel } from '../components/ui/card';
 import type { Mood } from '../lib/agentStatus';
 import { Sidebar } from '../components/Sidebar';
+import { FreeResourcesDialog, type FreeRun } from '../components/ResourceControls';
 import { TopBar } from '../components/TopBar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
@@ -122,7 +146,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedQueryClient } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM } from './fixtures';
 
 installDevBridge();
 
@@ -145,10 +169,15 @@ const pulls = params.get('pulls') === '1';
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "memory" | null
+const power = params.get('power');
+const free = params.get('free');
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
+const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'home' | null
+const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
+if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
 
 const windowsBeforeSetup: HostSetupStatus = {
@@ -208,6 +237,11 @@ if (media) seedMedia(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (budget === 'off') seedBudgetOff(queryClient);
+if (chvSize) seedLinuxVM(queryClient, chvSize);
+if (linuxHost) {
+  seedLinuxHost(queryClient, linuxHost !== 'nokvm', linuxHost !== 'home');
+  if (linuxHost === 'home') localStorage.removeItem('agentbox.suggest-vm.dismissed');
+}
 if (resources) {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
@@ -219,6 +253,9 @@ if (meters) {
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
 }
+
+if (power) seedPower(queryClient, power);
+const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
 if (io) {
   const GiB = 1024 ** 3;
@@ -295,6 +332,13 @@ function UsagePreview() {
   );
 }
 
+// SeededFreeRun is Free resources' dialog held in one phase (?free=), which
+// the top bar only reaches by running one: its agents as the phase left them.
+function SeededFreeRun({ run }: { run: FreeRun }) {
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  return <FreeResourcesDialog open onOpenChange={() => {}} run={run} agents={agents.data ?? []} onConfirm={() => {}} onStartAgain={() => {}} starting={false} />;
+}
+
 // AvatarRow is one mood's row of avatars: each AI tool at the rail's 40px
 // and blown up.
 function AvatarRow({ mood, big = true }: { mood: Mood; big?: boolean }) {
@@ -349,6 +393,15 @@ function Preview() {
 
   if (github) return <GitHubPreview />;
   if (usage) return <UsagePreview />;
+
+  if (power) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }} data-preview-power={power}>
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        {seededRun && <SeededFreeRun run={seededRun} />}
+      </div>
+    );
+  }
 
   if (meters) {
     return (
@@ -431,7 +484,9 @@ function Preview() {
     );
   }
 
-  if (imageUpdate || settingsPage) {
+  if (linuxHost === 'home') return <LinuxHomePreview />;
+
+  if (imageUpdate || settingsPage || linuxHost || chvSize) {
     return (
       <div style={{ height: '100vh' }}>
         <SettingsView />
@@ -583,6 +638,20 @@ function slowListsBridge(hold: number | null, refetches = false): void {
   };
   // What the app does when an agent is removed, as the daemon announces it.
   if (refetches) (window as unknown as { refetchLists: () => void }).refetchLists = () => void loadingClient.invalidateQueries();
+}
+
+// Home on a Linux machine that runs agents itself, and the Settings its
+// suggestion opens.
+function LinuxHomePreview() {
+  const [view, setView] = useState<View>({ kind: 'home' });
+  return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw', background: 'var(--color-ink)' }} data-preview-linux={view.kind}>
+      <Sidebar view={view} onSelect={setView} onAddProject={() => {}} onNewAgent={() => {}} />
+      <div className="min-w-0 flex-1">
+        {view.kind === 'settings' ? <SettingsView /> : <HomeView onSelect={setView} onAddProject={() => {}} onNewAgent={() => {}} />}
+      </div>
+    </div>
+  );
 }
 
 // The sidebar, Home and the rail side by side, against a client nothing is

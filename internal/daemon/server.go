@@ -432,6 +432,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/agents", s.listAgents)
 	h("POST /v1/agents", s.createAgent)
+	h("POST /v1/agents/stop", s.stopAgents)
 	h("GET /v1/agents/{project}/{agent}", s.getAgent)
 	h("PATCH /v1/agents/{project}/{agent}", s.updateAgent)
 	h("DELETE /v1/agents/{project}/{agent}", s.destroyAgent)
@@ -446,6 +447,8 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/agents/{project}/{agent}/snapshots/{name}", s.deleteSnapshot)
 	h("POST /v1/agents/{project}/{agent}/restore", s.restore)
 	h("POST /v1/agents/{project}/{agent}/fork", s.fork)
+	h("POST /v1/agents/{project}/{agent}/recreate", s.recreate)
+	h("POST /v1/migration/check", s.checkMigration)
 	h("GET /v1/agents/{project}/{agent}/secrets", s.listAgentSecrets)
 	h("PUT /v1/agents/{project}/{agent}/secrets/{name}", s.setAgentSecret)
 	h("DELETE /v1/agents/{project}/{agent}/secrets/{name}", s.removeAgentSecret)

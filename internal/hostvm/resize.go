@@ -1,6 +1,7 @@
 package hostvm
 
 import (
+	"agentbox/internal/hostvm/chv"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,9 @@ type Limits struct {
 	MaxCPUs   int   `json:"maxCpus"`
 	MinMemory int64 `json:"minMemory"` // bytes
 	MaxMemory int64 `json:"maxMemory"` // bytes
+	// reserve is what the machine keeps of its memory for itself, when it
+	// keeps some (the Mac's), for an error to say.
+	reserve int64
 }
 
 // HostLimits are the Limits for this machine: every core it has, and all of
@@ -36,11 +40,19 @@ func HostLimits() Limits {
 }
 
 func limitsFor(cpus int, memory int64) Limits {
-	l := Limits{MinCPUs: MinCPUs, MaxCPUs: max(cpus, MinCPUs), MinMemory: MinMemory, MaxMemory: MinMemory}
+	l := Limits{MinCPUs: MinCPUs, MaxCPUs: max(cpus, MinCPUs), MinMemory: MinMemory, MaxMemory: MinMemory, reserve: macReserve}
 	if memory > 0 {
 		l.MaxMemory = max(memory-macReserve, MinMemory)
 	}
 	return l
+}
+
+// chvLimits are the Limits for a Cloud Hypervisor VM made as c, on a host
+// with cpus cores and memory bytes: 1 CPU to every core, and a memory cap
+// from what it boots with to all of the host's memory. Like the Mac's, the
+// cap may take all of it: the VM only takes what its agents use.
+func chvLimits(c chv.Config, cpus int, memory int64) Limits {
+	return Limits{MinCPUs: 1, MaxCPUs: max(cpus, 1), MinMemory: c.MemoryMin, MaxMemory: max(memory, c.MemoryMin)}
 }
 
 // Check says what's wrong with cpus and memory (bytes) for this machine; zero
@@ -51,8 +63,12 @@ func (l Limits) Check(cpus int, memory int64) error {
 		errs = append(errs, fmt.Errorf("%d CPUs: the VM takes %d to %d on this machine", cpus, l.MinCPUs, l.MaxCPUs))
 	}
 	if memory != 0 && (memory < l.MinMemory || memory > l.MaxMemory) {
-		errs = append(errs, fmt.Errorf("%s of memory: the VM takes %s to %s on this machine, which keeps %s for itself",
-			sizeWords(memory), sizeWords(l.MinMemory), sizeWords(l.MaxMemory), sizeWords(macReserve)))
+		if l.reserve > 0 {
+			errs = append(errs, fmt.Errorf("%s of memory: the VM takes %s to %s on this machine, which keeps %s for itself",
+				sizeWords(memory), sizeWords(l.MinMemory), sizeWords(l.MaxMemory), sizeWords(l.reserve)))
+		} else {
+			errs = append(errs, fmt.Errorf("a memory cap of %s: the VM takes %s to %s on this machine", sizeWords(memory), sizeWords(l.MinMemory), sizeWords(l.MaxMemory)))
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -101,7 +117,13 @@ func sizeWords(bytes int64) string {
 // agent with it — edited, started again, and its daemon restarted, the way
 // `vm upgrade` restarts it. A stopped VM is edited and left stopped: it has
 // the new size when it next starts.
+//
+// A Cloud Hypervisor VM's memory is its cap instead, and both change while
+// it runs when they can: see CHV.resize, which this leaves a restart to.
 func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
+	if v.CHV != nil {
+		return v.CHV.resize(ctx, v, cpus, memory, false)
+	}
 	unlock, err := v.lock(ctx, true)
 	if err != nil {
 		return err
@@ -124,7 +146,7 @@ func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 	running := st.Status == "Running"
 	if running {
 		_, _ = fmt.Fprintln(v.Log, "==> Stopping AgentBox's VM, and every agent in it")
-		if err := v.Stop(ctx); err != nil {
+		if err := v.Stop(ctx, false); err != nil {
 			return err
 		}
 	}
@@ -166,6 +188,6 @@ func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 func (v *VM) restartDaemon(ctx context.Context) error {
 	_, _ = fmt.Fprintln(v.Log, "==> Starting the daemon")
 	// A daemon that isn't running has nothing to stop.
-	_ = v.shellLog(ctx, vmBinary, "daemon", "stop")
-	return v.shellLog(ctx, append([]string{"env"}, append(v.forwardEnv(), vmBinary, "daemon", "start")...)...)
+	_ = v.execLog(ctx, vmBinary, "daemon", "stop")
+	return v.execLog(ctx, append([]string{"env"}, append(v.forwardEnv(), vmBinary, "daemon", "start")...)...)
 }

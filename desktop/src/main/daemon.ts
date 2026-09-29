@@ -5,9 +5,10 @@ import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { agentboxBin } from './cli';
 import { isLocal, requestOptions } from './connection';
-import { canUseIncus } from './hostsetup';
+import { canUseIncus, vmInitDone } from './hostsetup';
 import { socketPath } from './paths';
 import { NotListeningError, onWindows, relayRefused, startRelay } from './relay';
+import { linuxVM, vmState } from './vmmode';
 
 export { socketPath };
 
@@ -61,9 +62,15 @@ export function notListening(err: unknown): boolean {
   return code === 'ENOENT' || code === 'ECONNREFUSED';
 }
 
+// reached is set once the app has talked to a daemon: from then on, in
+// Linux VM mode, a VM that went off stays off until the user starts it.
+let reached = false;
+
 async function answers(): Promise<boolean> {
   try {
-    return (await request('GET', '/v1/version')).status === 200;
+    const ok = (await request('GET', '/v1/version')).status === 200;
+    reached ||= ok;
+    return ok;
   } catch {
     return false;
   }
@@ -105,13 +112,16 @@ export async function restartIfStale(): Promise<void> {
     return; // not running: the first request starts the current one
   }
   const mine = new Set(process.getgroups?.() ?? []);
-  const missing = info.groups ? neededGroups().filter((g) => mine.has(g.gid) && !info.groups!.includes(g.gid)) : [];
+  // In Linux VM mode the daemon's groups and Incus are the VM's, not this
+  // machine's: nothing here says whether it's stale.
+  const vm = linuxVM();
+  const missing = info.groups && !vm ? neededGroups().filter((g) => mine.has(g.gid) && !info.groups!.includes(g.gid)) : [];
   const ours = app.isPackaged ? app.getVersion() : undefined;
   const outdated = ours !== undefined && info.version !== undefined && info.version !== 'dev' && info.version !== ours;
   // Host setup's ACL on the Incus socket reaches processes already running, so
   // a daemon that still says no found nothing when it started, and a restart
   // is what it takes. A daemon too old to report this is left alone.
-  const blind = info.incus === false && canUseIncus();
+  const blind = info.incus === false && !vm && canUseIncus();
   if (missing.length === 0 && !outdated && !blind) return;
   await restart();
 }
@@ -126,6 +136,22 @@ export async function restartDaemon(): Promise<boolean> {
     return true;
   }
   return restart();
+}
+
+// stopHostDaemon stops this Linux machine's own daemon, for `agentbox vm init`
+// to switch the machine to a VM: the VM's daemon answers on the same socket,
+// and vm init won't switch while this one does. A daemon running jobs is left
+// alone, and the switch waits.
+export async function stopHostDaemon(onOutput: (text: string) => void): Promise<void> {
+  if (!(await answers())) return;
+  const jobs = JSON.parse((await request('GET', '/v1/jobs')).body) as { status: string }[];
+  if (jobs.some((job) => job.status === 'running')) {
+    throw new Error("this machine's AgentBox daemon is running jobs: let them finish, then try again");
+  }
+  onOutput("$ agentbox daemon stop    # this machine's own daemon, for the VM's\n");
+  await request('POST', '/v1/shutdown');
+  for (let i = 0; i < 300 && (await answers()); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  if (await answers()) throw new Error("this machine's AgentBox daemon didn't stop");
 }
 
 // restart stops the running daemon and starts this app's own, unless it has
@@ -155,20 +181,36 @@ function neededGroups(): { name: string; gid: number }[] {
 // without this process's file descriptors. A daemon started straight from here
 // would inherit Chromium's pipes and keep the app from exiting.
 //
-// On a Mac that command is the front end of AgentBox's Linux VM: it boots the
-// VM when it's stopped and brings the VM's agentbox up to date first, which
-// takes longer than starting a daemon does.
+// On a Mac, and on Linux in VM mode (vmmode.ts), that command is the front end
+// of AgentBox's Linux VM: it boots the VM when it's stopped and brings the
+// VM's agentbox up to date first, which takes longer than starting a daemon
+// does. On Linux, a VM the user stopped or paused once the app had reached
+// its daemon is left so: the error says why there's no daemon.
 async function start(): Promise<void> {
+  // `agentbox vm init` from the Setup page stopped this machine's own daemon
+  // to switch it to a VM: the daemon to start is the VM's, when it's done.
+  await vmInitDone();
   const bin = agentboxBin();
   if (onWindows) await startRelay(bin);
   if (await answers()) return;
   if (process.env.AGENTBOX_NO_AUTOSTART) {
     throw new Error(`the AgentBox daemon isn't running on ${socketPath}`);
   }
+  const vm = linuxVM();
+  if (vm) {
+    const state = await vmState();
+    if (state === 'paused') throw new Error("AgentBox's VM is paused: resume it to carry on");
+    // Once the app has had a daemon, only the user brings the VM back: a VM
+    // on its way down (Free resources, `agentbox vm stop`) is stopping, not
+    // off, and `daemon start` would boot it again the moment it's off.
+    if (reached && state !== 'running' && state !== 'starting') {
+      throw new Error(`AgentBox's VM is ${state === 'stopping' ? 'turning off' : state}: start it to carry on`);
+    }
+  }
   // On Windows, agentbox.exe starts the daemon in AgentBox's WSL distro, which
   // may have to boot first, systemd and Incus with it.
   await new Promise<void>((resolve, reject) => {
-    const timeout = process.platform === 'darwin' ? 300_000 : onWindows ? 180_000 : 30_000;
+    const timeout = process.platform === 'darwin' || vm ? 300_000 : onWindows ? 180_000 : 30_000;
     execFile(bin, ['daemon', 'start'], { timeout, windowsHide: true }, (err, _stdout, stderr) => {
       if (!err) return resolve();
       const notFound = (err as NodeJS.ErrnoException).code === 'ENOENT';

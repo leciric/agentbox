@@ -5,6 +5,10 @@
 // setting it up is `agentbox vm init`, which makes the VM and runs host setup
 // inside it (internal/hostvm). It needs no password.
 //
+// On Linux the user chooses: host setup, or a VM of AgentBox's own, made with
+// Cloud Hypervisor by `agentbox vm init` with no password, the way a Mac's is
+// made with Lima (vmmode.ts). Once it's in a VM, setting up means the VM.
+//
 // On Windows there is no host to set up either: AgentBox runs in a WSL distro
 // of its own, and setting it up is `agentbox.exe wsl init`, which makes the
 // distro and runs host setup inside it as the distro's root (internal/hostwsl,
@@ -20,14 +24,18 @@
 // the daemon's API.
 //
 // Resizing the VM is the same kind of thing: `agentbox vm resize` stops the VM,
-// has Lima change it and starts it again, and the daemon goes down with it.
+// has Lima change it and starts it again, and the daemon goes down with it. On
+// Linux it changes the Cloud Hypervisor VM while it runs when it can, and
+// restarts it only when asked to (--restart).
 import { execFile, spawn } from "node:child_process";
 import { accessSync, closeSync, constants, mkdirSync, openSync } from "node:fs";
-import { userInfo } from "node:os";
+import { cpus as hostCPUs, totalmem, userInfo } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { app, ipcMain } from "electron";
 import { agentboxBin } from "./cli";
 import { onWindows } from "./relay";
+import type * as T from "../shared/api";
+import { learnMode, linuxVM } from "./vmmode";
 
 export interface HostSetupStatus {
   pkexec: string | null; // the pkexec on this machine, if it has one
@@ -36,6 +44,22 @@ export interface HostSetupStatus {
   resizing: boolean; // `agentbox vm resize` is running
   vm: VMStatus | null; // AgentBox's VM, on a Mac; null elsewhere
   wsl: WSLStatus | null; // AgentBox's WSL distro, on Windows; null elsewhere
+  linux: LinuxSetup | null; // the choice of mode, on Linux; null elsewhere
+  // AgentBox's Cloud Hypervisor VM, on Linux in VM mode (`agentbox vm status
+  // --json`): its size, and what it can be resized to. null elsewhere.
+  chv: T.VMStatus | null;
+}
+
+// LinuxSetup is which way a Linux machine runs AgentBox, and whether it could
+// run it in a VM instead.
+export interface LinuxSetup {
+  mode: "host" | "vm"; // on the machine itself, or in AgentBox's VM
+  kvm: boolean; // /dev/kvm is there for this user, which the VM needs
+  cores: number; // the machine's, the most CPUs the VM can have
+  memory: number; // bytes, the machine's, the highest memory cap the VM can have
+  // The size `agentbox vm init` gives the VM unless it's told otherwise.
+  defaultCpus: number;
+  defaultMemoryCap: number; // bytes
 }
 
 // WSLStatus is `agentbox wsl status --json` (hostwsl.Status).
@@ -128,7 +152,59 @@ export async function hostSetupStatus(): Promise<HostSetupStatus> {
     resizing: resizing !== undefined,
     vm: await vmStatus(),
     wsl: await wslStatus(),
+    linux: onMac || onWindows ? null : linuxSetup(),
+    chv: await chvStatus(),
   };
+}
+
+const GiB = 1024 ** 3;
+
+// linuxSetup is which way this Linux machine runs AgentBox, and the size its
+// VM would be made at: `agentbox vm init`'s defaults (hostvm.DefaultConfig):
+// half the cores, from 2 to 8, and a memory cap of three quarters of the
+// memory, leaving at least 4 GiB, in whole GiB.
+function linuxSetup(): LinuxSetup {
+  const cores = hostCPUs().length;
+  const memory = totalmem();
+  const cap = Math.floor(Math.min(memory - 4 * GiB, (memory / 4) * 3) / GiB) * GiB;
+  return {
+    mode: linuxVM() ? "vm" : "host",
+    kvm: canUseKVM(),
+    cores,
+    memory,
+    defaultCpus: Math.min(Math.max(Math.floor(cores / 2), 2), 8),
+    defaultMemoryCap: Math.max(cap, 4 * GiB),
+  };
+}
+
+let lastCHV: { at: number; value: T.VMStatus | null } | undefined;
+
+// chvStatus is `agentbox vm status --json` on Linux in VM mode, at most every
+// few seconds; null elsewhere, or when the command can't say.
+function chvStatus(): Promise<T.VMStatus | null> {
+  if (onMac || onWindows || !linuxVM()) return Promise.resolve(null);
+  if (lastCHV && Date.now() - lastCHV.at < 3_000) return Promise.resolve(lastCHV.value);
+  return new Promise((resolve) => {
+    execFile(agentboxBin(), ["vm", "status", "--json"], { timeout: 15_000 }, (_err, stdout) => {
+      let value: T.VMStatus | null = null;
+      try {
+        value = JSON.parse(stdout) as T.VMStatus;
+      } catch {
+        value = lastCHV?.value ?? null;
+      }
+      lastCHV = { at: Date.now(), value };
+      resolve(value);
+    });
+  });
+}
+
+function canUseKVM(): boolean {
+  try {
+    accessSync("/dev/kvm", constants.R_OK | constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 let lastVM: { at: number; value: VMStatus } | undefined;
@@ -240,21 +316,109 @@ export function wslStatus(): Promise<WSLStatus | null> {
   });
 }
 
+// HostSetupOptions are a setup run's. vm switches a Linux machine that runs
+// AgentBox itself to a VM (`agentbox vm init`); before runs first, and stops
+// the machine's own daemon, which vm init won't switch it under.
+export interface HostSetupOptions {
+  vm?: boolean;
+  // The VM's size, for vm: its CPUs and its memory cap (like 12GiB).
+  // `agentbox vm init`'s own defaults when missing.
+  cpus?: number;
+  memoryCap?: string;
+  before?: (onOutput: (text: string) => void) => Promise<void>;
+}
+
+// initing is a Linux `agentbox vm init` under way, which the app's own
+// daemon start waits for (vmInitDone).
+let initing: Promise<void> | undefined;
+
+// vmInitDone settles once no `agentbox vm init` is running on Linux.
+export function vmInitDone(): Promise<void> {
+  return initing?.catch(() => {}) ?? Promise.resolve();
+}
+
 // runHostSetup runs host setup as root and streams what it prints, line by
 // line, to onOutput. It resolves when the setup succeeded.
-export function runHostSetup(onOutput: (text: string) => void): Promise<void> {
+export function runHostSetup(
+  onOutput: (text: string) => void,
+  options: HostSetupOptions = {},
+): Promise<void> {
   if (running)
     return Promise.reject(new Error("host setup is already running"));
-  running = run(onOutput).finally(() => {
+  const linuxVMInit = !onMac && !onWindows && (options.vm === true || linuxVM());
+  running = (async () => {
+    if (linuxVMInit && !linuxVM()) await options.before?.(onOutput);
+    await run(onOutput, linuxVMInit, options);
+  })().finally(() => {
     running = undefined;
+    initing = undefined;
   });
+  if (linuxVMInit) initing = running;
   return running;
 }
 
-function run(onOutput: (text: string) => void): Promise<void> {
+function run(onOutput: (text: string) => void, linuxVMInit: boolean, options: HostSetupOptions): Promise<void> {
   if (onMac) return initVM(onOutput);
   if (onWindows) return initWSL(onOutput);
+  if (linuxVMInit) {
+    const args = ["init"];
+    if (options.cpus) args.push("--cpus", String(options.cpus));
+    if (options.memoryCap) args.push("--memory-cap", options.memoryCap);
+    return runVM(args, "setting up AgentBox's VM failed", onOutput).finally(learnMode);
+  }
   return runAsRoot(["host", "setup"], onOutput);
+}
+
+// VMMigration is `agentbox vm migrate --status --json` (hostvm.MigrationStatus):
+// on a Linux machine that runs AgentBox itself, what there is to move into
+// AgentBox's VM, and how far a move got.
+export interface VMMigration {
+  state: "none" | "available" | "started" | "verified" | "removed";
+  projects?: string[];
+  agents?: string[];
+  oldMachines?: string[]; // what --remove-old removes, once the move is checked
+  backup?: string; // the state.db from before the move
+  found?: string[]; // what the check found in the VM
+}
+
+// vmMigration asks the command-line tool; null where there's nothing it could
+// say (a Mac, Windows, or a tool from before vm migrate).
+export function vmMigration(): Promise<VMMigration | null> {
+  if (onMac || onWindows) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile(agentboxBin(), ["vm", "migrate", "--status", "--json"], { timeout: 15_000 }, (err, stdout) => {
+      if (err) return resolve(null);
+      try {
+        resolve(JSON.parse(stdout) as VMMigration);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+// runVMMigration is `agentbox vm migrate`: this machine's own AgentBox,
+// projects, agents and all, moved into AgentBox's VM. The command stops this
+// machine's daemon itself, and the app's own daemon start waits for it
+// (vmInitDone), as it waits for vm init: the daemon it finds afterwards is
+// the VM's. removeOld runs `vm migrate --remove-old --yes`, which the app
+// asks the user about first.
+export function runVMMigration(
+  onOutput: (text: string) => void,
+  removeOld = false,
+): Promise<void> {
+  if (running)
+    return Promise.reject(new Error("host setup is already running"));
+  running = (
+    removeOld
+      ? runVM(["migrate", "--remove-old", "--yes"], "removing the old machines failed", onOutput)
+      : runVM(["migrate"], "moving AgentBox into its VM failed", onOutput).finally(learnMode)
+  ).finally(() => {
+    running = undefined;
+    initing = undefined;
+  });
+  if (!removeOld) initing = running;
+  return running;
 }
 
 // runBudgetSetup makes the shared agent budget's cgroup: `agentbox host
@@ -366,30 +530,37 @@ let resizing: Promise<void> | undefined;
 
 // resizeVM gives AgentBox's VM cpus CPUs and memory (like 12GiB), streaming
 // what `agentbox vm resize` prints to onOutput. The command checks both against
-// what the Mac has, and restarts the VM and its daemon: every agent stops.
+// what the machine has. On a Mac it restarts the VM and its daemon: every agent
+// stops. On Linux memory is the VM's memory cap, and a running VM changes
+// without a restart when it can; when it can't, restart has it restarted,
+// which stops every agent, and otherwise it keeps the new size for its next
+// start.
 export function resizeVM(
   cpus: number,
   memory: string,
+  restart: boolean,
   onOutput: (text: string) => void,
 ): Promise<void> {
-  if (!onMac)
-    return Promise.reject(new Error("only a Mac runs AgentBox in a VM"));
+  if (onWindows)
+    return Promise.reject(new Error("AgentBox's WSL distro has no size to change"));
+  if (!onMac && !linuxVM())
+    return Promise.reject(new Error("AgentBox doesn't run in a VM on this machine"));
   if (resizing)
     return Promise.reject(new Error("AgentBox's VM is already being resized"));
-  resizing = runVM(
-    ["resize", "--cpus", String(cpus), "--memory", memory],
-    "resizing AgentBox's VM failed",
-    onOutput,
-  ).finally(() => {
+  const args = onMac
+    ? ["resize", "--cpus", String(cpus), "--memory", memory]
+    : ["resize", "--cpus", String(cpus), "--memory-cap", memory, ...(restart ? ["--restart"] : [])];
+  resizing = runVM(args, "resizing AgentBox's VM failed", onOutput).finally(() => {
     resizing = undefined;
+    lastCHV = undefined;
   });
   return resizing;
 }
 
 // The renderer asks for a resize here rather than in index.ts, which only
 // wires up the rest; the output goes back to the window that asked.
-ipcMain.handle("vm:resize", (event, cpus: number, memory: string) =>
-  resizeVM(cpus, memory, (text) => {
+ipcMain.handle("vm:resize", (event, cpus: number, memory: string, restart?: boolean) =>
+  resizeVM(cpus, memory, restart === true, (text) => {
     if (!event.sender.isDestroyed()) event.sender.send("vm:output", text);
   }),
 );

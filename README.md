@@ -80,9 +80,43 @@ Or `sudo apt install ./AgentBox-<version>-amd64.deb` on Debian and Ubuntu, or
 `sudo pacman -U AgentBox-<version>-x64.pacman` on Arch. AppImages need FUSE: install `fuse2` (Arch),
 `libfuse2` (Debian 12, Ubuntu 22.04) or `libfuse2t64` (Ubuntu 24.04) if yours won't start.
 
-The app's **Settings** walks you through the rest the first time it runs: installing
-[Incus](https://linuxcontainers.org/incus/) (with your password, no logout needed), building the
-agents' base image, and logging in to Claude Code, Codex or OpenCode.
+The app's **Setup** walks you through the rest the first time it runs: where your agents run,
+building the agents' base image, and logging in to Claude Code, Codex or OpenCode.
+
+### Where agents run, on Linux
+
+Setup asks, and recommends the first:
+
+- **In a VM** (recommended): the daemon, Incus and every agent in one
+  [Cloud Hypervisor](https://www.cloudhypervisor.org) VM, with the CPUs and memory cap you give it
+  rather than all of your computer's. Nothing is installed on your system and no password is asked.
+  It needs `/dev/kvm` (your user in the `kvm` group) and an `ssh` client. From the command line it's
+  `agentbox vm init` (`--cpus`, `--memory-cap`), which fetches Cloud Hypervisor, passt, virtiofsd and
+  Debian's cloud image into `~/.local/share/agentbox/vm` and sets the VM up (about a minute).
+- **Directly on this computer**: agents run on your system's own
+  [Incus](https://linuxcontainers.org/incus/), sharing its kernel, memory and disk, so heavy agent
+  work can freeze your desktop. Setup installs Incus and adds a network bridge, which asks for your
+  password (no logout needed); from the command line it's `sudo agentbox host setup`.
+
+The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
+of your memory by default), and gives it back as they stop; the top bar's **Free resources** stops
+every agent and turns the VM off. Settings → Resources changes its CPUs and cap, as does
+`agentbox vm resize`: a running VM changes at once, and its agents keep running. Your home folder is
+shared with the VM at the same path, so projects and agents' worktrees stay where they are.
+`agentbox vm delete --yes` goes back to running on your system. Android emulators run in the VM's
+agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in 30–50
+seconds rather than 20–25; GPUs aren't available in the VM.
+
+An installation that already runs agents directly on your computer can move into the VM: Home
+suggests it once, and Settings → Setup → **Move to a VM**, or `agentbox vm migrate`, moves all of it
+in one step: projects, settings, accounts, notes, memory, chats and media, and every
+agent with its branch, worktree (uncommitted changes included), title, model and limits. Each agent
+gets a new machine in the VM, and its chat carries on; what was installed inside its old machine,
+and its home folder outside the worktree, don't come along. It backs `state.db` up first, checks
+that everything arrived, and can be run again if it stops half-way. Your system's Incus, and
+everything else in it, stays as it was: the agents' old machines stay there, stopped, until you
+remove them with `agentbox vm migrate --remove-old` (or the same place in Settings), which removes
+only AgentBox's own.
 
 ### macOS and Windows (alpha)
 
@@ -110,7 +144,8 @@ same [Releases](https://github.com/leciric/agentbox/releases/latest) page.
 - **Linux on x86_64**, a Mac, or Windows with WSL2 — macOS and Windows are newer and less complete
   than Linux ([macOS and Windows (alpha)](#macos-and-windows-alpha)).
 - On Linux: Arch, Debian 12 or 13, Ubuntu 22.04 or newer, or Fedora; 8 GB of memory at least (each
-  running agent uses 1–2 GB), 4 cores and 30 GB of free disk; a user who can run `sudo`.
+  running agent uses 1–2 GB), 4 cores and 30 GB of free disk; `/dev/kvm` for the VM, or a user who
+  can run `sudo` to run agents directly on your computer.
 - An account for the AI tool you use: Claude Code, Codex or OpenCode.
 - The hub, for remote environments, lives in a separate repository that isn't public.
 - Each [release](https://github.com/leciric/agentbox/releases)'s notes list what it can't do yet

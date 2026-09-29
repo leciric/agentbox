@@ -1,7 +1,19 @@
-// Package hostvm runs AgentBox on a machine that isn't Linux. Nothing of
-// AgentBox is ported: the daemon, Incus and every agent run in a Linux VM made
-// with Lima, exactly as they run on a Linux machine, and the agentbox command
-// on the Mac is a front end for that VM.
+// Package hostvm runs AgentBox in a Linux VM, with this machine as its front
+// end. Nothing of AgentBox is ported: the daemon, Incus and every agent run in
+// the VM exactly as they run on a Linux machine, and the agentbox command here
+// is a front end for that VM. The VM has one of two drivers:
+//
+//   - Lima, on a Mac (D92), and on Linux with AGENTBOX_FRONT_END=vm, which is
+//     how the Mac's front end is tested without a Mac.
+//   - Cloud Hypervisor (package chv), on a Linux machine whose user chose a VM
+//     at setup (`agentbox vm init`) over installing Incus on the machine
+//     itself (`agentbox host setup`). Its Config file is what makes the
+//     machine a front end (Front); chvdriver.go is its side of this package.
+//
+// What they share is here: the binary kept in the VM, the host setup done in
+// it, what its agentbox is told about the host, and forwarding commands. What
+// differs is how a command gets into the VM (exec, execLog, command) and how
+// the VM is started and stopped.
 //
 //   - `agentbox vm …` makes, starts, stops and removes the VM (cmd.go).
 //   - Every other command runs in the VM, in the same working directory, with
@@ -37,7 +49,12 @@ import (
 	"text/template"
 	"time"
 
+	"golang.org/x/term"
+
+	"agentbox/internal/android"
+	"agentbox/internal/api"
 	"agentbox/internal/hostos"
+	"agentbox/internal/hostvm/chv"
 	"agentbox/internal/paths"
 )
 
@@ -58,16 +75,44 @@ var ErrNotCreated = errors.New("AgentBox's Linux VM isn't set up: run agentbox v
 var definition string
 
 // Front reports whether this process is the front end of a VM rather than
-// AgentBox itself: always on macOS, and on Linux when AGENTBOX_FRONT_END=vm,
-// which is how the VM is tested without a Mac.
+// AgentBox itself: always on macOS; on Linux when AGENTBOX_FRONT_END=vm, which
+// is how the Lima VM is tested without a Mac; and on a Linux machine where
+// `agentbox vm init` made a Cloud Hypervisor VM. It runs on every command, so
+// on Linux it is a stat. The agentbox in a VM is never a front end, whatever
+// its files say: its front end told it so (hostos.Env).
 func Front() bool {
+	if runtime.GOOS == "darwin" || os.Getenv("AGENTBOX_FRONT_END") == "vm" {
+		return true
+	}
+	if runtime.GOOS != "linux" || os.Getenv("AGENTBOX_FRONT_END") != "" || os.Getenv(hostos.Env) != "" {
+		return false
+	}
+	p, err := paths.Default()
+	return err == nil && chv.Exists(p, env("AGENTBOX_VM", DefaultName))
+}
+
+// Handles reports whether a command line (os.Args[1:]) is the front end's to
+// run: every command on a front end, and on a Linux machine of its own
+// `agentbox vm …` too, since `vm init` is what makes it a front end and
+// `vm status --json` is how the app asks which it is.
+func Handles(args []string) bool {
+	if Front() {
+		return true
+	}
+	return runtime.GOOS == "linux" && len(args) > 0 && args[0] == "vm" &&
+		os.Getenv("AGENTBOX_FRONT_END") == "" && os.Getenv(hostos.Env) == "" && !hostos.WSL()
+}
+
+// useLima reports whether this machine's VM is Lima's rather than Cloud
+// Hypervisor's.
+func useLima() bool {
 	return runtime.GOOS == "darwin" || os.Getenv("AGENTBOX_FRONT_END") == "vm"
 }
 
-// VM is AgentBox's Lima instance, seen from the host.
+// VM is AgentBox's VM, seen from the host.
 type VM struct {
-	Limactl string // the limactl binary
-	Name    string // the Lima instance
+	Limactl string // Lima's: the limactl binary
+	Name    string // the Lima instance, or the Cloud Hypervisor VM's name
 	// Home is the host user's home directory, shared into the VM at the same
 	// path.
 	Home string
@@ -81,10 +126,26 @@ type VM struct {
 	VMType string
 	// Log is where progress goes: the front end's stderr.
 	Log io.Writer
+	// CHV is set when the VM is Cloud Hypervisor's, on a Linux host; nil when
+	// it is Lima's.
+	CHV *CHV
 }
 
-// New finds limactl and the Linux binary, and describes the VM for this user.
+// Driver is api.VMDriverLima or api.VMDriverCloudHypervisor.
+func (v *VM) Driver() string {
+	if v.CHV != nil {
+		return api.VMDriverCloudHypervisor
+	}
+	return api.VMDriverLima
+}
+
+// New describes this machine's VM: Lima's, finding limactl and the Linux
+// binary, or Cloud Hypervisor's, from the Config `agentbox vm init` saved
+// (ErrNotCreated, with the VM's name and paths set, before there is one).
 func New() (*VM, error) {
+	if !useLima() {
+		return newCHV()
+	}
 	p, err := paths.Default()
 	if err != nil {
 		return nil, err
@@ -197,9 +258,14 @@ type Size struct {
 // DefaultSize is half the host's cores (two to eight), 8 GiB and a 100 GiB
 // disk, which Lima allocates as it's used.
 func DefaultSize() Size {
-	cpus := min(max(runtime.NumCPU()/2, 2), 8)
-	return Size{CPUs: cpus, Memory: "8GiB", Disk: "100GiB"}
+	return Size{CPUs: defaultCPUs(numCPU()), Memory: "8GiB", Disk: "100GiB"}
 }
+
+// defaultCPUs is what a VM is given of a host's cores: half, two to eight.
+func defaultCPUs(host int) int { return min(max(host/2, 2), 8) }
+
+// numCPU is the host's cores.
+var numCPU = runtime.NumCPU
 
 // Definition is the Lima YAML the VM is made from.
 func (v *VM) Definition(size Size) (string, error) {
@@ -237,6 +303,9 @@ func (v *VM) Create(ctx context.Context, size Size) error {
 }
 
 func (v *VM) Start(ctx context.Context) error {
+	if v.CHV != nil {
+		return v.CHV.start(ctx, v)
+	}
 	if err := os.MkdirAll(filepath.Dir(v.Paths.Socket()), 0o700); err != nil {
 		return err
 	}
@@ -244,11 +313,21 @@ func (v *VM) Start(ctx context.Context) error {
 	return v.limaLog(ctx, "start", "--tty=false", v.Name)
 }
 
-func (v *VM) Stop(ctx context.Context) error {
+// Stop stops the VM, and with it the daemon and every agent. With agents set,
+// a Cloud Hypervisor VM's supervisor stops every running agent through the
+// daemon first, so none restarts with the VM. A Lima VM has no such step:
+// agents is ignored there, and Incus restarts in it the agents that ran.
+func (v *VM) Stop(ctx context.Context, agents bool) error {
+	if v.CHV != nil {
+		return chvStop(ctx, v.CHV.Config, v.CHV.Layout, v.Paths, agents, v.Log)
+	}
 	return v.limaLog(ctx, "stop", v.Name)
 }
 
 func (v *VM) Delete(ctx context.Context) error {
+	if v.CHV != nil {
+		return v.CHV.delete(ctx, v)
+	}
 	return v.limaLog(ctx, "delete", "--force", v.Name)
 }
 
@@ -263,6 +342,9 @@ func (v *VM) Up(ctx context.Context) error {
 }
 
 func (v *VM) up(ctx context.Context) error {
+	if v.CHV != nil {
+		return v.CHV.up(ctx, v)
+	}
 	st, err := v.State(ctx)
 	if err != nil {
 		return err
@@ -309,7 +391,7 @@ func (v *VM) lock(ctx context.Context, exclusive bool) (unlock func(), err error
 			if exclusive {
 				_, _ = fmt.Fprintln(v.Log, "==> Waiting for the agentbox commands using the VM to finish with it")
 			} else {
-				_, _ = fmt.Fprintln(v.Log, "==> Waiting for AgentBox's VM: it's being resized")
+				_, _ = fmt.Fprintln(v.Log, "==> Waiting for AgentBox's VM: it's being resized or set up")
 			}
 		}
 		select {
@@ -341,7 +423,7 @@ func (v *VM) Current(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	have, _ := v.lima(ctx, nil, "shell", v.Name, "--", "sh", "-c", "sha256sum "+vmBinary+" 2>/dev/null | cut -d' ' -f1")
+	have, _ := v.exec(ctx, nil, "sh", "-c", "sha256sum "+vmBinary+" 2>/dev/null | cut -d' ' -f1")
 	return strings.TrimSpace(have) == want, nil
 }
 
@@ -356,7 +438,7 @@ func (v *VM) Install(ctx context.Context) error {
 	defer func() { _ = f.Close() }()
 	_, _ = fmt.Fprintf(v.Log, "==> Installing %s in the VM as %s\n", v.Binary, vmBinary)
 	script := fmt.Sprintf(`set -e; t=%[1]s.new.$$; cat >"$t"; chmod 0755 "$t"; mv -f "$t" %[1]s`, vmBinary)
-	_, err = v.lima(ctx, f, "shell", v.Name, "--", "sudo", "sh", "-c", script)
+	_, err = v.exec(ctx, f, "sudo", "sh", "-c", script)
 	return err
 }
 
@@ -385,46 +467,84 @@ func (v *VM) ready(ctx context.Context) error {
 	return nil
 }
 
-// bridgeSubnet is the Incus bridge's address and subnet in the VM.
+// bridgeSubnet is the Incus bridge's address and subnet in the Lima VM.
 const bridgeSubnet = "10.87.0.1/24"
+
+// guestUser is the VM's user, whom host setup maps agents' files to.
+func (v *VM) guestUser(ctx context.Context) (string, error) {
+	if v.CHV != nil {
+		return v.CHV.Config.User, nil
+	}
+	// Lima names the VM's user after the host's, unless that name won't do
+	// on Linux: ask the VM rather than assume.
+	guest, err := v.exec(ctx, nil, "id", "-un")
+	return strings.TrimSpace(guest), err
+}
+
+// bridge is the subnet host setup gives Incus's bridge in the VM.
+func (v *VM) bridge() string {
+	if v.CHV != nil {
+		return chv.BridgeSubnet
+	}
+	return bridgeSubnet
+}
+
+// took says how long a step of setting the VM up took, for whoever is waiting
+// on it (and for comparing the two drivers).
+func (v *VM) took(start time.Time) {
+	_, _ = fmt.Fprintf(v.Log, "    (took %s)\n", time.Since(start).Round(100*time.Millisecond))
+}
 
 // Setup is everything `agentbox vm init` does after the VM runs: AgentBox's
 // binary, the same host setup a Linux machine gets (Incus, its btrfs pool, the
 // bridge, the user mapping), the host's git identity, the host's settings for
 // the VM's login shells, and the daemon.
-func (v *VM) Setup(ctx context.Context) error {
+func (v *VM) Setup(ctx context.Context) error { return v.setup(ctx, true) }
+
+// setup is Setup, starting the daemon only with daemon set.
+func (v *VM) setup(ctx context.Context, daemon bool) error {
+	start := time.Now()
 	if err := v.Install(ctx); err != nil {
 		return err
 	}
-	// Lima names the VM's user after the host's, unless that name won't do
-	// on Linux: ask the VM rather than assume.
-	guest, err := v.lima(ctx, nil, "shell", v.Name, "--", "id", "-un")
+	v.took(start)
+	guest, err := v.guestUser(ctx)
 	if err != nil {
 		return err
 	}
 	_, _ = fmt.Fprintln(v.Log, "==> Host setup in the VM: Incus, its storage and network, and the user mapping")
+	start = time.Now()
 	// Incus can't pick the bridge's subnet here: it rules out any subnet where
 	// an address answers a ping, and Lima's user-mode network answers them all.
-	// The VM's only network is Lima's 192.168.5.0/24, so a fixed one is safe.
-	if err := v.shellLog(ctx, "sudo", vmBinary, "host", "setup", "--user", strings.TrimSpace(guest), "--bridge-subnet", bridgeSubnet); err != nil {
+	// The VM's only network is Lima's 192.168.5.0/24 (passt's 10.0.2.0/24 for
+	// Cloud Hypervisor), so a fixed one is safe.
+	if err := v.execLog(ctx, "sudo", vmBinary, "host", "setup", "--user", guest, "--bridge-subnet", v.bridge()); err != nil {
 		return fmt.Errorf("host setup in the VM: %w", err)
 	}
+	v.took(start)
 	// The VM's user has a home of its own; the daemon reads git's identity
 	// from there, for the commits it makes (snapshots, the agents' identity).
 	if _, err := os.Stat(filepath.Join(v.Home, ".gitconfig")); err == nil {
 		link := fmt.Sprintf(`[ -e ~/.gitconfig ] && [ ! -L ~/.gitconfig ] || ln -sfn %s ~/.gitconfig`, shellQuote(filepath.Join(v.Home, ".gitconfig")))
-		if _, err := v.lima(ctx, nil, "shell", v.Name, "--", "sh", "-c", link); err != nil {
+		if _, err := v.exec(ctx, nil, "sh", "-c", link); err != nil {
 			return fmt.Errorf("linking your git identity into the VM: %w", err)
 		}
 	}
 	// A daemon started by hand in the VM, without the front end's settings,
 	// would put new worktrees on the VM's disk instead of the share.
-	script := `cat >/etc/profile.d/agentbox-host.sh`
-	if _, err := v.lima(ctx, strings.NewReader(v.profile()), "shell", v.Name, "--", "sudo", "sh", "-c", script); err != nil {
-		return fmt.Errorf("writing the host's settings into the VM: %w", err)
+	if err := v.writeProfile(ctx); err != nil {
+		return err
+	}
+	if !daemon {
+		return nil
 	}
 	_, _ = fmt.Fprintln(v.Log, "==> Starting the daemon")
-	return v.shellLog(ctx, append([]string{"env"}, append(v.forwardEnv(), vmBinary, "daemon", "start")...)...)
+	start = time.Now()
+	if err := v.execLog(ctx, append([]string{"env"}, append(v.forwardEnv(), vmBinary, "daemon", "start")...)...); err != nil {
+		return err
+	}
+	v.took(start)
+	return nil
 }
 
 // hostOnly are the AGENTBOX_ settings that describe the host's side: the
@@ -433,16 +553,59 @@ var hostOnly = map[string]bool{
 	"AGENTBOX_FRONT_END": true, "AGENTBOX_VM": true, "AGENTBOX_VM_TYPE": true,
 	"AGENTBOX_LIMACTL": true, "AGENTBOX_LINUX_BINARY": true, "AGENTBOX_BIN": true,
 	"AGENTBOX_SOCKET": true, "AGENTBOX_WORKTREES": true, hostos.Env: true, hostos.HomeEnv: true,
+	vmMemoryCapEnv: true,
 }
 
+// vmMemoryCapEnv is agent.VMMemoryCapEnv, which package agent reads in the
+// VM; hostvm doesn't import package agent for one name.
+const vmMemoryCapEnv = "AGENTBOX_VM_MEMORY_CAP"
+
 // vmEnv is what the VM's agentbox has to be told about the host whoever runs
-// it: the host's OS, its home directory, and where the worktrees go.
+// it: the host's OS, its home directory, and where the worktrees go. A Cloud
+// Hypervisor VM's is also told the most memory it may be given, which is what
+// its agents' default limits are shares of (agent.HostMemory): its own
+// /proc/meminfo only has what it was granted so far. And where the host's
+// Android SDK is, which its agents run emulators from (androidSDKEnv).
 func (v *VM) vmEnv() []string {
-	return []string{
+	env := []string{
 		hostos.Env + "=" + runtime.GOOS,
 		hostos.HomeEnv + "=" + v.Home,
 		"AGENTBOX_WORKTREES=" + v.Paths.Worktrees(),
 	}
+	if v.CHV != nil {
+		env[0] = hostos.Env + "=" + hostos.Linux
+		env = append(env, fmt.Sprintf("%s=%d", vmMemoryCapEnv, v.CHV.Config.MemoryCap))
+		env = append(env, v.androidSDKEnv()...)
+	}
+	return env
+}
+
+// androidSDKEnvName is what the VM's daemon looks for the Android SDK in first
+// (android.Candidates).
+const androidSDKEnvName = "AGENTBOX_ANDROID_SDK"
+
+// androidSDKEnv tells a Cloud Hypervisor VM's agentbox where the host's
+// Android SDK is: found here, with the host's settings (ANDROID_HOME and the
+// rest, which the VM doesn't have) and the host's home, the way a host-mode
+// daemon finds it. The VM sees it at the same path when it's in the shared
+// home; when it isn't, the VM's daemon says that it can't see it
+// (android.FindSharedSDK). Symlinks are resolved here, since the VM can't
+// follow one out of the home. Nothing when the host has no SDK: the VM's
+// daemon still looks in the home's Android/Sdk, where one installed later
+// usually goes.
+func (v *VM) androidSDKEnv() []string {
+	sdk, err := android.FindSDK(android.Candidates(os.Getenv, v.Home))
+	if err != nil {
+		return nil
+	}
+	path := sdk.Path
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	return []string{androidSDKEnvName + "=" + path}
 }
 
 // profile sets vmEnv in the VM's login shells, so an agentbox run by hand in
@@ -457,14 +620,29 @@ func (v *VM) profile() string {
 	return b.String()
 }
 
+// writeProfile puts profile in the VM, for its login shells: by Setup, and again
+// when vmEnv may have changed (a Cloud Hypervisor VM's memory cap).
+func (v *VM) writeProfile(ctx context.Context) error {
+	if _, err := v.exec(ctx, strings.NewReader(v.profile()), "sudo", "sh", "-c", `cat >/etc/profile.d/agentbox-host.sh`); err != nil {
+		return fmt.Errorf("writing the host's settings into the VM: %w", err)
+	}
+	return nil
+}
+
 // forwardEnv is what every command in the VM is told about the host: vmEnv,
 // and every other AGENTBOX_ setting of the host's (AGENTBOX_ENV,
 // AGENTBOX_PREVIEW_ADDR, AGENTBOX_IMAGE_URL…), which mean the same in the VM.
+// What vmEnv sets wins over the host's own setting of the same name.
 func (v *VM) forwardEnv() []string {
 	env := v.vmEnv()
+	set := map[string]bool{}
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		set[name] = true
+	}
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if hostos.Forwarded(name) && !hostOnly[name] {
+		if hostos.Forwarded(name) && !hostOnly[name] && !set[name] {
 			env = append(env, kv)
 		}
 	}
@@ -488,23 +666,65 @@ func (v *VM) workdir() string {
 	return v.Home
 }
 
-// ForwardArgs is the limactl command line that runs args as agentbox in the VM.
+// ForwardArgs is the command line (limactl's, or ssh's for Cloud Hypervisor)
+// that runs args as agentbox in the VM.
 func (v *VM) ForwardArgs(workdir string, args []string) []string {
-	argv := []string{v.Limactl, "shell", "--workdir", workdir, v.Name, "--", "env"}
-	argv = append(argv, v.forwardEnv()...)
+	argv := append([]string{"env"}, v.forwardEnv()...)
 	argv = append(argv, vmBinary)
-	return append(argv, args...)
+	return v.command(workdir, stdinTerminal(), append(argv, args...))
 }
 
 // Forward runs args as agentbox in the VM, and becomes that command: limactl
-// replaces this process, so the terminal, Ctrl-C and the exit status are the
-// command's own.
+// or ssh replaces this process, so the terminal, Ctrl-C and the exit status
+// are the command's own.
 func (v *VM) Forward(ctx context.Context, args []string) error {
 	if err := v.Ready(ctx); err != nil {
 		return err
 	}
-	argv := v.ForwardArgs(v.workdir(), args)
-	return syscall.Exec(argv[0], argv, os.Environ())
+	return execve(v.ForwardArgs(v.workdir(), args))
+}
+
+// execve becomes argv, finding its program on PATH when it isn't a path.
+func execve(argv []string) error {
+	prog := argv[0]
+	if !strings.ContainsRune(prog, os.PathSeparator) {
+		p, err := exec.LookPath(prog)
+		if err != nil {
+			return err
+		}
+		prog = p
+	}
+	return syscall.Exec(prog, argv, os.Environ())
+}
+
+// stdinTerminal reports whether this command was given a terminal, which a
+// Cloud Hypervisor VM's command is given too (ssh -t).
+func stdinTerminal() bool { return term.IsTerminal(int(os.Stdin.Fd())) }
+
+// command is the command line that runs argv in the VM as its user, in
+// workdir; tty asks for a terminal, which limactl gives whenever it has one.
+func (v *VM) command(workdir string, tty bool, argv []string) []string {
+	if v.CHV != nil {
+		return chvSSHArgs(v.CHV.Config, v.CHV.Layout, v.CHV.Self, workdir, tty, argv)
+	}
+	return append([]string{v.Limactl, "shell", "--workdir", workdir, v.Name, "--"}, argv...)
+}
+
+// exec runs argv in the VM, with stdin, and returns what it printed.
+func (v *VM) exec(ctx context.Context, stdin io.Reader, argv ...string) (string, error) {
+	if v.CHV != nil {
+		return v.CHV.exec(ctx, v, stdin, argv)
+	}
+	return v.lima(ctx, stdin, append([]string{"shell", v.Name, "--"}, argv...)...)
+}
+
+// execLog runs argv in the VM with its output going to the log, for the steps
+// that take long enough to want it.
+func (v *VM) execLog(ctx context.Context, argv ...string) error {
+	if v.CHV != nil {
+		return v.CHV.execLog(ctx, v, argv)
+	}
+	return v.limaLog(ctx, append([]string{"shell", "--workdir", v.Home, v.Name, "--"}, argv...)...)
 }
 
 func (v *VM) lima(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
@@ -531,10 +751,6 @@ func (v *VM) limaLog(ctx context.Context, args ...string) error {
 		return fmt.Errorf("limactl %s: %w", args[0], err)
 	}
 	return nil
-}
-
-func (v *VM) shellLog(ctx context.Context, args ...string) error {
-	return v.limaLog(ctx, append([]string{"shell", "--workdir", v.Home, v.Name, "--"}, args...)...)
 }
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

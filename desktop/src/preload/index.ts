@@ -2,6 +2,7 @@
 // streams, relayed by the main process, plus the command-line tool, a folder
 // picker, links and the clipboard.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import type * as T from '../shared/api';
 
 export interface ApiResponse {
   status: number;
@@ -26,6 +27,36 @@ export interface HostSetupStatus {
   // `agentbox wsl init`: what `agentbox wsl status --json` says about that
   // distro. null elsewhere.
   wsl: WSLStatus | null;
+  // On Linux, whether AgentBox runs on the machine itself (host setup) or in
+  // a VM of its own (`agentbox vm init`), and whether it could run in a VM:
+  // the Setup page offers both. null elsewhere; missing from the web app.
+  linux?: LinuxSetup | null;
+  // On Linux in VM mode, AgentBox's Cloud Hypervisor VM as `agentbox vm
+  // status --json` says: its size, and what it can be resized to, with and
+  // without a restart. null elsewhere; missing from the web app.
+  chv?: T.VMStatus | null;
+}
+
+// VMMigration is `agentbox vm migrate --status --json`: on a Linux machine
+// that runs AgentBox itself, what there is to move into AgentBox's VM, and how
+// far a move got. main/hostsetup.ts has the same.
+export interface VMMigration {
+  state: 'none' | 'available' | 'started' | 'verified' | 'removed';
+  projects?: string[];
+  agents?: string[];
+  oldMachines?: string[]; // what removing the old machines removes, once the move is checked
+  backup?: string; // the state.db from before the move
+  found?: string[]; // what the check found in the VM
+}
+
+export interface LinuxSetup {
+  mode: 'host' | 'vm';
+  kvm: boolean; // /dev/kvm is there for this user, which the VM needs
+  cores: number; // the machine's, the most CPUs the VM can have
+  memory: number; // bytes, the machine's
+  // The size `agentbox vm init` gives the VM unless it's told otherwise.
+  defaultCpus: number;
+  defaultMemoryCap: number; // bytes
 }
 
 export interface VMStatus {
@@ -39,6 +70,21 @@ export interface VMStatus {
   disk?: number; // bytes
   limits?: VMLimits; // what `agentbox vm resize` takes on this Mac
 }
+
+// VMPower is AgentBox's VM in VM mode (the daemon, Incus and every agent in
+// one Cloud Hypervisor VM on Linux): its state and its memory, as the host's
+// command-line tool reports them (main/vmpower.ts).
+export interface VMPower {
+  state: VMPowerState;
+  memoryUsed: number; // bytes in use inside the VM
+  memoryGranted: number; // bytes the VM holds of the host's memory right now
+  memoryCap: number; // bytes the VM may grow to at most
+  cpus: number;
+  error?: string; // why the VM can't be reached or controlled, if it can't
+}
+
+export type VMPowerState = 'off' | 'starting' | 'running' | 'pausing' | 'paused' | 'resuming' | 'stopping';
+export type VMPowerAction = 'start' | 'pause' | 'resume' | 'stop';
 
 export interface VMLimits {
   minCpus: number;
@@ -123,17 +169,38 @@ const bridge = {
   // the setup succeeded; its output arrives on onOutput as it is printed.
   hostSetup: {
     status: (): Promise<HostSetupStatus> => ipcRenderer.invoke('hostsetup:status'),
-    run: (): Promise<{ restarted: boolean }> => ipcRenderer.invoke('hostsetup:run'),
+    // { vm: true } runs AgentBox in a VM instead, on a Linux machine (`agentbox
+    // vm init`, no password), stopping the daemon it ran itself first; cpus
+    // and memoryCap (like 12GiB) size it.
+    run: (options?: { vm?: boolean; cpus?: number; memoryCap?: string }): Promise<{ restarted: boolean }> =>
+      ipcRenderer.invoke('hostsetup:run', options),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
     // `agentbox host budget` as root: the shared agent budget's cgroup.
     budget: (): Promise<void> => ipcRenderer.invoke('hostsetup:budget'),
   },
-  // On a Mac, `agentbox vm resize`: new CPUs and memory (like 12GiB) for
-  // AgentBox's VM, which restarts it and stops every agent. resize resolves
-  // when the VM is back; its output arrives on onOutput as it is printed.
+  // On Linux, `agentbox vm migrate`: this machine's own AgentBox moved into
+  // AgentBox's VM, and afterwards its old machines removed from its Incus.
+  // status is null where there's nothing to say; run resolves when it's done,
+  // and its output arrives on onOutput as it is printed.
+  vmMigrate: {
+    status: (): Promise<VMMigration | null> => ipcRenderer.invoke('vmmigrate:status'),
+    run: (): Promise<void> => ipcRenderer.invoke('vmmigrate:run', false),
+    removeOld: (): Promise<void> => ipcRenderer.invoke('vmmigrate:run', true),
+    onOutput: (fn: (text: string) => void) => listen('vmmigrate:output', fn),
+  },
+  // `agentbox vm resize`: new CPUs and memory (like 12GiB) for AgentBox's VM.
+  // On a Mac that restarts it and stops every agent; on Linux memory is the
+  // memory cap, and the VM changes while it runs when it can (chv.live), or
+  // restarts with restart. resize resolves when the VM has its new size; its
+  // output arrives on onOutput as it is printed.
   vm: {
-    resize: (cpus: number, memory: string): Promise<void> => ipcRenderer.invoke('vm:resize', cpus, memory),
+    resize: (cpus: number, memory: string, restart?: boolean): Promise<void> => ipcRenderer.invoke('vm:resize', cpus, memory, restart),
     onOutput: (fn: (text: string) => void) => listen('vm:output', fn),
+    // In VM mode, the VM's power and memory; null when AgentBox isn't in VM
+    // mode. act resolves once the VM is in its new state, and after start or
+    // resume, once the daemon inside answers.
+    power: (): Promise<VMPower | null> => ipcRenderer.invoke('vm:power'),
+    act: (action: VMPowerAction): Promise<VMPower> => ipcRenderer.invoke('vm:act', action),
   },
   // Hubs you signed in to, and their environments.
   hubs: {

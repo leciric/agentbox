@@ -747,6 +747,13 @@ func (c *Client) DestroyAgent(ctx context.Context, ref string, force, deleteBran
 
 // AgentAction runs start, stop, pause, resume or session (make sure the tmux
 // session exists) and returns the agent afterwards.
+// StopAgents starts the job that stops every running or paused agent, or
+// only those req.Refs names; its result is a StopAgentsResult.
+func (c *Client) StopAgents(ctx context.Context, req StopAgentsRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, "/v1/agents/stop", req, &out)
+}
+
 func (c *Client) AgentAction(ctx context.Context, ref, action string) (Agent, error) {
 	var out Agent
 	return out, c.agentDo(ctx, http.MethodPost, ref, "/"+action, nil, &out)
@@ -774,6 +781,18 @@ func (c *Client) DeleteSnapshot(ctx context.Context, ref, name string) error {
 func (c *Client) Restore(ctx context.Context, ref, snapshot string) (Job, error) {
 	var out Job
 	return out, c.agentDo(ctx, http.MethodPost, ref, "/restore", RestoreRequest{Snapshot: snapshot}, &out)
+}
+
+// Recreate starts a job that gives an agent whose machine is gone a new one.
+func (c *Client) Recreate(ctx context.Context, ref string, req RecreateRequest) (Job, error) {
+	var out Job
+	return out, c.agentDo(ctx, http.MethodPost, ref, "/recreate", req, &out)
+}
+
+// CheckMigration compares the daemon's state with the state.db it was made from.
+func (c *Client) CheckMigration(ctx context.Context, req MigrationCheckRequest) (MigrationCheck, error) {
+	var out MigrationCheck
+	return out, c.do(ctx, http.MethodPost, "/v1/migration/check", req, &out)
 }
 
 func (c *Client) Fork(ctx context.Context, ref string, req ForkRequest) (Job, error) {

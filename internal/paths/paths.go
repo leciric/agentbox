@@ -50,6 +50,15 @@ func (p Paths) Socket() string {
 	return filepath.Join(p.Data, "run", "agentbox.sock")
 }
 
+// VM is where AgentBox keeps the Linux VM it runs in when this machine is its
+// front end (internal/hostvm/chv): the VM's disks, the programs that run it
+// and their sockets. Nothing in it belongs to the daemon, which is in the VM.
+func (p Paths) VM() string { return filepath.Join(p.Data, "vm") }
+
+// VMSocket is where the VM's supervisor serves the VM's state and controls
+// (api.VMStatus), while it runs.
+func (p Paths) VMSocket() string { return filepath.Join(p.Data, "run", "vm.sock") }
+
 // AgentSockets is the directory of in-agent API sockets, one per agent.
 func (p Paths) AgentSockets() string { return filepath.Join(p.Data, "run", "agents") }
 

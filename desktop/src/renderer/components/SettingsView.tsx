@@ -64,7 +64,18 @@ import { useVoiceSettings } from "../lib/voice/settings";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
-import { VMSize } from "./VMSize";
+import { VMMigrate } from "./VMMigrate";
+import { CHVSize, VMSize } from "./VMSize";
+import {
+  ModeChoice,
+  MoveToVM,
+  moveToVMKeywords,
+  vmSize,
+  vmSizeDefaults,
+  VMSizeFields,
+  type RunMode,
+  type VMSizeForm,
+} from "./RunInVM";
 import { pushToTalkGroup, useReadAloudGroup } from "./VoiceSettings";
 
 type Status =
@@ -448,6 +459,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
       info={info.data}
       imageJob={imageJob}
       hostSetupRan={hostSetupRan}
+      agentbox={cli.data?.path ? "agentbox" : (cli.data?.binary ?? "agentbox")}
       onWizard={() => setPage("wizard")}
     />
   );
@@ -742,6 +754,7 @@ function InstalledSettings({
   info,
   imageJob,
   hostSetupRan,
+  agentbox,
   onWizard,
 }: {
   steps: Step[];
@@ -753,6 +766,8 @@ function InstalledSettings({
   // hostSetupRan keeps the Incus step open once host setup has gone green, so
   // its log stays readable.
   hostSetupRan: boolean;
+  // The agentbox to name in a command run without sudo.
+  agentbox: string;
   onWizard: () => void;
 }) {
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
@@ -767,7 +782,33 @@ function InstalledSettings({
     refetchInterval: 2_000,
   });
   const vm = hostSetup.data?.vm;
+  // On a Linux machine that runs AgentBox itself: what there is to move into
+  // AgentBox's VM, and how far a move got.
+  const migration = useQuery({
+    queryKey: ["vm-migration"],
+    queryFn: () => window.agentbox.vmMigrate.status(),
+    refetchInterval: 15_000,
+  });
+  const offered =
+    migration.data &&
+    (["available", "started"].includes(migration.data.state) ||
+      (migration.data.state === "verified" && (migration.data.oldMachines?.length ?? 0) > 0));
+  // Once shown, it stays for as long as the page is open, so the end of a
+  // move, and of removing the old machines, can be read.
+  const [migrationShown, setMigrationShown] = useState(false);
+  useEffect(() => {
+    if (offered) setMigrationShown(true);
+  }, [offered]);
+  const moving = offered || (migrationShown && migration.data?.state !== "none") ? (migration.data ?? null) : null;
   const voice = useVoiceSettings();
+  // On Linux in VM mode, AgentBox's Cloud Hypervisor VM, sized here too.
+  const chv = hostSetup.data?.chv?.mode === "vm" ? hostSetup.data.chv : null;
+  // On Linux, a machine set up to run agents itself, which Setup suggests
+  // moving to AgentBox's VM (Home's suggestion opens it here).
+  const linux = hostSetup.data?.linux;
+  const hostMode =
+    linux?.mode === "host" &&
+    steps.some((step) => step.id === "incus" && step.status === "ok");
   const s = settings.data;
   // changed is undefined until settings arrive, so nothing is marked on a
   // guess.
@@ -1071,7 +1112,7 @@ function InstalledSettings({
               },
             ]
           : []),
-        ...(vm?.exists
+        ...(vm?.exists || chv
           ? [
               {
                 id: "vm",
@@ -1081,10 +1122,13 @@ function InstalledSettings({
                   {
                     id: "vm-size",
                     label: "VM size",
-                    keywords: "mac lima cpus memory resize virtual machine",
-                    render: () => (
-                      <VMSize vm={vm} busy={hostSetup.data?.resizing === true} />
-                    ),
+                    keywords: "mac lima cloud hypervisor cpus memory cap resize virtual machine",
+                    render: () =>
+                      chv ? (
+                        <CHVSize vm={chv} busy={hostSetup.data?.resizing === true} />
+                      ) : (
+                        <VMSize vm={vm!} busy={hostSetup.data?.resizing === true} />
+                      ),
                   },
                 ],
               },
@@ -1144,6 +1188,34 @@ function InstalledSettings({
         </div>
       ),
       groups: [
+        ...(hostMode || moving
+          ? [
+              {
+                id: "where",
+                title: "Where agents run",
+                cards: true,
+                entries: [
+                  {
+                    id: "move-to-vm",
+                    label: "Move to a VM",
+                    keywords: `${moveToVMKeywords} old machines remove`,
+                    // Once moved, the machine is in VM mode: what's left is
+                    // the move's result, and removing the old machines.
+                    render: () =>
+                      moving && ["verified", "removed"].includes(moving.state) ? (
+                        <VMMigrate migration={moving} kvm />
+                      ) : (
+                        <MoveToVM
+                          kvm={linux?.kvm ?? false}
+                          command={<CommandBox command={`${agentbox} vm migrate`} />}
+                          action={moving ? <VMMigrate migration={moving} kvm={linux?.kvm ?? false} embedded /> : undefined}
+                        />
+                      ),
+                  },
+                ],
+              },
+            ]
+          : []),
         {
           id: "required",
           title: "Required",
@@ -2273,6 +2345,11 @@ export function appendOutput(lines: string[], text: string): string[] {
 //
 // One run fixes Incus and the user mapping both, so there is one of these, on
 // the Incus step; the user mapping points at it.
+//
+// On Linux it asks which way first, and recommends the other one: AgentBox in
+// a VM of its own, made with `agentbox vm init` (no password, needs /dev/kvm),
+// which stops the daemon this machine runs and brings up the VM's in its
+// place. Once the machine runs in a VM, this sets that VM up, as on a Mac.
 function HostSetup({
   agentbox,
   onRun,
@@ -2318,45 +2395,107 @@ function HostSetup({
     },
   });
 
+  // AgentBox in a VM on this Linux machine, from now on: every page's data is
+  // another daemon's afterwards.
+  const toVM = useMutation({
+    mutationFn: (size: { cpus: number; memoryCap: string } | null) =>
+      window.agentbox.hostSetup.run({ vm: true, ...size }),
+    onMutate: () => {
+      setLines([]);
+      onRun();
+    },
+    onSuccess: async () => {
+      toast("AgentBox runs in its VM now", {
+        description: "Next, build the base image your agents are copied from.",
+      });
+      await queryClient.invalidateQueries();
+    },
+  });
+
   // On a Mac, AgentBox runs in a Linux VM, and this sets the VM up instead:
-  // `agentbox vm init`, with no password to ask for.
-  const mac = status.data?.vm != null;
-  const busy = run.isPending || status.data?.running === true;
+  // `agentbox vm init`, with no password to ask for. So on a Linux machine
+  // that chose a VM.
+  const linux = status.data?.linux ?? null;
+  const mac = status.data?.vm != null || linux?.mode === "vm";
+  const busy =
+    run.isPending || toVM.isPending || status.data?.running === true;
   // On Windows, host setup is `agentbox wsl init`, in AgentBox's WSL distro,
   // which needs no password either (D94).
   const wsl = status.data?.wsl != null;
+  // A Linux machine that hasn't chosen a VM chooses here: the VM is the
+  // recommended way, picked unless there's no /dev/kvm to run it with, and
+  // host setup the other (RunInVM.tsx says why).
+  const choosing = linux?.mode === "host";
+  const [choice, setChoice] = useState<RunMode | null>(null);
+  const picked: RunMode = choice ?? (linux?.kvm === false ? "host" : "vm");
+  const vmPicked = choosing && picked === "vm";
+  // The VM's size, from vm init's defaults until it's changed.
+  const [sizeForm, setSizeForm] = useState<VMSizeForm | null>(null);
+  const size = linux && (sizeForm ?? vmSizeDefaults(linux));
+  const sized = linux && size ? vmSize(size, linux) : null;
   const noDialog =
-    status.data !== undefined && !mac && !wsl && status.data.pkexec === null;
+    status.data !== undefined &&
+    !mac &&
+    !wsl &&
+    !vmPicked &&
+    status.data.pkexec === null;
   return (
     <div
       className="grid gap-2"
       data-host-setup={noDialog ? "terminal" : "button"}
     >
-      <p className="text-[13px] text-muted">
-        {mac
-          ? "Sets AgentBox's Linux VM up: Incus, its storage and network, and your user's mapping, inside the VM."
-          : wsl
-            ? "Installs Incus in AgentBox's WSL distro and gives its user access to it. It needs no password."
-            : "Installs Incus and gives your user access to it, in this session too. It changes system files, so it asks for your password."}
-      </p>
+      {choosing ? (
+        <>
+          <ModeChoice
+            picked={picked}
+            kvm={linux.kvm}
+            disabled={busy}
+            onPick={setChoice}
+          />
+          {vmPicked && linux.kvm && size && (
+            <VMSizeFields
+              linux={linux}
+              form={size}
+              disabled={busy}
+              onChange={setSizeForm}
+            />
+          )}
+        </>
+      ) : (
+        <p className="text-[13px] text-muted">
+          {mac
+            ? "Sets AgentBox's Linux VM up: Incus, its storage and network, and your user's mapping, inside the VM."
+            : wsl
+              ? "Installs Incus in AgentBox's WSL distro and gives its user access to it. It needs no password."
+              : "Installs Incus and gives your user access to it, in this session too. It changes system files, so it asks for your password."}
+        </p>
+      )}
       {!noDialog && (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="primary"
-            disabled={busy}
-            onClick={() => run.mutate()}
+            disabled={busy || (vmPicked && (!linux?.kvm || !sized))}
+            onClick={() => (vmPicked ? toVM.mutate(sized) : run.mutate())}
           >
-            {busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}
-            {mac ? "Set up the VM" : "Set up host"}
+            {busy ? (
+              <LoaderCircle className="animate-spin" />
+            ) : vmPicked ? (
+              <Monitor />
+            ) : (
+              <ShieldCheck />
+            )}
+            {mac ? "Set up the VM" : vmPicked ? "Run in a VM" : "Set up host"}
           </Button>
           <span className="text-xs text-subtle">
-            {busy
-              ? mac
-                ? "Setting the VM up. This takes a few minutes the first time."
-                : "Installing Incus. This takes a few minutes."
-              : mac || wsl
-                ? "No password needed"
-                : "Your system asks for the password"}
+            {toVM.isPending
+              ? "Making the VM. This takes a few minutes the first time."
+              : busy
+                ? mac
+                  ? "Setting the VM up. This takes a few minutes the first time."
+                  : "Installing Incus. This takes a few minutes."
+                : mac || wsl || vmPicked
+                  ? "No password needed"
+                  : "Your system asks for the password"}
           </span>
         </div>
       )}
@@ -2364,6 +2503,7 @@ function HostSetup({
         <SetupLog lines={lines} label="Host setup log" />
       )}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
+      {toVM.error && <Notice>{errorMessage(toVM.error)}</Notice>}
       {(noDialog || run.error) && (
         <div className="grid gap-2">
           <p className="text-[13px] text-muted">

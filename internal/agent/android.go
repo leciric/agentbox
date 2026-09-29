@@ -83,11 +83,13 @@ func (m *Manager) AndroidHost() (android.SDK, error) {
 
 // AndroidUnsupported says why this machine can't run emulators whatever is
 // installed on it, or nil. They are x86_64 throughout (android.sh runs
-// qemu-system-x86_64 on x86_64 system images), and AgentBox's VM on a Mac has
-// no KVM to run them with: Android is off there.
+// qemu-system-x86_64 on x86_64 system images). AgentBox's VM on a Mac has no
+// KVM to give its agents, and WSL is left off: Android is off there. The Cloud
+// Hypervisor VM on a Linux host has the host's KVM, nested, so emulators run
+// in its agents as they do in a host's (CheckKVM says when it doesn't).
 func AndroidUnsupported() error {
-	if hostos.InVM() {
-		return errors.New("this AgentBox runs in a VM on a Mac, which has no Android emulators")
+	if hostos.InVM() && hostos.OS() != hostos.Linux {
+		return errors.New("this AgentBox runs in a VM on " + hostos.Name() + ", which has no Android emulators")
 	}
 	if runtime.GOARCH != "amd64" {
 		return fmt.Errorf("this machine is %s, and Android emulators need x86_64", runtime.GOARCH)
@@ -95,16 +97,31 @@ func AndroidUnsupported() error {
 	return nil
 }
 
+// kvmPath is /dev/kvm, a variable for tests.
+var kvmPath = "/dev/kvm"
+
 // CheckKVM reports whether this user can use hardware virtualization, which emulators need.
 func CheckKVM() error {
-	f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
+	f, err := os.OpenFile(kvmPath, os.O_RDWR, 0)
+	inCHV := hostos.OS() == hostos.Linux
 	if errors.Is(err, os.ErrNotExist) && hostos.WSL() {
 		// WSL's kernel has KVM; what's missing is Windows passing
 		// virtualization through to WSL's VM (D94).
 		return errors.New("WSL has no /dev/kvm: Android emulators need nested virtualization, which WSL has on Windows 11 with virtualization on in the firmware. Set nestedVirtualization=true under [wsl2] in %UserProfile%\\.wslconfig, then run wsl --shutdown")
 	}
+	if errors.Is(err, os.ErrNotExist) && inCHV {
+		// The VM runs on the host's KVM, so what's missing is the host's KVM
+		// module letting the VM run VMs of its own.
+		return errors.New("AgentBox's VM has no /dev/kvm: Android emulators in it need nested virtualization, which the host's kvm_intel or kvm_amd module turns on with nested=1 (options kvm_amd nested=1 in /etc/modprobe.d, then reload the module or restart). Then restart the VM: agentbox vm stop, then agentbox vm start")
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return errors.New("this machine has no /dev/kvm: turn on virtualization (VT-x or AMD-V) in its firmware settings")
+	}
+	if err != nil && inCHV {
+		// The VM's user joins the kvm group when the VM is set up
+		// (user-data's provision.sh, and host setup in the VM); a daemon
+		// started before that keeps the groups it had.
+		return fmt.Errorf("the VM's user can't use /dev/kvm (%v): restart the VM so its user joins the kvm group: agentbox vm stop, then agentbox vm start", err)
 	}
 	if err != nil {
 		return fmt.Errorf("your user can't use /dev/kvm: sudo agentbox host setup adds you to the kvm group, then log out and back in")

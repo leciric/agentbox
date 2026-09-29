@@ -81,6 +81,34 @@ func FindSDK(candidates []string) (SDK, error) {
 	return SDK{}, fmt.Errorf("%s: run %s", strings.Join(problems, "; "), InstallHint)
 }
 
+// FindSharedSDK is FindSDK for AgentBox's Cloud Hypervisor VM, which sees
+// nothing of the host but its home directory, shared at the same path. A
+// candidate outside that share is one the VM can't see whether or not it
+// exists on the host, so when nothing is found, the error says so rather than
+// that the SDK is missing.
+func FindSharedSDK(candidates []string, share string) (SDK, error) {
+	var inside, outside []string
+	for _, dir := range candidates {
+		if Within(dir, share) {
+			inside = append(inside, dir)
+		} else {
+			outside = append(outside, dir)
+		}
+	}
+	sdk, err := FindSDK(inside)
+	if err == nil || len(outside) == 0 {
+		return sdk, err
+	}
+	return SDK{}, fmt.Errorf("the Android SDK in %s is outside your home directory %s, which is all of your computer AgentBox's VM can see: move it under %s (to %s, say), or install one there with %s",
+		strings.Join(outside, ", "), share, share, filepath.Join(share, "Android", "Sdk"), InstallHint)
+}
+
+// Within reports whether path is dir or under it.
+func Within(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && filepath.IsAbs(path) && rel != ".." && !strings.HasPrefix(rel, "../")
+}
+
 // Images lists the complete x86_64 system images in an SDK, best first: the
 // newest API, then google_apis (which allows adb root) before Play Store images.
 func Images(sdk string) []Image {

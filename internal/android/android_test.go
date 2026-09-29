@@ -113,3 +113,37 @@ func TestIsProject(t *testing.T) {
 		t.Error("a React Native library (react-native only as a peer and dev dependency): IsProject = true")
 	}
 }
+
+// AgentBox's Cloud Hypervisor VM sees only the host's home: an SDK there is
+// found as usual, and one elsewhere is named as out of the VM's sight rather
+// than as missing.
+func TestFindSharedSDK(t *testing.T) {
+	home := t.TempDir()
+	sdk := filepath.Join(home, "Android", "Sdk")
+	touch(t, filepath.Join(sdk, "emulator", "emulator"), "")
+	touch(t, filepath.Join(sdk, "platform-tools", "adb"), "")
+	fakeImage(t, sdk, "android-34", "google_apis")
+	got, err := FindSharedSDK([]string{"/opt/android-sdk", sdk}, home)
+	if err != nil || got.Path != sdk {
+		t.Fatalf("FindSharedSDK = %+v, %v", got, err)
+	}
+	_, err = FindSharedSDK([]string{"/opt/android-sdk", filepath.Join(home, "nope")}, home)
+	if err == nil || !strings.Contains(err.Error(), "the Android SDK in /opt/android-sdk is outside your home directory "+home) {
+		t.Errorf("an SDK outside the home: %v", err)
+	}
+	_, err = FindSharedSDK([]string{filepath.Join(home, "nope")}, home)
+	if err == nil || !strings.Contains(err.Error(), "no Android SDK found") {
+		t.Errorf("no SDK anywhere: %v", err)
+	}
+}
+
+func TestWithin(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/home/u": true, "/home/u/Android/Sdk": true, "/home/u/../v": false,
+		"/home/user2/sdk": false, "/opt/sdk": false, "home/u/sdk": false,
+	} {
+		if got := Within(path, "/home/u"); got != want {
+			t.Errorf("Within(%s) = %v", path, got)
+		}
+	}
+}

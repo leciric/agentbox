@@ -7,12 +7,19 @@ import (
 	"agentbox/internal/agent"
 	"agentbox/internal/android"
 	"agentbox/internal/api"
+	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 )
 
 // findAndroidSDK looks for the Android SDK every time, so installing one needs
-// no restart.
+// no restart. In AgentBox's Cloud Hypervisor VM, the SDK is the host's: the
+// front end finds it with the host's settings and says where in
+// AGENTBOX_ANDROID_SDK (hostvm's vmEnv), and the usual place is in the host's
+// home, which the VM shares at the same path, not in the VM user's own.
 func findAndroidSDK() (android.SDK, error) {
+	if share := hostos.Home(); hostos.OS() == hostos.Linux && share != "" {
+		return android.FindSharedSDK(android.Candidates(os.Getenv, share), share)
+	}
 	home, _ := os.UserHomeDir()
 	return android.FindSDK(android.Candidates(os.Getenv, home))
 }

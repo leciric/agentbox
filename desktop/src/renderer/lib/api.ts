@@ -2,6 +2,7 @@
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
 import { errorMessage } from './utils.ts';
+import { ensureVMRunning } from './vm.ts';
 
 export class ApiError extends Error {
   readonly status: number;
@@ -122,12 +123,23 @@ export const api = {
   removePreviousBase: (name: string) => call<void>('DELETE', `${project(name)}/base?previous=1`),
 
   agents: () => call<T.Agent[]>('GET', '/v1/agents'),
-  createAgent: (req: T.CreateAgentRequest) => call<T.Job>('POST', '/v1/agents', req),
+  // Making or starting an agent in VM mode brings the VM up first, so the
+  // one click is all it takes after Free resources turned everything off.
+  createAgent: async (req: T.CreateAgentRequest) => {
+    await ensureVMRunning();
+    return call<T.Job>('POST', '/v1/agents', req);
+  },
   updateAgent: (ref: string, req: T.UpdateAgentRequest) => call<T.Agent>('PATCH', agent(ref), req),
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
-  agentAction: (ref: string, action: AgentAction) => call<T.Agent>('POST', `${agent(ref)}/${action}`),
+  agentAction: async (ref: string, action: AgentAction) => {
+    if (action === 'start' || action === 'resume') await ensureVMRunning();
+    return call<T.Agent>('POST', `${agent(ref)}/${action}`);
+  },
+  // Free resources: stop every running or paused agent, or only refs, as a
+  // job whose result is a StopAgentsResult.
+  stopAgents: (refs?: string[]) => call<T.Job>('POST', '/v1/agents/stop', { refs } satisfies T.StopAgentsRequest),
   diffStat: (ref: string) => call<string>('GET', `${agent(ref)}/diff?stat=true`),
 
   // A chat is read a page at a time: the latest limit messages, or the ones
