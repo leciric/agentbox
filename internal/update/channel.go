@@ -86,10 +86,12 @@ func Offer(channel, current string, stable, nightly Latest) (Latest, bool) {
 func valid(v string) bool { return v != "" && semver.IsValid(canonical(v)) }
 
 // LatestRelease asks GitHub's release list at base (DefaultReleasesURL when
-// empty) for the newest published release, stable or nightly: drafts and any
-// other tag are skipped. It sends no ID and nothing about the machine: the
-// request is a plain GET of a public page.
-func LatestRelease(ctx context.Context, base string) (Latest, error) {
+// empty) for the newest published release of channel: on the stable channel
+// the newest vX.Y.Z that isn't a prerelease, on the nightly channel that or a
+// nightly, whichever is newer. Drafts and any other tag are skipped. It sends
+// no ID and nothing about the machine: the request is a plain GET of a public
+// page.
+func LatestRelease(ctx context.Context, base, channel string) (Latest, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	r, err := http.NewRequestWithContext(ctx, http.MethodGet, cmp.Or(base, DefaultReleasesURL), nil)
@@ -108,7 +110,8 @@ func LatestRelease(ctx context.Context, base string) (Latest, error) {
 	var releases []struct {
 		Tag   string `json:"tag_name"`
 		URL   string `json:"html_url"`
-		Draft bool   `json:"draft"`
+		Draft      bool `json:"draft"`
+		Prerelease bool `json:"prerelease"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 4<<20)).Decode(&releases); err != nil {
 		return Latest{}, err
@@ -116,6 +119,9 @@ func LatestRelease(ctx context.Context, base string) (Latest, error) {
 	var best Latest
 	for _, rel := range releases {
 		if rel.Draft || !releaseTag.MatchString(rel.Tag) {
+			continue
+		}
+		if channel != ChannelNightly && (rel.Prerelease || IsNightly(rel.Tag)) {
 			continue
 		}
 		if v := strings.TrimPrefix(rel.Tag, "v"); best.Version == "" || Newer(v, best.Version) {

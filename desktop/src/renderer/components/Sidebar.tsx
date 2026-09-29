@@ -8,6 +8,7 @@ import type { View } from '../App';
 import { api } from '../lib/api';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
+import { openLatestRelease } from '../lib/releaseLink';
 import { buildLists, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
 import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -379,7 +380,7 @@ export function Sidebar({
           // What the daemon's daily check found (see the README's "Update
           // check"). It links to the release rather than updating anything:
           // how AgentBox was installed decides how it's updated.
-          <NavItem icon={CircleArrowUp} onClick={() => void window.agentbox.openExternal(update.data!.available!.url)}>
+          <NavItem icon={CircleArrowUp} onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, update.data!.available!.url)}>
             <span className="text-emerald-300" data-update-available={update.data.available.version}>
               {isUpgrade(update.data.available.version, update.data.current) ? 'Update available' : 'Latest stable'}
             </span>

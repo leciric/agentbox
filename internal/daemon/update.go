@@ -62,7 +62,7 @@ func (s *Server) checkForUpdate(ctx context.Context) {
 	var nightly update.Latest
 	var nightlyErr error
 	if channel == update.ChannelNightly {
-		nightly, nightlyErr = update.LatestRelease(ctx, s.cfg.ReleasesURL)
+		nightly, nightlyErr = update.LatestRelease(ctx, s.cfg.ReleasesURL, update.ChannelNightly)
 	}
 	if err != nil && (channel != update.ChannelNightly || nightlyErr != nil) {
 		return
@@ -204,4 +204,47 @@ func (s *Server) getUpdate(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return writeJSON(w, http.StatusOK, status)
+}
+
+// getLatestRelease is where "Update available" leads: the chosen channel's
+// latest release as GitHub lists it at the moment it is clicked — on the
+// stable channel the newest release that isn't a prerelease. The link used to
+// be whatever the last daily check found, pinned to that version's page, and
+// with releases coming out several a day an app that checked in the morning
+// sent its user to a release two behind the latest all day. When GitHub can't
+// be reached, the last check's find is still better than nothing. A newer
+// release found here also becomes what the sidebar offers.
+func (s *Server) getLatestRelease(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	channel, err := s.updateChannel(ctx)
+	if err != nil {
+		return err
+	}
+	latest, err := update.LatestRelease(ctx, s.cfg.ReleasesURL, channel)
+	if err != nil {
+		s.updates.mu.Lock()
+		last := s.updates.available
+		s.updates.mu.Unlock()
+		if last == nil {
+			return fmt.Errorf("finding the latest release: %w", err)
+		}
+		return writeJSON(w, http.StatusOK, last)
+	}
+	if on, err := s.updateCheckOn(ctx); err == nil && on {
+		stable, nightly := latest, update.Latest{}
+		if channel == update.ChannelNightly {
+			nightly = latest
+		}
+		if offer, ok := update.Offer(channel, Version, stable, nightly); ok {
+			available := &api.UpdateAvailable{Version: offer.Version, URL: offer.URL}
+			s.updates.mu.Lock()
+			changed := !sameUpdate(s.updates.available, available)
+			s.updates.available = available
+			s.updates.mu.Unlock()
+			if changed {
+				s.publishUpdate(ctx)
+			}
+		}
+	}
+	return writeJSON(w, http.StatusOK, api.UpdateAvailable{Version: latest.Version, URL: latest.URL})
 }

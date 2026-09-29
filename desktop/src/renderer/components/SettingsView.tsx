@@ -38,6 +38,7 @@ import { toast } from "sonner";
 import type * as T from "../../shared/api";
 import { api } from "../lib/api";
 import { isNightly, isUpgrade } from "../lib/nightly";
+import { openLatestRelease } from "../lib/releaseLink";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
@@ -1411,7 +1412,7 @@ function UpdateCheck() {
           AgentBox {available.version} is out.{" "}
           <button
             className="rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
-            onClick={() => void window.agentbox.openExternal(available.url)}
+            onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, available.url)}
           >
             See what's new
           </button>
@@ -1490,7 +1491,7 @@ function UpdateChannel() {
           This is a nightly. AgentBox {available.version} is the latest stable release.{" "}
           <button
             className="rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
-            onClick={() => void window.agentbox.openExternal(available.url)}
+            onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, available.url)}
           >
             Get it
           </button>

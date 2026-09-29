@@ -204,3 +204,48 @@ func TestUpdateChannel(t *testing.T) {
 		t.Error("an unknown channel was taken")
 	}
 }
+
+// TestUpdateLinkLeadsToTheLatestRelease reproduces the stale link: the daily
+// check found 0.9.0, then 0.9.1 and 0.10.0 came out the same day. The link
+// leads to 0.10.0, the newest release that isn't a prerelease, not to the
+// 0.9.0 the check pinned, nor to a nightly; and the sidebar catches up.
+func TestUpdateLinkLeadsToTheLatestRelease(t *testing.T) {
+	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
+	t.Setenv("DO_NOT_TRACK", "")
+	asVersion(t, "0.8.0")
+	var releases sync.Mutex
+	list := `[{"tag_name":"v0.9.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.9.0"}]`
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		releases.Lock()
+		defer releases.Unlock()
+		_, _ = w.Write([]byte(list))
+	}))
+	t.Cleanup(gh.Close)
+	var fake fakeLatest
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.9.0"), releasesURL: gh.URL})
+	ctx := context.Background()
+	waitFor(t, "the check as the daemon starts", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.Available != nil
+	})
+
+	releases.Lock()
+	list = `[{"tag_name":"v0.11.0-nightly.20260930.1","html_url":"nightly","prerelease":true},
+		{"tag_name":"v0.10.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.10.0"},
+		{"tag_name":"v0.9.1","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.9.1"},
+		{"tag_name":"v0.9.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.9.0"}]`
+	releases.Unlock()
+	got, err := d.client.LatestRelease(ctx)
+	if err != nil || got.Version != "0.10.0" || got.URL != "https://github.com/leciric/agentbox/releases/tag/v0.10.0" {
+		t.Fatalf("LatestRelease() = %+v, %v; want 0.10.0's page", got, err)
+	}
+	if status, _ := d.client.Update(ctx); status.Available == nil || status.Available.Version != "0.10.0" {
+		t.Errorf("after the link, Update() = %+v", status)
+	}
+
+	// GitHub unreachable: the last find, rather than nothing.
+	gh.Close()
+	if got, err := d.client.LatestRelease(ctx); err != nil || got.Version != "0.10.0" {
+		t.Errorf("with GitHub down, LatestRelease() = %+v, %v", got, err)
+	}
+}

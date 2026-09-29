@@ -403,6 +403,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/theme", s.themeStatus)
 	h("PATCH /v1/theme", s.updateTheme)
 	h("GET /v1/update", s.getUpdate)
+	h("GET /v1/update/release", s.getLatestRelease)
 	h("GET /v1/settings", s.settings)
 	h("PATCH /v1/settings", s.updateSettings)
 	// What every chat spent, kept after its agent is gone (D83).

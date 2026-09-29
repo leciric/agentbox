@@ -90,6 +90,7 @@ export const api = {
   pairLAN: () => call<T.LANPairing>('POST', '/v1/lan/pairings'),
   removeLANPhone: (id: string) => call<void>('DELETE', `/v1/lan/phones/${encodeURIComponent(id)}`),
   update: () => call<T.UpdateStatus>('GET', '/v1/update'),
+  latestRelease: () => call<T.UpdateAvailable>('GET', '/v1/update/release'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
   countFeature: (feature: string) => call<void>('POST', `/v1/usage-stats/${encodeURIComponent(feature)}`),
   tokens: (q: TokenQuery) => call<T.TokenReport>('GET', `/v1/tokens${tokenParams(q)}`),

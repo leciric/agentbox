@@ -173,7 +173,10 @@ build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
 
 Once a day, and as it starts, the AgentBox daemon asks `agentbox.linting.dev` whether a newer
 release is out. When one is, the app shows **Update available** in its sidebar and
-`agentbox version` prints a link to the release. Nothing is downloaded or installed. The same
+`agentbox version` prints a link to the release. Clicking it opens your channel's latest release
+as GitHub lists it at that moment (the daemon reads the public list of releases,
+`GET https://api.github.com/repos/leciric/agentbox/releases`, with nothing added to it), so a
+release made since the last check isn't missed. Nothing is downloaded or installed. The same
 request is how we count active installations.
 
 **What is sent** is one HTTPS request with four query parameters, and nothing else:
