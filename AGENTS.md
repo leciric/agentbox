@@ -54,7 +54,9 @@ Incus and the agents are the Linux ones, inside the VM. The macOS `agentbox` is 
 (`internal/hostvm`): `agentbox vm …` makes and manages the VM, and every other command runs in it
 through `limactl shell`. The daemon's socket is forwarded to the Mac at its usual path, so the app
 is the same client it is on Linux; the Mac's home is shared at the same path, and the agents'
-worktrees go there (`AGENTBOX_WORKTREES`). Android is off in the VM. The whole design is
+worktrees go there (`AGENTBOX_WORKTREES`). Android is off in the VM. `vm init` makes the VM
+with Lima's krunkit VM type when krunkit is installed, which gives the Mac back the memory the VM
+frees, and with vz, which doesn't, otherwise (`internal/hostvm/krunkit.go`). The whole design is
 D92; on Linux,
 `AGENTBOX_FRONT_END=vm AGENTBOX_VM_TYPE=qemu` runs the front end against a QEMU VM, to test it
 without a Mac.
