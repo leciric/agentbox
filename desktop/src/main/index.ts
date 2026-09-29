@@ -14,10 +14,12 @@ import { handleMedia, registerMediaScheme } from './media';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { Streams } from './streams';
 import { learnMode } from './vmmode';
+import { allowMicrophone, enableWebGPU } from './voice';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import './vmpower';
 
 registerMediaScheme();
+enableWebGPU();
 
 let win: BrowserWindow | undefined;
 
@@ -205,6 +207,7 @@ function createWindow(): void {
 
 void app.whenReady().then(async () => {
   handleMedia();
+  allowMicrophone();
   createWindow();
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.

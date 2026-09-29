@@ -5,6 +5,7 @@ import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
 import { cn, errorMessage } from '../../lib/utils';
+import { useReadAloud } from '../../lib/voice/useReadAloud';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ProjectCredentialCards } from '../CredentialCard';
 import { AIIcon, aiLabel } from '../state';
@@ -12,6 +13,7 @@ import { Button } from '../ui/button';
 import { Notice } from '../ui/card';
 import { Tip } from '../ui/tooltip';
 import { Composer } from './Composer';
+import { ReadAloudControls } from './ReadAloud';
 import { Timeline } from './Timeline';
 
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
@@ -22,6 +24,7 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
   const session = thread.data?.session;
   const running = agent.state === 'running';
+  useReadAloud(agent.ref, thread.data?.items);
   const start = useMutation({
     mutationFn: () => api.startChat(agent.ref),
     // Starting a project's chat for the first time makes its lead, with a
@@ -209,6 +212,7 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
   return (
     <>
       <SessionStatus agent={agent} session={thread.data?.session} />
+      <ReadAloudControls />
       <Tip label="Start a new conversation">
         <Button size="sm" variant="ghost" className="h-7 px-2 sm:px-2.5" disabled={items.length === 0} onClick={() => setClearing(true)}>
           <MessageSquarePlus />

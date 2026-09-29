@@ -15,6 +15,7 @@ import {
   ListChecks,
   LoaderCircle,
   LogIn,
+  Mic,
   Monitor,
   Moon,
   PartyPopper,
@@ -59,10 +60,12 @@ import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
+import { useVoiceSettings } from "../lib/voice/settings";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { VMSize } from "./VMSize";
+import { pushToTalkGroup, useReadAloudGroup } from "./VoiceSettings";
 
 type Status =
   | "ok"
@@ -756,6 +759,7 @@ function InstalledSettings({
   const theme = useQuery({ queryKey: ["theme"], queryFn: api.theme });
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const readAloud = useReadAloudGroup();
   // On a Mac, the VM everything runs in, whose size can be changed here.
   const hostSetup = useQuery({
     queryKey: ["host-setup"],
@@ -763,6 +767,7 @@ function InstalledSettings({
     refetchInterval: 2_000,
   });
   const vm = hostSetup.data?.vm;
+  const voice = useVoiceSettings();
   const s = settings.data;
   // changed is undefined until settings arrive, so nothing is marked on a
   // guess.
@@ -839,6 +844,13 @@ function InstalledSettings({
           AgentBox {info.version} · Electron {info.electron} · {info.socket}
         </p>
       ),
+    },
+    {
+      id: "voice",
+      title: "Voice",
+      description: "Talking to chats and hearing them, on this machine.",
+      scope: "installation",
+      groups: [pushToTalkGroup(voice), readAloud],
     },
     {
       id: "models",
@@ -1185,6 +1197,7 @@ function InstalledSettings({
 const sectionIcons: SectionIcons = {
   general: SlidersHorizontal,
   models: Sparkles,
+  voice: Mic,
   agents: Bot,
   resources: Cpu,
   accounts: KeyRound,
