@@ -25,6 +25,10 @@ func Main(args []string, version string) int {
 		fmt.Printf("agentbox version %s\n", version)
 		return 0
 	}
+	if inVM() {
+		fmt.Fprintln(os.Stderr, "error:", errInVM)
+		return 1
+	}
 	if len(args) == 0 || args[0] != "vm" {
 		vm, err := New()
 		if err == nil {

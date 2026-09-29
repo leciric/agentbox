@@ -34,6 +34,10 @@ provision:
       #!/bin/bash
       set -eu -o pipefail
       export DEBIAN_FRONTEND=noninteractive
+      # Says this is AgentBox's VM to the agentbox in it, whatever its
+      # environment (hostos.OS): it is never the Mac's front end.
+      mkdir -p /etc/agentbox
+      echo darwin >/etc/agentbox/vm
       # agentbox host setup installs Incus; the daemon itself needs git, and
       # the rule below needs nft.
       if ! command -v git >/dev/null || ! command -v nft >/dev/null; then

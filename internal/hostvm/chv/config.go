@@ -172,5 +172,6 @@ func (l Layout) VsockSocket() string {
 func (l Layout) PasstSocket() string { return filepath.Join(l.Run(), "passt.sock") }
 func (l Layout) FSSocket() string    { return filepath.Join(l.Run(), "fs.sock") }
 func (l Layout) PIDFile() string     { return filepath.Join(l.Run(), "supervisor.pid") }
+func (l Layout) LockFile() string    { return filepath.Join(l.Run(), "supervisor.lock") }
 func (l Layout) Log() string         { return filepath.Join(l.Dir(), "vm.log") }
 func (l Layout) SerialLog() string   { return filepath.Join(l.Dir(), "serial.log") }
