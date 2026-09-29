@@ -189,8 +189,21 @@ func TestExtractDiskRawBSD(t *testing.T) {
 	if !bytes.Equal(got, data) {
 		t.Fatalf("unpacked %d bytes, not the disk", len(got))
 	}
-	if fi, _ := os.Stat(dst); allocated(fi) > 1<<20 {
-		t.Errorf("%d bytes allocated for a few bytes of data", allocated(fi))
+	// As sparse as sparseCopy makes the same disk on this filesystem: APFS
+	// and btrfs don't keep holes alike.
+	baseline, err := os.Create(filepath.Join(dir, "baseline.raw"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sparseCopy(baseline, bytes.NewReader(data), size); err != nil {
+		t.Fatal(err)
+	}
+	_ = baseline.Close()
+	fi, _ := os.Stat(dst)
+	bfi, _ := os.Stat(baseline.Name())
+	t.Logf("allocated: %d bytes unpacked, %d copied from memory, of %d", allocated(fi), allocated(bfi), size)
+	if allocated(fi) > allocated(bfi)+1<<20 {
+		t.Errorf("%d bytes allocated for a few bytes of data (%d when copied from memory)", allocated(fi), allocated(bfi))
 	}
 	if err := extractDiskRawBSD(t.Context(), bsdtar, filepath.Join(dir, "missing.tar"), dst); err == nil {
 		t.Error("no error for a missing tarball")
