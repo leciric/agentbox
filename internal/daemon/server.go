@@ -231,6 +231,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchMemoryThrash(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
+	loops.Go(func() { s.restoreAgentSockets(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
@@ -327,6 +328,29 @@ func (s *Server) reconcile(ctx context.Context) {
 			s.logf("in-agent API for %s: %v", a.Ref(), err)
 		}
 	}
+}
+
+// restoreAgentSockets gives back their in-agent API socket to the agents
+// Incus started again with the machine, which their /run hides: each once it
+// has booted, all at once, since they boot at once.
+func (s *Server) restoreAgentSockets(ctx context.Context) {
+	agents, err := s.store.Agents(ctx, "")
+	if err != nil {
+		return
+	}
+	m := s.manager(s.cfg.Log)
+	var wg sync.WaitGroup
+	for _, a := range agents {
+		if a.IsLead() || a.Status != state.AgentReady {
+			continue
+		}
+		wg.Go(func() {
+			if err := m.RestoreAgentAPISocket(ctx, a); err != nil && ctx.Err() == nil {
+				s.logf("in-agent API socket for %s: %v", a.Ref(), err)
+			}
+		})
+	}
+	wg.Wait()
 }
 
 func (s *Server) manager(log io.Writer) *agent.Manager {

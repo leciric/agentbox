@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
@@ -28,22 +29,62 @@ func (m *Manager) EnsureAgentAPI(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := devices[agentAPIDevice]; !ok {
-		if err := m.Incus.AddDevice(ctx, a.Instance, agentAPIDevice,
-			"proxy",
-			"connect=unix:"+m.AgentSocket(a.Instance),
-			"listen=unix:"+api.InAgentSocket,
-			"bind=instance",
-			fmt.Sprintf("uid=%d", m.User.UID),
-			fmt.Sprintf("gid=%d", m.User.GID),
-			"mode=0660"); err != nil {
+	if _, ok := devices[agentAPIDevice]; ok {
+		if err := m.replugHiddenSocket(ctx, a, false); err != nil {
 			return err
 		}
+	} else if err := m.addAgentAPIDevice(ctx, a); err != nil {
+		return err
 	}
 	if m.Binary != "" {
 		return m.pushBinary(ctx, a.Instance)
 	}
 	return nil
+}
+
+func (m *Manager) addAgentAPIDevice(ctx context.Context, a state.Agent) error {
+	return m.Incus.AddDevice(ctx, a.Instance, agentAPIDevice,
+		"proxy",
+		"connect=unix:"+m.AgentSocket(a.Instance),
+		"listen=unix:"+api.InAgentSocket,
+		"bind=instance",
+		fmt.Sprintf("uid=%d", m.User.UID),
+		fmt.Sprintf("gid=%d", m.User.GID),
+		"mode=0660")
+}
+
+// RestoreAgentAPISocket waits for a running agent to finish booting, and
+// plugs its in-agent API device in again if its socket is hidden. It's for
+// agents Incus started itself, which the daemon finds running when it starts:
+// Incus starts again, with the VM or the machine, the agents that ran.
+func (m *Manager) RestoreAgentAPISocket(ctx context.Context, a state.Agent) error {
+	if m.AgentSocket == nil {
+		return nil
+	}
+	return m.replugHiddenSocket(ctx, a, true)
+}
+
+// replugHiddenSocket plugs the in-agent API device in again when its socket
+// isn't in the agent. Incus starts the device's listener as the agent starts,
+// before its systemd mounts a tmpfs over /run, which hides the socket: every
+// agent started again has none (a new one gets its device after its boot).
+// Plugging it in again, once booted, puts it back. With boot set, it waits
+// for the boot first; an agent it can't ask (stopped, or not answering) is
+// left as it is.
+func (m *Manager) replugHiddenSocket(ctx context.Context, a state.Agent, boot bool) error {
+	check := "test -S " + api.InAgentSocket + " && echo there || echo missing"
+	if boot {
+		check = "timeout 120 systemctl is-system-running --wait >/dev/null 2>&1; " + check
+	}
+	out, err := m.Incus.Exec(ctx, a.Instance, "sh", "-c", check)
+	if err != nil || strings.TrimSpace(out) != "missing" {
+		return nil
+	}
+	m.logf("%s's in-agent API socket is hidden under its /run: plugging it in again", a.Ref())
+	if err := m.Incus.RemoveDevice(ctx, a.Instance, agentAPIDevice); err != nil {
+		return err
+	}
+	return m.addAgentAPIDevice(ctx, a)
 }
 
 // pushBinary replaces the agent's agentbox binary with the daemon's. `incus
