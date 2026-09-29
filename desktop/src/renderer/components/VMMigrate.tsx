@@ -44,16 +44,24 @@ export function VMMigrate({ migration, kvm }: { migration: VMMigration; kvm: boo
   const projects = migration.projects?.length ?? 0;
   const agents = migration.agents?.length ?? 0;
   const old = migration.oldMachines ?? [];
-  const verified = migration.state === 'verified' && !move.isPending;
+  // What the page polls says "started" while a move runs: this one's.
+  const started = migration.state === 'started' && !move.isPending;
+  const moved = (migration.state === 'verified' || migration.state === 'removed') && !move.isPending;
 
   return (
     <Panel className="mt-3 grid gap-3 p-4" data-vm-migrate={migration.state}>
-      {verified ? (
+      {moved ? (
         <div className="grid gap-2">
           <div className="flex items-center gap-2 text-[13px] font-medium text-primary">
             <CheckCircle2 className="size-4 text-emerald-400" />
             Moved into AgentBox's VM, and checked there
           </div>
+          {migration.state === 'removed' && (
+            <p className="text-[12px] leading-relaxed text-subtle" data-vm-migrate-removed>
+              Its old machines are gone from this machine's Incus. Everything else there stays as it was, and the state.db from before the move is
+              kept{migration.backup ? ` at ${migration.backup}` : ''}.
+            </p>
+          )}
           {migration.found && migration.found.length > 0 && (
             <ul className="grid gap-0.5 text-[12px] text-subtle" data-vm-migrate-found>
               {migration.found.map((line) => (
@@ -63,7 +71,7 @@ export function VMMigrate({ migration, kvm }: { migration: VMMigration; kvm: boo
               ))}
             </ul>
           )}
-          {old.length > 0 && (
+          {migration.state === 'verified' && old.length > 0 && (
             <>
               <p className="text-[12px] leading-relaxed text-subtle">
                 The agents' old machines are still in this machine's Incus, stopped, as they were before the move. Once you've checked your agents in
@@ -82,10 +90,10 @@ export function VMMigrate({ migration, kvm }: { migration: VMMigration; kvm: boo
       ) : (
         <div className="grid gap-2">
           <div className="text-[13px] font-medium text-primary">
-            {migration.state === 'started' ? 'A move into the VM is half-way' : 'Run AgentBox in a VM instead'}
+            {move.isPending ? 'Moving into the VM…' : started ? 'A move into the VM is half-way' : 'Run AgentBox in a VM instead'}
           </div>
           <p className="text-[12px] leading-relaxed text-subtle">
-            {migration.state === 'started'
+            {started
               ? 'It stopped before it was done. Nothing of this machine was removed: carry on and it picks up where it was.'
               : `Moves the daemon, Incus and every agent into one Cloud Hypervisor VM, with your home folder shared into it. Everything comes along: ${projects} project${projects === 1 ? '' : 's'}, ${agents} agent${agents === 1 ? '' : 's'} with their branches, worktrees and uncommitted changes, titles, models and limits, and your settings, accounts, notes, memory, chats and media. Each agent gets a new machine, from the VM's base image.`}
           </p>
@@ -97,7 +105,7 @@ export function VMMigrate({ migration, kvm }: { migration: VMMigration; kvm: boo
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" size="sm" disabled={busy || !kvm} onClick={() => setConfirming('move')} data-vm-migrate-run>
               {move.isPending ? <LoaderCircle className="animate-spin" /> : <ArrowRightLeft />}
-              {migration.state === 'started' ? 'Carry on moving' : 'Move into a VM'}
+              {started ? 'Carry on moving' : 'Move into a VM'}
             </Button>
             <span className="text-xs text-subtle">
               {move.isPending

@@ -771,12 +771,17 @@ function InstalledSettings({
     queryFn: () => window.agentbox.vmMigrate.status(),
     refetchInterval: 15_000,
   });
-  const moving =
+  const offered =
     migration.data &&
     (["available", "started"].includes(migration.data.state) ||
-      (migration.data.state === "verified" && (migration.data.oldMachines?.length ?? 0) > 0))
-      ? migration.data
-      : null;
+      (migration.data.state === "verified" && (migration.data.oldMachines?.length ?? 0) > 0));
+  // Once shown, it stays for as long as the page is open, so the end of a
+  // move, and of removing the old machines, can be read.
+  const [migrationShown, setMigrationShown] = useState(false);
+  useEffect(() => {
+    if (offered) setMigrationShown(true);
+  }, [offered]);
+  const moving = offered || (migrationShown && migration.data?.state !== "none") ? (migration.data ?? null) : null;
   const s = settings.data;
   // changed is undefined until settings arrive, so nothing is marked on a
   // guess.
