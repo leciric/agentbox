@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Repo is the main checkout of a git repository.
@@ -191,6 +192,25 @@ func (r Repo) BranchInTheWay(prefix string) string {
 	return ""
 }
 
+// worktreeLocks holds one mutex per repository (by its .git directory) for
+// the commands that change .git/worktrees. git doesn't make them safe to run
+// at once: `git worktree add` reads every other worktree's entry to check its
+// branch isn't checked out there, and meets one another add has made but not
+// yet written ("failed to read .git/worktrees/agent-05/commondir: Success"),
+// which failed agents a project's lead created together.
+var worktreeLocks sync.Map
+
+// lockWorktrees takes r's worktree lock, and returns what releases it.
+func (r Repo) lockWorktrees() func() {
+	key := r.GitDir
+	if key == "" {
+		key = filepath.Join(r.Root, ".git")
+	}
+	mu, _ := worktreeLocks.LoadOrStore(filepath.Clean(key), &sync.Mutex{})
+	mu.(*sync.Mutex).Lock()
+	return mu.(*sync.Mutex).Unlock
+}
+
 // AddWorktree creates a worktree at path on a new branch starting at commit,
 // locked with reason so a `git worktree prune` run elsewhere — inside the
 // worktree's own machine, where every other worktree's path doesn't exist —
@@ -199,6 +219,7 @@ func (r Repo) AddWorktree(path, branch, commit, reason string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	defer r.lockWorktrees()()
 	_, err := run(r.Root, "worktree", "add", "--quiet", "--lock", "--reason", reason, "-b", branch, path, commit)
 	return err
 }
@@ -211,6 +232,7 @@ func (r Repo) AddWorktreeDetached(path, commit, reason string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	defer r.lockWorktrees()()
 	_, err := run(r.Root, "worktree", "add", "--quiet", "--lock", "--reason", reason, "--detach", path, commit)
 	return err
 }
@@ -244,6 +266,8 @@ func MoveWorktree(worktree, commit string) error {
 // A worktree git no longer knows, because its entry under .git/worktrees was
 // pruned, is only a directory now, and is removed as one.
 func (r Repo) RemoveWorktree(path string) error {
+	unlock := r.lockWorktrees()
+	defer unlock()
 	if _, err := os.Stat(path); err == nil {
 		if !r.HasWorktree(path) {
 			if err := os.RemoveAll(path); err != nil {

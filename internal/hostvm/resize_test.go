@@ -1,6 +1,7 @@
 package hostvm
 
 import (
+	"agentbox/internal/hostvm/chv"
 	"bytes"
 	"context"
 	"errors"
@@ -28,10 +29,27 @@ func TestParseMemory(t *testing.T) {
 	}
 }
 
+func TestCHVLimits(t *testing.T) {
+	// A Linux VM takes 1 CPU to every core, and a cap from what it boots
+	// with to all of the host's memory.
+	l := chvLimits(chv.Config{MemoryMin: 4 << 30}, 16, 32<<30)
+	for _, ok := range [][2]int64{{1, 4 << 30}, {16, 32 << 30}} {
+		if err := l.Check(int(ok[0]), ok[1]); err != nil {
+			t.Errorf("%d CPUs, %d bytes: %v", ok[0], ok[1], err)
+		}
+	}
+	if err := l.Check(17, 0); err == nil {
+		t.Error("17 CPUs on 16 cores: no error")
+	}
+	if err := l.Check(0, 33<<30); err == nil || strings.Contains(err.Error(), "for itself") || !strings.Contains(err.Error(), "4GiB to 32GiB") {
+		t.Errorf("a cap over the host's memory: %v", err)
+	}
+}
+
 func TestLimits(t *testing.T) {
 	// A 16 GiB Mac with 10 cores keeps 2 GiB for itself.
 	l := limitsFor(10, 16<<30)
-	if l != (Limits{MinCPUs: 2, MaxCPUs: 10, MinMemory: 4 << 30, MaxMemory: 14 << 30}) {
+	if l != (Limits{MinCPUs: 2, MaxCPUs: 10, MinMemory: 4 << 30, MaxMemory: 14 << 30, reserve: 2 << 30}) {
 		t.Fatalf("got %+v", l)
 	}
 	for _, ok := range [][2]int64{{2, 4 << 30}, {10, 14 << 30}, {6, 0}, {0, 8 << 30}} {

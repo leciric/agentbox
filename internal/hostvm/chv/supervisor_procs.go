@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -183,14 +184,44 @@ func hostNameserver(file string) string {
 // memHotplugAlign is what virtio-mem's region must be a multiple of.
 const memHotplugAlign = 128 << 20
 
+// CapFor is the most memory c's VM is given, as its status says it: its
+// MemoryCap in whole virtio-mem blocks.
+func CapFor(c Config) int64 { return c.MemoryMin + hotplugSize(c) }
+
 // hotplugSize is how much the VM can be given on top of c.MemoryMin.
 func hotplugSize(c Config) int64 {
 	n := c.MemoryCap - c.MemoryMin
 	return max(n/memHotplugAlign*memHotplugAlign, 0)
 }
 
+// Room is how far a running VM can be resized without a restart: the vCPUs
+// it can hotplug up to and the memory its virtio-mem region holds, on top of
+// what it boots with. Both are fixed when Cloud Hypervisor starts, so the VM
+// boots with room for every core and all of the host's memory, whatever its
+// size: vCPUs it doesn't have cost nothing, and neither does a region it
+// hasn't plugged, since the guest adds memory blocks only as they're plugged
+// and the host's memfd is sparse. The memory policy keeps to the cap.
+type Room struct {
+	CPUs   int
+	Memory int64 // the most the VM can hold in all
+}
+
+// hostCPUs is the host's cores.
+var hostCPUs = runtime.NumCPU
+
+// roomFor is the Room for c on a host with cpus cores and memory bytes.
+func roomFor(c Config, cpus int, memory int64) Room {
+	return Room{CPUs: max(cpus, c.CPUs, 1), Memory: max(memory, c.MemoryCap)}
+}
+
+// regionSize is the virtio-mem region for room: what it can hold on top of
+// c.MemoryMin, in whole blocks.
+func regionSize(c Config, room Room) int64 {
+	return max((room.Memory-c.MemoryMin)/memHotplugAlign*memHotplugAlign, 0)
+}
+
 // chArgs is Cloud Hypervisor's command line for the VM.
-func chArgs(c Config, l Layout) []string {
+func chArgs(c Config, l Layout, room Room) []string {
 	// shared=on: vhost-user (passt) and virtiofsd map the VM's memory.
 	// thp=on asks for transparent huge pages on it, which shared memory only
 	// gets when asked (shmem_enabled=advise, the usual default): each 2 MiB
@@ -198,14 +229,14 @@ func chArgs(c Config, l Layout) []string {
 	// 512. A host too fragmented to find free 2 MiB blocks falls back to
 	// small pages, and fresh memory comes in at a few hundred MB/s.
 	mem := fmt.Sprintf("size=%d,shared=on,thp=on", c.MemoryMin)
-	if hp := hotplugSize(c); hp > 0 {
+	if hp := regionSize(c, room); hp > 0 {
 		mem += fmt.Sprintf(",hotplug_method=virtio-mem,hotplug_size=%d", hp)
 	}
 	var limit string
 	args := []string{
 		"--api-socket", "path=" + l.APISocket(),
 		"--firmware", l.Bin("CLOUDHV.fd"),
-		"--cpus", fmt.Sprintf("boot=%d", max(c.CPUs, 1)),
+		"--cpus", fmt.Sprintf("boot=%d,max=%d", max(c.CPUs, 1), room.CPUs),
 		"--memory", mem,
 		// Free page reporting gives the host back what the guest frees,
 		// within seconds, without a resize.

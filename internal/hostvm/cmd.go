@@ -69,12 +69,16 @@ func newCHVCmd(version string) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "agentbox vm",
 		Short: "Run AgentBox in a Linux VM on this machine, and manage that VM",
-		Long: `AgentBox can run on this machine itself (agentbox host setup, which installs Incus),
-or in a VM of its own, made with Cloud Hypervisor (agentbox vm init, which needs no
-password): the daemon, Incus and every agent are in there, and every agentbox command
-other than these runs there too. Your home directory is shared with the VM at the
-same path. The VM starts with a little memory, takes more as its agents need it, up
-to a cap, and gives it back; stopping it gives back all of it.`,
+		Long: `AgentBox runs in a VM of its own, made with Cloud Hypervisor (agentbox vm init, which
+needs no password), or on this machine itself (agentbox host setup, which installs
+Incus). The VM is the recommended way: the daemon, Incus and every agent are in
+there, with the CPUs and memory you give it rather than all of this machine's, and
+every agentbox command other than these runs there too. Your home directory is
+shared with the VM at the same path. The VM starts with a little memory, takes more
+as its agents need it, up to a cap, and gives it back; stopping it gives back all of
+it. agentbox vm resize changes its CPUs and cap, while it runs.
+
+A machine that already runs AgentBox itself moves into the VM with agentbox vm migrate.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
@@ -340,12 +344,19 @@ func newProxyCmd() *cobra.Command {
 func newCHVResizeCmd() *cobra.Command {
 	var cpus int
 	var memoryCap string
+	var restart bool
 	cmd := &cobra.Command{
 		Use:   "resize",
-		Short: "Change the VM's CPUs and memory cap, from when it next starts",
+		Short: "Change the VM's CPUs and memory cap, while it runs when it can",
 		Long: `Gives the VM another number of CPUs, or another memory cap (the most memory it takes
-as its agents need it), or both. Neither changes while the VM runs: both take effect
-when it next starts, and nothing is stopped now. The disk stays the size it was made with.`,
+as its agents need it), or both: 1 CPU to every core this machine has, and a cap from
+the memory the VM boots with to all of this machine's.
+
+A running VM changes at once, and its agents keep running: it boots with room for
+every core and all of this machine's memory, and only uses what its size says. The
+daemon in it restarts to see the new size. A VM started by an older agentbox has no
+such room: it gets the new size when it next starts, or now with --restart, which
+restarts the VM and stops every agent. The disk stays the size it was made with.`,
 		Example: "  agentbox vm resize --cpus 6 --memory-cap 24GiB",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -353,19 +364,20 @@ when it next starts, and nothing is stopped now. The disk stays the size it was 
 			if !f.Changed("cpus") && !f.Changed("memory-cap") {
 				return errors.New("say what to change: --cpus, --memory-cap, or both")
 			}
-			cpus, bytes, err := resizeArgs(f.Changed("cpus"), cpus, f.Changed("memory-cap"), memoryCap, HostLimits())
-			if err != nil {
-				return err
-			}
 			vm, err := chvVM()
 			if err != nil {
 				return err
 			}
-			return vm.Resize(cmd.Context(), cpus, bytes)
+			cpus, bytes, err := resizeArgs(f.Changed("cpus"), cpus, f.Changed("memory-cap"), memoryCap, chvLimits(vm.CHV.Config, numCPU(), hostMemory()))
+			if err != nil {
+				return err
+			}
+			return vm.CHV.resize(cmd.Context(), vm, cpus, bytes, restart)
 		},
 	}
 	cmd.Flags().IntVar(&cpus, "cpus", 0, "CPUs for the VM")
 	cmd.Flags().StringVar(&memoryCap, "memory-cap", "", "the most memory the VM is given, like 24GiB")
+	cmd.Flags().BoolVar(&restart, "restart", false, "restart the VM, stopping every agent, when the new size can't be given while it runs")
 	return cmd
 }
 

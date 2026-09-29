@@ -25,6 +25,12 @@ export type SectionIcons = Record<string, LucideIcon>;
 // The section open last, so coming back to Settings lands where you were.
 const sectionKey = 'agentbox.settings.section';
 
+// rememberSection makes id the section Settings opens at next, for a link
+// from elsewhere in the app to a section of it.
+export function rememberSection(id: string): void {
+  localStorage.setItem(sectionKey, id);
+}
+
 export function SettingsPage({ sections, icons, error }: { sections: SettingSection[]; icons: SectionIcons; error?: string }) {
   const [stored, setStored] = useState(() => localStorage.getItem(sectionKey) ?? '');
   const [query, setQuery] = useState('');

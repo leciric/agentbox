@@ -33,11 +33,14 @@ import { useNow } from '../../lib/useNow';
 import { imageFiles, imageTypes, maxImages, prepareImage, previewUrl, type PendingImage } from '../../lib/chatImages';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
+import { stop as stopReading } from '../../lib/voice/reader';
 import { AIIcon, aiLabel } from '../state';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
 import { DiffView, relativePath } from './ChangedFiles';
 import { ImageThumb } from './Images';
+import { VoiceButton } from './VoiceButton';
+import { voiceSettings } from '../../lib/voice/settings';
 
 export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; thread?: T.ChatThread; disabled: boolean; onSent: () => void }) {
   const [text, setText] = useState(() => getDraft(agent.ref));
@@ -132,7 +135,8 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
     if (files.length === 0) toast.error('Only images can be attached.');
     else void attach(files);
   };
-  const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  // Cancelling the turn stops its reply being read aloud too.
+  const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onMutate: stopReading, onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
   useEffect(() => {
@@ -184,6 +188,19 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
       return;
     }
     send.mutate({ text: text.trim(), images });
+  };
+  // What push-to-talk heard joins what's already typed, and is sent at once
+  // when Settings → Voice says so and nothing stands in the way; otherwise it
+  // waits in the composer to be edited.
+  const dictated = (words: string) => {
+    const next = [text.trim(), words].filter(Boolean).join(' ');
+    if (voiceSettings().after === 'send' && !disabled && !send.isPending && !held && !cacheCard) {
+      send.mutate({ text: next, images });
+      return;
+    }
+    pendingCursor.current = next.length;
+    setText(next);
+    area.current?.focus();
   };
   const pick = (command: T.ChatCommand) => {
     setText(`/${command.name} `);
@@ -435,6 +452,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />
+            <VoiceButton disabled={disabled} onText={dictated} scope={area} />
             {busy && (
               <Tip label="Stop">
                 <button

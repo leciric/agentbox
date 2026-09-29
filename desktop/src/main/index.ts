@@ -14,10 +14,12 @@ import { handleMedia, registerMediaScheme } from './media';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { Streams } from './streams';
 import { learnMode } from './vmmode';
+import { allowMicrophone, enableWebGPU } from './voice';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import './vmpower';
 
 registerMediaScheme();
+enableWebGPU();
 
 let win: BrowserWindow | undefined;
 
@@ -140,8 +142,13 @@ ipcMain.handle('cli:install', () => installCli());
 ipcMain.handle('hostsetup:status', () => hostSetupStatus());
 // On Linux, { vm: true } runs AgentBox in a VM instead (vmmode.ts), after
 // stopping the daemon this machine ran itself.
-ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm'>) => {
-  await runHostSetup((text) => send('hostsetup:output', text), { vm: options?.vm === true, before: stopHostDaemon });
+ipcMain.handle('hostsetup:run', async (_event, options?: Pick<HostSetupOptions, 'vm' | 'cpus' | 'memoryCap'>) => {
+  await runHostSetup((text) => send('hostsetup:output', text), {
+    vm: options?.vm === true,
+    cpus: typeof options?.cpus === 'number' ? options.cpus : undefined,
+    memoryCap: typeof options?.memoryCap === 'string' ? options.memoryCap : undefined,
+    before: stopHostDaemon,
+  });
   // A daemon that started before this ran found no Incus; the one started now
   // does, and the Setup page turns green without anyone logging out.
   const restarted = await restartDaemon().catch(() => false);
@@ -213,6 +220,7 @@ function createWindow(): void {
 
 void app.whenReady().then(async () => {
   handleMedia();
+  allowMicrophone();
   createWindow();
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.

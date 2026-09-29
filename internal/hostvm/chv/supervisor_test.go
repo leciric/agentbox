@@ -158,13 +158,27 @@ func TestOffStatusAndStatus(t *testing.T) {
 	}
 }
 
+func TestRoomFor(t *testing.T) {
+	c := Config{CPUs: 4, MemoryMin: 4 * GiB, MemoryCap: 24 * GiB}
+	// A VM bigger than the host (a config made on another machine) still
+	// boots with room for what it asks for.
+	if got := roomFor(c, 2, 16*GiB); got != (Room{CPUs: 4, Memory: 24 * GiB}) {
+		t.Errorf("roomFor on a small host = %+v", got)
+	}
+	if got := regionSize(c, Room{CPUs: 4, Memory: 4 * GiB}); got != 0 {
+		t.Errorf("regionSize with no room = %d", got)
+	}
+}
+
 func TestCHArgs(t *testing.T) {
 	l := testLayout(t)
 	c := Config{Name: "agentbox", CPUs: 4, MemoryMin: 4 * GiB, MemoryCap: 12*GiB + 100, Home: "/home/lint"}
-	args := strings.Join(chArgs(c, l), " ")
+	// Room for every core and all of the host's memory, not only the cap.
+	room := roomFor(c, 16, 32*GiB+100)
+	args := strings.Join(chArgs(c, l, room), " ")
 	for _, want := range []string{
-		"--cpus boot=4",
-		"--memory size=4294967296,shared=on,thp=on,hotplug_method=virtio-mem,hotplug_size=8589934592",
+		"--cpus boot=4,max=16",
+		"--memory size=4294967296,shared=on,thp=on,hotplug_method=virtio-mem,hotplug_size=30064771072",
 		"--balloon size=0,free_page_reporting=on",
 		"path=" + l.PoolDisk() + ",image_type=raw,serial=agentbox-pool ",
 		"vhost_mode=client,mac=" + macAddress("agentbox"),
@@ -181,7 +195,7 @@ func TestCHArgs(t *testing.T) {
 	c.IOLimit = 64 << 20
 	_ = os.MkdirAll(l.Dir(), 0o755)
 	_ = os.WriteFile(l.Seed(), nil, 0o644)
-	args = strings.Join(chArgs(c, l), " ")
+	args = strings.Join(chArgs(c, l, room), " ")
 	for _, want := range []string{
 		"--rate-limit-group id=disks,bw_size=67108864,bw_refill_time=1000",
 		"path=" + l.RootDisk() + ",image_type=raw,rate_limit_group=disks",

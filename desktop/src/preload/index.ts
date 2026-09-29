@@ -2,6 +2,7 @@
 // streams, relayed by the main process, plus the command-line tool, a folder
 // picker, links and the clipboard.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import type * as T from '../shared/api';
 
 export interface ApiResponse {
   status: number;
@@ -30,6 +31,10 @@ export interface HostSetupStatus {
   // a VM of its own (`agentbox vm init`), and whether it could run in a VM:
   // the Setup page offers both. null elsewhere; missing from the web app.
   linux?: LinuxSetup | null;
+  // On Linux in VM mode, AgentBox's Cloud Hypervisor VM as `agentbox vm
+  // status --json` says: its size, and what it can be resized to, with and
+  // without a restart. null elsewhere; missing from the web app.
+  chv?: T.VMStatus | null;
 }
 
 // VMMigration is `agentbox vm migrate --status --json`: on a Linux machine
@@ -47,6 +52,11 @@ export interface VMMigration {
 export interface LinuxSetup {
   mode: 'host' | 'vm';
   kvm: boolean; // /dev/kvm is there for this user, which the VM needs
+  cores: number; // the machine's, the most CPUs the VM can have
+  memory: number; // bytes, the machine's
+  // The size `agentbox vm init` gives the VM unless it's told otherwise.
+  defaultCpus: number;
+  defaultMemoryCap: number; // bytes
 }
 
 export interface VMStatus {
@@ -160,8 +170,10 @@ const bridge = {
   hostSetup: {
     status: (): Promise<HostSetupStatus> => ipcRenderer.invoke('hostsetup:status'),
     // { vm: true } runs AgentBox in a VM instead, on a Linux machine (`agentbox
-    // vm init`, no password), stopping the daemon it ran itself first.
-    run: (options?: { vm?: boolean }): Promise<{ restarted: boolean }> => ipcRenderer.invoke('hostsetup:run', options),
+    // vm init`, no password), stopping the daemon it ran itself first; cpus
+    // and memoryCap (like 12GiB) size it.
+    run: (options?: { vm?: boolean; cpus?: number; memoryCap?: string }): Promise<{ restarted: boolean }> =>
+      ipcRenderer.invoke('hostsetup:run', options),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
     // `agentbox host budget` as root: the shared agent budget's cgroup.
     budget: (): Promise<void> => ipcRenderer.invoke('hostsetup:budget'),
@@ -176,11 +188,13 @@ const bridge = {
     removeOld: (): Promise<void> => ipcRenderer.invoke('vmmigrate:run', true),
     onOutput: (fn: (text: string) => void) => listen('vmmigrate:output', fn),
   },
-  // On a Mac, `agentbox vm resize`: new CPUs and memory (like 12GiB) for
-  // AgentBox's VM, which restarts it and stops every agent. resize resolves
-  // when the VM is back; its output arrives on onOutput as it is printed.
+  // `agentbox vm resize`: new CPUs and memory (like 12GiB) for AgentBox's VM.
+  // On a Mac that restarts it and stops every agent; on Linux memory is the
+  // memory cap, and the VM changes while it runs when it can (chv.live), or
+  // restarts with restart. resize resolves when the VM has its new size; its
+  // output arrives on onOutput as it is printed.
   vm: {
-    resize: (cpus: number, memory: string): Promise<void> => ipcRenderer.invoke('vm:resize', cpus, memory),
+    resize: (cpus: number, memory: string, restart?: boolean): Promise<void> => ipcRenderer.invoke('vm:resize', cpus, memory, restart),
     onOutput: (fn: (text: string) => void) => listen('vm:output', fn),
     // In VM mode, the VM's power and memory; null when AgentBox isn't in VM
     // mode. act resolves once the VM is in its new state, and after start or

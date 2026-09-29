@@ -29,8 +29,13 @@ func newHostSetupCmd() *cobra.Command {
 	var forUser, bridgeSubnet string
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Install and configure Incus for AgentBox (once, as root)",
-		Long: `Installs Incus (Arch, Debian/Ubuntu or Fedora), gives your user access to it — in the
+		Short: "Install Incus to run agents on this computer itself (once, as root)",
+		Long: `On Linux, running AgentBox in a VM of its own is the recommended way: agentbox vm init,
+which needs no password and changes nothing on your system. This is the other way:
+agents run directly on this computer's Incus, sharing its kernel, memory and disk,
+so heavy agent work can freeze your desktop.
+
+Installs Incus (Arch, Debian/Ubuntu or Fedora), gives your user access to it — in the
 session running now, not only the next login — creates its storage pool and network,
 lets agents map your user, and keeps ufw and Docker from blocking the Incus bridge.
 It also does what host budget does: the cgroup the shared agent budget lives in, ready

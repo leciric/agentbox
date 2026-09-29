@@ -5,7 +5,7 @@
 // JSON payload. Kept separate from preview.tsx so a future scenario (a new
 // component, a new kind of wide content) can reuse it without copying it.
 import type { QueryClient } from '@tanstack/react-query';
-import type { VMPower, VMPowerAction, VMPowerState } from '../../preload';
+import type { HostSetupStatus, VMPower, VMPowerAction, VMPowerState } from '../../preload';
 import type * as T from '../../shared/api';
 import type { FreeRun } from '../components/ResourceControls';
 import { freeTargets } from '../lib/freeResources';
@@ -687,6 +687,7 @@ const devState: {
   cpuUsage?: T.CPUUsage;
   agents?: T.Agent[];
   vmPower?: VMPower | null;
+  hostSetup?: HostSetupStatus;
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -857,7 +858,34 @@ function fakeVM() {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    resize: async (cpus: number, memory: string) => {
+    resize: async (cpus: number, memory: string, restart?: boolean) => {
+      // On Linux (?chv=), the Cloud Hypervisor VM changes while it runs.
+      const chv = devState.hostSetup?.chv;
+      if (chv) {
+        const lines = restart
+          ? [
+              `$ agentbox vm resize --cpus ${cpus} --memory-cap ${memory} --restart\n`,
+              `==> Restarting AgentBox's VM to give it ${cpus} CPUs and a memory cap of ${memory}: every agent in it stops\n`,
+              "AgentBox's VM is off (1.6s).\n",
+              "AgentBox's VM is up (6.3s).\n",
+              '==> Starting the daemon\n',
+              `AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} now.\n`,
+            ]
+          : [
+              `$ agentbox vm resize --cpus ${cpus} --memory-cap ${memory}\n`,
+              `==> Giving AgentBox's VM ${cpus} CPUs and a memory cap of ${memory}, while it runs\n`,
+              '==> Starting the daemon\n',
+              `AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} now, and every agent kept running.\n`,
+            ];
+        for (const line of lines) {
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          for (const fn of listeners) fn(line);
+        }
+        const GiB = 1024 ** 3;
+        const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB };
+        devState.hostSetup = { ...devState.hostSetup!, chv: { ...chv, cpus, memory: { ...chv.memory, cap: parseFloat(memory) * GiB }, live: room } };
+        return;
+      }
       const lines = [
         `$ agentbox vm resize --cpus ${cpus} --memory ${memory}\n`,
         '==> Stopping AgentBox\'s VM, and every agent in it\n',
@@ -1157,6 +1185,68 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['host-setup'], {});
 }
 
+// seedLinuxHost is a Linux machine that runs AgentBox itself (?linux=…),
+// with /dev/kvm or without. fresh is one not set up yet, whose Setup asks
+// which way to run agents; otherwise it's set up (seedSettings), and Home
+// suggests moving to the VM.
+export function seedLinuxHost(queryClient: QueryClient, kvm: boolean, fresh: boolean): void {
+  if (fresh) {
+    const check = (id: string, title: string, status: string, detail: string, required = true): T.SetupCheck => ({ id, title, status, detail, required });
+    const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
+    const setup = {
+      ready: false,
+      checks: [
+        check('incus', 'Incus', 'missing', 'incus: command not found'),
+        check('host', 'User mapping', 'missing', 'no subuid range for leandro'),
+        check('image', 'Base image', 'missing', 'agentbox-base not found'),
+        check('claude', 'Claude Code', 'optional', 'not signed in', false),
+      ],
+      image: { version: '2026.09.25.1', components: none, installed: none, downloads: [], hint: '' },
+    } as T.SetupStatus;
+    devState.setup = setup;
+    devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };
+    queryClient.setQueryData(['setup'], setup);
+    queryClient.setQueryData(['cli'], devState.cli);
+  } else {
+    seedSettings(queryClient);
+  }
+  devState.hostSetup = { pkexec: '/usr/bin/pkexec', user: 'leandro', running: false, resizing: false, vm: null, wsl: null, linux: { mode: 'host', kvm, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 }, chv: null };
+  queryClient.setQueryData(['host-setup'], devState.hostSetup);
+}
+
+// seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
+// Resources section, whose VM size card sizes the Cloud Hypervisor VM:
+// running with room to grow (live), started by an older AgentBox with none
+// (old), or off.
+export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
+  seedSettings(queryClient);
+  const GiB = 1024 ** 3;
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB };
+  const chv: T.VMStatus = {
+    mode: 'vm',
+    driver: 'cloud-hypervisor',
+    name: 'agentbox',
+    state: kind === 'off' ? 'off' : 'running',
+    since: new Date(Date.now() - 3_600_000).toISOString(),
+    cpus: 8,
+    memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0 },
+    disk: { size: 120 * GiB, used: 14 * GiB },
+    limits: room,
+    live: kind === 'live' ? room : undefined,
+  };
+  devState.hostSetup = {
+    pkexec: '/usr/bin/pkexec',
+    user: 'leandro',
+    running: false,
+    resizing: false,
+    vm: null,
+    wsl: null,
+    linux: { mode: 'vm', kvm: true, cores: 16, memory: 32 * GiB, defaultCpus: 8, defaultMemoryCap: 24 * GiB },
+    chv,
+  };
+  queryClient.setQueryData(['host-setup'], devState.hostSetup);
+}
+
 // seedMeterUsage is the top bar's CPU and memory popovers (?meters=cpu,
 // ?meters=memory) against three agents: one paused but still holding RAM and
 // zram swap, one capped below its configured cores by "Never freeze my CPU",
@@ -1268,7 +1358,7 @@ export function installDevBridge(): void {
     info: async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'darwin' }),
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
     cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
-    hostSetup: { status: async () => ({}), run: async () => ({ restarted: false }), onOutput: () => () => {}, budget: async () => {} },
+    hostSetup: { status: async () => devState.hostSetup ?? {}, run: async () => ({ restarted: false }), onOutput: () => () => {}, budget: async () => {} },
     vmMigrate: { status: async () => null, run: async () => {}, removeOld: async () => {}, onOutput: () => () => {} },
     vm: fakeVM(),
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },
