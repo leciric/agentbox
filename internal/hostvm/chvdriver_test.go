@@ -282,6 +282,12 @@ func fakeCHV(t *testing.T, state *string, steps *[]string) (*VM, string) {
 	if err := os.WriteFile(ssh, []byte(fakeSSH), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A Mac's VM is given the Linux build beside the front end.
+	linux := filepath.Join(dir, LinuxBinary)
+	if err := os.WriteFile(linux, []byte("the linux agentbox"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTBOX_LINUX_BINARY", linux)
 	home := filepath.Join(dir, "home")
 	_ = os.MkdirAll(home, 0o755)
 	c := DefaultConfig(chv.DefaultName, "alice", 1000, 1000, home, 8, 32*chv.GiB)
@@ -347,7 +353,7 @@ func TestCHVSetUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if self, _ := os.ReadFile(vm.CHV.Self); !bytes.Equal(got, self) {
+	if self, _ := os.ReadFile(vm.Binary); !bytes.Equal(got, self) {
 		t.Error("the VM wasn't given this agentbox")
 	}
 	log := strings.Join(calls(t, dir), "\n")

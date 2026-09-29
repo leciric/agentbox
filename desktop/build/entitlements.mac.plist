@@ -14,5 +14,10 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
+	<!-- The agentbox inside the app runs AgentBox's VM itself with the
+	     experimental vz driver (internal/hostvm/chv/vz.go): electron-builder
+	     signs it with these as entitlementsInherit. -->
+	<key>com.apple.security.virtualization</key>
+	<true/>
 </dict>
 </plist>

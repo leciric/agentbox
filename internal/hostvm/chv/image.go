@@ -20,21 +20,31 @@ import (
 // virtio's drivers and no others, as a dated build so the pin holds
 // (cloud.debian.org keeps a year of them) and checked against its SHA512SUMS.
 // It's a 3 GiB disk.raw, sparse, in a tarball; cloud-init grows its root
-// partition to the disk's size on the first boot.
-const (
-	debianBuild       = "20260914-2601"
-	debianImage       = "debian-13-genericcloud-amd64-" + debianBuild + ".tar.xz"
-	debianImageURL    = "https://cloud.debian.org/images/cloud/trixie/" + debianBuild + "/" + debianImage
-	debianImageSHA512 = "ba03aae045d06ee3ccd8fe6d4fdac58f7fbb25e635927f23055223ad8be75c21850fef84b8146066ec1f24ffab65f4fc86d55344845e72e73d9fd569b83f26a0"
-)
+// partition to the disk's size on the first boot. There's one for each
+// architecture the VM runs on: amd64 for Cloud Hypervisor and an Intel Mac,
+// arm64 for Apple silicon (vz.go).
+const debianBuild = "20260914-2601"
+
+var debianImageSHA512 = map[string]string{
+	"amd64": "ba03aae045d06ee3ccd8fe6d4fdac58f7fbb25e635927f23055223ad8be75c21850fef84b8146066ec1f24ffab65f4fc86d55344845e72e73d9fd569b83f26a0",
+	"arm64": "0c7bc088d7435060d806e84c7cb1604d0880da99b8d8b33dd951cdfbbf919119de766ab2ddddccd5de2fffb2d918a9fa145989ef036c4b513c737c410bb2a130",
+}
+
+// debianImage is the tarball for arch, where it's fetched from, and its
+// SHA512.
+func debianImage(arch string) (file, url, sha512 string, err error) {
+	sha512, ok := debianImageSHA512[arch]
+	if !ok {
+		return "", "", "", fmt.Errorf("AgentBox's VM has no Debian image for %s", arch)
+	}
+	file = "debian-13-genericcloud-" + arch + "-" + debianBuild + ".tar.xz"
+	return file, "https://cloud.debian.org/images/cloud/trixie/" + debianBuild + "/" + file, sha512, nil
+}
 
 // MakeDisks makes what the VM boots from, the parts not made yet: its root
 // disk from Debian's cloud image, its pool disk for Incus, and the
 // cloud-init seed that sets it up on first boot.
 func MakeDisks(ctx context.Context, c Config, l Layout, log io.Writer) error {
-	if runtime.GOARCH != "amd64" {
-		return errArch
-	}
 	if err := os.MkdirAll(l.Dir(), 0o755); err != nil {
 		return err
 	}
@@ -72,11 +82,15 @@ func makeRootDisk(ctx context.Context, l Layout, log io.Writer) error {
 	if err := os.MkdirAll(l.Cache(), 0o755); err != nil {
 		return err
 	}
-	tarball := filepath.Join(l.Cache(), debianImage)
-	if sum, err := fileSum(tarball, newSHA512()); err != nil || sum != debianImageSHA512 {
-		imageLogf(log, "Fetching Debian 13's cloud image (%s)…\n", debianBuild)
+	image, url, sha512, err := debianImage(runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+	tarball := filepath.Join(l.Cache(), image)
+	if sum, err := fileSum(tarball, newSHA512()); err != nil || sum != sha512 {
+		imageLogf(log, "Fetching Debian 13's cloud image (%s, %s)…\n", debianBuild, runtime.GOARCH)
 		start := time.Now()
-		if _, err := download(ctx, debianImageURL, tarball, newSHA512(), debianImageSHA512, log); err != nil {
+		if _, err := download(ctx, url, tarball, newSHA512(), sha512, log); err != nil {
 			return fmt.Errorf("fetching Debian's cloud image: %w", err)
 		}
 		imageLogf(log, "Fetched it in %s\n", time.Since(start).Round(time.Second))
@@ -108,8 +122,12 @@ func makeRootDisk(ctx context.Context, l Layout, log io.Writer) error {
 // extractDiskRaw writes the tarball's disk.raw to dst, leaving its zeros as
 // holes. xz does the decompressing (Go has none, and xz-utils is on every
 // Linux desktop); archive/tar reads a sparse member as its full size, zeros
-// and all, which sparseCopy skips over again.
+// and all, which sparseCopy skips over again. A Mac has no xz, but its tar
+// (bsdtar) reads the tarball itself.
 func extractDiskRaw(ctx context.Context, tarball, dst string) error {
+	if runtime.GOOS == "darwin" {
+		return extractDiskRawBSD(ctx, "tar", tarball, dst)
+	}
 	xz := exec.CommandContext(ctx, "xz", "-dc", "-T0", tarball)
 	var stderr bytes.Buffer
 	xz.Stderr = &stderr
@@ -159,13 +177,54 @@ func extractDiskRaw(ctx context.Context, tarball, dst string) error {
 	return nil
 }
 
-// sparseCopy copies size bytes of r to f, seeking past every block of zeros
+// extractDiskRawBSD is extractDiskRaw with bsdtar (tar, on a Mac), which
+// decompresses xz itself and writes disk.raw out whole, zeros and all.
+func extractDiskRawBSD(ctx context.Context, bsdtar, tarball, dst string) error {
+	cmd := exec.CommandContext(ctx, bsdtar, "-xOf", tarball, "disk.raw")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	copyErr := func() error {
+		f, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		if err := sparseCopy(f, out, -1); err != nil {
+			_ = f.Close()
+			return err
+		}
+		return f.Close()
+	}()
+	_, _ = io.Copy(io.Discard, out)
+	waitErr := cmd.Wait()
+	if waitErr != nil {
+		return fmt.Errorf("%s: %w: %s", bsdtar, waitErr, strings.TrimSpace(stderr.String()))
+	}
+	if copyErr == nil {
+		if fi, err := os.Stat(dst); err == nil && fi.Size() == 0 {
+			copyErr = errors.New("it has no disk.raw")
+		}
+	}
+	return copyErr
+}
+
+// sparseCopy copies size bytes of r to f, or all of it when size is -1, seeking past every block of zeros
 // rather than writing it, so they stay holes.
 func sparseCopy(f *os.File, r io.Reader, size int64) error {
 	buf := make([]byte, 1<<20)
 	var off int64
-	for off < size {
-		n, err := io.ReadFull(r, buf[:min(int64(len(buf)), size-off)])
+	for size < 0 || off < size {
+		want := int64(len(buf))
+		if size >= 0 {
+			want = min(want, size-off)
+		}
+		n, err := io.ReadFull(r, buf[:want])
 		if n > 0 {
 			// Block by block, in 4 KiB (a page and a filesystem block).
 			for b := 0; b < n; b += 4096 {
@@ -177,6 +236,10 @@ func sparseCopy(f *os.File, r io.Reader, size int64) error {
 				}
 			}
 			off += int64(n)
+		}
+		if size < 0 && (err == io.EOF || err == io.ErrUnexpectedEOF) {
+			size = off
+			break
 		}
 		if err != nil {
 			return err

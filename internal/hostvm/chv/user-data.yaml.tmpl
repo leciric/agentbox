@@ -145,6 +145,49 @@ write_files:
       ExecStart=/usr/local/lib/agentbox/share-ssh
       [Install]
       WantedBy=multi-user.target
+{{- if .VZ}}
+  # Agents' containers mustn't reach the Mac: on the Virtualization framework's
+  # NAT it is the VM's gateway, and answers its DNS. The VM itself may (the
+  # daemon needs nothing there, but ssh-ing out to the Mac is fine). DHCP gives
+  # the gateway's address, so it's looked up once the network is up.
+  - path: /usr/local/lib/agentbox/host-guard.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+      gw=
+      for i in $(seq 60); do
+        gw=$(ip -4 route show default | awk '{ print $3; exit }')
+        [ -z "$gw" ] || break
+        sleep 1
+      done
+      [ -n "$gw" ] || { echo "no default gateway to keep agents off" >&2; exit 1; }
+      nft -f - <<EOF
+      table inet agentbox-host
+      delete table inet agentbox-host
+      table inet agentbox-host {
+        chain forward {
+          type filter hook forward priority -10; policy accept;
+          iifname "incusbr0" ip daddr $gw udp dport != 53 drop
+          iifname "incusbr0" ip daddr $gw tcp dport != 53 drop
+          iifname "incusbr0" ip daddr $gw meta l4proto != { tcp, udp } drop
+        }
+      }
+      EOF
+  - path: /etc/systemd/system/agentbox-host-guard.service
+    content: |
+      [Unit]
+      Description=AgentBox: keep agents off the Mac
+      Wants=network-online.target
+      After=network-online.target
+      Before=incus.service
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/local/lib/agentbox/host-guard.sh
+      [Install]
+      WantedBy=multi-user.target
+{{- else}}
   # Agents' containers mustn't reach the host's own loopback services: passt
   # maps the VM's connections to the gateway to the host's 127.0.0.1, and
   # the DNS address answers DNS only. The VM itself may (the daemon needs
@@ -180,6 +223,7 @@ write_files:
       ExecStart=/usr/sbin/nft -f /etc/agentbox/host-guard.nft
       [Install]
       WantedBy=sysinit.target
+{{- end}}
 {{- range .Forwards}}
   # vsock port {{.Port}} to {{.What}}, for the host's end (the supervisor).
   - path: /etc/systemd/system/agentbox-vsock-{{.Port}}.service

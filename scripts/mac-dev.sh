@@ -105,6 +105,11 @@ env -u ELECTRON_RUN_AS_NODE CSC_IDENTITY_AUTO_DISCOVERY=false \
 if ! codesign -v "$built" 2>/dev/null; then
   step "Signing the app for this Mac"
   codesign --force --deep --sign - "$built"
+  # The deep signature leaves agentbox without the Virtualization
+  # entitlement the experimental vz driver needs: give it back, then seal
+  # the app over it again.
+  "$root/scripts/mac-sign.sh" "$built/Contents/Resources/bin/agentbox"
+  codesign --force --sign - "$built"
 fi
 
 if pgrep -xq AgentBox; then

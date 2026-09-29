@@ -63,6 +63,13 @@
     "height": 800
   },
   {
+    "id": "mac-vm-vz-dark",
+    "description": "A Mac's first screen with the experimental vz driver's VM made and not finished: no Lima needed \u2014 dark, lg width",
+    "query": "vm=vz&theme=dark",
+    "width": 1024,
+    "height": 800
+  },
+  {
     "id": "windows-wsl-setup-dark",
     "description": "Windows' first screen: AgentBox's WSL distro to set up, while every attempt at the daemon fails \u2014 dark, xl width",
     "query": "wsl=create&theme=dark",

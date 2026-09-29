@@ -34,7 +34,7 @@ func testSupervisor(t *testing.T, ch *fakeCH) *supervisor {
 	c := Config{Name: "agentbox", CPUs: 4, MemoryMin: 4 * GiB, MemoryCap: 12 * GiB}
 	s := &supervisor{
 		c: c, l: l,
-		ch:     newCHClient(ch.serve(t)),
+		m:      &chMachine{ch: newCHClient(ch.serve(t))},
 		policy: memPolicy{Min: c.MemoryMin, Cap: c.MemoryCap},
 		stopc:  make(chan api.VMStopRequest, 1),
 		state:  api.VMRunning,

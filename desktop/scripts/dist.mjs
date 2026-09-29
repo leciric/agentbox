@@ -7,6 +7,9 @@
 // agentbox, which is the front end of AgentBox's Linux VM (internal/hostvm),
 // and the Linux agentbox it installs in that VM, for the same architecture
 // (the VM runs the Mac's own). electron-builder makes .dmg files only on a Mac.
+// The macOS agentbox is built with cgo, and electron-builder signs it with
+// build/entitlements.mac.plist, whose Virtualization entitlement the
+// experimental vz driver needs.
 //
 // With --win, packages it for Windows instead: an NSIS installer and a
 // portable .exe, with two agentbox binaries inside, the Windows front end
@@ -57,7 +60,10 @@ if (args.includes('--win')) {
   // whether the identity behind it is ad hoc or Apple's.
   const identityArgs = process.env.CSC_LINK ? [] : ['-c.mac.identity=-'];
   for (const a of archs) {
-    goBuild('agentbox', { GOOS: 'darwin', GOARCH: goArch[a], CGO_ENABLED: '0' });
+    // With cgo: the vz driver (internal/hostvm/chv/vz_darwin.go) binds Apple's
+    // Virtualization framework through it, which needs the macOS SDK, so the
+    // macOS agentbox is built on a Mac, as this is.
+    goBuild('agentbox', { GOOS: 'darwin', GOARCH: goArch[a], CGO_ENABLED: '1' });
     goBuild('agentbox-linux', { GOOS: 'linux', GOARCH: goArch[a], CGO_ENABLED: '0' });
     run('npx', ['electron-builder', '--mac', 'dmg', 'zip', `--${a}`, '--publish', 'never', ...identityArgs]);
   }

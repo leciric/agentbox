@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -49,6 +51,9 @@ func Main(args []string, version string) int {
 }
 
 func newVMCmd(version string) *cobra.Command {
+	if runtime.GOOS == "darwin" && !useLima() {
+		return newVZCmd(version)
+	}
 	if !useLima() {
 		return newCHVCmd(version)
 	}
@@ -88,6 +93,27 @@ A machine that already runs AgentBox itself moves into the VM with agentbox vm m
 		Version:       version,
 	}
 	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(),
+		newShellCmd(), newCHVResizeCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
+	return root
+}
+
+// newVZCmd is `agentbox vm` on a Mac whose VM is the vz driver's: Cloud
+// Hypervisor's commands, less what only a Linux machine has (vm migrate), and
+// with the Mac's vm init.
+func newVZCmd(version string) *cobra.Command {
+	root := &cobra.Command{
+		Use:   "agentbox vm",
+		Short: "Manage the Linux VM AgentBox runs in on this Mac (experimental vz driver)",
+		Long: `On this Mac AgentBox runs in a Linux VM that it runs itself with Apple's Virtualization
+framework, without Lima: the vz driver, which is experimental. The daemon, Incus and every
+agent are in there, and every agentbox command other than these runs there too. Your home
+directory is shared with the VM at the same path. agentbox vm delete --yes removes it, and
+agentbox vm init then makes Lima's VM, the default, again.`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		Version:       version,
+	}
+	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(),
 		newShellCmd(), newCHVResizeCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
 	return root
 }
@@ -347,8 +373,11 @@ func newProxyCmd() *cobra.Command {
 
 func newCHVResizeCmd() *cobra.Command {
 	var cpus int
-	var memoryCap string
+	var memoryCap, memoryAlias string
 	var restart bool
+	// A vz VM boots with its whole cap and can't hotplug CPUs: a bigger one
+	// needs a restart, which on a Mac resize does, as Lima's does.
+	vz := runtime.GOOS == "darwin"
 	cmd := &cobra.Command{
 		Use:   "resize",
 		Short: "Change the VM's CPUs and memory cap, while it runs when it can",
@@ -365,6 +394,14 @@ restarts the VM and stops every agent. The disk stays the size it was made with.
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			f := cmd.Flags()
+			if vz && f.Changed("memory") {
+				if f.Changed("memory-cap") {
+					return errors.New("--memory is --memory-cap: give one of them")
+				}
+				if err := f.Set("memory-cap", memoryAlias); err != nil {
+					return err
+				}
+			}
 			if !f.Changed("cpus") && !f.Changed("memory-cap") {
 				return errors.New("say what to change: --cpus, --memory-cap, or both")
 			}
@@ -381,17 +418,43 @@ restarts the VM and stops every agent. The disk stays the size it was made with.
 	}
 	cmd.Flags().IntVar(&cpus, "cpus", 0, "CPUs for the VM")
 	cmd.Flags().StringVar(&memoryCap, "memory-cap", "", "the most memory the VM is given, like 24GiB")
-	cmd.Flags().BoolVar(&restart, "restart", false, "restart the VM, stopping every agent, when the new size can't be given while it runs")
+	cmd.Flags().BoolVar(&restart, "restart", vz, "restart the VM, stopping every agent, when the new size can't be given while it runs")
+	if vz {
+		// What the Mac's app and Lima's resize say.
+		cmd.Flags().StringVar(&memoryAlias, "memory", "", "the same as --memory-cap")
+		_ = cmd.Flags().MarkHidden("memory")
+		cmd.Long = `Gives the VM another number of CPUs, or another memory cap, or both. The vz driver's VM
+boots with its whole cap, and a balloon keeps it to what it needs; a lower cap changes
+while it runs, and more CPUs or a higher cap restart it, which stops every agent (as
+Lima's VM does). The disk stays the size it was made with.`
+	}
 	return cmd
 }
 
 func newInitCmd() *cobra.Command {
 	size := DefaultSize()
+	driver := api.VMDriverLima
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Make the VM, set AgentBox up in it and start its daemon (safe to run again)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			f := cmd.Flags()
+			switch {
+			case driver != api.VMDriverLima && driver != api.VMDriverVZ:
+				return fmt.Errorf("--driver %s: it's lima or vz", driver)
+			case runtime.GOOS == "darwin" && vzMade() && f.Changed("driver") && driver == api.VMDriverLima:
+				return errors.New("AgentBox's VM here is the vz driver's: agentbox vm delete --yes removes it, and every agent in it, before Lima's is made")
+			case runtime.GOOS == "darwin" && (driver == api.VMDriverVZ || vzMade()):
+				sizes := f.Changed("cpus") || f.Changed("memory") || f.Changed("disk")
+				if err := initVZ(cmd.Context(), size, sizes, cmd.ErrOrStderr()); err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), `AgentBox's VM is ready (the vz driver, experimental). Next:
+  agentbox image build          the machine every agent is copied from (the app's Setup page does this too)
+  agentbox auth claude          a Claude Code login for your agents`)
+				return nil
+			}
 			vm, err := New()
 			if err != nil {
 				return err
@@ -423,7 +486,38 @@ func newInitCmd() *cobra.Command {
 	cmd.Flags().IntVar(&size.CPUs, "cpus", size.CPUs, "CPUs for the VM")
 	cmd.Flags().StringVar(&size.Memory, "memory", size.Memory, "memory for the VM, like 8GiB")
 	cmd.Flags().StringVar(&size.Disk, "disk", size.Disk, "the VM's disk, like 100GiB (allocated as it's used)")
+	if runtime.GOOS == "darwin" {
+		cmd.Flags().StringVar(&driver, "driver", driver, "what runs the VM: lima, or vz (experimental: Apple's Virtualization framework, run by AgentBox itself, without Lima)")
+	}
 	return cmd
+}
+
+// initVZ is `agentbox vm init --driver vz` on a Mac: package chv's VM, run
+// by Apple's Virtualization framework, with size's CPUs and disk and size's
+// memory as its cap, which it boots with. Like Lima's init, it is safe to run
+// again.
+func initVZ(ctx context.Context, size Size, sizesSet bool, log io.Writer) error {
+	c, err := currentConfig(env("AGENTBOX_VM", DefaultName))
+	if err != nil {
+		return err
+	}
+	c.Driver = chv.DriverVZ
+	c.CPUs = size.CPUs
+	if c.MemoryCap, err = ParseMemory(size.Memory); err != nil {
+		return fmt.Errorf("--memory: %w", err)
+	}
+	c.MemoryMin = min(chv.DefaultMemoryMin, c.MemoryCap)
+	if c.Disk, err = ParseMemory(size.Disk); err != nil {
+		return fmt.Errorf("--disk: %w", err)
+	}
+	if err := checkConfig(c, numCPU(), hostMemory()); err != nil {
+		return err
+	}
+	p, err := paths.Default()
+	if err != nil {
+		return err
+	}
+	return initCHV(ctx, p, c, sizesSet, log)
 }
 
 func newStartCmd() *cobra.Command {
@@ -473,8 +567,11 @@ first (on a Mac, where the VM is Lima's, --agents does nothing more).`,
 	return cmd
 }
 
-// Status is what `agentbox vm status --json` prints, for the app.
+// Status is what `agentbox vm status --json` prints on a Mac, for the app.
 type Status struct {
+	// Driver is api.VMDriverVZ for the vz driver's VM, which Lima doesn't
+	// run; missing for Lima's, whose Status is as it always was.
+	Driver  string `json:"driver,omitempty"`
 	Lima    string `json:"lima"`              // the limactl in use, "" without one
 	Problem string `json:"problem,omitempty"` // why there's no VM to use, and what to run
 	Name    string `json:"name"`
@@ -494,6 +591,9 @@ func newStatusCmd() *cobra.Command {
 		Short: "Say whether the VM exists and runs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if runtime.GOOS == "darwin" && !useLima() {
+				return vzStatus(cmd, asJSON)
+			}
 			if !useLima() {
 				return linuxStatus(cmd, asJSON)
 			}
@@ -536,6 +636,41 @@ func newStatusCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "print it as JSON")
 	return cmd
+}
+
+// vzStatus is `agentbox vm status` on a Mac whose VM is the vz driver's: with
+// --json the Status the Mac's app reads for Lima's (desktop/src/main/hostsetup.ts),
+// made from the supervisor's api.VMStatus, so the app needs nothing else to
+// show it. Its status is Lima's words for the state: Running, or Stopped.
+func vzStatus(cmd *cobra.Command, asJSON bool) error {
+	vm, err := New()
+	if err != nil && !errors.Is(err, ErrNotCreated) {
+		// No Linux binary beside this one: there's still a VM to describe.
+		p, perr := paths.Default()
+		c, cerr := chv.Load(p, env("AGENTBOX_VM", DefaultName))
+		if perr != nil || cerr != nil {
+			return err
+		}
+		vm = &VM{Name: c.Name, Home: c.Home, Paths: p, Log: os.Stderr, CHV: &CHV{Config: c, Layout: chv.NewLayout(p, c.Name)}}
+	}
+	if vm == nil || vm.CHV == nil {
+		return err
+	}
+	st := chvStatus(cmd.Context(), vm.CHV.Config, vm.CHV.Layout, vm.Paths)
+	if !asJSON {
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), describe(st)+" (the vz driver, experimental)")
+		return err
+	}
+	out := Status{Driver: api.VMDriverVZ, Name: st.Name, Problem: st.Problem, Limits: chvLimits(vm.CHV.Config, numCPU(), hostMemory())}
+	if err != nil {
+		out.Problem = err.Error()
+	}
+	out.State = State{Exists: st.State != api.VMMissing, Status: "Stopped", Dir: vm.CHV.Layout.Dir(), CPUs: st.CPUs, Memory: st.Memory.Cap, Disk: st.Disk.Size, Arch: runtime.GOARCH}
+	switch st.State {
+	case api.VMRunning, api.VMStarting, api.VMPaused, api.VMStopping:
+		out.Status = "Running"
+	}
+	return json.NewEncoder(cmd.OutOrStdout()).Encode(out)
 }
 
 // linuxStatus is `agentbox vm status` on Linux: an api.VMStatus, which says

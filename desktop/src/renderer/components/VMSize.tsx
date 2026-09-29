@@ -8,6 +8,7 @@ import { api } from '../lib/api';
 import { errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { appendOutput, CommandBox, SetupLog } from './SettingsView';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Notice, Panel } from './ui/card';
 import { Field, Input } from './ui/input';
@@ -64,6 +65,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <div className="text-[13px] font-medium text-primary">AgentBox's VM</div>
+          {vm.driver === 'vz' && <Badge variant="warning">Experimental: vz driver</Badge>}
           <div className="text-[12px] text-subtle" data-vm-size-current>
             {vm.status ?? 'Unknown'} · {vm.cpus ?? '—'} CPUs · {vm.memory ? `${gib(vm.memory)} GiB` : '—'} of memory
             {vm.disk ? ` · ${gib(vm.disk)} GiB disk` : ''}
@@ -178,7 +180,8 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
         title="Restart AgentBox's VM?"
         description={
           <>
-            It will have {cpus} CPUs and {memory} GiB of memory. Lima only resizes a stopped VM, so it stops, and{' '}
+            It will have {cpus} CPUs and {memory} GiB of memory.{' '}
+            {vm.driver === 'vz' ? 'More CPUs or memory need the VM restarted, so it may stop, and' : 'Lima only resizes a stopped VM, so it stops, and'}{' '}
             {running > 0 ? (
               <strong className="font-medium text-primary">
                 {running === 1 ? 'the agent running now stops' : `the ${running} agents running now stop`}
@@ -261,6 +264,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <div className="text-[13px] font-medium text-primary">AgentBox's VM</div>
+          {vm.driver === 'vz' && <Badge variant="warning">Experimental: vz driver</Badge>}
           <div className="text-[12px] text-subtle" data-vm-size-current>
             {vm.state} · {vm.cpus ?? '—'} CPUs · memory up to {vm.memory.cap ? `${gib(vm.memory.cap)} GiB` : '—'}
             {on && vm.memory.granted ? `, ${gib(vm.memory.granted)} GiB now` : ''}

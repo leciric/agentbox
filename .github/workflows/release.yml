@@ -140,8 +140,8 @@ jobs:
         run: scripts/release-build.sh --tag "$TAG" --check
 
   # The AppImage, the .deb, the .pacman and the command-line tool for Linux
-  # (amd64, arm64) and macOS (arm64, amd64) — all plain cross-compiles, so they
-  # don't need to wait on the Mac job.
+  # (amd64, arm64) — all plain cross-compiles, so they don't need to wait on
+  # the Mac job, which builds the macOS command-line tool (it needs cgo).
   linux:
     name: Linux build
     needs: [release, checks]
@@ -256,13 +256,16 @@ jobs:
   # and notarized when the repository has Apple's credentials as secrets;
   # without them, it's ad hoc signed instead of left unsigned (see
   # desktop/scripts/dist.mjs) and shipped anyway, since an unsigned Mac app
-  # doesn't even launch on Apple silicon.
+  # doesn't even launch on Apple silicon. The macOS command-line tool is built
+  # here too, with cgo, and signed the same way with the Virtualization
+  # entitlement the experimental vz driver needs (scripts/mac-sign.sh).
   macos:
     name: Mac app
     needs: [release, checks]
     if: always() && needs.checks.result == 'success'
     runs-on: macos-15
     env:
+      TAG: ${{ needs.release.outputs.tag_name }}
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
       CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -287,11 +290,43 @@ jobs:
           fi
           npm --prefix desktop run dist -- --mac --arm64 --x64
 
+      # With the app's certificate, in a keychain of this job's own, when the
+      # repository has it: Developer ID, the hardened runtime and a timestamp,
+      # then notarized. Without it, ad hoc, like the app.
+      - name: Build the command-line tool for a Mac
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            keychain=$RUNNER_TEMP/agentbox.keychain-db
+            password=$(openssl rand -hex 16)
+            security create-keychain -p "$password" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$password" "$keychain"
+            echo "$CSC_LINK" | base64 --decode >"$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            MAC_SIGN_IDENTITY=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+            [ -n "$MAC_SIGN_IDENTITY" ] || { echo "::error::the certificate has no Developer ID Application identity"; exit 1; }
+            export MAC_SIGN_IDENTITY
+          else
+            echo "::warning::No signing certificate: the command-line tool is signed ad hoc, and not notarized"
+          fi
+          scripts/release-build.sh --tag "$TAG" --mac-cli
+          if [ -n "${MAC_SIGN_IDENTITY:-}" ] && [ -n "$APPLE_ID" ]; then
+            for f in desktop/dist/release/"$TAG"/agentbox-*-darwin-*; do
+              ditto -c -k "$f" "$RUNNER_TEMP/notarize.zip"
+              xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+              rm -f "$RUNNER_TEMP/notarize.zip"
+            done
+          fi
+
       - name: Collect it
         run: |
           version=$(node -p "require('./desktop/package.json').version")
           mkdir -p mac
           cp desktop/dist/AgentBox-"$version"-mac-*.dmg desktop/dist/AgentBox-"$version"-mac-*.zip mac/
+          cp desktop/dist/release/"$TAG"/agentbox-"$version"-darwin-* mac/
           cd mac
           shasum -a 256 * >SHA256SUMS-mac
           cat SHA256SUMS-mac

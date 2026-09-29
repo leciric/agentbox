@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -234,7 +235,13 @@ func TestNewRemoteClientSendsABearerToken(t *testing.T) {
 // unix, not TCP: it can reach a daemon listening on the socket path it names,
 // and nothing else answers on http://agentbox otherwise.
 func TestNewClientDialsTheGivenSocket(t *testing.T) {
-	dir := t.TempDir()
+	// A unix socket's path holds 104 bytes on macOS, which its TMPDIR
+	// (/var/folders/…) with this test's name is longer than: /tmp is short.
+	dir, err := os.MkdirTemp("/tmp", "ab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	sock := filepath.Join(dir, "agentbox.sock")
 	l, err := net.Listen("unix", sock)
 	if err != nil {

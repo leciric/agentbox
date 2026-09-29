@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,14 +21,16 @@ import (
 	"agentbox/internal/state"
 )
 
-// CHV is the Cloud Hypervisor side of a VM, on a Linux host (package chv):
-// the VM as `agentbox vm init` made it, and where its files are.
+// CHV is the side of a VM that package chv runs: Cloud Hypervisor's, on a
+// Linux host, or the vz driver's, on a Mac (Config.Driver). It is the VM as
+// `agentbox vm init` made it, and where its files are.
 type CHV struct {
 	Config chv.Config
 	Layout chv.Layout
-	// Self is this agentbox. It is also the agentbox the VM runs, since host
-	// and VM are both Linux on the same architecture, and ssh's ProxyCommand
-	// (`agentbox vm proxy 22`).
+	// Self is this agentbox, ssh's ProxyCommand (`agentbox vm proxy 22`). On
+	// Linux it is also the agentbox the VM runs, since host and VM are both
+	// Linux on the same architecture; a Mac's VM runs the Linux build beside
+	// it, as Lima's does.
 	Self string
 }
 
@@ -41,6 +44,7 @@ var (
 	chvStop            = chv.Stop
 	chvStatus          = chv.Status
 	chvSSHArgs         = chv.SSHArgs
+	chvCheckVZ         = chv.CheckVZ
 )
 
 // self is this executable, with no symlinks in its path.
@@ -73,17 +77,23 @@ func newCHV() (*VM, error) {
 	return NewCHV(p, c)
 }
 
-// NewCHV describes the Cloud Hypervisor VM c, on a host with paths p.
+// NewCHV describes package chv's VM c, on a host with paths p.
 func NewCHV(p paths.Paths, c chv.Config) (*VM, error) {
 	exe, err := self()
 	if err != nil {
 		return nil, err
 	}
+	binary := exe
+	if runtime.GOOS == "darwin" {
+		if binary, err = FindLinuxBinary(); err != nil {
+			return nil, err
+		}
+	}
 	return &VM{
 		Name:   c.Name,
 		Home:   c.Home,
 		Paths:  p,
-		Binary: exe,
+		Binary: binary,
 		Log:    os.Stderr,
 		CHV:    &CHV{Config: c, Layout: chv.NewLayout(p, c.Name), Self: exe},
 	}, nil
@@ -218,6 +228,39 @@ func hostAgents(p paths.Paths) []string {
 	return agents
 }
 
+// canMake says why this machine can't be given want's VM, or nil: for Cloud
+// Hypervisor, a machine that runs AgentBox itself (hostModeInUse) or has no
+// KVM for its user; for vz, a Mac that can't run it (chv.CheckVZ), has no
+// Linux agentbox to put in it, or has AgentBox's Lima VM already, which it
+// doesn't take over (a move from Lima isn't done).
+func canMake(ctx context.Context, p paths.Paths, want chv.Config) error {
+	if !want.VZ() {
+		if err := hostModeInUse(ctx, p); err != nil {
+			return err
+		}
+		return checkKVM()
+	}
+	exe, err := self()
+	if err != nil {
+		return err
+	}
+	if err := chvCheckVZ(exe); err != nil {
+		return err
+	}
+	if bin, err := FindLinuxBinary(); err != nil {
+		return err
+	} else if _, err := os.Stat(bin); err != nil {
+		return fmt.Errorf("no Linux agentbox to run in the VM: %w", err)
+	}
+	if limactl, err := FindLimactl(); err == nil {
+		lima := &VM{Limactl: limactl, Name: want.Name}
+		if st, err := lima.State(ctx); err == nil && st.Exists {
+			return fmt.Errorf("this Mac has AgentBox's Lima VM already (%s), which the vz driver doesn't take over: agentbox vm delete --yes removes it and every agent in it (your projects and worktrees stay), then agentbox vm init --driver vz makes the new one", want.Name)
+		}
+	}
+	return nil
+}
+
 // checkKVM says why this user can't run a VM, or nil.
 func checkKVM() error {
 	f, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
@@ -240,10 +283,7 @@ func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool,
 	case errors.Is(err, chv.ErrNotCreated):
 		// Nothing is written before these pass: until the Config exists this
 		// machine stays as it was.
-		if err := hostModeInUse(ctx, p); err != nil {
-			return err
-		}
-		if err := checkKVM(); err != nil {
+		if err := canMake(ctx, p, want); err != nil {
 			return err
 		}
 		c = want
@@ -252,10 +292,17 @@ func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool,
 			return err
 		}
 		made = true
-		_, _ = fmt.Fprintf(log, "==> AgentBox's VM %s: %d CPUs, %s of memory growing to at most %s, a %s disk (%s)\n",
-			c.Name, c.CPUs, sizeWords(c.MemoryMin), sizeWords(c.MemoryCap), sizeWords(c.Disk), chv.ConfigFile(p, c.Name))
+		if c.VZ() {
+			_, _ = fmt.Fprintf(log, "==> AgentBox's VM %s, run by Apple's Virtualization framework (experimental): %d CPUs, %s of memory, a %s disk (%s)\n",
+				c.Name, c.CPUs, sizeWords(c.MemoryCap), sizeWords(c.Disk), chv.ConfigFile(p, c.Name))
+		} else {
+			_, _ = fmt.Fprintf(log, "==> AgentBox's VM %s: %d CPUs, %s of memory growing to at most %s, a %s disk (%s)\n",
+				c.Name, c.CPUs, sizeWords(c.MemoryMin), sizeWords(c.MemoryCap), sizeWords(c.Disk), chv.ConfigFile(p, c.Name))
+		}
 	case err != nil:
 		return err
+	case c.Driver != want.Driver:
+		return fmt.Errorf("AgentBox's VM here is %s's already: agentbox vm delete --yes removes it, and every agent in it, before another is made", c.DriverName())
 	case sizesSet:
 		_, _ = fmt.Fprintln(log, "note: AgentBox's VM exists already and keeps its size: change it with agentbox vm resize")
 	}
@@ -266,7 +313,11 @@ func initCHV(ctx context.Context, p paths.Paths, want chv.Config, sizesSet bool,
 	vm.Log = log
 	err = vm.CHV.setUp(ctx, vm, true)
 	if err != nil && made {
-		err = fmt.Errorf("%w\nThis machine now runs AgentBox in a VM: run agentbox vm init again to carry on, or agentbox vm delete --yes to go back", err)
+		if c.VZ() {
+			err = fmt.Errorf("%w\nThis Mac now runs AgentBox in the vz driver's VM: run agentbox vm init again to carry on, or agentbox vm delete --yes to go back to Lima's", err)
+		} else {
+			err = fmt.Errorf("%w\nThis machine now runs AgentBox in a VM: run agentbox vm init again to carry on, or agentbox vm delete --yes to go back", err)
+		}
 	}
 	if err == nil {
 		_, _ = fmt.Fprintf(log, "==> AgentBox's VM is set up (took %s in all)\n", time.Since(began).Round(100*time.Millisecond))
@@ -285,15 +336,21 @@ func (h *CHV) setUp(ctx context.Context, v *VM, daemon bool) error {
 		return err
 	}
 	defer unlock()
-	for _, step := range []struct {
+	type step struct {
 		what string
 		do   func() error
-	}{
-		{"Fetching the programs that run the VM", func() error { return chvEnsureTools(ctx, h.Layout, v.Log) }},
-		{"Making the VM's disks", func() error { return chvMakeDisks(ctx, h.Config, h.Layout, v.Log) }},
-		{"Starting the VM", func() error { return chvStart(ctx, h.Config, h.Layout, v.Paths, v.Log) }},
-		{"Waiting for the VM's first boot to set it up", func() error { return chvWaitProvisioned(ctx, h.Config, h.Layout, v.Log) }},
-	} {
+	}
+	var steps []step
+	// The Virtualization framework is part of macOS: nothing to fetch.
+	if !h.Config.VZ() {
+		steps = append(steps, step{"Fetching the programs that run the VM", func() error { return chvEnsureTools(ctx, h.Layout, v.Log) }})
+	}
+	steps = append(steps,
+		step{"Making the VM's disks", func() error { return chvMakeDisks(ctx, h.Config, h.Layout, v.Log) }},
+		step{"Starting the VM", func() error { return chvStart(ctx, h.Config, h.Layout, v.Paths, v.Log) }},
+		step{"Waiting for the VM's first boot to set it up", func() error { return chvWaitProvisioned(ctx, h.Config, h.Layout, v.Log) }},
+	)
+	for _, step := range steps {
 		_, _ = fmt.Fprintf(v.Log, "==> %s\n", step.what)
 		start := time.Now()
 		if err := step.do(); err != nil {
@@ -329,8 +386,10 @@ func (h *CHV) start(ctx context.Context, v *VM) error {
 	// at its next start: programs at new pins, and a seed with the new
 	// user-data, which cloud-init applies on that boot (its instance-id is
 	// the seed's hash). Both do nothing when nothing changed.
-	if err := chvEnsureTools(ctx, h.Layout, v.Log); err != nil {
-		return err
+	if !h.Config.VZ() {
+		if err := chvEnsureTools(ctx, h.Layout, v.Log); err != nil {
+			return err
+		}
 	}
 	if err := chvMakeDisks(ctx, h.Config, h.Layout, v.Log); err != nil {
 		return err
@@ -435,6 +494,10 @@ func (h *CHV) delete(ctx context.Context, v *VM) error {
 	// before it was checked, so host mode carries on from them.
 	if err := os.Remove(migrationFile(v.Paths)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	if h.Config.VZ() {
+		_, _ = fmt.Fprintln(v.Log, "AgentBox's VM is gone: agentbox vm init makes Lima's, and agentbox vm init --driver vz the vz driver's again.")
+		return nil
 	}
 	_, _ = fmt.Fprintln(v.Log, "AgentBox's VM is gone: this machine runs AgentBox itself again, once it's set up for it (agentbox host setup).")
 	return nil
