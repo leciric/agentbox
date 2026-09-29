@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -292,4 +293,27 @@ func tail(file string, n int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// errLocked is a supervisor's lock that another supervisor holds.
+var errLocked = errors.New("the VM already runs")
+
+// lockHolders are the pids holding a FLOCK on a file with inode ino, from
+// /proc/locks. A line is "1: FLOCK ADVISORY WRITE <pid> <major>:<minor>:<inode>
+// 0 EOF"; one with "->" after its number is a waiter, not a holder. The device
+// isn't compared: btrfs gives stat a subvolume's device, not the one
+// /proc/locks names, so the caller checks what each pid is instead.
+func lockHolders(locks string, ino uint64) []int {
+	var pids []int
+	suffix := ":" + strconv.FormatUint(ino, 10)
+	for line := range strings.Lines(locks) {
+		f := strings.Fields(line)
+		if len(f) < 6 || f[1] != "FLOCK" || !strings.HasSuffix(f[5], suffix) || strings.Count(f[5], ":") != 2 {
+			continue
+		}
+		if pid, err := strconv.Atoi(f[4]); err == nil && pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
 }

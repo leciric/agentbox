@@ -37,6 +37,114 @@ write_files:
   - path: /etc/default/grub.d/90-agentbox.cfg
     content: |
       GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX {{.KernelArgs}}"
+  # Kernel limits every agent's container shares, since their users are all
+  # the same few UIDs to the VM's kernel: Debian's defaults are a desktop's for
+  # one user, and sized from the memory the VM boots with, not what it grows
+  # to. With 128 inotify instances (incus-base's 1024 only once sysctl reruns)
+  # and 30720 watches, a few agents in, a new container's systemd dies with
+  # "Failed to create control group inotify object: Too many open files". The
+  # keys are Incus's production settings: every container's systemd makes
+  # keyrings, and 200 keys for all of them run out as fast. The rest (file-max,
+  # nr_open, max_map_count) are systemd's already, and incus.service has
+  # LimitNOFILE=1048576.
+  - path: /etc/sysctl.d/60-agentbox.conf
+    content: |
+      fs.inotify.max_user_instances = 8192
+      fs.inotify.max_user_watches = 524288
+      fs.inotify.max_queued_events = 65536
+      kernel.keys.maxkeys = 2000
+      kernel.keys.maxbytes = 2000000
+      fs.aio-max-nr = 524288
+  # Says this is AgentBox's VM to the agentbox in it (hostos.Marker), whoever
+  # runs it and with whatever environment: it is never the VM's front end.
+  - path: /etc/agentbox/vm
+    content: |
+      linux
+  # virtiofsd holds a file descriptor open for every inode of the shared home
+  # this kernel keeps cached (--inode-file-handles=never: file handles need
+  # privileges it hasn't got), and fails the VM's reads with ENFILE ("Too many
+  # open files in system") once it has used all it may have: its RLIMIT_NOFILE,
+  # usually 524288. Nothing makes this kernel forget them short of memory
+  # pressure, and git, npm and go walking agents' worktrees on the share cache
+  # hundreds of thousands. So once there are more than {{.FuseInodeLimit}}, it
+  # drops its dentry and inode caches, which gives virtiofsd its descriptors
+  # back (FUSE's forget).
+  - path: /usr/local/lib/agentbox/trim-share-inodes
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      n=$(awk '$1 == "fuse_inode" { print $2 }' /proc/slabinfo)
+      [ "${n:-0}" -gt {{.FuseInodeLimit}} ] || exit 0
+      echo "$n inodes of the shared home cached: dropping the dentry and inode caches"
+      echo 2 >/proc/sys/vm/drop_caches
+  - path: /etc/systemd/system/agentbox-trim-share-inodes.service
+    content: |
+      [Unit]
+      Description=AgentBox: keep virtiofsd's file descriptors for the shared home in bounds
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/lib/agentbox/trim-share-inodes
+  - path: /etc/systemd/system/agentbox-trim-share-inodes.timer
+    content: |
+      [Unit]
+      Description=AgentBox: keep virtiofsd's file descriptors for the shared home in bounds
+      [Timer]
+      OnBootSec=1min
+      OnUnitActiveSec=30s
+      AccuracySec=5s
+      [Install]
+      WantedBy=timers.target
+  # ssh in the VM, git's to fetch and push over ssh included, is the host
+  # user's: their keys, known hosts and config, from the shared home. ssh
+  # reads the home it finds in passwd, the VM's own, whose .ssh holds the
+  # front end's authorized key; so each boot links what the host's .ssh has
+  # into it, and its config includes the host's. What the VM's .ssh has of its
+  # own stays. An ssh agent on the host can't be reached from the VM: a key
+  # with a passphrase won't work here.
+  - path: /usr/local/lib/agentbox/share-ssh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      set -eu
+      host={{sh .Home}}/.ssh
+      vm={{sh .GuestHome}}/.ssh
+      mkdir -p "$vm"
+      chmod 700 "$vm"
+      [ -d "$host" ] || exit 0
+      for f in "$host"/* "$host"/.[!.]*; do
+        [ -e "$f" ] || continue
+        name=${f##*/}
+        case $name in authorized_keys | authorized_keys2 | config | environment | rc) continue ;; esac
+        [ -e "$vm/$name" ] || [ -L "$vm/$name" ] || ln -s "$f" "$vm/$name"
+      done
+      for l in "$vm"/* "$vm"/.[!.]*; do
+        if [ -L "$l" ] && [ ! -e "$l" ]; then
+          case $(readlink "$l") in "$host"/*) rm -f "$l" ;; esac
+        fi
+      done
+      if [ ! -e "$vm/config" ] || grep -q '^# agentbox: ' "$vm/config"; then
+        cat >"$vm/config.new" <<EOF
+      # agentbox: written at every start of AgentBox's VM, so ssh here is yours
+      # from the host ($host). Change that instead, or remove this line to keep
+      # this file as it is.
+      Include $host/config
+      Host *
+          UserKnownHostsFile ~/.ssh/known_hosts $host/known_hosts
+      EOF
+        chmod 600 "$vm/config.new"
+        mv -f "$vm/config.new" "$vm/config"
+      fi
+  - path: /etc/systemd/system/agentbox-share-ssh.service
+    content: |
+      [Unit]
+      Description=AgentBox: ssh in the VM as the host's user does
+      RequiresMountsFor={{.Home}}
+      [Service]
+      Type=oneshot
+      User={{.User}}
+      ExecStart=/usr/local/lib/agentbox/share-ssh
+      [Install]
+      WantedBy=multi-user.target
   # Agents' containers mustn't reach the host's own loopback services: passt
   # maps the VM's connections to the gateway to the host's 127.0.0.1, and
   # the DNS address answers DNS only. The VM itself may (the daemon needs
@@ -105,6 +213,8 @@ write_files:
       set -x
       export DEBIAN_FRONTEND=noninteractive
 
+      # The limits above, now rather than at the next boot.
+      sysctl -q --system || echo "warning: some of the VM's kernel limits aren't set" >&2
       echo online >/sys/devices/system/memory/auto_online_blocks || true
 {{- range .KernelParams}}
       echo {{.Value}} >/sys/module/memory_hotplug/parameters/{{.Name}} || true
@@ -117,6 +227,8 @@ write_files:
         echo {{sh .FstabLine}} >>/etc/fstab
       systemctl daemon-reload
       mountpoint -q {{sh .Home}} || mount {{sh .Home}} || echo "warning: the host's home isn't shared into the VM" >&2
+      systemctl enable agentbox-share-ssh.service
+      systemctl start agentbox-share-ssh.service || echo "warning: ssh in the VM isn't set up as the host's" >&2
 
       # Agents' Android emulators run on the VM's /dev/kvm (the host's KVM,
       # nested), which udev gives to the kvm group, and the daemon checks it
@@ -132,6 +244,7 @@ write_files:
         apt-get update -q --error-on=any
         apt-get install -y -q --no-install-recommends socat
       fi
+      systemctl enable --now agentbox-trim-share-inodes.timer
       systemctl enable --now{{range .Forwards}} agentbox-vsock-{{.Port}}.service{{end}}
 
       apt-get update -q --error-on=any

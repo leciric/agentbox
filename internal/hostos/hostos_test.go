@@ -19,7 +19,48 @@ func fakeRelease(t *testing.T, release string) {
 	t.Cleanup(func() { osrelease = old })
 }
 
+// fakeMarkers stands dir's vm and host-guard.nft in for AgentBox's VM's
+// markers.
+func fakeMarkers(t *testing.T, dir string) {
+	t.Helper()
+	old := markers
+	markers = []struct{ file, os string }{
+		{filepath.Join(dir, "vm"), ""},
+		{filepath.Join(dir, "host-guard.nft"), Linux},
+	}
+	t.Cleanup(func() { markers = old })
+}
+
+// AgentBox's VM says what it is to any agentbox in it, whatever its
+// environment.
+func TestOSFromTheVMsMarker(t *testing.T) {
+	fakeRelease(t, "6.12.9-arch1-1")
+	t.Setenv(Env, "")
+	dir := t.TempDir()
+	fakeMarkers(t, dir)
+	if got := OS(); got != "" {
+		t.Errorf("OS() with no marker = %q, want none", got)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "host-guard.nft"), []byte("table inet agentbox-host\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := OS(); got != Linux {
+		t.Errorf("OS() in a Cloud Hypervisor VM made before its marker = %q, want %q", got, Linux)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "vm"), []byte("darwin\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := OS(); got != "darwin" || !InVM() {
+		t.Errorf("OS() = %q, InVM() = %t, want darwin, true", got, InVM())
+	}
+	t.Setenv(Env, "windows")
+	if got := OS(); got != "windows" {
+		t.Errorf("OS() = %q, want what the front end said to win", got)
+	}
+}
+
 func TestOS(t *testing.T) {
+	fakeMarkers(t, t.TempDir())
 	for _, tc := range []struct {
 		name, env, release, want string
 		vm                       bool

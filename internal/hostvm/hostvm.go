@@ -78,13 +78,16 @@ var definition string
 // AgentBox itself: always on macOS; on Linux when AGENTBOX_FRONT_END=vm, which
 // is how the Lima VM is tested without a Mac; and on a Linux machine where
 // `agentbox vm init` made a Cloud Hypervisor VM. It runs on every command, so
-// on Linux it is a stat. The agentbox in a VM is never a front end, whatever
-// its files say: its front end told it so (hostos.Env).
+// on Linux it is a stat or two. The agentbox in a VM is never a front end,
+// whatever its files say: its front end told it so (hostos.Env), or the VM
+// itself does (hostos.OS). Its HOME can be the host's home, shared at the
+// same path, with the host's VM in it: a front end run there would take that
+// VM for its own, and start it again under the running one.
 func Front() bool {
 	if runtime.GOOS == "darwin" || os.Getenv("AGENTBOX_FRONT_END") == "vm" {
 		return true
 	}
-	if runtime.GOOS != "linux" || os.Getenv("AGENTBOX_FRONT_END") != "" || os.Getenv(hostos.Env) != "" {
+	if runtime.GOOS != "linux" || os.Getenv("AGENTBOX_FRONT_END") != "" || hostos.InVM() {
 		return false
 	}
 	p, err := paths.Default()
@@ -94,13 +97,45 @@ func Front() bool {
 // Handles reports whether a command line (os.Args[1:]) is the front end's to
 // run: every command on a front end, and on a Linux machine of its own
 // `agentbox vm …` too, since `vm init` is what makes it a front end and
-// `vm status --json` is how the app asks which it is.
+// `vm status --json` is how the app asks which it is. In AgentBox's VM, it is
+// only so Main can say that `agentbox vm` isn't for in there.
 func Handles(args []string) bool {
 	if Front() {
 		return true
 	}
 	return runtime.GOOS == "linux" && len(args) > 0 && args[0] == "vm" &&
-		os.Getenv("AGENTBOX_FRONT_END") == "" && os.Getenv(hostos.Env) == "" && !hostos.WSL()
+		os.Getenv("AGENTBOX_FRONT_END") == "" && !hostos.WSL()
+}
+
+// Help reports whether a command line only asks for help with agentbox's own
+// commands (not agentbox vm's, which are the front end's): none at all, help,
+// or -h or --help before any "--". The front end answers those itself rather
+// than forward them, which would start the VM.
+func Help(args []string) bool {
+	if len(args) == 0 || args[0] == "help" {
+		return true
+	}
+	if args[0] == "vm" {
+		return false
+	}
+	for _, a := range args {
+		switch a {
+		case "--":
+			return false
+		case "-h", "--help":
+			return true
+		}
+	}
+	return false
+}
+
+// errInVM is `agentbox vm …` in AgentBox's own VM.
+var errInVM = errors.New("this is AgentBox's VM: agentbox vm manages it from the host, and doesn't run in it")
+
+// inVM reports whether this is AgentBox's VM (not WSL, which is hostwsl's),
+// where no front end runs.
+func inVM() bool {
+	return runtime.GOOS == "linux" && os.Getenv("AGENTBOX_FRONT_END") == "" && hostos.InVM() && !hostos.WSL()
 }
 
 // useLima reports whether this machine's VM is Lima's rather than Cloud

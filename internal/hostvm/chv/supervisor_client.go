@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hostos"
 	"agentbox/internal/paths"
 )
 
@@ -25,18 +26,51 @@ const (
 	startTimeout   = 5 * time.Minute // from starting the supervisor to the VM answering ssh
 	stopTimeout    = 2 * time.Minute // for the supervisor to exit, on top of stopping the agents
 	sshTryTimeout  = 15 * time.Second
-	vmSocketWait   = 30 * time.Second
 	statusDeadline = 3 * time.Second
 )
 
+// vmSocketWait is how long a supervisor has to answer on its socket, once
+// started.
+var vmSocketWait = 30 * time.Second
+
 // ErrNotRunning is an action on a VM that isn't running.
 var ErrNotRunning = errors.New("AgentBox's VM isn't running: agentbox vm start")
+
+// errInVM is starting the VM from inside it. Its HOME can be the host's, whose
+// VM it would then see: a supervisor there would take its lock (virtiofs's
+// locks are the VM's own, the host's supervisor doesn't hold them there),
+// remove the running VM's sockets on the share, and fail to start another.
+var errInVM = errors.New("this is AgentBox's VM: it's started from the host, not from in here")
 
 // Start starts the supervisor in the background, detached from this process,
 // and waits until the VM answers ssh. A VM that runs already is left alone;
 // a paused one is resumed.
 func Start(ctx context.Context, c Config, l Layout, p paths.Paths, log io.Writer) error {
+	if hostos.InVM() {
+		return errInVM
+	}
 	started := time.Now()
+	// A supervisor that holds its lock runs the VM, whether or not it answers:
+	// one only starting answers in a moment; one whose socket is gone never
+	// will, and starting another would only fail on its lock, having removed
+	// nothing, but say nothing of why.
+	for {
+		if _, err := vmStatus(ctx, p); err == nil {
+			break
+		}
+		pid, running := supervisorRunning(l)
+		if !running {
+			break
+		}
+		if time.Since(started) > vmSocketWait {
+			return startFailed(l, lostSupervisor(pid, p))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 	if st, err := vmStatus(ctx, p); err == nil {
 		switch st.State {
 		case api.VMPaused:
@@ -165,10 +199,13 @@ func Stop(ctx context.Context, c Config, l Layout, p paths.Paths, agents bool, l
 	started := time.Now()
 	err := vmPost(ctx, p, "/v1/vm/stop", api.VMStopRequest{Agents: agents})
 	if err != nil {
-		pid, alive := supervisorPID(l)
+		pid, alive := supervisorRunning(l)
 		if !alive {
 			_, _ = fmt.Fprintln(log, "AgentBox's VM isn't running.")
 			return nil
+		}
+		if pid == 0 {
+			return fmt.Errorf("AgentBox's VM's supervisor holds %s, but can't be found to stop it", l.LockFile())
 		}
 		// A supervisor that doesn't answer yet (or any more) stops the
 		// same way on SIGTERM, only without stopping the agents.
@@ -196,7 +233,7 @@ func Stop(ctx context.Context, c Config, l Layout, p paths.Paths, agents bool, l
 func waitExit(ctx context.Context, l Layout, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		if _, alive := supervisorPID(l); !alive {
+		if _, alive := supervisorRunning(l); !alive {
 			return nil
 		}
 		if time.Now().After(deadline) {
@@ -222,6 +259,34 @@ func supervisorPID(l Layout) (int, bool) {
 		return 0, false
 	}
 	return pid, supervisorAlive(pid)
+}
+
+// supervisorRunning is whether a supervisor runs the VM, and its pid (0 if it
+// can't be found): the pid file's, or else whoever holds its lock, which is
+// what really says so. The pid file goes with the sockets beside it, when
+// something removes them.
+func supervisorRunning(l Layout) (int, bool) {
+	if pid, alive := supervisorPID(l); alive {
+		return pid, true
+	}
+	unlock, err := lockFile(l.LockFile())
+	if err == nil {
+		unlock()
+		return 0, false
+	}
+	if !errors.Is(err, errLocked) {
+		return 0, false
+	}
+	return lockHolder(l.LockFile()), true
+}
+
+// lostSupervisor is why a VM whose supervisor runs can't be used.
+func lostSupervisor(pid int, p paths.Paths) string {
+	who := "its supervisor"
+	if pid > 0 {
+		who = fmt.Sprintf("its supervisor is pid %d", pid)
+	}
+	return fmt.Sprintf("AgentBox's VM runs (%s), but doesn't answer on %s: something removed its sockets. agentbox vm stop ends it, and agentbox vm start starts it again", who, p.VMSocket())
 }
 
 func Pause(ctx context.Context, l Layout, p paths.Paths) error {
@@ -253,7 +318,13 @@ func Status(ctx context.Context, c Config, l Layout, p paths.Paths) api.VMStatus
 	if st, err := vmStatus(ctx, p); err == nil {
 		return st
 	}
-	return offStatus(c, l)
+	st := offStatus(c, l)
+	if pid, running := supervisorRunning(l); running {
+		// Not off, and not to be started again: it runs, unreachable.
+		st.State = api.VMStarting
+		st.Problem = lostSupervisor(pid, p)
+	}
+	return st
 }
 
 // vmStatus asks the supervisor for the VM's state.

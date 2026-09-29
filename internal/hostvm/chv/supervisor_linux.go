@@ -28,7 +28,7 @@ func lockFile(file string) (func(), error) {
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, errors.New("the VM already runs")
+			return nil, errLocked
 		}
 		return nil, err
 	}
@@ -63,4 +63,33 @@ func hostMemory() int64 {
 		return 0
 	}
 	return int64(info.Totalram) * int64(info.Unit)
+}
+
+// maxOpenFiles is RLIMIT_NOFILE's hard limit, which the supervisor's children
+// may raise theirs to; 0 if it won't say.
+func maxOpenFiles() uint64 {
+	var l syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &l); err != nil {
+		return 0
+	}
+	return l.Max
+}
+
+// lockHolder is the supervisor holding a flock on file, from /proc/locks, or
+// 0.
+func lockHolder(file string) int {
+	var st syscall.Stat_t
+	if err := syscall.Stat(file, &st); err != nil {
+		return 0
+	}
+	b, err := os.ReadFile("/proc/locks")
+	if err != nil {
+		return 0
+	}
+	for _, pid := range lockHolders(string(b), st.Ino) {
+		if supervisorAlive(pid) {
+			return pid
+		}
+	}
+	return 0
 }

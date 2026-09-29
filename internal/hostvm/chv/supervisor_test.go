@@ -2,15 +2,18 @@ package chv
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hostos"
 )
 
 func testSupervisor(t *testing.T, ch *fakeCH) *supervisor {
@@ -208,5 +211,79 @@ func TestCHArgs(t *testing.T) {
 	}
 	if mac := macAddress("agentbox"); mac != macAddress("agent"+"box") || mac == macAddress("other") {
 		t.Error("the MAC address isn't one per VM name")
+	}
+}
+
+// A supervisor that holds its lock runs the VM even when its sockets and its
+// pid file are gone (another agentbox removed them): Status says so rather
+// than off, Start doesn't start another, and neither removes anything.
+func TestALostSupervisorIsntStartedAgain(t *testing.T) {
+	t.Setenv(hostos.Env, "")
+	p := testPaths(t)
+	l := NewLayout(p, "agentbox")
+	c := Config{Name: "agentbox", CPUs: 2, MemoryMin: 4 * GiB, MemoryCap: 8 * GiB}
+	if err := c.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(l.Run(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, running := supervisorRunning(l); running {
+		t.Fatal("a supervisor runs before any lock is held")
+	}
+	unlock, err := lockFile(l.LockFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	kept := filepath.Join(l.Run(), "vsock.sock")
+	if err := os.WriteFile(kept, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, running := supervisorRunning(l); !running {
+		t.Error("a held lock isn't a running supervisor")
+	}
+	st := Status(t.Context(), c, l, p)
+	if st.State == api.VMOff || !strings.Contains(st.Problem, "doesn't answer") {
+		t.Errorf("Status = %s (%q), want it running where it can't be reached", st.State, st.Problem)
+	}
+	old := vmSocketWait
+	vmSocketWait = 300 * time.Millisecond
+	t.Cleanup(func() { vmSocketWait = old })
+	err = Start(t.Context(), c, l, p, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "agentbox vm stop") {
+		t.Errorf("Start = %v, want it to say the VM runs and how to end it", err)
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("Start removed the running VM's files: %v", err)
+	}
+}
+
+// In AgentBox's own VM, nothing starts a VM, whatever its HOME holds.
+func TestStartAndSuperviseRefuseInTheVM(t *testing.T) {
+	t.Setenv(hostos.Env, hostos.Linux)
+	p := testPaths(t)
+	l := NewLayout(p, "agentbox")
+	c := Config{Name: "agentbox", CPUs: 2, MemoryMin: 4 * GiB, MemoryCap: 8 * GiB}
+	if err := Start(t.Context(), c, l, p, io.Discard); err != errInVM {
+		t.Errorf("Start in the VM = %v", err)
+	}
+	if err := Supervise(t.Context(), c, l, p); err != errInVM {
+		t.Errorf("Supervise in the VM = %v", err)
+	}
+	if _, err := os.Stat(l.Run()); !os.IsNotExist(err) {
+		t.Errorf("the VM's run directory was touched: %v", err)
+	}
+}
+
+func TestLockHolders(t *testing.T) {
+	locks := `1: FLOCK  ADVISORY  WRITE 4242 00:2e:1234 0 EOF
+1: -> FLOCK  ADVISORY  WRITE 999 00:2e:1234 0 EOF
+2: POSIX  ADVISORY  WRITE 77 fd:01:1234 0 EOF
+3: FLOCK  ADVISORY  WRITE 5151 00:31:51234 0 EOF
+4: FLOCK  ADVISORY  WRITE 6161 00:32:1234 0 EOF
+`
+	if got := lockHolders(locks, 1234); !slices.Equal(got, []int{4242, 6161}) {
+		t.Errorf("lockHolders = %v, want [4242 6161]", got)
 	}
 }

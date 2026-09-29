@@ -16,7 +16,9 @@ func main() {
 	// Linux machine running AgentBox itself, `agentbox vm …` is still the
 	// front end's: vm init is how the machine becomes one, and vm status says
 	// which it is.
-	if hostvm.Handles(os.Args[1:]) {
+	// Help is this binary's own, the VM's being the same build: asking for it
+	// never starts the VM.
+	if hostvm.Handles(os.Args[1:]) && !hostvm.Help(os.Args[1:]) {
 		os.Exit(hostvm.Main(os.Args[1:], cli.Version()))
 	}
 	// On Windows it runs in a WSL distro, and this is that front end.
