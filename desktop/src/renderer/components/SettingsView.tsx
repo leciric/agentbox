@@ -1440,9 +1440,12 @@ function UpdateChannel() {
   const set = useMutation({
     mutationFn: (updateChannel: string) => api.updateSettings({ updateChannel }),
     // The daemon answers with the settings, and pushes the new update status
-    // as an event once it has checked again; until then, show the choice.
-    onSuccess: (_, updateChannel) =>
-      queryClient.setQueryData<T.UpdateStatus>(["update"], (old) => old && { ...old, channel: updateChannel, available: undefined }),
+    // as an event once it has checked again; until then, show the choice, and
+    // read the status again in case the check was quicker than this.
+    onSuccess: (_, updateChannel) => {
+      queryClient.setQueryData<T.UpdateStatus>(["update"], (old) => old && { ...old, channel: updateChannel, available: undefined });
+      void queryClient.invalidateQueries({ queryKey: ["update"] });
+    },
     onError: (err) => toast.error(errorMessage(err)),
   });
 
