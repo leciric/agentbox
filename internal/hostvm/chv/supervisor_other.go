@@ -18,3 +18,4 @@ func lockFile(string) (func(), error)    { return nil, errLinuxOnly }
 func supervisorAlive(int) bool           { return false }
 func terminate(int) error                { return errLinuxOnly }
 func allocated(fi os.FileInfo) int64     { return fi.Size() }
+func hostMemory() int64                  { return 0 }

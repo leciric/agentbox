@@ -1616,6 +1616,8 @@ export interface VMStatus {
   cpus?: number;
   memory: VMMemory;
   disk: VMDisk;
+  limits?: VMLimits;
+  live?: VMLimits;
 }
 
 export interface VMMemory {
@@ -1629,6 +1631,18 @@ export interface VMMemory {
 export interface VMDisk {
   size: number;
   used: number;
+}
+
+export interface VMLimits {
+  minCpus: number;
+  maxCpus: number;
+  minMemory: number;
+  maxMemory: number;
+}
+
+export interface VMResizeRequest {
+  cpus?: number;
+  memoryCap?: number;
 }
 
 export interface VMStopRequest {
