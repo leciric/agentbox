@@ -51,6 +51,10 @@ const (
 type chInfo struct {
 	State  string `json:"state"`
 	Config struct {
+		CPUs struct {
+			Boot int `json:"boot_vcpus"`
+			Max  int `json:"max_vcpus"`
+		} `json:"cpus"`
 		Memory struct {
 			Size           int64 `json:"size"`
 			HotplugSize    int64 `json:"hotplug_size"`
@@ -129,6 +133,13 @@ func (c *chClient) Resume(ctx context.Context) error {
 // unplugging virtio-mem blocks.
 func (c *chClient) Resize(ctx context.Context, bytes int64) error {
 	return c.do(ctx, http.MethodPut, "vm.resize", map[string]int64{"desired_ram": bytes}, nil)
+}
+
+// ResizeCPUs asks for the VM to have n vCPUs, up to the max it booted with,
+// by hotplugging or ejecting them through ACPI. A new vCPU is the guest's to
+// online (onlineCPUs).
+func (c *chClient) ResizeCPUs(ctx context.Context, n int) error {
+	return c.do(ctx, http.MethodPut, "vm.resize", map[string]int{"desired_vcpus": n}, nil)
 }
 
 // PowerButton presses the VM's ACPI power button: the guest shuts down.

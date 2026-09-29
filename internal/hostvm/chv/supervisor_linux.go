@@ -55,3 +55,12 @@ func allocated(fi os.FileInfo) int64 {
 	}
 	return fi.Size()
 }
+
+// hostMemory is the host's physical memory in bytes, or 0 if it won't say.
+func hostMemory() int64 {
+	var info syscall.Sysinfo_t
+	if err := syscall.Sysinfo(&info); err != nil {
+		return 0
+	}
+	return int64(info.Totalram) * int64(info.Unit)
+}

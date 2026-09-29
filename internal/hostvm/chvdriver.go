@@ -428,40 +428,96 @@ func (h *CHV) delete(ctx context.Context, v *VM) error {
 }
 
 // resize gives the VM cpus CPUs and a memory cap of capacity bytes; zero
-// leaves one as it is. It only changes the Config: both take effect when the
-// VM next starts, since a running VM's CPUs are fixed at boot and so is the
-// size of the region virtio-mem grows its memory into. Nothing is stopped.
-func (h *CHV) resize(ctx context.Context, v *VM, cpus int, capacity int64) error {
+// leaves one as it is. The Config always changes, for the VM's next start. A
+// running VM changes too, without a restart, when the new size fits in the
+// room it booted with (chv.Room: every core and all of the host's memory,
+// for a VM started by this agentbox): its supervisor hotplugs the CPUs and
+// moves the memory policy's cap, and the daemon in it is restarted to see
+// them, which leaves every agent running. A size that doesn't fit, or a VM
+// started by an older agentbox, needs the VM restarted, which stops every
+// agent: with restart, resize does it; without, it says so and stops there.
+func (h *CHV) resize(ctx context.Context, v *VM, cpus int, capacity int64, restart bool) error {
 	unlock, err := v.lock(ctx, true)
 	if err != nil {
 		return err
 	}
-	defer unlock()
 	c := h.Config
-	if (cpus == 0 || cpus == c.CPUs) && (capacity == 0 || capacity == c.MemoryCap) {
-		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM already has %d CPUs and a memory cap of %s.\n", c.CPUs, sizeWords(c.MemoryCap))
-		return nil
-	}
 	if cpus != 0 {
 		c.CPUs = cpus
 	}
 	if capacity != 0 {
 		if capacity < c.MemoryMin {
+			unlock()
 			return fmt.Errorf("a memory cap of %s is less than the %s the VM boots with", sizeWords(capacity), sizeWords(c.MemoryMin))
 		}
 		c.MemoryCap = capacity
 	}
-	if err := c.Save(v.Paths); err != nil {
+	if c != h.Config {
+		if err := c.Save(v.Paths); err != nil {
+			unlock()
+			return err
+		}
+		h.Config = c
+	}
+	size := fmt.Sprintf("%d CPUs and a memory cap of %s", c.CPUs, sizeWords(c.MemoryCap))
+	st := chvStatus(ctx, c, h.Layout, v.Paths)
+	switch st.State {
+	case api.VMOff, api.VMMissing:
+		unlock()
+		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM has %s when it next starts.\n", size)
+		return nil
+	}
+	wantCap := chv.CapFor(c)
+	if st.CPUs == c.CPUs && st.Memory.Cap == wantCap {
+		unlock()
+		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM has %s already.\n", size)
+		return nil
+	}
+	if st.State != api.VMPaused && fitsLive(st.Live, c.CPUs, c.MemoryCap) {
+		_, _ = fmt.Fprintf(v.Log, "==> Giving AgentBox's VM %s, while it runs\n", size)
+		err := chv.Resize(ctx, h.Layout, v.Paths, api.VMResizeRequest{CPUs: c.CPUs, MemoryCap: c.MemoryCap})
+		unlock()
+		if err != nil {
+			return err
+		}
+		// The daemon reads the VM's cores and memory cap as it starts: a
+		// new one sees the new size. Agents keep running.
+		if err := v.writeProfile(ctx); err != nil {
+			return err
+		}
+		if err := v.restartDaemon(ctx); err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM has %s now, and every agent kept running.\n", size)
+		return nil
+	}
+	unlock()
+	if !restart {
+		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM has %s from when it next starts: it can't change that much while it runs. Run this again with --restart to restart it now, which stops every agent.\n", size)
+		return nil
+	}
+	_, _ = fmt.Fprintf(v.Log, "==> Restarting AgentBox's VM to give it %s: every agent in it stops\n", size)
+	if err := v.Stop(ctx, true); err != nil {
 		return err
 	}
-	h.Config = c
-	switch chvStatus(ctx, c, h.Layout, v.Paths).State {
-	case api.VMOff, api.VMMissing:
-		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM has %d CPUs and a memory cap of %s when it next starts.\n", c.CPUs, sizeWords(c.MemoryCap))
-	default:
-		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM has %d CPUs and a memory cap of %s from when it next starts: it runs, and keeps its size until then (agentbox vm stop, then agentbox vm start, which stops every agent).\n", c.CPUs, sizeWords(c.MemoryCap))
+	if err := v.Ready(ctx); err != nil {
+		return err
 	}
+	if err := v.writeProfile(ctx); err != nil {
+		return err
+	}
+	if err := v.daemonUp(ctx); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(v.Log, "AgentBox's VM has %s now.\n", size)
 	return nil
+}
+
+// fitsLive says whether cpus and a memory cap fit in what a running VM can
+// be resized to without a restart; a VM that doesn't say (one started by an
+// older agentbox) fits nothing.
+func fitsLive(live *api.VMLimits, cpus int, capacity int64) bool {
+	return live != nil && cpus >= live.MinCPUs && cpus <= live.MaxCPUs && capacity >= live.MinMemory && capacity <= live.MaxMemory
 }
 
 // hostModeStatus is `agentbox vm status --json` on a Linux machine that runs

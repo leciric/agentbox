@@ -63,6 +63,29 @@ type VMStatus struct {
 	CPUs    int      `json:"cpus,omitempty"`
 	Memory  VMMemory `json:"memory"`
 	Disk    VMDisk   `json:"disk"`
+	// Limits are the sizes `agentbox vm resize` takes for a Cloud Hypervisor
+	// VM on this machine: 1 CPU to every core, and a memory cap from what the
+	// VM boots with to all of the host's memory. Missing for Lima's.
+	Limits *VMLimits `json:"limits,omitempty"`
+	// Live is what the running VM can be resized to without a restart: the
+	// CPUs it can hotplug and the memory its virtio-mem region holds, both
+	// fixed when it booted. Missing when it isn't running.
+	Live *VMLimits `json:"live,omitempty"`
+}
+
+// VMLimits bound a VM's CPUs and memory (bytes).
+type VMLimits struct {
+	MinCPUs   int   `json:"minCpus"`
+	MaxCPUs   int   `json:"maxCpus"`
+	MinMemory int64 `json:"minMemory"`
+	MaxMemory int64 `json:"maxMemory"`
+}
+
+// VMResizeRequest is POST /v1/vm/resize, which the VM's supervisor does
+// without a restart when it fits in VMStatus.Live; zero leaves one as it is.
+type VMResizeRequest struct {
+	CPUs      int   `json:"cpus,omitempty"`
+	MemoryCap int64 `json:"memoryCap,omitempty"`
 }
 
 // VMMemory is the VM's memory, in bytes. A Cloud Hypervisor VM starts at Min

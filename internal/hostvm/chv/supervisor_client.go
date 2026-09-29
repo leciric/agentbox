@@ -232,6 +232,12 @@ func Resume(ctx context.Context, l Layout, p paths.Paths) error {
 	return vmPost(ctx, p, "/v1/vm/resume", nil)
 }
 
+// Resize has the running VM's supervisor give it req's CPUs and memory cap
+// without a restart; it fails when they don't fit in VMStatus.Live.
+func Resize(ctx context.Context, l Layout, p paths.Paths, req api.VMResizeRequest) error {
+	return vmPost(ctx, p, "/v1/vm/resize", req)
+}
+
 // Status is the VM's state; it never fails, a VM it can't reach is off.
 func Status(ctx context.Context, c Config, l Layout, p paths.Paths) api.VMStatus {
 	name := c.Name

@@ -41,6 +41,7 @@ type supervisor struct {
 	cloud, passt, fs *child
 
 	policy memPolicy
+	room   Room                   // how far it can be resized without a restart
 	stopc  chan api.VMStopRequest // a stop asked for over vm.sock
 
 	mu          sync.Mutex
@@ -66,6 +67,7 @@ func Supervise(ctx context.Context, c Config, l Layout, p paths.Paths) error {
 		log:    log.New(os.Stderr, "", log.LstdFlags),
 		ch:     newCHClient(l.APISocket()),
 		policy: memPolicy{Min: c.MemoryMin, Cap: c.MemoryMin + hotplugSize(c)},
+		room:   roomFor(c, hostCPUs(), hostMemory()),
 		stopc:  make(chan api.VMStopRequest, 1),
 		state:  api.VMStarting,
 		since:  time.Now(),
@@ -205,7 +207,7 @@ func (s *supervisor) startVM(ctx context.Context) error {
 	if err := waitSocket(ctx, s.passt, s.l.PasstSocket()); err != nil {
 		return err
 	}
-	if s.cloud, err = startChild("cloud-hypervisor", s.l.Bin("cloud-hypervisor"), chArgs(s.c, s.l), logw); err != nil {
+	if s.cloud, err = startChild("cloud-hypervisor", s.l.Bin("cloud-hypervisor"), chArgs(s.c, s.l, s.room), logw); err != nil {
 		return err
 	}
 	if err := waitSocket(ctx, s.cloud, s.l.APISocket()); err != nil {
