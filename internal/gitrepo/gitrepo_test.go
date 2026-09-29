@@ -432,6 +432,7 @@ func TestMergedIntoOnRemoteAndPushed(t *testing.T) {
 // other worktrees' entries as it adds one, and fails on an entry another add
 // has made but not yet written, unless AgentBox's adds take turns.
 func TestAddWorktreeConcurrently(t *testing.T) {
+	testutil.GitEnv(t)
 	root := t.TempDir()
 	testutil.Git(t, root, "init", "-q", "-b", "main")
 	testutil.Git(t, root, "commit", "-q", "--allow-empty", "-m", "first")
