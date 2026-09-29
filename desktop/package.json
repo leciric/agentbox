@@ -44,6 +44,7 @@
     "electron": "^44.4.4",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
+    "kokoro-js": "^1.2.1",
     "lucide-react": "^1.47.0",
     "oxlint": "^1.85.0",
     "playwright": "^1.63.0",

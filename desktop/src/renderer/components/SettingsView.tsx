@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  AudioLines,
   ArrowRight,
   Bot,
   Check,
@@ -63,6 +64,7 @@ import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { VMSize } from "./VMSize";
+import { useReadAloudGroup } from "./VoiceSettings";
 
 type Status =
   | "ok"
@@ -756,6 +758,7 @@ function InstalledSettings({
   const theme = useQuery({ queryKey: ["theme"], queryFn: api.theme });
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
+  const readAloud = useReadAloudGroup();
   // On a Mac, the VM everything runs in, whose size can be changed here.
   const hostSetup = useQuery({
     queryKey: ["host-setup"],
@@ -839,6 +842,13 @@ function InstalledSettings({
           AgentBox {info.version} · Electron {info.electron} · {info.socket}
         </p>
       ),
+    },
+    {
+      id: "voice",
+      title: "Voice",
+      description: "Hearing the agents' replies read aloud.",
+      scope: "installation",
+      groups: [readAloud],
     },
     {
       id: "models",
@@ -1184,6 +1194,7 @@ function InstalledSettings({
 
 const sectionIcons: SectionIcons = {
   general: SlidersHorizontal,
+  voice: AudioLines,
   models: Sparkles,
   agents: Bot,
   resources: Cpu,
