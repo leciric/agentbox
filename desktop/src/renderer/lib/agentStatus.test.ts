@@ -5,6 +5,7 @@ import type * as T from '../../shared/api';
 import { avatarMood, chatLabel, isAsking, projectTone, rank, settled, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
+const queuedAgent = (position: number): T.Agent => ({ state: 'queued', queuePosition: position }) as T.Agent;
 
 test('chat waiting for you beats everything else', () => {
   assert.deepEqual(chatLabel(agent('running', 'waiting')), { text: 'Needs you', tone: 'urgent' });
@@ -23,6 +24,13 @@ test('a running chat is Working, an idle one is Idle or Starting', () => {
   assert.deepEqual(chatLabel(agent('running', 'running')), { text: 'Working', tone: 'live' });
   assert.deepEqual(chatLabel(agent('running', 'starting')), { text: 'Starting', tone: 'muted' });
   assert.deepEqual(chatLabel(agent('running')), { text: 'Idle', tone: 'muted' });
+});
+
+test('a queued agent shows its position, quietly', () => {
+  assert.deepEqual(chatLabel(queuedAgent(1)), { text: 'Queued #1', tone: 'muted' });
+  assert.deepEqual(chatLabel(queuedAgent(3)), { text: 'Queued #3', tone: 'muted' });
+  assert.equal(settled(queuedAgent(1)), true);
+  assert.equal(avatarMood(queuedAgent(1)), 'sleeping');
 });
 
 test('paused and stopped machines show their own state', () => {

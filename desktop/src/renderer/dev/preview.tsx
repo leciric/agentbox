@@ -113,6 +113,20 @@
 //                           the Cloud Hypervisor VM's size, running with room
 //                           to resize it live, started by an older AgentBox
 //                           (a resize restarts it), or off
+//   ?queue=busy             The agent queue (D.. the per-project slots): the
+//                           rail and sidebar with agentbox at 4 of 4 slots,
+//                           three queued below them, and organic — a second
+//                           project sharing the same budget, learned at ~6
+//                           GiB an agent against agentbox's own ~2 GiB —
+//                           content with the one slot Auto leaves it
+//   ?queue=alone            Only organic has work: Auto gives it two slots
+//                           instead of one, with nobody to share the budget
+//   ?queue=tasks            agentbox's Tasks tab: the slots strip, the
+//                           composer and the plan, three tasks queued
+//   ?queue=demo             Starts like busy, then plays the queue draining
+//                           on a timer (~4s a step) — a slot frees, the next
+//                           queued agent starts, the rest move up — until
+//                           it's empty, for a recording
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -132,6 +146,7 @@ import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
 import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
+import { ProjectTasksPanel } from '../components/ProjectTasksPanel';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
@@ -149,7 +164,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
 
 installDevBridge();
 
@@ -180,6 +195,7 @@ const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'home' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
+const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | null
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
 
@@ -257,6 +273,7 @@ if (meters) {
   seedMeterUsage(queryClient);
 }
 
+if (queue) seedQueue(queryClient, queue === 'tasks' ? 'busy' : (queue as 'busy' | 'alone' | 'demo'));
 if (power) seedPower(queryClient, power);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
@@ -312,7 +329,9 @@ if (usage) {
   ] satisfies T.ClaudeLimit[]);
 }
 
-const view: View = openAgent ? { kind: 'agent', ref: `${PROJECT}/${openAgent}` } : { kind: 'project', project: PROJECT };
+// ?queue=alone has nothing left in agentbox: organic is the project worth
+// looking at, so the rail follows it instead of the default project.
+const view: View = openAgent ? { kind: 'agent', ref: `${PROJECT}/${openAgent}` } : { kind: 'project', project: queue === 'alone' ? 'organic' : PROJECT };
 
 // UsagePreview stands the top bar up once per kind of view, so each one's
 // meter can be compared, and hovered for its tooltip.
@@ -418,6 +437,14 @@ function Preview() {
     return (
       <div style={{ maxWidth: 420, padding: 24, font: '13px var(--font-sans)' }}>
         <PullRequestsPanel project={PROJECT} onSelect={() => {}} onOpenAccount={() => {}} />
+      </div>
+    );
+  }
+
+  if (queue === 'tasks') {
+    return (
+      <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
+        <ProjectTasksPanel project={PROJECT} onSelect={() => {}} />
       </div>
     );
   }

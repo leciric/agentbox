@@ -50,6 +50,10 @@ interface Form {
   cpuAllowance: string;
   memory: string;
   resourcesTouched: boolean;
+  // Start when a slot is free, rather than right away. Defaults to the
+  // project's own alwaysQueue until you touch the switch yourself.
+  queue: boolean;
+  queueTouched: boolean;
 }
 
 const emptyForm: Form = {
@@ -73,6 +77,8 @@ const emptyForm: Form = {
   cpuAllowance: '',
   memory: '',
   resourcesTouched: false,
+  queue: false,
+  queueTouched: false,
 };
 
 const tools = [
@@ -163,6 +169,9 @@ export function NewAgentDialog({
         claudeAccount: form.ai === 'claude' ? form.claudeAccount || undefined : undefined,
         githubAccount: form.githubAccount || undefined,
         finishNotice: form.notify || undefined,
+        // Sent either way, like autonomous above: "whatever the project does
+        // by default" isn't a request queue can leave out and still mean.
+        queue: form.queue,
         // Sent only once a box has been touched. An empty string is a real
         // choice — no limit for this agent — so an untouched form must leave
         // all three out rather than send "" and uncap the agent.
@@ -189,6 +198,12 @@ export function NewAgentDialog({
   useEffect(() => {
     if (open && form.project === '' && firstProject) setForm((f) => ({ ...f, project: firstProject }));
   }, [open, form.project, firstProject]);
+
+  // Queue follows the project's own default until you touch the switch.
+  useEffect(() => {
+    if (!open || selected === undefined) return;
+    setForm((f) => (f.queueTouched ? f : { ...f, queue: selected.alwaysQueue }));
+  }, [open, selected]);
 
   // Prefilled with what new agents get, so More options shows the real numbers
   // rather than the word "default". Only until you touch them: after that the
@@ -309,6 +324,14 @@ export function NewAgentDialog({
                 ))}
               </Select>
             </Field>
+
+            <SwitchRow
+              id="agent-queue"
+              label="Queue"
+              hint="Start when a slot is free, rather than right away."
+              checked={form.queue}
+              onChange={(value) => setForm((f) => ({ ...f, queue: value, queueTouched: true }))}
+            />
 
             <div className="grid gap-1.5">
               <Label>AI tool</Label>

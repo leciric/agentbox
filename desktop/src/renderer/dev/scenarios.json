@@ -613,5 +613,26 @@
     "query": "chv=old&theme=light",
     "width": 1280,
     "height": 1600
+  },
+  {
+    "id": "queue-busy-dark",
+    "description": "The agent queue: agentbox at 4 of 4 slots with three queued below them, and organic — a second project sharing the budget — content with its own single slot — dark",
+    "query": "queue=busy&finished=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "queue-alone-light",
+    "description": "Only organic has work: Auto gives it two slots instead of one, with nobody to share the budget — light",
+    "query": "queue=alone&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "queue-tasks-dark",
+    "description": "agentbox's Tasks tab: the slots strip, the composer and the plan, three tasks queued — dark",
+    "query": "queue=tasks&theme=dark",
+    "width": 900,
+    "height": 900
   }
 ]

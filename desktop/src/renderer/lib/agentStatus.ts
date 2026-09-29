@@ -13,6 +13,7 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   if (agent.chat === 'waiting') return { text: 'Needs you', tone: 'urgent' };
   if (agent.state === 'incomplete') return { text: 'Needs attention', tone: 'error' };
   if (agent.state === 'missing') return { text: 'Missing', tone: 'error' };
+  if (agent.state === 'queued') return { text: `Queued #${agent.queuePosition ?? '?'}`, tone: 'muted' };
   if (agent.state === 'initializing') return { text: 'Initializing', tone: 'live' };
   if (agent.chat === 'running') return { text: 'Working', tone: 'live' };
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? 'Starting' : 'Idle', tone: 'muted' };

@@ -6,7 +6,7 @@ import type * as T from '../../shared/api';
 import { AgentModelAuto } from '../../shared/api';
 import { api } from '../lib/api';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
-import { cn, errorMessage } from '../lib/utils';
+import { cn, errorMessage, humanBytes } from '../lib/utils';
 import { ModelByName } from './ModelByName';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -51,6 +51,27 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           modified: project.branchPrefix !== 'agentbox/',
           // Keyed on the saved value, so a save (or another client's) starts the draft over.
           render: () => <BranchPrefixField key={project.branchPrefix} project={project} />,
+        },
+      ],
+    },
+    {
+      id: 'queue',
+      title: 'Agent queue',
+      description: `How many of ${project.name}'s agents may run at once, and what a new one does when there's no room.`,
+      entries: [
+        {
+          id: 'slots',
+          label: 'Agents at once',
+          keywords: 'queue slots concurrency budget memory auto fixed at once running',
+          modified: project.slots !== 0,
+          render: () => <SlotsSetting project={project} />,
+        },
+        {
+          id: 'always-queue',
+          label: 'Always queue new agents',
+          keywords: 'queue new agents default start immediately slot free',
+          modified: project.alwaysQueue,
+          render: () => <AlwaysQueueToggle project={project} />,
         },
       ],
     },
@@ -331,6 +352,108 @@ function describeAgentModel(project: T.Project): string {
     return `New agents of ${project.name} use the model chosen in Settings`;
   }
   return `New agents of ${project.name} start on ${project.agentModel}`;
+}
+
+// SlotsSetting chooses how many of this project's agents may run at once: 0
+// (Auto) shares the shared budget fairly with every other project, by how
+// much memory each one's agents actually use; a fixed number pins it,
+// whatever else is running. GET /v1/queue's ProjectSlots says what Auto comes
+// to right now, and whether the per-agent figure is learned from this
+// project's own agents or still the installation's memory limit.
+function SlotsSetting({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const queue = useQuery({ queryKey: ['queue', project.name], queryFn: () => api.queue(project.name) });
+  const mine = queue.data?.projects.find((p) => p.project === project.name);
+  const [fixed, setFixed] = useState(String(project.slots || mine?.slots || 1));
+  const save = useMutation({
+    mutationFn: (slots: number) => api.updateProject(project.name, { slots }),
+    onSuccess: async (updated) => {
+      toast(updated.slots === 0 ? `${updated.name} shares slots automatically again` : `${updated.name} now runs up to ${updated.slots} agent${updated.slots === 1 ? '' : 's'} at once`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+      await queryClient.invalidateQueries({ queryKey: ['queue', updated.name] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const auto = project.slots === 0;
+  const perAgent = mine ? `~${humanBytes(mine.peak)} per agent${mine.peakLearned ? ', learned' : ', from the memory limit'}` : undefined;
+
+  return (
+    <SettingRow
+      label="Agents at once"
+      description={auto ? (mine ? `Auto: currently ${mine.slots}${perAgent ? `, ${perAgent}` : ''}.` : 'Auto: split fairly with other projects, by memory.') : `Up to ${project.slots} of this project's agents run at once; the rest queue.`}
+      details="Whatever doesn't fit queues instead of starting, and starts as soon as a slot frees up. Auto gives every active project at least one slot and splits what's left of the shared budget by how much memory each project's agents actually use, least-memory projects first."
+      control={
+        <Select
+          aria-label="Agents at once"
+          disabled={save.isPending}
+          value={auto ? 'auto' : 'fixed'}
+          onChange={(value) => {
+            if (value === 'auto') save.mutate(0);
+            else save.mutate(Number(fixed) || 1);
+          }}
+        >
+          <SelectOption value="auto">Auto</SelectOption>
+          <SelectOption value="fixed">Fixed number</SelectOption>
+        </Select>
+      }
+    >
+      {!auto && (
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={1}
+            max={64}
+            aria-label="Fixed number of agents at once"
+            className="w-24 font-mono text-[13px]"
+            value={fixed}
+            disabled={save.isPending}
+            onChange={(e) => setFixed(e.target.value)}
+            onBlur={() => {
+              const n = Math.min(64, Math.max(1, Number(fixed) || 1));
+              setFixed(String(n));
+              if (n !== project.slots) save.mutate(n);
+            }}
+          />
+          {mine && <SettingNote>currently {mine.slots}</SettingNote>}
+        </div>
+      )}
+    </SettingRow>
+  );
+}
+
+// AlwaysQueueToggle is what a new agent of this project does by default: skip
+// the queue and start right away (off), or queue like the rest until a slot
+// is free (on). Either way, New agent's own Queue switch can override it for
+// one agent.
+function AlwaysQueueToggle({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (alwaysQueue: boolean) => api.updateProject(project.name, { alwaysQueue }),
+    onSuccess: async (updated) => {
+      toast(updated.alwaysQueue ? `New agents of ${updated.name} queue by default` : `New agents of ${updated.name} start right away by default`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Always queue new agents"
+      htmlFor="project-always-queue"
+      description={project.alwaysQueue ? 'A new agent queues until a slot is free, unless you turn it off in New agent.' : 'A new agent starts right away, unless you queue it in New agent.'}
+      details="Either way, New agent's own Queue switch wins for the one agent you're making."
+      control={
+        <Switch
+          id="project-always-queue"
+          data-project-always-queue
+          checked={project.alwaysQueue}
+          disabled={save.isPending}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    />
+  );
 }
 
 // BranchPrefixField sets what this project's new agents' branches start with,

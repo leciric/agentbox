@@ -23,6 +23,8 @@ export interface Project {
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
+  slots: number;
+  alwaysQueue: boolean;
   prWatching: boolean;
   createdAt: string;
 }
@@ -55,6 +57,8 @@ export interface UpdateProjectRequest {
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
+  slots?: number;
+  alwaysQueue?: boolean;
 }
 
 export interface Section {
@@ -207,6 +211,7 @@ export interface Agent {
   interface: string;
   chat?: string;
   state: string;
+  queuePosition?: number;
   ip: string;
   limits: Limits;
   memoryShortage?: MemoryShortage;
@@ -240,6 +245,8 @@ export interface CreateAgentRequest {
   memory?: string;
   cpuAllowance?: string;
   finishNotice?: string;
+  queue?: boolean;
+  taskId?: string;
 }
 
 export interface ForkRequest {
@@ -332,6 +339,39 @@ export interface StopAgentFailure {
   ref: string;
   title?: string;
   error: string;
+}
+
+export interface QueueStatus {
+  budget: number;
+  reserve: number;
+  projects: ProjectSlots[];
+  queued: QueuedAgent[];
+}
+
+export interface ProjectSlots {
+  project: string;
+  slots: number;
+  pinned: number;
+  peak: number;
+  peakLearned: boolean;
+  running: number;
+  queued: number;
+}
+
+export interface QueuedAgent {
+  ref: string;
+  project: string;
+  name: string;
+  title: string;
+  branch: string;
+  task?: string;
+  taskId?: string;
+  position: number;
+  queuedAt: string;
+}
+
+export interface MoveQueuedRequest {
+  position: number;
 }
 
 export interface Job {
@@ -498,6 +538,7 @@ export interface AgentChange {
   ip?: string;
   removed?: boolean;
   shortOfMemory?: boolean;
+  queuePosition?: number;
 }
 
 export interface Theme {
@@ -872,6 +913,7 @@ export interface FleetAgent {
   interface: string;
   chat?: string;
   state: string;
+  queuePosition?: number;
   ip: string;
   limits: Limits;
   memoryShortage?: MemoryShortage;
