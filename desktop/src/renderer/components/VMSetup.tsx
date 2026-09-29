@@ -98,7 +98,7 @@ function KrunkitNote({ check }: { check: NonNullable<VMStatus['krunkit']> }) {
         Install krunkit first and the VM gives the memory its agents stop using back to your Mac. Without it, the VM is made with Apple's
         Virtualization framework and keeps what it has used until it stops:
       </p>
-      <CommandBox command="brew install slp/krun/krunkit" />
+      <CommandBox command="brew tap slp/krun && brew trust slp/krun && brew install krunkit" />
     </div>
   );
 }
