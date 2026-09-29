@@ -126,14 +126,6 @@ export function buildFixtures(): FixtureData {
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
     agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'codex', chat: 'running' }),
-    // Thrashing at its memory limit (agent.ThrashWatch): the rail row and its
-    // info card carry the warning and the one-click raise.
-    agent({
-      ref: `${PROJECT}/agent-88`,
-      title: 'Run the kind cluster and the Docker services',
-      chat: 'running',
-      memoryShortage: { since: new Date().toISOString(), pressure: 47.3, refaultRate: 143 * 2 ** 20, readRate: 160 * 2 ** 20, limit: 4 * 2 ** 30, inBudget: false, raiseTo: '8GiB' },
-    }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
@@ -879,10 +871,9 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
 }
 
-// seedBudget turns the shared budget on in defaultsSettings (?budget=on), and
-// with ?budget=short has the agents in it thrashing together at its 30 GiB
-// ceiling: Settings' fields, and the rail's warning for the group.
-export function seedBudget(queryClient: QueryClient, short: boolean): void {
+// seedBudget turns the shared budget on in defaultsSettings (?budget=on), for
+// Settings' fields.
+export function seedBudget(queryClient: QueryClient): void {
   defaultsSettings = {
     ...defaultsSettings,
     sharedBudget: {
@@ -890,9 +881,6 @@ export function seedBudget(queryClient: QueryClient, short: boolean): void {
       on: true,
       memory: '20GiB',
       inside: 4,
-      shortage: short
-        ? { since: new Date().toISOString(), pressure: 38.4, refaultRate: 1.9 * 2 ** 30, readRate: 2.1 * 2 ** 30, limit: 30 * 2 ** 30, inBudget: false }
-        : undefined,
     },
   };
   queryClient.setQueryData(['settings'], defaultsSettings);
@@ -1099,16 +1087,6 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(devState.media), contentType: 'application/json' };
       if (method === 'GET' && devState.media && path === `/v1/agents/${PROJECT}/agent-99/media`)
         return { status: 200, body: JSON.stringify(devState.media.filter((m) => m.agentName === 'agent-99')), contentType: 'application/json' };
-      // Raising a thrashing agent's memory from its warning (agent-88): the
-      // limit is applied, and the daemon's next sample, under the new limit,
-      // clears the warning, as it does on a real one.
-      const agentPath = /^\/v1\/agents\/([^/]+)\/([^/]+)$/.exec(path);
-      if (method === 'PATCH' && agentPath && devState.agents && (body as T.UpdateAgentRequest).memory !== undefined) {
-        const ref = `${decodeURIComponent(agentPath[1])}/${decodeURIComponent(agentPath[2])}`;
-        const memory = (body as T.UpdateAgentRequest).memory as string;
-        devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, limits: { ...a.limits, memory }, memoryShortage: undefined } : a));
-        return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
-      }
       if (method === 'GET' && path === '/v1/agents' && devState.agents) return { status: 200, body: JSON.stringify(devState.agents), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/projects') return { status: 200, body: JSON.stringify(devState.projects), contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/auth') return { status: 200, body: JSON.stringify(devState.auth), contentType: 'application/json' };

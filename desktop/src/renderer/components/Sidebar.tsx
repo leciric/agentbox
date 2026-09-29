@@ -15,6 +15,7 @@ import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Field, Input } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
+import { Skeleton, skeletonWidths } from './ui/skeleton';
 import { Tip } from './ui/tooltip';
 
 // A quieter version of the rail's vocabulary: what to call a project's most
@@ -59,7 +60,8 @@ export function Sidebar({
 
   // The sidebar's order, as the daemon last said it: the sections in theirs,
   // then the projects in none. Every move below is a function of this.
-  const lists = useMemo(() => buildLists(projects.data ?? [], sections.data ?? []), [projects.data, sections.data]);
+  // No sections before the projects are in either: each would show as empty.
+  const lists = useMemo(() => (projects.data ? buildLists(projects.data, sections.data ?? []) : []), [projects.data, sections.data]);
 
   const [dragging, setDragging] = useState<Dragging | null>(null);
   const [target, setTarget] = useState<DropTarget | null>(null);
@@ -198,7 +200,11 @@ export function Sidebar({
                 <span className={cn('size-1.5 shrink-0 rounded-full', toneDot[tone])} aria-label={toneLabel[tone]} />
               </Tip>
             )}
-            <span className="ml-auto rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{mine.length}</span>
+            {agents.data ? (
+              <span className="ml-auto rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{mine.length}</span>
+            ) : (
+              <Skeleton className="ml-auto h-3.5 w-5 rounded-full" />
+            )}
           </button>
           <Tip label={`New agent in ${project.name}`}>
             <button
@@ -287,6 +293,19 @@ export function Sidebar({
             </button>
           </Tip>
         </div>
+        {/* Until the first list arrives, rows where the projects will be:
+            an empty list, or "Add your first project", would say there are
+            none. */}
+        {!projects.data && (
+          <div className="grid gap-0.5" aria-busy data-projects-loading>
+            {skeletonWidths.slice(0, 3).map((width) => (
+              <div key={width} className="flex items-center gap-2 py-2 pl-2.5 pr-2">
+                <Skeleton className={cn('h-3.5', width)} />
+                <Skeleton className="ml-auto h-3.5 w-5 rounded-full" />
+              </div>
+            ))}
+          </div>
+        )}
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />

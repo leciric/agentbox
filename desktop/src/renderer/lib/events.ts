@@ -3,8 +3,8 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { ConnectionState } from '../../preload';
-import * as T from '../../shared/api';
-import { applyChatEvent, resetChatEvents } from './chat';
+import * as T from '../../shared/api.ts';
+import { applyChatEvent, resetChatEvents } from './chat.ts';
 
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
@@ -92,11 +92,6 @@ export function connectEvents(queryClient: QueryClient): void {
         // hook on it (useHostTheme) is what restyles the window.
         queryClient.setQueryData(['theme'], event.data as T.Theme);
         break;
-      case T.EventBudget:
-        // The agents in the shared budget started or stopped thrashing at
-        // its memory together: the warning is read from Settings.
-        void queryClient.invalidateQueries({ queryKey: ['settings'] });
-        break;
       case T.EventUpdate:
         // The daily update check found something, or was turned on or off.
         queryClient.setQueryData(['update'], event.data as T.UpdateStatus);
@@ -124,10 +119,7 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventAgent: {
         const change = event.data as T.AgentChange;
         const agents = queryClient.getQueryData<T.Agent[]>(['agents']);
-        // Starting or stopping thrashing at its memory limit is only a flag
-        // here; the warning's figures and its offer come with the agent.
-        const known = agents?.find((a) => a.ref === change.ref);
-        if (agents && known && !change.removed && !!known.memoryShortage === !!change.shortOfMemory) {
+        if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
           queryClient.setQueryData<T.Agent[]>(
             ['agents'],
             agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '' } : a)),

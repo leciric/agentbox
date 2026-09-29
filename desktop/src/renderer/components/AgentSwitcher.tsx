@@ -36,7 +36,8 @@ export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSe
           aria-label={`Switch chat or agent in ${project}`}
         >
           <Users className="size-3.5" />
-          <span className="hidden tabular-nums sm:inline">{mine.length}</span>
+          {/* No count before the agents are in: 0 would say there are none. */}
+          {agents.data && <span className="hidden tabular-nums sm:inline">{mine.length}</span>}
           <ChevronsUpDown className="size-3" />
         </button>
       </MenuTrigger>

@@ -9,9 +9,9 @@ import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
-import { BudgetShortageWarning, MemoryShortageWarning } from './MemoryShortage';
 import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
+import { Skeleton, skeletonWidths } from './ui/skeleton';
 import { Tip } from './ui/tooltip';
 
 // AgentRail is a project's agents, kept visible beside whatever you're looking
@@ -81,9 +81,6 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
         onClick={() => onSelect({ kind: 'agent', ref: agent.ref })}
       >
         <AgentAvatar ai={agent.ai} mood={mood(agent)} state={agent.state} seed={agent.ref} />
-        {agent.memoryShortage && (
-          <span className="absolute right-0 top-0 size-2.5 rounded-full bg-amber-400 ring-2 ring-rail" data-rail-short={agent.ref} aria-label="short of memory" />
-        )}
       </button>
     </Tip>
   );
@@ -116,6 +113,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
             <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} className={cn(onLead && 'ring-1 ring-brand-400')} />
           </button>
         </Tip>
+        {!agents.data && skeletonWidths.slice(0, 3).map((width) => <Skeleton key={width} className="m-0.5 size-10 rounded-xl" />)}
         {moving.map(icon)}
         {finished.length > 0 && (
           <>
@@ -166,7 +164,6 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
-        <BudgetShortageWarning className="mx-1 mb-1.5" onOpenSettings={() => onSelect({ kind: 'settings' })} />
         <button
           onClick={() => onSelect({ kind: 'project', project })}
           className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', onLead ? 'bg-surface-strong' : 'hover:bg-surface')}
@@ -179,7 +176,23 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           </span>
         </button>
 
-        {moving.length > 0 && <div className="my-1.5 border-t border-line-faint" />}
+        {(moving.length > 0 || !agents.data) && <div className="my-1.5 border-t border-line-faint" />}
+
+        {/* Until the first list arrives, rows where the agents will be: "No
+            agents yet" would be a guess. */}
+        {!agents.data && (
+          <div aria-busy data-rail-loading>
+            {skeletonWidths.slice(0, 3).map((width) => (
+              <div key={width} className="flex items-center gap-2.5 px-2.5 py-2 xl:py-2.5">
+                <Skeleton className="size-10 shrink-0 rounded-xl" />
+                <span className="grid min-w-0 flex-1 gap-1.5">
+                  <Skeleton className={cn('h-3.5', width)} />
+                  <Skeleton className="h-2.5 w-1/3" />
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {moving.map(row)}
 
@@ -198,7 +211,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           </section>
         )}
 
-        {mine.length === 0 && (
+        {agents.data && mine.length === 0 && (
           <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
             <p className="text-[12.5px] leading-relaxed text-subtle">No agents yet in {project}.</p>
             <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={() => onNewAgent(project)}>
@@ -297,7 +310,6 @@ function AgentRow({
           </span>
         </button>
         {pr && <PullRequestBadge pr={pr} />}
-        <MemoryShortageWarning agent={agent} className="mx-1 mb-1.5" />
       </div>
     </AgentContextMenu>
   );
