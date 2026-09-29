@@ -86,10 +86,12 @@ jobs:
           bin/agentbox-arm64 --version
           bin/agentbox-arm64 vm init --help | grep -q -- '--driver'
 
+      # The front end's own tests, on the OS they're for: they drive a fake
+      # limactl and fake VMs, so no VM is made.
       - name: Unit tests
         env:
           CGO_ENABLED: "1"
-        run: go test ./...
+        run: go test ./internal/hostvm/... ./internal/paths ./internal/api
 
       # The vz driver's configuration, validated by the framework, and its
       # checks, from a test binary signed with the entitlement as agentbox is.
@@ -171,22 +173,6 @@ jobs:
           restore-keys: go-${{ runner.os }}-
 
       - run: scripts/check-coverage.sh
-
-  # The front end's own tests, on a Mac: they drive a fake limactl, so no VM
-  # is made, but they run on the OS they're for. The release workflow ships
-  # the Mac app whether or not Apple's signing secret exists, so this runs
-  # unconditionally too.
-  macos:
-    name: Go on macOS
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: jdx/mise-action@v4
-        with:
-          install_args: go
-
-      - run: go test ./internal/hostvm ./internal/paths
 
   desktop:
     name: Desktop
