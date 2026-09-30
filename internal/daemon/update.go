@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -48,20 +49,36 @@ func (s *Server) checkForUpdate(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	latest, err := update.Check(ctx, s.cfg.UpdateURL, update.NewRequest(install, Version))
-	// The usage stats go with the check, whatever it found (usagestats.go).
-	s.sendUsage(ctx, install)
+	channel, err := s.updateChannel(ctx)
 	if err != nil {
 		return
 	}
-	// Turned off while the request was out: what it found isn't shown.
+	stable, err := update.Check(ctx, s.cfg.UpdateURL, update.NewRequest(install, Version))
+	// The usage stats go with the check, whatever it found (usagestats.go).
+	s.sendUsage(ctx, install)
+	// The nightly channel asks GitHub for the nightlies too, since
+	// agentbox.linting.dev only answers with stable releases. Either answer
+	// alone is still worth offering.
+	var nightly update.Latest
+	var nightlyErr error
+	if channel == update.ChannelNightly {
+		nightly, nightlyErr = update.LatestRelease(ctx, s.cfg.ReleasesURL, update.ChannelNightly)
+	}
+	if err != nil && (channel != update.ChannelNightly || nightlyErr != nil) {
+		return
+	}
+	// Turned off, or switched to another channel, while the requests were
+	// out: what they found isn't shown.
 	if on, err := s.updateCheckOn(ctx); err != nil || !on {
+		return
+	}
+	if now, err := s.updateChannel(ctx); err != nil || now != channel {
 		return
 	}
 	now := time.Now()
 	var available *api.UpdateAvailable
-	if update.Newer(latest.Version, Version) {
-		available = &api.UpdateAvailable{Version: latest.Version, URL: latest.URL}
+	if offer, ok := update.Offer(channel, Version, stable, nightly); ok {
+		available = &api.UpdateAvailable{Version: offer.Version, URL: offer.URL}
 	}
 	s.updates.mu.Lock()
 	changed := !sameUpdate(s.updates.available, available)
@@ -126,12 +143,49 @@ func (s *Server) setUpdateCheck(ctx context.Context, on bool) error {
 	return nil
 }
 
+// updateChannel is the channel the check follows: the setting, or the one this
+// build came from when nobody chose.
+func (s *Server) updateChannel(ctx context.Context) (string, error) {
+	c, err := s.store.Setting(ctx, state.SettingUpdateChannel)
+	if err != nil {
+		return "", err
+	}
+	if !update.ValidChannel(c) {
+		c = update.DefaultChannel(Version)
+	}
+	return c, nil
+}
+
+// setUpdateChannel is the channel changing: what the last check found was for
+// the other one, so it is forgotten, and a check goes out at once.
+func (s *Server) setUpdateChannel(ctx context.Context, channel string) error {
+	if !update.ValidChannel(channel) {
+		return fmt.Errorf("updateChannel must be %q or %q", update.ChannelStable, update.ChannelNightly)
+	}
+	if err := s.store.SetSetting(ctx, state.SettingUpdateChannel, channel); err != nil {
+		return err
+	}
+	s.updates.mu.Lock()
+	s.updates.available, s.updates.checkedAt = nil, nil
+	s.updates.mu.Unlock()
+	select {
+	case s.updates.now <- struct{}{}:
+	default:
+	}
+	s.publishUpdate(ctx)
+	return nil
+}
+
 func (s *Server) updateStatus(ctx context.Context) (api.UpdateStatus, error) {
 	enabled, err := s.store.FlagOn(ctx, state.SettingUpdateCheck)
 	if err != nil {
 		return api.UpdateStatus{}, err
 	}
-	out := api.UpdateStatus{Current: Version, Enabled: enabled, Blocked: update.Blocked(Version)}
+	channel, err := s.updateChannel(ctx)
+	if err != nil {
+		return api.UpdateStatus{}, err
+	}
+	out := api.UpdateStatus{Current: Version, Enabled: enabled, Channel: channel, Nightly: update.IsNightly(Version), Blocked: update.Blocked(Version)}
 	s.updates.mu.Lock()
 	out.Available, out.CheckedAt = s.updates.available, s.updates.checkedAt
 	s.updates.mu.Unlock()
@@ -150,4 +204,47 @@ func (s *Server) getUpdate(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return writeJSON(w, http.StatusOK, status)
+}
+
+// getLatestRelease is where "Update available" leads: the chosen channel's
+// latest release as GitHub lists it at the moment it is clicked — on the
+// stable channel the newest release that isn't a prerelease. The link used to
+// be whatever the last daily check found, pinned to that version's page, and
+// with releases coming out several a day an app that checked in the morning
+// sent its user to a release two behind the latest all day. When GitHub can't
+// be reached, the last check's find is still better than nothing. A newer
+// release found here also becomes what the sidebar offers.
+func (s *Server) getLatestRelease(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	channel, err := s.updateChannel(ctx)
+	if err != nil {
+		return err
+	}
+	latest, err := update.LatestRelease(ctx, s.cfg.ReleasesURL, channel)
+	if err != nil {
+		s.updates.mu.Lock()
+		last := s.updates.available
+		s.updates.mu.Unlock()
+		if last == nil {
+			return fmt.Errorf("finding the latest release: %w", err)
+		}
+		return writeJSON(w, http.StatusOK, last)
+	}
+	if on, err := s.updateCheckOn(ctx); err == nil && on {
+		stable, nightly := latest, update.Latest{}
+		if channel == update.ChannelNightly {
+			nightly = latest
+		}
+		if offer, ok := update.Offer(channel, Version, stable, nightly); ok {
+			available := &api.UpdateAvailable{Version: offer.Version, URL: offer.URL}
+			s.updates.mu.Lock()
+			changed := !sameUpdate(s.updates.available, available)
+			s.updates.available = available
+			s.updates.mu.Unlock()
+			if changed {
+				s.publishUpdate(ctx)
+			}
+		}
+	}
+	return writeJSON(w, http.StatusOK, api.UpdateAvailable{Version: latest.Version, URL: latest.URL})
 }

@@ -173,7 +173,10 @@ build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
 
 Once a day, and as it starts, the AgentBox daemon asks `agentbox.linting.dev` whether a newer
 release is out. When one is, the app shows **Update available** in its sidebar and
-`agentbox version` prints a link to the release. Nothing is downloaded or installed. The same
+`agentbox version` prints a link to the release. Clicking it opens your channel's latest release
+as GitHub lists it at that moment (the daemon reads the public list of releases,
+`GET https://api.github.com/repos/leciric/agentbox/releases`, with nothing added to it), so a
+release made since the last check isn't missed. Nothing is downloaded or installed. The same
 request is how we count active installations.
 
 **What is sent** is one HTTPS request with four query parameters, and nothing else:
@@ -212,6 +215,16 @@ models, prompts or anything you typed. Counts the server has are deleted from `s
 counts it never got are dropped after 31 days. Switch off **Share anonymous usage stats** under
 **Settings → General** to stop them and delete what wasn't sent yet; they are also off whenever
 the update check is.
+
+**Nightly builds** are built from the next release as it stands, and published as GitHub
+prereleases named `<next version>-nightly.<date>.<run>`, such as `0.11.0-nightly.20260929.12`.
+They are for trying what's coming, and are never marked as the latest release. To be offered them,
+pick **Nightly** under **Update channel** in **Settings → General**, or run
+`agentbox version --channel nightly`; a nightly build starts out on that channel, and shows
+**Nightly** in the app's sidebar. On the nightly channel the check also asks GitHub for its list of
+releases (`GET https://api.github.com/repos/leciric/agentbox/releases`, a public page, with nothing
+added to it), since `agentbox.linting.dev` only answers with stable releases. Going back to
+**Stable** offers the latest stable release, even though its version is lower than the nightly's.
 
 **To turn the check off**, and the usage stats with it, switch off **Check for updates** in the app under **Settings → General**,
 or set `AGENTBOX_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` in the daemon's environment (restart it with

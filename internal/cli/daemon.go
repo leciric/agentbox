@@ -39,6 +39,7 @@ func newDaemonCmd(a *app) *cobra.Command {
 				// Pointed somewhere else to try the check against a
 				// local server; empty is the real one.
 				UpdateURL:   os.Getenv("AGENTBOX_UPDATE_URL"),
+				ReleasesURL: os.Getenv("AGENTBOX_RELEASES_URL"),
 				PreviewAddr: os.Getenv("AGENTBOX_PREVIEW_ADDR"),
 			})
 			if err != nil {

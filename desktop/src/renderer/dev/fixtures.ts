@@ -688,6 +688,8 @@ const devState: {
   agents?: T.Agent[];
   vmPower?: VMPower | null;
   hostSetup?: HostSetupStatus;
+  update?: T.UpdateStatus;
+  appVersion?: string;
 } = { projects: [] };
 
 // seedQueryClient primes every query AgentRail and Sidebar read, at
@@ -1017,6 +1019,8 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     };
   if (req.sharedBudgetMemory !== undefined)
     next.sharedBudget = { ...next.sharedBudget, memory: req.sharedBudgetMemory || next.sharedBudget.suggested.memory, chosen: req.sharedBudgetMemory !== '' };
+  // The channel changes what the update check offers (seedNightly).
+  if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.
   for (const key of ['defaultClaudeEffort', 'defaultCPU', 'defaultCPUAllowance', 'defaultMemory', 'resumeAfterLimit', 'claudeCompactWindow', 'updateCheck', 'usageStats', 'prWatch', 'mediaRetention'] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
@@ -1170,7 +1174,7 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['cli'], devState.cli);
   queryClient.setQueryData(['auth'], devState.auth);
   queryClient.setQueryData(['settings'], defaultsSettings);
-  queryClient.setQueryData(['update'], { current: '0.7.0', enabled: true } satisfies T.UpdateStatus);
+  queryClient.setQueryData(['update'], devState.update ?? ({ current: '0.7.0', enabled: true, channel: 'stable' } satisfies T.UpdateStatus));
   queryClient.setQueryData(['theme'], {
     appearance: 'follow',
     available: true,
@@ -1302,6 +1306,7 @@ export function installDevBridge(): void {
         const got = { old: decodeURIComponent(rename[1]), name, projects: [PROJECT], agents: [`${PROJECT}/agent-01`, `${PROJECT}/lead`] };
         return { status: 200, body: JSON.stringify(got), contentType: 'application/json' };
       }
+      if (method === 'GET' && devState.update && path === '/v1/update') return { status: 200, body: JSON.stringify(devState.update), contentType: 'application/json' };
       if (method === 'GET' && devState.setup && path === '/v1/setup') return { status: 200, body: JSON.stringify(devState.setup), contentType: 'application/json' };
       if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
@@ -1355,7 +1360,7 @@ export function installDevBridge(): void {
     connection: async () => ({ state: 'connected' }),
     onConnection: () => () => {},
     onEvent: () => () => {},
-    info: async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'darwin' }),
+    info: async () => ({ socket: '/run/user/1000/agentbox.sock', version: devState.appVersion ?? 'preview', electron: '38.1.0', packaged: false, platform: 'darwin' }),
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
     cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
     hostSetup: { status: async () => devState.hostSetup ?? {}, run: async () => ({ restarted: false }), onOutput: () => () => {}, budget: async () => {} },
@@ -1371,4 +1376,24 @@ export function installDevBridge(): void {
     copyText: () => {},
     readText: async () => '',
   };
+}
+
+// seedNightly is the ?nightly=1 scenario: the app a nightly build, on the
+// nightly channel with a newer nightly out, so the sidebar wears its sky and
+// badge and Settings shows the channel. Switching to Stable in Settings offers
+// the latest stable, lower than this nightly, the way internal/update's Offer
+// does.
+const nightlyVersion = '0.11.0-nightly.20260929.12';
+function nightlyStatus(current: string, channel: string): T.UpdateStatus {
+  const available =
+    channel === 'nightly'
+      ? { version: '0.11.0-nightly.20260930.13', url: 'https://github.com/leciric/agentbox/releases/tag/v0.11.0-nightly.20260930.13' }
+      : { version: '0.10.0', url: 'https://github.com/leciric/agentbox/releases/tag/v0.10.0' };
+  return { current, enabled: true, channel, nightly: true, available, checkedAt: new Date().toISOString() };
+}
+export function seedNightly(queryClient: QueryClient): void {
+  devState.appVersion = nightlyVersion;
+  devState.update = nightlyStatus(nightlyVersion, 'nightly');
+  queryClient.setQueryData(['update'], devState.update);
+  queryClient.setQueryData(['app-info'], { socket: '/run/user/1000/agentbox.sock', version: nightlyVersion, electron: '38.1.0', packaged: true, platform: 'linux' });
 }

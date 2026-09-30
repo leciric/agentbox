@@ -18,9 +18,21 @@
 # and pushes, since release-please owns both.
 #
 #   scripts/release-build.sh --tag v0.7.1 [--check | --linux | --windows | --mac-cli]
+#   scripts/release-build.sh --nightly 20260929.12 --tag v0.8.0-nightly.20260929.12 [--check | --stamp | --linux | ...]
 #
 # --tag is the tag the caller means to publish: the build refuses to produce
 # anything else, so a workflow run can't be given the wrong version by hand.
+#
+# --nightly <YYYYMMDD>.<run> builds a nightly instead (.github/workflows/nightly.yml):
+# desktop/package.json's version, which on the release PR is already the next
+# release, becomes <version>-nightly.<YYYYMMDD>.<run>, a semver prerelease
+# that sorts before the release it leads up to and after every nightly before
+# it. The version is written into desktop/package.json and package-lock.json
+# for the build, since everything built reads it from there, and put back
+# afterwards; --stamp only writes it, for the Mac app, which the workflow
+# builds without this script. A nightly's --check wants a clean checkout and
+# no release with its tag yet, since the nightly workflow makes the release
+# itself, after the builds, rather than release-please making a draft first.
 #
 # With no part given, it checks and builds everything but the Mac's (Linux
 # then Windows) and writes SHA256SUMS over the lot. The release workflow
@@ -32,19 +44,30 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-version=$(node -p "require('$root/desktop/package.json').version")
-tag=v$version
-out=$root/desktop/dist/release/$tag
 
 want=
+nightly=
 part=all
 while [ $# -gt 0 ]; do
   case $1 in
     --tag) want=${2:-}; [ -n "$want" ] || { echo "--tag needs a tag" >&2; exit 2; }; shift 2 ;;
-    --check|--linux|--windows|--mac-cli) part=${1#--}; shift ;;
-    *) echo "usage: scripts/release-build.sh [--tag v<version>] [--check | --linux | --windows | --mac-cli]" >&2; exit 2 ;;
+    --nightly) nightly=${2:-}; [[ $nightly =~ ^[0-9]{8}\.[1-9][0-9]*$ ]] || { echo "--nightly needs <YYYYMMDD>.<run>, not \"$nightly\"" >&2; exit 2; }; shift 2 ;;
+    --check|--stamp|--linux|--windows|--mac-cli) part=${1#--}; shift ;;
+    *) echo "usage: scripts/release-build.sh [--nightly <YYYYMMDD>.<run>] [--tag v<version>] [--check | --stamp | --linux | --windows | --mac-cli]" >&2; exit 2 ;;
   esac
 done
+[ -n "$nightly" ] || [ "$part" != stamp ] || { echo "--stamp is for a nightly: give --nightly too" >&2; exit 2; }
+
+version=$(node -p "require('$root/desktop/package.json').version")
+if [ -n "$nightly" ]; then
+  # From the release's version, or from a nightly's, when a job stamped it
+  # already: the same nightly either way.
+  release=${version%%-*}
+  [[ $release =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "desktop/package.json is $version, which isn't a release a nightly can lead up to" >&2; exit 1; }
+  version=$release-nightly.$nightly
+fi
+tag=v$version
+out=$root/desktop/dist/release/$tag
 
 [ -z "$want" ] || [ "$want" = "$tag" ] || { echo "asked to release $want, but desktop/package.json is $version, which releases as $tag" >&2; exit 1; }
 
@@ -54,8 +77,39 @@ done
 # was asked to build still points at what it built from.
 check() {
   [ -z "$(git -C "$root" status --porcelain)" ] || { echo "the checkout has uncommitted changes: commit them, so the release matches a commit" >&2; exit 1; }
+  if [ -n "$nightly" ]; then
+    # gh answers "release not found" the same whether or not the tag exists
+    # without a release, so ask for the tag as well.
+    ! gh release view "$tag" >/dev/null 2>&1 || { echo "$tag is already released: a nightly is never rebuilt, the next one gets a new run number" >&2; exit 1; }
+    ! git -C "$root" ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 || { echo "the tag $tag already exists" >&2; exit 1; }
+    return
+  fi
   is_draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null) || { echo "$tag has no GitHub release yet" >&2; exit 1; }
   [ "$is_draft" = "true" ] || { echo "$tag is already published: a published release doesn't get rebuilt" >&2; exit 1; }
+}
+
+# stamp writes a nightly's version into desktop/package.json and
+# package-lock.json (its two root version fields, the ones release-please
+# bumps), where dist.mjs and electron-builder read it.
+stamp() {
+  node -e '
+    const fs = require("fs");
+    const [version, ...files] = process.argv.slice(1);
+    for (const f of files) {
+      const json = JSON.parse(fs.readFileSync(f, "utf8"));
+      json.version = version;
+      if (json.packages && json.packages[""]) json.packages[""].version = version;
+      fs.writeFileSync(f, JSON.stringify(json, null, 2) + "\n");
+    }' "$version" "$root/desktop/package.json" "$root/desktop/package-lock.json"
+}
+
+# stamp_for_build is a nightly's build stamping the version for its own sake:
+# it puts the files back when it's done, so a build on a developer's checkout
+# leaves nothing behind. --stamp is the one part that means to leave it.
+stamp_for_build() {
+  [ -n "$nightly" ] || return 0
+  stamp
+  trap 'git -C "$root" checkout -- desktop/package.json desktop/package-lock.json' EXIT
 }
 
 ldflags="-s -w -X agentbox/internal/cli.version=$version -X agentbox/internal/daemon.Version=$version"
@@ -102,11 +156,13 @@ build_windows() {
 
 case $part in
   check) check ;;
-  linux) rm -rf "$out"; mkdir -p "$out"; build_linux ;;
-  windows) rm -rf "$out"; mkdir -p "$out"; build_windows ;;
-  mac-cli) rm -rf "$out"; mkdir -p "$out"; build_mac_cli ;;
+  stamp) stamp; echo "==> desktop/package.json is $version" ;;
+  linux) stamp_for_build; rm -rf "$out"; mkdir -p "$out"; build_linux ;;
+  windows) stamp_for_build; rm -rf "$out"; mkdir -p "$out"; build_windows ;;
+  mac-cli) stamp_for_build; rm -rf "$out"; mkdir -p "$out"; build_mac_cli ;;
   all)
     check
+    stamp_for_build
     rm -rf "$out"
     mkdir -p "$out"
     build_linux
@@ -114,4 +170,4 @@ case $part in
     (cd "$out" && sha256sum AgentBox-* agentbox-* >SHA256SUMS && cat SHA256SUMS)
     ;;
 esac
-echo "==> $tag ($part) is built in $out"
+[ "$part" = stamp ] || echo "==> $tag ($part) is built in $out"

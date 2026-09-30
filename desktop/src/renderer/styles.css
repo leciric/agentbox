@@ -863,3 +863,72 @@
     transform: translate(2px, -3px);
   }
 }
+
+/* A nightly build (lib/nightly.ts): a few stars over a dusk wash behind the
+   sidebar's header, and the Nightly badge beside the name. The stars are dots
+   of --ab-star, pale on dark and indigo on light, and a handful twinkle unless
+   motion is reduced. The wash fades out before the header ends, so nothing
+   below it changes. */
+:root {
+  --ab-star: rgb(255 255 255 / 0.7);
+  --ab-night: rgb(99 102 241 / 0.16);
+}
+:root[data-appearance="light"] {
+  --ab-star: rgb(79 70 229 / 0.75);
+  --ab-night: rgb(99 102 241 / 0.14);
+}
+
+.nightly-sky {
+  position: relative;
+  isolation: isolate;
+}
+.nightly-sky::before,
+.nightly-sky::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, black 45%, transparent);
+}
+.nightly-sky::before {
+  background:
+    radial-gradient(1px 1px at 12% 22%, var(--ab-star), transparent),
+    radial-gradient(1px 1px at 27% 74%, var(--ab-star), transparent),
+    radial-gradient(1.5px 1.5px at 44% 18%, var(--ab-star), transparent),
+    radial-gradient(1px 1px at 58% 58%, var(--ab-star), transparent),
+    radial-gradient(1px 1px at 71% 28%, var(--ab-star), transparent),
+    radial-gradient(1.5px 1.5px at 83% 66%, var(--ab-star), transparent),
+    radial-gradient(1px 1px at 93% 16%, var(--ab-star), transparent),
+    linear-gradient(to bottom, var(--ab-night), transparent);
+}
+.nightly-sky::after {
+  background:
+    radial-gradient(1.5px 1.5px at 36% 42%, var(--ab-star), transparent),
+    radial-gradient(1px 1px at 66% 12%, var(--ab-star), transparent),
+    radial-gradient(1.5px 1.5px at 97% 48%, var(--ab-star), transparent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nightly-sky::after {
+    animation: nightly-twinkle 5s ease-in-out infinite alternate;
+  }
+}
+@keyframes nightly-twinkle {
+  from {
+    opacity: 0.25;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.nightly-badge {
+  color: var(--ab-brand-300);
+  background: color-mix(in srgb, var(--ab-brand-mid) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ab-brand-mid) 32%, transparent);
+}
+:root[data-appearance="light"] .nightly-badge {
+  color: var(--ab-brand-deep);
+  background: color-mix(in srgb, var(--ab-brand-mid) 12%, white);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ab-brand-mid) 45%, transparent);
+}

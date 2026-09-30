@@ -505,6 +505,9 @@ type UpdateSettingsRequest struct {
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`
 	// UpdateCheck turns the daily update check on or off.
 	UpdateCheck *bool `json:"updateCheck,omitempty"`
+	// UpdateChannel picks what the update check offers: UpdateChannelStable
+	// or UpdateChannelNightly. Changing it checks again at once.
+	UpdateChannel *string `json:"updateChannel,omitempty"`
 	// UsageStats turns the anonymous usage stats on or off. Off also forgets
 	// the counts not sent yet.
 	UsageStats *bool `json:"usageStats,omitempty"`
@@ -1584,6 +1587,12 @@ type UpdateStatus struct {
 	Current string `json:"current"`
 	// Enabled is the setting (Settings.UpdateCheck).
 	Enabled bool `json:"enabled"`
+	// Channel is what the check offers: UpdateChannelStable, only stable
+	// releases, or UpdateChannelNightly, the nightly builds as well. It
+	// defaults to the channel Current came from.
+	Channel string `json:"channel"`
+	// Nightly says Current is a nightly build.
+	Nightly bool `json:"nightly,omitempty"`
 	// Blocked says why the check is off whatever the setting says — a
 	// development build, AGENTBOX_NO_UPDATE_CHECK=1 or DO_NOT_TRACK=1 in the
 	// daemon's environment — and is empty when nothing is in its way.
@@ -1595,7 +1604,15 @@ type UpdateStatus struct {
 	CheckedAt *time.Time `json:"checkedAt,omitempty"`
 }
 
-// UpdateAvailable is a newer release of AgentBox, and its release page.
+// The update channels (UpdateStatus.Channel).
+const (
+	UpdateChannelStable  = "stable"
+	UpdateChannelNightly = "nightly"
+)
+
+// UpdateAvailable is a newer release of AgentBox, and its release page. On
+// the stable channel, running a nightly, it can be a lower version: the
+// latest stable, to go back to.
 type UpdateAvailable struct {
 	Version string `json:"version"`
 	URL     string `json:"url"`
