@@ -343,6 +343,13 @@ func (s *Server) runClaudeLogin(ctx context.Context, log io.Writer, login *claud
 	token, err := s.manager(log).SetupToken(ctx, agent.SetupTokenEvents{
 		Status: status,
 		Browser: func(url string) {
+			// Its callback is on this machine's localhost, which a browser
+			// outside the VM can't reach: the code page is the only login
+			// that can finish, so it is the only one offered.
+			if s.loginCallbackUnreachable {
+				status("Waiting for you to approve the login in your browser and paste the code it gives you")
+				return
+			}
 			login.setURL(url)
 			status("Waiting for you to approve the login in your browser")
 		},
