@@ -228,6 +228,9 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := checkSocketPaths(socket, s.agentSocketPath("any")); err != nil {
 		return err
 	}
+	if err := CheckDataDir(s.cfg.Paths.Data); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return err
 	}
@@ -331,11 +334,14 @@ func checkSocketPaths(paths ...string) error {
 
 // removeOwnSocket returns a func that removes socket as the daemon stops, if
 // it is still the one it listened on: a daemon without the lock (an older
-// AgentBox) may have replaced it with its own by then.
+// AgentBox) may have replaced it with its own by then. The same inode isn't
+// enough to say so, since a file system hands a freed one straight out again;
+// the time it was made is what tells two sockets apart.
 func removeOwnSocket(socket string) func() {
 	mine, err := os.Stat(socket)
 	return func() {
-		if now, nowErr := os.Stat(socket); err == nil && nowErr == nil && os.SameFile(mine, now) {
+		now, nowErr := os.Stat(socket)
+		if err == nil && nowErr == nil && os.SameFile(mine, now) && mine.ModTime().Equal(now.ModTime()) {
 			_ = os.Remove(socket)
 		}
 	}

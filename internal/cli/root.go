@@ -140,6 +140,9 @@ func lookupGroup(name string) (int, bool) {
 
 // launchDaemon starts the daemon in the background and waits until it answers.
 func (a *app) launchDaemon(cmd *cobra.Command, c *api.Client) error {
+	if err := daemon.CheckDataDir(a.paths.Data); err != nil {
+		return err
+	}
 	// One that doesn't answer may still be stopping: it would remove the new
 	// one's socket on its way out. One that stays is stuck, and another beside
 	// it wouldn't help.

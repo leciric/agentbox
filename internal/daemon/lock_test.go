@@ -77,8 +77,11 @@ func TestADaemonRemovesOnlyItsOwnSocket(t *testing.T) {
 	removeOld := removeOwnSocket(socket)
 	_ = old.Close()
 
-	// A daemon without the lock, from an older AgentBox, took the path over.
+	// A daemon without the lock, from an older AgentBox, took the path over,
+	// later: file times are only as fine as the kernel's clock tick. On ext4
+	// the new socket gets the old one's inode back.
 	_ = os.Remove(socket)
+	time.Sleep(50 * time.Millisecond)
 	next, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
