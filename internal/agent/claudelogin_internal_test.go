@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // realOutput is what `claude setup-token` (2.1.273) draws on an 80-column pty,
@@ -102,5 +105,42 @@ func TestCleanTerminal(t *testing.T) {
 	}
 	if !strings.Contains(got, "Paste") || !strings.Contains(got, "Browser") {
 		t.Errorf("cleanTerminal dropped the text: %q", got)
+	}
+}
+
+// writes records each write on its own, which is what Claude Code tells apart:
+// a code and its Enter in one write are a paste, and submit nothing.
+type writes struct {
+	mu  sync.Mutex
+	got []string
+}
+
+func (w *writes) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.got = append(w.got, string(p))
+	return len(p), nil
+}
+
+func (w *writes) all() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.got)
+}
+
+func TestTypeCodesSubmitsTheCodeOnItsOwn(t *testing.T) {
+	t.Parallel()
+	w := &writes{}
+	done, codes := make(chan struct{}), make(chan string, 1)
+	defer close(done)
+	go typeCodes(done, w, codes)
+	code := strings.Repeat("x", 48) + "#" + strings.Repeat("y", 43) // as long as a real one
+	codes <- code
+	deadline := time.Now().Add(5 * time.Second)
+	for len(w.all()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got, want := w.all(), []string{code, "\r"}; !slices.Equal(got, want) {
+		t.Errorf("typeCodes wrote %q, want the code and then Enter, apart: %q", got, want)
 	}
 }

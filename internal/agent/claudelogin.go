@@ -170,8 +170,14 @@ func watchBrowserURL(done <-chan struct{}, path string, report func(string)) {
 	}
 }
 
+// enterAfterCode is how long typeCodes waits between a code and the Enter that
+// submits it. Claude Code takes input that arrives at once as a paste, and a
+// real code (92 characters, 2.1.280) with its Enter in one write is a paste
+// whose Enter submits nothing: the prompt just holds it.
+const enterAfterCode = 300 * time.Millisecond
+
 // typeCodes hands Claude Code the codes copied out of the browser, as if they
-// had been typed at its prompt.
+// had been typed at its prompt and then submitted.
 func typeCodes(done <-chan struct{}, ptmx io.Writer, codes <-chan string) {
 	for {
 		select {
@@ -181,7 +187,13 @@ func typeCodes(done <-chan struct{}, ptmx io.Writer, codes <-chan string) {
 			if !ok {
 				return
 			}
-			_, _ = io.WriteString(ptmx, code+"\r")
+			_, _ = io.WriteString(ptmx, code)
+			select {
+			case <-done:
+				return
+			case <-time.After(enterAfterCode):
+			}
+			_, _ = io.WriteString(ptmx, "\r")
 		}
 	}
 }
