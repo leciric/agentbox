@@ -224,6 +224,24 @@ func New(cfg Config) (*Server, error) {
 
 // Run serves the API until ctx ends or a client asks the daemon to stop.
 func (s *Server) Run(ctx context.Context) error {
+	socket := s.cfg.Paths.Socket()
+	if err := checkSocketPaths(socket, s.agentSocketPath("any")); err != nil {
+		return err
+	}
+	if err := CheckDataDir(s.cfg.Paths.Data); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		return err
+	}
+	// Taken first, so it is let go last: after the socket is removed and the
+	// store closed, when the next daemon can have both.
+	unlock, err := lockDaemon(socket, StopWait)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	s.stop = stop
@@ -231,13 +249,6 @@ func (s *Server) Run(ctx context.Context) error {
 	defer func() { _ = s.store.Close() }()
 	defer s.chat.Close() // before the store closes: it stores what the sessions haven't
 
-	socket := s.cfg.Paths.Socket()
-	if err := checkSocketPaths(socket, s.agentSocketPath("any")); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
-		return err
-	}
 	if err := claimSocket(socket); err != nil {
 		return err
 	}
@@ -245,7 +256,9 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(socket) }()
+	// Closing it would unlink the path whoever's socket it is by then.
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	defer removeOwnSocket(socket)()
 	if err := os.Chmod(socket, 0o600); err != nil {
 		return err
 	}
@@ -317,6 +330,21 @@ func checkSocketPaths(paths ...string) error {
 		}
 	}
 	return nil
+}
+
+// removeOwnSocket returns a func that removes socket as the daemon stops, if
+// it is still the one it listened on: a daemon without the lock (an older
+// AgentBox) may have replaced it with its own by then. The same inode isn't
+// enough to say so, since a file system hands a freed one straight out again;
+// the time it was made is what tells two sockets apart.
+func removeOwnSocket(socket string) func() {
+	mine, err := os.Stat(socket)
+	return func() {
+		now, nowErr := os.Stat(socket)
+		if err == nil && nowErr == nil && os.SameFile(mine, now) && mine.ModTime().Equal(now.ModTime()) {
+			_ = os.Remove(socket)
+		}
+	}
 }
 
 // claimSocket refuses to start a second daemon and removes a stale socket file.

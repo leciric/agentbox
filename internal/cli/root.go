@@ -21,6 +21,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/credentials"
+	"agentbox/internal/daemon"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/paths"
@@ -139,6 +140,15 @@ func lookupGroup(name string) (int, bool) {
 
 // launchDaemon starts the daemon in the background and waits until it answers.
 func (a *app) launchDaemon(cmd *cobra.Command, c *api.Client) error {
+	if err := daemon.CheckDataDir(a.paths.Data); err != nil {
+		return err
+	}
+	// One that doesn't answer may still be stopping: it would remove the new
+	// one's socket on its way out. One that stays is stuck, and another beside
+	// it wouldn't help.
+	if !daemon.WaitStopped(c.Socket(), daemon.StopWait) {
+		return fmt.Errorf("an AgentBox daemon%s runs but doesn't answer on %s: stop that process, then try again", daemon.StillRunning(c.Socket()), c.Socket())
+	}
 	if err := a.startDaemon(); err != nil {
 		return fmt.Errorf("starting the AgentBox daemon: %w", err)
 	}
