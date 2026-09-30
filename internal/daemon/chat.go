@@ -46,6 +46,9 @@ func (s *Server) prepareChatModel(ctx context.Context, a state.Agent, model stri
 func (s *Server) agentInfo(st agent.Status) api.Agent {
 	info := toAPIAgent(st)
 	info.Chat = s.chat.State(info.Ref)
+	if p, ok := s.chat.Progress(info.Ref); ok {
+		info.StalledSince = p.Stalled
+	}
 	info.MemoryShortage = s.memoryShortage(st.Instance)
 	return info
 }

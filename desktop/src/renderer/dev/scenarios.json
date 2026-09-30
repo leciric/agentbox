@@ -676,5 +676,19 @@
     "query": "nightly=1&settings=general&theme=light",
     "width": 1280,
     "height": 1400
+  },
+  {
+    "id": "stalled-agent-dark",
+    "description": "The rail with a stalled agent (agent-88, rose Stalled, not green Working) and one whose chat stopped (agent-87) — dark",
+    "query": "theme=dark",
+    "width": 1280,
+    "height": 1100
+  },
+  {
+    "id": "stalled-agent-light",
+    "description": "The same — light",
+    "query": "theme=light",
+    "width": 1280,
+    "height": 1100
   }
 ]

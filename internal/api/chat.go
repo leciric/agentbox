@@ -25,11 +25,16 @@ type ChatSession struct {
 	Error   string `json:"error,omitempty"`
 	Adapter string `json:"adapter,omitempty"` // the ACP adapter and its version
 	// TurnStartedAt is when the running turn started, while one runs.
-	TurnStartedAt *time.Time    `json:"turnStartedAt,omitempty"`
-	Options       []ChatOption  `json:"options"`  // settings the AI tool offers, like its model
-	Commands      []ChatCommand `json:"commands"` // slash commands
-	ContextUsed   int64         `json:"contextUsed,omitempty"`
-	ContextSize   int64         `json:"contextSize,omitempty"` // tokens the context window holds
+	TurnStartedAt *time.Time `json:"turnStartedAt,omitempty"`
+	// StalledSince is set while the running turn has shown no progress for
+	// as long as the daemon's stall watch allows: nothing from the AI tool,
+	// and no work on its machine while a tool call runs. It is when the turn
+	// last did show some, and it clears the moment the turn shows more.
+	StalledSince *time.Time    `json:"stalledSince,omitempty"`
+	Options      []ChatOption  `json:"options"`  // settings the AI tool offers, like its model
+	Commands     []ChatCommand `json:"commands"` // slash commands
+	ContextUsed  int64         `json:"contextUsed,omitempty"`
+	ContextSize  int64         `json:"contextSize,omitempty"` // tokens the context window holds
 	// Limited says the last turn was cut short by the AI tool's usage limit:
 	// the one failure that waiting puts right. Cleared when a turn starts.
 	Limited bool `json:"limited,omitempty"`

@@ -151,6 +151,12 @@ type Server struct {
 	// recheckTell wakes a lead with its recheck: tellLead acting, or a
 	// test's recorder.
 	recheckTell func(ctx context.Context, project, note string)
+	// The stall watch (stallwatch.go): each running turn's CPU readings, by
+	// ref and under mu; how a machine's CPU time is read; and how the lead
+	// is told of a stall — tellLead acting, or a test's recorder.
+	stalls    map[string]*stallTrack
+	cpuTime   func(instance string) (time.Duration, bool)
+	stallTell func(ctx context.Context, project, note string)
 }
 
 func New(cfg Config) (*Server, error) {
@@ -188,9 +194,12 @@ func New(cfg Config) (*Server, error) {
 		startingQueued:   map[string]bool{},
 		recheckedAt:      map[string]time.Time{},
 		recheckedWhat:    map[string]string{},
+		stalls:           map[string]*stallTrack{},
+		cpuTime:          agent.CPUTime,
 	}
 	s.queueStart = s.startQueuedAgent
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
+	s.stallTell = s.recheckTell
 	s.slotBudget = func(ctx context.Context) (int64, error) { return s.manager(nil).SlotBudget(ctx) }
 	s.projectPeak = func(ctx context.Context, project string) (int64, bool, error) {
 		return s.manager(nil).ProjectPeak(ctx, project)
@@ -212,6 +221,7 @@ func New(cfg Config) (*Server, error) {
 		LeadIdle:   s.leadCacheIdle,
 		Idle:       s.leadIdle,
 		AuthFailed: s.claudeAuthFailed,
+		Lost:       s.agentLost,
 		Limits:     s.claudeLimited,
 		Logf:       s.logf,
 		Version:    Version,
@@ -275,6 +285,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchUpdates(ctx) })
 	loops.Go(func() { s.watchSharedBudget(ctx) })
 	loops.Go(func() { s.watchMemoryThrash(ctx) })
+	loops.Go(func() { s.watchStalls(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.

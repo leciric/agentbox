@@ -136,3 +136,33 @@ func TestRecheckLeads(t *testing.T) {
 		t.Fatalf("after another was queued, told %q", got)
 	}
 }
+
+// A stalled agent reads as stalled, not working, and one whose AI tool exited
+// as stopped, not idle; neither wakes the chat on its own, which was told when
+// it happened (stallwatch.go).
+func TestRecheckNoteSaysStalledAndStopped(t *testing.T) {
+	t.Parallel()
+	idleAfter := 20 * time.Minute
+	stuck := []recheckAgent{
+		{Name: "agent-07", Busy: true, Stalled: 22 * time.Minute},
+		{Name: "agent-12", IdleFor: 5 * time.Minute, ChatStopped: "Claude Code exited (exit status 143): ...killed."},
+	}
+	if note, _, wake := recheckNote(recheckInput{Slots: 2, Agents: stuck}, idleAfter); wake {
+		t.Errorf("woke the chat again for what it was told of already: %q", note)
+	}
+	note, _, wake := recheckNote(recheckInput{Queued: 1, Slots: 2, Agents: stuck}, idleAfter)
+	if !wake {
+		t.Fatal("a queue didn't wake the chat")
+	}
+	for _, want := range []string{
+		"agent-07 STALLED, no progress for 22m",
+		"agent-12 CHAT STOPPED (Claude Code exited (exit status 143): ...killed.), idle 5m",
+	} {
+		if !strings.Contains(note, want) {
+			t.Errorf("note lacks %q:\n%s", want, note)
+		}
+	}
+	if strings.Contains(note, "agent-07 working") {
+		t.Errorf("a stalled agent reads as working:\n%s", note)
+	}
+}

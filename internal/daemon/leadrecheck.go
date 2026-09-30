@@ -36,6 +36,8 @@ type recheckAgent struct {
 	Name, Title string
 	Busy        bool          // a turn in progress, a job, a question waiting
 	IdleFor     time.Duration // since it last did anything; 0 while busy
+	Stalled     time.Duration // how long its turn has shown no progress, once the stall watch says it has stalled
+	ChatStopped string        // why its chat stopped, when an error stopped it — the AI tool exiting, say
 	Finished    bool          // its last event is a finish
 	Report      string        // its last report: status and the start of its summary
 	PR          string        // its pull request, like "#12 checks passing"
@@ -60,6 +62,9 @@ type recheckInput struct {
 func recheckNote(in recheckInput, idleAfter time.Duration) (note, key string, wake bool) {
 	var idle []recheckAgent
 	for _, a := range in.Agents {
+		// A stall or a stopped chat woke the chat when it happened
+		// (stallwatch.go, agentLost): here it is only said, so the chat reads
+		// "stalled" where it would otherwise read "working" or "idle".
 		if !a.Busy && a.IdleFor >= idleAfter {
 			idle = append(idle, a)
 		}
@@ -79,8 +84,12 @@ func recheckNote(in recheckInput, idleAfter time.Duration) (note, key string, wa
 		fmt.Fprintf(&b, "\n- %s", a.Name)
 		var parts []string
 		switch {
+		case a.Stalled > 0:
+			parts = append(parts, "STALLED, no progress for "+shortDuration(a.Stalled))
 		case a.Busy:
 			parts = append(parts, "working")
+		case a.ChatStopped != "":
+			parts = append(parts, "CHAT STOPPED ("+headWords(a.ChatStopped, 80)+"), idle "+shortDuration(a.IdleFor))
 		case a.Finished:
 			parts = append(parts, "finished, idle "+shortDuration(a.IdleFor))
 		default:
@@ -230,6 +239,12 @@ func (s *Server) recheckInput(ctx context.Context, p state.Project, slots api.Qu
 		if !a.Busy && !since.IsZero() {
 			a.IdleFor = now.Sub(since)
 		}
+		if p, ok := s.chat.Progress(st.Ref()); ok && p.Stalled != nil {
+			a.Stalled = max(now.Sub(*p.Stalled), time.Minute)
+		}
+		if !a.Busy && s.chat.State(st.Ref()) == api.ChatError {
+			a.ChatStopped = s.chat.Error(st.Ref())
+		}
 		if reports, err := s.memory().Reports(ctx, p.Name, st.Name); err == nil && len(reports) > 0 {
 			a.Report = reportLine(reports[0])
 		}
@@ -247,13 +262,19 @@ func (s *Server) recheckInput(ctx context.Context, p state.Project, slots api.Qu
 	return in, nil
 }
 
+// headWords is text on one line, cut to at most n runes.
+func headWords(text string, n int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if r := []rune(text); len(r) > n {
+		return string(r[:n-1]) + "…"
+	}
+	return text
+}
+
 // reportLine is a report in a few words: its status and the start of its
 // summary.
 func reportLine(r memory.Report) string {
-	summary := strings.Join(strings.Fields(r.Summary), " ")
-	if len([]rune(summary)) > 60 {
-		summary = string([]rune(summary)[:59]) + "…"
-	}
+	summary := headWords(r.Summary, 60)
 	if summary == "" {
 		return r.Status
 	}

@@ -26,6 +26,17 @@ test('a running chat is Working, an idle one is Idle or Starting', () => {
   assert.deepEqual(chatLabel(agent('running')), { text: 'Idle', tone: 'muted' });
 });
 
+test('a stalled turn is Stalled, not Working, and a stopped chat is not Idle', () => {
+  const stalled = { ...agent('running', 'running'), stalledSince: '2026-09-29T18:00:00Z' } as T.Agent;
+  assert.deepEqual(chatLabel(stalled), { text: 'Stalled', tone: 'error' });
+  assert.equal(avatarMood(stalled), 'error');
+  assert.equal(settled(stalled), false);
+  assert.equal(projectTone([agent('running', 'running'), stalled]), 'error');
+  assert.deepEqual(chatLabel(agent('running', 'error')), { text: 'Chat stopped', tone: 'error' });
+  // Stopped with its machine, the chat's error is old news.
+  assert.deepEqual(chatLabel(agent('stopped', 'error')), { text: 'Stopped', tone: 'muted' });
+});
+
 test('a queued agent shows its position, quietly', () => {
   assert.deepEqual(chatLabel(queuedAgent(1)), { text: 'Queued #1', tone: 'muted' });
   assert.deepEqual(chatLabel(queuedAgent(3)), { text: 'Queued #3', tone: 'muted' });

@@ -377,6 +377,13 @@ func TestFleetFormattingHelpers(t *testing.T) {
 	if got := chatDoing("mystery"); got != "" {
 		t.Errorf("chatDoing(mystery) = %q", got)
 	}
+	since := time.Now().Add(-17 * time.Minute)
+	if got := agentDoing(api.Agent{Chat: api.ChatRunning, StalledSince: &since}); got != "stalled, no progress since 17m ago" {
+		t.Errorf("agentDoing(stalled) = %q", got)
+	}
+	if got := agentDoing(api.Agent{Chat: api.ChatRunning}); got != "working" {
+		t.Errorf("agentDoing(running) = %q", got)
+	}
 	if got := doingOrIdle(api.FleetAgent{Idle: true}); got != "idle, holding a machine" {
 		t.Errorf("doingOrIdle(idle) = %q", got)
 	}

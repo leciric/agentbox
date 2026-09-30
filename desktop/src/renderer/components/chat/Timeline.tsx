@@ -84,6 +84,12 @@ const TimelineRow = memo(
             <div className="flex h-6 items-baseline px-1 text-sm tabular-nums text-subtle">
               Working for&nbsp;
               <Elapsed since={row.since} />
+              {row.stalledSince && (
+                <span className="font-medium text-rose-300" data-chat-stalled>
+                  &nbsp;· stalled, no progress for&nbsp;
+                  <Elapsed since={row.stalledSince} />
+                </span>
+              )}
             </div>
           </div>
         );
@@ -140,7 +146,7 @@ function sameRow(a: Row, b: Row): boolean {
     case 'fold':
       return a.label === (b as typeof a).label && a.open === (b as typeof a).open;
     case 'working':
-      return a.since === (b as typeof a).since;
+      return a.since === (b as typeof a).since && a.stalledSince === (b as typeof a).stalledSince;
     case 'thinking':
       return true;
     case 'changes': {

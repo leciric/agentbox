@@ -1033,7 +1033,7 @@ func describeFleet(fleet api.Fleet) string {
 			continue
 		}
 		fmt.Fprintf(&b, "\n  branch: %s, machine: %s", dash(f.Branch), f.State)
-		if doing := chatDoing(f.Chat); doing != "" {
+		if doing := agentDoing(f.Agent); doing != "" {
 			fmt.Fprintf(&b, ", %s", doing)
 		}
 		if f.AI == "claude" && f.ClaudeAccount != "" {
