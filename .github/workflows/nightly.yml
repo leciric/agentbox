@@ -67,7 +67,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_BRANCH: release-please--branches--main
+  # release-please names its PR branch after the component in
+  # .github/release-please-config.json, so the "agentbox" suffix is part of it.
+  RELEASE_BRANCH: release-please--branches--main--components--agentbox
   KEEP: 10
 
 jobs:
@@ -78,7 +80,7 @@ jobs:
     # label just put on is `nightly`.
     if: >-
       github.event_name != 'pull_request' ||
-      (github.event.pull_request.head.ref == 'release-please--branches--main' &&
+      (github.event.pull_request.head.ref == 'release-please--branches--main--components--agentbox' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        contains(github.event.pull_request.labels.*.name, 'nightly') &&
        (github.event.action != 'labeled' || github.event.label.name == 'nightly'))
