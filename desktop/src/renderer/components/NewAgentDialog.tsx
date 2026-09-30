@@ -171,7 +171,9 @@ export function NewAgentDialog({
         finishNotice: form.notify || undefined,
         // Sent either way, like autonomous above: "whatever the project does
         // by default" isn't a request queue can leave out and still mean.
-        queue: form.queue,
+        // Off outright while the installation's Agent queue is off, whatever
+        // the switch (disabled, so untouched) still carries from before.
+        queue: queueEnabled && form.queue,
         // Sent only once a box has been touched. An empty string is a real
         // choice — no limit for this agent — so an untouched form must leave
         // all three out rather than send "" and uncap the agent.
@@ -233,6 +235,10 @@ export function NewAgentDialog({
   // and starts them being sent, empty or not.
   const setResource = (key: 'cpu' | 'cpuAllowance' | 'memory', value: string) => setForm((f) => ({ ...f, [key]: value, resourcesTouched: true }));
   const hostCores = settings.data?.hostCores ?? 0;
+  // The installation's own switch (Settings → Agents → Agent queue): off,
+  // this dialog's Queue switch does nothing, so it shows disabled instead of
+  // offering a choice the daemon would refuse to act on.
+  const queueEnabled = settings.data?.agentQueue ?? false;
   const hostMemory = settings.data?.hostMemory ?? 0;
   const needsLogin =
     (form.ai === 'claude' && auth.data?.claude === false) ||
@@ -328,8 +334,9 @@ export function NewAgentDialog({
             <SwitchRow
               id="agent-queue"
               label="Queue"
-              hint="Start when a slot is free, rather than right away."
-              checked={form.queue}
+              hint={queueEnabled ? 'Start when a slot is free, rather than right away.' : 'Turn on Agent queue in Settings first.'}
+              checked={queueEnabled && form.queue}
+              disabled={!queueEnabled}
               onChange={(value) => setForm((f) => ({ ...f, queue: value, queueTouched: true }))}
             />
 

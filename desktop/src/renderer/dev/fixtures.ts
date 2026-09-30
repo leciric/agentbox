@@ -969,6 +969,9 @@ let defaultsSettings = {
   gpuForAgents: false,
   autoStopIdle: false,
   idleTimeSeconds: 2 * 60 * 60,
+  agentQueue: false,
+  leadRecheck: false,
+  leadRecheckMinutes: 20,
   sharedBudget: {
     on: false,
     memory: '21GiB',
@@ -1022,7 +1025,21 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.sharedBudgetMemory !== undefined)
     next.sharedBudget = { ...next.sharedBudget, memory: req.sharedBudgetMemory || next.sharedBudget.suggested.memory, chosen: req.sharedBudgetMemory !== '' };
   // The rest are stored as they are sent, the way the daemon stores them.
-  for (const key of ['defaultClaudeEffort', 'defaultCPU', 'defaultCPUAllowance', 'defaultMemory', 'resumeAfterLimit', 'claudeCompactWindow', 'updateCheck', 'usageStats', 'prWatch', 'mediaRetention'] as const) {
+  for (const key of [
+    'defaultClaudeEffort',
+    'defaultCPU',
+    'defaultCPUAllowance',
+    'defaultMemory',
+    'resumeAfterLimit',
+    'claudeCompactWindow',
+    'updateCheck',
+    'usageStats',
+    'prWatch',
+    'mediaRetention',
+    'agentQueue',
+    'leadRecheck',
+    'leadRecheckMinutes',
+  ] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
   }
   for (const [model, win] of [
@@ -1288,7 +1305,7 @@ export function seedMeterUsage(queryClient: QueryClient): void {
   queryClient.setQueryData(['cpuUsage'], cpuUsage);
 }
 
-// --- The agent queue (?queue=busy|alone|demo|tasks) ------------------------
+// --- The agent queue (?queue=busy|alone|demo|off|settings|tasks) -----------
 //
 // Two projects sharing one 18 GiB budget (2.25 GiB reserved, so 15.75 GiB to
 // split): "organic", whose agents run ~6 GiB each, and "agentbox" itself,
@@ -1335,15 +1352,37 @@ function organicProject(): T.Project {
   };
 }
 
-function queueSlots(project: string, slots: number, peak: number, running: number, queued: number): T.ProjectSlots {
-  return { project, slots, pinned: 0, peak, peakLearned: true, running, queued };
+// slotAgent is one row of a ProjectSlots.agents table: what the slot maths'
+// peak is learned from. cpu is a percentage of one core (100 = one core busy).
+function slotAgent(name: string, title: string, memory: number, memoryPeak: number, cpu: number, cpuPeak: number): T.SlotAgent {
+  return { name, title, state: 'running', memory, memoryPeak, cpu, cpuPeak };
 }
 
-function queueStatus(abSlots: number, abRunning: number, queued: T.QueuedAgent[], orgSlots: number, orgRunning: number): T.QueueStatus {
+// agentboxSlotAgents and organicSlotAgents are plausible per-agent numbers
+// consistent with each project's learned peak (~1.5–2.5 GiB for agentbox,
+// ~5–6.5 GiB for organic).
+const agentboxSlotAgents: T.SlotAgent[] = [
+  slotAgent('agent-1', 'Ship the release notes', 1.8 * queueGiB, 2.3 * queueGiB, 45, 120),
+  slotAgent('agent-2', 'Rework the settings search', 1.5 * queueGiB, 1.9 * queueGiB, 30, 95),
+  slotAgent('agent-3', 'Cut the base image build time', 2.1 * queueGiB, 2.5 * queueGiB, 60, 140),
+  slotAgent('agent-4', 'Trim the daemon startup path', 1.6 * queueGiB, 2.0 * queueGiB, 25, 80),
+];
+const organicSlotAgentsBusy: T.SlotAgent[] = [slotAgent('agent-1', 'Rebuild the checkout flow', 5.6 * queueGiB, 6.2 * queueGiB, 80, 150)];
+const organicSlotAgentsAlone: T.SlotAgent[] = [
+  slotAgent('agent-1', 'Rebuild the checkout flow', 5.8 * queueGiB, 6.4 * queueGiB, 90, 150),
+  slotAgent('agent-2', 'Speed up the search index', 5.2 * queueGiB, 5.9 * queueGiB, 70, 130),
+];
+
+function queueSlots(project: string, slots: number, peak: number, running: number, queued: number, agents: T.SlotAgent[]): T.ProjectSlots {
+  return { project, slots, pinned: 0, peak, peakLearned: true, running, queued, agents };
+}
+
+function queueStatus(enabled: boolean, abSlots: number, abRunning: number, queued: T.QueuedAgent[], abAgents: T.SlotAgent[], orgSlots: number, orgRunning: number, orgAgents: T.SlotAgent[]): T.QueueStatus {
   return {
+    enabled,
     budget: queueBudget,
     reserve: queueReserve,
-    projects: [queueSlots(PROJECT, abSlots, agentboxPeakBytes, abRunning, queued.length), queueSlots('organic', orgSlots, organicPeakBytes, orgRunning, 0)],
+    projects: [queueSlots(PROJECT, abSlots, agentboxPeakBytes, abRunning, queued.length, abAgents), queueSlots('organic', orgSlots, organicPeakBytes, orgRunning, 0, orgAgents)],
     queued,
   };
 }
@@ -1385,8 +1424,12 @@ function queueTasks(running: string[], queued: string[]): T.Task[] {
 // slots with three queued and organic content with its own single slot;
 // 'alone' is organic without agentbox to share the budget with, so Auto gives
 // it two; 'demo' starts as 'busy' and then plays the queue draining, a slot
-// at a time, on a timer, for a recording.
-export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'demo'): void {
+// at a time, on a timer, for a recording; 'off' is 'busy' with the
+// installation's Agent queue switch off — the queue UI steps out of the way,
+// but a queued agent made before it was turned off still shows its place.
+export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'demo' | 'off'): void {
+  const enabled = mode !== 'off';
+  queryClient.setQueryData(['settings'], { ...defaultsSettings, agentQueue: enabled });
   const abProject: T.Project = { ...buildFixtures().projects[0], slots: 0, alwaysQueue: false, section: 's1', position: 0 };
   const orgProject = organicProject();
   queryClient.setQueryData(['projects'], [abProject, orgProject]);
@@ -1408,7 +1451,7 @@ export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'de
   if (mode === 'alone') {
     const agents = [running('organic', 1, 'Rebuild the checkout flow'), running('organic', 2, 'Speed up the search index')];
     queryClient.setQueryData(['agents'], agents);
-    const status = queueStatus(0, 0, [], 2, 2);
+    const status = queueStatus(true, 0, 0, [], [], 2, 2, organicSlotAgentsAlone);
     queryClient.setQueryData(['queue', PROJECT], status);
     queryClient.setQueryData(['queue', 'organic'], status);
     return;
@@ -1428,8 +1471,9 @@ export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'de
   ];
   queryClient.setQueryData(['agents'], agents);
   let queued = queuedNames.map((name, i) => queuedAgentFixture(name, i + 1));
+  let abAgents = agentboxSlotAgents;
   const publish = (abRunning: number) => {
-    const status = queueStatus(4, abRunning, queued, 1, 1);
+    const status = queueStatus(enabled, 4, abRunning, queued, abAgents, 1, 1, organicSlotAgentsBusy);
     queryClient.setQueryData(['queue', PROJECT], status);
     queryClient.setQueryData(['queue', 'organic'], status);
     queryClient.setQueryData(['memoryTasks', PROJECT], queueTasks(runningNames, queued.map((q) => q.name)));
@@ -1440,12 +1484,16 @@ export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'de
 
   // Every ~4s: stop a running agentbox agent, then bring the agent at the
   // front of the queue up (initializing, then running), and shift the rest
-  // up a place — until nothing is left queued.
+  // up a place — until nothing is left queued. The per-agent usage table
+  // follows: a stopped agent drops off it, a newly running one joins.
   let abRunning = 4;
   const drain = () => {
     if (queued.length === 0) return;
     const runner = agents.find((a) => a.project === PROJECT && a.state === 'running');
-    if (runner) agents = agents.map((a) => (a.ref === runner.ref ? { ...a, state: 'stopped', chat: 'off' } : a));
+    if (runner) {
+      agents = agents.map((a) => (a.ref === runner.ref ? { ...a, state: 'stopped', chat: 'off' } : a));
+      abAgents = abAgents.filter((a) => a.name !== runner.name);
+    }
     abRunning -= 1;
     queryClient.setQueryData(['agents'], agents);
     publish(abRunning);
@@ -1461,6 +1509,7 @@ export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'de
           const q = queued.find((qq) => qq.ref === a.ref);
           return q ? { ...a, queuePosition: q.position } : a;
         });
+        abAgents = [...abAgents, slotAgent(next.name, next.title, 1.4 * queueGiB, 1.4 * queueGiB, 20, 20)];
         abRunning += 1;
         queryClient.setQueryData(['agents'], agents);
         publish(abRunning);

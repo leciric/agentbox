@@ -126,7 +126,18 @@
 //   ?queue=demo             Starts like busy, then plays the queue draining
 //                           on a timer (~4s a step) — a slot frees, the next
 //                           queued agent starts, the rest move up — until
-//                           it's empty, for a recording
+//                           it's empty, for a recording; the per-agent usage
+//                           table follows the same stops and starts
+//   ?queue=settings         agentbox's Overview → Settings, at the slots
+//                           row: Auto's slot size and the running agents its
+//                           peak is learned from, memory and CPU now and at
+//                           their peak
+//   ?queue=off              Like busy, but with the installation's Agent
+//                           queue switch off: Settings and New agent's Queue
+//                           show disabled with a pointer, the Tasks tab's
+//                           toggle is "Start" instead of "Queue" and its
+//                           slots strip is gone, and the sidebar's three
+//                           already-queued agents still show Queued #N
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -146,6 +157,7 @@ import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
 import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
+import { ProjectSettings } from '../components/ProjectSettings';
 import { ProjectTasksPanel } from '../components/ProjectTasksPanel';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
@@ -195,7 +207,7 @@ const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'home' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
-const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | null
+const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'off' | null
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
 
@@ -273,7 +285,7 @@ if (meters) {
   seedMeterUsage(queryClient);
 }
 
-if (queue) seedQueue(queryClient, queue === 'tasks' ? 'busy' : (queue as 'busy' | 'alone' | 'demo'));
+if (queue) seedQueue(queryClient, queue === 'tasks' || queue === 'settings' ? 'busy' : (queue as 'busy' | 'alone' | 'demo' | 'off'));
 if (power) seedPower(queryClient, power);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
@@ -445,6 +457,14 @@ function Preview() {
     return (
       <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
         <ProjectTasksPanel project={PROJECT} onSelect={() => {}} />
+      </div>
+    );
+  }
+
+  if (queue === 'settings') {
+    return (
+      <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }}>
+        <QueueSettingsPreview />
       </div>
     );
   }
@@ -627,6 +647,15 @@ function Preview() {
       <AgentRail view={view} onSelect={() => {}} onNewAgent={() => {}} />
     </div>
   );
+}
+
+// QueueSettingsPreview is agentbox's Overview → Settings (?queue=settings):
+// the same ProjectSettings the real Overview tab renders, against whatever
+// seedQueue put in the projects query.
+function QueueSettingsPreview() {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const project = projects.data?.find((p) => p.name === PROJECT);
+  return project ? <ProjectSettings project={project} /> : null;
 }
 
 // GitHubPreview reads the project and the accounts through their queries, so

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ListTodo, LoaderCircle, Plus } from 'lucide-react';
+import { ListTodo, LoaderCircle, Play, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -29,9 +29,14 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
   // stream (queue invalidation in lib/events.ts) is what makes it feel instant.
   const queueQuery = useQuery({ queryKey: ['queue', project], queryFn: () => api.queue(project), refetchInterval: 5000 });
   const agentsQuery = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const [showDone, setShowDone] = useState(false);
   const [prompt, setPrompt] = useState('');
 
+  // The installation's own switch (Settings → Agents → Agent queue). Off,
+  // there's no queue to show or add to: the strip disappears, and a task's
+  // toggle starts an agent right away instead of offering to queue it.
+  const queueOn = settings.data?.agentQueue ?? false;
   const tasks = tasksQuery.data ?? [];
   const slots = queueQuery.data?.projects.find((p) => p.project === project);
   const agentsByName = new Map((agentsQuery.data ?? []).filter((a) => a.project === project).map((a) => [a.name, a] as const));
@@ -75,12 +80,26 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
     onError: (err) => toast.error(errorMessage(err)),
   });
 
+  // Agent queue off: a task starts an agent right away, taskId and all, just
+  // without the queue flag — the same create NewAgentDialog sends unqueued.
+  const startTask = useMutation({
+    mutationFn: (task: T.Task) => api.createAgent({ project, taskId: task.id, ai: 'claude' }),
+    onSuccess: async () => {
+      await refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
   const visible = tasks.filter((t) => showDone || taskOpenStatuses.has(t.status));
   const doneCount = tasks.length - tasks.filter((t) => taskOpenStatuses.has(t.status)).length;
 
   return (
     <div className="mx-auto grid max-w-4xl gap-5 px-4 py-6 md:px-8 md:py-7">
-      <SlotsStrip slots={slots} loading={queueQuery.isPending} />
+      {queueOn ? (
+        <SlotsStrip slots={slots} loading={queueQuery.isPending} />
+      ) : (
+        settings.data && <p className="px-1 text-[12px] text-subtle">Agent queue is off: a task starts an agent right away. Turn it on in Settings to queue them instead.</p>
+      )}
 
       <form
         className="grid gap-2"
@@ -131,11 +150,14 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
             key={task.id}
             task={task}
             agent={task.agent ? agentsByName.get(task.agent) : undefined}
+            queueOn={queueOn}
             onQueue={() => queueTask.mutate(task)}
             onUnqueue={(agentName) => unqueueTask.mutate(agentName)}
+            onStart={() => startTask.mutate(task)}
             onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })}
             queuing={queueTask.isPending}
             unqueuing={unqueueTask.isPending}
+            starting={startTask.isPending}
           />
         ))}
       </div>
@@ -170,20 +192,29 @@ function SlotsStrip({ slots, loading }: { slots: T.ProjectSlots | undefined; loa
 function QueueTaskRow({
   task,
   agent,
+  queueOn,
   onQueue,
   onUnqueue,
+  onStart,
   onOpenAgent,
   queuing,
   unqueuing,
+  starting,
 }: {
   task: T.Task;
   agent: T.Agent | undefined;
+  queueOn: boolean;
   onQueue: () => void;
   onUnqueue: (agentName: string) => void;
+  onStart: () => void;
   onOpenAgent: (ref: string) => void;
   queuing: boolean;
   unqueuing: boolean;
+  starting: boolean;
 }) {
+  // Queued agents that exist — made before Agent queue was turned off, say —
+  // still show their place in line either way; only the toggle that would
+  // make a new one changes with the setting.
   const queued = agent?.state === 'queued';
   const running = !!task.agent && !!agent && !queued;
   const assigned = !!task.agent;
@@ -203,15 +234,33 @@ function QueueTaskRow({
           </button>
         )}
         {queued && <span className="text-[12.5px] text-subtle">Queued #{agent.queuePosition ?? '?'}</span>}
-        <Switch
-          aria-label={assigned ? `Unqueue ${task.goal}` : `Queue ${task.goal}`}
-          checked={assigned}
-          disabled={running || queuing || unqueuing}
-          onCheckedChange={(on) => {
-            if (on) onQueue();
-            else if (task.agent) onUnqueue(task.agent);
-          }}
-        />
+        {queued && !queueOn && (
+          <button
+            type="button"
+            className="text-[11.5px] text-subtle underline-offset-2 hover:text-rose-300 hover:underline"
+            disabled={unqueuing}
+            onClick={() => task.agent && onUnqueue(task.agent)}
+          >
+            Remove
+          </button>
+        )}
+        {queueOn && (
+          <Switch
+            aria-label={assigned ? `Unqueue ${task.goal}` : `Queue ${task.goal}`}
+            checked={assigned}
+            disabled={running || queuing || unqueuing}
+            onCheckedChange={(on) => {
+              if (on) onQueue();
+              else if (task.agent) onUnqueue(task.agent);
+            }}
+          />
+        )}
+        {!queueOn && !assigned && (
+          <Button size="sm" variant="ghost" disabled={starting} onClick={onStart}>
+            {starting ? <LoaderCircle className="animate-spin" /> : <Play />}
+            Start
+          </Button>
+        )}
       </div>
     </div>
   );

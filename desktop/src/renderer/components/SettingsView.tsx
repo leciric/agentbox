@@ -42,11 +42,13 @@ import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import { WhatsNewDialog } from "./WhatsNewDialog";
 import {
+  AgentQueue,
   AutoStopIdle,
   CompactWindow,
   DefaultContextWindow,
   DefaultModel,
   GPUForAgents,
+  LeadRecheck,
   MediaRetention,
   NeverFreezeCPU,
   NewAgentCPUShare,
@@ -1033,6 +1035,27 @@ function InstalledSettings({
               keywords: "pr github conflict checks ci fail review changes requested",
               modified: changed((s) => !s.prWatch),
               render: () => <PRWatch />,
+            },
+          ],
+        },
+        {
+          id: "queue",
+          title: "Agent queue",
+          description: "A running limit per project, so agents wait their turn instead of all starting at once.",
+          entries: [
+            {
+              id: "agent-queue",
+              label: "Agent queue",
+              keywords: "queue slots concurrency wait turn budget memory",
+              modified: changed((s) => s.agentQueue),
+              render: () => <AgentQueue />,
+            },
+            {
+              id: "lead-recheck",
+              label: "Lead rechecks agents",
+              keywords: "lead recheck wake status queue idle retire minutes",
+              modified: changed((s) => s.leadRecheck),
+              render: () => <LeadRecheck />,
             },
           ],
         },

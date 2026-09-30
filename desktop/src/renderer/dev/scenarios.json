@@ -634,5 +634,19 @@
     "query": "queue=tasks&theme=dark",
     "width": 900,
     "height": 900
+  },
+  {
+    "id": "queue-settings-dark",
+    "description": "agentbox's Settings, at the slots row: Auto's slot size and the running agents its peak is learned from, memory and CPU now and at their peak — dark",
+    "query": "queue=settings&theme=dark",
+    "width": 900,
+    "height": 1100
+  },
+  {
+    "id": "queue-off-light",
+    "description": "Agent queue off in Settings: the rail's already-queued agents still show Queued #N, but the queue UI otherwise steps out of the way — light",
+    "query": "queue=off&finished=1&theme=light",
+    "width": 1280,
+    "height": 900
   }
 ]
