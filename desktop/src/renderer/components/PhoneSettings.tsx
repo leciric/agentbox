@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Smartphone } from 'lucide-react';
+import { Globe, Smartphone } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -7,11 +7,14 @@ import { api } from '../lib/api';
 import type { SettingGroup } from '../lib/settingsSearch';
 import { errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
+import { Field, Input } from './ui/input';
 import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
 
 // Chatting from a phone on the local network (internal/daemon/lan.go): the
 // daemon serves the app's web version to phones paired here with a QR code.
+// Reach from anywhere puts the same page on the internet through a Cloudflare
+// Tunnel the daemon runs (internal/daemon/lantunnel.go).
 
 export function phoneGroups(): SettingGroup[] {
   return [
@@ -24,6 +27,12 @@ export function phoneGroups(): SettingGroup[] {
           label: 'Chat from your phone',
           keywords: 'phone mobile lan network wifi qr code pair browser remote',
           render: () => <PhoneChat />,
+        },
+        {
+          id: 'phone-tunnel',
+          label: 'Reach from anywhere',
+          keywords: 'phone mobile tunnel cloudflare cloudflared internet anywhere remote https trycloudflare',
+          render: () => <PhoneTunnel />,
         },
         {
           id: 'phones',
@@ -61,11 +70,20 @@ function PhoneChat() {
   // Turned on, the QR code is shown as soon as there's an address to put in it.
   const wantQR = useRef(false);
   useEffect(() => {
-    if (wantQR.current && st?.enabled && st.listening && st.urls.length > 0 && !pair.isPending) {
+    if (wantQR.current && st?.enabled && (st.listening || st.tunnel.url) && st.urls.length > 0 && !pair.isPending) {
       wantQR.current = false;
       pair.mutate();
     }
   }, [st, pair]);
+  // When the tunnel comes up, or its address changes, the QR code is made
+  // again for its address, which works from anywhere.
+  const tunnelURL = st?.enabled ? st.tunnel.url : undefined;
+  const shownFor = useRef(tunnelURL);
+  useEffect(() => {
+    if (tunnelURL === shownFor.current) return;
+    shownFor.current = tunnelURL;
+    if (tunnelURL && !pair.isPending) pair.mutate();
+  }, [tunnelURL, pair]);
   // The QR code goes once a phone pairs with it.
   const phones = st?.phones.length ?? 0;
   const before = useRef(phones);
@@ -105,7 +123,7 @@ function PhoneChat() {
       {st?.enabled && (
         <div className="grid gap-3">
           <SettingNote tone="warning">Plain HTTP on your local network, not encrypted: use it on a network you trust.</SettingNote>
-          {st.listening && st.urls.length > 0 ? (
+          {st.tunnel.url && !st.listening ? null : st.listening && st.urls.length > 0 ? (
             <SettingNote>
               Phones open <span className="font-mono text-primary">{st.urls[0]}</span>
               {st.urls.length > 1 && <> (or {st.urls.slice(1).join(', ')})</>}.
@@ -117,7 +135,7 @@ function PhoneChat() {
           {pairing ? (
             <PairingCode pairing={pairing} onAgain={() => pair.mutate()} onDone={() => setPairing(null)} />
           ) : (
-            st.listening &&
+            (st.listening || st.tunnel.url) &&
             st.urls.length > 0 && (
               <div>
                 <Button size="sm" variant="secondary" data-phone-pair disabled={pair.isPending} onClick={() => pair.mutate()}>
@@ -125,6 +143,130 @@ function PhoneChat() {
                 </Button>
               </div>
             )
+          )}
+        </div>
+      )}
+    </SettingRow>
+  );
+}
+
+function PhoneTunnel() {
+  const lan = useLAN();
+  const queryClient = useQueryClient();
+  const st = lan.data;
+  const tunnel = st?.tunnel;
+  const [editing, setEditing] = useState(false);
+  const [hostname, setHostname] = useState('');
+  const [token, setToken] = useState('');
+  const save = useMutation({
+    mutationFn: (req: T.UpdateLANRequest) => api.updateLAN(req),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['lan'], next);
+      setEditing(false);
+      setToken('');
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const on = !!tunnel?.enabled && !!st?.enabled;
+  return (
+    <SettingRow
+      label="Reach from anywhere"
+      description="Chat from your phone away from this network too, through a Cloudflare Tunnel."
+      details={
+        <>
+          Turned on, AgentBox runs Cloudflare's cloudflared, downloaded the first time, and puts the phone page on an https address on the
+          internet, with no port opened on this computer. By default it's a quick tunnel: no Cloudflare account, and an address that
+          changes each time AgentBox starts, so phones pair again then. Your own named tunnel keeps its address. Anyone who has the address
+          can open the pairing page; only a phone you pair with a QR code gets further, and even then it reaches only your chats.
+        </>
+      }
+      control={
+        <Switch
+          data-phone-tunnel
+          aria-label="Reach from anywhere"
+          disabled={save.isPending || !st}
+          checked={on}
+          // Turning it on turns chatting from a phone on too: the tunnel only runs with it.
+          onCheckedChange={(next) => save.mutate(next ? { enabled: true, tunnel: true } : { tunnel: false })}
+        />
+      }
+    >
+      {tunnel && (on || editing) && (
+        <div className="grid gap-3">
+          {on && (
+            <SettingNote tone="warning">
+              This puts the pairing page on the internet. Pairing is still needed, and wrong codes are held back, but only turn it on while you
+              want it.
+            </SettingNote>
+          )}
+          {on &&
+            (tunnel.state === 'running' && tunnel.url ? (
+              <SettingNote>
+                <Globe className="mr-1 inline size-3.5 align-[-2px]" />
+                Phones open <span className="font-mono text-primary">{tunnel.url}</span> from anywhere
+                {tunnel.named ? '.' : ' — a quick tunnel, whose address changes when AgentBox starts again.'}
+              </SettingNote>
+            ) : (
+              <SettingNote tone={tunnel.state === 'failed' ? 'error' : 'muted'}>{tunnel.error || 'Starting the tunnel…'}</SettingNote>
+            ))}
+          {tunnel.named && !editing && (
+            <SettingNote>
+              Your tunnel for <span className="font-mono text-primary">{tunnel.hostname}</span>: in Cloudflare's dashboard, its public hostname
+              points at <span className="font-mono text-primary">{tunnel.origin}</span>.
+            </SettingNote>
+          )}
+          {editing ? (
+            <form
+              className="grid gap-3 rounded-xl border border-line p-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                save.mutate({ tunnelHostname: hostname, ...(token || !tunnel.named ? { tunnelToken: token } : {}) });
+              }}
+            >
+              <SettingNote>
+                Make a tunnel in Cloudflare's dashboard (Networks → Tunnels), give it a public hostname whose service is{' '}
+                <span className="font-mono text-primary">{tunnel.origin}</span>, and paste its token here.
+              </SettingNote>
+              <Field label="Public hostname" htmlFor="tunnel-hostname">
+                <Input id="tunnel-hostname" placeholder="chat.example.com" value={hostname} onChange={(e) => setHostname(e.target.value)} />
+              </Field>
+              <Field label="Token" htmlFor="tunnel-token" hint={tunnel.named ? 'Leave it empty to keep the one saved.' : 'Kept encrypted, and never shown again.'}>
+                <Input
+                  id="tunnel-token"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="eyJhIjoi…"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                />
+              </Field>
+              <div className="flex gap-2">
+                <Button size="sm" type="submit" disabled={save.isPending || !hostname.trim() || (!tunnel.named && !token.trim())}>
+                  Use this tunnel
+                </Button>
+                <Button size="sm" variant="ghost" type="button" onClick={() => setEditing(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setHostname(tunnel.hostname ?? '');
+                  setEditing(true);
+                }}
+              >
+                {tunnel.named ? 'Change your tunnel' : 'Use your own Cloudflare tunnel'}
+              </Button>
+              {tunnel.named && (
+                <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => save.mutate({ tunnelToken: '' })}>
+                  Use a quick tunnel instead
+                </Button>
+              )}
+            </div>
           )}
         </div>
       )}

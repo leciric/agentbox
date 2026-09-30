@@ -26,7 +26,7 @@ type Tool struct {
 	// "npm:@playwright/mcp@0.0.79".
 	Spec string
 	// Option is the component it belongs to: "" for every image, otherwise
-	// OptionCodex or OptionOpenCode.
+	// OptionCodex or OptionOpenCode, or OptionHost for one no image has.
 	Option string
 	// Check is a shell command, run as the user, that proves it works.
 	Check string
@@ -41,6 +41,11 @@ func toolName(spec string) string {
 	}
 	return spec
 }
+
+// OptionHost marks a tool tools.txt pins for AgentBox itself rather than for
+// agents: no image has it, so it doesn't count towards the tools version, and
+// the daemon fetches it on first use (cloudflared, internal/tunnel).
+const OptionHost = "host"
 
 // Tools is every tool tools.txt pins, in its order.
 var Tools = mustParseTools(toolsManifest)
@@ -68,7 +73,7 @@ func parseTools(manifest string) ([]Tool, error) {
 		t := Tool{Spec: fields[1], Check: strings.Join(fields[2:], " ")}
 		switch fields[0] {
 		case "-":
-		case OptionCodex, OptionOpenCode:
+		case OptionCodex, OptionOpenCode, OptionHost:
 			t.Option = fields[0]
 		default:
 			return nil, fmt.Errorf("line %d: %q is no component a tool can belong to", n+1, fields[0])

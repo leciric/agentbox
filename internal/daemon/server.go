@@ -117,7 +117,7 @@ type Server struct {
 	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
-	lan          *lanState                // phones chatting from the local network (lan.go)
+	lan          *lanState                // phones chatting from the local network or a tunnel (lan.go)
 	remoteStop   context.CancelFunc
 	// openCodeModels is the state of the background ask that fills OpenCode's
 	// model menu: whether one is running, and when the last one started.
@@ -543,7 +543,7 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/lan/host", s.lanHostReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
-	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(true)))
+	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))
 
 	h("GET /v1/jobs", s.listJobs)
 	h("GET /v1/jobs/{id}", s.getJob)
