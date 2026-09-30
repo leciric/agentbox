@@ -36,6 +36,10 @@ type Client struct {
 	// arguments the operation stands for, instead of calling the API: tests set
 	// it to a fake. Command and Path use "incus" when it's empty.
 	Bin string
+	// Health, when set, is what the daemon's watch found of Incus: while it
+	// says Incus isn't answering, every call fails at once (health.go).
+	// Copies of the Client share it.
+	Health *Health
 }
 
 func (c Client) Path() string {
@@ -59,6 +63,14 @@ func (c Client) run(ctx context.Context, args ...string) (string, error) {
 }
 
 func (c Client) runInput(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
+	if err := c.notAnsweringErr(); err != nil {
+		return "", c.fail(args, err)
+	}
+	return c.runUnchecked(ctx, stdin, args...)
+}
+
+// runUnchecked is runInput whatever Health says: the watch's own probe.
+func (c Client) runUnchecked(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	cmd := c.Command(ctx, args...)
 	cmd.Stdin = stdin
 	var stdout, stderr bytes.Buffer
@@ -91,9 +103,16 @@ func (c Client) query(ctx context.Context, path string, v any, what string) erro
 // terminals and the image build still run it, and the daemon's API answers
 // this process. It is what `incus query /1.0` checked, and fails the same way.
 func (c Client) Ping(ctx context.Context) error {
+	if err := c.notAnsweringErr(); err != nil {
+		return c.fail([]string{"query", "/1.0"}, err)
+	}
+	return c.ping(ctx)
+}
+
+func (c Client) ping(ctx context.Context) error {
 	args := []string{"query", "/1.0"}
 	if c.cli() {
-		_, err := c.run(ctx, args...)
+		_, err := c.runUnchecked(ctx, nil, args...)
 		return err
 	}
 	if _, err := exec.LookPath(c.Path()); err != nil {
@@ -190,7 +209,7 @@ func (c Client) Instances(ctx context.Context) ([]Instance, error) {
 func (c Client) Instance(ctx context.Context, name string) (Instance, error) {
 	if !c.cli() {
 		var full *api.InstanceFull
-		s, err := server(ctx)
+		s, err := c.server(ctx)
 		if err == nil {
 			full, _, err = s.GetInstanceFull(name)
 		}
@@ -307,7 +326,7 @@ func (c Client) Details(ctx context.Context, instance string) (Details, error) {
 	args := []string{"query", "/1.0/instances/" + instance}
 	if !c.cli() {
 		var d Details
-		s, err := server(ctx)
+		s, err := c.server(ctx)
 		if err == nil {
 			var inst *api.Instance
 			if inst, _, err = s.GetInstance(instance); err == nil {

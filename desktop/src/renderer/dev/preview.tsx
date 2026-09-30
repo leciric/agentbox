@@ -77,6 +77,10 @@
 //                           zram, a CPU-capped agent and a plain one —
 //                           scenarios.json clicks the meter open before its
 //                           shot, since state here comes from the URL alone
+//   ?nightly=1              a nightly build, on the nightly channel with a newer
+//                           nightly out: the sidebar's starry header and badge,
+//                           and with ?settings=general the Update channel row
+//                           and the About line (fixtures.ts)
 //   ?loading=hold           the first launch before the daemon has answered:
 //                           the sidebar, Home and the rail with no lists yet.
 //                           ?loading=3000 answers them from the fixtures after
@@ -178,7 +182,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedMeterUsage, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
 
 installDevBridge();
 
@@ -271,6 +275,7 @@ if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media) seedMedia(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
+if (params.get('nightly') === '1') seedNightly(queryClient);
 if (budget === 'off') seedBudgetOff(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
 if (linuxHost) {

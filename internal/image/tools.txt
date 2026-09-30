@@ -25,6 +25,11 @@
 # ACP adapters run Claude Code and Codex for the app's chat, and OpenCode is
 # its own; internal/agent/chat.go installs the same versions in older agents,
 # from these lines.
+#
+# A "host" line is AgentBox's own, not an agent's: no image has it. cloudflared
+# is the Cloudflare Tunnel the daemon starts so a phone can chat from anywhere
+# (internal/tunnel); moving it on means adding the new release's sha256 sums
+# to internal/tunnel/install.go as well.
 
 -        go@1.27.1                                         go version
 -        node@24.21.0                                      node --version
@@ -36,3 +41,4 @@
 codex    codex@0.155.0                                     codex --version
 codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
 opencode npm:opencode-ai@1.18.31                           opencode --version && opencode acp --help | grep -q ACP
+host     cloudflared@2026.9.3                              cloudflared --version

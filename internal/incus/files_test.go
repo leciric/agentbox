@@ -2,6 +2,7 @@ package incus
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,32 @@ func TestAPIPullFile(t *testing.T) {
 	}
 	if err := c.PullFile(ctx, "agent-02", inside+"/run.sh", host); err == nil {
 		t.Error("pulling from a missing instance succeeded")
+	}
+}
+
+// TestAPIPullFileLargerThanAPacket pulls a file of several of Incus's 128 KiB
+// packets from a server that answers each read with at most 32 KiB, as both
+// Incus's and the fake's (pkg/sftp's own) do. Copying it with sftp's WriteTo
+// kept the first 32 KiB of each packet and dropped the rest, which is how
+// every recording longer than a few seconds came out black.
+func TestAPIPullFileLargerThanAPacket(t *testing.T) {
+	startFakeAPI(t)
+	inside, host := t.TempDir(), t.TempDir()
+	var b strings.Builder
+	for i := 0; b.Len() < 600*1024; i++ {
+		fmt.Fprintf(&b, "%08d\n", i)
+	}
+	writeFile(t, inside+"/recording.mp4", b.String(), 0o644)
+
+	if err := (Client{}).PullFile(context.Background(), "agent-01", inside+"/recording.mp4", host+"/copy.mp4"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(host + "/copy.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != b.String() {
+		t.Errorf("pulled %d bytes, want the file's %d unchanged", len(got), b.Len())
 	}
 }
 

@@ -28,6 +28,25 @@ const SettingLANPort = "lan_port"
 // DefaultLANPort is where the phone connects when nobody chose a port.
 const DefaultLANPort = 7780
 
+// SettingLANTunnel turns reaching the phone page from anywhere, through a
+// Cloudflare Tunnel, on ("1"). Off by default; it only runs while SettingLAN
+// is on too.
+const SettingLANTunnel = "lan_tunnel"
+
+// SettingLANTunnelToken is a named tunnel's token, sealed by internal/secrets;
+// "" is a quick tunnel. SettingLANTunnelHostname is the named tunnel's public
+// hostname.
+const (
+	SettingLANTunnelToken    = "lan_tunnel_token"
+	SettingLANTunnelHostname = "lan_tunnel_hostname"
+)
+
+// DefaultLANTunnelPort is the port, on the loopback address of AgentBox's own
+// machine or VM, a named tunnel reaches the daemon at: its public hostname
+// points at http://localhost:7781 in Cloudflare's dashboard. A quick tunnel,
+// which AgentBox points itself, takes any free port.
+const DefaultLANTunnelPort = 7781
+
 // MaxPhoneNameLen bounds a phone's name, which the phone suggests itself.
 const MaxPhoneNameLen = 60
 

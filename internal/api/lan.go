@@ -24,13 +24,37 @@ type LANStatus struct {
 	Listening bool `json:"listening"`
 	// Error is why it isn't, when it should be.
 	Error string `json:"error,omitempty"`
-	// URLs are the addresses a phone on the network can open, the likeliest
-	// first.
+	// URLs are the addresses a phone can open, the likeliest first: the
+	// tunnel's, when it's running, then those on the local network.
 	URLs []string `json:"urls"`
+	// Tunnel is reaching the page from anywhere, through a Cloudflare Tunnel.
+	Tunnel LANTunnel `json:"tunnel"`
 	// WebVersion is the version of the app the phone is served, which the
 	// desktop app installs (PUT /v1/lan/web/...); "" until it has.
 	WebVersion string     `json:"webVersion,omitempty"`
 	Phones     []LANPhone `json:"phones"`
+}
+
+// LANTunnel is where the phone tunnel has got to: a Cloudflare Tunnel the
+// daemon runs, which brings the phone page to an https address on the
+// internet, so a phone can chat from anywhere. Off by default.
+type LANTunnel struct {
+	Enabled bool `json:"enabled"`
+	// Named says it's the user's own named tunnel, from a token they made in
+	// Cloudflare's dashboard, on Hostname; otherwise it's a quick tunnel, on
+	// a trycloudflare.com address that changes each time it starts.
+	Named    bool   `json:"named"`
+	Hostname string `json:"hostname,omitempty"`
+	// State is "off", "starting" (downloading cloudflared, or connecting),
+	// "running" or "failed" (it's tried again after a while).
+	State string `json:"state"`
+	// URL is the https address phones open, once it's running.
+	URL   string `json:"url,omitempty"`
+	Error string `json:"error,omitempty"`
+	// Origin is where the tunnel reaches the daemon, in AgentBox's own
+	// machine or VM: what a named tunnel's public hostname has to point at in
+	// Cloudflare's dashboard.
+	Origin string `json:"origin"`
 }
 
 // LANPhone is a paired phone.
@@ -46,6 +70,13 @@ type LANPhone struct {
 type UpdateLANRequest struct {
 	Enabled *bool `json:"enabled,omitempty"`
 	Port    *int  `json:"port,omitempty"`
+	// Tunnel turns reaching the page from anywhere on or off.
+	Tunnel *bool `json:"tunnel,omitempty"`
+	// TunnelToken and TunnelHostname make it a named tunnel: both, or ""
+	// for both to go back to a quick one. The token is stored sealed and is
+	// never sent back.
+	TunnelToken    *string `json:"tunnelToken,omitempty"`
+	TunnelHostname *string `json:"tunnelHostname,omitempty"`
 }
 
 // LANPairing is POST /v1/lan/pairings: a one-time secret, valid until

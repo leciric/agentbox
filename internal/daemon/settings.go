@@ -219,6 +219,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.UpdateChannel != nil {
+		if err := s.setUpdateChannel(r.Context(), *req.UpdateChannel); err != nil {
+			return err
+		}
+	}
 	if req.UsageStats != nil {
 		if err := s.setUsageStats(r.Context(), *req.UsageStats); err != nil {
 			return err

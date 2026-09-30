@@ -108,7 +108,7 @@ func (c Client) UserExec(ctx context.Context, name, user, command string, stdin 
 // running, as it did when the incus command was killed; nothing is written to
 // stdout or stderr after it returns.
 func (c Client) exec(ctx context.Context, name string, command []string, stdin io.Reader, stdout, stderr io.Writer) (int, error) {
-	s, err := server(ctx)
+	s, err := c.server(ctx)
 	if err != nil {
 		return -1, err
 	}

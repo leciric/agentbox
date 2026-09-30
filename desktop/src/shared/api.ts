@@ -175,6 +175,7 @@ export interface UpdateSettingsRequest {
   resumeAfterLimit?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
+  updateChannel?: string;
   usageStats?: boolean;
   prWatch?: boolean;
   mediaRetention?: string;
@@ -578,6 +579,8 @@ export interface UpdateThemeRequest {
 export interface UpdateStatus {
   current: string;
   enabled: boolean;
+  channel: string;
+  nightly?: boolean;
   blocked?: string;
   available?: UpdateAvailable;
   checkedAt?: string;
@@ -586,6 +589,13 @@ export interface UpdateStatus {
 export interface UpdateAvailable {
   version: string;
   url: string;
+}
+
+export interface IncusStatus {
+  answering: boolean;
+  since?: string;
+  detail?: string;
+  restarted?: string;
 }
 
 export interface ProjectChange {
@@ -1126,8 +1136,19 @@ export interface LANStatus {
   listening: boolean;
   error?: string;
   urls: string[];
+  tunnel: LANTunnel;
   webVersion?: string;
   phones: LANPhone[];
+}
+
+export interface LANTunnel {
+  enabled: boolean;
+  named: boolean;
+  hostname?: string;
+  state: string;
+  url?: string;
+  error?: string;
+  origin: string;
 }
 
 export interface LANPhone {
@@ -1141,6 +1162,9 @@ export interface LANPhone {
 export interface UpdateLANRequest {
   enabled?: boolean;
   port?: number;
+  tunnel?: boolean;
+  tunnelToken?: string;
+  tunnelHostname?: string;
 }
 
 export interface LANPairing {

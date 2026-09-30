@@ -63,3 +63,18 @@ func TestRestoreAgentAPISocketWaitsForTheBoot(t *testing.T) {
 		t.Errorf("the device wasn't plugged in again:\n%s", got)
 	}
 }
+
+// A running agent that can't be asked once it has booted is an error, so that
+// the daemon asks again once Incus answers, rather than leaving its socket
+// hidden.
+func TestRestoreAgentAPISocketFailsWhenTheAgentCantBeAsked(t *testing.T) {
+	inc, calls := loggingIncus(t, `case "$1" in exec) echo "Error: EOF" >&2; exit 1 ;; esac`)
+	f := setup(t, inc)
+	f.m.AgentSocket = func(instance string) string { return "/t/sockets/" + instance + ".sock" }
+	if err := f.m.RestoreAgentAPISocket(context.Background(), state.Agent{Instance: "ab-agent-01"}); err == nil {
+		t.Fatal("no error from an agent that couldn't be asked")
+	}
+	if got := strings.Join(calls(), "\n"); strings.Contains(got, "config device") {
+		t.Errorf("the device was touched:\n%s", got)
+	}
+}

@@ -43,6 +43,9 @@ type Config struct {
 	// UpdateURL is where the daily update check asks; empty is
 	// update.DefaultURL.
 	UpdateURL string
+	// ReleasesURL is where the nightly channel looks for nightlies; empty is
+	// update.DefaultReleasesURL.
+	ReleasesURL string
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string
@@ -71,6 +74,7 @@ type Server struct {
 	themes  *omarchy.Watcher   // the desktop theme this machine is running, if any
 	updates updates            // what the daily update check last found
 	stop    context.CancelFunc
+	incus   *incusWatch // whether Incus answers, and what to do when it doesn't
 
 	runCtx context.Context // Run's, for connections that outlive a request
 
@@ -114,7 +118,7 @@ type Server struct {
 	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
-	lan          *lanState                // phones chatting from the local network (lan.go)
+	lan          *lanState                // phones chatting from the local network or a tunnel (lan.go)
 	remoteStop   context.CancelFunc
 	// openCodeModels is the state of the background ask that fills OpenCode's
 	// model menu: whether one is running, and when the last one started.
@@ -152,6 +156,9 @@ type Server struct {
 func New(cfg Config) (*Server, error) {
 	if cfg.Log == nil {
 		cfg.Log = io.Discard
+	}
+	if cfg.Incus.Health == nil {
+		cfg.Incus.Health = new(incus.Health) // incuswatch.go
 	}
 	store, err := state.Open(cfg.Paths.StateDB())
 	if err != nil {
@@ -211,6 +218,7 @@ func New(cfg Config) (*Server, error) {
 		ImageDir:   cfg.Paths.ChatImages,
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
+	s.incus = s.newIncusWatch()
 	return s, nil
 }
 
@@ -269,7 +277,8 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchMemoryThrash(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
-	loops.Go(func() { s.restoreAgentSockets(ctx) })
+	// Incus is asked only from here on: nothing before Serve may wait on it.
+	loops.Go(func() { s.watchIncus(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
@@ -348,6 +357,8 @@ func (s *Server) reconcile(ctx context.Context) {
 		s.logf("reconcile agents: %v", err)
 		return
 	}
+	// Nothing here asks Incus, which may not answer (incuswatch.go): the
+	// agents' side of their in-agent API is plugAgentSockets', once it does.
 	m := s.manager(s.cfg.Log)
 	for _, a := range agents {
 		if err := m.LockAgentWorktree(ctx, a); err != nil {
@@ -359,36 +370,7 @@ func (s *Server) reconcile(ctx context.Context) {
 		if err := s.serveAgentAPI(a.Instance); err != nil {
 			s.logf("in-agent API socket for %s: %v", a.Ref(), err)
 		}
-		if a.Status != state.AgentReady {
-			continue
-		}
-		if err := m.EnsureAgentAPI(ctx, a); err != nil && !errors.Is(err, incus.ErrNotFound) {
-			s.logf("in-agent API for %s: %v", a.Ref(), err)
-		}
 	}
-}
-
-// restoreAgentSockets gives back their in-agent API socket to the agents
-// Incus started again with the machine, which their /run hides: each once it
-// has booted, all at once, since they boot at once.
-func (s *Server) restoreAgentSockets(ctx context.Context) {
-	agents, err := s.store.Agents(ctx, "")
-	if err != nil {
-		return
-	}
-	m := s.manager(s.cfg.Log)
-	var wg sync.WaitGroup
-	for _, a := range agents {
-		if a.IsLead() || a.Status != state.AgentReady {
-			continue
-		}
-		wg.Go(func() {
-			if err := m.RestoreAgentAPISocket(ctx, a); err != nil && ctx.Err() == nil {
-				s.logf("in-agent API socket for %s: %v", a.Ref(), err)
-			}
-		})
-	}
-	wg.Wait()
 }
 
 func (s *Server) manager(log io.Writer) *agent.Manager {
@@ -434,6 +416,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/theme", s.themeStatus)
 	h("PATCH /v1/theme", s.updateTheme)
 	h("GET /v1/update", s.getUpdate)
+	h("GET /v1/update/release", s.getLatestRelease)
 	h("GET /v1/settings", s.settings)
 	h("PATCH /v1/settings", s.updateSettings)
 	// What every chat spent, kept after its agent is gone (D83).
@@ -576,7 +559,7 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/lan/host", s.lanHostReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
-	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(true)))
+	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))
 
 	h("GET /v1/jobs", s.listJobs)
 	h("GET /v1/jobs/{id}", s.getJob)
@@ -599,6 +582,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, state.ErrExists):
 		status = http.StatusConflict
+	case errors.Is(err, incus.ErrNotAnswering):
+		status = http.StatusServiceUnavailable
 	}
 	body := api.Error{Error: err.Error()}
 	if errors.Is(err, gitrepo.ErrNotEmpty) {

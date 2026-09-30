@@ -27,14 +27,19 @@ var shared struct {
 // server returns the shared connection, bound to ctx: every request made
 // through it is cancelled with ctx. WithContext would set ctx on the shared
 // connection itself, so it is set on a copy, which UseProject makes.
-func server(ctx context.Context) (incusclient.InstanceServer, error) {
+func (c Client) server(ctx context.Context) (incusclient.InstanceServer, error) {
+	if err := c.notAnsweringErr(); err != nil {
+		return nil, err
+	}
 	shared.Lock()
 	defer shared.Unlock()
 	if shared.server == nil {
 		// The same socket the incus command uses: INCUS_SOCKET, then
 		// INCUS_DIR, then Incus' own paths. The server's API extensions are
 		// read once, here, for the client to pick the calls this Incus has.
-		s, err := incusclient.ConnectIncusUnixWithContext(ctx, "", &incusclient.ConnectionArgs{
+		connect, cancel := context.WithTimeout(ctx, connectTimeout)
+		defer cancel()
+		s, err := incusclient.ConnectIncusUnixWithContext(connect, "", &incusclient.ConnectionArgs{
 			UserAgent:     "agentbox",
 			SkipGetEvents: true, // operations are waited on with /wait, not the event stream
 		})
@@ -58,11 +63,14 @@ func server(ctx context.Context) (incusclient.InstanceServer, error) {
 // what the error names, so an error reads as it did when AgentBox ran
 // `incus <args>` — "incus delete --force agent-01: Instance not found".
 func (c Client) do(ctx context.Context, args []string, call func(incusclient.InstanceServer) error) error {
+	if err := c.notAnsweringErr(); err != nil {
+		return c.fail(args, err)
+	}
 	if c.cli() {
 		_, err := c.run(ctx, args...)
 		return err
 	}
-	s, err := server(ctx)
+	s, err := c.server(ctx)
 	if err == nil {
 		err = call(s)
 	}
