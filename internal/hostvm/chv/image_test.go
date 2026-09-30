@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -67,6 +68,8 @@ func TestUserData(t *testing.T) {
 		"      Include $host/config\n",
 		"RequiresMountsFor=/home/lint\n",
 		"systemctl enable agentbox-share-ssh.service\n",
+		"path: /etc/systemd/system/incus.service.d/05-agentbox-waitready.conf\n",
+		"      ExecStartPost=\n      ExecStartPost=/usr/local/lib/agentbox/incus-waitready $MAINPID\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("user-data has no %q", want)
@@ -85,7 +88,7 @@ func TestUserData(t *testing.T) {
 		cmd := exec.Command("python3", "-c", `import sys, yaml
 d = yaml.safe_load(sys.stdin)
 assert d["users"][0]["name"] == "lint", d["users"]
-assert len(d["write_files"]) == 14, len(d["write_files"])
+assert len(d["write_files"]) == 16, len(d["write_files"])
 assert d["runcmd"] == [["/usr/local/lib/agentbox/provision.sh"]]
 assert d["bootcmd"][0][:5] == ["cloud-init-per", "instance", "agentbox-user", "sh", "-c"]
 `)
@@ -463,5 +466,62 @@ func mustWrite(t *testing.T, file, content string) {
 	}
 	if err := os.WriteFile(file, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestIncusWaitready runs incus.service's ExecStartPost against a fake incusd:
+// it passes once incusd is ready, and fails at once, rather than after the ten
+// minutes `incusd waitready --timeout=600` would take, when incusd is gone.
+func TestIncusWaitready(t *testing.T) {
+	dir := t.TempDir()
+	b, err := renderUserData(testConfig(), testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(dir, "incus-waitready")
+	if err := os.WriteFile(script, []byte(writeFile(t, string(b), "/usr/local/lib/agentbox/incus-waitready")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The fake is ready once the file ready exists, and counts its calls.
+	calls := filepath.Join(dir, "calls")
+	fake := filepath.Join(dir, "incusd")
+	mustWrite(t, fake, "#!/bin/sh\necho \"$*\" >>"+calls+"\n[ -e "+filepath.Join(dir, "ready")+" ]\n")
+	if err := os.Chmod(fake, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	run := func(pid string) (string, error) {
+		_ = os.Remove(calls)
+		cmd := exec.Command("sh", script, pid)
+		cmd.Env = append(os.Environ(), "INCUSD="+fake, "INCUS_WAITREADY_TRIES=3")
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	alive := strconv.Itoa(os.Getpid())
+
+	// Not ready while incusd runs: every try is made, then it fails.
+	if out, err := run(alive); err == nil {
+		t.Fatalf("passed with incusd never ready: %s", out)
+	}
+	if got, _ := os.ReadFile(calls); strings.Count(string(got), "waitready --timeout=5\n") != 3 {
+		t.Errorf("tries = %q, want 3 of waitready --timeout=5", got)
+	}
+
+	// incusd gone: fails before trying at all.
+	dead := exec.Command("true")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(strconv.Itoa(dead.Process.Pid))
+	if err == nil || !strings.Contains(out, "exited before it was ready") {
+		t.Errorf("with incusd gone: %v, %q", err, out)
+	}
+	if _, err := os.Stat(calls); !os.IsNotExist(err) {
+		t.Error("waited on an incusd that is gone")
+	}
+
+	// Ready: passes.
+	mustWrite(t, filepath.Join(dir, "ready"), "")
+	if out, err := run(alive); err != nil {
+		t.Errorf("failed with incusd ready: %v, %s", err, out)
 	}
 }

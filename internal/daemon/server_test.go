@@ -157,6 +157,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	// session (D78) would launch Claude Code on the host, so it is stubbed
 	// here and overridden by the tests that are about it.
 	srv.prWatch.every = 0 // tests drive the pull request watch themselves
+	srv.incus.every = 0   // and the one on Incus (incuswatch.go)
 	srv.askAside = func(context.Context, state.Agent, string, string) (string, string, error) {
 		return "", "", errors.New("this test starts no AI tool")
 	}
@@ -659,7 +660,8 @@ func TestReconcileUpdatesEveryReadyAgentsBinary(t *testing.T) {
 	d.srv.cfg.Binary = filepath.Join(root, "agentbox")
 	_ = os.Remove(filepath.Join(root, "incus.log"))
 
-	d.srv.reconcile(ctx) // what the daemon does when it starts
+	d.srv.reconcile(ctx)        // what the daemon does when it starts
+	d.srv.plugAgentSockets(ctx) // and once Incus answers
 
 	if strings.Contains(log.String(), "in-agent API") {
 		t.Errorf("reconcile logged a failure:\n%s", log.String())

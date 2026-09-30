@@ -74,6 +74,7 @@ type Server struct {
 	themes  *omarchy.Watcher   // the desktop theme this machine is running, if any
 	updates updates            // what the daily update check last found
 	stop    context.CancelFunc
+	incus   *incusWatch // whether Incus answers, and what to do when it doesn't
 
 	runCtx context.Context // Run's, for connections that outlive a request
 
@@ -134,6 +135,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.Log == nil {
 		cfg.Log = io.Discard
 	}
+	if cfg.Incus.Health == nil {
+		cfg.Incus.Health = new(incus.Health) // incuswatch.go
+	}
 	store, err := state.Open(cfg.Paths.StateDB())
 	if err != nil {
 		return nil, err
@@ -181,6 +185,7 @@ func New(cfg Config) (*Server, error) {
 		ImageDir:   cfg.Paths.ChatImages,
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
+	s.incus = s.newIncusWatch()
 	return s, nil
 }
 
@@ -238,7 +243,8 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchMemoryThrash(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
-	loops.Go(func() { s.restoreAgentSockets(ctx) })
+	// Incus is asked only from here on: nothing before Serve may wait on it.
+	loops.Go(func() { s.watchIncus(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
@@ -317,6 +323,8 @@ func (s *Server) reconcile(ctx context.Context) {
 		s.logf("reconcile agents: %v", err)
 		return
 	}
+	// Nothing here asks Incus, which may not answer (incuswatch.go): the
+	// agents' side of their in-agent API is plugAgentSockets', once it does.
 	m := s.manager(s.cfg.Log)
 	for _, a := range agents {
 		if err := m.LockAgentWorktree(ctx, a); err != nil {
@@ -328,36 +336,7 @@ func (s *Server) reconcile(ctx context.Context) {
 		if err := s.serveAgentAPI(a.Instance); err != nil {
 			s.logf("in-agent API socket for %s: %v", a.Ref(), err)
 		}
-		if a.Status != state.AgentReady {
-			continue
-		}
-		if err := m.EnsureAgentAPI(ctx, a); err != nil && !errors.Is(err, incus.ErrNotFound) {
-			s.logf("in-agent API for %s: %v", a.Ref(), err)
-		}
 	}
-}
-
-// restoreAgentSockets gives back their in-agent API socket to the agents
-// Incus started again with the machine, which their /run hides: each once it
-// has booted, all at once, since they boot at once.
-func (s *Server) restoreAgentSockets(ctx context.Context) {
-	agents, err := s.store.Agents(ctx, "")
-	if err != nil {
-		return
-	}
-	m := s.manager(s.cfg.Log)
-	var wg sync.WaitGroup
-	for _, a := range agents {
-		if a.IsLead() || a.Status != state.AgentReady {
-			continue
-		}
-		wg.Go(func() {
-			if err := m.RestoreAgentAPISocket(ctx, a); err != nil && ctx.Err() == nil {
-				s.logf("in-agent API socket for %s: %v", a.Ref(), err)
-			}
-		})
-	}
-	wg.Wait()
 }
 
 func (s *Server) manager(log io.Writer) *agent.Manager {
@@ -566,6 +545,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusNotFound
 	case errors.Is(err, state.ErrExists):
 		status = http.StatusConflict
+	case errors.Is(err, incus.ErrNotAnswering):
+		status = http.StatusServiceUnavailable
 	}
 	body := api.Error{Error: err.Error()}
 	if errors.Is(err, gitrepo.ErrNotEmpty) {

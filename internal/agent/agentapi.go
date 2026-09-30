@@ -69,14 +69,19 @@ func (m *Manager) RestoreAgentAPISocket(ctx context.Context, a state.Agent) erro
 // before its systemd mounts a tmpfs over /run, which hides the socket: every
 // agent started again has none (a new one gets its device after its boot).
 // Plugging it in again, once booted, puts it back. With boot set, it waits
-// for the boot first; an agent it can't ask (stopped, or not answering) is
-// left as it is.
+// for the boot first, and an agent it can't ask is an error, for the caller
+// to ask again; without, an agent it can't ask (stopped, say) is left as it is.
 func (m *Manager) replugHiddenSocket(ctx context.Context, a state.Agent, boot bool) error {
 	check := "test -S " + api.InAgentSocket + " && echo there || echo missing"
 	if boot {
 		check = "timeout 120 systemctl is-system-running --wait >/dev/null 2>&1; " + check
 	}
 	out, err := m.Incus.Exec(ctx, a.Instance, "sh", "-c", check)
+	if err != nil && boot {
+		// A running agent that can't be asked is asked again (the daemon's
+		// incuswatch.go): Incus may not be answering yet.
+		return err
+	}
 	if err != nil || strings.TrimSpace(out) != "missing" {
 		return nil
 	}
