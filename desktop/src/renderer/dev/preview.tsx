@@ -132,6 +132,8 @@
 //                           row: Auto's slot size and the running agents its
 //                           peak is learned from, memory and CPU now and at
 //                           their peak
+//   ?queue=organic-alone    organic's Settings at the slots row, alone: two
+//   ?queue=organic-busy     organic's Settings beside a busy agentbox: one
 //   ?queue=off              Like busy, but with the installation's Agent
 //                           queue switch off: Settings and New agent's Queue
 //                           show disabled with a pointer, the Tasks tab's
@@ -207,7 +209,9 @@ const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'home' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
-const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'off' | null
+const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'organic-alone' | 'organic-busy' | 'off' | null
+// Whose Settings ?queue=settings and the organic ones show.
+const queueSettingsProject = queue?.startsWith('organic-') ? 'organic' : PROJECT;
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
 
@@ -285,7 +289,8 @@ if (meters) {
   seedMeterUsage(queryClient);
 }
 
-if (queue) seedQueue(queryClient, queue === 'tasks' || queue === 'settings' ? 'busy' : (queue as 'busy' | 'alone' | 'demo' | 'off'));
+const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
+if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
 if (power) seedPower(queryClient, power);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
@@ -461,7 +466,7 @@ function Preview() {
     );
   }
 
-  if (queue === 'settings') {
+  if (queue === 'settings' || queue === 'organic-alone' || queue === 'organic-busy') {
     return (
       <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }}>
         <QueueSettingsPreview />
@@ -654,7 +659,7 @@ function Preview() {
 // seedQueue put in the projects query.
 function QueueSettingsPreview() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const project = projects.data?.find((p) => p.name === PROJECT);
+  const project = projects.data?.find((p) => p.name === queueSettingsProject);
   return project ? <ProjectSettings project={project} /> : null;
 }
 
