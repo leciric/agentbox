@@ -80,6 +80,9 @@ type testConfig struct {
 	queue func(*Server)
 	// releasesURL is Config.ReleasesURL; empty is a port nothing listens on.
 	releasesURL string
+	// loginCallbackUnreachable is the daemon's: a browser that can't reach
+	// its localhost, as in the VM a Linux host runs AgentBox in.
+	loginCallbackUnreachable bool
 }
 
 // TestMain sets what every test's daemon needs the same way, once, before any
@@ -167,6 +170,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	if tc.queue != nil {
 		tc.queue(srv)
 	}
+	srv.loginCallbackUnreachable = tc.loginCallbackUnreachable
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx) }()

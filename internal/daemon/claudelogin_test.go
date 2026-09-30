@@ -41,18 +41,7 @@ func TestClaudeLoginAPI(t *testing.T) {
 	root := t.TempDir()
 	d := startTestDaemon(t, root, fakeIncus)
 	ctx := context.Background()
-	out := t.TempDir()
-	// AgentBox's own copy of Claude Code, which the login prefers to the PATH.
-	claude := filepath.Join(d.paths.Tools(), ".local", "bin", "claude")
-	if err := os.MkdirAll(filepath.Dir(claude), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(claude, []byte(strings.NewReplacer(
-		"$AGENTBOX_TEST_OUT", out,
-		"$AGENTBOX_TEST_HOME", os.Getenv("HOME"),
-	).Replace(fakeClaude)), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	out := installFakeClaude(t, d)
 
 	job, err := d.client.StartClaudeLogin(ctx, api.ClaudeLoginRequest{Account: "work"})
 	if err != nil {
@@ -126,6 +115,62 @@ func TestClaudeLoginAPI(t *testing.T) {
 	// A finished login takes no more codes, and doesn't block the next one.
 	if err := d.client.ClaudeLoginCode(ctx, job.ID, "again"); err == nil {
 		t.Error("a finished login took a code")
+	}
+}
+
+// installFakeClaude puts fakeClaude where the daemon's login looks first, and
+// answers the directory it writes what it saw to.
+func installFakeClaude(t *testing.T, d testDaemon) string {
+	t.Helper()
+	out := t.TempDir()
+	// AgentBox's own copy of Claude Code, which the login prefers to the PATH.
+	claude := filepath.Join(d.paths.Tools(), ".local", "bin", "claude")
+	if err := os.MkdirAll(filepath.Dir(claude), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(claude, []byte(strings.NewReplacer(
+		"$AGENTBOX_TEST_OUT", out,
+		"$AGENTBOX_TEST_HOME", os.Getenv("HOME"),
+	).Replace(fakeClaude)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestClaudeLoginFromAVM is a login whose daemon runs in the VM a Linux host
+// runs AgentBox in: Claude Code's callback listens on the VM's localhost, which
+// the browser on the host can't reach, so the page that comes back to it is
+// never offered, only the one that ends in a code.
+func TestClaudeLoginFromAVM(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{loginCallbackUnreachable: true})
+	ctx := context.Background()
+	installFakeClaude(t, d)
+
+	job, err := d.client.StartClaudeLogin(ctx, api.ClaudeLoginRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var login api.ClaudeLogin
+	waitFor(t, "the code page", func() bool {
+		login, _ = d.client.ClaudeLogin(ctx, job.ID)
+		return login.CodeURL != ""
+	})
+	if login.URL != "" {
+		t.Errorf("URL = %q, want none: its callback is on the VM's localhost", login.URL)
+	}
+	if err := d.client.ClaudeLoginCode(ctx, job.ID, "approved"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the login to finish", func() bool {
+		login, _ = d.client.ClaudeLogin(ctx, job.ID)
+		return login.Status != api.JobRunning
+	})
+	if login.Status != api.JobSucceeded {
+		t.Fatalf("ClaudeLogin() = %+v", login)
+	}
+	if token, err := (credentials.Store{Dir: d.paths.Credentials()}).ClaudeToken(credentials.DefaultAccount); err != nil || !strings.HasPrefix(token, "sk-ant-oat01-approved-") {
+		t.Errorf("stored token = %q, %v", token, err)
 	}
 }
 

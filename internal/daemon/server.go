@@ -22,6 +22,7 @@ import (
 	"agentbox/internal/chat"
 	"agentbox/internal/credentials"
 	"agentbox/internal/gitrepo"
+	"agentbox/internal/hostos"
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/memory"
@@ -127,6 +128,11 @@ type Server struct {
 		last    time.Time
 	}
 
+	// loginCallbackUnreachable is whether the browser can't reach this
+	// machine's localhost, where a Claude Code login's callback listens: in
+	// the VM a Linux host runs AgentBox in, nothing forwards it (setup.go).
+	loginCallbackUnreachable bool
+
 	terminalMu       sync.Mutex
 	terminalActivity map[string]time.Time // last input typed into a terminal, by ref (autostopidle.go)
 
@@ -189,6 +195,8 @@ func New(cfg Config) (*Server, error) {
 		recheckedAt:      map[string]time.Time{},
 		recheckedWhat:    map[string]string{},
 	}
+	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
+	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.queueStart = s.startQueuedAgent
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.slotBudget = func(ctx context.Context) (int64, error) { return s.manager(nil).SlotBudget(ctx) }
