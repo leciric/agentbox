@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -80,13 +79,13 @@ func newDaemonStopCmd(a *app) *cobra.Command {
 			if err := c.Shutdown(cmd.Context()); err != nil {
 				return fmt.Errorf("no daemon is answering on %s: %w", c.Socket(), err)
 			}
-			for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-				if c.Ping(cmd.Context()) != nil {
-					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Stopped the AgentBox daemon")
-					return nil
-				}
+			// It stops answering before it's gone: it rolls its jobs back
+			// first, and a daemon started meanwhile would lose its socket.
+			if daemon.WaitStopped(c.Socket(), daemon.StopWait) {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Stopped the AgentBox daemon")
+				return nil
 			}
-			return errors.New("the daemon is still running after 30s")
+			return fmt.Errorf("the daemon%s is still running after %s", daemon.StillRunning(c.Socket()), daemon.StopWait)
 		},
 	}
 }
