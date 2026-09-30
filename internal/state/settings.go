@@ -210,7 +210,37 @@ const (
 	SettingSharedBudgetMemory = "shared_budget_memory"
 	SettingSharedBudgetSwap   = "shared_budget_swap"
 	SettingSharedBudgetCPU    = "shared_budget_cpu"
+	// SettingAgentQueue turns the agent queue on: creates may queue, and
+	// queued agents wait for one of their project's slots. Off until the user
+	// turns it on, and off, nothing queues and no slots are enforced — an
+	// agent already queued starts at once.
+	SettingAgentQueue = "agent_queue"
+	// SettingLeadRecheck says whether the daemon wakes each project's chat
+	// every SettingLeadRecheckMinutes with a short status of its running
+	// agents and its queue, when there is something to act on. Off until the
+	// user turns it on.
+	SettingLeadRecheck        = "lead_recheck"
+	SettingLeadRecheckMinutes = "lead_recheck_minutes"
 )
+
+// DefaultLeadRecheck is how often the lead is rechecked when nobody chose.
+const DefaultLeadRecheck = 20 * time.Minute
+
+// LeadRecheck reads "lead rechecks agents": whether it's on, and how often.
+func (s *Store) LeadRecheck(ctx context.Context) (on bool, every time.Duration, err error) {
+	if on, err = s.Flag(ctx, SettingLeadRecheck); err != nil {
+		return false, 0, err
+	}
+	every = DefaultLeadRecheck
+	raw, err := s.Setting(ctx, SettingLeadRecheckMinutes)
+	if err != nil {
+		return false, 0, err
+	}
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		every = time.Duration(n) * time.Minute
+	}
+	return on, every, nil
+}
 
 // DefaultIdleTime is how long an agent may go idle before "auto-stop idle
 // agents" stops it, when nobody has chosen a time of their own: long enough

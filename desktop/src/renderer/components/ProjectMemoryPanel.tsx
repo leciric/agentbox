@@ -242,27 +242,27 @@ function WorkingMemoryCard({ project }: { project: string }) {
 // this doesn't invent anything the API can't back, like editing a task that
 // belongs to an agent, which is the plan-curation split the daemon enforces
 // in taskPatch (internal/daemon/memory.go).
-const taskStatuses = [A.TaskBlocked, A.TaskActive, A.TaskOpen, A.TaskDone, A.TaskAbandoned];
-const taskStatusLabel: Record<string, string> = {
+export const taskStatuses = [A.TaskBlocked, A.TaskActive, A.TaskOpen, A.TaskDone, A.TaskAbandoned];
+export const taskStatusLabel: Record<string, string> = {
   [A.TaskOpen]: 'Open',
   [A.TaskActive]: 'Active',
   [A.TaskBlocked]: 'Blocked',
   [A.TaskDone]: 'Done',
   [A.TaskAbandoned]: 'Abandoned',
 };
-const taskStatusVariant: Record<string, BadgeVariant> = {
+export const taskStatusVariant: Record<string, BadgeVariant> = {
   [A.TaskOpen]: 'default',
   [A.TaskActive]: 'info',
   [A.TaskBlocked]: 'warning',
   [A.TaskDone]: 'success',
   [A.TaskAbandoned]: 'danger',
 };
-const taskOpenStatuses = new Set([A.TaskOpen, A.TaskActive, A.TaskBlocked]);
+export const taskOpenStatuses = new Set([A.TaskOpen, A.TaskActive, A.TaskBlocked]);
 
 // taskTree indexes a project's tasks by parent, in the order the API already
 // returned them (blocked, active, open, done, abandoned, then newest first) —
 // grouping by parent preserves that order, so nothing here re-sorts.
-function taskTree(tasks: T.Task[]) {
+export function taskTree(tasks: T.Task[]) {
   const byId = new Map(tasks.map((t) => [t.id, t] as const));
   const childrenOf = new Map<string, T.Task[]>();
   const roots: T.Task[] = [];
@@ -280,7 +280,7 @@ function taskTree(tasks: T.Task[]) {
 // visible if it's still open, or if anything under it is — collapsing a
 // finished branch whole rather than leaving its open children orphaned with
 // no parent row to indent under.
-function visibleTasks(tasks: T.Task[], childrenOf: Map<string, T.Task[]>, showClosed: boolean): Set<string> {
+export function visibleTasks(tasks: T.Task[], childrenOf: Map<string, T.Task[]>, showClosed: boolean): Set<string> {
   if (showClosed) return new Set(tasks.map((t) => t.id));
   const visible = new Set<string>();
   const check = (t: T.Task): boolean => {

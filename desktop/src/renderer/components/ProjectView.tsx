@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, NotebookPen, Plus, SlidersHorizontal, Trash, Users } from 'lucide-react';
+import { Brain, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, ListTodo, MessagesSquare, NotebookPen, Plus, SlidersHorizontal, Trash, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -14,6 +14,7 @@ import { ProjectBasePanel } from './ProjectBasePanel';
 import { ProjectMediaPanel } from './ProjectMediaPanel';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
+import { ProjectTasksPanel } from './ProjectTasksPanel';
 import { PullRequestsPanel } from './PullRequestsPanel';
 import { SecretsTab } from './SecretsTab';
 import { TokensPanel } from './TokensPanel';
@@ -90,7 +91,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
 
 // A project opens on its chat: the conversation that directs its agents. What
 // the page showed before is the Overview tab.
-type ProjectTab = 'chat' | 'agents' | 'pulls' | 'media' | 'memory' | 'tokens' | 'secrets' | 'overview';
+type ProjectTab = 'chat' | 'agents' | 'tasks' | 'pulls' | 'media' | 'memory' | 'tokens' | 'secrets' | 'overview';
 type OverviewSection = 'repository' | 'settings' | 'brief';
 
 export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSelect: (view: View) => void; onNewAgent: () => void }) {
@@ -158,6 +159,10 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
               Agents
               {mine.length > 0 && <span className="tabular-nums text-subtle">{mine.length}</span>}
             </TabsTrigger>
+            <TabsTrigger value="tasks">
+              <ListTodo />
+              Tasks
+            </TabsTrigger>
             <TabsTrigger value="pulls">
               <GitPullRequest />
               Pull requests
@@ -201,6 +206,10 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
         <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
           <FleetPanel project={name} onSelect={onSelect} />
         </div>
+      </TabsContent>
+
+      <TabsContent value="tasks" className="overflow-y-auto">
+        <ProjectTasksPanel project={name} onSelect={onSelect} />
       </TabsContent>
 
       <TabsContent value="pulls" className="overflow-y-auto">

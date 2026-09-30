@@ -175,6 +175,36 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.AgentQueue != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingAgentQueue, *req.AgentQueue); err != nil {
+			return err
+		}
+		// Off starts whatever is queued; on may have work to look at.
+		s.kickQueue()
+	}
+	if req.LeadRecheckMinutes != nil {
+		if n := *req.LeadRecheckMinutes; n < 5 || n > 1440 {
+			return fmt.Errorf("the recheck is every 5 to 1440 minutes; %d isn't", n)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingLeadRecheckMinutes, strconv.Itoa(*req.LeadRecheckMinutes)); err != nil {
+			return err
+		}
+	}
+	if req.LeadRecheck != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingLeadRecheck, *req.LeadRecheck); err != nil {
+			return err
+		}
+	}
+	if req.AgentQueue != nil || req.LeadRecheck != nil {
+		// Every chat's brief says whether it has a queue and rechecks.
+		if projects, err := s.store.Projects(r.Context()); err == nil {
+			for _, p := range projects {
+				if err := s.manager(nil).ReconfigureLead(r.Context(), p.Name); err != nil {
+					s.logf("reconfiguring the %s chat: %v", p.Name, err)
+				}
+			}
+		}
+	}
 	if req.AutoStopIdle != nil || req.IdleTimeSeconds != nil {
 		// Turning this on, or shortening the idle time, can make an agent idle
 		// now rather than at the next tick, so check right away instead of
@@ -438,6 +468,14 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	agentQueue, err := s.store.Flag(r.Context(), state.SettingAgentQueue)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	leadRecheck, recheckEvery, err := s.store.LeadRecheck(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	sharedBudget, err := s.sharedBudget(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -481,6 +519,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		GPUForAgents:    gpuForAgents,
 		AutoStopIdle:    autoStopIdle,
 		IdleTimeSeconds: int(idleTime / time.Second),
+
+		AgentQueue:         agentQueue,
+		LeadRecheck:        leadRecheck,
+		LeadRecheckMinutes: int(recheckEvery / time.Minute),
 
 		SharedBudget: sharedBudget,
 	}, nil

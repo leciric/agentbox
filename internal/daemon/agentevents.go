@@ -96,6 +96,8 @@ func finishNotice(ev api.AgentEvent) string {
 // the thing it is recording: an agent that finished has finished whether or
 // not the app hears about it.
 func (s *Server) record(ctx context.Context, ev api.AgentEvent) api.AgentEvent {
+	// An agent that finished or stopped may leave a slot for a queued one.
+	s.kickQueue()
 	ev.ID = newID()
 	data, err := json.Marshal(ev)
 	if err != nil {

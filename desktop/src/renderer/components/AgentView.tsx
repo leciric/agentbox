@@ -1,15 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  ArrowUpToLine,
   Camera,
   CircleX,
   Copy,
   Ellipsis,
+  FolderGit2,
   FolderOpen,
   GitBranch,
   Hash,
   Images,
   KeyRound,
   LayoutDashboard,
+  ListTodo,
   LoaderCircle,
   MessageSquare,
   Monitor,
@@ -90,6 +93,13 @@ export function AgentView({
         Loading {agentRef}…
       </div>
     );
+  }
+
+  // A queued agent has no machine yet: nothing here — chat, terminal, browser
+  // — has anything to attach to, so it gets its own quiet placeholder instead
+  // of the tabs below.
+  if (agent.state === 'queued') {
+    return <QueuedAgentPlaceholder agent={agent} onSelect={onSelect} />;
   }
 
   const run = (name: AgentAction) => action.mutate(name);
@@ -284,6 +294,71 @@ export function AgentView({
         onOpenChange={setDestroying}
         onDestroyed={() => onSelect({ kind: 'project', project: agent.project })}
       />
+    </div>
+  );
+}
+
+// QueuedAgentPlaceholder is what a queued agent opens on: no machine exists
+// yet, so there's no chat, terminal or browser to show — only its place in
+// line and its task, read from the project's queue (GET /v1/queue), and the
+// two ways out of it (AgentContextMenu offers the same two from the rail).
+function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect: (view: View) => void }) {
+  const queryClient = useQueryClient();
+  const queue = useQuery({ queryKey: ['queue', agent.project], queryFn: () => api.queue(agent.project) });
+  const entry = queue.data?.queued.find((q) => q.name === agent.name);
+
+  const invalidate = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['agents'] });
+    await queryClient.invalidateQueries({ queryKey: ['queue', agent.project] });
+    await queryClient.invalidateQueries({ queryKey: ['memoryTasks', agent.project] });
+  };
+  const moveToFront = useMutation({
+    mutationFn: () => api.moveQueued(agent.project, agent.name, 1),
+    onSuccess: () => void invalidate(),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const remove = useMutation({
+    mutationFn: () => api.removeQueued(agent.project, agent.name),
+    onSuccess: () => {
+      toast('Removed from the queue');
+      void invalidate();
+      onSelect({ kind: 'project', project: agent.project });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:flex-nowrap md:px-6">
+        <LiveAgentAvatar agent={agent} />
+        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-title">{agent.title || agent.name}</span>
+        <StateBadge state={agent.state} />
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 pb-10 text-center">
+        <span className="flex size-12 items-center justify-center rounded-2xl border border-line-strong bg-surface-faint text-subtle">
+          <ListTodo className="size-5" />
+        </span>
+        <div className="grid max-w-md gap-1.5">
+          <p className="text-[14px] font-medium text-primary">
+            Queued #{agent.queuePosition ?? entry?.position ?? '?'} — starts when one of {agent.project}'s slots is free
+          </p>
+          {entry?.task && <p className="text-[13px] leading-relaxed text-subtle">{entry.task}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" disabled={moveToFront.isPending || agent.queuePosition === 1} onClick={() => moveToFront.mutate()}>
+            <ArrowUpToLine />
+            Move to front
+          </Button>
+          <Button variant="ghost" size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
+            <CircleX />
+            Remove from queue
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => onSelect({ kind: 'project', project: agent.project })}>
+            <FolderGit2 />
+            Back to {agent.project}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

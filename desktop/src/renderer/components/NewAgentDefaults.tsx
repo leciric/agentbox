@@ -819,6 +819,96 @@ export function AutoStopIdle() {
   );
 }
 
+// AgentQueue turns the per-project running limit on for the installation:
+// off, every agent starts right away, the way AgentBox always worked; on, a
+// project's own slots (its Overview settings) and New agent's Queue switch
+// take effect. Off by default, so nothing changes until you ask for it.
+export function AgentQueue() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentQueue: boolean) => api.updateSettings({ agentQueue }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Agent queue"
+      description="Let new agents wait for a free slot instead of all running at once. Off, every agent starts right away."
+      control={
+        <Switch
+          data-agent-queue
+          aria-label="Agent queue"
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.agentQueue ?? false}
+          onCheckedChange={(agentQueue) => save.mutate(agentQueue)}
+        />
+      }
+    />
+  );
+}
+
+// leadRecheckFallback is the minutes it defaults to once you turn it on.
+const leadRecheckFallback = 20;
+
+// LeadRecheck wakes each project's chat every so often with a short status —
+// agents queued, one sat idle — so it can act on it (retire what's finished,
+// notice a queue that isn't moving) without you having to say anything.
+// Off by default: it costs a turn only when there's something to act on, but
+// it's still a turn nobody asked for until you turn it on.
+export function LeadRecheck() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const on = settings.data?.leadRecheck ?? false;
+  const minutes = settings.data?.leadRecheckMinutes ?? leadRecheckFallback;
+  const [draft, setDraft] = useState(String(minutes));
+
+  return (
+    <SettingRow
+      label="Lead rechecks agents"
+      description="Every few minutes, wake each project's chat with a short status when agents are queued or one has sat idle, so it can retire finished agents. Costs a turn only when there's something to act on."
+      control={
+        <Switch
+          data-lead-recheck
+          aria-label="Lead rechecks agents"
+          disabled={save.isPending || settings.data === undefined}
+          checked={on}
+          onCheckedChange={(leadRecheck) => save.mutate({ leadRecheck })}
+        />
+      }
+    >
+      {on && (
+        <div className="flex max-w-52 items-center gap-2">
+          <Input
+            type="number"
+            min={5}
+            max={1440}
+            aria-label="Recheck every, in minutes"
+            data-lead-recheck-minutes
+            className="font-mono text-[13px]"
+            disabled={save.isPending || settings.data === undefined}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => {
+              const n = Math.min(1440, Math.max(5, Number(draft) || leadRecheckFallback));
+              setDraft(String(n));
+              if (n !== minutes) save.mutate({ leadRecheckMinutes: n });
+            }}
+          />
+          <span className="text-[12.5px] text-subtle">minutes{minutes === leadRecheckFallback ? ' (default)' : ''}</span>
+        </div>
+      )}
+    </SettingRow>
+  );
+}
+
 // compactWindows are the points a chat can be set to compact at: Claude Code's
 // own bounds (100k to 1M) at the steps worth choosing between. Codex shares
 // them; OpenCode has no such setting at all (D83).

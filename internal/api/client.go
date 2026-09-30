@@ -933,3 +933,34 @@ func (c *Client) Self(ctx context.Context) (Self, error) {
 	var out Self
 	return out, c.do(ctx, http.MethodGet, "/v1/self", nil, &out)
 }
+
+// Queue is the agent queue: every project's slots, and the agents waiting for
+// one, all projects' for "".
+func (c *Client) Queue(ctx context.Context, project string) (QueueStatus, error) {
+	var out QueueStatus
+	path := "/v1/queue"
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// MoveQueued puts a queued agent at position in its project's queue, 1 for
+// next, and returns the queue afterwards.
+func (c *Client) MoveQueued(ctx context.Context, ref string, position int) (QueueStatus, error) {
+	var out QueueStatus
+	project, name, ok := strings.Cut(ref, "/")
+	if !ok {
+		return out, fmt.Errorf("%q isn't project/agent", ref)
+	}
+	return out, c.do(ctx, http.MethodPost, "/v1/queue/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/move", MoveQueuedRequest{Position: position}, &out)
+}
+
+// RemoveQueued takes a queued agent out of the queue before it starts.
+func (c *Client) RemoveQueued(ctx context.Context, ref string) error {
+	project, name, ok := strings.Cut(ref, "/")
+	if !ok {
+		return fmt.Errorf("%q isn't project/agent", ref)
+	}
+	return c.do(ctx, http.MethodDelete, "/v1/queue/"+url.PathEscape(project)+"/"+url.PathEscape(name), nil, nil)
+}

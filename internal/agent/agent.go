@@ -312,6 +312,10 @@ type CreateOptions struct {
 	// (D75). Every brief written afterwards recovers it from the agent_created
 	// event instead.
 	Task string
+	// Queued makes the agent Name, which is waiting in its project's queue
+	// (Enqueue), rather than a new one: it keeps the name, title and branch
+	// it was queued with.
+	Queued bool
 }
 
 // Create builds an agent from the project's saved base, or from the base image.
@@ -343,6 +347,17 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	p, repo, err := m.project(ctx, project)
 	if err != nil {
 		return state.Agent{}, err
+	}
+	var queued *state.Agent
+	if opts.Queued {
+		a, err := m.Store.Agent(ctx, project, opts.Name)
+		if err != nil {
+			return state.Agent{}, err
+		}
+		if a.Status != state.AgentQueued {
+			return state.Agent{}, fmt.Errorf("%s isn't queued", a.Ref())
+		}
+		queued = &a
 	}
 	// Before anything is copied: the agent needs a login for its AI tool, and
 	// a machine with the tool on it.
@@ -428,6 +443,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		limits:        limits,
 		finishNotice:  opts.FinishNotice,
 		task:          opts.Task,
+		queued:        queued,
 	})
 }
 
@@ -501,9 +517,10 @@ type plan struct {
 	baseCommit    string // the new branch starts here
 	tree          string // optional snapshot commit whose files are applied on top
 	copyEnv       bool
-	limits        Limits // already resolved: what this machine is capped at
-	finishNotice  string // this agent's own choice; see CreateOptions.FinishNotice
-	task          string // what it is about to be asked to do; see CreateOptions.Task
+	limits        Limits       // already resolved: what this machine is capped at
+	finishNotice  string       // this agent's own choice; see CreateOptions.FinishNotice
+	task          string       // what it is about to be asked to do; see CreateOptions.Task
+	queued        *state.Agent // the queued agent this makes, when it isn't a new one
 }
 
 // build creates an agent step by step. If a step fails, or ctx is cancelled,
@@ -517,7 +534,13 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 			return state.Agent{}, fmt.Errorf("choosing a name: %w", err)
 		}
 	}
-	branch := m.branchFor(ctx, pl.project, pl.repo, pl.branch, pl.title, pl.task, name)
+	var branch string
+	if q := pl.queued; q != nil && q.Branch != "" && !pl.repo.BranchExists(q.Branch) {
+		// The branch it was queued with, which nothing else took meanwhile.
+		branch = q.Branch
+	} else {
+		branch = m.branchFor(ctx, pl.project, pl.repo, pl.branch, pl.title, pl.task, name)
+	}
 	a := state.Agent{
 		Project:    pl.project.Name,
 		Name:       name,
@@ -553,7 +576,14 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		return state.Agent{}, fmt.Errorf("creating %s: %s: %w", a.Ref(), step, err)
 	}
 
-	if err := m.Store.AddAgent(ctx, a); err != nil {
+	if pl.queued != nil {
+		// Out of the queue, and failing from here on removes it the way a
+		// failed create removes a new agent.
+		a.ID, a.CreatedAt = pl.queued.ID, pl.queued.CreatedAt
+		if err := m.Store.StartQueued(ctx, a); err != nil {
+			return state.Agent{}, err
+		}
+	} else if err := m.Store.AddAgent(ctx, a); err != nil {
 		return state.Agent{}, err
 	}
 	undo = append(undo, func() { _ = m.Store.RemoveAgent(cleanup, a.Project, a.Name) })
@@ -1764,6 +1794,10 @@ func BranchDisposable(repo gitrepo.Repo, a state.Agent) bool {
 // in the project's media view, unless DeleteMedia is set or the media
 // retention is immediately.
 func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOptions) error {
+	if a.Status == state.AgentQueued {
+		// Nothing was made for it yet: no machine, worktree or branch.
+		return m.Store.RemoveAgent(ctx, a.Project, a.Name)
+	}
 	_, repo, err := m.project(ctx, a.Project)
 	if err != nil {
 		return err
@@ -1848,6 +1882,9 @@ type Status struct {
 	// that gives the state: the machine is the truth about its own limits, and
 	// nothing has to be remembered alongside it.
 	Limits Limits
+	// QueuePosition is a queued agent's place in its project's queue, 1 for
+	// next; 0 for every agent that isn't queued.
+	QueuePosition int
 }
 
 func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
@@ -1884,6 +1921,9 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 				s.Limits = LimitsOf(inst.ExpandedConfig)
 			}
 		}
+		if a.Status == state.AgentQueued {
+			s.State = state.AgentQueued // no machine yet, and none looked for
+		}
 		if a.Status == state.AgentCreating {
 			if !creatingLoaded {
 				creating, err = m.Store.HasRunningJob(ctx, "create", project)
@@ -1899,7 +1939,34 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 		}
 		statuses = append(statuses, s)
 	}
+	if err := m.fillQueuePositions(ctx, project, statuses); err != nil {
+		return nil, err
+	}
 	return statuses, nil
+}
+
+// fillQueuePositions gives each queued agent in statuses its place in line,
+// reading the queue only when something is in it.
+func (m *Manager) fillQueuePositions(ctx context.Context, project string, statuses []Status) error {
+	queued := false
+	for _, st := range statuses {
+		queued = queued || st.Status == state.AgentQueued
+	}
+	if !queued {
+		return nil
+	}
+	queue, err := m.Store.Queue(ctx, project)
+	if err != nil {
+		return err
+	}
+	at := make(map[string]int, len(queue))
+	for _, q := range queue {
+		at[q.Ref()] = q.Position
+	}
+	for i := range statuses {
+		statuses[i].QueuePosition = at[statuses[i].Ref()]
+	}
+	return nil
 }
 
 func displayState(status string) string {

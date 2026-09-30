@@ -6,7 +6,7 @@ import type * as T from '../../shared/api';
 import { AgentModelAuto } from '../../shared/api';
 import { api } from '../lib/api';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
-import { cn, errorMessage } from '../lib/utils';
+import { cn, errorMessage, humanBytes } from '../lib/utils';
 import { ModelByName } from './ModelByName';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -51,6 +51,27 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           modified: project.branchPrefix !== 'agentbox/',
           // Keyed on the saved value, so a save (or another client's) starts the draft over.
           render: () => <BranchPrefixField key={project.branchPrefix} project={project} />,
+        },
+      ],
+    },
+    {
+      id: 'queue',
+      title: 'Agent queue',
+      description: `How many of ${project.name}'s agents may run at once, and what a new one does when there's no room.`,
+      entries: [
+        {
+          id: 'slots',
+          label: 'Agents at once',
+          keywords: 'queue slots concurrency budget memory auto fixed at once running',
+          modified: project.slots !== 0,
+          render: () => <SlotsSetting project={project} />,
+        },
+        {
+          id: 'always-queue',
+          label: 'Always queue new agents',
+          keywords: 'queue new agents default start immediately slot free',
+          modified: project.alwaysQueue,
+          render: () => <AlwaysQueueToggle project={project} />,
         },
       ],
     },
@@ -331,6 +352,175 @@ function describeAgentModel(project: T.Project): string {
     return `New agents of ${project.name} use the model chosen in Settings`;
   }
   return `New agents of ${project.name} start on ${project.agentModel}`;
+}
+
+// queueOffNote is the one-line pointer shown under a queue control once the
+// installation has Agent queue turned off (Settings → Agents): the project's
+// own slots and always-queue don't do anything until it is.
+function QueueOffNote() {
+  return <SettingNote tone="warning">Turn on Agent queue in Settings to change how many of this project's agents run at once.</SettingNote>;
+}
+
+// SlotsSetting chooses how many of this project's agents may run at once: 0
+// (Auto) shares the shared budget fairly with every other project, by how
+// much memory each one's agents actually use; a fixed number pins it,
+// whatever else is running. GET /v1/queue's ProjectSlots says what Auto comes
+// to right now, whether the per-agent figure is learned from this project's
+// own agents or still the installation's memory limit, and — below it — the
+// agents that figure is drawn from, refreshed every few seconds. The control
+// itself is disabled, with a pointer, while the installation's Agent queue
+// setting is off — the slot maths still runs and is worth seeing, but
+// changing it here would do nothing until that's on.
+function SlotsSetting({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queue = useQuery({ queryKey: ['queue', project.name], queryFn: () => api.queue(project.name), refetchInterval: 5_000 });
+  const mine = queue.data?.projects.find((p) => p.project === project.name);
+  const [fixed, setFixed] = useState(String(project.slots || mine?.slots || 1));
+  const queueOn = settings.data?.agentQueue ?? false;
+  const save = useMutation({
+    mutationFn: (slots: number) => api.updateProject(project.name, { slots }),
+    onSuccess: async (updated) => {
+      toast(updated.slots === 0 ? `${updated.name} shares slots automatically again` : `${updated.name} now runs up to ${updated.slots} agent${updated.slots === 1 ? '' : 's'} at once`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+      await queryClient.invalidateQueries({ queryKey: ['queue', updated.name] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const auto = project.slots === 0;
+  const perAgent = mine ? `~${humanBytes(mine.peak)} per agent${mine.peakLearned ? ', learned' : ', from the memory limit'}` : undefined;
+  const disabled = save.isPending || !queueOn;
+
+  return (
+    <SettingRow
+      label="Agents at once"
+      description={auto ? (mine ? `Auto: currently ${mine.slots}${perAgent ? `, ${perAgent}` : ''}.` : 'Auto: split fairly with other projects, by memory.') : `Up to ${project.slots} of this project's agents run at once; the rest queue.`}
+      details="Whatever doesn't fit queues instead of starting, and starts as soon as a slot frees up. Auto gives every active project at least one slot and splits what's left of the shared budget by how much memory each project's agents actually use, least-memory projects first."
+      control={
+        <Select
+          aria-label="Agents at once"
+          disabled={disabled}
+          value={auto ? 'auto' : 'fixed'}
+          onChange={(value) => {
+            if (value === 'auto') save.mutate(0);
+            else save.mutate(Number(fixed) || 1);
+          }}
+        >
+          <SelectOption value="auto">Auto</SelectOption>
+          <SelectOption value="fixed">Fixed number</SelectOption>
+        </Select>
+      }
+    >
+      {!queueOn && <QueueOffNote />}
+      {!auto && (
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={1}
+            max={64}
+            aria-label="Fixed number of agents at once"
+            className="w-24 font-mono text-[13px]"
+            value={fixed}
+            disabled={disabled}
+            onChange={(e) => setFixed(e.target.value)}
+            onBlur={() => {
+              const n = Math.min(64, Math.max(1, Number(fixed) || 1));
+              setFixed(String(n));
+              if (n !== project.slots) save.mutate(n);
+            }}
+          />
+          {mine && <SettingNote>currently {mine.slots}</SettingNote>}
+        </div>
+      )}
+      {mine && (
+        <div className="mt-3 grid gap-2">
+          <p className="text-[12.5px] text-secondary">
+            Slot size: <span className="font-medium text-primary">{humanBytes(mine.peak)} per agent</span>
+            {mine.peakLearned ? ', learned from its latest agents' : ', from the memory limit — nothing measured yet'}
+          </p>
+          <SlotAgentsTable agents={mine.agents} />
+        </div>
+      )}
+    </SettingRow>
+  );
+}
+
+// SlotAgentsTable is what the slot maths above is drawn from: each of this
+// project's running agents, its memory and CPU right now beside the peak
+// each has reached (what "learned" learns from). cpu is a percentage of one
+// core (100 = one core busy).
+function SlotAgentsTable({ agents }: { agents: T.SlotAgent[] }) {
+  if (agents.length === 0) return <p className="text-[12px] text-subtle">No agents running.</p>;
+  return (
+    <div className="overflow-hidden rounded-lg border border-line-faint">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="text-left text-[10.5px] uppercase tracking-wide text-faint">
+            <th className="px-2.5 py-1.5 font-medium">Agent</th>
+            <th className="px-2.5 py-1.5 font-medium">Memory now / peak</th>
+            <th className="px-2.5 py-1.5 font-medium">CPU now / peak</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line-faint">
+          {agents.map((a) => (
+            <tr key={a.name}>
+              <td className="px-2.5 py-1.5">
+                <span className="font-medium text-primary">{a.title || a.name}</span>{' '}
+                <span className="font-mono text-[10.5px] text-faint">{a.name}</span>
+                <div className="text-[10.5px] text-subtle">{a.state}</div>
+              </td>
+              <td className="whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums text-secondary">
+                {humanBytes(a.memory)} / {humanBytes(a.memoryPeak)}
+              </td>
+              <td className="whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums text-secondary">
+                {a.cpu.toFixed(0)}% / {a.cpuPeak.toFixed(0)}%
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// AlwaysQueueToggle is what a new agent of this project does by default: skip
+// the queue and start right away (off), or queue like the rest until a slot
+// is free (on). Either way, New agent's own Queue switch can override it for
+// one agent. Disabled, with the same pointer, while the installation's Agent
+// queue setting is off.
+function AlwaysQueueToggle({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queueOn = settings.data?.agentQueue ?? false;
+  const save = useMutation({
+    mutationFn: (alwaysQueue: boolean) => api.updateProject(project.name, { alwaysQueue }),
+    onSuccess: async (updated) => {
+      toast(updated.alwaysQueue ? `New agents of ${updated.name} queue by default` : `New agents of ${updated.name} start right away by default`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Always queue new agents"
+      htmlFor="project-always-queue"
+      description={project.alwaysQueue ? 'A new agent queues until a slot is free, unless you turn it off in New agent.' : 'A new agent starts right away, unless you queue it in New agent.'}
+      details="Either way, New agent's own Queue switch wins for the one agent you're making."
+      control={
+        <Switch
+          id="project-always-queue"
+          data-project-always-queue
+          checked={project.alwaysQueue}
+          disabled={save.isPending || !queueOn}
+          onCheckedChange={(on) => save.mutate(on)}
+        />
+      }
+    >
+      {!queueOn && <QueueOffNote />}
+    </SettingRow>
+  );
 }
 
 // BranchPrefixField sets what this project's new agents' branches start with,

@@ -50,6 +50,10 @@ interface Form {
   cpuAllowance: string;
   memory: string;
   resourcesTouched: boolean;
+  // Start when a slot is free, rather than right away. Defaults to the
+  // project's own alwaysQueue until you touch the switch yourself.
+  queue: boolean;
+  queueTouched: boolean;
 }
 
 const emptyForm: Form = {
@@ -73,6 +77,8 @@ const emptyForm: Form = {
   cpuAllowance: '',
   memory: '',
   resourcesTouched: false,
+  queue: false,
+  queueTouched: false,
 };
 
 const tools = [
@@ -163,6 +169,11 @@ export function NewAgentDialog({
         claudeAccount: form.ai === 'claude' ? form.claudeAccount || undefined : undefined,
         githubAccount: form.githubAccount || undefined,
         finishNotice: form.notify || undefined,
+        // Sent either way, like autonomous above: "whatever the project does
+        // by default" isn't a request queue can leave out and still mean.
+        // Off outright while the installation's Agent queue is off, whatever
+        // the switch (disabled, so untouched) still carries from before.
+        queue: queueEnabled && form.queue,
         // Sent only once a box has been touched. An empty string is a real
         // choice — no limit for this agent — so an untouched form must leave
         // all three out rather than send "" and uncap the agent.
@@ -189,6 +200,12 @@ export function NewAgentDialog({
   useEffect(() => {
     if (open && form.project === '' && firstProject) setForm((f) => ({ ...f, project: firstProject }));
   }, [open, form.project, firstProject]);
+
+  // Queue follows the project's own default until you touch the switch.
+  useEffect(() => {
+    if (!open || selected === undefined) return;
+    setForm((f) => (f.queueTouched ? f : { ...f, queue: selected.alwaysQueue }));
+  }, [open, selected]);
 
   // Prefilled with what new agents get, so More options shows the real numbers
   // rather than the word "default". Only until you touch them: after that the
@@ -218,6 +235,10 @@ export function NewAgentDialog({
   // and starts them being sent, empty or not.
   const setResource = (key: 'cpu' | 'cpuAllowance' | 'memory', value: string) => setForm((f) => ({ ...f, [key]: value, resourcesTouched: true }));
   const hostCores = settings.data?.hostCores ?? 0;
+  // The installation's own switch (Settings → Agents → Agent queue): off,
+  // this dialog's Queue switch does nothing, so it shows disabled instead of
+  // offering a choice the daemon would refuse to act on.
+  const queueEnabled = settings.data?.agentQueue ?? false;
   const hostMemory = settings.data?.hostMemory ?? 0;
   const needsLogin =
     (form.ai === 'claude' && auth.data?.claude === false) ||
@@ -309,6 +330,15 @@ export function NewAgentDialog({
                 ))}
               </Select>
             </Field>
+
+            <SwitchRow
+              id="agent-queue"
+              label="Queue"
+              hint={queueEnabled ? 'Start when a slot is free, rather than right away.' : 'Turn on Agent queue in Settings first.'}
+              checked={queueEnabled && form.queue}
+              disabled={!queueEnabled}
+              onChange={(value) => setForm((f) => ({ ...f, queue: value, queueTouched: true }))}
+            />
 
             <div className="grid gap-1.5">
               <Label>AI tool</Label>

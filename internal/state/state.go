@@ -667,6 +667,33 @@ var migrations = []string{
 		last_seen_at INTEGER NOT NULL DEFAULT 0,
 		last_addr    TEXT NOT NULL DEFAULT ''
 	)`,
+	// The agent queue (queue.go). A project's own running limit, 0 for auto,
+	// and whether its new agents queue unless told otherwise.
+	`ALTER TABLE projects ADD COLUMN slots INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE projects ADD COLUMN always_queue INTEGER NOT NULL DEFAULT 0`,
+	// One row per queued agent, beside its agents row (status "queued"): the
+	// create request it starts from once a slot is free, and its place in
+	// its project's queue.
+	`CREATE TABLE agent_queue (
+		project   TEXT NOT NULL,
+		name      TEXT NOT NULL,
+		position  INTEGER NOT NULL,
+		request   TEXT NOT NULL,
+		queued_at INTEGER NOT NULL,
+		PRIMARY KEY (project, name)
+	)`,
+	// The most memory each agent's machine was seen to hold, and the most
+	// CPU, kept after the agent is gone: a project's typical peak is learned
+	// from these, and is what auto slots are worked out from.
+	`CREATE TABLE agent_memory_peaks (
+		project    TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		peak       INTEGER NOT NULL,
+		cpu_peak   REAL NOT NULL DEFAULT 0,
+		updated_at INTEGER NOT NULL,
+		PRIMARY KEY (project, agent)
+	)`,
+	`CREATE INDEX agent_memory_peaks_by_project ON agent_memory_peaks (project, updated_at)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -835,6 +862,13 @@ type Project struct {
 	// never a branch with commits of its own, and a checked-out one only when
 	// nothing in its checkout is changed.
 	BaseSyncOff bool
+	// Slots is how many of this project's agents may run at once before its
+	// queued ones wait (queue.go): 0 is auto, worked out from memory by
+	// agent.SplitSlots, and anything else is the user's own fixed number.
+	Slots int
+	// AlwaysQueue queues this project's new agents unless a create says
+	// otherwise, rather than only the ones a create asks to queue.
+	AlwaysQueue bool
 }
 
 // A project's PRWatch.
@@ -992,7 +1026,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off`
+const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, slots, always_queue`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -1062,10 +1096,10 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
-		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff)
+		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff, p.Slots, p.AlwaysQueue)
 	return err
 }
 
@@ -1092,7 +1126,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		var allowed string
 		if err := rows.Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Section, &p.Position); err != nil {
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Slots, &p.AlwaysQueue, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -1111,6 +1145,9 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 		return fmt.Errorf("project %q still has %d agent(s): destroy them first", name, agents)
 	}
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM pr_watches WHERE project = ?`, name); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM agent_memory_peaks WHERE project = ?`, name); err != nil {
 		return err
 	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, name)
@@ -1535,7 +1572,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Section, &p.Position)
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Slots, &p.AlwaysQueue, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
@@ -1549,6 +1586,10 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 const (
 	AgentCreating = "creating"
 	AgentReady    = "ready"
+	// AgentQueued is an agent waiting in its project's queue: its name,
+	// title and branch are chosen, but it has no worktree and no machine
+	// until the daemon starts it (queue.go).
+	AgentQueued = "queued"
 )
 
 type Agent struct {
@@ -1817,6 +1858,10 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 	// The secrets given to this agent alone go with it, like its conversation.
 	// Its project's secrets are untouched: they belong to the project.
 	if err := s.RemoveAgentSecrets(ctx, project, name); err != nil {
+		return err
+	}
+	// A queued agent leaves the queue with its row.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM agent_queue WHERE project = ? AND name = ?`, project, name); err != nil {
 		return err
 	}
 	if err := s.removeAgentEvents(ctx, project, name); err != nil {
