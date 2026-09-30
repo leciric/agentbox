@@ -48,6 +48,9 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 		incusCheck.Detail = "you're in incus-admin, but this session started before that: log out and back in, then open AgentBox again"
 		incusCheck.Fix = "log out and back in"
 	}
+	if st := s.incusStatus(); !st.Answering && st.Detail != "" {
+		incusCheck.Detail, incusCheck.Fix = st.Detail, "sudo systemctl restart incus.service"
+	}
 	check(incusCheck, incusErr == nil, "installed, and your user can use it")
 
 	hostErr := image.CheckHost(s.cfg.User)

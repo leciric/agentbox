@@ -22,7 +22,7 @@ var tsTypes = []any{
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{},
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, MemoryShortage{}, CPUUsageAgent{}, CPUUsage{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
-	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
+	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, IncusStatus{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
 	BrowserStatus{}, BrowserPage{}, BrowserOpenRequest{}, PreviewInfo{},
 	MediaItem{}, MediaMeta{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{},
 	AddMediaRequest{}, NoteRequest{}, LogsRequest{}, ExportRequest{}, ExportResult{}, DeleteMediaRequest{}, DeleteMediaResult{},

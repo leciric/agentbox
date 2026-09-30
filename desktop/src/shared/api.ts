@@ -529,6 +529,13 @@ export interface UpdateAvailable {
   url: string;
 }
 
+export interface IncusStatus {
+  answering: boolean;
+  since?: string;
+  detail?: string;
+  restarted?: string;
+}
+
 export interface ProjectChange {
   name: string;
   removed?: boolean;

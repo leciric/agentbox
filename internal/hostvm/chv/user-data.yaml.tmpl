@@ -243,6 +243,42 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 {{- end}}
+  # incus.service waits for incusd in ExecStartPost, with `incusd waitready
+  # --timeout=600`. A main process that dies meanwhile doesn't fail the unit:
+  # systemd lets the waitready finish first, and that waits on a socket nobody
+  # answers any more (systemd holds it), so for ten minutes the unit is
+  # "activating", Restart=on-failure does nothing, and everything using Incus
+  # waits. This waits in short tries instead, and fails as soon as incusd is
+  # gone, which fails the unit, and systemd starts it again. The drop-in sorts
+  # before host setup's (10-agentbox-<user>.conf), whose ExecStartPost is added
+  # after the one this resets.
+  - path: /usr/local/lib/agentbox/incus-waitready
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # incus-waitready <incusd's PID>
+      pid=$1
+      incusd=${INCUSD:-/usr/libexec/incus/incusd}
+      tries=${INCUS_WAITREADY_TRIES:-120}
+      gone() { [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; }
+      while [ "$tries" -gt 0 ]; do
+        if gone; then
+          echo "incusd ($pid) exited before it was ready: failing incus.service, so that it starts again" >&2
+          exit 1
+        fi
+        "$incusd" waitready --timeout=5 >/dev/null 2>&1 && exit 0
+        tries=$((tries - 1))
+      done
+      echo "incusd wasn't ready in time" >&2
+      exit 1
+  - path: /etc/systemd/system/incus.service.d/05-agentbox-waitready.conf
+    content: |
+      # AgentBox: fail, and so restart, when incusd dies while starting
+      # (/usr/local/lib/agentbox/incus-waitready).
+      [Service]
+      ExecStartPost=
+      ExecStartPost=/usr/local/lib/agentbox/incus-waitready $MAINPID
+      RestartSec=2s
   # Only the host is to reach those ports: vsock_loopback would let anything
   # in the VM, an agent's container included, connect to them (and so to the
   # daemon's socket) at CID 1.

@@ -1440,7 +1440,24 @@ const (
 	// thrashing at its memory together (SharedBudget.Shortage), so a client
 	// reads Settings again.
 	EventBudget = "budget"
+	// EventIncus carries a new IncusStatus: Incus stopped answering the
+	// daemon, or answers again.
+	EventIncus = "incus"
 )
+
+// IncusStatus is what the daemon's watch on Incus last found
+// (daemon/incuswatch.go). While Incus doesn't answer, every call the daemon
+// makes to it fails at once with Detail, instead of waiting on it.
+type IncusStatus struct {
+	Answering bool `json:"answering"`
+	// Since is when Incus stopped answering; absent while it answers.
+	Since *time.Time `json:"since,omitempty"`
+	// Detail says what is wrong, and what the daemon did about it.
+	Detail string `json:"detail,omitempty"`
+	// Restarted is when the daemon last restarted incus.service, which it
+	// does in AgentBox's VM, where it may.
+	Restarted *time.Time `json:"restarted,omitempty"`
+}
 
 // Appearance is the setting behind Theme: what AgentBox wears.
 const (
