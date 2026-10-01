@@ -179,7 +179,7 @@ func TestAgentBriefCarriesWhatTheProjectKnows(t *testing.T) {
 	}
 	for _, want := range []string{
 		"## What the project knows",
-		"This is a summary, picked out for your task and cut to fit",
+		"A summary of what this project's agents found out",
 		"search_memory",
 		"OAuth callback needs the exact port",
 	} {

@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // The subagents AgentBox defines for Claude Code, in every agent and every
@@ -33,27 +34,55 @@ var desktopAgentPrompt string
 // desktopAgentDescription is what Claude Code shows the agent when it decides
 // whether to hand something over, so it says what the subagent is for, how to
 // ask, and what it costs.
-const desktopAgentDescription = "Drives this machine's virtual display — mouse, keyboard and screenshots of the whole " +
-	"screen — and reports back in words. Use it for anything that needs eyes on the display: native windows and dialogs, " +
-	"the file manager, the terminal, a walkthrough recorded with the real cursor, or checking what a page really looks " +
-	"like. Give it an exact goal and say what to report. Its screenshots stay in its own context and go when it answers. " +
+const desktopAgentDescription = "Drives this machine's display and browser — the real mouse and keyboard, screenshots, " +
+	"and Playwright for a page's DOM — and reports back in words. Use it for everything on the display: testing a web " +
+	"page or an app, native windows and dialogs, the terminal, a recording with the real cursor, or reading what a page " +
+	"says. Give it an exact goal and say what to report. Its screenshots and page snapshots stay in its own context. " +
 	`It runs on Haiku; pass model "sonnet" when what it has to judge is subtle.`
 
-// desktopAgent renders the subagent's definition around the server that
-// drives the display. The frontmatter's values are written as JSON, which is
+// Playwright is the subagent's too. While the agent had it and the desktop
+// tools were a subagent away, agents reached for Playwright to test and to
+// record, and a recording driven by it shows a page changing with no cursor
+// anywhere; its 50 kB page snapshots stayed in the agent's context as well.
+// So in Claude Code everything that drives the display is behind the one
+// subagent, and Playwright is its fallback for what pixels can't tell.
+
+// drivesDisplay reports whether a server is one of the desktop subagent's.
+func drivesDisplay(s mcpServer) bool {
+	return s.name == "desktop" || s.name == "playwright"
+}
+
+// displayServers is the servers among servers that drive the display.
+func displayServers(servers []mcpServer) []mcpServer {
+	var out []mcpServer
+	for _, s := range servers {
+		if drivesDisplay(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// desktopAgent renders the subagent's definition around the servers that
+// drive the display. The frontmatter's values are written as JSON, which is
 // YAML too, so a path or a description with a colon or a quote in it stays
 // one value.
-func desktopAgent(server mcpServer) (string, error) {
-	spec, err := json.Marshal(map[string]any{"type": "stdio", "command": server.command, "args": server.args})
-	if err != nil {
-		return "", err
-	}
+func desktopAgent(servers ...mcpServer) (string, error) {
 	description, err := json.Marshal(desktopAgentDescription)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("---\nname: desktop\ndescription: %s\nmodel: haiku\nmcpServers:\n  - %s: %s\n---\n\n%s",
-		description, server.name, spec, desktopAgentPrompt), nil
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nname: desktop\ndescription: %s\nmodel: haiku\nmcpServers:\n", description)
+	for _, server := range servers {
+		spec, err := json.Marshal(map[string]any{"type": "stdio", "command": server.command, "args": server.args})
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "  - %s: %s\n", server.name, spec)
+	}
+	fmt.Fprintf(&b, "---\n\n%s", desktopAgentPrompt)
+	return b.String(), nil
 }
 
 // Explore runs on Haiku (D84).

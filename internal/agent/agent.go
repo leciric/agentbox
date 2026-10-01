@@ -1017,17 +1017,15 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		return err
 	}
 	servers := agentMCPServers(home, connectorNames)
-	// Claude Code gets every server but the desktop one, which is declared in
-	// the desktop subagent's definition instead, so that screenshots land in
-	// the subagent's context rather than the agent's (subagents.go, D83).
+	// Claude Code gets every server but the two that drive the display, which
+	// are declared in the desktop subagent's definition instead, so that
+	// screenshots and page snapshots land in the subagent's context rather
+	// than the agent's, and a recording is driven with the real cursor
+	// (subagents.go, D83).
 	claudeServers := claudeMCPServers(servers)
-	var desktopDefinition string
-	for _, s := range servers {
-		if s.name == "desktop" {
-			if desktopDefinition, err = desktopAgent(s); err != nil {
-				return err
-			}
-		}
+	desktopDefinition, err := desktopAgent(displayServers(servers)...)
+	if err != nil {
+		return err
 	}
 	exploreDefinition, err := exploreAgent()
 	if err != nil {
@@ -1220,12 +1218,12 @@ func agentMCPServers(home string, connectors []string) []mcpServer {
 	return servers
 }
 
-// claudeMCPServers is Claude Code's mcpServers: every server but the desktop
-// one, which its desktop subagent declares instead (D83).
+// claudeMCPServers is Claude Code's mcpServers: every server but the ones
+// that drive the display, which its desktop subagent declares instead (D83).
 func claudeMCPServers(servers []mcpServer) map[string]any {
 	out := map[string]any{}
 	for _, s := range servers {
-		if s.name != "desktop" {
+		if !drivesDisplay(s) {
 			out[s.name] = map[string]any{"type": "stdio", "command": s.command, "args": s.args}
 		}
 	}

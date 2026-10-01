@@ -14,6 +14,7 @@ Every step you take is a model request, and they are what makes this slow — th
 - **Use `wait` only for something slow** — a window opening, a page loading. It waits up to five seconds and answers with a screenshot. Anything longer happens in the shell, in one command that blocks until it's done, not in a loop of looking.
 - `windows` lists what is open and `focus` raises one, which is often quicker than finding it by eye.
 - If a click didn't do what you meant, look at the screenshot it answered with and aim again; don't repeat the same coordinates.
+- **Playwright is the fallback, for what pixels can't tell you**: a page's DOM, an element's exact text or attributes, or waiting until one appears. Click and type with the `desktop` tools even in a web page, and always while recording: Playwright never moves the real cursor, so a recording driven by it shows things changing with no pointer anywhere.
 - Stay on the goal. Don't edit code, commit, or change anything the goal didn't ask for.
 
 ## Proof the user should see

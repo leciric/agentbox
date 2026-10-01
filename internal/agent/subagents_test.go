@@ -8,11 +8,12 @@ import (
 )
 
 // TestDesktopAgentDefinition checks the frontmatter Claude Code reads: a name,
-// a description, a model, and the desktop server declared inline as a list of
-// one-key maps — the shape its parser insists on ("expected exactly one key").
+// a description, a model, and the servers that drive the display declared
+// inline as a list of one-key maps — the shape its parser insists on
+// ("expected exactly one key").
 func TestDesktopAgentDefinition(t *testing.T) {
 	t.Parallel()
-	def, err := desktopAgent(mcpServer{"desktop", AgentBinaryPath, []string{"desktop", "mcp"}, false})
+	def, err := desktopAgent(displayServers(agentMCPServers("/home/u", []string{"notion"}))...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,10 +22,10 @@ func TestDesktopAgentDefinition(t *testing.T) {
 		t.Fatalf("no frontmatter:\n%s", def)
 	}
 	fields := map[string]string{}
-	var serverLine string
+	var serverLines []string
 	for _, line := range strings.Split(front, "\n") {
 		if strings.HasPrefix(line, "  - ") {
-			serverLine = strings.TrimPrefix(line, "  - ")
+			serverLines = append(serverLines, strings.TrimPrefix(line, "  - "))
 			continue
 		}
 		key, value, _ := strings.Cut(line, ": ")
@@ -40,17 +41,30 @@ func TestDesktopAgentDefinition(t *testing.T) {
 	if _, ok := fields["mcpServers"]; !ok {
 		t.Error("no mcpServers key")
 	}
-	name, spec, _ := strings.Cut(serverLine, ": ")
-	var server struct {
-		Type    string   `json:"type"`
-		Command string   `json:"command"`
-		Args    []string `json:"args"`
+	var names []string
+	for _, line := range serverLines {
+		name, spec, _ := strings.Cut(line, ": ")
+		var server struct {
+			Type    string   `json:"type"`
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		}
+		if err := json.Unmarshal([]byte(spec), &server); err != nil {
+			t.Fatalf("the server %q isn't one flow map: %v", line, err)
+		}
+		if server.Type != "stdio" || server.Command == "" {
+			t.Errorf("server %s = %+v", name, server)
+		}
+		if name == "desktop" && (server.Command != AgentBinaryPath || !slices.Equal(server.Args, []string{"desktop", "mcp"})) {
+			t.Errorf("server %s = %+v", name, server)
+		}
+		names = append(names, name)
 	}
-	if err := json.Unmarshal([]byte(spec), &server); err != nil {
-		t.Fatalf("the server %q isn't one flow map: %v", serverLine, err)
+	if !slices.Equal(names, []string{"playwright", "desktop"}) {
+		t.Errorf("the subagent's servers are %v, want playwright and desktop and no connector", names)
 	}
-	if name != "desktop" || server.Type != "stdio" || server.Command != AgentBinaryPath || !slices.Equal(server.Args, []string{"desktop", "mcp"}) {
-		t.Errorf("server %s = %+v", name, server)
+	if !strings.Contains(body, "Playwright is the fallback") {
+		t.Error("the subagent isn't told to drive pages with the desktop tools")
 	}
 	if !strings.Contains(body, "Never paste an image") {
 		t.Error("the subagent isn't told to answer in words")

@@ -24,8 +24,10 @@ func TestAgentMCPServersIncludeConnectors(t *testing.T) {
 	t.Parallel()
 	servers := agentMCPServers("/home/dev", []string{"notion", "linear"})
 	claude := claudeMCPServers(servers)
-	if _, ok := claude["desktop"]; ok {
-		t.Error("Claude Code's own servers include desktop, which is its subagent's")
+	for _, name := range []string{"desktop", "playwright"} {
+		if _, ok := claude[name]; ok {
+			t.Errorf("Claude Code's own servers include %s, which is its desktop subagent's", name)
+		}
 	}
 	notion, _ := json.Marshal(claude["notion"])
 	if string(notion) != `{"args":["connector","mcp","notion"],"command":"/usr/local/bin/agentbox","type":"stdio"}` {
