@@ -23,9 +23,9 @@ reimplemented differently later.
   known to work. macOS and Windows aren't supported.
 - **[mise](https://mise.jdx.dev/)**, for Go and Node. [`mise.toml`](mise.toml) pins them: `mise install`
   in the checkout installs Go 1.27, Node LTS and the rest.
-- **Incus, set up for your user**, to run agents at all. `sudo bash scripts/host-setup.sh` does it once
-  per machine: Incus, the firewall rules and the UID mapping. You don't have to log out afterwards.
-  Unit tests and the desktop build don't need it.
+- **`/dev/kvm`**, to run agents at all: on Linux, AgentBox runs in a Cloud Hypervisor VM of its own,
+  which `bin/agentbox vm init` makes, with no password. Unit tests and the desktop build don't need
+  it.
 - A **Claude Code, Codex or OpenCode** login, if you want an agent to do real work.
 
 ## Build and run it
@@ -36,18 +36,24 @@ cd agentbox
 mise install
 
 go build -o bin/agentbox ./cmd/agentbox      # the CLI and the daemon, one binary; reports "agentbox version dev"
-sudo bash scripts/host-setup.sh              # once per machine
-bin/agentbox image build                     # the agents' base image, built here in a few minutes
+bin/agentbox vm init                         # AgentBox's VM, once per machine; it runs this same binary
+bin/agentbox image build                     # the agents' base image, built in the VM in a few minutes
 bin/agentbox auth claude                     # runs `claude setup-token`
 ```
 
-**The daemon** is the same binary. Any command starts it on demand, in the background; to watch its
-log, run it in the foreground instead:
+**The daemon** is the same binary, in the VM. Any command starts it on demand, in the background, and
+every command but `agentbox vm …` runs in the VM, which gets the binary that ran it; to watch the
+daemon's log, run it in the foreground instead:
 
 ```bash
 bin/agentbox daemon stop      # if a command already started one
-bin/agentbox daemon           # serves ~/.local/share/agentbox/run/agentbox.sock
+bin/agentbox daemon           # serves ~/.local/share/agentbox/run/agentbox.sock, forwarded from the VM
 ```
+
+To run AgentBox on the machine itself instead, the way the VM does inside, set
+`AGENTBOX_FRONT_END=host` and set the machine up once with `sudo bash scripts/host-setup.sh` (Incus,
+the firewall rules and the UID mapping). That is what CI's base image workflow does; it isn't offered
+to users.
 
 **The CLI** talks to that socket:
 

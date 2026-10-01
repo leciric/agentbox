@@ -464,8 +464,9 @@ func (h *CHV) execLog(ctx context.Context, v *VM, argv []string) error {
 	return nil
 }
 
-// delete stops the VM and removes it: its disks, its ssh key and its Config,
-// which puts this machine back to running AgentBox itself (host setup). The
+// delete stops the VM and removes it: its disks, its ssh key and its Config.
+// A machine moved into the VM goes back to running AgentBox itself, from the
+// state it kept (Front); any other has no AgentBox until vm init again. The
 // programs that run VMs and the downloads they're made from stay, under
 // paths.VM, for the next.
 func (h *CHV) delete(ctx context.Context, v *VM) error {
@@ -499,7 +500,11 @@ func (h *CHV) delete(ctx context.Context, v *VM) error {
 		_, _ = fmt.Fprintln(v.Log, "AgentBox's VM is gone: agentbox vm init makes Lima's, and agentbox vm init --driver vz the vz driver's again.")
 		return nil
 	}
-	_, _ = fmt.Fprintln(v.Log, "AgentBox's VM is gone: this machine runs AgentBox itself again, once it's set up for it (agentbox host setup).")
+	if HostInstall(v.Paths) {
+		_, _ = fmt.Fprintln(v.Log, "AgentBox's VM is gone: this machine runs AgentBox itself again, as it did before it moved, until agentbox vm migrate moves it again.")
+		return nil
+	}
+	_, _ = fmt.Fprintln(v.Log, "AgentBox's VM is gone: agentbox vm init makes it again.")
 	return nil
 }
 
@@ -600,6 +605,12 @@ func fitsLive(live *api.VMLimits, cpus int, capacity int64) bool {
 // AgentBox itself: no VM, and nothing else to say.
 func hostModeStatus() api.VMStatus {
 	return api.VMStatus{Mode: api.ModeHost, State: api.VMOff}
+}
+
+// missingStatus is a Linux machine's before `agentbox vm init` made its VM:
+// in VM mode, the only one there is for it, with the VM yet to make.
+func missingStatus(name string) api.VMStatus {
+	return api.VMStatus{Mode: api.ModeVM, Driver: api.VMDriverCloudHypervisor, Name: name, State: api.VMMissing, Problem: ErrNotCreated.Error()}
 }
 
 // describe is a Cloud Hypervisor VM's status the way a person reads it.

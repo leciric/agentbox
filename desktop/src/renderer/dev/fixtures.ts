@@ -5,7 +5,7 @@
 // JSON payload. Kept separate from preview.tsx so a future scenario (a new
 // component, a new kind of wide content) can reuse it without copying it.
 import type { QueryClient } from '@tanstack/react-query';
-import type { HostSetupStatus, VMPower, VMPowerAction, VMPowerState } from '../../preload';
+import type { HostSetupStatus, VMMigration, VMPower, VMPowerAction, VMPowerState } from '../../preload';
 import type * as T from '../../shared/api';
 import type { FreeRun } from '../components/ResourceControls';
 import { freeTargets } from '../lib/freeResources';
@@ -696,6 +696,7 @@ const devState: {
   agents?: T.Agent[];
   vmPower?: VMPower | null;
   hostSetup?: HostSetupStatus;
+  migration?: VMMigration;
   update?: T.UpdateStatus;
   appVersion?: string;
 } = { projects: [] };
@@ -1214,33 +1215,16 @@ export function seedSettings(queryClient: QueryClient): void {
   queryClient.setQueryData(['host-setup'], {});
 }
 
-// seedLinuxHost is a Linux machine that runs AgentBox itself (?linux=…),
-// with /dev/kvm or without. fresh is one not set up yet, whose Setup asks
-// which way to run agents; otherwise it's set up (seedSettings), and Home
-// suggests moving to the VM.
-export function seedLinuxHost(queryClient: QueryClient, kvm: boolean, fresh: boolean): void {
-  if (fresh) {
-    const check = (id: string, title: string, status: string, detail: string, required = true): T.SetupCheck => ({ id, title, status, detail, required });
-    const none: T.ImageComponents = { android: false, codex: false, opencode: false, devCaches: false, incus: false };
-    const setup = {
-      ready: false,
-      checks: [
-        check('incus', 'Incus', 'missing', 'incus: command not found'),
-        check('host', 'User mapping', 'missing', 'no subuid range for leandro'),
-        check('image', 'Base image', 'missing', 'agentbox-base not found'),
-        check('claude', 'Claude Code', 'optional', 'not signed in', false),
-      ],
-      image: { version: '2026.09.25.1', components: none, installed: none, downloads: [], hint: '' },
-    } as T.SetupStatus;
-    devState.setup = setup;
-    devState.cli = { linkPath: '~/.local/bin/agentbox', linked: true, path: '~/.local/bin/agentbox', version: 'preview', onPath: true, bundled: true, binary: null };
-    queryClient.setQueryData(['setup'], setup);
-    queryClient.setQueryData(['cli'], devState.cli);
-  } else {
-    seedSettings(queryClient);
-  }
+// seedLinuxHost is a Linux machine that runs AgentBox itself (?linux=move),
+// set up before AgentBox ran in a VM on Linux (seedSettings), with /dev/kvm or
+// without: the app prompts it to move into the VM, with its projects and
+// agents to move.
+export function seedLinuxHost(queryClient: QueryClient, kvm: boolean): void {
+  seedSettings(queryClient);
   devState.hostSetup = { pkexec: '/usr/bin/pkexec', user: 'leandro', running: false, resizing: false, vm: null, wsl: null, linux: { mode: 'host', kvm, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 }, chv: null };
   queryClient.setQueryData(['host-setup'], devState.hostSetup);
+  devState.migration = { state: 'available', projects: [PROJECT, 'organic'], agents: [`${PROJECT}/agent-01`, `${PROJECT}/agent-12`, `${PROJECT}/agent-99`, 'organic/agent-3'] };
+  queryClient.setQueryData(['vm-migration'], devState.migration);
 }
 
 // seedLinuxVM is Settings on a Linux machine in VM mode (?chv=…), at its
@@ -1605,7 +1589,7 @@ export function installDevBridge(): void {
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
     cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
     hostSetup: { status: async () => devState.hostSetup ?? {}, run: async () => ({ restarted: false }), onOutput: () => () => {}, budget: async () => {} },
-    vmMigrate: { status: async () => null, run: async () => {}, removeOld: async () => {}, onOutput: () => () => {} },
+    vmMigrate: { status: async () => devState.migration ?? null, run: async () => {}, removeOld: async () => {}, onOutput: () => () => {} },
     vm: fakeVM(),
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },
