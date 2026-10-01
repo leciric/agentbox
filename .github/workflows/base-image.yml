@@ -66,7 +66,11 @@ jobs:
       # Host setup puts the runner in incus-admin, which only applies to a new
       # login: sg gives this shell the group without one. The daemon the first
       # command starts inherits it, and the steps after this reach that daemon.
+      # AGENTBOX_FRONT_END=host runs AgentBox on the runner itself, as the VM
+      # does, rather than as the front end of a VM a Linux machine otherwise is.
       - name: Make the image
+        env:
+          AGENTBOX_FRONT_END: host
         run: sg incus-admin -c "$PWD/bin/agentbox image build"
 
       - name: What the agents got

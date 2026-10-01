@@ -72,9 +72,8 @@
 //                           TPS), by agent and by model, and spend over time
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Overview tab
-//   ?meters=cpu|memory      the top bar's "Host CPU" or "Host memory" popover,
-//                           against a paused agent still holding swap in
-//                           zram, a CPU-capped agent and a plain one —
+//   ?meters=cpu             the top bar's "Host CPU" popover, against a
+//                           CPU-capped agent, a paused one and a plain one —
 //                           scenarios.json clicks the meter open before its
 //                           shot, since state here comes from the URL alone
 //   ?nightly=1              a nightly build, on the nightly channel with a newer
@@ -86,8 +85,8 @@
 //                           ?loading=3000 answers them from the fixtures after
 //                           3 s; ?loading=refetch loads them, then holds every
 //                           refetch, the way a busy daemon does
-//   ?io=1|stalling          Home, the top bar and the rail with disk IO next to
-//                           CPU and memory: a quiet host, or one stalling on
+//   ?io=1|stalling          Home and the rail with disk IO next to CPU and
+//                           memory: a quiet host, or one stalling on
 //                           disk and memory the way the user's desktop froze
 //                           (io full 35%, memory full 19%); ?io=agent is
 //                           agent-12's Overview, its disk IO beside its CPU
@@ -107,12 +106,13 @@
 //                           Free resources' dialog part-way through stopping
 //                           the agents, with what it freed, with one agent
 //                           that wouldn't stop, or failed
-//   ?linux=setup|nokvm      a Linux machine not set up yet, on Setup's Incus
-//                           step: where agents run, the VM recommended and
-//                           picked, or host mode picked for want of /dev/kvm
-//   ?linux=home             a Linux machine set up to run agents itself: Home
-//                           suggests moving to the VM, and its button opens
-//                           Settings' Setup at the move
+//   ?linux=setup|nokvm      a Linux machine's first screen, before AgentBox's
+//                           VM is made: the VM to set up, at the size picked,
+//                           or what's missing without /dev/kvm
+//   ?linux=move             a Linux machine set up to run agents itself before
+//                           AgentBox ran in a VM on Linux: the prompt to move
+//                           into the VM, whose button opens Settings' Setup at
+//                           the move
 //   ?chv=live|old|off       Settings' Resources on a Linux machine in VM mode:
 //                           the Cloud Hypervisor VM's size, running with room
 //                           to resize it live, started by an older AgentBox
@@ -176,6 +176,8 @@ import { FreeResourcesDialog, type FreeRun } from '../components/ResourceControl
 import { TopBar } from '../components/TopBar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
+import { MovePrompt } from '../components/RunInVM';
+import { laterKey } from '../lib/vmMove';
 import { VMSize } from '../components/VMSize';
 import { connectEvents } from '../lib/events';
 import { ChatTab } from '../components/chat/ChatTab';
@@ -211,7 +213,7 @@ const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | nu
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
-const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'home' | null
+const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
 const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'organic-alone' | 'organic-busy' | 'off' | null
 // Whose Settings ?queue=settings and the organic ones show.
@@ -250,6 +252,34 @@ function windowsBeforeSetupBridge(): void {
   bridge.hostSetup = { status: async () => windowsBeforeSetup, run: async () => ({ restarted: false }), onOutput: () => () => {} };
 }
 
+// linuxBeforeSetup makes the dev bridge a Linux machine on first launch, the
+// way windowsBeforeSetupBridge makes it Windows: AgentBox's VM not made yet,
+// so no daemon.
+function linuxBeforeSetupBridge(kvm: boolean): void {
+  const bridge = (window as unknown as { agentbox: Record<string, unknown> }).agentbox;
+  const error = "AgentBox's Linux VM isn't set up: run agentbox vm init";
+  const status: HostSetupStatus = {
+    pkexec: '/usr/bin/pkexec',
+    user: 'leandro',
+    running: false,
+    resizing: false,
+    vm: null,
+    wsl: null,
+    linux: { mode: 'vm', kvm, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 },
+    chv: { mode: 'vm', driver: 'cloud-hypervisor', name: 'agentbox', state: 'missing', since: '0001-01-01T00:00:00Z', problem: error } as T.VMStatus,
+  };
+  bridge.info = async () => ({ socket: '', version: 'preview', electron: '', packaged: false, platform: 'linux' });
+  bridge.request = async () => {
+    throw new Error(error);
+  };
+  bridge.connection = async () => ({ state: 'disconnected', error }) satisfies ConnectionState;
+  bridge.onConnection = (fn: (state: ConnectionState) => void) => {
+    const timer = setInterval(() => fn({ state: 'disconnected', error }), 1_000);
+    return () => clearInterval(timer);
+  };
+  bridge.hostSetup = { status: async () => status, run: async () => ({ restarted: false }), onOutput: () => () => {} };
+}
+
 const chat = params.get('chat');
 const fixtures = buildFixtures();
 if (github) {
@@ -278,9 +308,9 @@ if (settingsPage) seedSettings(queryClient);
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (budget === 'off') seedBudgetOff(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
-if (linuxHost) {
-  seedLinuxHost(queryClient, linuxHost !== 'nokvm', linuxHost !== 'home');
-  if (linuxHost === 'home') localStorage.removeItem('agentbox.suggest-vm.dismissed');
+if (linuxHost === 'move') {
+  seedLinuxHost(queryClient, true);
+  localStorage.removeItem(laterKey);
 }
 if (resources) {
   const GiB = 1024 ** 3;
@@ -544,9 +574,9 @@ function Preview() {
     );
   }
 
-  if (linuxHost === 'home') return <LinuxHomePreview />;
+  if (linuxHost === 'move') return <LinuxHomePreview />;
 
-  if (imageUpdate || settingsPage || linuxHost || chvSize) {
+  if (imageUpdate || settingsPage || chvSize) {
     return (
       <div style={{ height: '100vh' }}>
         <SettingsView />
@@ -727,6 +757,7 @@ function LinuxHomePreview() {
       <div className="min-w-0 flex-1">
         {view.kind === 'settings' ? <SettingsView /> : <HomeView onSelect={setView} onAddProject={() => {}} onNewAgent={() => {}} />}
       </div>
+      <MovePrompt version="preview" onOpen={() => setView({ kind: 'settings' })} />
     </div>
   );
 }
@@ -755,8 +786,9 @@ if (loading) {
       </TooltipProvider>
     </QueryClientProvider>,
   );
-} else if (wsl) {
-  windowsBeforeSetupBridge();
+} else if (wsl || linuxHost === 'setup' || linuxHost === 'nokvm') {
+  if (wsl) windowsBeforeSetupBridge();
+  else linuxBeforeSetupBridge(linuxHost === 'setup');
   // After the bridge: some of what App imports reaches for it as it loads.
   const { App } = await import('../App');
   const appClient = new QueryClient({ defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 5_000 } } });

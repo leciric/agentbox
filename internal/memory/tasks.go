@@ -394,6 +394,31 @@ func (s *Store) UnlinkTasks(ctx context.Context, project, task, dependsOn string
 	return err
 }
 
+// DeleteTask takes a task off the list for good, with its blocking edges both
+// ways. Its subtasks stay, no longer part of anything.
+func (s *Store) DeleteTask(ctx context.Context, project, id string) error {
+	if _, err := s.Task(ctx, project, id); err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM task_dependencies WHERE project = ? AND (task_id = ? OR depends_on_id = ?)`,
+		project, id, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET parent_task_id = NULL WHERE project = ? AND parent_task_id = ?`,
+		project, id); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM tasks WHERE project = ? AND id = ?`, project, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // TaskEdge is one blocking edge, for a caller that wants the graph rather
 // than a task at a time.
 type TaskEdge struct {

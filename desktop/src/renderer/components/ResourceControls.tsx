@@ -547,7 +547,7 @@ export function VMIndicator({ vm, onStop }: { vm: VMPower; onStop: () => void })
           <span className={cn('text-[11px] text-muted', up && 'hidden sm:inline')}>{vmStateText[vm.state]}</span>
           {up && (
             <>
-              <span className="hidden font-mono text-[11px] tabular-nums text-tertiary md:inline">
+              <span className="hidden w-36 whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary md:inline">
                 {humanBytes(vm.memoryUsed)}/{humanBytes(vm.memoryGranted)}
               </span>
               <span className="hidden h-1 w-8 overflow-hidden rounded-full bg-surface-strong md:block">

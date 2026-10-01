@@ -68,7 +68,14 @@ func (s *Server) getChat(from agentFrom) func(http.ResponseWriter, *http.Request
 				return fmt.Errorf("limit must be a number of messages, not %q", v)
 			}
 		}
-		thread, err := s.chat.Page(a, q.Get("before"), limit)
+		// from is the oldest item the app holds, when it reads the chat again:
+		// it gets everything since, so nothing it shows goes missing.
+		var thread api.ChatThread
+		if from := q.Get("from"); from != "" {
+			thread, err = s.chat.Reread(a, from, limit)
+		} else {
+			thread, err = s.chat.Page(a, q.Get("before"), limit)
+		}
 		if err != nil {
 			return err
 		}

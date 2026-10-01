@@ -150,12 +150,15 @@ export const api = {
   stopAgents: (refs?: string[]) => call<T.Job>('POST', '/v1/agents/stop', { refs } satisfies T.StopAgentsRequest),
   diffStat: (ref: string) => call<string>('GET', `${agent(ref)}/diff?stat=true`),
 
-  // A chat is read a page at a time: the latest limit messages, or the ones
-  // before an item. Without a page it is the whole conversation.
-  chat: (ref: string, page?: { before?: string; limit: number }) =>
+  // A chat is read a page at a time: the latest limit messages, the ones
+  // before an item, or everything from an item on. Without a page it is the
+  // whole conversation.
+  chat: (ref: string, page?: { before?: string; from?: string; limit: number }) =>
     call<T.ChatThread>(
       'GET',
-      page ? `${chatBase(ref)}?${new URLSearchParams({ limit: String(page.limit), ...(page.before ? { before: page.before } : {}) })}` : chatBase(ref),
+      page
+        ? `${chatBase(ref)}?${new URLSearchParams({ limit: String(page.limit), ...(page.before ? { before: page.before } : {}), ...(page.from ? { from: page.from } : {}) })}`
+        : chatBase(ref),
     ),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   sendChat: (ref: string, text: string, images?: T.ChatImageUpload[]) =>
@@ -255,6 +258,7 @@ export const api = {
   memoryTasks: (name: string) => call<T.Task[]>('GET', `${project(name)}/memory/tasks`),
   addTask: (name: string, req: T.AddTaskRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks`, req),
   updateTask: (name: string, id: string, req: T.UpdateTaskRequest) => call<T.Task>('PATCH', `${project(name)}/memory/tasks/${encodeURIComponent(id)}`, req),
+  deleteTask: (name: string, id: string) => call<void>('DELETE', `${project(name)}/memory/tasks/${encodeURIComponent(id)}`),
   linkTasks: (name: string, req: T.LinkTasksRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks/link`, req),
   unlinkTasks: (name: string, req: T.LinkTasksRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks/unlink`, req),
 

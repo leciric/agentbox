@@ -108,9 +108,12 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/notes", withProject(s.appendNote))
 	mux.HandleFunc("POST /v1/project/notes/edit", withProject(s.editNote))
 	mux.HandleFunc("POST /v1/project/notes/remove", withProject(s.removeNote))
-	// The project's memory: everything the user's routes offer, on the socket
-	// that says which project it is.
+	// The project's memory: everything the user's routes offer but writing
+	// the user's task list, on the socket that says which project it is.
 	for _, route := range memoryRoutes {
+		if route.userOnly {
+			continue
+		}
 		mux.HandleFunc(route.method+" /v1/project/memory"+route.path,
 			withProject(s.memoryHandler(route.action, s.projectMemoryScope)))
 	}

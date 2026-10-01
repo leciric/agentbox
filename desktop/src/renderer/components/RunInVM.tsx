@@ -1,97 +1,88 @@
-import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Cpu, Laptop, MemoryStick, Monitor, X } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowRight, Cpu, LoaderCircle, MemoryStick, Monitor } from 'lucide-react';
 import type { LinuxSetup } from '../../preload';
-import { useState, type ReactNode } from 'react';
-import { cn } from '../lib/utils';
+import { useEffect, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+import { cn, errorMessage } from '../lib/utils';
+import { laterKey, movePrompt } from '../lib/vmMove';
 import { rememberSection } from './SettingsPage';
-import { Badge } from './ui/badge';
+import { appendOutput, CommandBox, SetupLog } from './SettingsView';
 import { Button } from './ui/button';
 import { Notice, Panel } from './ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Field, Input } from './ui/input';
 
-// On Linux, AgentBox runs its agents either in a VM of its own (Cloud
-// Hypervisor, `agentbox vm init`) or on the machine's own Incus (`agentbox
-// host setup`). The VM is the recommended way: agents there get the VM's
-// CPUs and memory, up to a cap, rather than the whole machine's, so heavy
-// agent work doesn't take the desktop down with it. Host mode stays, as the
-// second choice, with what it costs said plainly. Neither is sold as a
-// security boundary: the home folder is shared with the VM, and host-mode
-// agents are containers.
+// On Linux, AgentBox runs in a VM of its own, made with Cloud Hypervisor by
+// `agentbox vm init`: the daemon, Incus and every agent are in there, and
+// agents get the VM's CPUs and memory, up to a cap, rather than the whole
+// machine's, so heavy agent work doesn't take the desktop down with it. Setup
+// offers nothing else: running agents on the machine's own Incus (host mode)
+// was far worse. A machine set up that way before keeps working until it
+// moves into the VM (`agentbox vm migrate`): MovePrompt says so once after
+// each update, and Settings' MoveToVM is where the move is. The VM isn't sold
+// as a security boundary: the home folder is shared with it.
 //
-// Mac and Windows have no choice to make (Lima and WSL), so none of this shows
-// there: the main process only reports `linux` on Linux.
+// Mac and Windows have nothing of this (Lima and WSL): the main process only
+// reports `linux` on Linux.
 
-export type RunMode = 'vm' | 'host';
-
-// The words for each way, kept here so Setup's choice, Settings' suggestion
-// and Home's say the same thing.
+// The words for the VM, kept here so Setup, the prompt and Settings say the
+// same thing.
 const vmSummary =
   "The daemon, Incus and every agent run in one Cloud Hypervisor VM. Agents get the VM's CPUs and memory, up to a cap, not all of your computer's, and the VM gives memory back when they stop. Your home folder is shared with it at the same path. No password, and nothing installed on your system.";
-const hostSummary =
-  "Agents run in containers on your computer's own Incus. They share its kernel, memory and disk directly, so heavy agent work can freeze your desktop. Setup asks for your password and changes your system: it installs Incus and adds a network bridge.";
 const noKVM = "This machine has no /dev/kvm you can use. Turn on virtualization in your firmware settings, or add your user to the kvm group, then log in again.";
 
-// ModeChoice is Setup's choice on a Linux machine not set up yet: the VM
-// first, marked Recommended and picked unless the machine can't run it.
-export function ModeChoice({ picked, kvm, disabled, onPick }: { picked: RunMode; kvm: boolean; disabled?: boolean; onPick: (mode: RunMode) => void }) {
+// LinuxVMSetup is a Linux machine's first screen, before AgentBox's VM is
+// made: there's no daemon until then, so the setup is the page, as a Mac's
+// VMSetup is. It makes the VM with `agentbox vm init`, at the size chosen
+// here, and streams what it prints; the daemon it starts is the app's to
+// connect to when it finishes.
+export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
+  const queryClient = useQueryClient();
+  const [lines, setLines] = useState<string[]>([]);
+  const [form, setForm] = useState<VMSizeForm>(() => vmSizeDefaults(linux));
+  useEffect(() => window.agentbox.hostSetup.onOutput((text) => setLines((prev) => appendOutput(prev, text))), []);
+  const sized = vmSize(form, linux);
+  const run = useMutation({
+    mutationFn: () => window.agentbox.hostSetup.run({ vm: true, ...sized }),
+    onMutate: () => setLines([]),
+    onSuccess: async () => {
+      toast("AgentBox's VM is ready", { description: 'Next, the Setup page builds the base image your agents are copied from.' });
+      await queryClient.invalidateQueries();
+    },
+  });
   return (
-    <div role="radiogroup" aria-label="Where AgentBox runs agents" className="grid gap-2" data-run-mode={picked}>
-      <ModeOption mode="vm" picked={picked} disabled={disabled || !kvm} onPick={onPick} icon={Monitor} title="In a VM" badge={<Badge variant="brand">Recommended</Badge>}>
-        {vmSummary} It needs /dev/kvm and about 4 GiB of memory to start.
-        {!kvm && <span className="mt-1.5 block text-amber-200/90">{noKVM}</span>}
-      </ModeOption>
-      <ModeOption mode="host" picked={picked} disabled={disabled} onPick={onPick} icon={Laptop} title="Directly on this computer">
-        {hostSummary}
-      </ModeOption>
-    </div>
-  );
-}
-
-function ModeOption({
-  mode,
-  picked,
-  disabled,
-  onPick,
-  icon: Icon,
-  title,
-  badge,
-  children,
-}: {
-  mode: RunMode;
-  picked: RunMode;
-  disabled?: boolean;
-  onPick: (mode: RunMode) => void;
-  icon: typeof Monitor;
-  title: string;
-  badge?: ReactNode;
-  children: ReactNode;
-}) {
-  const on = picked === mode;
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={on}
-      disabled={disabled}
-      data-mode={mode}
-      onClick={() => onPick(mode)}
-      className={cn(
-        'flex items-start gap-3 rounded-xl border border-line bg-surface-faint px-3.5 py-3 text-left transition hover:border-line-vivid hover:bg-surface disabled:pointer-events-none disabled:opacity-60',
-        on && 'border-brand-400/50 bg-brand-500/10 shadow-[0_0_0_3px_rgb(139_92_246/0.12)]',
+    <Panel className="grid gap-3 p-4" data-linux-vm-setup={linux.kvm ? 'create' : 'nokvm'}>
+      <div className="flex items-start gap-3">
+        <Monitor className="mt-0.5 size-5 shrink-0 text-brand-400" />
+        <div className="grid min-w-0 gap-1">
+          <h2 className="text-[15px] font-medium text-primary">Set up AgentBox's VM</h2>
+          <p className="text-[13px] text-muted">
+            {vmSummary} The first setup downloads Debian and installs Incus in the VM, which takes a few minutes. It needs /dev/kvm and about 4 GiB of
+            memory to start.
+          </p>
+        </div>
+      </div>
+      {linux.kvm ? (
+        <>
+          <VMSizeFields linux={linux} form={form} disabled={run.isPending} onChange={setForm} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="primary" disabled={run.isPending || !sized} onClick={() => run.mutate()} data-linux-vm-setup-run>
+              {run.isPending ? <LoaderCircle className="animate-spin" /> : <Monitor />}
+              Set up the VM
+            </Button>
+            <span className="text-xs text-subtle">{run.isPending ? 'Making the VM. This takes a few minutes the first time.' : 'No password needed'}</span>
+          </div>
+        </>
+      ) : (
+        <Notice tone="warning">{noKVM}</Notice>
       )}
-    >
-      <span className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border border-line-strong', on && 'border-brand-400')}>
-        {on && <span className="size-2 rounded-full bg-brand-400" />}
-      </span>
-      <span className="grid min-w-0 gap-1">
-        <span className="flex items-center gap-2">
-          <Icon className={cn('size-4 text-subtle', on && 'text-brand-300')} />
-          <span className="text-[13px] font-medium text-primary">{title}</span>
-          {badge}
-        </span>
-        <span className="text-[12.5px] leading-relaxed text-muted">{children}</span>
-      </span>
-    </button>
+      {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label="VM setup log" />}
+      {run.error && <Notice>{errorMessage(run.error)}</Notice>}
+      <div className="grid gap-2">
+        <p className="text-[13px] text-muted">Or in a terminal:</p>
+        <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
+      </div>
+    </Panel>
   );
 }
 
@@ -181,10 +172,10 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
   );
 }
 
-// MoveToVM is Settings' way out of host mode, on a Linux machine already set
-// up to run agents itself. The move is `agentbox vm migrate`
-// (feat-migrate-host-to-vm), which takes this installation into AgentBox's VM;
-// this is where the app opens it. action is the move itself, in the app
+// MoveToVM is Settings' way out of host mode, on a Linux machine set up to
+// run agents itself before AgentBox ran in a VM on Linux. The move is
+// `agentbox vm migrate`, which takes this installation into AgentBox's VM;
+// this is where the app runs it. action is the move itself, in the app
 // (VMMigrate); without it, command is the command, in a box to copy.
 export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: ReactNode; action?: ReactNode }) {
   return (
@@ -192,12 +183,11 @@ export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: Reac
       <div className="flex items-center gap-2">
         <Monitor className="size-4 text-brand-300" />
         <h3 className="text-[14px] font-semibold text-primary">Move to a VM</h3>
-        <Badge variant="brand">Recommended</Badge>
       </div>
       <p className="text-[13px] leading-relaxed text-muted">
-        AgentBox runs agents directly on this computer now. They share its kernel, memory and disk, so heavy agent work can freeze your desktop. In
-        AgentBox's VM, they get the VM's CPUs and memory, up to a cap, instead. Your projects stay where they are: your home folder is shared with
-        the VM at the same path.
+        On Linux, AgentBox runs in a VM of its own now. This computer still runs agents directly on its own Incus, the way it was set up, and they
+        keep working there until you move. In the VM they get its CPUs and memory, up to a cap, so heavy agent work can't freeze your desktop. Your
+        projects stay where they are: your home folder is shared with the VM at the same path.
       </p>
       {action ? (
         action
@@ -215,58 +205,79 @@ export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: Reac
   );
 }
 
-// The suggestion on Home, until it's dismissed: once per machine, since the
-// choice is the user's and Settings keeps the way to it.
-const dismissedKey = 'agentbox.suggest-vm.dismissed';
-
-// VMSuggestion is Home's nudge towards the VM on a Linux machine that runs its
-// agents itself: only once setup is done (a machine still setting up gets
-// Setup's own choice) and only when it could run the VM.
-export function VMSuggestion({ ready, onOpen, className }: { ready: boolean | undefined; onOpen: () => void; className?: string }) {
-  const [dismissed, setDismissed] = useState(() => localStorage.getItem(dismissedKey) === '1');
+// MovePrompt tells a host-mode installation, once after each update, that
+// AgentBox runs in a VM on Linux now, and takes it to the move: Settings →
+// Setup → Move to a VM, which runs `agentbox vm migrate`. Later puts it off
+// until the next update; Settings keeps the way to the move meanwhile.
+export function MovePrompt({ version, onOpen }: { version: string | undefined; onOpen: () => void }) {
+  const [later, setLater] = useState(() => localStorage.getItem(laterKey));
   const status = useQuery({
     queryKey: ['host-setup'],
     queryFn: () => window.agentbox.hostSetup.status(),
     refetchInterval: 30_000,
-    enabled: !dismissed,
   });
-  const linux = status.data?.linux;
-  if (dismissed || !ready || linux?.mode !== 'host' || !linux.kvm) return null;
+  const host = status.data?.linux?.mode === 'host';
+  const migration = useQuery({
+    queryKey: ['vm-migration'],
+    queryFn: () => window.agentbox.vmMigrate.status(),
+    refetchInterval: 30_000,
+    enabled: host,
+  });
+  const open = movePrompt(status.data, migration.data, version, later);
+  const putOff = () => {
+    if (!version) return;
+    localStorage.setItem(laterKey, version);
+    setLater(version);
+  };
+  const kvm = status.data?.linux?.kvm ?? false;
+  const projects = migration.data?.projects?.length ?? 0;
+  const agents = migration.data?.agents?.length ?? 0;
+  const started = migration.data?.state === 'started';
   return (
-    <div
-      className={cn('flex items-center gap-3 rounded-2xl border border-brand-400/25 bg-brand-500/[0.07] py-2.5 pl-4 pr-2', className)}
-      data-vm-suggestion
-    >
-      <Monitor className="size-4 shrink-0 text-brand-300" />
-      <span className="min-w-0 text-[13px] text-secondary">
-        Agents run directly on this computer, so heavy work can freeze your desktop. Running them in AgentBox's VM keeps them within its limits.
-      </span>
-      <Button
-        size="sm"
-        variant="primary"
-        className="ml-auto shrink-0"
-        onClick={() => {
-          rememberSection('setup');
-          onOpen();
-        }}
-      >
-        Move to a VM
-        <ArrowRight />
-      </Button>
-      <Button
-        size="icon-sm"
-        variant="ghost"
-        aria-label="Dismiss"
-        title="Don't suggest this again"
-        className="shrink-0"
-        onClick={() => {
-          localStorage.setItem(dismissedKey, '1');
-          setDismissed(true);
-        }}
-      >
-        <X />
-      </Button>
-    </div>
+    <Dialog open={open} onOpenChange={(next) => !next && putOff()}>
+      <DialogContent data-move-prompt={started ? 'started' : 'available'}>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Monitor className="size-4 text-brand-300" />
+            AgentBox runs in a VM on Linux now
+          </DialogTitle>
+          <DialogDescription>
+            {started
+              ? 'A move into the VM stopped half-way. Nothing of this computer was removed, and carrying on picks up where it was.'
+              : "From this version, AgentBox runs your agents in a VM of its own, so heavy agent work can't freeze your desktop: they get the VM's CPUs and memory, up to a cap, instead of all of your computer's."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2 text-[13px] leading-relaxed text-muted">
+          <p>
+            This computer still runs agents directly on its own Incus, the way it was set up. Nothing changes until you move: they keep working
+            as they are.
+          </p>
+          <p>
+            The move takes everything along: {projects} project{projects === 1 ? '' : 's'} and {agents} agent{agents === 1 ? '' : 's'}, with their
+            branches, worktrees and uncommitted changes, and your settings, accounts, chats and media. It takes a few minutes and needs no
+            password. Nothing is deleted: this computer's copy stays until you remove it.
+          </p>
+          {!kvm && <Notice tone="warning">{noKVM}</Notice>}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={putOff}>
+            Later
+          </Button>
+          <Button
+            variant="primary"
+            data-move-prompt-open
+            onClick={() => {
+              putOff();
+              rememberSection('setup');
+              onOpen();
+            }}
+          >
+            {started ? 'Carry on moving' : 'Move to the VM'}
+            <ArrowRight />
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

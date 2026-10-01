@@ -2,32 +2,15 @@ package daemon
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"testing"
 
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
 )
 
-// The task graph's wiring to the agent lifecycle (D77).
-// An agent is made for something and finishes having done some of it; these
-// are the two ends of that, and the only places the daemon writes to the plan
-// on its own.
-
-// openTaskOf is the plan's one open row against an agent's name.
-func openTaskOf(t *testing.T, d testDaemon, project, agent string) (memory.Task, bool) {
-	t.Helper()
-	tasks, err := d.srv.memory().Tasks(context.Background(), project,
-		memory.TaskFilter{Agent: agent, OpenOnly: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tasks) == 0 {
-		return memory.Task{}, false
-	}
-	return tasks[0], true
-}
+// The project's tasks are a list only the user manages. Nothing in the
+// daemon writes one on its own — not an agent's creation, not its finish —
+// and neither an agent nor the project's chat can write one over its socket.
 
 func taskOf(t *testing.T, d testDaemon, project, id string) memory.Task {
 	t.Helper()
@@ -38,9 +21,9 @@ func taskOf(t *testing.T, d testDaemon, project, id string) memory.Task {
 	return task
 }
 
-// An agent made with a task is a row in the plan, not only a line in the
-// history: something has to be able to say "that is still open".
-func TestAgentCreatedWritesItsTaskDown(t *testing.T) {
+// An agent's finish used to close its task from its report. The user's task
+// is the user's to close: whatever the agent reported, it stays as it was.
+func TestAgentFinishedLeavesItsTaskAlone(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -49,167 +32,29 @@ func TestAgentCreatedWritesItsTaskDown(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
-
-	d.srv.captureAgentTask(ctx, a, "Paginate the reminders list\nTwenty a page, cursor-based.")
-
-	task, ok := openTaskOf(t, d, "hello-stack", "agent-01")
-	if !ok {
-		t.Fatal("creating an agent for a task left the plan empty")
-	}
-	if task.Goal != "Paginate the reminders list" {
-		t.Errorf("task goal = %q, want the first line of what it was handed", task.Goal)
-	}
-	if task.Status != memory.TaskActive {
-		t.Errorf("task status = %q, want %q: the agent is on it", task.Status, memory.TaskActive)
-	}
-	if task.Detail == task.Goal {
-		t.Error("the rest of what the agent was handed wasn't kept as the task's detail")
-	}
-
-	// The graph's own history lands in events like everything else.
-	events := eventsOfType(t, d, "hello-stack", "task_created")
-	if len(events) != 1 {
-		t.Fatalf("task_created events = %d, want 1", len(events))
-	}
-	if p := payloadOf(t, events[0]); p["taskId"] != task.ID {
-		t.Errorf("task_created payload = %+v, want task %s", p, task.ID)
-	}
-}
-
-// A project's chat that wrote the work down before handing it over should get
-// one task, not two: the agent's creation links to what is already there.
-func TestAgentCreatedLinksATaskTheChatAlreadyWrote(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := d.fixtureRepo(t, "hello-stack")
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
-		t.Fatal(err)
-	}
-	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
-	planned, err := d.srv.memory().AddTask(ctx, memory.Task{
-		Project: "hello-stack", Agent: "agent-01", Goal: "Paginate the reminders list",
-	})
+	task, err := d.srv.memory().AddTask(ctx, memory.Task{Project: "hello-stack", Agent: a.Name, Goal: "Paginate the reminders list"})
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	d.srv.captureAgentTask(ctx, a, "Paginate the reminders list")
-
-	tasks, err := d.srv.memory().Tasks(ctx, "hello-stack", memory.TaskFilter{Agent: "agent-01"})
-	if err != nil {
+	if _, err := d.srv.memory().AddReport(ctx, memory.Report{Project: "hello-stack", Agent: a.Name,
+		Status: memory.StatusDone, Summary: "Paginated."}); err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 1 {
-		t.Fatalf("the plan has %d tasks for agent-01, want the one the chat wrote", len(tasks))
+
+	d.srv.captureAgentFinished(ctx, a, api.AgentChanges{}, nil, "Paginated.")
+
+	after := taskOf(t, d, "hello-stack", task.ID)
+	if after.Status != memory.TaskOpen || after.Detail != task.Detail || !after.UpdatedAt.Equal(task.UpdatedAt) {
+		t.Errorf("the task after its agent finished = %+v, want it untouched", after)
 	}
-	if tasks[0].ID != planned.ID {
-		t.Errorf("a second task %s was written beside %s", tasks[0].ID, planned.ID)
-	}
-	if tasks[0].Status != memory.TaskActive {
-		t.Errorf("the planned task is %q, want %q once an agent is on it", tasks[0].Status, memory.TaskActive)
-	}
-	changed := eventsOfType(t, d, "hello-stack", "task_status_changed")
-	if len(changed) != 1 {
-		t.Fatalf("task_status_changed events = %d, want 1", len(changed))
-	}
-	if p := payloadOf(t, changed[0]); p["from"] != memory.TaskOpen || p["to"] != memory.TaskActive {
-		t.Errorf("task_status_changed payload = %+v", p)
+	tasks, err := d.srv.memory().Tasks(ctx, "hello-stack", memory.TaskFilter{})
+	if err != nil || len(tasks) != 1 {
+		t.Errorf("the task list after a finish = %d tasks, %v; want the user's one", len(tasks), err)
 	}
 }
 
-// What an agent said as it finished is what its task becomes. The two that
-// leave it open are the point: a worker that stopped halfway must not have
-// its work marked done because its turn ended.
-func TestAgentFinishedClosesItsTaskFromItsReport(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	repo := d.fixtureRepo(t, "hello-stack")
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
-		t.Fatal(err)
-	}
-	// One agent per case, because a report that leaves a task open leaves it
-	// open for whatever reads that agent's plan next.
-	for i, tc := range []struct {
-		report string
-		want   string
-		open   bool
-	}{
-		{memory.StatusDone, memory.TaskDone, false},
-		{memory.StatusFailed, memory.TaskAbandoned, false},
-		{memory.StatusPartial, memory.TaskOpen, true},
-		{memory.StatusBlocked, memory.TaskBlocked, true},
-		{"", memory.TaskDone, false}, // no report at all: the turn completed, so the task did
-	} {
-		name := fmt.Sprintf("agent-0%d", i+1)
-		a := addAgent(t, d, repo, "hello-stack", name, "Reminders page")
-		task, err := d.srv.memory().AddTask(ctx, memory.Task{
-			Project: "hello-stack", Agent: name, Status: memory.TaskActive,
-			Goal: "Paginate the reminders list",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		report := memory.Report{Status: tc.report, RemainingIssues: []string{"The count query scans the table"}}
-		if tc.report == "" {
-			report = memory.Report{}
-		}
-		d.srv.closeAgentTask(ctx, a, report)
-
-		after := taskOf(t, d, "hello-stack", task.ID)
-		if after.Status != tc.want {
-			t.Errorf("a %q report left the task %q, want %q", tc.report, after.Status, tc.want)
-		}
-		if after.Open() != tc.open {
-			t.Errorf("a %q report left the task open=%v, want %v", tc.report, after.Open(), tc.open)
-		}
-		if tc.open && !strings.Contains(after.Detail, "count query scans the table") {
-			t.Errorf("a %q report left the task open without what is still wrong: %q", tc.report, after.Detail)
-		}
-	}
-}
-
-// A worker may say how its own task is going, and may not write work down for
-// anybody else or move the plan about: curating it needs every agent in view.
-func TestAgentMayOnlyUpdateItsOwnTask(t *testing.T) {
-	t.Parallel()
-	mine := memory.Task{ID: "task_mine", Agent: "agent-01", Goal: "Paginate the reminders list"}
-	yours := memory.Task{ID: "task_yours", Agent: "agent-02", Goal: "Index the count query"}
-
-	worker := memoryScope{project: "hello-stack", agent: "agent-01"}
-	chat := memoryScope{project: "hello-stack"}
-
-	if _, err := taskPatch(worker, yours, api.UpdateTaskRequest{Status: ptr(memory.TaskDone)}); err == nil {
-		t.Error("a worker closed another agent's task")
-	}
-	if _, err := taskPatch(worker, mine, api.UpdateTaskRequest{Goal: ptr("Something else entirely")}); err == nil {
-		t.Error("a worker rewrote what its task is")
-	}
-	if _, err := taskPatch(worker, mine, api.UpdateTaskRequest{ParentID: ptr("task_other")}); err == nil {
-		t.Error("a worker moved its task in the plan")
-	}
-	patch, err := taskPatch(worker, mine, api.UpdateTaskRequest{
-		Status: ptr(memory.TaskBlocked), Detail: ptr("waiting on the index"),
-	})
-	if err != nil {
-		t.Fatalf("a worker couldn't say how its own task is going: %v", err)
-	}
-	if patch.Status == nil || *patch.Status != memory.TaskBlocked || patch.Detail == nil {
-		t.Errorf("a worker's patch = %+v, want its status and detail", patch)
-	}
-	// The project's chat has every agent in view, so it may do all of it.
-	if _, err := taskPatch(chat, yours, api.UpdateTaskRequest{
-		Goal: ptr("Index it properly"), Agent: ptr("agent-03"), ParentID: ptr("task_other"),
-	}); err != nil {
-		t.Errorf("the project's chat couldn't curate the plan: %v", err)
-	}
-}
-
-// The whole surface, end to end: the project's chat curates the plan, the
-// agent reads it and says how its own is going, and the refusals are refusals.
-func TestTaskGraphOnAllThreeSurfaces(t *testing.T) {
+// The user's routes write the list; a project's chat and an agent only read it.
+func TestOnlyTheUserWritesTasks(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
 	ctx := context.Background()
@@ -217,98 +62,106 @@ func TestTaskGraphOnAllThreeSurfaces(t *testing.T) {
 	if err := d.srv.serveAgentAPI(a.Instance); err != nil {
 		t.Fatal(err)
 	}
+	if err := d.srv.serveLeadAPI(a.Project); err != nil {
+		t.Fatal(err)
+	}
 	user := d.client.ProjectMemory(a.Project)
 	lead := api.NewClient(d.srv.leadSocketPath(a.Project)).LeadMemory()
 	agent := api.NewClient(d.srv.agentSocketPath(a.Instance)).SelfMemory()
 
-	// The chat writes the plan: one task for the agent, one it is waiting on.
-	index, err := lead.AddTask(ctx, api.AddTaskRequest{Goal: "Index the count query"})
+	index, err := user.AddTask(ctx, api.AddTaskRequest{Goal: "Index the count query"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	paginate, err := lead.AddTask(ctx, api.AddTaskRequest{
-		Goal: "Paginate the reminders list", Agent: a.Name, DependsOn: []string{index.ID},
-	})
+	paginate, err := user.AddTask(ctx, api.AddTaskRequest{Goal: "Paginate the reminders list", Agent: a.Name})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paginate.DependsOn) != 1 || paginate.DependsOn[0] != index.ID {
-		t.Errorf("a task written down with its blocker = %+v", paginate)
+	goal := "Paginate the reminders list, cursor-based"
+	if got, err := user.UpdateTask(ctx, paginate.ID, api.UpdateTaskRequest{Goal: &goal}); err != nil || got.Goal != goal {
+		t.Errorf("the user editing a task = %+v, %v", got, err)
 	}
 
-	// The agent reads the whole graph, both edges and all.
-	mine, err := agent.Tasks(ctx, api.TaskQuery{Agent: a.Name, OpenOnly: true})
-	if err != nil {
-		t.Fatal(err)
+	// Both of the others read it.
+	for who, m := range map[string]*api.MemoryClient{"the lead": lead, "an agent": agent} {
+		if tasks, err := m.Tasks(ctx, api.TaskQuery{}); err != nil || len(tasks) != 2 {
+			t.Errorf("%s read %d tasks, %v; want both", who, len(tasks), err)
+		}
 	}
-	if len(mine) != 1 || mine[0].ID != paginate.ID {
-		t.Fatalf("the agent saw %d of its own tasks, %v", len(mine), err)
+	// And neither writes it, not even an agent its own task.
+	for who, m := range map[string]*api.MemoryClient{"the lead": lead, "an agent": agent} {
+		if _, err := m.AddTask(ctx, api.AddTaskRequest{Goal: "Something else"}); err == nil {
+			t.Errorf("%s wrote a task down", who)
+		}
+		if _, err := m.UpdateTask(ctx, paginate.ID, api.UpdateTaskRequest{Status: ptr(api.TaskDone)}); err == nil {
+			t.Errorf("%s closed a task", who)
+		}
+		if err := m.LinkTasks(ctx, paginate.ID, index.ID); err == nil {
+			t.Errorf("%s linked two tasks", who)
+		}
+		if err := m.DeleteTask(ctx, index.ID); err == nil {
+			t.Errorf("%s deleted a task", who)
+		}
 	}
-	blocker, err := agent.Task(ctx, index.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(blocker.Blocks) != 1 || blocker.Blocks[0] != paginate.ID {
-		t.Errorf("the blocker doesn't know what waits on it: %+v", blocker)
-	}
-
-	// It may say how its own is going, and nothing more than that.
-	if _, err := agent.UpdateTask(ctx, paginate.ID, api.UpdateTaskRequest{
-		Status: ptr(api.TaskBlocked), Detail: ptr("waiting on the index"),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := agent.AddTask(ctx, api.AddTaskRequest{Goal: "Something for somebody else"}); err == nil {
-		t.Error("an agent wrote work down for the project")
-	}
-	if err := agent.LinkTasks(ctx, index.ID, paginate.ID); err == nil {
-		t.Error("an agent restructured the plan")
-	}
-	if _, err := agent.UpdateTask(ctx, index.ID, api.UpdateTaskRequest{Status: ptr(api.TaskDone)}); err == nil {
-		t.Error("an agent closed a task that isn't its own")
+	if got := taskOf(t, d, a.Project, paginate.ID); got.Status != memory.TaskOpen || len(got.DependsOn) != 0 {
+		t.Errorf("the task after the refusals = %+v", got)
 	}
 
-	// A cycle is refused wherever it is asked for, and says which edge.
-	err = lead.LinkTasks(ctx, index.ID, paginate.ID)
-	if err == nil {
-		t.Fatal("a cycle was written down over the lead socket")
-	}
-	if !strings.Contains(err.Error(), paginate.ID) || !strings.Contains(err.Error(), index.ID) {
-		t.Errorf("the refusal doesn't name the edge: %v", err)
-	}
-
-	// The user's routes see the same plan, and closing the blocker frees it.
-	if _, err := user.UpdateTask(ctx, index.ID, api.UpdateTaskRequest{Status: ptr(api.TaskDone)}); err != nil {
+	if err := user.DeleteTask(ctx, index.ID); err != nil {
 		t.Fatal(err)
 	}
-	open, err := user.Tasks(ctx, api.TaskQuery{OpenOnly: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(open) != 1 || open[0].ID != paginate.ID {
-		t.Errorf("the plan after closing the blocker = %+v", open)
+	if tasks, err := user.Tasks(ctx, api.TaskQuery{}); err != nil || len(tasks) != 1 || tasks[0].ID != paginate.ID {
+		t.Errorf("the list after the user deleted one = %+v, %v", tasks, err)
 	}
 }
 
-// The trust split is also a routing fact: the routes that restructure the plan
-// are not served inside an agent at all.
-func TestTaskRoutesAnAgentGets(t *testing.T) {
+// The routes that write the list are on neither an agent's socket nor a
+// project chat's.
+func TestTaskRoutesOnlyTheUserGets(t *testing.T) {
 	t.Parallel()
-	inAgent := map[string]bool{}
+	routes := map[string]struct{ inAgent, userOnly bool }{}
 	for _, route := range memoryRoutes {
-		inAgent[route.action] = route.inAgent
+		routes[route.action] = struct{ inAgent, userOnly bool }{route.inAgent, route.userOnly}
 	}
-	for action, want := range map[string]bool{
-		"tasks": true, "task": true, "update-task": true,
-		"add-task": false, "link-tasks": false, "unlink-tasks": false,
+	for action, want := range map[string]struct{ inAgent, userOnly bool }{
+		"tasks": {true, false}, "task": {true, false},
+		"add-task": {false, true}, "update-task": {false, true}, "delete-task": {false, true},
+		"link-tasks": {false, true}, "unlink-tasks": {false, true},
 	} {
-		got, ok := inAgent[action]
+		got, ok := routes[action]
 		if !ok {
 			t.Errorf("there is no %q memory route", action)
 			continue
 		}
 		if got != want {
-			t.Errorf("%q inAgent = %v, want %v", action, got, want)
+			t.Errorf("%q = %+v, want %+v", action, got, want)
 		}
+	}
+}
+
+// Deleting a queued task takes its queued agent out of the queue: the work is
+// gone, so nothing should start for it.
+func TestDeletingAQueuedTaskUnqueuesIt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := newQueueTest(t, 4*gib, map[string]int64{"p": 4 * gib}, runningInstances())
+	q.addProject(t, "p")
+	q.enqueue(t, "p", "q1")
+	task, err := q.srv.memory().AddTask(ctx, memory.Task{Project: "p", Agent: "q1", Goal: "Fix the login redirect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := q.client.ProjectMemory("p").DeleteTask(ctx, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.srv.store.Agent(ctx, "p", "q1"); err == nil {
+		t.Error("the queued agent for a deleted task is still there")
+	}
+	if queued, _ := q.srv.store.Queue(ctx, "p"); len(queued) != 0 {
+		t.Errorf("still queued: %v", queued)
+	}
+	if _, err := q.srv.memory().Task(ctx, "p", task.ID); err == nil {
+		t.Error("the task is still on the list")
 	}
 }

@@ -13,9 +13,9 @@ import (
 	"agentbox/internal/api"
 )
 
-// TestMyTaskTools covers my_task, update_my_task and request_credential
-// against the fake agent API: what an agent reads about its own work, how it
-// says how that work is going, and how it asks for a credential it lacks.
+// TestMyTaskTools covers my_task and request_credential against the fake
+// agent API: what an agent reads about its own work, that it has nothing to
+// change the user's task list with, and how it asks for a credential it lacks.
 func TestMyTaskTools(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "agent2.sock")
 	calls := make(chan string, 8)
@@ -36,12 +36,8 @@ func TestMyTaskTools(t *testing.T) {
 	<-calls // /v1/self
 	<-calls // /v1/self/memory/tasks
 
-	out, err = tools[byName["update_my_task"]].Run(json.RawMessage(`{"status":"blocked","detail":"waiting on design"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "task_1 is blocked") || !strings.Contains(out, "project's chat sees it") {
-		t.Errorf("update_my_task(blocked) = %q", out)
+	if _, ok := byName["update_my_task"]; ok {
+		t.Error("an agent has update_my_task: the task list is the user's to change")
 	}
 
 	if _, ok := byName["request_credential"]; !ok {
