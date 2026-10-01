@@ -2,12 +2,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
-import { duration, errorMessage, githubAccountLabel, githubErrorSentence, humanBytes, humanRate, shortCommit, shortRate, timeAgo, timeUntil } from './utils.ts';
+import { bytesOf, duration, errorMessage, githubAccountLabel, githubErrorSentence, humanBytes, humanRate, shortCommit, shortRate, timeAgo, timeUntil } from './utils.ts';
 
 test('humanBytes picks the largest unit that keeps the number small', () => {
   assert.equal(humanBytes(500), '500 B');
   assert.equal(humanBytes(1536), '1.5 KiB');
   assert.equal(humanBytes(1024 * 1024 * 3), '3.0 MiB');
+});
+
+test('bytesOf is a compact used of size, in size\'s unit', () => {
+  const GiB = 1024 ** 3;
+  assert.equal(bytesOf(24.2 * GiB, 120 * GiB), '24 / 120 GiB');
+  assert.equal(bytesOf(5.84 * GiB, 120 * GiB), '5.8 / 120 GiB');
+  assert.equal(bytesOf(3 * GiB, 120 * GiB), '3 / 120 GiB');
+  assert.equal(bytesOf(300 * 1024 ** 2, 120 * GiB), '0.3 / 120 GiB');
+  assert.equal(bytesOf(4096, 120 * GiB), '<0.1 / 120 GiB');
+  assert.equal(bytesOf(1.5 * 1024 * GiB, 2 * 1024 * GiB), '1.5 / 2 TiB');
+  // Never "0 B": a used of 0 isn't known yet.
+  assert.equal(bytesOf(0, 120 * GiB), '— / 120 GiB');
 });
 
 test('humanRate is humanBytes a second', () => {

@@ -1286,11 +1286,13 @@ export function seedMeterUsage(queryClient: QueryClient): void {
 // seedVMDisk is the top bar's disk meter in VM mode (?meters=disk), with the
 // numbers measured on the user's Cloud Hypervisor VM on 2026-10-01: pool.raw
 // is 100 GiB taking 18.4 GiB of the host's disk, with 15.5 GiB in use inside;
-// root.raw is 20 GiB taking 5.8 GiB. The meter reads 24.2 GiB/120.0 GiB.
-export function seedVMDisk(queryClient: QueryClient): void {
+// root.raw is 20 GiB taking 5.8 GiB. The meter reads 24 / 120 GiB. Unmeasured
+// (?meters=disk-unmeasured), nothing is allocated, as a supervisor from before
+// #161 made it: the meter reads — / 120 GiB.
+export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
   const GiB = 1024 ** 3;
-  const pool = { size: 100 * GiB, allocated: Math.round(18.4 * GiB) };
-  const root = { size: 20 * GiB, allocated: Math.round(5.8 * GiB) };
+  const pool = { size: 100 * GiB, allocated: unmeasured ? 0 : Math.round(18.4 * GiB) };
+  const root = { size: 20 * GiB, allocated: unmeasured ? 0 : Math.round(5.8 * GiB) };
   const disk: T.VMDisk = { size: pool.size + root.size, allocated: pool.allocated + root.allocated, pool, root, hostFree: 310 * GiB };
   devState.vmPower = { state: 'running', memoryUsed: 11.3 * GiB, memoryGranted: 16 * GiB, memoryCap: 24 * GiB, cpus: 12, hostFree: disk.hostFree, disk };
   queryClient.setQueryData(['vmPower'], devState.vmPower);

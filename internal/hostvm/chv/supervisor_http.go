@@ -237,15 +237,21 @@ func offStatus(c Config, l Layout) api.VMStatus {
 		Memory: api.VMMemory{Min: c.MemoryMin, Cap: c.MemoryMin + hotplugSize(c)},
 		Limits: &api.VMLimits{MinCPUs: 1, MaxCPUs: max(hostCPUs(), c.CPUs), MinMemory: c.MemoryMin, MaxMemory: max(hostMemory(), c.MemoryCap)},
 	}
-	st.Disk.Pool, st.Disk.Root = DiskImage(l.PoolDisk()), DiskImage(l.RootDisk())
-	st.Disk.Add(st.Disk.Pool)
-	st.Disk.Add(st.Disk.Root)
+	st.Disk = diskStatus(l)
 	// A disk only grows, and a VM that's off has the size it was given
 	// (Config.Disk) when it next starts.
 	st.Limits.MinDisk = max(st.Disk.Pool.Size, c.Disk)
 	st.Limits.MaxDisk = max(api.VMMaxDisk, st.Limits.MinDisk)
-	st.Disk.HostFree = HostFree(l.Dir())
 	return st
+}
+
+// diskStatus is the VM's disk images as the host sees them, and what the
+// host's disk that holds them has free.
+func diskStatus(l Layout) api.VMDisk {
+	d := api.VMDisk{Pool: DiskImage(l.PoolDisk()), Root: DiskImage(l.RootDisk()), HostFree: HostFree(l.Dir())}
+	d.Add(d.Pool)
+	d.Add(d.Root)
+	return d
 }
 
 func writeVMJSON(w http.ResponseWriter, status int, v any) {
