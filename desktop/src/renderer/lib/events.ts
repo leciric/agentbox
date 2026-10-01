@@ -99,6 +99,11 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventUsage:
         queryClient.setQueryData(['usage'], event.data as T.Usage);
         break;
+      case T.EventDisk:
+        // The disk guard: a disk came near its floor, reached it or has room
+        // again, or it paused or resumed an agent.
+        queryClient.setQueryData(['disk'], event.data as T.DiskGuard);
+        break;
       case T.EventLAN:
         // Phones: turned on or off, one paired or revoked (Settings, Phone).
         void queryClient.invalidateQueries({ queryKey: ['lan'] });

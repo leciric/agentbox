@@ -152,6 +152,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.DiskFloorMin != nil || req.DiskFloorPercent != nil {
+		if err := s.setDiskFloor(r.Context(), req.DiskFloorMin, req.DiskFloorPercent); err != nil {
+			return err
+		}
+	}
 	if req.GPUForAgents != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingGPUForAgents, *req.GPUForAgents); err != nil {
 			return err
@@ -455,6 +460,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	diskFloor := s.diskFloor(r.Context())
 	neverFreezeCPU, keepFreeCPU, err := s.manager(nil).NeverFreezeCPU(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -513,6 +519,9 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		NeverFreezeCPU: neverFreezeCPU,
 		KeepFreeCPU:    keepFreeCPU,
+
+		DiskFloorMin:     diskFloor.Min,
+		DiskFloorPercent: diskFloor.Percent,
 
 		GPUAvailable:    gpu.Kind != "",
 		GPUKind:         gpu.Kind,

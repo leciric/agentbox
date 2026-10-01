@@ -90,6 +90,10 @@ export interface VMPower {
   memoryCap: number; // bytes the VM may grow to at most
   cpus: number;
   error?: string; // why the VM can't be reached or controlled, if it can't
+  // pausedForDisk: the supervisor paused it because the host's disk that holds
+  // its disk images is nearly full; hostFree is what that disk has free.
+  pausedForDisk?: boolean;
+  hostFree?: number;
 }
 
 export type VMPowerState = 'off' | 'starting' | 'running' | 'pausing' | 'paused' | 'resuming' | 'stopping';

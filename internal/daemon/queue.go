@@ -236,6 +236,11 @@ func (s *Server) admitQueued(ctx context.Context) {
 	if len(queue) == 0 {
 		return
 	}
+	if s.diskStatus().Level == agent.DiskFull {
+		// They wait for room: the disk guard kicks the queue when a disk
+		// has some again.
+		return
+	}
 	status, err := s.slotStatus(ctx)
 	if err != nil {
 		s.logf("agent queue: %v", err)

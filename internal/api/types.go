@@ -408,6 +408,11 @@ type Settings struct {
 	NeverFreezeCPU bool `json:"neverFreezeCPU"`
 	// KeepFreeCPU is how many cores are kept free for the host; DefaultKeepFreeCPU when nobody chose.
 	KeepFreeCPU int `json:"keepFreeCPU"`
+	// DiskFloorMin and DiskFloorPercent are the free space the disk guard
+	// keeps on every disk AgentBox writes to: the larger of DiskFloorMin bytes
+	// and DiskFloorPercent of the disk (DiskGuard).
+	DiskFloorMin     int64   `json:"diskFloorMin"`
+	DiskFloorPercent float64 `json:"diskFloorPercent"`
 	// GPUAvailable and GPUKind are what agent.HostGPU found on this machine:
 	// whether it has a GPU to give agents at all, and "amd" or "nvidia" for
 	// the description shown beside the switch. GPUForAgents is only offered
@@ -564,6 +569,11 @@ type UpdateSettingsRequest struct {
 	SharedBudgetMemory *string `json:"sharedBudgetMemory,omitempty"`
 	SharedBudgetSwap   *string `json:"sharedBudgetSwap,omitempty"`
 	SharedBudgetCPU    *int    `json:"sharedBudgetCPU,omitempty"`
+	// DiskFloorMin sets Settings.DiskFloorMin, in bytes, 0 going back to the
+	// default; DiskFloorPercent sets Settings.DiskFloorPercent, a negative
+	// one going back to the default.
+	DiskFloorMin     *int64   `json:"diskFloorMin,omitempty"`
+	DiskFloorPercent *float64 `json:"diskFloorPercent,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
@@ -1574,6 +1584,47 @@ const (
 	// EventIncus carries a new IncusStatus: Incus stopped answering the
 	// daemon, or answers again.
 	EventIncus = "incus"
+	// EventDisk carries a new DiskGuard: a disk AgentBox writes to came near
+	// its floor of free space, reached it, or has room again, or the guard
+	// paused or resumed an agent.
+	EventDisk = "disk"
+)
+
+// DiskGuard is what the daemon's disk guard last found (GET /v1/disk, and
+// EventDisk). It keeps a floor of free space on every disk AgentBox writes
+// to: nearing it, it warns; at it, it refuses new agents, forks, image builds
+// and saved bases, and pauses the agents writing the most, which it resumes
+// once there's room again. It never stops or deletes anything.
+type DiskGuard struct {
+	// Level is the worst disk's: DiskOK, DiskLow or DiskFull.
+	Level string          `json:"level"`
+	Disks []DiskGuardDisk `json:"disks"`
+	// Paused are the agents the guard paused, by ref.
+	Paused []string `json:"paused"`
+	// Since is when Level last changed.
+	Since time.Time `json:"since"`
+	// Message says where things stand, in one line.
+	Message string `json:"message"`
+}
+
+// DiskGuardDisk is one disk the guard watches, in bytes.
+type DiskGuardDisk struct {
+	// Label says what's on it: "Storage pool", "Worktrees", a few joined
+	// when they share one file system.
+	Label string `json:"label"`
+	// Path is what was measured; "" for the storage pool.
+	Path  string `json:"path,omitempty"`
+	Free  int64  `json:"free"`
+	Total int64  `json:"total"`
+	Floor int64  `json:"floor"`
+	Level string `json:"level"`
+}
+
+// Disk guard levels.
+const (
+	DiskOK   = "ok"
+	DiskLow  = "low"
+	DiskFull = "full"
 )
 
 // IncusStatus is what the daemon's watch on Incus last found

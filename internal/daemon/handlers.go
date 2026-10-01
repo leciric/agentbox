@@ -787,6 +787,9 @@ func (s *Server) saveBase(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if err := s.diskRefusal("saving a base"); err != nil {
+		return err
+	}
 	return s.startJob(w, "base-save", a.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
 		base, err := s.manager(log).SaveBase(ctx, a)
 		if err != nil {
@@ -1051,7 +1054,11 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 		queue = false
 	}
 	if queue {
+		// A queued agent waits while a disk is at its floor (admitQueued).
 		return s.enqueueAgent(w, r.Context(), req, byLead)
+	}
+	if err := s.diskRefusal("creating an agent"); err != nil {
+		return err
 	}
 	return s.startJob(w, "create", req.Project, s.createJob(req, byLead, ""))
 }
@@ -1192,6 +1199,11 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 			return err
 		}
 		ctx, m := r.Context(), s.manager(s.cfg.Log)
+		if action == "start" || action == "resume" {
+			if err := s.diskPausedRefusal(a.Ref()); err != nil {
+				return err
+			}
+		}
 		switch action {
 		case "start":
 			if err = s.serveAgentAPI(a.Instance); err == nil {
@@ -1322,6 +1334,9 @@ func (s *Server) fork(w http.ResponseWriter, r *http.Request) error {
 	}
 	var req api.ForkRequest
 	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if err := s.diskRefusal("forking " + src.Ref()); err != nil {
 		return err
 	}
 	return s.startJob(w, "fork", src.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
@@ -1463,6 +1478,9 @@ func (s *Server) imageStatus(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) error {
+	if err := s.diskRefusal("building the base image"); err != nil {
+		return err
+	}
 	if err := image.CheckHost(s.cfg.User); err != nil {
 		return err
 	}
