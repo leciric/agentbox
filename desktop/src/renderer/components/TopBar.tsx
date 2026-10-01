@@ -9,7 +9,7 @@ import { limitTone, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
 import { useVMPower } from '../lib/vm';
-import { cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
+import { bytesOf, cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { DiskGuardPill } from './DiskGuardPill';
 import { ResourceControls } from './ResourceControls';
@@ -126,14 +126,16 @@ export function TopBar({
 }
 
 // MeterBar is the small filled pill every meter in the top bar shares: amber
-// past 65%, rose past 85%.
-function MeterBar({ percent, className }: { percent: number; className?: string }) {
+// past 65%, rose past 85%; an empty track when percent isn't known.
+function MeterBar({ percent, className }: { percent: number | null; className?: string }) {
   return (
     <span className={cn('h-1 w-8 overflow-hidden rounded-full bg-surface-strong', className)}>
-      <span
-        className={cn('block h-full rounded-full', percent > 85 ? 'bg-rose-400' : percent > 65 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400')}
-        style={{ width: `${Math.max(percent, 4)}%` }}
-      />
+      {percent !== null && (
+        <span
+          className={cn('block h-full rounded-full', percent > 85 ? 'bg-rose-400' : percent > 65 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400')}
+          style={{ width: `${Math.max(percent, 4)}%` }}
+        />
+      )}
     </span>
   );
 }
@@ -146,14 +148,15 @@ function MeterBar({ percent, className }: { percent: number; className?: string 
 // every agent's machine and saved base share. Clicking it opens a popover
 // breaking that down; the breakdown is only measured while it's open — the
 // total is cheap to poll, but the breakdown walks every worktree and media
-// directory and queries Incus once per machine and base. The label has a
-// fixed width, so the bar doesn't shift as the number ticks.
+// directory and queries Incus once per machine and base. Used is never shown
+// as 0: an image can't take nothing, so 0 is a front end that couldn't
+// measure it, shown as "—".
 function DiskMeter({ host, vmDisk }: { host?: T.HostUsage; vmDisk?: T.VMDisk }) {
   const diskUsage = useQuery({ queryKey: ['diskUsage'], queryFn: api.diskUsage, enabled: false });
   const homeDisk = useQuery({ queryKey: ['homeDisk'], queryFn: () => window.agentbox.vm.disk(), enabled: false });
   const [used, size] = vmDisk ? [vmDisk.allocated, vmDisk.size] : [host?.poolUsed ?? 0, host?.poolTotal ?? 0];
   if (size <= 0) return null;
-  const percent = Math.max(0, Math.min(1, used / size)) * 100;
+  const percent = used > 0 ? Math.max(0, Math.min(1, used / size)) * 100 : null;
   return (
     <Popover
       onOpenChange={(open) => {
@@ -168,14 +171,12 @@ function DiskMeter({ host, vmDisk }: { host?: T.HostUsage; vmDisk?: T.VMDisk }) 
           className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
           aria-label={
             vmDisk
-              ? `AgentBox's VM takes ${humanBytes(used)} of your disk, of ${humanBytes(size)} it can hold`
-              : `Agents' disk: ${humanBytes(used)} of ${humanBytes(size)} used`
+              ? `AgentBox's VM takes ${knownBytes(used)} of your disk, of ${humanBytes(size)} it can hold`
+              : `Agents' disk: ${knownBytes(used)} of ${humanBytes(size)} used`
           }
         >
           <HardDrive className="size-3.5 text-subtle" />
-          <span className="w-36 whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary">
-            {humanBytes(used)}/{humanBytes(size)}
-          </span>
+          <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary">{bytesOf(used, size)}</span>
           <MeterBar percent={percent} />
         </button>
       </PopoverTrigger>
@@ -187,7 +188,7 @@ function DiskMeter({ host, vmDisk }: { host?: T.HostUsage; vmDisk?: T.VMDisk }) 
             <div className="flex items-center justify-between">
               <span className="text-[13px] font-medium text-primary">Agents' disk</span>
               <span className="font-mono text-[11px] tabular-nums text-tertiary">
-                {humanBytes(used)} of {humanBytes(size)}
+                {knownBytes(used)} of {humanBytes(size)}
               </span>
             </div>
             <DiskUsageCategories query={diskUsage} />
@@ -215,15 +216,15 @@ function VMDiskBreakdown({
 }) {
   // A sparse image can't grow past what the host has free.
   const room = disk.size - disk.allocated;
-  const short = disk.hostFree !== undefined && disk.hostFree > 0 && disk.hostFree < room;
-  const freed = host && host.poolTotal > 0 ? disk.pool.allocated - host.poolUsed : 0;
+  const short = disk.allocated > 0 && disk.hostFree !== undefined && disk.hostFree > 0 && disk.hostFree < room;
+  const freed = host && host.poolTotal > 0 && disk.pool.allocated > 0 ? disk.pool.allocated - host.poolUsed : 0;
   return (
     <div className="grid gap-3">
       <div className="grid gap-1">
         <div className="flex items-center justify-between">
           <span className="text-[13px] font-medium text-primary">AgentBox's VM</span>
           <span className="font-mono text-[11px] tabular-nums text-tertiary">
-            {humanBytes(disk.allocated)} of {humanBytes(disk.size)}
+            {knownBytes(disk.allocated)} of {humanBytes(disk.size)}
           </span>
         </div>
         <span className="text-[11.5px] text-muted">What its disks take on your computer's disk, of the most they can hold.</span>
@@ -278,10 +279,16 @@ function DiskImageRow({ label, image }: { label: string; image: T.VMDiskImage })
   return (
     <>
       <span className="text-secondary">{label}</span>
-      <span className="text-right font-mono tabular-nums text-tertiary">{humanBytes(image.allocated)}</span>
+      <span className="text-right font-mono tabular-nums text-tertiary">{knownBytes(image.allocated)}</span>
       <span className="text-right font-mono tabular-nums text-faint">{humanBytes(image.size)}</span>
     </>
   );
+}
+
+// knownBytes is humanBytes for a disk's used bytes, "—" while they're 0, not
+// known yet.
+function knownBytes(n: number): string {
+  return n > 0 ? humanBytes(n) : '—';
 }
 
 function DiskRow({ label, bytes }: { label: string; bytes: number }) {

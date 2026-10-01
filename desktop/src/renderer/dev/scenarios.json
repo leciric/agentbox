@@ -315,6 +315,20 @@
     "click": "[aria-label^=\"AgentBox's VM takes\"]"
   },
   {
+    "id": "disk-meter-dark",
+    "description": "The top bar's disk meter in VM mode beside the CPU meter, closed: 24 / 120 GiB, the user's VM as measured — dark",
+    "query": "meters=disk&theme=dark",
+    "width": 1280,
+    "height": 120
+  },
+  {
+    "id": "disk-meter-unmeasured-dark",
+    "description": "The top bar's disk meter in VM mode with nothing allocated yet: — / 120 GiB and an empty bar, never 0 B — dark",
+    "query": "meters=disk-unmeasured&theme=dark",
+    "width": 1280,
+    "height": 120
+  },
+  {
     "id": "pool-popover-fixtures-dark",
     "description": "The top bar's \"Agents' disk\" meter in host mode, the storage pool's used/size, with its popover open breaking it down by machine, base, worktree and media — dark",
     "query": "meters=pool&theme=dark",

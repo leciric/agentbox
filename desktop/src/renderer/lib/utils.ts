@@ -16,6 +16,26 @@ export function humanBytes(n: number): string {
   return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`;
 }
 
+// bytesOf is a compact "used / size" for a meter, both in size's unit
+// ("24 / 120 GiB"): whole numbers from 10 up, one decimal below. A used of 0
+// or less is one not known yet, shown as "—" rather than "0 B".
+export function bytesOf(used: number, size: number): string {
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let i = 0;
+  let scale = 1;
+  while (size >= scale * 1024 && i < units.length - 1) {
+    scale *= 1024;
+    i++;
+  }
+  const num = (n: number) => {
+    const v = n / scale;
+    if (v >= 10 || i === 0) return v.toFixed(0);
+    if (v > 0 && v < 0.1) return '<0.1';
+    return String(Number(v.toFixed(1)));
+  };
+  return `${used > 0 ? num(used) : '—'} / ${num(size)} ${units[i]}`;
+}
+
 // parseBytes reads the sizes Incus takes, like the disk guard's floor.
 export function parseBytes(size: string): number | undefined {
   const match = /^\s*([0-9.]+)\s*(B|kB|MB|GB|TB|KiB|MiB|GiB|TiB)?\s*$/.exec(size);

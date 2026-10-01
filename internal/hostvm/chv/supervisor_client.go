@@ -316,6 +316,7 @@ func Status(ctx context.Context, c Config, l Layout, p paths.Paths) api.VMStatus
 		}
 	}
 	if st, err := vmStatus(ctx, p); err == nil {
+		st.Disk = diskStatus(l)
 		return st
 	}
 	st := offStatus(c, l)
@@ -327,11 +328,19 @@ func Status(ctx context.Context, c Config, l Layout, p paths.Paths) api.VMStatus
 	return st
 }
 
-// vmStatus asks the supervisor for the VM's state.
+// vmStatus asks the supervisor for the VM's state, all but its disk, which
+// Status measures itself. The supervisor runs as long as the VM does, through
+// an upgrade of the front end, so it may be older and say less: one from
+// before #161 sent its disk as {size, used}, which decodes into api.VMDisk
+// with nothing allocated, and one from #161 sent its pool as a number, which
+// fails to decode at all and made a running VM look lost.
 func vmStatus(ctx context.Context, p paths.Paths) (api.VMStatus, error) {
-	var st api.VMStatus
+	var st struct {
+		api.VMStatus
+		Disk json.RawMessage `json:"disk"`
+	}
 	err := vmRequest(ctx, p, http.MethodGet, "/v1/vm", nil, &st, statusDeadline)
-	return st, err
+	return st.VMStatus, err
 }
 
 func vmPost(ctx context.Context, p paths.Paths, path string, body any) error {

@@ -71,6 +71,8 @@
 //                           one and a plain one —
 //                           scenarios.json clicks the meter open before its
 //                           shot, since state here comes from the URL alone
+//   ?meters=disk-unmeasured the disk meter in VM mode before its images are
+//                           measured: — / 120 GiB
 //   ?nightly=1              a nightly build, on the nightly channel with a newer
 //                           nightly out: the sidebar's starry header and badge,
 //                           and with ?settings=general the Update channel row
@@ -201,7 +203,7 @@ const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
-const meters = params.get('meters'); // "cpu" | "disk" | "pool" | null
+const meters = params.get('meters'); // "cpu" | "disk" | "disk-unmeasured" | "pool" | null
 const power = params.get('power');
 const free = params.get('free');
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
@@ -309,7 +311,7 @@ if (meters) {
   queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 15.5 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
-  if (meters === 'disk') seedVMDisk(queryClient);
+  if (meters === 'disk' || meters === 'disk-unmeasured') seedVMDisk(queryClient, meters === 'disk-unmeasured');
 }
 
 const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };

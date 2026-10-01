@@ -3,6 +3,7 @@ package chv
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -288,5 +289,58 @@ func TestLockHolders(t *testing.T) {
 `
 	if got := lockHolders(locks, 1234); !slices.Equal(got, []int{4242, 6161}) {
 		t.Errorf("lockHolders = %v, want [4242 6161]", got)
+	}
+}
+
+// A supervisor outlives an upgrade of the front end, so Status meets older
+// ones: their disk, in whatever shape, gives way to what the images take on
+// this machine's disk, and a running VM still reads as running.
+func TestStatusFromAnOlderSupervisor(t *testing.T) {
+	p := testPaths(t)
+	l := NewLayout(p, "agentbox")
+	c := Config{Name: "agentbox", CPUs: 2, MemoryMin: 4 * GiB, MemoryCap: 8 * GiB}
+	if err := c.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(l.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, disk := range []string{l.RootDisk(), l.PoolDisk()} {
+		f, err := os.Create(disk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Truncate(GiB)
+		_, _ = f.WriteAt(make([]byte, 1<<20), 0)
+		_ = f.Close()
+	}
+	if err := os.MkdirAll(filepath.Dir(p.VMSocket()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", p.VMSocket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body string
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, body)
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	for name, disk := range map[string]string{
+		"before #161": `{"size":2147483648,"used":5000}`,
+		"#161":        `{"size":2147483648,"pool":1073741824,"used":5000}`,
+		"#160":        `{"size":2147483648,"allocated":0,"pool":{"size":1073741824,"allocated":0},"root":{"size":1073741824,"allocated":0}}`,
+	} {
+		body = `{"mode":"vm","state":"running","cpus":2,"disk":` + disk + `}`
+		st := Status(t.Context(), c, l, p)
+		if st.State != api.VMRunning || st.Problem != "" {
+			t.Errorf("%s: state %s (%q), want running", name, st.State, st.Problem)
+		}
+		if st.Disk.Size != 2*GiB || st.Disk.Allocated < 2<<20 || st.Disk.Allocated >= GiB ||
+			st.Disk.Pool.Allocated+st.Disk.Root.Allocated != st.Disk.Allocated {
+			t.Errorf("%s: disk = %+v, want what the images take here", name, st.Disk)
+		}
 	}
 }
