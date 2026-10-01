@@ -224,7 +224,8 @@ func (s *Server) slotAgents(ctx context.Context, project string, statuses []agen
 }
 
 // admitQueued starts as many queued agents as there are free slots, each
-// project's in its queue's order.
+// project's in its queue's order, and hands the lead the tasks queued for it
+// that have reached the front (taskroute.go).
 func (s *Server) admitQueued(ctx context.Context) {
 	s.queueMu.Lock()
 	defer s.queueMu.Unlock()
@@ -233,6 +234,11 @@ func (s *Server) admitQueued(ctx context.Context) {
 		s.logf("agent queue: %v", err)
 		return
 	}
+	// Before the agents: a task for the lead needs neither a slot nor room on
+	// a disk, and the agents queued ahead of it are only behind it once
+	// they've started, which is the next look at the queue.
+	queueOn, _ := s.store.Flag(ctx, state.SettingAgentQueue)
+	s.admitLeadTasks(ctx, queue, queueOn)
 	if len(queue) == 0 {
 		return
 	}
@@ -339,10 +345,10 @@ func withTitle(title string) string {
 // enqueueAgent queues the agent req asks for, and answers with a job that has
 // already done so, so every caller waits for a queued agent the way it waits
 // for any other: the job's result is the agent, in state "queued".
-func (s *Server) enqueueAgent(w http.ResponseWriter, ctx context.Context, req api.CreateAgentRequest, byLead bool) error {
+func (s *Server) enqueueAgent(ctx context.Context, req api.CreateAgentRequest, byLead bool) (api.Job, error) {
 	request, err := json.Marshal(queuedRequest{Request: req, ByLead: byLead})
 	if err != nil {
-		return err
+		return api.Job{}, err
 	}
 	a, err := s.manager(nil).Enqueue(ctx, req.Project, agent.CreateOptions{
 		Name:          req.Name,
@@ -360,7 +366,7 @@ func (s *Server) enqueueAgent(w http.ResponseWriter, ctx context.Context, req ap
 		Task:          strings.TrimSpace(req.Task),
 	}, request)
 	if err != nil {
-		return err
+		return api.Job{}, err
 	}
 	if req.TaskID != "" {
 		s.assignTask(ctx, a.Project, req.TaskID, a.Name)
@@ -369,21 +375,17 @@ func (s *Server) enqueueAgent(w http.ResponseWriter, ctx context.Context, req ap
 	s.refreshAgents(ctx)
 	info, err := s.describe(ctx, a)
 	if err != nil {
-		return err
+		return api.Job{}, err
 	}
 	j, err := s.jobs.start("queue", req.Project, func(context.Context, io.Writer) (any, error) {
 		return info, nil
 	})
 	if err != nil {
-		return err
+		return api.Job{}, err
 	}
 	// It has nothing left to do: answer with it done, and the queued agent in
 	// its result, so a caller can say where in line it is without asking.
-	done, err := j.follow(ctx, 0, func(string) error { return nil })
-	if err != nil {
-		return err
-	}
-	return writeJSON(w, http.StatusAccepted, done)
+	return j.follow(ctx, 0, func(string) error { return nil })
 }
 
 // taskForAgent fills in a create request made for a task of the plan: the
@@ -396,6 +398,9 @@ func (s *Server) taskForAgent(ctx context.Context, req *api.CreateAgentRequest) 
 	}
 	if !t.Open() {
 		return fmt.Errorf("task %s is %s: only an open task can be given to an agent", t.ID, t.Status)
+	}
+	if !t.LeadQueuedAt.IsZero() {
+		return fmt.Errorf("task %s is queued for the lead", t.ID)
 	}
 	if t.Agent != "" {
 		return fmt.Errorf("task %s is already %s's", t.ID, t.Agent)

@@ -214,7 +214,7 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
       </TabsContent>
 
       <TabsContent value="tasks" className="overflow-y-auto">
-        <ProjectTasksPanel project={name} onSelect={onSelect} />
+        <ProjectTasksPanel project={name} onSelect={onSelect} onOpenChat={() => setTab('chat')} />
       </TabsContent>
 
       <TabsContent value="pulls" className="overflow-y-auto">

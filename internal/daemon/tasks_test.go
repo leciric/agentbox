@@ -127,6 +127,7 @@ func TestTaskRoutesOnlyTheUserGets(t *testing.T) {
 		"tasks": {true, false}, "task": {true, false},
 		"add-task": {false, true}, "update-task": {false, true}, "delete-task": {false, true},
 		"link-tasks": {false, true}, "unlink-tasks": {false, true},
+		"start-task": {false, true}, "unqueue-task": {false, true},
 	} {
 		got, ok := routes[action]
 		if !ok {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/memory"
 	"agentbox/internal/state"
 )
 
@@ -130,6 +131,15 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		}
 		// Off starts whatever is queued; on may have work to look at.
 		s.kickQueue()
+	}
+	if req.TaskTarget != nil {
+		target := strings.TrimSpace(*req.TaskTarget)
+		if target != memory.TaskRouteAgent && target != memory.TaskRouteLead {
+			return fmt.Errorf("tasks go to %q or %q; %q isn't either", memory.TaskRouteAgent, memory.TaskRouteLead, target)
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingTaskTarget, target); err != nil {
+			return err
+		}
 	}
 	if req.LeadRecheckMinutes != nil {
 		if n := *req.LeadRecheckMinutes; n < 5 || n > 1440 {
@@ -366,6 +376,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	taskTarget, err := s.taskTarget(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
@@ -399,6 +413,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		IdleTimeSeconds: int(idleTime / time.Second),
 
 		AgentQueue:         agentQueue,
+		TaskTarget:         taskTarget,
 		LeadRecheck:        leadRecheck,
 		LeadRecheckMinutes: int(recheckEvery / time.Minute),
 	}, nil

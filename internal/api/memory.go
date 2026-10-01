@@ -309,10 +309,16 @@ type Task struct {
 	// Status is open, active, blocked, done or abandoned.
 	Status string `json:"status"`
 	// Goal is what is to be done, in a line; Detail is everything else.
-	Goal      string    `json:"goal"`
-	Detail    string    `json:"detail,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Goal   string `json:"goal"`
+	Detail string `json:"detail,omitempty"`
+	// Route is where it goes when it starts: "agent", "lead", or absent to
+	// follow Settings.TaskTarget, which is how every task starts out.
+	Route string `json:"route,omitempty"`
+	// LeadQueuedAt is when it joined its project's queue on its way to the
+	// lead, and absent when it isn't waiting there.
+	LeadQueuedAt time.Time `json:"leadQueuedAt,omitzero,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 	// ClosedAt is when it stopped being open, and absent while it still is.
 	ClosedAt time.Time `json:"closedAt,omitzero,omitempty"`
 	// DependsOn are the tasks this one is waiting on, and Blocks the ones
@@ -343,7 +349,35 @@ type UpdateTaskRequest struct {
 	Detail   *string `json:"detail,omitempty"`
 	Agent    *string `json:"agent,omitempty"`
 	ParentID *string `json:"parentId,omitempty"`
+	// Route is where the task goes when it starts: "agent", "lead", or ""
+	// to follow Settings.TaskTarget again.
+	Route *string `json:"route,omitempty"`
 }
+
+// StartTaskRequest starts one of the user's tasks where it goes
+// (Task.Route, else Settings.TaskTarget): a new agent made for it, or the
+// project's chat, sent it as a message. With Queue, and the agent queue on,
+// it waits its turn in the project's queue instead of starting now.
+type StartTaskRequest struct {
+	Queue bool `json:"queue,omitempty"`
+	// AI is the tool of the agent made for it, Claude Code when absent. The
+	// lead uses its own.
+	AI string `json:"ai,omitempty"`
+}
+
+// StartTaskResponse says where a started task went: Target is "agent" or
+// "lead". An agent's comes with the job that makes or queued it.
+type StartTaskResponse struct {
+	Target string `json:"target"`
+	Task   Task   `json:"task"`
+	Job    *Job   `json:"job,omitempty"`
+}
+
+// The routes a task may have, and the targets it may go to.
+const (
+	TaskRouteAgent = "agent"
+	TaskRouteLead  = "lead"
+)
 
 // LinkTasksRequest says one task is waiting on another, or takes that back.
 type LinkTasksRequest struct {

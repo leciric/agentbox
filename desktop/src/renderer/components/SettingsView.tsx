@@ -57,6 +57,7 @@ import {
   NewAgentEffort,
   OpenCodeInImage,
   ResumeAfterLimit,
+  TaskTarget,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -1077,6 +1078,13 @@ function InstalledSettings({
               keywords: "queue slots concurrency wait turn budget memory",
               modified: changed((s) => s.agentQueue),
               render: () => <AgentQueue />,
+            },
+            {
+              id: "task-target",
+              label: "Tasks go to",
+              keywords: "tasks route lead agent split target",
+              modified: changed((s) => s.taskTarget === "lead"),
+              render: () => <TaskTarget />,
             },
             {
               id: "lead-recheck",

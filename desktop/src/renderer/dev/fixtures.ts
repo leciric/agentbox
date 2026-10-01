@@ -972,6 +972,7 @@ let defaultsSettings = {
   autoStopIdle: false,
   idleTimeSeconds: 2 * 60 * 60,
   agentQueue: false,
+  taskTarget: 'agent',
   leadRecheck: false,
   leadRecheckMinutes: 20,
 } as T.Settings;
@@ -1001,6 +1002,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'prWatch',
     'mediaRetention',
     'agentQueue',
+    'taskTarget',
     'leadRecheck',
     'leadRecheckMinutes',
   ] as const) {

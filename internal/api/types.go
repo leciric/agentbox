@@ -421,6 +421,11 @@ type Settings struct {
 	// for one of their project's slots (QueueStatus). Off unless it was
 	// turned on, and off, nothing queues and no slots are enforced.
 	AgentQueue bool `json:"agentQueue"`
+	// TaskTarget is "tasks go to": where a task of the Tasks tab goes when
+	// it starts, unless the task chose for itself (Task.Route) — "agent", a
+	// new agent of its own, the default, or "lead", the project's chat, which
+	// may split it across several agents.
+	TaskTarget string `json:"taskTarget"`
 	// LeadRecheck is "lead rechecks agents": while on, every
 	// LeadRecheckMinutes the daemon wakes each project's chat with a short
 	// status of its running agents and its queue — only when an agent has
@@ -474,6 +479,8 @@ type UpdateSettingsRequest struct {
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
 	// AgentQueue turns "agent queue" on or off.
 	AgentQueue *bool `json:"agentQueue,omitempty"`
+	// TaskTarget sets "tasks go to": "agent" or "lead".
+	TaskTarget *string `json:"taskTarget,omitempty"`
 	// LeadRecheck turns "lead rechecks agents" on or off, and
 	// LeadRecheckMinutes is how often, from 5 to 1440.
 	LeadRecheck        *bool `json:"leadRecheck,omitempty"`

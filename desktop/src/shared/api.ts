@@ -124,6 +124,7 @@ export interface Settings {
   autoStopIdle: boolean;
   idleTimeSeconds: number;
   agentQueue: boolean;
+  taskTarget: string;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
 }
@@ -146,6 +147,7 @@ export interface UpdateSettingsRequest {
   autoStopIdle?: boolean;
   idleTimeSeconds?: number;
   agentQueue?: boolean;
+  taskTarget?: string;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
   diskFloorMin?: number;
@@ -1606,6 +1608,8 @@ export interface Task {
   status: string;
   goal: string;
   detail?: string;
+  route?: string;
+  leadQueuedAt?: string;
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
@@ -1628,11 +1632,23 @@ export interface UpdateTaskRequest {
   detail?: string;
   agent?: string;
   parentId?: string;
+  route?: string;
 }
 
 export interface LinkTasksRequest {
   taskId: string;
   dependsOnId: string;
+}
+
+export interface StartTaskRequest {
+  queue?: boolean;
+  ai?: string;
+}
+
+export interface StartTaskResponse {
+  target: string;
+  task: Task;
+  job?: Job;
 }
 
 export interface TokenCounts {
