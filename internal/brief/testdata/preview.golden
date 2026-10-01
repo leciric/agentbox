@@ -40,6 +40,12 @@ types the value in AgentBox, which puts it into your environment itself; you are
 happened. **Never ask for a credential in chat or with `agentbox ask`, and never ask anyone to paste
 one**: whatever is written in a conversation is kept as text.
 
+When the task needs a service you have no tools for — the spec is in Notion, the issue in Linear —
+ask the user to connect it with the `memory` server's `request_connector` tool, with its name and
+MCP server's URL. It waits while they sign in to it in AgentBox, which keeps the sign-in; once it is
+connected, `agentbox connector tools <name>` and `agentbox connector call <name> <tool> '<json>'`
+reach it from your shell straight away.
+
 ## When you don't know what the user wants
 
 You have a project chat you can ask. Use it when carrying on would mean guessing at something the

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, ListTodo, MessagesSquare, NotebookPen, Plus, SlidersHorizontal, Trash, Users } from 'lucide-react';
+import { Brain, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, ListTodo, MessagesSquare, NotebookPen, Plug, Plus, SlidersHorizontal, Trash, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -8,6 +8,7 @@ import { countFeature, projectTabFeatures } from '../lib/usageStats';
 import { errorMessage, timeAgo } from '../lib/utils';
 import { ChatHeaderControls } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ConnectorsTab } from './ConnectorsTab';
 import { FleetPanel } from './FleetPanel';
 import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
 import { ProjectBasePanel } from './ProjectBasePanel';
@@ -91,7 +92,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
 
 // A project opens on its chat: the conversation that directs its agents. What
 // the page showed before is the Overview tab.
-type ProjectTab = 'chat' | 'agents' | 'tasks' | 'pulls' | 'media' | 'memory' | 'tokens' | 'secrets' | 'overview';
+type ProjectTab = 'chat' | 'agents' | 'tasks' | 'pulls' | 'media' | 'memory' | 'tokens' | 'secrets' | 'connectors' | 'overview';
 type OverviewSection = 'repository' | 'settings' | 'brief';
 
 export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSelect: (view: View) => void; onNewAgent: () => void }) {
@@ -183,6 +184,10 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
               <KeyRound />
               Secrets
             </TabsTrigger>
+            <TabsTrigger value="connectors">
+              <Plug />
+              Connectors
+            </TabsTrigger>
             <TabsTrigger value="overview">
               <SlidersHorizontal />
               Overview
@@ -239,6 +244,10 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
 
       <TabsContent value="secrets" className="flex flex-col">
         <SecretsTab target={name} />
+      </TabsContent>
+
+      <TabsContent value="connectors" className="flex flex-col">
+        <ConnectorsTab target={name} />
       </TabsContent>
 
       <TabsContent value="overview" className="overflow-y-auto">

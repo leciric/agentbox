@@ -363,12 +363,11 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		"projects":               map[string]any{a.Worktree: map[string]any{"hasTrustDialogAccepted": true}},
 	}
 	if socket != "" && m.Binary != "" {
-		claude["mcpServers"] = map[string]any{
-			"agentbox": map[string]any{
-				"type": "stdio", "command": m.Binary, "args": []string{"mcp"},
-				"env": map[string]string{"AGENTBOX_SOCKET": socket, "AGENTBOX_NO_AUTOSTART": "1"},
-			},
+		connectors, err := m.connectorNames(ctx, a)
+		if err != nil {
+			return err
 		}
+		claude["mcpServers"] = m.leadMCPServers(socket, connectors)
 	}
 	claudeState, err := json.Marshal(claude)
 	if err != nil {

@@ -418,3 +418,83 @@ func TestCreateAgentNamesTheAgentDefaults(t *testing.T) {
 		})
 	}
 }
+
+// list_connectors describes the project's connectors to its chat, and
+// create_agent passes the ones an agent is limited to — none being a limit
+// too, and leaving it out none at all.
+func TestLeadConnectorTools(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "lead.sock")
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := make(chan api.CreateAgentRequest, 4)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/project/settings", func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(api.Settings{}) })
+	mux.HandleFunc("/v1/project", func(w http.ResponseWriter, _ *http.Request) { _ = json.NewEncoder(w).Encode(api.Project{}) })
+	mux.HandleFunc("GET /v1/project/connectors", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode([]api.Connector{
+			{Name: "notion", URL: "https://mcp.notion.com/mcp", Enabled: true, Status: api.ConnectorConnected, Agents: []string{"pawly/agent-01"}},
+			{Name: "linear", URL: "https://mcp.linear.app/mcp", Enabled: true, Status: api.ConnectorError, Error: "connect it again", Agents: []string{}},
+			{Name: "sentry", URL: "https://mcp.sentry.dev/mcp", Status: api.ConnectorConnected, Agents: []string{}},
+		})
+	})
+	mux.HandleFunc("POST /v1/project/agents", func(w http.ResponseWriter, r *http.Request) {
+		var req api.CreateAgentRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		created <- req
+		_ = json.NewEncoder(w).Encode(api.Job{ID: "job-1"})
+	})
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	byName := map[string]mcp.Tool{}
+	for _, tool := range projectTools(context.Background(), api.NewClient(socket)) {
+		byName[tool.Name] = tool
+	}
+	out, err := byName["list_connectors"].Run(json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"- notion — https://mcp.notion.com/mcp, connected; given to pawly/agent-01",
+		"- linear — https://mcp.linear.app/mcp, error (connect it again); given to no agent",
+		"- sentry — https://mcp.sentry.dev/mcp, turned off",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list_connectors doesn't say %q:\n%s", want, out)
+		}
+	}
+	if schema, _ := json.Marshal(byName["create_agent"].Schema); !strings.Contains(string(schema), `"connectors"`) {
+		t.Errorf("create_agent takes no connectors: %s", schema)
+	}
+
+	for _, tc := range []struct {
+		args, says string
+		want       *[]string
+	}{
+		{`"connectors":["notion"]`, "with the connectors notion", &[]string{"notion"}},
+		{`"connectors":[]`, "with no connectors", &[]string{}},
+		{`"branch":"x"`, "", nil},
+	} {
+		out, err := byName["create_agent"].Run(json.RawMessage(`{"title":"Spec","task":"read it",` + tc.args + `}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := <-created
+		switch {
+		case tc.want == nil && got.Connectors != nil, tc.want != nil && (got.Connectors == nil || strings.Join(*got.Connectors, ",") != strings.Join(*tc.want, ",")):
+			t.Errorf("create_agent(%s) sent connectors %v", tc.args, got.Connectors)
+		}
+		if tc.says != "" && !strings.Contains(out, tc.says) || tc.says == "" && strings.Contains(out, "connectors") {
+			t.Errorf("create_agent(%s) = %q", tc.args, out)
+		}
+	}
+}
+
+func TestDescribeConnectorsWithNone(t *testing.T) {
+	if out := describeConnectors(nil); !strings.Contains(out, "no connectors") || !strings.Contains(out, "request_connector") {
+		t.Errorf("describeConnectors(nil) = %q", out)
+	}
+}

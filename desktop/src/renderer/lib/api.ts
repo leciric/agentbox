@@ -62,6 +62,9 @@ const filesBase = (ref: string) => {
 // A secrets target is a project ("pawly") or one agent ("pawly/agent-01"),
 // the same two scopes the command line takes.
 const secretsBase = (target: string) => (target.includes('/') ? `${agent(target)}/secrets` : `${project(target)}/secrets`);
+// Connectors take the same two targets.
+const connectorsBase = (target: string) => (target.includes('/') ? `${agent(target)}/connectors` : `${project(target)}/connectors`);
+const connectorPath = (target: string, name: string) => `${connectorsBase(target)}/${encodeURIComponent(name)}`;
 
 export type AgentAction = 'start' | 'stop' | 'pause' | 'resume';
 
@@ -182,6 +185,14 @@ export const api = {
   setSecret: (target: string, name: string, value: string) =>
     call<T.Secret>('PUT', `${secretsBase(target)}/${encodeURIComponent(name)}`, { value } satisfies T.SetSecretRequest),
   removeSecret: (target: string, name: string) => call<void>('DELETE', `${secretsBase(target)}/${encodeURIComponent(name)}`),
+
+  // Connectors: remote MCP servers the agents use, signed in on the host. No
+  // answer carries a token (internal/connectors).
+  connectors: (target: string) => call<T.Connector[]>('GET', connectorsBase(target)),
+  setConnector: (target: string, name: string, req: T.SetConnectorRequest) => call<T.Connector>('PUT', connectorPath(target, name), req),
+  removeConnector: (target: string, name: string) => call<void>('DELETE', connectorPath(target, name)),
+  connectConnector: (target: string, name: string) => call<T.ConnectResult>('POST', `${connectorPath(target, name)}/connect`),
+  disconnectConnector: (target: string, name: string) => call<T.Connector>('POST', `${connectorPath(target, name)}/disconnect`),
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
 

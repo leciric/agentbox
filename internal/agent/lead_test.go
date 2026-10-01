@@ -655,3 +655,81 @@ func TestLeadStartsWithAGitHubAccountThatIsGone(t *testing.T) {
 		t.Errorf("the lead has a .gitconfig with no GitHub account: %v", err)
 	}
 }
+
+// A project's chat is given its project's enabled connectors as MCP servers,
+// through the same relay as an agent's, pointed at its own socket; a change
+// to them reaches it without touching the rest of Claude Code's state.
+func TestLeadIsGivenItsProjectsConnectors(t *testing.T) {
+	ctx := context.Background()
+	f := leadFixture(t)
+	socket := filepath.Join(t.TempDir(), "lead.sock")
+	f.m.LeadSocketPath = func(string) string { return socket }
+	f.m.Binary = "/usr/local/bin/agentbox"
+	for _, c := range []state.Connector{
+		{Project: "hello-stack", Name: "notion", URL: "https://mcp.notion.com/mcp", Auth: "oauth", Enabled: true},
+		{Project: "hello-stack", Name: "linear", URL: "https://mcp.linear.app/mcp", Auth: "oauth"},
+		{Project: "hello-stack", Agent: "agent-01", Name: "sentry", URL: "https://mcp.sentry.dev/mcp", Auth: "none", Enabled: true},
+	} {
+		if err := f.st.SetConnector(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.m.EnsureLead(ctx, "hello-stack"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(f.m.Paths.LeadHome("hello-stack"), ".claude.json")
+	type server struct {
+		Command string            `json:"command"`
+		Args    []string          `json:"args"`
+		Env     map[string]string `json:"env"`
+	}
+	servers := func() map[string]server {
+		t.Helper()
+		var claude struct {
+			MCPServers map[string]server `json:"mcpServers"`
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(b, &claude); err != nil {
+			t.Fatal(err)
+		}
+		return claude.MCPServers
+	}
+	got := servers()
+	if s := got["agentbox"]; s.Env["AGENTBOX_SOCKET"] != socket || strings.Join(s.Args, " ") != "mcp" {
+		t.Errorf("the lead's own server = %+v", s)
+	}
+	if s := got["notion"]; s.Command != f.m.Binary || strings.Join(s.Args, " ") != "connector mcp notion" || s.Env["AGENTBOX_IN_AGENT_SOCKET"] != socket {
+		t.Errorf("notion = %+v, want the relay on the lead's socket", s)
+	}
+	if _, ok := got["linear"]; ok {
+		t.Error("the lead was given a connector that is turned off")
+	}
+	if _, ok := got["sentry"]; ok {
+		t.Error("the lead was given an agent's own connector")
+	}
+
+	// Claude Code writes its own state here too, which a change leaves alone.
+	b, _ := os.ReadFile(path)
+	var state0 map[string]json.RawMessage
+	_ = json.Unmarshal(b, &state0)
+	state0["numStartups"] = json.RawMessage(`3`)
+	b, _ = json.Marshal(state0)
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetConnector(ctx, state.Connector{Project: "hello-stack", Name: "linear", URL: "https://mcp.linear.app/mcp", Auth: "oauth", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.SyncConnectors(ctx, "hello-stack", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := servers()["linear"]; !ok {
+		t.Error("linear, turned on, didn't reach the lead")
+	}
+	if b, _ := os.ReadFile(path); !strings.Contains(string(b), `"numStartups":3`) || !strings.Contains(string(b), "hasCompletedOnboarding") {
+		t.Errorf("the rest of ~/.claude.json was lost:\n%s", b)
+	}
+}

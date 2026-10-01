@@ -1023,3 +1023,43 @@ exit 0`))
 		t.Errorf("a Haiku agent was given the %q window", w)
 	}
 }
+
+// create_agent's connectors limit which of the project's connectors an agent
+// gets: a name the project lacks is refused before anything is copied, and
+// the limit is stored as given, nil being every one.
+func TestCreateValidatesAndStoresConnectors(t *testing.T) {
+	f := setup(t, fakeIncus(t, createScript))
+	ctx := context.Background()
+	if _, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", Connectors: []string{"notion"}}); err == nil ||
+		!strings.Contains(err.Error(), "has no connectors") {
+		t.Errorf("Create() naming a connector of a project with none = %v", err)
+	}
+	for _, name := range []string{"notion", "linear"} {
+		if err := f.st.SetConnector(ctx, state.Connector{Project: "hello-stack", Name: name, URL: "https://mcp." + name + ".com/mcp", Auth: "oauth", Enabled: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", Connectors: []string{"notion", "jira"}}); err == nil ||
+		!strings.Contains(err.Error(), `no connector "jira"`) || !strings.Contains(err.Error(), "linear, notion") {
+		t.Errorf("Create() naming a connector the project lacks = %v", err)
+	}
+	limited, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none", Connectors: []string{"notion"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := f.st.Agent(ctx, "hello-stack", limited.Name)
+	if err != nil || strings.Join(stored.Connectors, ",") != "notion" {
+		t.Errorf("stored limit = %#v, %v", stored.Connectors, err)
+	}
+	given, _ := f.st.AgentConnectors(ctx, "hello-stack", limited.Name)
+	if len(given) != 1 || given[0].Name != "notion" {
+		t.Errorf("the limited agent is given %+v", given)
+	}
+	all, err := f.m.Create(ctx, "hello-stack", agent.CreateOptions{AI: "none"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored, _ := f.st.Agent(ctx, "hello-stack", all.Name); stored.Connectors != nil {
+		t.Errorf("an agent given no limit has %#v", stored.Connectors)
+	}
+}

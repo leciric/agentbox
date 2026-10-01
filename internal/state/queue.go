@@ -51,9 +51,13 @@ func (s *Store) Enqueue(ctx context.Context, a Agent, request []byte) error {
 	if a.ID == "" {
 		a.ID = NewAgentID()
 	}
+	connectors, err := connectorLimit(a.Connectors)
+	if err != nil {
+		return err
+	}
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID)
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
@@ -185,11 +189,15 @@ func (s *Store) StartQueued(ctx context.Context, a Agent) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("%s isn't queued: %w", a.Ref(), ErrNotFound)
 	}
+	connectors, err := connectorLimit(a.Connectors)
+	if err != nil {
+		return err
+	}
 	res, err = tx.ExecContext(ctx, `UPDATE agents SET instance = ?, ai = ?, autonomous = ?, branch = ?, base_ref = ?, base_commit = ?,
-		worktree = ?, status = ?, source = ?, title = ?, claude_account = ?, interface = ?, github_account = ?, finish_notice = ?
+		worktree = ?, status = ?, source = ?, title = ?, claude_account = ?, interface = ?, github_account = ?, finish_notice = ?, connectors = ?
 		WHERE project = ? AND name = ? AND status = ?`,
 		a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, AgentCreating, a.Source, a.Title,
-		a.ClaudeAccount, a.Interface, a.GitHubAccount, a.FinishNotice, a.Project, a.Name, AgentQueued)
+		a.ClaudeAccount, a.Interface, a.GitHubAccount, a.FinishNotice, connectors, a.Project, a.Name, AgentQueued)
 	if err != nil {
 		return err
 	}

@@ -137,8 +137,11 @@ func (s *Server) cancelCredentialRequests(ctx context.Context, project, agent, w
 }
 
 func credentialWanted(q state.Question) string {
-	if q.Kind == state.QuestionSecret {
+	switch q.Kind {
+	case state.QuestionSecret:
 		return "the secret $" + q.SecretName
+	case state.QuestionConnector:
+		return "the connector " + q.Connector
 	}
 	return "a GitHub account"
 }
@@ -176,11 +179,14 @@ func (s *Server) answerCredentialFor(ctx context.Context, q state.Question, req 
 	if !q.Credential() {
 		return q, fmt.Errorf("question %s asks for a decision, not a credential: answer it instead", q.ID)
 	}
+	if q.Kind == state.QuestionConnector {
+		return s.answerConnectorFor(ctx, q, req)
+	}
 	if !q.Waiting() {
 		return q, fmt.Errorf("question %s was already %s", q.ID, q.Status)
 	}
 	given := 0
-	for _, set := range []bool{req.GitHubAccount != "", req.Value != "", req.Refuse} {
+	for _, set := range []bool{req.GitHubAccount != "", req.Value != "", req.Refuse, req.Connector != ""} {
 		if set {
 			given++
 		}

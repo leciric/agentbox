@@ -258,6 +258,7 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 		tree:          tree,
 		copyEnv:       true,
 		limits:        limits,
+		connectors:    src.Connectors, // a copy is given what its source was
 	})
 }
 

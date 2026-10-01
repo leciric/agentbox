@@ -305,6 +305,31 @@ func EnvFile(values []Value) string {
 // internal/agent, kept here because this file is rendered without it.
 func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
+// Resolve opens the one secret an agent holds under a name: its own, or else
+// its project's — the value ForAgent would give it. An agent of "" reads the
+// project's only. It is how a connector that sends a secret as a header gets
+// its value, on the host, at the moment it relays a request.
+func (s Store) Resolve(ctx context.Context, project, agent, secretName string) (string, error) {
+	if err := s.ready(); err != nil {
+		return "", err
+	}
+	sec, err := s.State.Secret(ctx, project, agent, secretName)
+	if agent != "" && errors.Is(err, state.ErrNotFound) {
+		sec, err = s.State.Secret(ctx, project, "", secretName)
+	}
+	if err != nil {
+		return "", err
+	}
+	return s.open(sec.Value)
+}
+
+// Seal encrypts a value under the machine's secrets key, for another package
+// that keeps its own sealed columns: the connectors' OAuth tokens.
+func (s Store) Seal(value string) ([]byte, error) { return s.seal(value) }
+
+// Open decrypts what Seal sealed.
+func (s Store) Open(sealed []byte) (string, error) { return s.open(sealed) }
+
 // seal encrypts a value: nonce, then AES-256-GCM ciphertext.
 func (s Store) seal(value string) ([]byte, error) {
 	aead, err := s.aead()
