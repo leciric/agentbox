@@ -131,3 +131,37 @@ esac
 		t.Errorf("changed a machine with nothing to move:\n%s", b)
 	}
 }
+
+// A machine that was stopped, and wasn't to run, is started only to rename its
+// Claude Code sessions, and stopped again.
+func TestMoveDevicesRenamesSessionsOfAStoppedMachine(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls")
+	home := filepath.Join(dir, "home")
+	old := "/home/u/.local/share/agentbox/worktrees/shop/agent-01"
+	sessions := filepath.Join(home, ".claude", "projects")
+	if err := os.MkdirAll(filepath.Join(sessions, datamove.ClaudeProjectName(old)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	inc := fakeIncus(t, `echo "$*" >> `+log+`
+case "$1" in
+list) echo '[{"name":"ab-shop-agent-01","status":"Stopped","config":{"volatile.last_state.power":"STOPPED"}}]' ;;
+query) echo '{"devices":{"worktree":{"type":"disk","source":"`+old+`","path":"`+old+`"}}}' ;;
+exec) HOME=`+home+` sh -c "$8" ;;
+esac
+`)
+	m := &Manager{Incus: inc, User: image.User{Name: "u"}}
+	a := state.Agent{Instance: "ab-shop-agent-01", Worktree: "/home/u/.agentbox/worktrees/shop/agent-01"}
+	if err := m.MoveDevices(context.Background(), a, vmMove); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(log)
+	calls := string(b)
+	start, exec, stop := strings.Index(calls, "start ab-shop"), strings.Index(calls, "exec "), strings.LastIndex(calls, "stop ab-shop")
+	if start < 0 || exec < start || stop < exec {
+		t.Errorf("want start, rename, stop; calls:\n%s", calls)
+	}
+	if _, err := os.Stat(filepath.Join(sessions, datamove.ClaudeProjectName(a.Worktree))); err != nil {
+		t.Errorf("sessions not renamed: %v", err)
+	}
+}

@@ -23,7 +23,8 @@ const worktreeDevice = "worktree"
 // moved is stopped around the change, since its worktree moves inside it too,
 // and started again if it ran, or was to run: one Incus started with the VM
 // failed to, its worktree gone from the old path. Claude Code's sessions in
-// it follow the worktree, so its chat carries on.
+// it follow the worktree, so its chat carries on: a stopped machine is started
+// for that, and stopped again.
 func (m *Manager) MoveDevices(ctx context.Context, a state.Agent, k datamove.Marker) error {
 	inst, err := m.Incus.Instance(ctx, a.Instance)
 	if errors.Is(err, incus.ErrNotFound) {
@@ -62,11 +63,20 @@ func (m *Manager) MoveDevices(ctx context.Context, a state.Agent, k datamove.Mar
 			return fmt.Errorf("moving %s's device %s: %w", a.Instance, name, err)
 		}
 	}
-	if !restart {
+	if !worktreeMoved {
 		return nil
 	}
+	// Claude Code's sessions are renamed inside the machine, which has to run
+	// for that: one that was stopped is started for it, and stopped again.
 	if err := m.Incus.Start(ctx, a.Instance); err != nil {
 		return err
+	}
+	if !restart {
+		defer func() {
+			if err := m.Incus.Stop(ctx, a.Instance); err != nil {
+				m.logf("Stopping %s again after moving it: %v", a.Instance, err)
+			}
+		}()
 	}
 	old := devices[worktreeDevice]["path"]
 	if old == "" || old == a.Worktree {
