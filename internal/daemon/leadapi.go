@@ -49,7 +49,11 @@ func (s *Server) serveLeadAPI(project string) error {
 		_ = ln.Close()
 		return err
 	}
-	srv := &http.Server{Handler: s.leadRoutes(project)}
+	handler := s.leadRoutes(project)
+	if project == state.HomeProject {
+		handler = s.homeRoutes()
+	}
+	srv := &http.Server{Handler: handler}
 	s.leadAPIs[project] = srv
 	go func() { _ = srv.Serve(ln) }()
 	return nil

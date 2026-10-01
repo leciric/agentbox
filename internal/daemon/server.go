@@ -395,6 +395,9 @@ func (s *Server) reconcile(ctx context.Context) {
 	// A credential request waits on its agent's call, and no call outlives
 	// the daemon it was made to (D95).
 	s.cancelCredentialRequests(ctx, "", "", "AgentBox restarted while it waited, which ended the agent's call. The agent asks again if it still needs it.")
+	if err := s.serveLeadAPI(state.HomeProject); err != nil {
+		s.logf("Home chat API socket: %v", err)
+	}
 	if projects, err := s.store.Projects(ctx); err == nil {
 		for _, p := range projects {
 			if err := s.serveLeadAPI(p.Name); err != nil {

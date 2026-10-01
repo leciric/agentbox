@@ -52,6 +52,9 @@ export const isProjectChat = (ref: string) => {
 };
 export const agentPath = agent;
 
+// The Home chat is a lead kept under T.HomeProject rather than a project.
+export const isHomeChat = (ref: string) => ref.split('/')[0] === T.HomeProject;
+
 // A worktree's files live at the same base as its chat: the lead's under the
 // project, an agent's under the agent.
 const filesBase = (ref: string) => {

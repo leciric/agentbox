@@ -39,6 +39,9 @@ export function TopBar({
     case 'home':
       crumbs.push({ label: 'Home' });
       break;
+    case 'homeChat':
+      crumbs.push({ label: 'Main chat' });
+      break;
     case 'jobs':
       crumbs.push({ label: 'Jobs' });
       break;

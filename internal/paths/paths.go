@@ -10,6 +10,8 @@ import (
 type Paths struct {
 	Config string // ~/.config/agentbox
 	Data   string // ~/.local/share/agentbox
+	// Home is ~/.agentbox, the Home chat's working directory (HomeChat).
+	Home string
 }
 
 func Default() (Paths, error) {
@@ -20,6 +22,7 @@ func Default() (Paths, error) {
 	return Paths{
 		Config: filepath.Join(xdg("XDG_CONFIG_HOME", filepath.Join(home, ".config")), "agentbox"),
 		Data:   filepath.Join(xdg("XDG_DATA_HOME", filepath.Join(home, ".local", "share")), "agentbox"),
+		Home:   filepath.Join(home, ".agentbox"),
 	}, nil
 }
 
@@ -71,6 +74,16 @@ func (p Paths) Tools() string { return filepath.Join(p.Data, "tools") }
 // brief and its AI tool's session state.
 func (p Paths) LeadHome(project string) string {
 	return filepath.Join(p.Data, "projects", project, "lead-home")
+}
+
+// HomeChat is the Home chat's working directory: ~/.agentbox, made the first
+// time the chat is opened. Paths made without Home (a test's) keep it under
+// Data instead.
+func (p Paths) HomeChat() string {
+	if p.Home != "" {
+		return p.Home
+	}
+	return filepath.Join(p.Data, "home")
 }
 
 // ProjectNotes is a project's notes for its agents: one markdown file, written

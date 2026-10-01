@@ -72,7 +72,8 @@ type leadCache struct {
 // leadCacheIdle is a lead that has just finished a turn: its cache starts
 // running out, and the card, if it was up, goes.
 func (s *Server) leadCacheIdle(a state.Agent) {
-	if a.Role != state.RoleLead || a.AI != "claude" {
+	// The Home chat has no project memory to compact into, so no card.
+	if a.Role != state.RoleLead || a.AI != "claude" || a.IsHome() {
 		return
 	}
 	ttl, why := s.leadCacheTTL(a)
@@ -192,8 +193,10 @@ func (s *Server) settleLeadCache(project string, forget bool) {
 // chatCache is the project chat's cache, and whether its card is up.
 func (s *Server) chatCache(w http.ResponseWriter, r *http.Request) error {
 	project := r.PathValue("project")
-	if _, err := s.store.Project(r.Context(), project); err != nil {
-		return err
+	if project != state.HomeProject {
+		if _, err := s.store.Project(r.Context(), project); err != nil {
+			return err
+		}
 	}
 	return writeJSON(w, http.StatusOK, s.leadCacheState(project))
 }

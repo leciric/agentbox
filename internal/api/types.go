@@ -14,6 +14,12 @@ import (
 // "<project>/lead", and the bare project name mean the same conversation.
 const LeadName = "lead"
 
+// HomeProject is the key the Home chat — the user's main chat, across every
+// project — is kept under, in place of a project's name: its chat is at
+// /v1/projects/_home/chat and its ref is "_home/lead". No project can be
+// called this (state.HomeProject).
+const HomeProject = "_home"
+
 // AgentModelAuto is the Project.AgentModel that asks a project's chat to
 // choose a model for each agent it creates, from how hard the task is, rather
 // than every agent of the project taking the same one. It is not a model name:
@@ -286,6 +292,16 @@ type AddProjectRequest struct {
 	// another repository is refused.
 	Create      bool `json:"create,omitempty"`
 	CommitFiles bool `json:"commitFiles,omitempty"`
+}
+
+// HomeAddProjectRequest is the Home chat adding a project: a folder on this
+// machine (Path), or a repository cloned from URL first, into Path when it's
+// given and ~/src/<name> when it isn't. Name defaults to the folder's, or the
+// repository's.
+type HomeAddProjectRequest struct {
+	Path string `json:"path,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // Settings belong to this installation rather than to one project.

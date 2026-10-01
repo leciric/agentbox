@@ -33,7 +33,13 @@ func newMCPCmd(a *app) *cobra.Command {
 				return errors.New("AGENTBOX_SOCKET isn't set: agentbox mcp is started by a project's chat, not by hand")
 			}
 			c := api.NewClient(socket)
-			srv := &mcp.Server{Name: "agentbox", Version: version, Tools: projectTools(cmd.Context(), c)}
+			tools := projectTools
+			// The Home chat's socket reaches every project, and its tools
+			// name the one they act on (homeTools).
+			if os.Getenv("AGENTBOX_CHAT") == "home" {
+				tools = homeTools
+			}
+			srv := &mcp.Server{Name: "agentbox", Version: version, Tools: tools(cmd.Context(), c)}
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}

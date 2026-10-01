@@ -84,6 +84,12 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
+	return s.addProjectFrom(w, r, req)
+}
+
+// addProjectFrom is addProject for a request already read: the Home chat's
+// add_project ends here too, once it has cloned a URL (homeAddProject).
+func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.AddProjectRequest) error {
 	if req.Create {
 		return s.createProject(w, r, req)
 	}

@@ -1863,6 +1863,7 @@ export const SetupUpdating = "updating";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
 export const LeadName = "lead";
+export const HomeProject = "_home";
 export const AgentModelAuto = "auto";
 export const ConsolidationModelCheap = "cheap";
 export const ConsolidationModelChat = "";

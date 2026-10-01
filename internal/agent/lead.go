@@ -344,6 +344,14 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
+	return m.writeLeadHome(home, a.Worktree, text, socket, nil, m.leadGitHubToken(p) != "")
+}
+
+// writeLeadHome writes what a lead's private HOME holds: its policy, its brief,
+// the state that skips Claude Code's onboarding and registers the MCP server,
+// and its git config. A project's lead and the Home chat share it, and differ
+// in their brief and in mcpEnv, added to the MCP server's environment.
+func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[string]string, github bool) error {
 	policy := leadSettings()
 	// The policy is rewritten whole, so a lead made by an older AgentBox gets
 	// what a newer one denies. The model isn't policy: it's what the user
@@ -360,13 +368,17 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	// tools are how the lead reaches AgentBox and its agents.
 	claude := map[string]any{
 		"hasCompletedOnboarding": true,
-		"projects":               map[string]any{a.Worktree: map[string]any{"hasTrustDialogAccepted": true}},
+		"projects":               map[string]any{worktree: map[string]any{"hasTrustDialogAccepted": true}},
 	}
 	if socket != "" && m.Binary != "" {
+		env := map[string]string{"AGENTBOX_SOCKET": socket, "AGENTBOX_NO_AUTOSTART": "1"}
+		for k, v := range mcpEnv {
+			env[k] = v
+		}
 		claude["mcpServers"] = map[string]any{
 			"agentbox": map[string]any{
 				"type": "stdio", "command": m.Binary, "args": []string{"mcp"},
-				"env": map[string]string{"AGENTBOX_SOCKET": socket, "AGENTBOX_NO_AUTOSTART": "1"},
+				"env": env,
 			},
 		}
 	}
@@ -393,7 +405,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	// ~/.gitconfig and ~/.ssh are never touched. Without an account the file
 	// goes, so a lead on the host falls back to whatever ssh finds there.
 	gitconfig := filepath.Join(home, ".gitconfig")
-	if m.leadGitHubToken(p) != "" {
+	if github {
 		files[".gitconfig"] = []byte(leadGitConfig())
 	} else if err := os.Remove(gitconfig); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

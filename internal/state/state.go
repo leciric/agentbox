@@ -1666,6 +1666,17 @@ const (
 // LeadName is the reserved name of a project's lead agent.
 const LeadName = "lead"
 
+// HomeProject is the key the Home chat is kept under: the user's main chat,
+// across every project and tied to none. It drives a lead like a project's
+// (HomeProject/LeadName), so its conversation, session and token rows sit in
+// the same tables, but it has no projects row and no agents row. A project
+// name can't start with an underscore (naming.Validate), so no project ever
+// shares it.
+const HomeProject = "_home"
+
+// IsHome reports whether the agent is the Home chat's lead.
+func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == RoleLead }
+
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
 const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id`
