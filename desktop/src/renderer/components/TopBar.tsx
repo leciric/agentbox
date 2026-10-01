@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, Cpu, Gauge, Menu as MenuIcon, Square, TriangleAlert } from 'lucide-react';
+import { ChevronRight, Cpu, Gauge, HardDrive, Menu as MenuIcon, Square, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
@@ -9,7 +9,7 @@ import { limitTone, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
 import { useVMPower } from '../lib/vm';
-import { cn, timeAgo, timeUntil } from '../lib/utils';
+import { cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { DiskGuardPill } from './DiskGuardPill';
 import { ResourceControls } from './ResourceControls';
@@ -100,6 +100,7 @@ export function TopBar({
         <ResourceControls agents={agents.data ?? []} />
         <UsageMeter view={view} agents={agents.data ?? []} />
         {host && <CPUMeter host={host} onSelect={onSelect} />}
+        {host && host.poolTotal > 0 && <StoragePoolMeter host={host} hostFree={vm?.hostFree} />}
         {/* In VM mode, the daemon of a VM that's off or paused can't answer:
             the VM's own pill says why, and this one would only repeat it as
             "Offline". */}
@@ -134,6 +135,98 @@ function MeterBar({ percent, className }: { percent: number; className?: string 
         style={{ width: `${Math.max(percent, 4)}%` }}
       />
     </span>
+  );
+}
+
+// StoragePoolMeter is the disk every agent's machine and saved base share,
+// as used/size: the Incus storage pool, in VM mode the VM's pool disk.
+// Clicking it opens a popover breaking that down by what's using it. The
+// breakdown is only computed while the popover is open — the total is cheap
+// to poll (Usage.PoolSpace, one Incus query) but the breakdown walks every
+// worktree and media directory and queries Incus once per machine and base.
+// The label has a fixed width, so the bar doesn't shift as the number ticks.
+function StoragePoolMeter({ host, hostFree }: { host: T.HostUsage; hostFree?: number }) {
+  const diskUsage = useQuery({ queryKey: ['diskUsage'], queryFn: api.diskUsage, enabled: false });
+  const percent = Math.max(0, Math.min(1, host.poolUsed / host.poolTotal)) * 100;
+  return (
+    <Popover onOpenChange={(open) => open && diskUsage.refetch()}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
+          aria-label={`Agents' disk: ${humanBytes(host.poolUsed)} of ${humanBytes(host.poolTotal)} used`}
+        >
+          <HardDrive className="size-3.5 text-subtle" />
+          <span className="w-36 whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary">
+            {humanBytes(host.poolUsed)}/{humanBytes(host.poolTotal)}
+          </span>
+          <MeterBar percent={percent} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80">
+        <DiskUsageBreakdown host={host} hostFree={hostFree} query={diskUsage} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DiskUsageBreakdown({
+  host,
+  hostFree,
+  query,
+}: {
+  host: T.HostUsage;
+  hostFree?: number;
+  query: ReturnType<typeof useQuery<T.DiskUsage>>;
+}) {
+  return (
+    <div className="grid gap-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[13px] font-medium text-primary">Agents' disk</span>
+        <span className="font-mono text-[11px] tabular-nums text-tertiary">
+          {humanBytes(host.poolUsed)} of {humanBytes(host.poolTotal)}
+        </span>
+      </div>
+      {/* In VM mode the pool is a sparse disk image: it says its full size
+          whatever your disk has, so what's really left is said too. */}
+      {hostFree !== undefined && hostFree > 0 && (
+        <span className="text-[11.5px] text-muted">
+          Your computer's disk has <span className="font-mono tabular-nums text-secondary">{humanBytes(hostFree)}</span> free.
+        </span>
+      )}
+      {query.isPending ? (
+        <span className="py-1 text-[12px] text-muted">Measuring what's on disk…</span>
+      ) : query.isError ? (
+        <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
+      ) : (
+        <>
+          <div className="grid max-h-72 gap-3 overflow-y-auto pr-1">
+            {query.data.categories.map((cat) => (
+              <div key={cat.label} className="grid gap-1">
+                <div className="flex items-center justify-between text-[12px] text-secondary">
+                  <span className="font-medium">{cat.label}</span>
+                  <span className="font-mono tabular-nums text-tertiary">{humanBytes(cat.bytes)}</span>
+                </div>
+                {cat.items && cat.items.length > 0 && (
+                  <div className="grid gap-0.5 border-l border-line pl-2.5">
+                    {cat.items.map((item) => (
+                      <div key={item.label} className="flex items-center justify-between gap-3 text-[11.5px] text-muted">
+                        <span className="min-w-0 truncate">{item.label}</span>
+                        <span className="shrink-0 font-mono tabular-nums text-faint">{humanBytes(item.bytes)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t border-line pt-2 text-[12px] font-medium text-primary">
+            <span>Total</span>
+            <span className="font-mono tabular-nums">{humanBytes(query.data.total)}</span>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

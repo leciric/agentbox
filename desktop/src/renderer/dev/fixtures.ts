@@ -695,6 +695,7 @@ const devState: {
   cli?: unknown;
   memoryUsage?: T.MemoryUsage;
   cpuUsage?: T.CPUUsage;
+  diskUsage?: T.DiskUsage;
   agents?: T.Agent[];
   vmPower?: VMPower | null;
   hostSetup?: HostSetupStatus;
@@ -1171,7 +1172,7 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
   queryClient.setQueryData(['host-setup'], devState.hostSetup);
 }
 
-// seedMeterUsage is the top bar's CPU popover (?meters=cpu) against three
+// seedMeterUsage is the top bar's CPU and disk popovers (?meters=cpu|disk) against three
 // agents: one paused but still holding RAM and zram swap, and two running —
 // so the popover has a largest-first list worth a screenshot,
 // without a daemon or Incus to ask for one.
@@ -1201,8 +1202,27 @@ export function seedMeterUsage(queryClient: QueryClient): void {
       { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', cpu: 0 },
     ],
   };
+  const diskUsage: T.DiskUsage = {
+    total: 41.6 * GiB,
+    categories: [
+      {
+        label: 'Agent machines',
+        bytes: 23.5 * GiB,
+        items: [
+          { label: `${PROJECT}/agent-99`, bytes: 14.2 * GiB },
+          { label: `${PROJECT}/agent-12`, bytes: 6.1 * GiB },
+          { label: `${PROJECT}/agent-90`, bytes: 3.2 * GiB },
+        ],
+      },
+      { label: 'Base images and saved bases', bytes: 12.4 * GiB, items: [{ label: 'Base image', bytes: 7.9 * GiB }, { label: `${PROJECT} base`, bytes: 4.5 * GiB }] },
+      { label: 'Worktrees', bytes: 5.1 * GiB, items: [{ label: `${PROJECT}/agent-99`, bytes: 2.6 * GiB }, { label: `${PROJECT}/agent-12`, bytes: 2.5 * GiB }] },
+      { label: 'Media', bytes: 0.5 * GiB, items: [{ label: PROJECT, bytes: 0.5 * GiB }] },
+      { label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB }] },
+    ],
+  };
   devState.memoryUsage = memoryUsage;
   devState.cpuUsage = cpuUsage;
+  devState.diskUsage = diskUsage;
   queryClient.setQueryData(['memoryUsage'], memoryUsage);
   queryClient.setQueryData(['cpuUsage'], cpuUsage);
 }
@@ -1450,6 +1470,10 @@ export function installDevBridge(): void {
       if (method === 'GET' && devState.update && path === '/v1/update') return { status: 200, body: JSON.stringify(devState.update), contentType: 'application/json' };
       if (method === 'GET' && devState.setup && path === '/v1/setup') return { status: 200, body: JSON.stringify(devState.setup), contentType: 'application/json' };
       if (method === 'GET' && devState.memoryUsage && path === '/v1/usage/memory') return { status: 200, body: JSON.stringify(devState.memoryUsage), contentType: 'application/json' };
+      // The disk guard with room everywhere, so DiskGuardPill shows nothing
+      // rather than reading the catch-all's answer as a guard.
+      if (method === 'GET' && path === '/v1/disk') return { status: 200, body: JSON.stringify({ level: 'ok', disks: [], paused: [], since: '', message: '' }), contentType: 'application/json' };
+      if (method === 'GET' && devState.diskUsage && path === '/v1/usage/disk') return { status: 200, body: JSON.stringify(devState.diskUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.job && path === `/v1/jobs/${devState.job.id}`) return { status: 200, body: JSON.stringify(devState.job), contentType: 'application/json' };
       if (method === 'GET' && /^\/v1\/jobs\/[^/]+\/log$/.test(path)) return { status: 200, body: devState.jobLog ?? '', contentType: 'text/plain' };

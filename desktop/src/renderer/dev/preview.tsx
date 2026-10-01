@@ -63,8 +63,9 @@
 //                           TPS), by agent and by model, and spend over time
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Overview tab
-//   ?meters=cpu             the top bar's "Host CPU" popover, against a
-//                           CPU-capped agent, a paused one and a plain one —
+//   ?meters=cpu|disk        the top bar's "Host CPU" or "Agents' disk"
+//                           popover, against a CPU-capped agent, a paused
+//                           one and a plain one —
 //                           scenarios.json clicks the meter open before its
 //                           shot, since state here comes from the URL alone
 //   ?nightly=1              a nightly build, on the nightly channel with a newer
@@ -197,7 +198,7 @@ const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
-const meters = params.get('meters'); // "cpu" | "memory" | null
+const meters = params.get('meters'); // "cpu" | "disk" | null
 const power = params.get('power');
 const free = params.get('free');
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
@@ -302,7 +303,7 @@ if (linuxHost === 'move') {
 }
 if (meters) {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 41.6 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
 }

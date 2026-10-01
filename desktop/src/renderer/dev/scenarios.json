@@ -300,6 +300,14 @@
     "click": "[aria-label^=\"Host CPU\"]"
   },
   {
+    "id": "disk-popover-fixtures-dark",
+    "description": "The top bar's \"Agents' disk\" meter, used/size, with its popover open breaking it down by machine, base, worktree and media — dark",
+    "query": "meters=disk&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[aria-label^=\"Agents' disk\"]"
+  },
+  {
     "id": "media-project-dark",
     "description": "A project's Media: 360 items across four agents, long names and unbroken notes — dark, a narrow window",
     "query": "media=project&theme=dark",
