@@ -195,6 +195,26 @@ test('timelineRows turns a settled turn with tool calls into a fold and a work r
   assert.deepEqual(kinds, ['user', 'fold', 'assistant']);
 });
 
+test('timelineRows keeps every message of a settled turn in view, folding only the work', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const first = item({ kind: 'assistant', turn: user.id, text: 'Creating agent-12 for it.' });
+  const call = item({ kind: 'tool', turn: user.id, tool: tool({ status: 'completed' }) });
+  const thought = item({ kind: 'thought', turn: user.id });
+  const last = item({ kind: 'assistant', turn: user.id, text: 'Done.' });
+  const rows = timelineRows(thread([user, first, call, thought, last]), new Set());
+  assert.deepEqual(
+    rows.map((r) => r.type),
+    ['user', 'fold', 'assistant', 'assistant'],
+  );
+  assert.deepEqual(
+    rows.flatMap((r) => (r.type === 'assistant' ? [[r.item.id, r.final]] : [])),
+    [
+      [first.id, false],
+      [last.id, true],
+    ],
+  );
+});
+
 test('timelineRows opens the fold when the turn is in openTurns', () => {
   const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
   const call = item({ kind: 'tool', turn: user.id, tool: tool({ status: 'completed' }) });
@@ -303,7 +323,70 @@ test('a chat is read a page at a time, back to its start', async (t) => {
     { before: 'u15', limit: pageSize },
     { before: 'u5', limit: pageSize },
   ]);
-  // Read again, it asks for as much as it already holds.
+  // Read again, it asks for as much as it already holds, from the first.
   await fetchThread(queryClient, ref);
-  assert.deepEqual(pages.at(-1), { limit: 50 });
+  assert.deepEqual(pages.at(-1), { limit: 50, from: 'u0' });
+});
+
+// The daemon's paging with from: everything from that item, and at least limit messages.
+const daemon = (all: T.ChatItem[], honourFrom = true) => async (ref: string, page?: { before?: string; from?: string; limit: number }) => {
+  const end = page?.before ? all.findIndex((it) => it.id === page.before) : all.length;
+  let start = Math.max(0, end - (page?.limit ?? end));
+  const from = honourFrom && page?.from ? all.findIndex((it) => it.id === page.from) : -1;
+  if (from >= 0 && from < start) start = from;
+  while (start > 0 && all[start].kind !== 'user') start--;
+  return { agent: ref, seq: 0, session: {} as T.ChatSession, items: all.slice(start, end), older: start > 0 };
+};
+
+for (const honourFrom of [true, false]) {
+  test(`reading a chat again after messages it missed keeps every message it showed (daemon ${honourFrom ? 'with' : 'without'} from)`, async (t) => {
+    const all = turns(25);
+    t.mock.method(api, 'chat', daemon(all, honourFrom));
+    const queryClient = new QueryClient();
+    const ref = `p/agent-missed-${honourFrom}`;
+    queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+    const shown = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.map((it) => it.id);
+    assert.equal(shown[0], 'u15');
+    // Two turns land while the app isn't listening — a daemon restart, a
+    // paused VM, a gap in the events — and the chat is read again.
+    all.push(...turns(2, 25));
+    queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+    const now = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.map((it) => it.id);
+    for (const id of shown) assert.ok(now.includes(id), `${id} was shown, and is gone after reading the chat again`);
+    assert.deepEqual(now.slice(-4), ['u25', 'a25', 'u26', 'a26']);
+  });
+}
+
+test('a page loaded while the chat is read again stays', async (t) => {
+  const all = turns(25);
+  const read = daemon(all);
+  let answer = () => {};
+  const answered = new Promise<void>((resolve) => (answer = resolve));
+  t.mock.method(api, 'chat', async (ref: string, page?: { before?: string; from?: string; limit: number }) => {
+    if (page?.from) await answered;
+    return read(ref, page);
+  });
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-race';
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  // The read starts, then you scroll up and the older page lands first.
+  const reading = fetchThread(queryClient, ref);
+  assert.ok(await loadOlder(queryClient, ref));
+  answer();
+  queryClient.setQueryData(chatKey(ref), await reading);
+  assert.equal(queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items[0].id, 'u5');
+});
+
+test('a chat cleared meanwhile is read again whole, not kept', async (t) => {
+  const all = turns(25);
+  t.mock.method(api, 'chat', daemon(all));
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-cleared';
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  all.splice(0, all.length, ...turns(1, 100));
+  const next = await fetchThread(queryClient, ref);
+  assert.deepEqual(
+    next.items.map((it) => it.id),
+    ['u100', 'a100'],
+  );
 });
