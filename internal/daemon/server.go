@@ -330,6 +330,15 @@ func (s *Server) Run(ctx context.Context) error {
 	// A new AgentBox may pin newer agent tools than the base image has: they
 	// are moved on in the background, while agents go on being made from it.
 	go s.updateBaseTools(ctx)
+	// Media made on the VM's own disk goes to the host's share, where the app
+	// can open it; it is served from where it was until it has moved.
+	loops.Go(func() {
+		if n, err := s.manager(io.Discard).MoveMedia(); err != nil {
+			s.logf("moving media to %s: %v (%d item(s) moved)", s.cfg.Paths.Media(), err, n)
+		} else if n > 0 {
+			s.logf("moved %d media item(s) to %s", n, s.cfg.Paths.Media())
+		}
+	})
 
 	srv := &http.Server{Handler: s.routes(), BaseContext: func(net.Listener) context.Context { return ctx }}
 	go func() {

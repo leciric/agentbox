@@ -394,7 +394,15 @@ func (h *CHV) start(ctx context.Context, v *VM) error {
 	if err := chvMakeDisks(ctx, h.Config, h.Layout, v.Log); err != nil {
 		return err
 	}
-	return chvStart(ctx, h.Config, h.Layout, v.Paths, v.Log)
+	if err := chvStart(ctx, h.Config, h.Layout, v.Paths, v.Log); err != nil {
+		return err
+	}
+	// A disk given more room while the VM was off: its pool takes it now.
+	// Nothing to do otherwise, and the VM is up either way.
+	if _, err := h.exec(ctx, v, nil, []string{"sh", "-c", chv.GrowPoolScript(h.Config.Disk)}); err != nil {
+		_, _ = fmt.Fprintf(v.Log, "warning: growing the VM's pool to its %s disk: %v\n", sizeWords(h.Config.Disk), err)
+	}
+	return nil
 }
 
 // daemonUp starts the VM's daemon unless it answers already, and waits until
@@ -508,16 +516,19 @@ func (h *CHV) delete(ctx context.Context, v *VM) error {
 	return nil
 }
 
-// resize gives the VM cpus CPUs and a memory cap of capacity bytes; zero
-// leaves one as it is. The Config always changes, for the VM's next start. A
-// running VM changes too, without a restart, when the new size fits in the
-// room it booted with (chv.Room: every core and all of the host's memory,
-// for a VM started by this agentbox): its supervisor hotplugs the CPUs and
-// moves the memory policy's cap, and the daemon in it is restarted to see
-// them, which leaves every agent running. A size that doesn't fit, or a VM
-// started by an older agentbox, needs the VM restarted, which stops every
-// agent: with restart, resize does it; without, it says so and stops there.
-func (h *CHV) resize(ctx context.Context, v *VM, cpus int, capacity int64, restart bool) error {
+// resize gives the VM cpus CPUs, a memory cap of capacity bytes and a pool
+// disk of disk bytes; zero leaves one as it is, and a disk only grows. The
+// Config always changes, for the VM's next start. A running VM changes too,
+// without a restart, when the new size fits in the room it booted with
+// (chv.Room: every core and all of the host's memory, for a VM started by
+// this agentbox, and a disk that grows while it runs, which Cloud
+// Hypervisor's does and the vz driver's doesn't): its supervisor hotplugs the
+// CPUs, moves the memory policy's cap and grows the disk and the pool on it,
+// and the daemon in it is restarted to see them, which leaves every agent
+// running. A size that doesn't fit, or a VM started by an older agentbox,
+// needs the VM restarted, which stops every agent: with restart, resize does
+// it; without, it says so and stops there.
+func (h *CHV) resize(ctx context.Context, v *VM, cpus int, capacity, disk int64, restart bool) error {
 	unlock, err := v.lock(ctx, true)
 	if err != nil {
 		return err
@@ -533,6 +544,13 @@ func (h *CHV) resize(ctx context.Context, v *VM, cpus int, capacity int64, resta
 		}
 		c.MemoryCap = capacity
 	}
+	if disk != 0 {
+		if has := max(c.Disk, chv.PoolSize(h.Layout)); disk < has {
+			unlock()
+			return fmt.Errorf("a disk of %s: the VM's is %s, and a disk only grows", sizeWords(disk), sizeWords(has))
+		}
+		c.Disk = disk
+	}
 	if c != h.Config {
 		if err := c.Save(v.Paths); err != nil {
 			unlock()
@@ -540,7 +558,7 @@ func (h *CHV) resize(ctx context.Context, v *VM, cpus int, capacity int64, resta
 		}
 		h.Config = c
 	}
-	size := fmt.Sprintf("%d CPUs and a memory cap of %s", c.CPUs, sizeWords(c.MemoryCap))
+	size := fmt.Sprintf("%d CPUs, a memory cap of %s and a %s disk", c.CPUs, sizeWords(c.MemoryCap), sizeWords(c.Disk))
 	st := chvStatus(ctx, c, h.Layout, v.Paths)
 	switch st.State {
 	case api.VMOff, api.VMMissing:
@@ -549,14 +567,20 @@ func (h *CHV) resize(ctx context.Context, v *VM, cpus int, capacity int64, resta
 		return nil
 	}
 	wantCap := chv.CapFor(c)
-	if st.CPUs == c.CPUs && st.Memory.Cap == wantCap {
+	// The disk's file says, whichever agentbox started the supervisor.
+	diskOK := chv.PoolSize(h.Layout) >= c.Disk
+	if st.CPUs == c.CPUs && st.Memory.Cap == wantCap && diskOK {
 		unlock()
 		_, _ = fmt.Fprintf(v.Log, "AgentBox's VM has %s already.\n", size)
 		return nil
 	}
-	if st.State != api.VMPaused && fitsLive(st.Live, c.CPUs, c.MemoryCap) {
+	if st.State != api.VMPaused && fitsLive(st.Live, c.CPUs, c.MemoryCap) && (diskOK || st.Live.MaxDisk >= c.Disk) {
 		_, _ = fmt.Fprintf(v.Log, "==> Giving AgentBox's VM %s, while it runs\n", size)
-		err := chv.Resize(ctx, h.Layout, v.Paths, api.VMResizeRequest{CPUs: c.CPUs, MemoryCap: c.MemoryCap})
+		req := api.VMResizeRequest{CPUs: c.CPUs, MemoryCap: c.MemoryCap}
+		if !diskOK {
+			req.Disk = c.Disk
+		}
+		err := chv.Resize(ctx, h.Layout, v.Paths, req)
 		unlock()
 		if err != nil {
 			return err

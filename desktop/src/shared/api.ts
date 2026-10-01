@@ -1780,6 +1780,7 @@ export interface VMMemory {
 
 export interface VMDisk {
   size: number;
+  pool?: number;
   used: number;
   hostFree?: number;
 }
@@ -1795,11 +1796,14 @@ export interface VMLimits {
   maxCpus: number;
   minMemory: number;
   maxMemory: number;
+  minDisk?: number;
+  maxDisk?: number;
 }
 
 export interface VMResizeRequest {
   cpus?: number;
   memoryCap?: number;
+  disk?: number;
 }
 
 export interface VMStopRequest {

@@ -165,6 +165,21 @@ func (m *chMachine) setMemory(ctx context.Context, bytes int64) error {
 	return m.ch.Resize(ctx, bytes)
 }
 
+// setDisk grows the pool disk, which Cloud Hypervisor knows by the id it gave
+// it at boot: its image file is truncated up and the guest told of its new size.
+func (m *chMachine) setDisk(ctx context.Context, bytes int64) error {
+	info, err := m.ch.Info(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range info.Config.Disks {
+		if d.Path == m.l.PoolDisk() {
+			return m.ch.ResizeDisk(ctx, d.ID, bytes)
+		}
+	}
+	return fmt.Errorf("cloud-hypervisor has no disk %s", m.l.PoolDisk())
+}
+
 // granted is what's plugged, which lags what was asked for while the guest
 // plugs or unplugs it.
 func (m *chMachine) granted(ctx context.Context) int64 {
@@ -192,9 +207,12 @@ func (m *chMachine) resident() (vm, all int64) {
 }
 
 // live is what the running VM can be resized to: every vCPU it booted with
-// room for, and its virtio-mem region.
+// room for, its virtio-mem region, and a bigger pool disk.
 func (m *chMachine) live(c Config) api.VMLimits {
-	return api.VMLimits{MinCPUs: 1, MaxCPUs: m.room.CPUs, MinMemory: c.MemoryMin, MaxMemory: c.MemoryMin + regionSize(c, m.room)}
+	return api.VMLimits{
+		MinCPUs: 1, MaxCPUs: m.room.CPUs, MinMemory: c.MemoryMin, MaxMemory: c.MemoryMin + regionSize(c, m.room),
+		MinDisk: PoolSize(m.l), MaxDisk: api.VMMaxDisk,
+	}
 }
 
 func (m *chMachine) balloon() int64 { return 0 }

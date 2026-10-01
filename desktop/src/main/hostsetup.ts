@@ -541,12 +541,14 @@ let resizing: Promise<void> | undefined;
 // stops. On Linux memory is the VM's memory cap, and a running VM changes
 // without a restart when it can; when it can't, restart has it restarted,
 // which stops every agent, and otherwise it keeps the new size for its next
-// start.
+// start. On Linux disk, when given (like 200GiB), grows the VM's disk for its
+// agents, while it runs.
 export function resizeVM(
   cpus: number,
   memory: string,
   restart: boolean,
   onOutput: (text: string) => void,
+  disk?: string,
 ): Promise<void> {
   if (onWindows)
     return Promise.reject(new Error("AgentBox's WSL distro has no size to change"));
@@ -556,7 +558,7 @@ export function resizeVM(
     return Promise.reject(new Error("AgentBox's VM is already being resized"));
   const args = onMac
     ? ["resize", "--cpus", String(cpus), "--memory", memory]
-    : ["resize", "--cpus", String(cpus), "--memory-cap", memory, ...(restart ? ["--restart"] : [])];
+    : ["resize", "--cpus", String(cpus), "--memory-cap", memory, ...(disk ? ["--disk", disk] : []), ...(restart ? ["--restart"] : [])];
   resizing = runVM(args, "resizing AgentBox's VM failed", onOutput).finally(() => {
     resizing = undefined;
     lastCHV = undefined;
@@ -566,10 +568,16 @@ export function resizeVM(
 
 // The renderer asks for a resize here rather than in index.ts, which only
 // wires up the rest; the output goes back to the window that asked.
-ipcMain.handle("vm:resize", (event, cpus: number, memory: string, restart?: boolean) =>
-  resizeVM(cpus, memory, restart === true, (text) => {
-    if (!event.sender.isDestroyed()) event.sender.send("vm:output", text);
-  }),
+ipcMain.handle("vm:resize", (event, cpus: number, memory: string, restart?: boolean, disk?: string) =>
+  resizeVM(
+    cpus,
+    memory,
+    restart === true,
+    (text) => {
+      if (!event.sender.isDestroyed()) event.sender.send("vm:output", text);
+    },
+    typeof disk === "string" && disk !== "" ? disk : undefined,
+  ),
 );
 
 let swapping: Promise<void> | undefined;

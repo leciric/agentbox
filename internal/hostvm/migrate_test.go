@@ -191,7 +191,8 @@ func TestRemoveOldTouchesOnlyAgentBoxsOwnMachines(t *testing.T) {
 }
 
 // The copy into the VM takes the host's files but not what is the host's
-// alone, and the state.db from its backup.
+// alone, nor the worktrees and media the VM uses where they are, and the
+// state.db from its backup.
 func TestCopyScript(t *testing.T) {
 	dir := t.TempDir()
 	data, config, home := filepath.Join(dir, "data"), filepath.Join(dir, "config"), filepath.Join(dir, "vmhome")
@@ -226,7 +227,6 @@ func TestCopyScript(t *testing.T) {
 	for path, want := range map[string]string{
 		filepath.Join(vmData, "state.db"):                  "backup",
 		filepath.Join(vmData, "projects/shop/notes.md"):    "notes",
-		filepath.Join(vmData, "media/shop/agent-01/a.png"): "png",
 		filepath.Join(vmConfig, "credentials/claude/work"): "token",
 		filepath.Join(vmConfig, "secrets.key"):             "key",
 	} {
@@ -234,7 +234,7 @@ func TestCopyScript(t *testing.T) {
 			t.Errorf("%s = %q, %v; want %q", path, got, err, want)
 		}
 	}
-	for _, rel := range []string{"state.db-wal", "daemon.log", "worktrees", "vm", "tools", "backups"} {
+	for _, rel := range []string{"state.db-wal", "daemon.log", "worktrees", "media", "vm", "tools", "backups"} {
 		if _, err := os.Stat(filepath.Join(vmData, rel)); err == nil {
 			t.Errorf("%s was copied into the VM", rel)
 		}

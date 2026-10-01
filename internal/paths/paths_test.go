@@ -106,3 +106,20 @@ func TestWorktrees(t *testing.T) {
 		t.Errorf("a relative AGENTBOX_WORKTREES was used: %s", got)
 	}
 }
+
+func TestMedia(t *testing.T) {
+	p := Paths{Data: "/home/alice.linux/.local/share/agentbox"}
+	t.Setenv("AGENTBOX_MEDIA", "")
+	if got, want := p.Media(), "/home/alice.linux/.local/share/agentbox/media"; got != want {
+		t.Errorf("by default: got %s, want %s", got, want)
+	}
+	// In a VM the front end puts it on the host's share, where the app opens it.
+	t.Setenv("AGENTBOX_MEDIA", "/home/alice/.local/share/agentbox/media")
+	if got, want := p.Media(), "/home/alice/.local/share/agentbox/media"; got != want {
+		t.Errorf("with AGENTBOX_MEDIA: got %s, want %s", got, want)
+	}
+	t.Setenv("AGENTBOX_MEDIA", "relative/path")
+	if got := p.Media(); got != "/home/alice.linux/.local/share/agentbox/media" {
+		t.Errorf("a relative AGENTBOX_MEDIA was used: %s", got)
+	}
+}

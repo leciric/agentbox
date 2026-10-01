@@ -373,24 +373,26 @@ func newProxyCmd() *cobra.Command {
 
 func newCHVResizeCmd() *cobra.Command {
 	var cpus int
-	var memoryCap, memoryAlias string
+	var memoryCap, memoryAlias, disk string
 	var restart bool
 	// A vz VM boots with its whole cap and can't hotplug CPUs: a bigger one
 	// needs a restart, which on a Mac resize does, as Lima's does.
 	vz := runtime.GOOS == "darwin"
 	cmd := &cobra.Command{
 		Use:   "resize",
-		Short: "Change the VM's CPUs and memory cap, while it runs when it can",
-		Long: `Gives the VM another number of CPUs, or another memory cap (the most memory it takes
-as its agents need it), or both: 1 CPU to every core this machine has, and a cap from
-the memory the VM boots with to all of this machine's.
+		Short: "Change the VM's CPUs, memory cap and disk, while it runs when it can",
+		Long: `Gives the VM another number of CPUs, another memory cap (the most memory it takes
+as its agents need it), a bigger disk for its agents, or any of them: 1 CPU to every
+core this machine has, a cap from the memory the VM boots with to all of this
+machine's, and a disk from the size it has up to 16TiB. A disk only grows, and it's
+allocated as it's used: its size is what it may grow to on this machine's disk.
 
 A running VM changes at once, and its agents keep running: it boots with room for
-every core and all of this machine's memory, and only uses what its size says. The
-daemon in it restarts to see the new size. A VM started by an older agentbox has no
-such room: it gets the new size when it next starts, or now with --restart, which
-restarts the VM and stops every agent. The disk stays the size it was made with.`,
-		Example: "  agentbox vm resize --cpus 6 --memory-cap 24GiB",
+every core and all of this machine's memory, and only uses what its size says, and
+its disk grows under it. The daemon in it restarts to see the new size. A VM started
+by an older agentbox has no such room: it gets the new size when it next starts, or
+now with --restart, which restarts the VM and stops every agent.`,
+		Example: "  agentbox vm resize --cpus 6 --memory-cap 24GiB\n  agentbox vm resize --disk 200GiB",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			f := cmd.Flags()
@@ -402,22 +404,31 @@ restarts the VM and stops every agent. The disk stays the size it was made with.
 					return err
 				}
 			}
-			if !f.Changed("cpus") && !f.Changed("memory-cap") {
-				return errors.New("say what to change: --cpus, --memory-cap, or both")
+			if !f.Changed("cpus") && !f.Changed("memory-cap") && !f.Changed("disk") {
+				return errors.New("say what to change: --cpus, --memory-cap, --disk, or any of them")
 			}
 			vm, err := chvVM()
 			if err != nil {
 				return err
 			}
-			cpus, bytes, err := resizeArgs(f.Changed("cpus"), cpus, f.Changed("memory-cap"), memoryCap, chvLimits(vm.CHV.Config, numCPU(), hostMemory()))
-			if err != nil {
-				return err
+			var cpusN int
+			var bytes, diskBytes int64
+			if f.Changed("cpus") || f.Changed("memory-cap") {
+				if cpusN, bytes, err = resizeArgs(f.Changed("cpus"), cpus, f.Changed("memory-cap"), memoryCap, chvLimits(vm.CHV.Config, numCPU(), hostMemory())); err != nil {
+					return err
+				}
 			}
-			return vm.CHV.resize(cmd.Context(), vm, cpus, bytes, restart)
+			if f.Changed("disk") {
+				if diskBytes, err = diskArg(disk); err != nil {
+					return fmt.Errorf("--disk: %w", err)
+				}
+			}
+			return vm.CHV.resize(cmd.Context(), vm, cpusN, bytes, diskBytes, restart)
 		},
 	}
 	cmd.Flags().IntVar(&cpus, "cpus", 0, "CPUs for the VM")
 	cmd.Flags().StringVar(&memoryCap, "memory-cap", "", "the most memory the VM is given, like 24GiB")
+	cmd.Flags().StringVar(&disk, "disk", "", "a bigger disk for the VM's agents, like 200GiB (allocated as it's used; it only grows)")
 	cmd.Flags().BoolVar(&restart, "restart", vz, "restart the VM, stopping every agent, when the new size can't be given while it runs")
 	if vz {
 		// What the Mac's app and Lima's resize say.
@@ -425,8 +436,8 @@ restarts the VM and stops every agent. The disk stays the size it was made with.
 		_ = cmd.Flags().MarkHidden("memory")
 		cmd.Long = `Gives the VM another number of CPUs, or another memory cap, or both. The vz driver's VM
 boots with its whole cap, and a balloon keeps it to what it needs; a lower cap changes
-while it runs, and more CPUs or a higher cap restart it, which stops every agent (as
-Lima's VM does). The disk stays the size it was made with.`
+while it runs, and more CPUs, a higher cap or a bigger disk restart it, which stops
+every agent (as Lima's VM does). A disk only grows.`
 	}
 	return cmd
 }
@@ -877,6 +888,23 @@ func resizeArgs(cpusSet bool, cpus int, memorySet bool, memory string, limits Li
 		}
 	}
 	return cpus, bytes, limits.Check(cpus, bytes)
+}
+
+// diskArg reads --disk for vm resize: a size from 20GiB to api.VMMaxDisk, in
+// whole MiB, as the VM's disks are sized.
+func diskArg(s string) (int64, error) {
+	n, err := ParseMemory(s)
+	if err != nil {
+		return 0, err
+	}
+	n = (n + 1<<20 - 1) &^ (1<<20 - 1)
+	switch {
+	case n < 20*chv.GiB:
+		return 0, fmt.Errorf("%s: the VM's pool needs at least 20GiB", sizeWords(n))
+	case n > api.VMMaxDisk:
+		return 0, fmt.Errorf("%s: the most is %s", sizeWords(n), sizeWords(api.VMMaxDisk))
+	}
+	return n, nil
 }
 
 func newUpgradeCmd() *cobra.Command {

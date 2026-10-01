@@ -122,7 +122,7 @@ func sizeWords(bytes int64) string {
 // it runs when they can: see CHV.resize, which this leaves a restart to.
 func (v *VM) Resize(ctx context.Context, cpus int, memory int64) error {
 	if v.CHV != nil {
-		return v.CHV.resize(ctx, v, cpus, memory, false)
+		return v.CHV.resize(ctx, v, cpus, memory, 0, false)
 	}
 	unlock, err := v.lock(ctx, true)
 	if err != nil {

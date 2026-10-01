@@ -14,6 +14,7 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 )
 
@@ -113,9 +114,13 @@ func (s *Server) media(action string, agentOf func(*http.Request) (state.Agent, 
 			}
 			dir := req.Dir
 			if dir == "" {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return err
+				// In a VM, the host's home: the VM user's own isn't shared.
+				home := hostos.Home()
+				if home == "" {
+					var err error
+					if home, err = os.UserHomeDir(); err != nil {
+						return err
+					}
 				}
 				dir = filepath.Join(home, "AgentBox", "exports")
 			}

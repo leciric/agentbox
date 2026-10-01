@@ -318,6 +318,11 @@ func (m *vzMachine) setCPUs(context.Context, int) error {
 	return errConflict("the VM's CPUs can't change while it runs")
 }
 
+// setDisk can't: the framework fixes a disk's size when it attaches it.
+func (m *vzMachine) setDisk(context.Context, int64) error {
+	return errConflict("the VM's disk can't grow while it runs")
+}
+
 // setMemory sets the balloon's target: what the guest is left of the memory
 // it booted with.
 func (m *vzMachine) setMemory(_ context.Context, bytes int64) error {

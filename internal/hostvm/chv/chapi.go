@@ -60,6 +60,10 @@ type chInfo struct {
 			HotplugSize    int64 `json:"hotplug_size"`
 			HotpluggedSize int64 `json:"hotplugged_size"`
 		} `json:"memory"`
+		Disks []struct {
+			ID   string `json:"id"`
+			Path string `json:"path"`
+		} `json:"disks"`
 	} `json:"config"`
 	// MemoryActualSize is the guest's memory as it is now: its boot memory
 	// and the virtio-mem blocks it has plugged (not what vm.resize asked
@@ -127,6 +131,15 @@ func (c *chClient) Pause(ctx context.Context) error {
 
 func (c *chClient) Resume(ctx context.Context) error {
 	return c.do(ctx, http.MethodPut, "vm.resume", nil, nil)
+}
+
+// ResizeDisk grows the disk id to bytes, its image file with it, and tells
+// the guest it has.
+func (c *chClient) ResizeDisk(ctx context.Context, id string, bytes int64) error {
+	return c.do(ctx, http.MethodPut, "vm.resize-disk", struct {
+		ID   string `json:"id"`
+		Size int64  `json:"desired_size"`
+	}{id, bytes}, nil)
 }
 
 // Resize asks for the VM's memory to be bytes in all, by plugging or

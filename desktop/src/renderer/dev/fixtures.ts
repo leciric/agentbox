@@ -876,32 +876,45 @@ function fakeVM() {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    resize: async (cpus: number, memory: string, restart?: boolean) => {
+    resize: async (cpus: number, memory: string, restart?: boolean, disk?: string) => {
       // On Linux (?chv=), the Cloud Hypervisor VM changes while it runs.
       const chv = devState.hostSetup?.chv;
       if (chv) {
+        const GiB = 1024 ** 3;
+        const pool = disk ? parseFloat(disk) * GiB : (chv.disk.pool ?? 0);
+        const size = `${cpus} CPUs, a memory cap of ${memory} and a ${pool / GiB}GiB disk`;
+        const flags = `--cpus ${cpus} --memory-cap ${memory}${disk ? ` --disk ${disk}` : ''}`;
         const lines = restart
           ? [
-              `$ agentbox vm resize --cpus ${cpus} --memory-cap ${memory} --restart\n`,
-              `==> Restarting AgentBox's VM to give it ${cpus} CPUs and a memory cap of ${memory}: every agent in it stops\n`,
+              `$ agentbox vm resize ${flags} --restart\n`,
+              `==> Restarting AgentBox's VM to give it ${size}: every agent in it stops\n`,
               "AgentBox's VM is off (1.6s).\n",
               "AgentBox's VM is up (6.3s).\n",
               '==> Starting the daemon\n',
-              `AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} now.\n`,
+              `AgentBox's VM has ${size} now.\n`,
             ]
           : [
-              `$ agentbox vm resize --cpus ${cpus} --memory-cap ${memory}\n`,
-              `==> Giving AgentBox's VM ${cpus} CPUs and a memory cap of ${memory}, while it runs\n`,
+              `$ agentbox vm resize ${flags}\n`,
+              `==> Giving AgentBox's VM ${size}, while it runs\n`,
               '==> Starting the daemon\n',
-              `AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} now, and every agent kept running.\n`,
+              `AgentBox's VM has ${size} now, and every agent kept running.\n`,
             ];
         for (const line of lines) {
           await new Promise((resolve) => setTimeout(resolve, 350));
           for (const fn of listeners) fn(line);
         }
-        const GiB = 1024 ** 3;
-        const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB };
-        devState.hostSetup = { ...devState.hostSetup!, chv: { ...chv, cpus, memory: { ...chv.memory, cap: parseFloat(memory) * GiB }, live: room } };
+        const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB, minDisk: pool, maxDisk: 16384 * GiB };
+        devState.hostSetup = {
+          ...devState.hostSetup!,
+          chv: {
+            ...chv,
+            cpus,
+            memory: { ...chv.memory, cap: parseFloat(memory) * GiB },
+            disk: { ...chv.disk, pool, size: chv.disk.size - (chv.disk.pool ?? 0) + pool },
+            limits: { ...chv.limits!, minDisk: pool },
+            live: room,
+          },
+        };
         return;
       }
       const lines = [
@@ -1177,7 +1190,7 @@ export function seedLinuxHost(queryClient: QueryClient, kvm: boolean): void {
 export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
   seedSettings(queryClient);
   const GiB = 1024 ** 3;
-  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB };
+  const room = { minCpus: 1, maxCpus: 16, minMemory: 4 * GiB, maxMemory: 32 * GiB, minDisk: 100 * GiB, maxDisk: 16384 * GiB };
   const chv: T.VMStatus = {
     mode: 'vm',
     driver: 'cloud-hypervisor',
@@ -1186,7 +1199,7 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
     since: new Date(Date.now() - 3_600_000).toISOString(),
     cpus: 8,
     memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0 },
-    disk: { size: 120 * GiB, used: 14 * GiB },
+    disk: { size: 120 * GiB, used: 14 * GiB, pool: 100 * GiB },
     limits: room,
     live: kind === 'live' ? room : undefined,
     swap: kind === 'live' ? { size: 8 * GiB, total: 8 * GiB, used: 1.3 * GiB } : { size: 0, total: 0, used: 0 },
