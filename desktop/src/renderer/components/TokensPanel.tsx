@@ -542,7 +542,7 @@ export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number
   );
 }
 
-// AgentTokensCard is one agent's line of the ledger, on its Overview tab.
+// AgentTokensCard is one agent's line of the ledger, on its Settings tab, under AI tool.
 export function AgentTokensCard({ agent }: { agent: T.Agent }) {
   const [project, name] = agent.ref.split('/');
   const all = useQuery({ queryKey: ['tokens', project, name, 'all'], queryFn: () => api.tokens({ project, agent: name }), refetchInterval: 15_000 });

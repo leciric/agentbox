@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, Copy, ExternalLink, FileDiff, FolderOpen, GitBranch, SquareTerminal } from 'lucide-react';
+import { Copy, ExternalLink, FileDiff, FolderOpen } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -10,12 +10,11 @@ import { AgentTokensCard } from './TokensPanel';
 import { Button } from './ui/button';
 import { Panel, Row } from './ui/card';
 import { Select, SelectOption } from './ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 
-type OverviewSection = 'machine' | 'code' | 'ai';
-
-export function OverviewTab({ agent }: { agent: T.Agent }) {
+// OverviewTab is what an agent's Settings tab says about its machine, its code
+// and its AI tool: one section of it at a time.
+export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; section?: 'machine' | 'code' | 'ai' }) {
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage });
   const diff = useQuery({ queryKey: ['diff', agent.ref], queryFn: () => api.diffStat(agent.ref), refetchInterval: 10_000 });
   const events = useQuery({ queryKey: ['agentEvents', agent.project], queryFn: () => api.agentEvents(agent.project) });
@@ -25,28 +24,12 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
   const cores = usage.data?.host.cores ?? 0;
   const memoryCap = usage.data?.host.memTotal;
   const memoryFraction = memoryCap ? Math.min((mine?.memory ?? 0) / memoryCap, 1) : undefined;
-  const [section, setSection] = useState<OverviewSection>('machine');
 
   return (
     <div className="h-full overflow-y-auto p-3 md:p-5">
       <div className="mx-auto max-w-3xl">
-        <Tabs value={section} onValueChange={(value) => setSection(value as OverviewSection)}>
-          <TabsList className="mb-4">
-            <TabsTrigger value="machine">
-              <Box />
-              Machine
-            </TabsTrigger>
-            <TabsTrigger value="code">
-              <GitBranch />
-              Code
-            </TabsTrigger>
-            <TabsTrigger value="ai">
-              <SquareTerminal />
-              AI tool
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="machine">
+        {section === 'machine' && (
+          <>
             <Panel className="p-5">
               <Row label="State">
                 <StateBadge state={agent.state} />
@@ -94,9 +77,11 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
                 <Metric label="Processes" value={mine ? String(mine.processes) : '—'} />
               </div>
             </Panel>
-          </TabsContent>
+          </>
+        )}
 
-          <TabsContent value="code">
+        {section === 'code' && (
+          <>
             <Panel className="p-5">
               <Row label="Branch" mono>
                 {agent.branch}
@@ -137,9 +122,11 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
                 </pre>
               </div>
             </Panel>
-          </TabsContent>
+          </>
+        )}
 
-          <TabsContent value="ai">
+        {section === 'ai' && (
+          <>
             <Panel className="p-5">
               <Row label="Tool">{aiLabel(agent.ai)}</Row>
               {agent.ai !== 'none' && (
@@ -158,8 +145,8 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
               </Row>
             </Panel>
             {agent.ai !== 'none' && <AgentTokensCard agent={agent} />}
-          </TabsContent>
-        </Tabs>
+          </>
+        )}
       </div>
     </div>
   );

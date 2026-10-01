@@ -12,7 +12,7 @@ import { Card, Code, Notice } from './ui/card';
 import { Field, Input } from './ui/input';
 import { Tip } from './ui/tooltip';
 
-// The Secrets tab: API keys and tokens handed to a project's agents, or to one
+// Secrets, a section of a project's or an agent's Settings tab: API keys and tokens handed to a project's agents, or to one
 // agent. A target is "pawly" or "pawly/agent-01".
 //
 // The value field is write-only, and not because the app hides it: the daemon
@@ -41,7 +41,7 @@ export function SecretsTab({ target }: { target: string }) {
           <Card
             title={`From the project (${inherited.length})`}
             icon={Lock}
-            description="Every agent of this project gets these. Change them on the project's Secrets tab."
+            description="Every agent of this project gets these. Change them in the project's Settings, under Secrets."
           >
             <ul className="grid gap-2" aria-label="Project secrets">
               {inherited.map((secret) => (

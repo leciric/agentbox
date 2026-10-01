@@ -254,7 +254,7 @@ func (s *Server) giveGitHubAccount(ctx context.Context, q state.Question, accoun
 		account, who, envFile), nil
 }
 
-// giveSecret stores the value as a project secret, the way the Secrets tab
+// giveSecret stores the value as a project secret, the way Settings → Secrets
 // does, and writes it into the project's running agents.
 func (s *Server) giveSecret(ctx context.Context, q state.Question, value string) error {
 	stored, err := s.secrets().Set(ctx, q.Project, "", q.SecretName, value)

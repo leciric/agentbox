@@ -328,7 +328,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"Names only, and there is no tool that reads a value — not for you and not for an agent's " +
 				"model, which reads them from its environment. Use this to brief an agent precisely: " +
 				"\"the Stripe key is in $STRIPE_SECRET_KEY, don't print it\". If a key an agent needs isn't " +
-				"listed, ask the user to add it (the Secrets tab on the project's page, or agentbox secrets " +
+				"listed, ask the user to add it (Settings → Secrets on the project's page, or agentbox secrets " +
 				"set) instead of asking them to paste it into this chat, where it would be stored as text.",
 			Run: func(json.RawMessage) (string, error) {
 				secrets, err := c.ProjectSecretNames(ctx)
@@ -343,7 +343,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Description: "This project's connectors: remote MCP servers like Notion or Linear that its agents get as tools, " +
 				"signed in once by the user and held by AgentBox, so no agent ever sees a token. Shows each one's status and " +
 				"which agents have it. The connected ones are your own tools too (mcp__<name>__*). Pass create_agent's " +
-				"connectors to give an agent only some of them. To add one, ask the user to (the Connectors tab on the project's " +
+				"connectors to give an agent only some of them. To add one, ask the user to (Settings → Connectors on the project's " +
 				"page); an agent that finds it needs one asks the user itself, with request_connector.",
 			Run: func(json.RawMessage) (string, error) {
 				found, err := c.ProjectConnectors(ctx)
@@ -1027,7 +1027,7 @@ func describeAccounts(accounts []api.LeadAccount) string {
 func describeSecrets(secrets []api.Secret) string {
 	if len(secrets) == 0 {
 		return "The agents of this project have no secrets. If one needs an API key, ask the user to add it " +
-			"on the project's Secrets tab (or with agentbox secrets set), and it becomes an environment " +
+			"under Settings → Secrets on the project's page (or with agentbox secrets set), and it becomes an environment " +
 			"variable in the agents."
 	}
 	var b strings.Builder
@@ -1046,7 +1046,7 @@ func describeSecrets(secrets []api.Secret) string {
 func describeConnectors(found []api.Connector) string {
 	if len(found) == 0 {
 		return "This project has no connectors. If an agent needs a service like Notion or Linear as tools, ask the user " +
-			"to add it on the project's Connectors tab (or with agentbox connector add), or let the agent ask with request_connector."
+			"to add it under Settings → Connectors on the project's page (or with agentbox connector add), or let the agent ask with request_connector."
 	}
 	var b strings.Builder
 	b.WriteString("This project's connectors:\n")

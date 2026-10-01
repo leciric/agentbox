@@ -665,7 +665,7 @@ the conversation you are having is neither interrupted nor spent on it.
 
 If the model can't be run — the account doesn't offer it, or its session won't
 start — the pass falls back to the chat's own session rather than being lost,
-and the Memory tab's pass table says which model each pass really ran on.
+and the pass table under the project's Settings → Memory says which model each pass really ran on.
 
 The default is cheap.`,
 		Args: cobra.RangeArgs(1, 2),

@@ -59,13 +59,13 @@
 //                           agent, and on a Codex agent (no meter)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
-//   ?tokens=1               a project's Tokens tab: headline (with average
+//   ?tokens=1               a project's Settings → Tokens: headline (with average
 //                           TPS), by agent and by model, and spend over time
 //   ?tokens=1&account=work
 //                           the same, its project and agents on the "work"
 //                           Claude account: its limits card shows only that one
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
-//                           Overview tab
+//                           Settings → AI tool
 //   ?meters=cpu|disk|pool   the top bar's "Host CPU", or its disk meter in VM mode or host mode
 //                           popover, against a CPU-capped agent, a paused
 //                           one and a plain one —
@@ -131,7 +131,7 @@
 //                           queued agent starts, the rest move up — until
 //                           it's empty, for a recording; the per-agent usage
 //                           table follows the same stops and starts
-//   ?queue=settings         agentbox's Overview → Settings, at the slots
+//   ?queue=settings         agentbox's Settings → General, at the slots
 //                           row: Auto's slot size and the running agents its
 //                           peak is learned from, memory and CPU now and at
 //                           their peak
@@ -143,12 +143,16 @@
 //                           toggle is "Start" instead of "Queue" and its
 //                           slots strip is gone, and the sidebar's three
 //                           already-queued agents still show Queued #N
+//   ?page=settings          the project's page itself, beside the sidebar,
+//                           open at a tab or a section of its Settings tab
+//                           (?page=tokens, ?page=general…); with ?open=agent-99,
+//                           that agent's page (?page=secrets, ?page=machine…)
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles.css';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { ConnectionState, HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
@@ -182,6 +186,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
+import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
 
 installDevBridge();
@@ -191,6 +196,7 @@ document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
 const openAgent = params.get('open'); // e.g. "agent-99"
+const page = params.get('page'); // a tab or Settings section of the project's page, or of ?open's agent
 const vm = params.get('vm');
 const wsl = params.get('wsl');
 const accounts = params.get('accounts') === '1';
@@ -302,6 +308,17 @@ if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
+// ?page= shows whole pages, and their sections ask for what no other
+// scenario seeds: no limits read yet, an empty queue, and no secrets or
+// connectors.
+if (page) {
+  queryClient.setQueryData(['claudeLimits'], []);
+  queryClient.setQueryData(['queue', PROJECT], { enabled: true, budget: 0, reserve: 0, projects: [], queued: [] } satisfies T.QueueStatus);
+  for (const target of [PROJECT, `${PROJECT}/${openAgent ?? 'agent-99'}`]) {
+    queryClient.setQueryData(['secrets', target], []);
+    queryClient.setQueryData(['connectors', target], []);
+  }
+}
 if (linuxHost === 'move') {
   seedLinuxHost(queryClient, true);
   localStorage.removeItem(laterKey);
@@ -317,6 +334,7 @@ if (meters) {
 const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
 if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
 if (queue === 'tasks') tasksBridge();
+if (page) pageBridge();
 if (power) seedPower(queryClient, power);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
@@ -456,8 +474,34 @@ function AvatarTransition() {
   );
 }
 
+// PagePreview is a project's page, or an agent's, as the app shows it beside
+// the sidebar (?page=), open where the URL says and clickable from there. Both
+// load once the dev bridge is in: the agent's desktop and terminal reach for
+// window.agentbox as their modules load.
+const ProjectView = lazy(() => import('../components/ProjectView').then((m) => ({ default: m.ProjectView })));
+const AgentView = lazy(() => import('../components/AgentView').then((m) => ({ default: m.AgentView })));
+
+function PagePreview({ at }: { at: string }) {
+  const [agentAt, setAgentAt] = useState(at as AgentPlaceName);
+  return (
+    <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
+      <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
+      <div style={{ flex: 1, minWidth: 0, background: 'var(--color-ink)' }} data-preview-page={at}>
+        <Suspense>
+          {openAgent ? (
+            <AgentView agentRef={`${PROJECT}/${openAgent}`} tab={agentAt} onTab={setAgentAt} onSelect={() => {}} />
+          ) : (
+            <ProjectView name={PROJECT} tab={at as ProjectPlaceName} onSelect={() => {}} onNewAgent={() => {}} />
+          )}
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
 function Preview() {
   if (github) return <GitHubPreview />;
+  if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
 
   if (power) {
@@ -663,8 +707,8 @@ function Preview() {
   );
 }
 
-// QueueSettingsPreview is agentbox's Overview → Settings (?queue=settings):
-// the same ProjectSettings the real Overview tab renders, against whatever
+// QueueSettingsPreview is agentbox's Settings → General (?queue=settings):
+// the same ProjectSettings the real Settings tab renders, against whatever
 // seedQueue put in the projects query.
 function QueueSettingsPreview() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
@@ -718,6 +762,21 @@ function tasksBridge(): void {
       queryClient.setQueryData(['memoryTasks', PROJECT], next);
       return answer(next.find((t) => t.id === id));
     }
+    return inner(method, path, body);
+  };
+}
+
+// pageBridge answers what a page's sections read and no fixture has: a
+// project's memory lists, with none, and an agent's diff, rather than the dev
+// bridge's generic {}.
+function pageBridge(): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  const lists = /^\/v1\/projects\/[^/]+\/memory\/(memories|events|artifacts|reports|duplicates|tasks)(\?|$)/;
+  bridge.request = async (method, path, body) => {
+    if (method === 'GET' && lists.test(path)) return { status: 200, body: '[]', contentType: 'application/json' };
+    if (method === 'GET' && path.endsWith('/diff?stat=true')) return { status: 200, body: JSON.stringify(' desktop/src/renderer/lib/tabs.ts | 46 ++++++\n 1 file changed, 46 insertions(+)'), contentType: 'application/json' };
     return inner(method, path, body);
   };
 }

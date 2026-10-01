@@ -52,7 +52,7 @@ work on its own desktop, and review what it built before merging.
 - **A browser and a desktop per agent**, driven by Playwright and a real mouse and keyboard, that
   you watch live and can take over.
 - **Proof, not promises:** screenshots, recordings, test reports and logs in the **Media** tab.
-- **A token ledger and account limits** in the **Tokens** tab.
+- **A token ledger and account limits** in each project's **Settings → Tokens**.
 - Preview URLs for any port an agent listens on, several Claude and GitHub accounts, project bases
   new agents start from, an Android emulator per agent, and remote environments through a hub (a
   separate, closed-source program — this repository only carries its side of the protocol, in

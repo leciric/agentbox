@@ -11,7 +11,7 @@ import { Input } from './ui/input';
 
 // ConnectorRequestCard is an agent's request_connector as it stands, and what
 // it takes to answer it: built like CredentialCard, and shown wherever that
-// is (the agent's chat, the project's chat), plus the Connectors tab.
+// is (the agent's chat, the project's chat), plus Settings → Connectors.
 //
 // Answering it adds the connector to the project, the way a requested secret
 // is saved as the project's, signs in when it signs in with the browser, and
@@ -47,7 +47,7 @@ export function ConnectorRequestCard({ question }: { question: T.Question }) {
 }
 
 // ConnectorRequestCards are the connector requests waiting in a project — or
-// from one agent of it — at the head of the Connectors tab.
+// from one agent of it — at the head of Settings → Connectors.
 export function ConnectorRequestCards({ project, agent }: { project: string; agent?: string }) {
   const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project) });
   const waiting = (questions.data ?? [])
@@ -139,7 +139,7 @@ function ConnectorAnswer({ question, req }: { question: T.Question; req: Connect
           </Button>
         </div>
       ) : !req.url && !existing ? (
-        <p className="text-[11px] leading-relaxed text-faint">It didn't say where the server is: add it on the project's Connectors tab, then give it here.</p>
+        <p className="text-[11px] leading-relaxed text-faint">It didn't say where the server is: add it in the project's Settings, under Connectors, then give it here.</p>
       ) : (
         <form
           className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5"

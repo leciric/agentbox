@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
-import { AgentView, type AgentTab } from "./components/AgentView";
+import { AgentView } from "./components/AgentView";
 import { ErrorReports } from "./components/ErrorReports";
 import { HomeChatPanel } from "./components/HomeChatPanel";
 import { HomeView } from "./components/HomeView";
@@ -22,6 +22,7 @@ import { Notice } from "./components/ui/card";
 import { api } from "./lib/api";
 import { resetChatEvents } from "./lib/chat";
 import { onMedia, useConnection } from "./lib/events";
+import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { setupCard } from "./lib/setup";
 import { kindInfo } from "./lib/media";
 import { useHostTheme } from "./lib/theme";
@@ -32,12 +33,12 @@ export type View =
   | { kind: "homeChat" }
   | { kind: "jobs" }
   | { kind: "settings" }
-  | { kind: "project"; project: string }
-  | { kind: "agent"; ref: string; tab?: AgentTab };
+  | { kind: "project"; project: string; tab?: ProjectPlaceName }
+  | { kind: "agent"; ref: string; tab?: AgentPlaceName };
 
 export function App() {
   const [view, setView] = useState<View>({ kind: "home" });
-  const [tabs, setTabs] = useState<Record<string, AgentTab>>({});
+  const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   const [addingProject, setAddingProject] = useState(false);
   const [newAgentProject, setNewAgentProject] = useState<string | null>(null);
   const [whatsNew, setWhatsNew] = useState(false);
@@ -159,7 +160,7 @@ export function App() {
     view.kind === "agent"
       ? view.ref
       : view.kind === "project"
-        ? `project:${view.project}`
+        ? `project:${view.project}:${view.tab ?? ""}`
         : view.kind;
 
   return (
@@ -245,6 +246,7 @@ export function App() {
                 {view.kind === "project" && (
                   <ProjectView
                     name={view.project}
+                    tab={view.tab}
                     onSelect={select}
                     onNewAgent={() => setNewAgentProject(view.project)}
                   />
