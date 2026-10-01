@@ -4,22 +4,18 @@ name: Nightly
 # .pacman, the Windows installer and portable .exe, the command-line tool for
 # linux-amd64, linux-arm64, darwin-arm64 and darwin-amd64, and the Mac app —
 # from the head of release-please's PR, published as a GitHub prerelease with
-# SHA256SUMS, while that PR carries the `nightly` label. The PR's head is the
-# next release as it stands (its commit already bumps desktop/package.json),
-# so a nightly is versioned <next release>-nightly.<YYYYMMDD>.<run>: a semver
-# prerelease, ordered by date then run, before the release it leads up to.
-# scripts/release-build.sh --nightly stamps that version and builds it, the
-# same script and the same checks as a release.
+# SHA256SUMS. The PR's head is the next release as it stands (its commit
+# already bumps desktop/package.json), so a nightly is versioned <next
+# release>-nightly.<YYYYMMDD>.<run>: a semver prerelease, ordered by date then
+# run, before the release it leads up to. scripts/release-build.sh --nightly
+# stamps that version and builds it, the same script and the same checks as a
+# release.
 #
 # What makes one:
-# - Putting the label on the release PR, or taking it off and putting it back
-#   (pull_request: labeled). Any other label doesn't.
-# - A push to the PR while it's labelled: a person's push arrives as
-#   pull_request: synchronize, and release-please's own update of the PR,
-#   which it pushes with GITHUB_TOKEN and so triggers no pull_request event,
-#   arrives as the Release workflow finishing on main (workflow_run). That
-#   path skips a commit a nightly was already built from, since most pushes
-#   to main don't change the release PR at all.
+# - Putting the `nightly` label on the release PR (pull_request: labeled).
+#   Any other label doesn't. As the run starts, it removes the label again,
+#   so someone has to add it once per nightly; removing it doesn't trigger or
+#   cancel anything, since nothing here listens for `unlabeled`.
 # - workflow_dispatch, by hand: builds everything from the release PR's head
 #   (or `ref`), and publishes only when `publish` is on and no `ref` was given.
 #   Off, it is the dry run: every build job runs, SHA256SUMS is written into
@@ -37,11 +33,7 @@ name: Nightly
 
 on:
   pull_request:
-    types: [labeled, synchronize, reopened]
-  workflow_run:
-    workflows: [Release]
-    types: [completed]
-    branches: [main]
+    types: [labeled]
   workflow_dispatch:
     inputs:
       publish:
@@ -53,15 +45,14 @@ on:
         type: string
         default: ''
 
-# Tagging and releasing need contents: write; reading the PR's labels needs
-# pull-requests: read.
+# Tagging and releasing need contents: write; removing the label needs
+# pull-requests: write.
 permissions:
   contents: write
-  pull-requests: read
+  pull-requests: write
 
 # One nightly at a time, queued rather than cancelled: a run that has started
-# publishing shouldn't be cut off, and the queued one checks again whether its
-# commit was built meanwhile (workflow_run) or builds the newer head.
+# publishing shouldn't be cut off.
 concurrency:
   group: nightly
   cancel-in-progress: false
@@ -76,14 +67,12 @@ jobs:
   resolve:
     name: Resolve the nightly to build
     # A pull_request event only counts on the release PR itself, from this
-    # repository, while it has the label: and a `labeled` one only when the
-    # label just put on is `nightly`.
+    # repository, and only when the label just put on is `nightly`.
     if: >-
       github.event_name != 'pull_request' ||
       (github.event.pull_request.head.ref == 'release-please--branches--main--components--agentbox' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
-       contains(github.event.pull_request.labels.*.name, 'nightly') &&
-       (github.event.action != 'labeled' || github.event.label.name == 'nightly'))
+       github.event.label.name == 'nightly')
     runs-on: ubuntu-24.04
     outputs:
       build: ${{ steps.pick.outputs.build }}
@@ -101,6 +90,12 @@ jobs:
       INPUT_PUBLISH: ${{ inputs.publish }}
       INPUT_REF: ${{ inputs.ref }}
     steps:
+      # Removing it doesn't trigger or cancel anything: nothing here listens
+      # for `unlabeled`.
+      - name: Remove the nightly label
+        if: github.event_name == 'pull_request'
+        run: gh pr edit "$PR_NUMBER" --remove-label nightly -R "$GITHUB_REPOSITORY"
+
       - name: Pick the commit
         id: pick
         run: |
@@ -108,22 +103,6 @@ jobs:
           case $EVENT in
             pull_request)
               sha=$PR_SHA pr=$PR_NUMBER
-              ;;
-            workflow_run)
-              read -r pr sha < <(gh pr list -R "$GITHUB_REPOSITORY" --head "$RELEASE_BRANCH" --state open --label nightly \
-                --json number,headRefOid --jq '.[0] | "\(.number) \(.headRefOid)"') || true
-              if [ -z "${sha:-}" ] || [ "$sha" = null ]; then
-                echo "The release PR is closed or isn't labelled nightly: nothing to build."
-                echo "build=false" >>"$GITHUB_OUTPUT"
-                exit 0
-              fi
-              built=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-                --jq "[.[] | select(.prerelease and (.tag_name | test(\"-nightly\\\\.\")) and .target_commitish == \"$sha\")][0].tag_name // \"\"")
-              if [ -n "$built" ]; then
-                echo "$built was already built from $sha: nothing new."
-                echo "build=false" >>"$GITHUB_OUTPUT"
-                exit 0
-              fi
               ;;
             workflow_dispatch)
               publish=$INPUT_PUBLISH
