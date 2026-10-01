@@ -60,7 +60,8 @@ func fill(t *testing.T, s *memory.Store, project string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// The plan: one task being worked on, waiting on one that isn't (D77).
+	// The user's task list, which a context leaves out: it is theirs, and an
+	// agent reads it with my_task.
 	index, err := s.AddTask(ctx, memory.Task{Project: project, Goal: "Index the count query"})
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +108,7 @@ func TestBuildContextKeepsEverythingItCan(t *testing.T) {
 	// Everything but what was produced, which is an agent's to find and
 	// noise in the lead's recap (D90).
 	want := []string{
-		memory.SectionWorking, memory.SectionTasks, memory.SectionStory, memory.SectionOpen,
+		memory.SectionWorking, memory.SectionStory, memory.SectionOpen,
 		memory.SectionKnowledge, memory.SectionEvents, memory.SectionReports,
 	}
 	if got := kinds(built); !equal(got, want) {
@@ -130,8 +131,6 @@ func TestBuildContextKeepsEverythingItCan(t *testing.T) {
 		"agent-04",                      // ...and who is on it
 		"The user asked for pagination", // the narrative
 		"count query is unindexed",      // what is still open
-		"Paginate the reminders page",   // the plan
-		"waiting on Index the count",    // ...and what it is blocked on
 		"Pagination is cursor-based",    // what the project decided
 		"pr_merged",                     // what happened
 		"The list paginates",            // what an agent reported
@@ -141,6 +140,9 @@ func TestBuildContextKeepsEverythingItCan(t *testing.T) {
 		if !strings.Contains(built.Text, phrase) {
 			t.Errorf("the context doesn't mention %q:\n%s", phrase, built.Text)
 		}
+	}
+	if strings.Contains(built.Text, "Index the count query") || strings.Contains(built.Text, "The plan") {
+		t.Errorf("the context carries the user's task list:\n%s", built.Text)
 	}
 	if built.Stats.Dropped != 0 || built.Stats.Truncated {
 		t.Errorf("a context that fits dropped something: %+v", built.Stats)
@@ -178,7 +180,7 @@ func TestBuildContextBudgetAndDropOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := kinds(tightest); !equal(got, []string{
-		memory.SectionWorking, memory.SectionTasks, memory.SectionStory, memory.SectionOpen}) {
+		memory.SectionWorking, memory.SectionStory, memory.SectionOpen}) {
 		t.Errorf("the tightest budget kept %v, want only what is never dropped", got)
 	}
 	if !strings.Contains(tightest.Text, "Ship the reminders page") {
@@ -189,7 +191,7 @@ func TestBuildContextBudgetAndDropOrder(t *testing.T) {
 	// rather than at one convenient number: a section is never kept when
 	// something above it in the order was given up.
 	order := []string{
-		memory.SectionWorking, memory.SectionTasks, memory.SectionStory, memory.SectionOpen,
+		memory.SectionWorking, memory.SectionStory, memory.SectionOpen,
 		memory.SectionKnowledge, memory.SectionEvents, memory.SectionReports, memory.SectionArtifacts,
 	}
 	for budget := memory.MinBudgetTokens; budget <= 4000; budget += 100 {

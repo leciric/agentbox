@@ -209,18 +209,24 @@ func (m *MemoryClient) Task(ctx context.Context, id string) (Task, error) {
 	return out, m.c.do(ctx, http.MethodGet, m.base+"/tasks/"+url.PathEscape(id), nil, &out)
 }
 
-// AddTask writes one down. Not available to a worker agent: creating work for
-// somebody else needs every agent in view.
+// AddTask writes one down. The task list is the user's: only the user's
+// routes offer this, not an agent's socket or a project chat's.
 func (m *MemoryClient) AddTask(ctx context.Context, req AddTaskRequest) (Task, error) {
 	var out Task
 	return out, m.c.do(ctx, http.MethodPost, m.base+"/tasks", req, &out)
 }
 
-// UpdateTask changes what the request names. A worker may do this to its own
-// task's status and detail, and to nothing else.
+// UpdateTask changes what the request names. The user's routes only, like
+// AddTask.
 func (m *MemoryClient) UpdateTask(ctx context.Context, id string, req UpdateTaskRequest) (Task, error) {
 	var out Task
 	return out, m.c.do(ctx, http.MethodPatch, m.base+"/tasks/"+url.PathEscape(id), req, &out)
+}
+
+// DeleteTask takes a task off the user's list, and out of the agent queue
+// when it was queued. The user's routes only, like AddTask.
+func (m *MemoryClient) DeleteTask(ctx context.Context, id string) error {
+	return m.c.do(ctx, http.MethodDelete, m.base+"/tasks/"+url.PathEscape(id), nil, nil)
 }
 
 // LinkTasks says one task is waiting on another. A cycle is refused, with the

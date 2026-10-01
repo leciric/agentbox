@@ -253,6 +253,7 @@ export const api = {
   memoryTasks: (name: string) => call<T.Task[]>('GET', `${project(name)}/memory/tasks`),
   addTask: (name: string, req: T.AddTaskRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks`, req),
   updateTask: (name: string, id: string, req: T.UpdateTaskRequest) => call<T.Task>('PATCH', `${project(name)}/memory/tasks/${encodeURIComponent(id)}`, req),
+  deleteTask: (name: string, id: string) => call<void>('DELETE', `${project(name)}/memory/tasks/${encodeURIComponent(id)}`),
   linkTasks: (name: string, req: T.LinkTasksRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks/link`, req),
   unlinkTasks: (name: string, req: T.LinkTasksRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks/unlink`, req),
 

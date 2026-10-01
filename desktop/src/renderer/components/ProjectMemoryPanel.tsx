@@ -350,8 +350,7 @@ function TasksSection({ project }: { project: string }) {
       {!tasksQuery.isPending && tasks.length === 0 && (
         <Panel className="rounded-2xl">
           <EmptyState icon={ListTree} title="No plan yet">
-            A task is work the project has, who's on it and what it's waiting on. Add one, or let the project's chat write them as it hands work to
-            agents.
+            A task is work you have for the project, who's on it and what it's waiting on. The list is yours: nothing adds tasks to it on its own.
           </EmptyState>
         </Panel>
       )}

@@ -1139,14 +1139,11 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			"title": a.Title, "task": task, "model": model, "branch": a.Branch,
 		}, "")
 		s.addActiveAgent(ctx, a.Project, a.Name)
-		// A task of the plan it was made for is its task: captureAgentTask
-		// starts it rather than writing another.
+		// The user's task it was made for, from the Tasks tab, is its task.
+		// Nothing else writes a task: the list is the user's alone.
 		if req.TaskID != "" {
 			s.assignTask(ctx, a.Project, req.TaskID, a.Name)
 		}
-		// An agent is made for something, and that something is a row in the
-		// project's plan (D77) rather than only a line in its history.
-		s.captureAgentTask(ctx, a, task)
 		if task != "" {
 			if byLead {
 				s.leadAsked(a)

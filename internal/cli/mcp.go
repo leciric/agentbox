@@ -840,125 +840,12 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		},
 		{
 			Name: "project_state",
-			Description: "Where this project stands: what it is doing now, the plan — every task that is open, who " +
-				"is on it and what it is waiting on — the problems nobody has fixed, and what its agents reported " +
+			Description: "Where this project stands: what it is doing now, the user's own task list — which only " +
+				"the user writes, in the app's Tasks tab — the problems nobody has fixed, and what its agents reported " +
 				"as they finished. Short on purpose — read it at the start of a conversation, before deciding what " +
 				"to do next, and use search_memory when you need the detail behind a line of it.",
 			Run: func(json.RawMessage) (string, error) {
 				return projectState(ctx, c), nil
-			},
-		},
-		{
-			Name: "add_task",
-			Description: "Write a piece of work down as a task, so the project has a plan and not only a list of " +
-				"agents. A task is what is to be done and who is doing it; it is state, not memory — it changes as " +
-				"the work moves and is closed when the work is over, which is what remember is not for. Give it to " +
-				"an agent by name when you know who is on it, put it under a parent when it is part of something " +
-				"larger, and name what it is blocked on in depends_on. An agent you create with a task already has " +
-				"one written down for it, so add_task is for the work you are planning rather than handing over now.",
-			Schema: object([]string{"goal"}, map[string]any{
-				"goal":   str("what is to be done, in one line somebody would recognise it by"),
-				"detail": str("the task in full: what it covers, what it must not touch, how you will know it worked"),
-				"agent":  str("the agent doing it, by name, when one is. Leave it out for work nobody is on yet"),
-				"parent": str("the id of the task this is part of, from project_state"),
-				"status": choiceOf("where it stands. \"open\" is written down and not started, and the default. "+
-					"\"active\" is being worked on now. \"blocked\" is waiting on something.",
-					"open", "active", "blocked"),
-				"depends_on": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
-					"description": "the ids of the tasks this one is waiting on. A cycle is refused, and the task is still written down"},
-			}),
-			Run: func(args json.RawMessage) (string, error) {
-				var in struct {
-					Goal, Detail, Agent, Parent, Status string
-					DependsOn                           []string `json:"depends_on"`
-				}
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				if strings.TrimSpace(in.Goal) == "" {
-					return "", errors.New("a task needs a goal: what is to be done, in a line")
-				}
-				t, err := c.LeadMemory().AddTask(ctx, api.AddTaskRequest{
-					Goal: in.Goal, Detail: in.Detail, Agent: in.Agent,
-					ParentID: in.Parent, Status: in.Status, DependsOn: in.DependsOn,
-				})
-				if err != nil {
-					return "", err
-				}
-				return fmt.Sprintf("Task %s (%s). It is in project_state, in every agent's brief, and in %s's own tools.",
-					t.ID, t.Status, taskOwner(t)), nil
-			},
-		},
-		{
-			Name: "link_tasks",
-			Description: "Say that one task can't be finished until another is, or take that back with unlink. This " +
-				"is the blocking edge, not the subtask one: a task can be waiting on several things at once, and " +
-				"none of them contains it — use add_task's parent for that. A link that would make a cycle is " +
-				"refused, and the answer says which edge closed it.",
-			Schema: object([]string{"task", "depends_on"}, map[string]any{
-				"task":       str("the id of the task that is waiting"),
-				"depends_on": str("the id of the task it is waiting on"),
-				"unlink": map[string]any{"type": "boolean",
-					"description": "take the edge back out instead, because the dependency turned out not to exist"},
-			}),
-			Run: func(args json.RawMessage) (string, error) {
-				var in struct {
-					Task      string
-					DependsOn string `json:"depends_on"`
-					Unlink    bool
-				}
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				m := c.LeadMemory()
-				if in.Unlink {
-					if err := m.UnlinkTasks(ctx, in.Task, in.DependsOn); err != nil {
-						return "", err
-					}
-					return fmt.Sprintf("%s is no longer waiting on %s.", in.Task, in.DependsOn), nil
-				}
-				if err := m.LinkTasks(ctx, in.Task, in.DependsOn); err != nil {
-					return "", err
-				}
-				return fmt.Sprintf("%s is waiting on %s. The agent on %s sees it in its own tools, and project_state "+
-					"shows the edge.", in.Task, in.DependsOn, in.Task), nil
-			},
-		},
-		{
-			Name: "set_task_status",
-			Description: "Move a task, which is mostly closing one: \"done\" when the work is finished and " +
-				"\"abandoned\" when it is over without being finished — it stopped mattering, or it was tried and " +
-				"didn't work. Closing a task is how the plan stays readable; a plan where nothing is ever closed is " +
-				"a list. An agent's own task is closed for you when it finishes and reports, so this is for the work " +
-				"you decided about rather than the work an agent reported on.",
-			Schema: object([]string{"task", "status"}, map[string]any{
-				"task": str("the id of the task, from project_state"),
-				"status": choiceOf("where it now stands. \"done\" is finished. \"abandoned\" is over without being "+
-					"finished. \"blocked\" is waiting on something. \"active\" is being worked on now. \"open\" is "+
-					"written down and not started, which also reopens a task closed too early.",
-					"open", "active", "blocked", "done", "abandoned"),
-				"detail": str("what to record about it now, replacing what was there: why it was abandoned, what is left"),
-			}),
-			Run: func(args json.RawMessage) (string, error) {
-				var in struct {
-					Task, Status string
-					Detail       *string
-				}
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				if strings.TrimSpace(in.Task) == "" || strings.TrimSpace(in.Status) == "" {
-					return "", errors.New("say which task, by its id from project_state, and what it now is")
-				}
-				t, err := c.LeadMemory().UpdateTask(ctx, in.Task, api.UpdateTaskRequest{Status: &in.Status, Detail: in.Detail})
-				if err != nil {
-					return "", err
-				}
-				if len(t.Blocks) > 0 && !openTask(t.Status) {
-					return fmt.Sprintf("%s is %s. %d task(s) were waiting on it: %s — they can start now.",
-						t.ID, t.Status, len(t.Blocks), strings.Join(t.Blocks, ", ")), nil
-				}
-				return fmt.Sprintf("%s is %s.", t.ID, t.Status), nil
 			},
 		},
 		{
@@ -1354,10 +1241,10 @@ func projectState(ctx context.Context, c *api.Client) string {
 		b.WriteString(describeWorking(w))
 	}
 	if tasks, err := m.Tasks(ctx, api.TaskQuery{OpenOnly: true, Limit: projectStateTasks}); err == nil && len(tasks) > 0 {
-		b.WriteString("\nThe plan — what is still open, what is in the way first:\n")
+		b.WriteString("\nThe user's task list — theirs to write and change, in the app's Tasks tab, not yours:\n")
 		b.WriteString(describeTasks(tasks))
 		if len(tasks) == projectStateTasks {
-			b.WriteString("(the plan is longer than this; it is cut at what is most in the way)\n")
+			b.WriteString("(the list is longer than this)\n")
 		}
 	}
 	if issues, err := m.Memories(ctx, api.MemoryKindIssue); err == nil && len(issues) > 0 {
@@ -1375,8 +1262,7 @@ func projectState(ctx context.Context, c *api.Client) string {
 			}
 		}
 	}
-	b.WriteString("\nsearch_memory has the detail behind any of this; remember writes something new down, " +
-		"and add_task writes work down.\n")
+	b.WriteString("\nsearch_memory has the detail behind any of this, and remember writes something new down.\n")
 	return b.String()
 }
 
@@ -1427,18 +1313,6 @@ func taskName(id string, goals map[string]string) string {
 		return goal + " (" + id + ")"
 	}
 	return id
-}
-
-// taskOwner is who a task belongs to, for a tool's answer.
-func taskOwner(t api.Task) string {
-	if t.Agent == "" {
-		return "whichever agent picks it up"
-	}
-	return t.Agent
-}
-
-func openTask(status string) bool {
-	return status != api.TaskDone && status != api.TaskAbandoned
 }
 
 // oneLine folds text onto one line and cuts it, so a list of results stays a
