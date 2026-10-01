@@ -124,6 +124,16 @@ func (s *supervisor) resize(ctx context.Context, req api.VMResizeRequest) error 
 	if req.MemoryCap != 0 && (req.MemoryCap < live.MinMemory || req.MemoryCap > live.MaxMemory) {
 		return errConflict(fmt.Sprintf("the VM booted with room for %s of memory: a cap of %s needs a restart", gib(live.MaxMemory), gib(req.MemoryCap)))
 	}
+	if req.Disk != 0 && req.Disk != live.MinDisk {
+		switch {
+		case live.MaxDisk == 0:
+			return errConflict("the VM's disk can't grow while it runs: it needs a restart")
+		case req.Disk < live.MinDisk:
+			return errConflict(fmt.Sprintf("the VM's disk is %s, and a disk only grows", gib(live.MinDisk)))
+		case req.Disk > live.MaxDisk:
+			return errConflict(fmt.Sprintf("a disk of %s: the most is %s", gib(req.Disk), gib(live.MaxDisk)))
+		}
+	}
 	if req.CPUs != 0 && req.CPUs != c.CPUs {
 		if err := s.m.setCPUs(ctx, req.CPUs); err != nil {
 			return err
@@ -138,6 +148,16 @@ func (s *supervisor) resize(ctx context.Context, req api.VMResizeRequest) error 
 	if req.MemoryCap != 0 && req.MemoryCap != c.MemoryCap {
 		c.MemoryCap = req.MemoryCap
 		s.logf("memory cap: %s", gib(c.MemoryCap))
+	}
+	if req.Disk != 0 && req.Disk > live.MinDisk {
+		if err := s.m.setDisk(ctx, req.Disk); err != nil {
+			return err
+		}
+		s.logf("pool disk: %s → %s", gib(live.MinDisk), gib(req.Disk))
+		c.Disk = req.Disk
+		if _, err := s.ssh(ctx, GrowPoolScript(req.Disk)); err != nil {
+			return fmt.Errorf("the VM's disk is %s now, but its pool didn't grow to it: %w", gib(req.Disk), err)
+		}
 	}
 	s.mu.Lock()
 	s.c = c
@@ -219,8 +239,15 @@ func offStatus(c Config, l Layout) api.VMStatus {
 		if fi, err := os.Stat(disk); err == nil {
 			st.Disk.Size += fi.Size()
 			st.Disk.Used += allocated(fi)
+			if disk == l.PoolDisk() {
+				st.Disk.Pool = fi.Size()
+			}
 		}
 	}
+	// A disk only grows, and a VM that's off has the size it was given
+	// (Config.Disk) when it next starts.
+	st.Limits.MinDisk = max(st.Disk.Pool, c.Disk)
+	st.Limits.MaxDisk = max(api.VMMaxDisk, st.Limits.MinDisk)
 	st.Disk.HostFree = hostFree(l.Dir())
 	return st
 }
