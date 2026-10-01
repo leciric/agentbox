@@ -3,8 +3,9 @@
 // the current environment (this machine's daemon, or one on a hub), signs in to
 // hubs, and installs the command-line tool.
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
-import { hostname } from 'node:os';
+import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
+import { AppLog, captureConsole, reportSections, type AppError } from './applog';
 import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
@@ -15,12 +16,19 @@ import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
 import { Streams } from './streams';
-import { learnMode } from './vmmode';
+import { learnMode, linuxVM } from './vmmode';
 import { allowMicrophone, enableWebGPU } from './voice';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import './vmpower';
 
 guardStdio();
+// The app's log, for problem reports (applog.ts): console and every uncaught
+// error. The monitor only watches: Electron still shows its dialog for an
+// uncaught exception, and the window is told, to offer or send an error
+// report (the renderer's lib/errorReports.ts).
+const appLog = new AppLog(app.getPath('logs'));
+captureConsole(appLog);
+process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
 registerMediaScheme();
 enableWebGPU();
 
@@ -68,6 +76,23 @@ ipcMain.handle('app:info', () => ({
   packaged: app.isPackaged,
   platform: process.platform,
 }));
+
+// Problem reports: the app's own sections, which the daemon redacts and
+// sends with its own (internal/daemon/report.go), and the window's uncaught
+// errors, kept with the main process's.
+ipcMain.handle('report:sections', () =>
+  reportSections(appLog, {
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    platform: process.platform,
+    arch: arch(),
+    target: currentTarget().kind === 'local' ? 'this machine' : 'an environment on a hub',
+    vmMode: linuxVM(),
+  }),
+);
+ipcMain.on('report:windowError', (_event, err: Pick<AppError, 'name' | 'message' | 'stack'>) => appLog.windowError(err));
+ipcMain.handle('report:openLogs', () => shell.openPath(app.getPath('logs')));
 
 ipcMain.handle('stream:open', (_event, path: string) => {
   if (!path.startsWith('/v1/')) throw new Error(`not an API path: ${path}`);

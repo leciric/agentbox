@@ -389,6 +389,12 @@ type Settings struct {
 	// else. On unless it was turned off, and never sent while UpdateCheck is
 	// off or something blocks it.
 	UsageStats bool `json:"usageStats"`
+	// ErrorReports says whether the app sends a report of each uncaught error
+	// by itself (ReportKindError). Off unless the user turned it on;
+	// ErrorReportsAsked says whether they were ever asked, which the app does
+	// the first time an error happens.
+	ErrorReports      bool `json:"errorReports"`
+	ErrorReportsAsked bool `json:"errorReportsAsked"`
 	// PRWatch says whether the daemon watches every agent's open pull request
 	// until it's merged or closed, and tells the agent when it conflicts with
 	// its base, its checks fail or a reviewer asks for changes. On unless it
@@ -540,6 +546,8 @@ type UpdateSettingsRequest struct {
 	// UsageStats turns the anonymous usage stats on or off. Off also forgets
 	// the counts not sent yet.
 	UsageStats *bool `json:"usageStats,omitempty"`
+	// ErrorReports turns automatic error reports on or off.
+	ErrorReports *bool `json:"errorReports,omitempty"`
 	// PRWatch turns the pull request watch on or off.
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
@@ -2245,4 +2253,68 @@ var AppFeatures = []string{
 	FeatureSettingsGeneral, FeatureSettingsModels, FeatureSettingsResources, FeatureSettingsProject, FeatureSettingsSearch,
 	FeatureMenuOpenChat, FeatureMenuOpenTerminal, FeatureMenuInfo, FeatureMenuLifecycle, FeatureMenuRetire,
 	FeatureMenuCopyBranch, FeatureMenuOpenPullRequest, FeatureMenuDestroy,
+}
+
+// Problem reports (internal/report, internal/daemon/report.go): what a user
+// sends AgentBox's developers from the app's "Report a problem" or `agentbox
+// report`, and what the app sends by itself about an uncaught error once
+// Settings.ErrorReports is on. The daemon assembles, redacts and sends every
+// one, to agentbox.linting.dev, so there is one redaction for all of it.
+
+// The kinds of report.
+const (
+	ReportKindProblem = "problem" // the user's own, with their message
+	ReportKindError   = "error"   // an uncaught error the app sent by itself
+)
+
+// The sections a report may carry, by ID. The daemon makes the first four;
+// the app adds its own.
+const (
+	ReportSectionSystem    = "system"     // version, OS, mode and setup state
+	ReportSectionDaemonLog = "daemon-log" // the end of daemon.log
+	ReportSectionVMLog     = "vm-log"     // the end of the VM supervisor's vm.log, in a VM
+	ReportSectionAppLog    = "app-log"    // the end of the app's main-process log
+	ReportSectionAppErrors = "app-errors" // the app's recent uncaught errors, main process and windows
+	ReportSectionError     = "error"      // the one error an error report is about
+)
+
+// ReportSection is one part of a report, which the user sees in full and
+// may leave out before it's sent.
+type ReportSection struct {
+	ID      string `json:"id"` // one of the ReportSection* IDs, or another [a-z0-9-] name
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+// ReportDraftRequest is POST /v1/reports/draft: the sections only the client
+// can collect, to be redacted alongside the daemon's.
+type ReportDraftRequest struct {
+	Sections []ReportSection `json:"sections"`
+}
+
+// ReportDraft is everything a report would send, already redacted: what the
+// user is shown before sending it.
+type ReportDraft struct {
+	// Install, Version, OS and Arch go with every report, as they go with the
+	// update check: the install is the same random ID.
+	Install  string          `json:"install"`
+	Version  string          `json:"version"`
+	OS       string          `json:"os"`
+	Arch     string          `json:"arch"`
+	Sections []ReportSection `json:"sections"`
+	// Endpoint is where the report goes.
+	Endpoint string `json:"endpoint"`
+}
+
+// ReportRequest is POST /v1/reports: send a report. The daemon redacts the
+// message and every section again before sending them.
+type ReportRequest struct {
+	Kind     string          `json:"kind"` // ReportKindProblem or ReportKindError
+	Message  string          `json:"message"`
+	Sections []ReportSection `json:"sections"`
+}
+
+// ReportSent is the answer to a report that was sent.
+type ReportSent struct {
+	ID string `json:"id"` // the server's ID for it, to quote when asking about it
 }

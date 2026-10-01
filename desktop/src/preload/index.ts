@@ -236,6 +236,15 @@ const bridge = {
   // chatImageUrl is where the renderer loads a picture sent in a chat, given
   // its daemon path (.../chat/images/<id>); main/media.ts serves it too.
   chatImageUrl: (path: string): string => `agentbox-media://api${path}`,
+  // Problem reports: the app's own sections of one (main/applog.ts), a
+  // window's uncaught error to keep with them, the main process's uncaught
+  // errors as they happen, and the folder the app's logs are in.
+  report: {
+    sections: (): Promise<T.ReportSection[]> => ipcRenderer.invoke('report:sections'),
+    windowError: (err: { name: string; message: string; stack?: string }) => ipcRenderer.send('report:windowError', err),
+    onAppError: (fn: (err: { at: string; where: 'main' | 'window'; name: string; message: string; stack?: string }) => void) => listen('app:error', fn),
+    openLogs: (): Promise<string> => ipcRenderer.invoke('report:openLogs'),
+  },
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:directory'),
   openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),

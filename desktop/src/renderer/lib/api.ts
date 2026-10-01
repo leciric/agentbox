@@ -93,6 +93,8 @@ export const api = {
   latestRelease: () => call<T.UpdateAvailable>('GET', '/v1/update/release'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
   countFeature: (feature: string) => call<void>('POST', `/v1/usage-stats/${encodeURIComponent(feature)}`),
+  reportDraft: (req: T.ReportDraftRequest) => call<T.ReportDraft>('POST', '/v1/reports/draft', req),
+  sendReport: (req: T.ReportRequest) => call<T.ReportSent>('POST', '/v1/reports', req),
   tokens: (q: TokenQuery) => call<T.TokenReport>('GET', `/v1/tokens${tokenParams(q)}`),
   claudeLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits'),
   tokenTurns: (q: TokenQuery, limit = 100) => call<T.TokenTurn[]>('GET', `/v1/tokens/turns${tokenParams(q, { limit: String(limit) })}`),

@@ -234,6 +234,14 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   mediaUrl: (id: string, path?: string) =>
     `${apiBase()}/v1/media/${encodeURIComponent(id)}/file${path ? `?path=${encodeURIComponent(path)}` : ''}`,
   chatImageUrl: (path: string) => `${apiBase()}${path}`,
+  // The web app has no main process: a report carries only the daemon's
+  // sections and the page's own errors.
+  report: {
+    sections: () => Promise.resolve([]),
+    windowError: () => {},
+    onAppError: () => () => {},
+    openLogs: unavailable("Opening the app's logs"),
+  },
   pickDirectory: () => Promise.resolve(null),
   openPath: unavailable('Opening a folder'),
   showItem: unavailable('Showing a file'),

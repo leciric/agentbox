@@ -63,6 +63,7 @@ import (
 	"agentbox/internal/hostos"
 	"agentbox/internal/hostvm/chv"
 	"agentbox/internal/paths"
+	"agentbox/internal/report"
 )
 
 const (
@@ -670,6 +671,7 @@ func (v *VM) vmEnv() []string {
 	}
 	if v.CHV != nil {
 		env = append(env, fmt.Sprintf("%s=%d", vmMemoryCapEnv, v.CHV.Config.MemoryCap))
+		env = append(env, report.VMLogEnv+"="+v.CHV.Layout.Log())
 		env = append(env, hostos.VMDisksEnv+"="+v.CHV.Layout.Dir())
 	}
 	if v.CHV != nil && !v.CHV.Config.VZ() {

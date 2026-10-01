@@ -32,6 +32,7 @@ work on its own desktop, and review what it built before merging.
 - [Quick start](#quick-start)
 - [Requirements and limitations](#requirements-and-limitations)
 - [Update check](#update-check)
+- [Reporting a problem](#reporting-a-problem)
 - [The command line](#the-command-line)
 - [Contributing](#contributing)
 - [Contributors](#contributors)
@@ -228,6 +229,23 @@ added to it), since `agentbox.linting.dev` only answers with stable releases. Go
 **To turn the check off**, and the usage stats with it, switch off **Check for updates** in the app under **Settings → General**,
 or set `AGENTBOX_NO_UPDATE_CHECK=1` or `DO_NOT_TRACK=1` in the daemon's environment (restart it with
 `agentbox daemon stop` afterwards). Builds from source, which report version `dev`, never check.
+
+## Reporting a problem
+
+**Report a problem**, under **Settings → General**, or `agentbox report` sends us what went wrong in
+your words, with what helps us find out why: AgentBox's version, your OS and how AgentBox runs on it
+(on the machine itself, or in its VM), how its setup stands, the end of the daemon's log and, in VM
+mode, of the VM supervisor's, and from the app its own log and recent errors. Tokens, keys, email
+addresses and home folders are taken out of all of it, your message included, and you see every part
+in full before anything is sent, and can leave any of them out (`agentbox report --show` prints it,
+and sends nothing). It goes to `https://agentbox.linting.dev/api/v1/reports` with the same four fields
+as the update check, and is kept for 90 days.
+
+**Error reports** are the same, sent by the app itself when it hits an error it didn't expect: the
+error, where in the app it happened, and the app's version and OS, with no logs and nothing you
+typed. They are off until you turn them on: the first time an error happens, the app asks. Switch
+**Send error reports automatically** under **Settings → General** to change your answer. They are
+never sent while `DO_NOT_TRACK=1` is set.
 
 ## The command line
 

@@ -970,3 +970,16 @@ func (c *Client) RemoveQueued(ctx context.Context, ref string) error {
 	}
 	return c.do(ctx, http.MethodDelete, "/v1/queue/"+url.PathEscape(project)+"/"+url.PathEscape(name), nil, nil)
 }
+
+// ReportDraft is the report the user would send, redacted, with the client's
+// own sections (none from the command line) after the daemon's.
+func (c *Client) ReportDraft(ctx context.Context, req ReportDraftRequest) (ReportDraft, error) {
+	var draft ReportDraft
+	return draft, c.do(ctx, http.MethodPost, "/v1/reports/draft", req, &draft)
+}
+
+// SendReport sends a report to AgentBox's developers.
+func (c *Client) SendReport(ctx context.Context, req ReportRequest) (ReportSent, error) {
+	var sent ReportSent
+	return sent, c.do(ctx, http.MethodPost, "/v1/reports", req, &sent)
+}

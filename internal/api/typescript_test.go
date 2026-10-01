@@ -46,6 +46,7 @@ var tsTypes = []any{
 	Task{}, AddTaskRequest{}, UpdateTaskRequest{}, LinkTasksRequest{},
 	TokenCounts{}, ModelTokens{}, AgentTokens{}, TokenBucket{}, TokenReport{}, TokenTurn{}, ClaudeLimit{}, ClaudeLimitWindow{},
 	VMStatus{}, VMMemory{}, VMDisk{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
+	ReportSection{}, ReportDraftRequest{}, ReportDraft{}, ReportRequest{}, ReportSent{},
 }
 
 var tsConstants = [][2]string{
@@ -62,6 +63,9 @@ var tsConstants = [][2]string{
 	{"ChatOff", ChatOff}, {"ChatStarting", ChatStarting}, {"ChatReady", ChatReady}, {"ChatRunning", ChatRunning}, {"ChatWaiting", ChatWaiting}, {"ChatError", ChatError},
 	{"MemoryKindProject", MemoryKindProject}, {"MemoryKindEpisodic", MemoryKindEpisodic}, {"MemoryKindDecision", MemoryKindDecision},
 	{"MemoryKindDiscovery", MemoryKindDiscovery}, {"MemoryKindIssue", MemoryKindIssue},
+	{"ReportKindProblem", ReportKindProblem}, {"ReportKindError", ReportKindError},
+	{"ReportSectionSystem", ReportSectionSystem}, {"ReportSectionDaemonLog", ReportSectionDaemonLog}, {"ReportSectionVMLog", ReportSectionVMLog},
+	{"ReportSectionAppLog", ReportSectionAppLog}, {"ReportSectionAppErrors", ReportSectionAppErrors}, {"ReportSectionError", ReportSectionError},
 	{"ReportDone", ReportDone}, {"ReportPartial", ReportPartial}, {"ReportBlocked", ReportBlocked}, {"ReportFailed", ReportFailed},
 	{"ContextForLead", ContextForLead}, {"ContextForAgent", ContextForAgent}, {"ContextForTool", ContextForTool},
 	{"ConsolidationMechanical", ConsolidationMechanical}, {"ConsolidationDistill", ConsolidationDistill},

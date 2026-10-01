@@ -43,6 +43,7 @@ import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
+import { ReportDialog } from "./ReportDialog";
 import { WhatsNewDialog } from "./WhatsNewDialog";
 import {
   AgentQueue,
@@ -891,6 +892,13 @@ function InstalledSettings({
               modified: changed((s) => !s.usageStats),
               render: () => <UsageStats />,
             },
+            {
+              id: "error-reports",
+              label: "Send error reports automatically",
+              keywords: "crash error report bug telemetry privacy automatic uncaught",
+              modified: changed((s) => s.errorReports),
+              render: () => <ErrorReportsSetting />,
+            },
             ...(info
               ? [
                   {
@@ -901,6 +909,18 @@ function InstalledSettings({
                   },
                 ]
               : []),
+          ],
+        },
+        {
+          id: "help",
+          title: "Help",
+          entries: [
+            {
+              id: "report-problem",
+              label: "Report a problem",
+              keywords: "bug issue feedback report problem logs support help debug",
+              render: () => <ReportProblemRow />,
+            },
           ],
         },
       ],
@@ -1626,6 +1646,59 @@ function UsageStats() {
           Off, because {blocked ?? "Check for updates is off"}.
         </SettingNote>
       )}
+    </SettingRow>
+  );
+}
+
+// ErrorReportsSetting is whether the app sends a report of each uncaught
+// error by itself (components/ErrorReports.tsx), which it offers the first
+// time one happens.
+function ErrorReportsSetting() {
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (errorReports: boolean) => api.updateSettings({ errorReports }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  return (
+    <SettingRow
+      label="Send error reports automatically"
+      description="When the app hits an error it didn't expect, sends AgentBox's developers a report of it."
+      details={
+        <>
+          The error, where in the app it happened, and the app's version and
+          OS, with tokens, emails and home folders taken out: no logs, and
+          nothing you typed.
+        </>
+      }
+      control={
+        <Switch
+          data-error-reports
+          aria-label="Send error reports automatically"
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.errorReports ?? false}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
+// ReportProblemRow opens "Report a problem" (components/ReportDialog.tsx).
+function ReportProblemRow() {
+  const [open, setOpen] = useState(false);
+  return (
+    <SettingRow
+      label="Report a problem"
+      description="Tell AgentBox's developers what went wrong, with the logs that help them find out why. You see all of it before it's sent."
+      control={
+        <Button variant="secondary" data-report-problem onClick={() => setOpen(true)}>
+          Report…
+        </Button>
+      }
+    >
+      <ReportDialog open={open} onOpenChange={setOpen} />
     </SettingRow>
   );
 }
