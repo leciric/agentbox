@@ -15,6 +15,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
+	"agentbox/internal/paths"
 )
 
 func testSupervisor(t *testing.T, ch *fakeCH) *supervisor {
@@ -296,7 +297,7 @@ func TestLockHolders(t *testing.T) {
 // ones: their disk, in whatever shape, gives way to what the images take on
 // this machine's disk, and a running VM still reads as running.
 func TestStatusFromAnOlderSupervisor(t *testing.T) {
-	p := testPaths(t)
+	p := shortPaths(t)
 	l := NewLayout(p, "agentbox")
 	c := Config{Name: "agentbox", CPUs: 2, MemoryMin: 4 * GiB, MemoryCap: 8 * GiB}
 	if err := c.Save(p); err != nil {
@@ -343,4 +344,21 @@ func TestStatusFromAnOlderSupervisor(t *testing.T) {
 			t.Errorf("%s: disk = %+v, want what the images take here", name, st.Disk)
 		}
 	}
+}
+
+// shortPaths is testPaths in a directory the VM's socket fits under: a unix
+// socket's path can't be longer than 104 bytes on macOS, whose TMPDIR
+// (/var/folders/…) with a test's name and data/run/vm.sock is longer than
+// that. A short directory in /tmp stands in when t.TempDir is too long.
+func shortPaths(t *testing.T) paths.Paths {
+	t.Helper()
+	dir := t.TempDir()
+	if len(dir)+len("/data/run/vm.sock") >= 100 {
+		var err error
+		if dir, err = os.MkdirTemp("/tmp", "ab"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	}
+	return paths.Paths{Config: filepath.Join(dir, "config"), Data: filepath.Join(dir, "data")}
 }
