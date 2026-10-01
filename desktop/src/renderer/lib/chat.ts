@@ -80,9 +80,11 @@ export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void 
   recent.set(ev.agent, list);
 
   if (ev.session) {
-    const state = ev.session.state;
+    const { state, stalledSince } = ev.session;
     queryClient.setQueryData<T.Agent[]>(['agents'], (agents) =>
-      agents?.some((a) => a.ref === ev.agent && a.chat !== state) ? agents.map((a) => (a.ref === ev.agent ? { ...a, chat: state } : a)) : agents,
+      agents?.some((a) => a.ref === ev.agent && (a.chat !== state || a.stalledSince !== stalledSince))
+        ? agents.map((a) => (a.ref === ev.agent ? { ...a, chat: state, stalledSince } : a))
+        : agents,
     );
     // The lead isn't in the agents list: its state is on the project's chat,
     // which the rail's Project chat avatar reads.
@@ -148,7 +150,7 @@ export type Row =
   | { type: 'assistant'; key: string; item: T.ChatItem; final: boolean }
   | { type: 'work'; key: string; items: T.ChatItem[]; live: boolean }
   | { type: 'fold'; key: string; turn: string; label: string; open: boolean }
-  | { type: 'working'; key: string; since: string }
+  | { type: 'working'; key: string; since: string; stalledSince?: string }
   | { type: 'thinking'; key: string }
   | { type: 'note'; key: string; item: T.ChatItem }
   | { type: 'subagent'; key: string; item: T.ChatItem; children: T.ChatItem[] }
@@ -249,7 +251,7 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
     const open = hidden === 0 || openTurns.has(turn.id);
 
     if (user && !isSilent(user)) rows.push({ type: 'user', key: user.id, item: user });
-    if (running) rows.push({ type: 'working', key: `working:${turn.id}`, since: user.createdAt });
+    if (running) rows.push({ type: 'working', key: `working:${turn.id}`, since: user.createdAt, stalledSince: thread.session?.stalledSince });
     if (hidden > 0) rows.push({ type: 'fold', key: `fold:${turn.id}`, turn: turn.id, label: foldLabel(user!), open });
 
     let group: T.ChatItem[] = [];

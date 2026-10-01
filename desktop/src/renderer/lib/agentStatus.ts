@@ -15,7 +15,13 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   if (agent.state === 'missing') return { text: 'Missing', tone: 'error' };
   if (agent.state === 'queued') return { text: `Queued #${agent.queuePosition ?? '?'}`, tone: 'muted' };
   if (agent.state === 'initializing') return { text: 'Initializing', tone: 'live' };
+  // A stalled turn still says running: the daemon's stall watch found no
+  // progress on it for long enough that it is stuck, not working.
+  if (agent.chat === 'running' && agent.stalledSince) return { text: 'Stalled', tone: 'error' };
   if (agent.chat === 'running') return { text: 'Working', tone: 'live' };
+  // The AI tool exited, mid-turn or not: nothing runs until somebody sends
+  // it a message, which isn't the same as idle.
+  if (agent.state === 'running' && agent.chat === 'error') return { text: 'Chat stopped', tone: 'error' };
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? 'Starting' : 'Idle', tone: 'muted' };
   if (agent.state === 'paused') return { text: 'Paused', tone: 'muted' };
   return { text: 'Stopped', tone: 'muted' };
@@ -65,8 +71,9 @@ export type Mood = 'working' | 'asking' | 'idle' | 'sleeping' | 'error';
 // whether it has a question or a credential request waiting on the user,
 // which lives in the project's questions rather than on the agent (see
 // isAsking); a permission prompt is the chat's own 'waiting'.
-export function avatarMood(agent: { state: string; chat?: string }, asking = false): Mood {
+export function avatarMood(agent: { state: string; chat?: string; stalledSince?: string }, asking = false): Mood {
   if (agent.state === 'incomplete' || agent.state === 'missing' || agent.chat === 'error') return 'error';
+  if (agent.state === 'running' && agent.chat === 'running' && agent.stalledSince) return 'error';
   if (agent.state !== 'running') return 'sleeping';
   if (agent.chat === 'waiting' || asking) return 'asking';
   if (agent.chat === 'running' || agent.chat === 'starting') return 'working';
@@ -96,7 +103,7 @@ export function summarizeStatus(agents: T.Agent[]): { text: string; tone: Status
 // useMood is avatarMood with the asking read from the agent's project: the
 // same ['questions', project] query the rail and the credential cards read,
 // so the rows of one project share one request.
-export function useMood(agent: { project: string; ref: string; state: string; chat?: string }): Mood {
+export function useMood(agent: { project: string; ref: string; state: string; chat?: string; stalledSince?: string }): Mood {
   const questions = useQuery({ queryKey: ['questions', agent.project], queryFn: () => api.questions(agent.project) });
   return avatarMood(agent, isAsking(questions.data, agent.ref));
 }

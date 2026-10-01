@@ -611,7 +611,11 @@ type Agent struct {
 	// or cli, its own command line in the terminal.
 	Interface string `json:"interface"`
 	Chat      string `json:"chat,omitempty"` // the chat session's state, while this daemon has one
-	State     string `json:"state"`          // running, stopped, paused, initializing, incomplete, missing or queued
+	// StalledSince is set while its chat's running turn has stalled
+	// (ChatSession.StalledSince): its chat still says running, but nothing
+	// has come of it since then.
+	StalledSince *time.Time `json:"stalledSince,omitempty"`
+	State        string     `json:"state"` // running, stopped, paused, initializing, incomplete, missing or queued
 	// QueuePosition is a queued agent's place in its project's queue, 1 for
 	// the next to start; absent for any other agent.
 	QueuePosition int    `json:"queuePosition,omitempty"`
@@ -1507,6 +1511,14 @@ const (
 	// AgentPRBroken is the pull request watch finding the agent's pull
 	// request newly broken: Summary says how, PR is the pull request.
 	AgentPRBroken = "pr_broken"
+	// AgentStalled is the stall watch finding the agent's running turn
+	// stalled: no progress for as long as it allows. Summary says for how
+	// long.
+	AgentStalled = "stalled"
+	// AgentChatLost is the agent's AI tool exiting in the middle of a turn:
+	// killed, crashed, or cut off with its machine. Summary is what the chat
+	// said about it.
+	AgentChatLost = "chat_lost"
 )
 
 // EventAgentEvent carries an AgentEvent on the event stream.

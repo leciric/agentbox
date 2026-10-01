@@ -92,6 +92,12 @@ type Manager struct {
 	// daemon marks the account rejected, so a dead token is named where it is
 	// stored rather than only inside the one agent that hit it.
 	AuthFailed func(a state.Agent, detail string)
+	// Lost, when set, is called when an agent's AI tool exited while a turn
+	// was running, with what the chat says about it ("Claude Code exited
+	// (exit status 143): …"). Its turn fails, which clears "working", but
+	// nothing else would tell anybody the work stopped there. Off the
+	// conversation's lock, in a goroutine of its own; never for a lead.
+	Lost func(a state.Agent, why string)
 	// Limits, when set, is given every reading of the account's usage limits
 	// a chat's AI tool relays (D85). Off the conversation's lock, in a
 	// goroutine of its own.
@@ -437,7 +443,7 @@ func (c *conversation) beginTurn(it *api.ChatItem, text string, images []api.Cha
 	// Whatever the turn was waiting for, it is running now: a pending resume
 	// has been overtaken, and the limit isn't what the session is doing.
 	c.endLimit()
-	t := &turn{id: it.ID, text: text, images: images, startedAt: it.CreatedAt}
+	t := &turn{id: it.ID, text: text, images: images, startedAt: it.CreatedAt, progressAt: it.CreatedAt}
 	c.turn = t
 	c.tools, c.plan, c.open, c.openMessage = map[string]*api.ChatItem{}, nil, nil, ""
 	started := it.CreatedAt
@@ -737,6 +743,9 @@ func (m *Manager) Answer(a state.Agent, itemID, optionID string) (api.ChatItem, 
 	}
 	delete(c.pending, itemID)
 	reply(out, nil)
+	// However long the question waited, that was somebody's time, not the
+	// turn's: its clock starts again from the answer.
+	c.progressed()
 	c.touch(it)
 	c.session.State = c.stateNow()
 	c.markSession()
@@ -1159,6 +1168,10 @@ type turn struct {
 	// generate: ACP's own messages carry no timing, so this is this turn's
 	// own clock on them as they arrive.
 	firstOutputAt, lastOutputAt time.Time
+	// progressAt is when the adapter last sent anything while this turn ran,
+	// or the turn began, or somebody last answered it: the clock the daemon's
+	// stall watch reads (Progress).
+	progressAt time.Time
 }
 
 // generationMS is how long a turn took to generate: from its first to its
@@ -1187,6 +1200,7 @@ type adapter struct {
 	spend     spend  // what it has cost, for the token ledger (tokens.go)
 	window    int64  // the compact window it was started with, 0 for the whole (window.go)
 	sizeOf    string // the model and window last remembered from its usage_update
+	lostTurn  bool   // a turn's prompt failed because its output closed: it exited mid-turn
 	// models is what the store knew of Claude model windows when it started,
 	// and what its own results have said since: the model's whole window the
 	// context ring measures against (contextSize).
@@ -1418,6 +1432,9 @@ func (c *conversation) run(ad *adapter) {
 	if c.adapter != ad {
 		return // stopped on purpose
 	}
+	// Mid-turn whichever got here first: the prompt, failing on the closed
+	// output, or this, before the prompt could.
+	midTurn := ad.lostTurn || (c.turn != nil && !c.turn.cancelled)
 	c.adapter = nil
 	c.cancelPending()
 	msg := ToolNames[c.agent.AI] + " exited"
@@ -1432,6 +1449,10 @@ func (c *conversation) run(ad *adapter) {
 	c.markSession()
 	c.flush(true)
 	c.m.logf("chat %s: %s", c.agent.Ref(), msg)
+	if midTurn && c.m.Lost != nil && !c.agent.IsLead() && !c.gone {
+		agent := c.agent
+		c.m.background.Go(func() { c.m.Lost(agent, msg) })
+	}
 }
 
 // connect launches the adapter, then resumes the agent's session or starts a
@@ -1747,6 +1768,9 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	// response is empty, so what is booked is the cost alone.
 	c.book(ad, state.TokensTurn, t.id, &res, generationMS(t))
 	if err != nil {
+		if errors.Is(err, acp.ErrClosed) && c.turn == t && !t.cancelled {
+			ad.lostTurn = true
+		}
 		c.finishTurn(t, nil, err)
 	} else {
 		c.finishTurn(t, &res, nil)
@@ -1859,7 +1883,7 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		c.touch(user)
 	}
 	c.turn, c.tools, c.plan = nil, map[string]*api.ChatItem{}, nil
-	c.session.TurnStartedAt = nil
+	c.session.TurnStartedAt, c.session.StalledSince = nil, nil
 	c.session.State = c.stateNow()
 	c.markSession()
 	c.flush(true)
@@ -1935,6 +1959,9 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	if c.adapter != h.ad {
 		return
 	}
+	// Whatever it is, and whichever session it's for — a subagent's own
+	// updates are the turn's too — the adapter is alive and getting on.
+	c.progressed()
 	if h.ad.sessionID != "" && n.SessionID != h.ad.sessionID {
 		// Another session is one of this adapter's subagents, or nothing to
 		// do with this chat. A subagent is recorded whether or not a turn is
@@ -2053,6 +2080,7 @@ func (h handler) Request(method string, params json.RawMessage, reply func(any, 
 		reply(cancelled, nil)
 		return
 	}
+	c.progressed()
 	title := ""
 	if req.ToolCall.Title != nil {
 		title = *req.ToolCall.Title

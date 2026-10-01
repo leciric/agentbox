@@ -134,6 +134,10 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
+    // Its turn still running, but the stall watch found no progress on it for
+    // 22 minutes; and one whose AI tool exited mid-turn (exit status 143).
+    agent({ ref: `${PROJECT}/agent-88`, title: 'Import the product catalogue', chat: 'running', stalledSince: new Date(Date.now() - 22 * 60_000).toISOString() }),
+    agent({ ref: `${PROJECT}/agent-87`, title: 'Migrate the reminders table', ai: 'codex', chat: 'error' }),
     // A name given to create by hand, as long as the title beside it: the
     // row's name must give way before it pushes the title out.
     agent({

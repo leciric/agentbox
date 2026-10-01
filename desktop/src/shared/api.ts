@@ -217,6 +217,7 @@ export interface Agent {
   githubAccount: string;
   interface: string;
   chat?: string;
+  stalledSince?: string;
   state: string;
   queuePosition?: number;
   ip: string;
@@ -940,6 +941,7 @@ export interface FleetAgent {
   githubAccount: string;
   interface: string;
   chat?: string;
+  stalledSince?: string;
   state: string;
   queuePosition?: number;
   ip: string;
@@ -1204,6 +1206,7 @@ export interface ChatSession {
   error?: string;
   adapter?: string;
   turnStartedAt?: string;
+  stalledSince?: string;
   options: ChatOption[];
   commands: ChatCommand[];
   contextUsed?: number;

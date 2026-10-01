@@ -135,7 +135,16 @@ func doingOrIdle(f api.FleetAgent) string {
 	if f.Idle {
 		return "idle, holding a machine"
 	}
-	return dash(chatDoing(f.Chat))
+	return dash(agentDoing(f.Agent))
+}
+
+// agentDoing is what the agent is doing right now: its chat's state, unless
+// that turn has stalled, when it only looks like working.
+func agentDoing(a api.Agent) string {
+	if a.StalledSince != nil {
+		return "stalled, no progress since " + ago(*a.StalledSince)
+	}
+	return chatDoing(a.Chat)
 }
 
 // chatDoing turns a chat's state into what the agent is doing right now.
