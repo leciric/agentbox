@@ -16,7 +16,7 @@ func TestUserManagedTasksMigrationClearsTheList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	clear := slices.Index(migrations, "DELETE FROM task_dependencies")
 	if clear < 0 {
 		t.Fatal("no migration clears the task list")
