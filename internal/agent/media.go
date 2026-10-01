@@ -317,9 +317,9 @@ func startRecordingScript(st recordingState, enc videoEncoder) (string, error) {
 		// XFIXES, so the cursor lands in the frames; it is spelled out here
 		// because the whole point of desktop input is seeing it.
 		recorder = fmt.Sprintf(`[ -e /tmp/.X11-unix/X99 ] || { echo "the display isn't running: start the browser first" >&2; exit 1; }
-%[2]ssetsid ffmpeg -hide_banner -loglevel %[3]s %[5]s-f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2%[6]s' \
-  -c:v %[7]s %[4]s %[8]s-movflags +faststart "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`,
-			st.Limit, overlay, level, enc.codecArgs(fast), enc.Input, enc.Filter, enc.Codec, enc.pixelFormat())
+%[2]ssetsid ffmpeg -hide_banner -loglevel %[3]s %[4]s-f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d \
+  %[5]s "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`,
+			st.Limit, overlay, level, enc.Input, enc.outputArgs(fast))
 		started = `i=0
 while [ ! -e "$dir/recording.mp4" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 0.05; i=$((i + 1)); done`
 	case "android":
@@ -401,10 +401,9 @@ burn_overlay() {
   [ -n "$start" ] && [ -n "$size" ] || { echo "ffmpeg didn't say when the recording started" >"$dir/recording.overlay.log"; return 1; }
   agentbox desktop overlay --events "$dir/recording.events" --start "$start" --width "${size%%%%x*}" --height "${size##*x}" \
     --bottom %d >"$dir/recording.ass" 2>"$dir/recording.overlay.log" || return 1
-  (cd "$dir" && ffmpeg -hide_banner -loglevel error -y -i recording.mp4 -vf ass=recording.ass -c:v libx264 -preset veryfast -crf 28 \
-    -pix_fmt yuv420p -movflags +faststart recording.overlay.mp4) >>"$dir/recording.overlay.log" 2>&1 || return 1
+  (cd "$dir" && ffmpeg -hide_banner -loglevel error -y -i recording.mp4 -vf ass=recording.ass %s recording.overlay.mp4) >>"$dir/recording.overlay.log" 2>&1 || return 1
   mv "$dir/recording.overlay.mp4" "$dir/recording.mp4"
-}`, dockMargin+dockHeight/2)
+}`, dockMargin+dockHeight/2, overlayEncodeArgs)
 
 func (m *Manager) Recording(ctx context.Context, a state.Agent) (RecordingStatus, error) {
 	if m.requireRunning(ctx, a) != nil {
