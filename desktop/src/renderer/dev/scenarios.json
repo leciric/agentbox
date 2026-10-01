@@ -246,6 +246,13 @@
     "height": 1400
   },
   {
+    "id": "tokens-project-account-dark",
+    "description": "A project on the non-default \"work\" Claude account: its Tokens tab's limits card shows work's readings, not the default account's — dark",
+    "query": "tokens=1&account=work&theme=dark",
+    "width": 980,
+    "height": 900
+  },
+  {
     "id": "tokens-agent-dark",
     "description": "agent-99's own \"What it spent\" card on its Overview tab, with average TPS by model and by turn — dark",
     "query": "tokens=agent&theme=dark",
