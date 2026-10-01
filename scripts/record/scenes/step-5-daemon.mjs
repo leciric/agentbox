@@ -7,7 +7,7 @@ export default {
   height: 820,
   rcTimeout: 120_000,
   rc: String.raw`
-export XDG_CONFIG_HOME="$RECORD_WORK/config" XDG_DATA_HOME="$RECORD_WORK/data"
+export XDG_CONFIG_HOME="$RECORD_WORK/config" AGENTBOX_HOME="$RECORD_WORK/data/agentbox"
 mkdir -p "$RECORD_WORK/bin"
 if [ -n "$AGENTBOX_BIN" ]; then cp "$AGENTBOX_BIN" "$RECORD_WORK/bin/agentbox"; else go build -o "$RECORD_WORK/bin/agentbox" ./cmd/agentbox; fi
 export PATH="$RECORD_WORK/bin:$PATH"
@@ -39,7 +39,7 @@ cd "$RECORD_WORK/repos"
     { screenshot: 'in-agent-api' },
   ],
   teardown: String.raw`
-export XDG_CONFIG_HOME="$RECORD_WORK/config" XDG_DATA_HOME="$RECORD_WORK/data"
+export XDG_CONFIG_HOME="$RECORD_WORK/config" AGENTBOX_HOME="$RECORD_WORK/data/agentbox"
 ab="$RECORD_WORK/bin/agentbox"
 "$ab" destroy daemon-demo/agent-01 --force --delete-branch
 "$ab" remove daemon-demo

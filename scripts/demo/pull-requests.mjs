@@ -31,7 +31,7 @@ const R = 'readonly-project';
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_PREVIEW_ADDR: 'off',
   XDG_SESSION_TYPE: 'x11',
   // A stub incus, because this runs inside an AgentBox agent, which has no

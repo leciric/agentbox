@@ -5,7 +5,7 @@ export default {
   height: 820,
   rcTimeout: 300_000,
   rc: String.raw`
-export XDG_CONFIG_HOME="$RECORD_WORK/config" XDG_DATA_HOME="$RECORD_WORK/data"
+export XDG_CONFIG_HOME="$RECORD_WORK/config" AGENTBOX_HOME="$RECORD_WORK/data/agentbox"
 mkdir -p "$RECORD_WORK/bin"
 if [ -n "$AGENTBOX_BIN" ]; then cp "$AGENTBOX_BIN" "$RECORD_WORK/bin/agentbox"; else go build -o "$RECORD_WORK/bin/agentbox" ./cmd/agentbox; fi
 export PATH="$RECORD_WORK/bin:$PATH"
@@ -33,7 +33,7 @@ agentbox exec snap-demo/agent-01 -- "docker compose up -d --wait && docker compo
     { screenshot: 'top' },
   ],
   teardown: String.raw`
-export XDG_CONFIG_HOME="$RECORD_WORK/config" XDG_DATA_HOME="$RECORD_WORK/data"
+export XDG_CONFIG_HOME="$RECORD_WORK/config" AGENTBOX_HOME="$RECORD_WORK/data/agentbox"
 ab="$RECORD_WORK/bin/agentbox"
 "$ab" destroy snap-demo/agent-02 --force --delete-branch
 "$ab" destroy snap-demo/agent-01 --force --delete-branch

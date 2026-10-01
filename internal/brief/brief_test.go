@@ -17,7 +17,7 @@ func TestRender(t *testing.T) {
 		"agent": {
 			Project:  "pawly",
 			Agent:    "agent-02",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-02",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/agent-02",
 			Branch:   "agentbox/agent-02",
 			BaseRef:  "main",
 			IP:       "10.239.149.23",
@@ -27,7 +27,7 @@ func TestRender(t *testing.T) {
 			Project:  "pawly",
 			Agent:    "agent-03",
 			Title:    "Medication reminders",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-03",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/agent-03",
 			Branch:   "agentbox/agent-03",
 			BaseRef:  "main",
 			IP:       "10.239.149.24",
@@ -36,7 +36,7 @@ func TestRender(t *testing.T) {
 		"nesting": {
 			Project:  "agentbox",
 			Agent:    "agent-05",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/agentbox/agent-05",
+			Worktree: "/home/dev/.agentbox/worktrees/agentbox/agent-05",
 			Branch:   "agentbox/agent-05",
 			BaseRef:  "main",
 			IP:       "10.239.149.26",
@@ -48,7 +48,7 @@ func TestRender(t *testing.T) {
 		"agent-prs": {
 			Project:  "pawly",
 			Agent:    "agent-07",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-07",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/agent-07",
 			Branch:   "agentbox/feat-csv-export",
 			BaseRef:  "main",
 			IP:       "10.239.149.27",
@@ -58,7 +58,7 @@ func TestRender(t *testing.T) {
 		"secrets": {
 			Project:  "pawly",
 			Agent:    "agent-04",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/agent-04",
 			Branch:   "agentbox/agent-04",
 			BaseRef:  "main",
 			IP:       "10.239.149.25",
@@ -67,7 +67,7 @@ func TestRender(t *testing.T) {
 		"preview": {
 			Project:  "pawly",
 			Agent:    "agent-01",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-01",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/agent-01",
 			Branch:   "agentbox/agent-01",
 			BaseRef:  "main",
 		},
@@ -76,7 +76,7 @@ func TestRender(t *testing.T) {
 		"vm": {
 			Project:  "pawly",
 			Agent:    "agent-05",
-			Worktree: "/Users/dev/.local/share/agentbox/worktrees/pawly/agent-05",
+			Worktree: "/Users/dev/.agentbox/worktrees/pawly/agent-05",
 			Branch:   "agentbox/agent-05",
 			BaseRef:  "main",
 			IP:       "10.99.0.12",
@@ -88,7 +88,7 @@ func TestRender(t *testing.T) {
 		"windows": {
 			Project:  "pawly",
 			Agent:    "agent-05",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-05",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/agent-05",
 			Branch:   "agentbox/agent-05",
 			BaseRef:  "main",
 			IP:       "10.99.0.12",
@@ -100,7 +100,7 @@ func TestRender(t *testing.T) {
 		"notes": {
 			Project:  "pawly",
 			Agent:    "agent-04",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-04",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/agent-04",
 			Branch:   "agentbox/agent-04",
 			BaseRef:  "main",
 			IP:       "10.239.149.25",
@@ -115,7 +115,7 @@ func TestRender(t *testing.T) {
 			Project:  "pawly",
 			Agent:    "agent-06",
 			Title:    "OAuth login",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/agent-06",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/agent-06",
 			Branch:   "agentbox/agent-06",
 			BaseRef:  "main",
 			IP:       "10.239.149.26",
@@ -167,7 +167,7 @@ func TestRenderLeadGolden(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := brief.RenderLead(brief.LeadData{
 				Project: "pawly", Root: "/home/dev/www/pawly",
-				Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+				Worktree: "/home/dev/.agentbox/worktrees/pawly/lead",
 				BaseRef:  "main", Autonomy: tc.autonomy, CanSpawn: true,
 				PRWatch:    tc.name == "ask", // one golden file with the watch on, the others with it off
 				AgentModel: tc.agentModel, ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
@@ -204,7 +204,7 @@ func TestRenderLeadAgentPRs(t *testing.T) {
 		t.Helper()
 		got, err := brief.RenderLead(brief.LeadData{
 			Project: "pawly", Root: "/src/pawly",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/lead",
 			BaseRef:  "main", Autonomy: "ask", CanSpawn: true, AgentPRs: on,
 		})
 		if err != nil {
@@ -277,7 +277,7 @@ func TestRenderLeadAutonomy(t *testing.T) {
 		t.Helper()
 		got, err := brief.RenderLead(brief.LeadData{
 			Project: "pawly", Root: "/src/pawly",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/lead",
 			BaseRef:  "main", Autonomy: autonomy, CanSpawn: true,
 		})
 		if err != nil {
@@ -341,7 +341,7 @@ func TestRenderLeadAgentModel(t *testing.T) {
 		}
 		got, err := brief.RenderLead(brief.LeadData{
 			Project: "pawly", Root: "/src/pawly",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/lead",
 			BaseRef:  "main", Autonomy: "ask",
 			AgentModel: model, ModelMenu: menu, CanSpawn: canSpawn,
 			AgentDefaultModel: def, AgentDefaultWindow: "200k",
@@ -463,7 +463,7 @@ func TestRenderLeadNotes(t *testing.T) {
 	d := brief.LeadData{
 		Project:  "pawly",
 		Root:     "/home/dev/www/pawly",
-		Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+		Worktree: "/home/dev/.agentbox/worktrees/pawly/lead",
 		BaseRef:  "main",
 		CanSpawn: true,
 		Autonomy: "ask",
@@ -524,7 +524,7 @@ func TestRenderLeadOpenCode(t *testing.T) {
 		t.Helper()
 		got, err := brief.RenderLead(brief.LeadData{
 			Project: "pawly", Root: "/src/pawly",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/lead",
 			BaseRef:  "main", Autonomy: "ask", CanSpawn: canSpawn,
 			ModelMenu: []string{"opus", "sonnet"}, OpenCodeMenu: openCode,
 		})
@@ -564,7 +564,7 @@ func TestRenderLeadClaudeAccounts(t *testing.T) {
 		t.Helper()
 		got, err := brief.RenderLead(brief.LeadData{
 			Project: "pawly", Root: "/src/pawly",
-			Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+			Worktree: "/home/dev/.agentbox/worktrees/pawly/lead",
 			BaseRef:  "main", Autonomy: "ask", CanSpawn: true,
 			ClaudeAccounts: accounts,
 		})
@@ -603,7 +603,7 @@ func TestRenderLeadShell(t *testing.T) {
 	d := brief.LeadData{
 		Project:  "pawly",
 		Root:     "/home/dev/www/pawly",
-		Worktree: "/home/dev/.local/share/agentbox/worktrees/pawly/lead",
+		Worktree: "/home/dev/.agentbox/worktrees/pawly/lead",
 		BaseRef:  "main",
 		CanSpawn: true,
 		Autonomy: "ask",

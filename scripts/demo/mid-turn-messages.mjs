@@ -32,7 +32,7 @@ const P = 'hello-midturn';
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_PREVIEW_ADDR: 'off',
   XDG_SESSION_TYPE: 'x11',
   PATH: `${join(work, 'stub')}:${process.env.PATH}`,

@@ -195,19 +195,19 @@ func TestCopyScript(t *testing.T) {
 	dir := t.TempDir()
 	data, config, home := filepath.Join(dir, "data"), filepath.Join(dir, "config"), filepath.Join(dir, "vmhome")
 	files := map[string]string{
-		"data/state.db":                             "live",
-		"data/state.db-wal":                         "wal",
-		"data/daemon.log":                           "log",
-		"data/projects/shop/notes.md":               "notes",
-		"data/media/shop/agent-01/a.png":            "png",
-		"data/worktrees/shop/agent-01/x":            "worktree",
-		"data/vm/agentbox/disk.raw":                 "disk",
-		"data/tools/claude":                         "tool",
-		"data/backups/state-1.db":                   "backup",
-		"config/credentials/claude/work":            "token",
-		"config/secrets.key":                        "key",
-		"config/vm/agentbox.json":                   "vm",
-		"vmhome/.local/share/agentbox/state.db-wal": "stale",
+		"data/state.db":                  "live",
+		"data/state.db-wal":              "wal",
+		"data/daemon.log":                "log",
+		"data/projects/shop/notes.md":    "notes",
+		"data/media/shop/agent-01/a.png": "png",
+		"data/worktrees/shop/agent-01/x": "worktree",
+		"data/vm/agentbox/disk.raw":      "disk",
+		"data/tools/claude":              "tool",
+		"data/backups/state-1.db":        "backup",
+		"config/credentials/claude/work": "token",
+		"config/secrets.key":             "key",
+		"config/vm/agentbox.json":        "vm",
+		"vmhome/.agentbox/state.db-wal":  "stale",
 	}
 	for rel, content := range files {
 		path := filepath.Join(dir, rel)
@@ -221,7 +221,7 @@ func TestCopyScript(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%v: %s", err, out)
 	}
-	vmData, vmConfig := filepath.Join(home, ".local/share/agentbox"), filepath.Join(home, ".config/agentbox")
+	vmData, vmConfig := filepath.Join(home, ".agentbox"), filepath.Join(home, ".config/agentbox")
 	for path, want := range map[string]string{
 		filepath.Join(vmData, "state.db"):                  "backup",
 		filepath.Join(vmData, "projects/shop/notes.md"):    "notes",
@@ -279,11 +279,11 @@ func TestWithinThroughASymlink(t *testing.T) {
 	}
 	home := filepath.Join(real, "u")
 	for path, want := range map[string]bool{
-		filepath.Join(link, "u", ".local/share/agentbox/worktrees"): true,
-		filepath.Join(link, "u"):                                    true,
-		filepath.Join(real, "u", "x"):                               true,
-		filepath.Join(link, "other"):                                false,
-		"/elsewhere/agentbox":                                       false,
+		filepath.Join(link, "u", ".agentbox/worktrees"): true,
+		filepath.Join(link, "u"):                        true,
+		filepath.Join(real, "u", "x"):                   true,
+		filepath.Join(link, "other"):                    false,
+		"/elsewhere/agentbox":                           false,
 	} {
 		if got := within(home, path); got != want {
 			t.Errorf("within(%s, %s) = %v, want %v", home, path, got, want)

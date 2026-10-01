@@ -6,7 +6,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 
 work=$(mktemp -d)
-export XDG_CONFIG_HOME="$work/config" XDG_DATA_HOME="$work/data"
+export XDG_CONFIG_HOME="$work/config" AGENTBOX_HOME="$work/data/agentbox"
 go build -o "$work/agentbox" ./cmd/agentbox || exit 1
 AB="$work/agentbox"
 source scripts/demo/lib.sh

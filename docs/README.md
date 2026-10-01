@@ -29,7 +29,7 @@ flowchart LR
 - **The daemon owns the state.** [`internal/daemon`](../internal/daemon) is the control plane:
   every agent operation goes through it, the slow ones as jobs, and it serves the HTTP API from
   [`internal/api`](../internal/api) over a unix socket at
-  `~/.local/share/agentbox/run/agentbox.sock`. All state lives in one SQLite database, `state.db`,
+  `~/.agentbox/run/agentbox.sock`. All state lives in one SQLite database, `state.db`,
   in [`internal/state`](../internal/state). The CLI is a client of that socket, and so is the
   desktop app.
 - **The desktop app is a thin client.** Its main process only relays the socket to the renderer:

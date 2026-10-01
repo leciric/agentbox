@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 work=$(mktemp -d)
-export XDG_CONFIG_HOME="$work/config" XDG_DATA_HOME="$work/data"
+export XDG_CONFIG_HOME="$work/config" AGENTBOX_HOME="$work/data/agentbox"
 finish() {
   "$work/agentbox" daemon stop >/dev/null 2>&1 || true
   rm -rf "$work"

@@ -21,7 +21,7 @@ func TestIsShim(t *testing.T) {
 		"/home/you/.local/share/mise/shims/node":                    true,
 		"/opt/asdf/shims/node":                                      true,
 		"/home/you/.local/share/mise/installs/claude/latest/claude": false,
-		"/home/you/.local/share/agentbox/tools/.local/bin/claude":   false,
+		"/home/you/.agentbox/tools/.local/bin/claude":               false,
 		"/usr/bin/node":                       false,
 		"/home/you/shims-are-not-here/claude": false,
 		"":                                    false,

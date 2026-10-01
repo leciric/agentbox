@@ -97,7 +97,7 @@ app first-open
 incus exec "$vm" -- rm -f /tmp/setup-app/claude-token
 host_setup=$(incus exec "$vm" -- cat /tmp/setup-app/host-setup-command)
 as_dev "command -v agentbox && agentbox --version && readlink ~/.local/bin/agentbox"
-check "a new login shell runs agentbox $version, linked to the app's copy" "grep -q 'agentbox version $version' $work/last && grep -q '.local/share/agentbox/bin/agentbox' $work/last"
+check "a new login shell runs agentbox $version, linked to the app's copy" "grep -q 'agentbox version $version' $work/last && grep -q '.agentbox/bin/agentbox' $work/last"
 
 step "Setup 3 in a terminal: the host setup command the Incus step gave"
 # The app's own Set up host button runs the same thing through pkexec, which

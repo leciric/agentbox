@@ -576,12 +576,12 @@ func migrationVM(ctx context.Context, p paths.Paths, opts MigrateOptions) (*VM, 
 // replacing whatever state a daemon of the VM's own made.
 const copyScript = `set -eu
 src_data=$1 src_config=$2 backup=$3
-data=$HOME/.local/share/agentbox config=$HOME/.config/agentbox
+data=$HOME/.agentbox config=$HOME/.config/agentbox
 mkdir -p "$data" "$config"
 chmod 700 "$data" "$config"
 for f in "$src_data"/* "$src_data"/.[!.]*; do
   [ -e "$f" ] || [ -L "$f" ] || continue
-  case "${f##*/}" in worktrees|vm|run|tools|backups|migration|daemon.log*|state.db*) continue ;; esac
+  case "${f##*/}" in worktrees|vm|run|tools|backups|migration|moved.json|daemon.log*|state.db*) continue ;; esac
   cp -a "$f" "$data/"
 done
 for f in "$src_config"/* "$src_config"/.[!.]*; do

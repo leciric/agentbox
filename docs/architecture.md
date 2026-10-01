@@ -35,7 +35,7 @@ builds a `Server` (`server.go`) holding the SQLite store, an event broker, a job
 sessions and the HTTP servers; `srv.Run(ctx)` starts it. It's launched by `internal/cli/daemon.go`,
 directly or auto-started by any CLI command that needs it.
 
-The daemon claims a unix socket at `~/.local/share/agentbox/run/agentbox.sock` (checked and
+The daemon claims a unix socket at `~/.agentbox/run/agentbox.sock` (checked and
 locked in `server.go` so two daemons can't run at once), and serves over 50 routes under `/v1/`
 through a plain `http.ServeMux` (`server.routes()`), each handler wrapped to turn a returned error
 into a JSON error response.

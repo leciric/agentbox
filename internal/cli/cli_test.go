@@ -31,7 +31,7 @@ func isolate(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
+	t.Setenv("AGENTBOX_HOME", "")
 	t.Setenv("AGENTBOX_SOCKET", "")
 	t.Setenv("AGENTBOX_NO_AUTOSTART", "1")
 	// Nothing here asks Anthropic whether a made-up token is real. A test that

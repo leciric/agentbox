@@ -4,7 +4,7 @@ You are running inside an AgentBox agent: an isolated Linux machine that belongs
 
 - Project: pawly
 - Agent: agent-03 ("Medication reminders")
-- Workspace: /home/dev/.local/share/agentbox/worktrees/pawly/agent-03
+- Workspace: /home/dev/.agentbox/worktrees/pawly/agent-03
 - Branch: `agentbox/agent-03` (created from `main`)
 
 ## This machine is yours

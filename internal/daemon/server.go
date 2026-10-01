@@ -348,7 +348,7 @@ const maxSocketPath = 107
 func checkSocketPaths(paths ...string) error {
 	for _, p := range paths {
 		if len(p) > maxSocketPath {
-			return fmt.Errorf("the socket path %s is %d bytes, longer than unix sockets allow (%d): use a shorter XDG_DATA_HOME", p, len(p), maxSocketPath)
+			return fmt.Errorf("the socket path %s is %d bytes, longer than unix sockets allow (%d): use a shorter AGENTBOX_HOME", p, len(p), maxSocketPath)
 		}
 	}
 	return nil

@@ -7,13 +7,13 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 
 work=$(mktemp -d)
-export XDG_CONFIG_HOME="$work/config" XDG_DATA_HOME="$work/data"
+export XDG_CONFIG_HOME="$work/config" AGENTBOX_HOME="$work/data/agentbox"
 go build -o "$work/agentbox" ./cmd/agentbox || exit 1
 AB="$work/agentbox"
 source scripts/demo/lib.sh
 P=hello-stack
 REPO="$work/repos/$P"
-RUN="$XDG_DATA_HOME/agentbox/run"
+RUN="$AGENTBOX_HOME/run"
 until_log() { for _ in $(seq 1 400); do grep -q "$2" "$1" 2>/dev/null && return; sleep 0.05; done; }
 
 section "Setup"
@@ -22,8 +22,8 @@ fixture_repo hello-stack "$REPO"
 section "1. The first command starts the daemon"
 host "ls $RUN 2>&1"
 ab add "$REPO"
-host "stat -c '%a %n' $RUN/agentbox.sock; head -1 $XDG_DATA_HOME/agentbox/daemon.log"
-expect_match "the daemon started on demand" "$(cat "$XDG_DATA_HOME/agentbox/daemon.log")" "listening on"
+host "stat -c '%a %n' $RUN/agentbox.sock; head -1 $AGENTBOX_HOME/daemon.log"
+expect_match "the daemon started on demand" "$(cat "$AGENTBOX_HOME/daemon.log")" "listening on"
 expect "the API socket is private" "$(stat -c %a "$RUN/agentbox.sock")" "600"
 
 section "2. The event stream runs in the background from here on"

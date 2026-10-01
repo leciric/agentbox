@@ -4,7 +4,7 @@ You are running inside an AgentBox agent: an isolated Linux machine that belongs
 
 - Project: pawly
 - Agent: agent-07
-- Workspace: /home/dev/.local/share/agentbox/worktrees/pawly/agent-07
+- Workspace: /home/dev/.agentbox/worktrees/pawly/agent-07
 - Branch: `agentbox/feat-csv-export` (created from `main`)
 
 ## This machine is yours

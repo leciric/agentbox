@@ -29,7 +29,7 @@ const P = 'hello-stack';
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_PREVIEW_ADDR: 'off',
   // A stub Incus API on a socket of its own, because this runs inside an
   // AgentBox agent, which has no Incus. The watch itself reads git, the store
@@ -366,7 +366,7 @@ async function main() {
   if (process.env.APP) await shots();
 
   if (process.env.KEEP) {
-    console.log(`\nKept running. Start the app against it with:\n  XDG_CONFIG_HOME=${env.XDG_CONFIG_HOME} XDG_DATA_HOME=${env.XDG_DATA_HOME} AGENTBOX_PREVIEW_ADDR=off npm --prefix desktop start\nMove the pull request with: curl ${gh.url}/__set/<pending|passing|failing|conflict|merged>\nStop with: XDG_DATA_HOME=${env.XDG_DATA_HOME} ${bin} daemon stop; kill ${gh.proc.pid}`);
+    console.log(`\nKept running. Start the app against it with:\n  XDG_CONFIG_HOME=${env.XDG_CONFIG_HOME} AGENTBOX_HOME=${env.AGENTBOX_HOME} AGENTBOX_PREVIEW_ADDR=off npm --prefix desktop start\nMove the pull request with: curl ${gh.url}/__set/<pending|passing|failing|conflict|merged>\nStop with: AGENTBOX_HOME=${env.AGENTBOX_HOME} ${bin} daemon stop; kill ${gh.proc.pid}`);
     gh.proc.unref();
   } else {
     spawnSync(bin, ['daemon', 'stop'], { env });

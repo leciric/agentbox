@@ -19,7 +19,7 @@ cd "$(dirname "$0")/../.."
 # Under the home directory: it's the only one the VM has.
 mkdir -p "$HOME/.cache"
 work=$(mktemp -d "$HOME/.cache/agentbox-vm-demo.XXXXXX")
-export XDG_CONFIG_HOME="$work/config" XDG_DATA_HOME="$work/data"
+export XDG_CONFIG_HOME="$work/config" AGENTBOX_HOME="$work/data/agentbox"
 export AGENTBOX_VM=agentbox-demo AGENTBOX_PREVIEW_ADDR=127.0.0.1:17777
 if [[ "$(uname -s)" == Linux ]]; then
   export AGENTBOX_FRONT_END=vm AGENTBOX_VM_TYPE=qemu

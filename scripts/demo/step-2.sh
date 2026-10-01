@@ -7,7 +7,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 
 work=$(mktemp -d)
-export XDG_CONFIG_HOME="$work/config" XDG_DATA_HOME="$work/data"
+export XDG_CONFIG_HOME="$work/config" AGENTBOX_HOME="$work/data/agentbox"
 go build -o "$work/agentbox" ./cmd/agentbox || exit 1
 AB="$work/agentbox"
 A1=hello-stack/agent-01
@@ -133,10 +133,10 @@ kill -INT $pid
 wait $pid
 echo "(exit $?)"
 sed "s#$work#\$TMP#g" "$work/interrupted.log"
-host "incus list ab-hello-stack-interrupted --format csv; git -C $repo branch --list agentbox/interrupted; ls $XDG_DATA_HOME/agentbox/worktrees/hello-stack"
+host "incus list ab-hello-stack-interrupted --format csv; git -C $repo branch --list agentbox/interrupted; ls $AGENTBOX_HOME/worktrees/hello-stack"
 expect "no instance left" "$(incus list ab-hello-stack-interrupted --format csv)" ""
 expect "no branch left" "$(git -C "$repo" branch --list agentbox/interrupted)" ""
-expect "no worktree left" "$(test -e "$XDG_DATA_HOME/agentbox/worktrees/hello-stack/interrupted" && echo exists)" ""
+expect "no worktree left" "$(test -e "$AGENTBOX_HOME/worktrees/hello-stack/interrupted" && echo exists)" ""
 expect "not in the agent list" "$(q list | grep -c interrupted)" "0"
 
 section "10. Destroy protects work"

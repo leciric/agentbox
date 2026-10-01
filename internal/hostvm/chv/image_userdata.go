@@ -129,7 +129,7 @@ func newUserDataParams(c Config, authorizedKey string) (userDataParams, error) {
 		Gateway: GuestGateway, DNS: GuestDNS,
 		PoolDevice: "/dev/disk/by-id/virtio-" + PoolDiskSerial,
 		Forwards: []vsockForward{
-			{Port: PortDaemon, What: "the daemon's socket", To: "UNIX-CONNECT:" + c.GuestHome + "/.local/share/agentbox/run/agentbox.sock", User: c.User},
+			{Port: PortDaemon, What: "the daemon's socket", To: "UNIX-CONNECT:" + c.GuestHome + "/.agentbox/run/agentbox.sock", User: c.User},
 			{Port: PortPreview, What: "the preview proxy", To: "TCP:127.0.0.1:7777"},
 		},
 		PortSSH:        PortSSH,

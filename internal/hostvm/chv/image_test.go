@@ -47,7 +47,7 @@ func TestUserData(t *testing.T) {
 		"echo 400 >/sys/module/memory_hotplug/parameters/auto_movable_ratio",
 		"mkdir -p /home/lint\n",
 		"echo 'home /home/lint virtiofs rw,nofail,x-systemd.mount-timeout=30s 0 0' >>/etc/fstab",
-		"ExecStart=/usr/bin/socat VSOCK-LISTEN:1024,fork,reuseaddr UNIX-CONNECT:/home/lint.linux/.local/share/agentbox/run/agentbox.sock\n",
+		"ExecStart=/usr/bin/socat VSOCK-LISTEN:1024,fork,reuseaddr UNIX-CONNECT:/home/lint.linux/.agentbox/run/agentbox.sock\n",
 		"ExecStart=/usr/bin/socat VSOCK-LISTEN:7777,fork,reuseaddr TCP:127.0.0.1:7777\n",
 		"User=lint\n",
 		`iifname "incusbr0" ip daddr 10.0.2.2 drop`,

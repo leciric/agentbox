@@ -580,7 +580,7 @@ func translateArgs(args []string) []string {
 
 // daemonLog is where the daemon the front end starts writes, in the distro:
 // the same file `agentbox daemon start` logs to on Linux.
-const daemonLog = `${XDG_DATA_HOME:-$HOME/.local/share}/agentbox/daemon.log`
+const daemonLog = `${AGENTBOX_HOME:-$HOME/.agentbox}/daemon.log`
 
 // StartDaemon starts the daemon unless it answers. It runs it under a wsl.exe
 // of its own, detached from this process and without a window: WSL stops a
@@ -600,7 +600,7 @@ func (d *Distro) StartDaemon(ctx context.Context) error {
 	// Reap it if this process outlives it; nothing waits on it otherwise.
 	go func() { _ = cmd.Wait() }()
 	if !d.daemonAnswers(ctx, 30*time.Second) {
-		return fmt.Errorf("the AgentBox daemon didn't start in %s: see %s there (agentbox wsl shell)", d.Name, "~/.local/share/agentbox/daemon.log")
+		return fmt.Errorf("the AgentBox daemon didn't start in %s: see %s there (agentbox wsl shell)", d.Name, "~/.agentbox/daemon.log")
 	}
 	_, _ = fmt.Fprintf(d.Log, "Started the AgentBox daemon in %s\n", d.Name)
 	return nil

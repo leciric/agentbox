@@ -92,7 +92,7 @@ rather than all of your computer's, so heavy agent work can't freeze your deskto
 installed on your system and no password is asked. It needs `/dev/kvm` (your user in the `kvm`
 group) and an `ssh` client. Setup makes it, at the size you pick; from the command line it's
 `agentbox vm init` (`--cpus`, `--memory-cap`), which fetches Cloud Hypervisor, passt, virtiofsd and
-Debian's cloud image into `~/.local/share/agentbox/vm` and sets the VM up (about a minute). Every
+Debian's cloud image into `~/.agentbox/vm` and sets the VM up (about a minute). Every
 other `agentbox` command runs in the VM, and until it's made says to run `agentbox vm init`.
 
 The VM starts with 4 GiB and takes more memory as its agents need it, up to its cap (three quarters
@@ -103,6 +103,17 @@ shared with the VM at the same path, so projects and agents' worktrees stay wher
 `agentbox vm delete --yes` removes it, and every agent's machine in it. Android emulators run in
 the VM's agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in
 30–50 seconds rather than 20–25; GPUs aren't available in the VM.
+
+### Where AgentBox keeps its files
+
+Everything AgentBox keeps is in `~/.agentbox` (or `AGENTBOX_HOME`): the VM's disks, the agents'
+worktrees, the state and the media. Your logins and keys stay in `~/.config/agentbox`, apart from
+it. Earlier versions kept the rest in `~/.local/share/agentbox`: the first time a newer one runs,
+it stops the VM (or the daemon) and moves that folder to `~/.agentbox` in one rename, with the
+agents' worktrees, their repositories' pointers to them and their chats' sessions following it.
+The agents that were running start again with the VM. If the move can't happen — the two folders
+are on different disks, or `~/.agentbox` already has something in it — nothing is changed, and
+AgentBox says how to move it yourself.
 
 ### Moving an installation from before the VM
 

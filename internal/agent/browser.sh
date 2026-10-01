@@ -250,7 +250,7 @@ EOF
 # launcher that brings the app's window forward when it is already open rather
 # than starting another. That matters most for Chromium: a second `chromium`
 # would open a window of the default profile, not the one AgentBox drives.
-# Not under ~/.local/share/agentbox, which Incus mounts worktrees under as root.
+# Not under ~/.agentbox, which Incus mounts worktrees under as root.
 dock="$config/agentbox/dock"
 
 # dock_icon and dock_entry note in dock_changed when they change a file, since

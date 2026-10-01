@@ -9,7 +9,7 @@ container of its own so they can't collide.
 
 - **The daemon owns the state.** `internal/daemon` is the control plane: every agent operation goes
   through it, the slow ones as jobs, and it serves the HTTP API from `internal/api` over a unix
-  socket at `~/.local/share/agentbox/run/agentbox.sock`. All of the state is one SQLite database,
+  socket at `~/.agentbox/run/agentbox.sock`. All of the state is one SQLite database,
   `state.db`, in `internal/state`. The CLI is a client of that socket, and so is the app
   (D15).
 - **The desktop app is a thin client.** Its main process only relays the socket to the renderer: no

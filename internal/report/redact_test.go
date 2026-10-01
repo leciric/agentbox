@@ -28,7 +28,7 @@ func TestRedact(t *testing.T) {
 		{"email", "signed in as leandro.ciric@example.com.", "signed in as [email]."},
 		{"git ssh is not an email", "git@github.com:leciric/agentbox.git", "git@github.com:leciric/agentbox.git"},
 		{"noreply is not an email", "Co-Authored-By: Claude <noreply@anthropic.com>", "Co-Authored-By: Claude <noreply@anthropic.com>"},
-		{"own home", "open /home/lint/.local/share/agentbox/state.db", "open ~/.local/share/agentbox/state.db"},
+		{"own home", "open /home/lint/.agentbox/state.db", "open ~/.agentbox/state.db"},
 		{"home inside home", "HOME=/home/lint.linux and /home/lint", "HOME=~ and ~"},
 		{"home that only starts the same", "/home/linter/x", "/home/[user]/x"},
 		{"other linux home", "at /home/alice/projects", "at /home/[user]/projects"},

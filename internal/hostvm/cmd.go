@@ -139,7 +139,7 @@ func newCHVInitCmd() *cobra.Command {
 		Short: "Make AgentBox's VM, set AgentBox up in it and start its daemon (safe to run again)",
 		Long: `Makes AgentBox's VM and runs AgentBox in it from now on, instead of on this machine
 itself. It needs /dev/kvm, and no password: what runs the VM is fetched into
-~/.local/share/agentbox/vm and runs as you. The VM boots with --memory-min and takes
+~/.agentbox/vm and runs as you. The VM boots with --memory-min and takes
 more as its agents need it, up to --memory-cap.
 
 A machine already set up to run AgentBox itself keeps its agents there: they aren't

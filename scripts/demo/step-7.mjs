@@ -31,7 +31,7 @@ const previewPort = 7797;
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_BIN: bin,
   AGENTBOX_PREVIEW_ADDR: `127.0.0.1:${previewPort}`,
   XDG_SESSION_TYPE: 'x11',

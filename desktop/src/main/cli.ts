@@ -1,7 +1,7 @@
 // The agentbox command line tool. A packaged app ships the binary: the app keeps
-// its own copy in ~/.local/share/agentbox/bin (the daemon runs from it, so it
-// outlives the app's mount), and "Install command-line tool" links it into
-// ~/.local/bin. From a checkout, the tool is linked from AGENTBOX_BIN instead.
+// its own copy in ~/.agentbox/bin (the daemon runs from it, so it outlives the
+// app's mount), and "Install command-line tool" links it into ~/.local/bin.
+// From a checkout, the tool is linked from AGENTBOX_BIN instead.
 //
 // On Windows the app ships agentbox.exe, the front end of AgentBox's WSL distro
 // (internal/hostwsl), and the Linux agentbox it installs in the distro, which
@@ -13,7 +13,7 @@ import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync,
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { app } from 'electron';
-import { dataDir } from './paths';
+import { dataDir, dataMovePending, legacyDataDir } from './paths';
 import { onWindows } from './relay';
 
 export interface CliStatus {
@@ -28,9 +28,16 @@ export interface CliStatus {
 
 const exe = onWindows ? 'agentbox.exe' : 'agentbox';
 const localBin = join(homedir(), '.local', 'bin');
-const managedDir = onWindows ? join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'AgentBox', 'bin') : join(dataDir, 'bin');
-const linkPath = onWindows ? join(managedDir, exe) : join(localBin, 'agentbox');
-const managedBin = join(managedDir, exe);
+const windowsDir = join(process.env.LOCALAPPDATA || join(homedir(), 'AppData', 'Local'), 'AgentBox', 'bin');
+const linkPath = onWindows ? join(windowsDir, exe) : join(localBin, 'agentbox');
+// managedDir is where the app's copy is kept. Until an earlier version's data
+// has moved to ~/.agentbox, it's kept where that is, so the copy that moves
+// it (moveData) doesn't make ~/.agentbox first, which the move needs to be
+// empty, and moves with it.
+function managedDir(): string {
+  if (onWindows) return windowsDir;
+  return join(dataMovePending() ? legacyDataDir : dataDir, 'bin');
+}
 // On a Mac and on Windows the app also ships the Linux agentbox, which the
 // front end (of AgentBox's Linux VM, or of its WSL distro) installs there. The
 // front end looks for it beside itself, so it's kept beside the managed copy too.
@@ -88,10 +95,26 @@ export function agentboxBin(): string {
   const bundled = bundledBin();
   if (!bundled) return 'agentbox';
   // Keep the app's own copy current, so the daemon and agents get this version.
-  keepCurrent(bundled, managedBin);
+  const dir = managedDir();
+  keepCurrent(bundled, join(dir, exe));
   const linux = join(dirname(bundled), linuxName);
-  if (existsSync(linux)) keepCurrent(linux, join(managedDir, linuxName));
-  return managedBin;
+  if (existsSync(linux)) keepCurrent(linux, join(dir, linuxName));
+  return join(dir, exe);
+}
+
+// moveData moves an earlier version's data to ~/.agentbox, before anything
+// else looks for it there: `agentbox data move` (internal/cli/datamove.go),
+// which stops the VM or the daemon running from it first. It resolves with
+// why, when the move couldn't happen; any later agentbox command tries again.
+export function moveData(): Promise<string | null> {
+  if (onWindows || !dataMovePending()) return Promise.resolve(null);
+  return new Promise((resolve) =>
+    execFile(agentboxBin(), ['data', 'move'], { timeout: 15 * 60_000 }, (err, _stdout, stderr) => {
+      if (!err) return resolve(null);
+      const why = stderr.trim().split('\n').pop()?.replace(/^agentbox: /, '');
+      resolve(why || err.message);
+    }),
+  );
 }
 
 function isLink(path: string): boolean {
@@ -160,7 +183,7 @@ async function addToUserPath(dir: string): Promise<void> {
 }
 
 async function windowsCliStatus(): Promise<CliStatus> {
-  const dir = bundledBin() ? managedDir : process.env.AGENTBOX_BIN ? dirname(process.env.AGENTBOX_BIN) : managedDir;
+  const dir = bundledBin() ? managedDir() : process.env.AGENTBOX_BIN ? dirname(process.env.AGENTBOX_BIN) : managedDir();
   const onPath = (await userPath()).some((p) => p.replace(/\\+$/, '').toLowerCase() === dir.toLowerCase());
   const path = (await run('where.exe', ['agentbox']))?.split(/\r?\n/)[0] ?? (onPath ? join(dir, exe) : null);
   return {

@@ -1,5 +1,6 @@
-// Package paths resolves where AgentBox keeps its files, following the XDG
-// base directory spec.
+// Package paths resolves where AgentBox keeps its files: its data in
+// ~/.agentbox, and the logins and keys it keeps apart from that in
+// ~/.config/agentbox, following the XDG base directory spec.
 package paths
 
 import (
@@ -9,8 +10,11 @@ import (
 
 type Paths struct {
 	Config string // ~/.config/agentbox
-	Data   string // ~/.local/share/agentbox
+	Data   string // ~/.agentbox (Home)
 }
+
+// HomeEnv names another directory for AgentBox's data than ~/.agentbox.
+const HomeEnv = "AGENTBOX_HOME"
 
 func Default() (Paths, error) {
 	home, err := os.UserHomeDir()
@@ -19,8 +23,42 @@ func Default() (Paths, error) {
 	}
 	return Paths{
 		Config: filepath.Join(xdg("XDG_CONFIG_HOME", filepath.Join(home, ".config")), "agentbox"),
-		Data:   filepath.Join(xdg("XDG_DATA_HOME", filepath.Join(home, ".local", "share")), "agentbox"),
+		Data:   homeDir(home),
 	}, nil
+}
+
+// Home is AgentBox's own folder, ~/.agentbox, or AGENTBOX_HOME when that is
+// an absolute path: where it keeps its data (Paths.Data), and the folder its
+// home chat works in. XDG_DATA_HOME doesn't move it.
+//
+// The logins and keys stay in ~/.config/agentbox (Paths.Config), out of it:
+// a folder an AI tool works in, or that is copied whole to back it up,
+// shouldn't carry the credentials, nor the key the secrets in state.db are
+// sealed under (SecretsKey).
+func Home() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return homeDir(home), nil
+}
+
+func homeDir(home string) string {
+	if d := os.Getenv(HomeEnv); filepath.IsAbs(d) {
+		return filepath.Clean(d)
+	}
+	return filepath.Join(home, ".agentbox")
+}
+
+// Legacy is where AgentBox kept its data before ~/.agentbox:
+// $XDG_DATA_HOME/agentbox, ~/.local/share/agentbox by default. Nothing keeps
+// anything there any more; package datamove moves it to Home.
+func Legacy() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(xdg("XDG_DATA_HOME", filepath.Join(home, ".local", "share")), "agentbox"), nil
 }
 
 func xdg(env, fallback string) string {

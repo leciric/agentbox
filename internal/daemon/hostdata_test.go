@@ -18,11 +18,11 @@ func TestADaemonRefusesTheHostsDataInTheVM(t *testing.T) {
 		}
 	}
 
-	data := filepath.Join(host, ".local", "share", "agentbox") // not made yet
+	data := filepath.Join(host, ".agentbox") // not made yet
 	if err := checkDataDir(data, shared); err == nil || !strings.Contains(err.Error(), "the host's AgentBox data") {
 		t.Errorf("checkDataDir(%s) on the shared home = %v, want it refused", data, err)
 	}
-	own := filepath.Join(root, "home", "dev.linux", ".local", "share", "agentbox")
+	own := filepath.Join(root, "home", "dev.linux", ".agentbox")
 	if err := checkDataDir(own, shared); err != nil {
 		t.Errorf("checkDataDir(%s) on the VM's own disk = %v", own, err)
 	}

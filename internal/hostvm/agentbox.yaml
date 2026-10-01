@@ -109,5 +109,5 @@ provision:
 
 # The daemon's socket, out to where the Mac's app and command look for it.
 portForwards:
-  - guestSocket: "{{.Home}}/.local/share/agentbox/run/agentbox.sock"
+  - guestSocket: "{{.Home}}/.agentbox/run/agentbox.sock"
     hostSocket: [[printf "%q" .Socket]]

@@ -43,7 +43,7 @@ const me = userInfo().username;
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_PREVIEW_ADDR: 'off',
   AGENTBOX_BIN: bin,
   XDG_SESSION_TYPE: 'x11',

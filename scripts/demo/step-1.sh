@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-export XDG_CONFIG_HOME="$work/config" XDG_DATA_HOME="$work/data"
+export XDG_CONFIG_HOME="$work/config" AGENTBOX_HOME="$work/data/agentbox"
 
 go build -o "$work/agentbox" ./cmd/agentbox
 ab() {

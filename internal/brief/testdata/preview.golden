@@ -4,7 +4,7 @@ You are running inside an AgentBox agent: an isolated Linux machine that belongs
 
 - Project: pawly
 - Agent: agent-01
-- Workspace: /home/dev/.local/share/agentbox/worktrees/pawly/agent-01
+- Workspace: /home/dev/.agentbox/worktrees/pawly/agent-01
 - Branch: `agentbox/agent-01` (created from `main`)
 
 ## This machine is yours

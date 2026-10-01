@@ -47,7 +47,7 @@ daemon's log, run it in the foreground instead:
 
 ```bash
 bin/agentbox daemon stop      # if a command already started one
-bin/agentbox daemon           # serves ~/.local/share/agentbox/run/agentbox.sock, forwarded from the VM
+bin/agentbox daemon           # serves ~/.agentbox/run/agentbox.sock, forwarded from the VM
 ```
 
 To run AgentBox on the machine itself instead, the way the VM does inside, set
@@ -185,7 +185,7 @@ Releases are made by the maintainer from `main`, as described in [AGENTS.md](AGE
 
 [Open an issue](https://github.com/leciric/agentbox/issues/new/choose) with the version (`agentbox
 --version`, or the AppImage's name), your distribution, what you did, and what happened. The
-daemon's log is `~/.local/share/agentbox/daemon.log`. **Redact tokens, API keys and private paths**
+daemon's log is `~/.agentbox/daemon.log`. **Redact tokens, API keys and private paths**
 before you paste it.
 
 A security problem doesn't belong in a public issue: contact the maintainer privately first.

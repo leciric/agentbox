@@ -65,7 +65,7 @@ input/output tokens alongside its peak context.
 ## Claude accounts and their limits
 
 AgentBox can hold several named Claude Code accounts at once. [`internal/credentials`](../internal/credentials)
-stores each as a token file, `<account>.token`, under `~/.local/share/agentbox/claude/`, plus a
+stores each as a token file, `<account>.token`, under `~/.config/agentbox/credentials/claude/`, plus a
 `default-account` marker; the default account resolves to whichever is marked, else `"default"`
 if that file exists, else the first alphabetically, else none.
 
@@ -83,6 +83,6 @@ if that file exists, else the first alphabetically, else none.
   [The lead and its MCP tools](lead.md)) surfaces the same data.
 
 GitHub accounts are the parallel mechanism for `gh`/PR access — stored the same way
-(`<account>.token` plus a `<account>.login` file, under `~/.local/share/agentbox/github/`) and
+(`<account>.token` plus a `<account>.login` file, under `~/.config/agentbox/credentials/github/`) and
 assignable per project or agent — but they carry no usage limits; `internal/daemon/githubaccount.go`
 handles the daemon side of storing and validating them.

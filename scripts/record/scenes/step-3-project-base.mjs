@@ -4,7 +4,7 @@ export default {
   out: 'docs/implementation/evidence/step-3/media',
   rcTimeout: 300_000,
   rc: String.raw`
-export XDG_CONFIG_HOME="$RECORD_WORK/config" XDG_DATA_HOME="$RECORD_WORK/data"
+export XDG_CONFIG_HOME="$RECORD_WORK/config" AGENTBOX_HOME="$RECORD_WORK/data/agentbox"
 mkdir -p "$RECORD_WORK/bin"
 if [ -n "$AGENTBOX_BIN" ]; then cp "$AGENTBOX_BIN" "$RECORD_WORK/bin/agentbox"; else go build -o "$RECORD_WORK/bin/agentbox" ./cmd/agentbox; fi
 export PATH="$RECORD_WORK/bin:$PATH"
@@ -30,7 +30,7 @@ agentbox exec base-demo/agent-01 -- 'docker compose up -d --wait && mise use -g 
     { screenshot: 'agent-02-ready' },
   ],
   teardown: String.raw`
-export XDG_CONFIG_HOME="$RECORD_WORK/config" XDG_DATA_HOME="$RECORD_WORK/data"
+export XDG_CONFIG_HOME="$RECORD_WORK/config" AGENTBOX_HOME="$RECORD_WORK/data/agentbox"
 ab="$RECORD_WORK/bin/agentbox"
 "$ab" destroy base-demo/agent-02 --force --delete-branch
 "$ab" destroy base-demo/agent-01 --force --delete-branch

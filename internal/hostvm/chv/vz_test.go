@@ -133,7 +133,7 @@ func TestUserDataVZ(t *testing.T) {
 		"ExecStart=/usr/local/lib/agentbox/host-guard.sh\n",
 		"After=network-online.target\n",
 		`iifname "incusbr0" ip daddr $gw udp dport != 53 drop`,
-		"ExecStart=/usr/bin/socat VSOCK-LISTEN:1024,fork,reuseaddr UNIX-CONNECT:/home/lint.linux/.local/share/agentbox/run/agentbox.sock\n",
+		"ExecStart=/usr/bin/socat VSOCK-LISTEN:1024,fork,reuseaddr UNIX-CONNECT:/home/lint.linux/.agentbox/run/agentbox.sock\n",
 		"incus storage create default btrfs source=/dev/disk/by-id/virtio-agentbox-pool",
 		"echo 'home /home/lint virtiofs rw,nofail,x-systemd.mount-timeout=30s 0 0' >>/etc/fstab",
 	} {

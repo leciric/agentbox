@@ -35,7 +35,7 @@ const bin = join(work, 'bin', 'agentbox');
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_BIN: bin,
   AGENTBOX_PREVIEW_ADDR: 'off',
   XDG_SESSION_TYPE: 'x11',
@@ -366,7 +366,7 @@ systemctl daemon-reload && systemctl enable --now agentbox-hub && sleep 2 && sys
 
   await step('8. Not signed in, the app still manages this machine', async () => {
     const local = mkdtempSync(join(work, 'local-'));
-    const localEnv = { ...env, XDG_CONFIG_HOME: join(local, 'config'), XDG_DATA_HOME: join(local, 'data') };
+    const localEnv = { ...env, XDG_CONFIG_HOME: join(local, 'config'), AGENTBOX_HOME: join(local, 'data', 'agentbox') };
     const localApp = await electron.launch({ args: [desktop, '--disable-gpu'], cwd: desktop, env: { ...localEnv, DISPLAY: xvfb.display } });
     try {
       const page = await localApp.firstWindow();

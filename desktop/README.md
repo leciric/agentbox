@@ -9,7 +9,7 @@ npm install
 npm start          # builds into out/ and opens the app
 ```
 
-The app uses the same socket as the CLI: `~/.local/share/agentbox/run/agentbox.sock`, or `AGENTBOX_SOCKET`. When no daemon answers, the app starts one with `agentbox daemon start`, so put `agentbox` on your `PATH` or set `AGENTBOX_BIN`.
+The app uses the same socket as the CLI: `~/.agentbox/run/agentbox.sock`, or `AGENTBOX_SOCKET`. When no daemon answers, the app starts one with `agentbox daemon start`, so put `agentbox` on your `PATH` or set `AGENTBOX_BIN`.
 
 ## Package
 
@@ -18,7 +18,7 @@ npm run dist       # dist/AgentBox-<version>-x86_64.AppImage
 ```
 
 `dist` builds `../bin/agentbox` for the app's version, builds the app, and packages both with electron-builder. The packaged app:
-- keeps its own copy of `agentbox` in `~/.local/share/agentbox/bin`, and starts the daemon from it;
+- keeps its own copy of `agentbox` in `~/.agentbox/bin`, and starts the daemon from it;
 - links `~/.local/bin/agentbox` to that copy from the Setup page (**Install command-line tool**);
 - restarts a daemon of another version, or one that started without the `incus-admin` or `kvm` group, when no job is running (D27, D28).
 
@@ -26,7 +26,7 @@ On a Mac, `npm run dist -- --mac` packages `dist/AgentBox-<version>-mac-<arch>.d
 (`--arm64`, `--x64` or both; default this Mac's). The Mac app carries two binaries: `bin/agentbox`, the
 macOS front end of AgentBox's Linux VM, and `bin/agentbox-linux`, the Linux build it installs in that
 VM (D92). The app keeps both beside each other in
-`~/.local/share/agentbox/bin`, and until the VM exists its first screen sets it up.
+`~/.agentbox/bin`, and until the VM exists its first screen sets it up.
 
 A new machine's setup is in the README's [Set up](../README.md#set-up), and a Mac's in [On a Mac](../README.md#on-a-mac).
 

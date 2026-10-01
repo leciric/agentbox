@@ -31,7 +31,7 @@ electron-builder downloads Electron 44.
 | `/usr/share/icons/hicolor/…` | Icon |
 
 `AGENTBOX_BIN` is what makes the app use the packaged command-line tool instead
-of copying its own into `~/.local/share/agentbox/bin` and asking Setup to link
+of copying its own into `~/.agentbox/bin` and asking Setup to link
 it. The app and the terminal always run the same version.
 
 Setting up a machine afterwards (Incus, groups, the base image) is the same as

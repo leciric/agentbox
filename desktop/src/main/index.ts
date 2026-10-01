@@ -6,7 +6,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
-import { agentboxBin, cliStatus, installCli } from './cli';
+import { agentboxBin, cliStatus, installCli, moveData } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
 import { EventStream } from './events';
@@ -271,6 +271,8 @@ void app.whenReady().then(async () => {
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.
   if (onWindows) await startRelay(agentboxBin()).catch(() => {});
+  const moveError = await moveData();
+  if (moveError) dialog.showErrorBox("AgentBox couldn't move its data to ~/.agentbox", moveError);
   await learnMode();
   await restartIfStale().catch(() => {});
   events.start();

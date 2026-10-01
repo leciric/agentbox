@@ -13,11 +13,11 @@ import { freeTargets } from '../lib/freeResources';
 export const PROJECT = 'agentbox';
 
 export const WIDE = {
-  longPath: '/home/user/.local/share/agentbox/worktrees/agentbox/agent-96/desktop/src/renderer/components/chat/Markdown.tsx',
+  longPath: '/home/user/.agentbox/worktrees/agentbox/agent-96/desktop/src/renderer/components/chat/Markdown.tsx',
   longUrl: 'https://github.com/leciric/agentbox/pull/78/files#diff-1a2b3c4d5e6f7890abcdef1234567890abcdef1234567890abcdef1234567890',
   branchName: 'agentbox/agent-104-fix-the-context-budget-warning-that-never-clears-after-consolidation-runs',
   stackTrace: `TypeError: Cannot read properties of undefined (reading 'ref')
-    at AgentRow (/home/user/.local/share/agentbox/worktrees/agentbox/agent-96/desktop/src/renderer/components/AgentRail.tsx:214:19)
+    at AgentRow (/home/user/.agentbox/worktrees/agentbox/agent-96/desktop/src/renderer/components/AgentRail.tsx:214:19)
     at renderWithHooks (react-dom-client.development.js:4204:20)
     at updateFunctionComponent (react-dom-client.development.js:6639:19)`,
   longErrorString:
@@ -841,7 +841,7 @@ export function freeRun(queryClient: QueryClient, phase: string): FreeRun {
     queryClient.setQueryData(['agents'], devState.agents);
     return { phase: 'stopping', targets, vmBefore };
   }
-  if (phase === 'error') return { phase: 'error', targets, vmBefore, error: "Couldn't reach the daemon: connect ENOENT /home/you/.local/share/agentbox/run/agentbox.sock" };
+  if (phase === 'error') return { phase: 'error', targets, vmBefore, error: "Couldn't reach the daemon: connect ENOENT /home/you/.agentbox/run/agentbox.sock" };
   const result = stopAgentsResult(
     agents,
     targets.map((t) => t.ref),

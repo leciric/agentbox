@@ -10,7 +10,9 @@ import (
 	"sync"
 	"time"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/datamove"
 	"agentbox/internal/hostos"
 	"agentbox/internal/incus"
 	"agentbox/internal/state"
@@ -227,6 +229,9 @@ func (s *Server) plugAgentSockets(ctx context.Context) bool {
 		return false
 	}
 	m := s.manager(s.cfg.Log)
+	// A machine that couldn't be moved this time is tried again with the
+	// others' sockets, which don't wait for it.
+	moved := s.finishDataMove(ctx, m, agents)
 	var ready []state.Agent
 	for _, a := range agents {
 		if !a.IsLead() && a.Status == state.AgentReady {
@@ -234,7 +239,7 @@ func (s *Server) plugAgentSockets(ctx context.Context) bool {
 		}
 	}
 	if len(ready) == 0 {
-		return true
+		return moved
 	}
 	// Which are running: without it, each still gets its device, but none is
 	// asked for its socket, and the pass is to be tried again.
@@ -271,7 +276,42 @@ func (s *Server) plugAgentSockets(ctx context.Context) bool {
 		})
 	}
 	wg.Wait()
-	return ok
+	return ok && moved
+}
+
+// finishDataMove points every agent's machine at where AgentBox's data moved,
+// when it has just moved (package datamove), before anything plugs their
+// sockets in: their devices name the old paths. It reports whether it is
+// done; the marker the move left goes once it is, so it happens once.
+func (s *Server) finishDataMove(ctx context.Context, m *agent.Manager, agents []state.Agent) bool {
+	k, ok := datamove.ReadMarker(s.cfg.Paths.Data)
+	if !ok {
+		return true
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	done := true
+	for _, a := range agents {
+		if a.IsLead() {
+			continue
+		}
+		wg.Go(func() {
+			if err := m.MoveDevices(ctx, a, k); err != nil {
+				s.logf("moving %s to %s: %v", a.Ref(), k.To, err)
+				mu.Lock()
+				done = false
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	if done {
+		if err := datamove.ClearMarker(s.cfg.Paths.Data); err != nil {
+			s.logf("data move: %v", err)
+		}
+		s.logf("moved the agents' machines to %s", k.To)
+	}
+	return done
 }
 
 // incusUnit is what systemd says of incus.service.

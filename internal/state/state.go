@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	_ "modernc.org/sqlite"
 
@@ -701,6 +702,15 @@ var migrations = []string{
 	// keeping a guess at which were the user's.
 	`DELETE FROM task_dependencies`,
 	`DELETE FROM tasks`,
+	// AgentBox's data moved from ~/.local/share/agentbox to ~/.agentbox
+	// (package datamove), its agents' worktrees with it. Any home's: in its
+	// VM the worktrees are the host's, beside the VM user's own data, and a
+	// state.db restored from a backup is put right when it is opened. A
+	// non-default XDG_DATA_HOME's paths are datamove's to rewrite.
+	`UPDATE agents SET worktree = replace(worktree, '/.local/share/agentbox/', '/.agentbox/')
+		WHERE worktree LIKE '%/.local/share/agentbox/%'`,
+	`UPDATE artifacts SET path = replace(path, '/.local/share/agentbox/', '/.agentbox/')
+		WHERE path LIKE '%/.local/share/agentbox/%'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1801,6 +1811,30 @@ func (s *Store) RenameGitHubAccount(ctx context.Context, old, name string, move 
 		return GitHubAccountRename{}, err
 	}
 	return done, nil
+}
+
+// MovePaths rewrites the agents' worktrees, and the artifacts, under from to
+// the same paths under to, for AgentBox's data moved from one directory to
+// the other (package datamove): the move from ~/.local/share/agentbox is a
+// migration, this is the move from anywhere else. It returns how many rows
+// changed.
+func (s *Store) MovePaths(ctx context.Context, from, to string) (int64, error) {
+	from, to = strings.TrimSuffix(from, "/")+"/", strings.TrimSuffix(to, "/")+"/"
+	var n int64
+	for _, q := range []string{
+		`UPDATE agents SET worktree = ? || substr(worktree, ?) WHERE substr(worktree, 1, ?) = ?`,
+		`UPDATE artifacts SET path = ? || substr(path, ?) WHERE substr(path, 1, ?) = ?`,
+	} {
+		// substr counts characters, not bytes.
+		chars := utf8.RuneCountInString(from)
+		res, err := s.db.ExecContext(ctx, q, to, chars+1, chars, from)
+		if err != nil {
+			return n, err
+		}
+		changed, _ := res.RowsAffected()
+		n += changed
+	}
+	return n, nil
 }
 
 // SetAgentBaseCommit records the commit an agent's worktree stands on. Only a

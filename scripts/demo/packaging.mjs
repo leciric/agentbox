@@ -27,7 +27,7 @@ const env = {
   PATH: '/usr/local/sbin:/usr/local/bin:/usr/bin:/bin',
   HOME: home,
   LANG: 'C.UTF-8',
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   XDG_CONFIG_HOME: join(work, 'config'),
   XDG_SESSION_TYPE: 'x11',
   AGENTBOX_PREVIEW_ADDR: '127.0.0.1:7799',
@@ -105,7 +105,7 @@ try {
       .split('\n')
       .find((line) => line.includes(work));
     console.log(`\n$ pgrep -af "agentbox daemon"\n${hide(daemon)}`);
-    check("the daemon runs from the app's copy in ~/.local/share/agentbox/bin", daemon?.includes(join(work, 'data/agentbox/bin/agentbox daemon')), daemon);
+    check("the daemon runs from the app's copy in ~/.agentbox/bin", daemon?.includes(join(work, 'data/agentbox/bin/agentbox daemon')), daemon);
   });
 
   await step('3. Install the command-line tool from the Setup page', async () => {

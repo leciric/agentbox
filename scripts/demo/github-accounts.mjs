@@ -28,7 +28,7 @@ const bin = join(work, 'bin', 'agentbox');
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_BIN: bin,
   XDG_SESSION_TYPE: 'x11',
 };
@@ -317,7 +317,7 @@ try {
 
   await step('9. A machine set up before named accounts keeps its token', async () => {
     // The single-token layout: one credentials/github.token, no accounts.
-    const older = { ...env, XDG_CONFIG_HOME: join(work, 'old-config'), XDG_DATA_HOME: join(work, 'old-data') };
+    const older = { ...env, XDG_CONFIG_HOME: join(work, 'old-config'), AGENTBOX_HOME: join(work, 'old-data', 'agentbox') };
     const credentials = join(work, 'old-config/agentbox/credentials');
     mkdirSync(credentials, { recursive: true });
     writeFileSync(join(credentials, 'github.token'), 'personal-token\n', { mode: 0o600 });

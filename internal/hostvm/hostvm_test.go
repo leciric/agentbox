@@ -74,7 +74,7 @@ func newFake(t *testing.T) (*VM, string) {
 		Limactl: lima,
 		Name:    "agentbox",
 		Home:    home,
-		Paths:   paths.Paths{Config: filepath.Join(home, ".config", "agentbox"), Data: filepath.Join(home, ".local", "share", "agentbox")},
+		Paths:   paths.Paths{Config: filepath.Join(home, ".config", "agentbox"), Data: filepath.Join(home, ".agentbox")},
 		Binary:  bin,
 		Log:     &bytes.Buffer{},
 	}
@@ -98,7 +98,7 @@ func TestDefinition(t *testing.T) {
 		"location: \"" + vm.Home + "\"\n    writable: true",
 		"mountType: virtiofs",
 		// Lima's own template variable, for the VM's home: left for Lima.
-		"guestSocket: \"{{.Home}}/.local/share/agentbox/run/agentbox.sock\"",
+		"guestSocket: \"{{.Home}}/.agentbox/run/agentbox.sock\"",
 		"hostSocket: \"" + vm.Paths.Socket() + "\"",
 		"getent ahostsv4 host.lima.internal",
 		`iifname "incusbr0" ip daddr $mac drop`,
@@ -261,5 +261,34 @@ func TestProfile(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("the profile has no %q:\n%s", want, got)
 		}
+	}
+}
+
+// A Lima VM's definition names the daemon's socket on both sides: the host's
+// in AgentBox's data, and the VM's in its own, and both move.
+func TestMoveFilesForLima(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LIMA_HOME", "")
+	t.Setenv("AGENTBOX_VM", "")
+	t.Setenv("AGENTBOX_FRONT_END", "vm")
+	p := paths.Paths{Config: filepath.Join(home, ".config", "agentbox"), Data: filepath.Join(home, ".local", "share", "agentbox")}
+	files, also := MoveFiles(p)
+	if !slices.Contains(files, filepath.Join(home, ".lima", "agentbox", "lima.yaml")) || !slices.Contains(files, filepath.Join(p.Config, "vm", "agentbox.yaml")) {
+		t.Errorf("files = %v", files)
+	}
+	v := &VM{Name: "agentbox", Home: home, Paths: p}
+	def, err := v.Definition(DefaultSize())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := strings.ReplaceAll(def, "{{.Home}}/.agentbox/", "{{.Home}}/.local/share/agentbox/")
+	for _, pair := range append([][2]string{{p.Data, filepath.Join(home, ".agentbox")}}, also...) {
+		old = strings.ReplaceAll(old, pair[0]+"/", pair[1]+"/")
+	}
+	moved := paths.Paths{Config: p.Config, Data: filepath.Join(home, ".agentbox")}
+	want, _ := (&VM{Name: "agentbox", Home: home, Paths: moved}).Definition(DefaultSize())
+	if old != want {
+		t.Errorf("an old definition, moved, isn't the new one:\n%s\nwant\n%s", old, want)
 	}
 }

@@ -73,7 +73,7 @@ esac
 built=$root/desktop/dist/mac-$arch/AgentBox.app
 [ "$arch" = x64 ] && built=$root/desktop/dist/mac/AgentBox.app
 app=$apps/AgentBox.app
-data=${XDG_DATA_HOME:-$HOME/.local/share}/agentbox
+data=${AGENTBOX_HOME:-$HOME/.agentbox}
 cli=$data/bin/agentbox
 
 if $pull; then

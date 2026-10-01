@@ -88,7 +88,7 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: The relevant part of `~/.local/share/agentbox/daemon.log`, or the command's output.
+      description: The relevant part of `~/.agentbox/daemon.log`, or the command's output.
       render: shell
 
   - type: upload

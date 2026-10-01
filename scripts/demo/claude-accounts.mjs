@@ -27,7 +27,7 @@ const repo = join(work, 'repo');
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_BIN: bin,
   XDG_SESSION_TYPE: 'x11',
   // The tokens here are made up, and the daemon now checks stored tokens

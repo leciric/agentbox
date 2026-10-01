@@ -45,7 +45,7 @@ const FROM_APP = 'sk-sentry-FROM-THE-APP';
 const env = {
   ...process.env,
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_BIN: bin,
   AGENTBOX_PREVIEW_ADDR: 'off',
   INCUS_STATE: incusState,

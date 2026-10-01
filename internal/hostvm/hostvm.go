@@ -647,7 +647,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 var hostOnly = map[string]bool{
 	"AGENTBOX_FRONT_END": true, "AGENTBOX_VM": true, "AGENTBOX_VM_TYPE": true,
 	"AGENTBOX_LIMACTL": true, "AGENTBOX_LINUX_BINARY": true, "AGENTBOX_BIN": true,
-	"AGENTBOX_SOCKET": true, "AGENTBOX_WORKTREES": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
+	"AGENTBOX_SOCKET": true, "AGENTBOX_WORKTREES": true, paths.HomeEnv: true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
 	vmMemoryCapEnv: true,
 }
 

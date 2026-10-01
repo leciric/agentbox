@@ -35,7 +35,7 @@ const env = {
   ...process.env,
   HOME: join(work, 'home'), // the app's Export writes to ~/AgentBox/exports
   XDG_CONFIG_HOME: join(work, 'config'),
-  XDG_DATA_HOME: join(work, 'data'),
+  AGENTBOX_HOME: join(work, 'data', 'agentbox'),
   AGENTBOX_BIN: bin,
   AGENTBOX_PREVIEW_ADDR: `127.0.0.1:${previewPort}`,
   XDG_SESSION_TYPE: 'x11',

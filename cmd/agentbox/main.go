@@ -3,7 +3,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"slices"
 
 	"agentbox/internal/cli"
 	"agentbox/internal/hostvm"
@@ -11,6 +13,15 @@ import (
 )
 
 func main() {
+	// AgentBox's data moved to ~/.agentbox: the first command of this
+	// version moves it, before anything looks for it there.
+	if err := cli.MoveData(os.Args[1:], os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, "agentbox:", err)
+		os.Exit(1)
+	}
+	if slices.Equal(os.Args[1:], cli.MoveDataArgs) {
+		os.Exit(0)
+	}
 	// On a Mac, AgentBox runs in a Linux VM, and this binary is its front end;
 	// on Linux too once `agentbox vm init` made one (Cloud Hypervisor). On a
 	// Linux machine running AgentBox itself, `agentbox vm …` is still the
