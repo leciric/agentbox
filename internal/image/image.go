@@ -230,8 +230,8 @@ type Components struct {
 	DevCaches bool
 	// Incus adds Incus itself, so an agent whose project turns on nesting
 	// (Project.Nesting) can run a real Incus daemon of its own: agents working
-	// on AgentBox can then test features that touch agent machines (limits,
-	// GPU, image builds) for real, inside their own machine.
+	// on AgentBox can then test features that touch agent machines (image
+	// builds, devices, networking) for real, inside their own machine.
 	Incus bool
 }
 

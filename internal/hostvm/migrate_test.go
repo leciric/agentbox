@@ -3,6 +3,7 @@ package hostvm
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -287,6 +288,24 @@ func TestWithinThroughASymlink(t *testing.T) {
 	} {
 		if got := within(home, path); got != want {
 			t.Errorf("within(%s, %s) = %v, want %v", home, path, got, want)
+		}
+	}
+}
+
+// A migration an earlier release recorded says an agent had a machine with
+// its limits, which still count as the machine being there.
+func TestMovedAgentFromAnEarlierRecord(t *testing.T) {
+	for raw, want := range map[string]bool{
+		`{"project":"p","name":"a","limits":{"cpu":"2","allowance":"","memory":""}}`: true,
+		`{"project":"p","name":"a","machine":true}`:                                  true,
+		`{"project":"p","name":"a"}`:                                                 false,
+	} {
+		var a MovedAgent
+		if err := json.Unmarshal([]byte(raw), &a); err != nil {
+			t.Fatal(err)
+		}
+		if a.hasMachine() != want {
+			t.Errorf("%s: hasMachine = %v, want %v", raw, a.hasMachine(), want)
 		}
 	}
 }

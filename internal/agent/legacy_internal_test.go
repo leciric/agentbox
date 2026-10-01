@@ -8,9 +8,33 @@ import (
 	"testing"
 )
 
-// What the budget used to set on the disk, and its memory.high, is put back
-// on daemon start; a QoS the host set itself, and files already at their
-// defaults, are left alone.
+// budgetRoot points the old budget's cgroup at a directory of the test's own,
+// with every file the budget wrote at the kernel's defaults, and returns the
+// cgroup root it is under.
+func budgetRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	old := OldBudgetDir
+	OldBudgetDir = filepath.Join(root, oldBudgetCgroup)
+	t.Cleanup(func() { OldBudgetDir = old })
+	for name, value := range map[string]string{
+		oldBudgetCgroup + "/memory.max": "max\n", oldBudgetCgroup + "/memory.swap.max": "max\n", oldBudgetCgroup + "/cpu.max": "max 100000\n",
+		"user.slice/memory.low": "0\n", "system.slice/memory.low": "0\n",
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return root
+}
+
+// What the budget used to set — on the disk, on its agents and as the host's
+// reserve — is put back on daemon start; a QoS the host set itself, and files
+// already at their defaults, are left alone.
 func TestResetLegacyBudget(t *testing.T) {
 	root := budgetRoot(t)
 	write := func(name, body string) {
@@ -30,17 +54,27 @@ func TestResetLegacyBudget(t *testing.T) {
 	write("agentbox/io.max", "253:0 rbps=max wbps=16777216 riops=max wiops=max\n")
 	write("agentbox/io.weight", "default 10\n")
 	write("agentbox/memory.high", "15461882265\n")
+	write("agentbox/memory.max", "31138512896\n")
+	write("agentbox/memory.swap.max", "8589934592\n")
+	write("agentbox/cpu.max", "1200000 100000\n")
+	write("user.slice/memory.low", "9663676416\n")
+	write("system.slice/memory.low", "2147483648\n")
 	reset, err := ResetLegacyBudget()
 	if err != nil {
 		t.Fatal(err)
 	}
 	slices.Sort(reset)
-	if want := []string{"io.cost on 259:4", "the budget's io.max on 253:0", "the budget's io.weight", "the budget's memory.high"}; !slices.Equal(reset, want) {
+	if want := []string{
+		"io.cost on 259:4", "the budget's cpu.max", "the budget's io.max on 253:0", "the budget's io.weight", "the budget's memory.high",
+		"the budget's memory.max", "the budget's memory.swap.max", "the reserve on system.slice", "the reserve on user.slice",
+	}; !slices.Equal(reset, want) {
 		t.Errorf("reset %q, want %q", reset, want)
 	}
 	for name, want := range map[string]string{
 		"io.cost.qos": "259:4 enable=0", "agentbox/io.max": "253:0 rbps=max wbps=max riops=max wiops=max",
 		"agentbox/io.weight": "default 100", "agentbox/memory.high": "max",
+		"agentbox/memory.max": "max", "agentbox/memory.swap.max": "max", "agentbox/cpu.max": "max 100000",
+		"user.slice/memory.low": "0", "system.slice/memory.low": "0",
 	} {
 		if got := read(name); got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)

@@ -20,7 +20,6 @@ type MemoryUsageAgent struct {
 	State  string
 	Memory int64 // RAM in bytes, counted the way agentMemory does
 	Swap   int64 // bytes in memory.swap.current; 0 for a stopped agent
-	Limit  int64 // limits.memory in bytes; 0 is no limit
 }
 
 // MemoryUsage is the host's memory, broken down the way the "Host memory"
@@ -82,7 +81,6 @@ func (m *Manager) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 		if i, ok := byName[a.Instance]; ok {
 			inst := instances[i]
 			row.State = displayState(inst.Status)
-			row.Limit = limitBytes(LimitsOf(inst.ExpandedConfig).Memory, hostTotal)
 			var fallback int64
 			if inst.State != nil {
 				fallback = inst.State.Memory.Usage
@@ -109,27 +107,6 @@ func (m *Manager) MemoryUsage(ctx context.Context) (MemoryUsage, error) {
 		out.Zram = &z
 	}
 	return out, nil
-}
-
-// limitBytes resolves a limits.memory value to bytes: a plain size through
-// ParseBytes, a percentage against hostTotal, or 0 for "" (no limit) and for
-// anything it can't parse.
-func limitBytes(memory string, hostTotal int64) int64 {
-	if memory == "" {
-		return 0
-	}
-	if percent, ok := strings.CutSuffix(memory, "%"); ok {
-		n, err := strconv.ParseFloat(strings.TrimSpace(percent), 64)
-		if err != nil || hostTotal <= 0 {
-			return 0
-		}
-		return int64(float64(hostTotal) * n / 100)
-	}
-	n, err := ParseBytes(memory)
-	if err != nil {
-		return 0
-	}
-	return n
 }
 
 // agentSwap reads how much swap an agent's cgroup holds, the way agentMemory

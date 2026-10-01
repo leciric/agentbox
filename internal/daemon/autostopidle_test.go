@@ -24,7 +24,7 @@ func autoStopIdleInstances(instance, status string) string {
 func newAutoStopIdleTest(t *testing.T, status string, createdAt time.Time) (testDaemon, state.Agent) {
 	t.Helper()
 	instance := "ab-p-a1"
-	d := startTestDaemon(t, t.TempDir(), cpuBudgetIncus, testConfig{instances: autoStopIdleInstances(instance, status)})
+	d := startTestDaemon(t, t.TempDir(), statefulIncus, testConfig{instances: autoStopIdleInstances(instance, status)})
 	ctx := context.Background()
 	if err := d.srv.store.AddProject(ctx, state.Project{Name: "p", Root: t.TempDir(), CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)

@@ -745,6 +745,14 @@ var migrations = []string{
 	// the project has none of that name yet.
 	`ALTER TABLE questions ADD COLUMN connector TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE questions ADD COLUMN connector_url TEXT NOT NULL DEFAULT ''`,
+
+	// Agents run in AgentBox's VM, whose size is what they share and which
+	// has no GPU, so the settings that capped each agent's machine, kept them
+	// under a shared budget, kept the host's cores free of them and passed the
+	// host's GPU to them are gone. The daemon takes what they set off the
+	// machines themselves (agent.DropOldLimits).
+	`DELETE FROM settings WHERE key IN ('default_cpu', 'default_cpu_allowance', 'default_memory', 'default_memory_seeded',
+		'never_freeze_cpu', 'keep_free_cpu', 'shared_budget', 'shared_budget_memory', 'shared_budget_swap', 'shared_budget_cpu', 'gpu_for_agents')`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

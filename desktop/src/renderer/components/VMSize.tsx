@@ -72,7 +72,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
           </div>
         </div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          On a Mac, the daemon, Incus and every agent run in one Linux VM, and share what it has: an agent's own limits come out of this. Changing it
+          On a Mac, the daemon, Incus and every agent run in one Linux VM, and share what it has. Changing it
           restarts the VM, which stops every agent. The disk keeps the size it was made with.
         </p>
       </div>
@@ -271,7 +271,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
           </div>
         </div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          The daemon, Incus and every agent run in one VM, and share what it has: an agent's own limits come out of this. The VM starts small and takes
+          The daemon, Incus and every agent run in one VM, and share what it has. The VM starts small and takes
           memory as its agents need it, up to the cap, and gives it back as they stop.
         </p>
       </div>

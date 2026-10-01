@@ -6,17 +6,12 @@ import (
 	"time"
 )
 
-// CPUUsageAgent is one agent's share of the host's CPU: its current use, and
-// the cores it's carved out of — ConfiguredCores is what was chosen,
-// EffectiveCores what actually applies right now, which "never freeze my
-// CPU" (RecomputeCPUCaps, D95) may hold below it when the host is busy.
+// CPUUsageAgent is one agent's share of the host's CPU: its current use.
 type CPUUsageAgent struct {
-	Ref             string
-	Title           string
-	State           string
-	CPU             float64 // percent; 100 is one full core
-	ConfiguredCores string  // "" is every core
-	EffectiveCores  string  // "" is every core
+	Ref   string
+	Title string
+	State string
+	CPU   float64 // percent; 100 is one full core
 }
 
 // CPUUsage is the host's CPU, broken down the way the "Host CPU" popover
@@ -39,10 +34,7 @@ func (m *Manager) CPUUsage(ctx context.Context, interval time.Duration) (CPUUsag
 	rows := make([]CPUUsageAgent, 0, len(agents))
 	var agentsCPU float64
 	for _, a := range agents {
-		rows = append(rows, CPUUsageAgent{
-			Ref: a.Ref(), Title: a.Title, State: a.State, CPU: a.CPU,
-			ConfiguredCores: a.Limits.ConfiguredCPU, EffectiveCores: a.Limits.CPU,
-		})
+		rows = append(rows, CPUUsageAgent{Ref: a.Ref(), Title: a.Title, State: a.State, CPU: a.CPU})
 		agentsCPU += a.CPU
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].CPU > rows[j].CPU })

@@ -114,22 +114,11 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 			return fail(err)
 		}
 	}
-	// `incus copy` copies configuration keys as well as devices, so the base
-	// would otherwise carry whatever the agent it was saved from was capped at,
-	// and every agent made from that base would silently inherit it — past the
-	// installation's own defaults, and past a later change to them. Limits
-	// belong to an agent, not to a project's base.
-	for _, key := range LimitKeys {
-		if _, ok := copied.Config[key]; !ok {
-			continue
-		}
-		if err := m.Incus.UnsetConfig(ctx, next, key); err != nil {
-			return fail(err)
-		}
-	}
-	// Nor does a base belong in the agent's cgroup: started with its
+	// `incus copy` copies configuration keys as well as devices, so a base
+	// saved from a machine an earlier release made would carry the limits it
+	// set, and its place in the shared budget's cgroup: started with that
 	// raw.lxc, it would try to run in the very directory the agent runs in.
-	for _, step := range budgetSteps(next, false, copied.Config) {
+	for _, step := range oldLimitSteps(next, copied.Config, copied.Devices) {
 		if err := step(ctx, m.Incus); err != nil {
 			return fail(err)
 		}

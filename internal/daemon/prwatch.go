@@ -562,9 +562,6 @@ func (s *Server) wakeAndTell(ctx context.Context, a state.Agent, text string) (b
 		woke = true
 	}
 	if woke {
-		if err := m.RecomputeCPUCaps(ctx); err != nil {
-			s.logf("pull request watch: %v", err)
-		}
 		s.refreshAgents(ctx)
 	}
 	_, err = s.chat.Send(a, text)

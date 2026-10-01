@@ -49,7 +49,6 @@ func (s *Server) agentInfo(st agent.Status) api.Agent {
 	if p, ok := s.chat.Progress(info.Ref); ok {
 		info.StalledSince = p.Stalled
 	}
-	info.MemoryShortage = s.memoryShortage(st.Instance)
 	return info
 }
 

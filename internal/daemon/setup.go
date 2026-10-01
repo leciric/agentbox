@@ -140,10 +140,6 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 			Detail: "optional: " + firstLine(err), Fix: android.InstallHint})
 	}
 
-	if c, ok := s.sharedBudgetCheck(ctx); ok {
-		checks = append(checks, c)
-	}
-
 	s.mu.Lock()
 	preview := s.previewAddr
 	s.mu.Unlock()
@@ -561,32 +557,4 @@ func cmpOr(value, fallback string) string {
 		return fallback
 	}
 	return value
-}
-
-// sharedBudgetCheck is the shared agent budget's line in Setup: there where
-// the budget can be at all, and never required. It's where running agents
-// still outside it are said to join it at their next start.
-func (s *Server) sharedBudgetCheck(ctx context.Context) (api.SetupCheck, bool) {
-	b, err := s.sharedBudget(ctx)
-	if err != nil || b.Unsupported != "" {
-		return api.SetupCheck{}, false
-	}
-	c := api.SetupCheck{ID: "budget", Title: "Shared agent budget", Status: api.SetupOptional}
-	size := agent.Budget{Memory: b.Memory, Swap: b.Swap, CPU: b.CPU}.DescribeOn(b.HostMemory)
-	switch {
-	case b.On && b.Problem != "":
-		c.Status, c.Detail, c.Fix = api.SetupWarn, b.Problem, b.SetupCommand
-	case b.On:
-		c.Status, c.Detail = api.SetupOK, "on: agents share "+size
-		if b.Pending > 0 {
-			if b.Pending == 1 {
-				c.Detail += ". 1 running agent joins it at its next start"
-			} else {
-				c.Detail += fmt.Sprintf(". %d running agents join it at their next start", b.Pending)
-			}
-		}
-	default:
-		c.Detail = "off: turn it on in Settings, under Resources, to reserve memory for your own apps and keep agents to the rest"
-	}
-	return c, true
 }

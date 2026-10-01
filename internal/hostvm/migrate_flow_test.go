@@ -170,8 +170,8 @@ func TestMigrationSteps(t *testing.T) {
 	if !shop.Running || blog.Running {
 		t.Errorf("running: shop %v, blog %v; want shop only", shop.Running, blog.Running)
 	}
-	if shop.Limits == nil || shop.Limits.CPU != "2" || shop.Limits.Memory != "3GiB" || blog.Limits == nil || blog.Limits.Memory != "" {
-		t.Errorf("limits: shop %+v, blog %+v", shop.Limits, blog.Limits)
+	if !shop.hasMachine() || !blog.hasMachine() {
+		t.Errorf("machines: shop %v, blog %v; want both", shop.hasMachine(), blog.hasMachine())
 	}
 	incusCalls, _ := os.ReadFile(calls)
 	if !strings.Contains(string(incusCalls), "stop ab-shop-agent-01") {
@@ -223,7 +223,7 @@ func TestMigrationSteps(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "blog/agent-01") {
 		t.Fatalf("makeMachines with blog failing = %v", err)
 	}
-	if req, ok := d.recreated["shop/agent-01"]; !ok || req.Stopped || req.Memory == nil || *req.Memory != "3GiB" || req.Home == "" {
+	if req, ok := d.recreated["shop/agent-01"]; !ok || req.Stopped || req.Home == "" {
 		t.Errorf("shop's recreate: %+v", req)
 	}
 	delete(d.recreated, "shop/agent-01")
@@ -233,7 +233,7 @@ func TestMigrationSteps(t *testing.T) {
 	if _, again := d.recreated["shop/agent-01"]; again {
 		t.Error("the rerun made shop's machine again")
 	}
-	if req, ok := d.recreated["blog/agent-01"]; !ok || !req.Stopped || req.Memory == nil || *req.Memory != "" {
+	if req, ok := d.recreated["blog/agent-01"]; !ok || !req.Stopped {
 		t.Errorf("blog's recreate on the rerun: %+v, %v", req, ok)
 	}
 

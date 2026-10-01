@@ -280,7 +280,7 @@ func NewRootCmd() *cobra.Command {
 		newAgentPRsCmd(a),
 		newConsolidationCmd(a),
 		newConsolidationModelCmd(a),
-		newLimitsCmd(a),
+		newAutoStopCmd(a),
 		newDiskCmd(a),
 		newInterfaceCmd(a),
 		newShellCmd(a),

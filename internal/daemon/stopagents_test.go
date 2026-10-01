@@ -15,10 +15,24 @@ import (
 	"agentbox/internal/state"
 )
 
-// stopAgentsIncus is cpuBudgetIncus behind a lock: the job stops agents in
+// statefulIncus is fakeIncus with enough behind `stop` and `start` to matter:
+// each flips the instance's own status in $INCUS_INSTANCES_FILE, the way the
+// real Incus would, so a later `list` sees the agent's new state rather than
+// the one it started the request in.
+const statefulIncus = `case "$1" in
+  list) cat "$INCUS_INSTANCES_FILE" ;;
+  query) echo '{"config":{},"devices":{}}' ;;
+  config) echo "$*" >> "$INCUS_LOG" ;;
+  stop) sed -i "s/\"name\":\"$2\",\"status\":\"[A-Za-z]*\"/\"name\":\"$2\",\"status\":\"Stopped\"/" "$INCUS_INSTANCES_FILE" ;;
+  start) sed -i "s/\"name\":\"$2\",\"status\":\"[A-Za-z]*\"/\"name\":\"$2\",\"status\":\"Running\"/" "$INCUS_INSTANCES_FILE" ;;
+esac
+exit 0
+`
+
+// stopAgentsIncus is statefulIncus behind a lock: the job stops agents in
 // parallel, and two of its `sed -i` on the one instances file would lose
 // each other's change.
-var stopAgentsIncus = "exec 9>\"$INCUS_INSTANCES_FILE.lock\"; flock 9\n" + cpuBudgetIncus
+var stopAgentsIncus = "exec 9>\"$INCUS_INSTANCES_FILE.lock\"; flock 9\n" + statefulIncus
 
 // stopAgentsDaemon is a daemon with three agents in two projects: p/a1
 // running, p/a2 paused and q/b1 already stopped.

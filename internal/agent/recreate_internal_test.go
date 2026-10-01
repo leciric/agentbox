@@ -12,25 +12,6 @@ import (
 	"testing"
 )
 
-func TestFitsHere(t *testing.T) {
-	const gib = int64(1) << 30
-	for _, c := range []struct {
-		memory string
-		fits   bool
-	}{
-		{"", true},
-		{"8GiB", true},
-		{"16GiB", true},
-		{"24GiB", false},
-		{"50%", true},
-	} {
-		err := fitsHere(Limits{Memory: c.memory}, 16*gib)
-		if (err == nil) != c.fits {
-			t.Errorf("fitsHere(%q) = %v, want fits=%v", c.memory, err, c.fits)
-		}
-	}
-}
-
 // What the old machine's chat sessions were goes into the new one's home with
 // its paths, and a symlink as a symlink.
 func TestTarDir(t *testing.T) {

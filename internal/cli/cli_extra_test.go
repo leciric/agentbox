@@ -348,17 +348,6 @@ func TestTokensCmdBadSince(t *testing.T) {
 	mustContain(t, out, "Nothing spent")
 }
 
-func TestLimitsOnAnUnknownAgent(t *testing.T) {
-	isolate(t)
-	startDaemon(t)
-	if _, err := run(t, "", "limits", "pawly/agent-01"); err == nil {
-		t.Error("limits of an unknown agent succeeded")
-	}
-	if _, err := run(t, "", "limits", "pawly/agent-01", "--cpu", "4"); err == nil {
-		t.Error("limits --cpu of an unknown agent succeeded")
-	}
-}
-
 func TestBrowserStatusOnAnUnknownAgent(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
@@ -724,32 +713,23 @@ func TestProjectSettingsShowAndValidate(t *testing.T) {
 	}
 }
 
-func TestLimitsSharedBudget(t *testing.T) {
+func TestAutoStop(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
-	out, err := run(t, "", "limits")
+	out, err := run(t, "", "auto-stop")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "shared agent budget:") {
-		t.Errorf("limits doesn't show the shared budget:\n%s", out)
+	mustContain(t, out, "auto-stop idle agents: off")
+	out, err = run(t, "", "auto-stop", "on", "--idle-time", "90m")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := run(t, "", "limits", "--shared-budget", "maybe"); err == nil || !strings.Contains(err.Error(), "true or false") {
-		t.Errorf("--shared-budget maybe = %v", err)
+	mustContain(t, out, "on, stopping an agent idle for 1h30m0s")
+	if _, err := run(t, "", "auto-stop", "maybe"); err == nil {
+		t.Error("auto-stop maybe was taken")
 	}
-	// Refused on every machine a test runs on: either there is no budget
-	// here at all, or its cgroup was never set up — or a size is refused.
-	if _, err := run(t, "", "limits", "--budget-cpu", "100000"); err == nil {
-		t.Error("a budget of 100000 cores was taken")
-	}
-}
-
-func TestHostBudgetNeedsRoot(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root")
-	}
-	isolate(t)
-	if _, err := run(t, "", "host", "budget"); err == nil || !strings.Contains(err.Error(), "has to run as root") {
-		t.Errorf("host budget as a user = %v", err)
+	if _, err := run(t, "", "auto-stop", "--idle-time", "5s"); err == nil {
+		t.Error("an idle time of 5s was taken")
 	}
 }

@@ -1,15 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, Copy, ExternalLink, FileDiff, FolderOpen, GitBranch, LoaderCircle, SlidersHorizontal, SquareTerminal } from 'lucide-react';
+import { Box, Copy, ExternalLink, FileDiff, FolderOpen, GitBranch, SquareTerminal } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { cn, errorMessage, humanBytes, humanRate, parseBytes, shortCommit, shortRate } from '../lib/utils';
+import { cn, errorMessage, humanBytes, humanRate, shortCommit, shortRate } from '../lib/utils';
 import { aiLabel, StateBadge } from './state';
 import { AgentTokensCard } from './TokensPanel';
 import { Button } from './ui/button';
 import { Panel, Row } from './ui/card';
-import { Field, Input } from './ui/input';
 import { Select, SelectOption } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
@@ -23,9 +22,8 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
   const idleStop = events.data?.find((ev) => ev.ref === agent.ref && ev.kind === 'idle_stopped');
   const mine = usage.data?.agents.find((a) => a.ref === agent.ref);
   const cpu = mine?.cpu ?? 0;
-  const cores = mine?.cores ?? 0;
-  // Against the ceiling it actually has, and against the host when it has none.
-  const memoryCap = agent.limits.memory ? parseBytes(agent.limits.memory) : usage.data?.host.memTotal;
+  const cores = usage.data?.host.cores ?? 0;
+  const memoryCap = usage.data?.host.memTotal;
   const memoryFraction = memoryCap ? Math.min((mine?.memory ?? 0) / memoryCap, 1) : undefined;
   const [section, setSection] = useState<OverviewSection>('machine');
 
@@ -68,19 +66,17 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
               </Row>
               <Row label="Created">{new Date(agent.createdAt).toLocaleString()}</Row>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {/* Against its own limit, not a fixed four cores: the question a
-                    capped agent raises is whether it is the one at its wall. */}
                 <Metric
                   label="CPU"
                   value={mine ? `${cpu.toFixed(0)}%` : '—'}
                   fraction={cores ? Math.min(cpu / (cores * 100), 1) : undefined}
-                  hint={cores ? `100% is one core; this agent may use ${cores}` : '100% is one core'}
+                  hint={cores ? `100% is one core; it may use all ${cores} of the VM's` : '100% is one core'}
                 />
                 <Metric
                   label="Memory"
                   value={mine ? humanBytes(mine.memory) : '—'}
                   fraction={memoryFraction}
-                  hint={agent.limits.memory ? `Capped at ${agent.limits.memory}` : 'No limit: it may take all the host has'}
+                  hint="It may take all the VM's memory"
                 />
                 <Metric
                   label="Disk IO"
@@ -96,9 +92,6 @@ export function OverviewTab({ agent }: { agent: T.Agent }) {
                   hint="What its machine reads from and writes to the host's disks"
                 />
                 <Metric label="Processes" value={mine ? String(mine.processes) : '—'} />
-              </div>
-              <div className="mt-3.5">
-                <LimitsEditor agent={agent} />
               </div>
             </Panel>
           </TabsContent>
@@ -246,106 +239,6 @@ function InterfacePicker({ agent }: { agent: T.Agent }) {
       {change.error && <span className="text-xs text-rose-300">{errorMessage(change.error)}</span>}
     </span>
   );
-}
-
-// LimitsEditor changes what the machine may take, while it runs: Incus applies
-// all three of its keys to a running instance, so nothing restarts. A memory
-// ceiling below what the agent is already using comes back refused — the
-// daemon won't let the kernel kill the agent's work to enforce it.
-export function LimitsEditor({ agent }: { agent: T.Agent }) {
-  const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  // Its own choice, not the effective figure "never freeze my CPU" may be
-  // holding it below right now — editing here changes what it's chosen to
-  // be, and that cap is recomputed from it, not the other way round.
-  const configuredCPU = agent.limits.configuredCPU || agent.limits.cpu;
-  const [form, setForm] = useState({ cpu: configuredCPU, cpuAllowance: agent.limits.allowance, memory: agent.limits.memory });
-  const save = useMutation({
-    mutationFn: () => api.updateAgent(agent.ref, { cpu: form.cpu.trim(), cpuAllowance: form.cpuAllowance.trim(), memory: form.memory.trim() }),
-    onSuccess: async (updated) => {
-      setOpen(false);
-      toast(`${updated.ref}: ${limitWords(updated.limits)}`, {
-        description: updated.state === 'running' ? 'Applied to the running machine.' : 'It will have them when it starts.',
-      });
-      await queryClient.invalidateQueries({ queryKey: ['agents'] });
-      await queryClient.invalidateQueries({ queryKey: ['usage'] });
-    },
-  });
-
-  if (!open) {
-    return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-line-faint pt-3">
-        <span className="text-[13px] text-subtle">This agent's limits</span>
-        <span className="text-[13px] text-secondary" data-agent-limits>
-          {limitWords(agent.limits)}
-        </span>
-        {agent.limits.configuredCPU && agent.limits.configuredCPU !== agent.limits.cpu && (
-          <span className="text-[13px] text-amber-300" data-agent-limits-effective>
-            held to {agent.limits.cpu} core{agent.limits.cpu === '1' ? '' : 's'} by "never freeze my CPU"
-          </span>
-        )}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto"
-          onClick={() => {
-            setForm({ cpu: configuredCPU, cpuAllowance: agent.limits.allowance, memory: agent.limits.memory });
-            save.reset();
-            setOpen(true);
-          }}
-        >
-          <SlidersHorizontal />
-          Edit
-        </Button>
-      </div>
-    );
-  }
-  return (
-    <form
-      className="grid gap-3 border-t border-line-faint pt-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        save.mutate();
-      }}
-    >
-      <div className="grid grid-cols-3 gap-3">
-        <Field label="CPU cores" htmlFor="limits-cpu" hint="Cores it sees and can use">
-          <Input id="limits-cpu" autoFocus className="h-8 font-mono text-[12.5px]" placeholder="every core" value={form.cpu} onChange={(e) => setForm({ ...form, cpu: e.target.value })} />
-        </Field>
-        <Field label="CPU share" htmlFor="limits-allowance" hint="50%: only when agents compete. 25ms/100ms: hard ceiling">
-          <Input
-            id="limits-allowance"
-            className="h-8 font-mono text-[12.5px]"
-            placeholder="all of it"
-            value={form.cpuAllowance}
-            onChange={(e) => setForm({ ...form, cpuAllowance: e.target.value })}
-          />
-        </Field>
-        <Field label="Memory" htmlFor="limits-memory" hint="Hard ceiling: past it, processes are killed">
-          <Input id="limits-memory" className="h-8 font-mono text-[12.5px]" placeholder="all of it" value={form.memory} onChange={(e) => setForm({ ...form, memory: e.target.value })} />
-        </Field>
-      </div>
-      {save.error && <span className="text-xs leading-relaxed text-rose-300">{errorMessage(save.error)}</span>}
-      <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" size="sm" disabled={save.isPending}>
-          {save.isPending && <LoaderCircle className="animate-spin" />}
-          Apply
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
-          Cancel
-        </Button>
-        <span className="text-xs text-subtle">For this agent only, applied while it runs. Empty means no limit.</span>
-      </div>
-    </form>
-  );
-}
-
-// limitWords says what a set of limits means, naming what is uncapped rather
-// than leaving it out: "no memory limit" is the fact worth reading.
-function limitWords(limits: T.Limits): string {
-  const cores = limits.cpu ? `${limits.cpu} core${limits.cpu === '1' ? '' : 's'}` : 'every core';
-  const memory = limits.memory ? `${limits.memory} of memory` : 'no memory limit';
-  return [cores, memory, ...(limits.allowance ? [`a CPU share of ${limits.allowance}`] : [])].join(', ');
 }
 
 function Metric({ label, value, detail, fraction, hint }: { label: string; value: string; detail?: ReactNode; fraction?: number; hint?: string }) {

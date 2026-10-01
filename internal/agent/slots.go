@@ -13,9 +13,8 @@ import (
 // already running is ever stopped or paused to make one; an agent created
 // without queueing starts at once, as it always has, and simply takes a slot.
 //
-// Auto slots come from memory. The budget is what agents may use — the
-// shared budget when it is on, the VM's memory in VM mode, and otherwise what
-// the shared budget would be on this host — less a reserve, so the agents'
+// Auto slots come from memory. The budget is what agents may use — the VM's
+// memory (SlotBudget) — less a reserve, so the agents'
 // peaks never quite add up to all of it. Each project's agents are assumed to
 // peak where its latest agents did (state.TypicalMemoryPeak), and the budget
 // is shared between the projects that have work, running or queued, fairly in
@@ -139,47 +138,33 @@ func splitActive(usable int64, projects []SlotProject) map[string]int {
 	return out
 }
 
-// SlotBudget is the memory auto slots are shared from, before the reserve:
-// the shared budget's memory when it's on, the VM's memory in VM mode, and
-// otherwise what the shared budget would suggest for this host.
-func (m *Manager) SlotBudget(ctx context.Context) (int64, error) {
-	host := ReadHostResources()
-	on, b, err := m.SharedBudget(ctx)
-	if err != nil {
-		return 0, err
+// SlotBudget is the memory auto slots are shared from, before the reserve.
+// In the VM, that's the VM's memory: nothing but agents runs in it. On a host
+// set up by an earlier release, agents share the host with its own apps, which
+// keep a third of its memory and never less than 6 GiB, or half of a host too
+// small for that.
+func SlotBudget() int64 {
+	memory := HostMemory()
+	if hostos.InVM() {
+		return memory
 	}
-	switch {
-	case on:
-		if n, err := ParseBytes(b.Memory); err == nil && n > 0 {
-			return n, nil
-		}
-	case hostos.InVM():
-		// The VM's memory is its cap, and nothing but agents runs in it.
-		return host.Memory, nil
+	const gib = int64(1) << 30
+	if agents := memory - max(memory/3, 6*gib); agents >= gib {
+		return agents
 	}
-	suggested, _ := SuggestBudget(host)
-	if n, err := ParseBytes(suggested.Memory); err == nil && n > 0 {
-		return n, nil
-	}
-	return host.Memory, nil
+	return memory / 2
 }
 
 // defaultSlotPeak is the peak assumed for a project nothing is known about,
-// with no memory limit to go on either.
+// before any of its agents was seen.
 const defaultSlotPeak = int64(4) << 30
 
 // ProjectPeak is the memory one of a project's agents is expected to reach:
-// what its latest agents did, or, before any was seen, the memory limit new
-// agents are given.
+// what its latest agents did, or defaultSlotPeak before any was seen.
 func (m *Manager) ProjectPeak(ctx context.Context, project string) (peak int64, learned bool, err error) {
 	peak, err = m.Store.TypicalMemoryPeak(ctx, project)
 	if err != nil || peak > 0 {
 		return peak, peak > 0, err
-	}
-	if d, err := m.Defaults(ctx); err == nil {
-		if n := limitBytes(d.Memory, ReadHostResources().Memory); n > 0 {
-			return n, false, nil
-		}
 	}
 	return defaultSlotPeak, false, nil
 }

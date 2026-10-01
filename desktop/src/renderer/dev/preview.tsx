@@ -41,12 +41,6 @@
 //   ?defaults=1             Settings' Lead and Agents defaults, the model and
 //                           the context window of each, which the dev bridge
 //                           saves (fixtures.ts)
-//   ?budget=on              the shared budget on, for Settings' fields and
-//                           the memory it reserves for your apps
-//                           (fixtures.ts)
-//   ?budget=off             off, with its cgroup not made yet: Settings' "Set
-//                           up and turn on" (with ?settings=resources or
-//                           ?settings=machine)
 //   ?github=1               a project's GitHub account picker, on a project
 //                           that limits its Claude Code accounts, beside
 //                           Settings' GitHub accounts with a rename the dev
@@ -59,9 +53,6 @@
 //                           accounts, machine) or at a project's settings
 //                           (project:<name>), against fixtures the dev bridge
 //                           saves (fixtures.ts)
-//   ?resources=1            the resource limits' copy: Home's host stats,
-//                           Settings' defaults for new agents, and an agent's
-//                           limits editor, open
 //   ?usage=1                the top bar's usage meter against two Claude
 //                           accounts: on Home (the default account), on a
 //                           project that uses the other one, on a Claude
@@ -157,8 +148,8 @@ import { Toaster } from 'sonner';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
 import { HomeView } from '../components/HomeView';
-import { DefaultContextWindow, DefaultModel, NewAgentResources } from '../components/NewAgentDefaults';
-import { LimitsEditor, OverviewTab } from '../components/OverviewTab';
+import { DefaultContextWindow, DefaultModel } from '../components/NewAgentDefaults';
+import { OverviewTab } from '../components/OverviewTab';
 import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
@@ -169,7 +160,6 @@ import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
 import { AgentAvatar, aiLabel } from '../components/state';
-import { Panel } from '../components/ui/card';
 import type { Mood } from '../lib/agentStatus';
 import { Sidebar } from '../components/Sidebar';
 import { FreeResourcesDialog, type FreeRun } from '../components/ResourceControls';
@@ -184,7 +174,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests, seedBudget, seedBudgetOff, seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
 
 installDevBridge();
 
@@ -201,7 +191,6 @@ const moods: Mood[] = ['working', 'asking', 'idle', 'sleeping', 'error'];
 const moodState: Record<Mood, string> = { working: 'running', asking: 'running', idle: 'running', sleeping: 'stopped', error: 'incomplete' };
 const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
-const resources = params.get('resources') === '1';
 const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
@@ -299,23 +288,15 @@ const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${cha
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
-const budget = params.get('budget');
-if (budget === 'on') seedBudget(queryClient);
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media) seedMedia(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (params.get('nightly') === '1') seedNightly(queryClient);
-if (budget === 'off') seedBudgetOff(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
 if (linuxHost === 'move') {
   seedLinuxHost(queryClient, true);
   localStorage.removeItem(laterKey);
-}
-if (resources) {
-  const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 19 * GiB, memTotal: 31 * GiB, poolUsed: 120 * GiB, poolTotal: 400 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
-  queryClient.setQueryData(['settings'], { ...queryClient.getQueryData(['settings']), hostCores: 8, hostMemory: 31 * GiB, seedMemory: '8GiB', defaultCPU: '4', defaultCPUAllowance: '', defaultMemory: '8GiB' });
 }
 if (meters) {
   const GiB = 1024 ** 3;
@@ -358,7 +339,7 @@ if (io) {
       .filter((a) => a.state === 'running')
       .map((a, i) => {
         const [diskRead, diskWrite] = disk[a.name] ?? [0, 0];
-        return { ref: a.ref, state: 'running', cpu: [142, 38, 9, 71][i % 4], memory: [6.1, 2.4, 0.9, 3.3][i % 4] * GiB, processes: 40 + i, diskRead, diskWrite, limits: a.limits, cores: 16 };
+        return { ref: a.ref, state: 'running', cpu: [142, 38, 9, 71][i % 4], memory: [6.1, 2.4, 0.9, 3.3][i % 4] * GiB, processes: 40 + i, diskRead, diskWrite };
       }),
   } satisfies T.Usage);
   queryClient.setQueryData(['claudeLimits'], []);
@@ -457,14 +438,6 @@ function AvatarTransition() {
 }
 
 function Preview() {
-  // The limits editor opens on a click.
-  useEffect(() => {
-    if (!resources) return;
-    document.querySelector<HTMLButtonElement>('[data-preview-limits] button')?.click();
-    // Its input takes focus and scrolls itself into view; put Home's stats back on screen.
-    requestAnimationFrame(() => document.querySelector('[data-preview-resources]')?.scrollTo(0, 0));
-  }, []);
-
   if (github) return <GitHubPreview />;
   if (usage) return <UsagePreview />;
 
@@ -551,24 +524,6 @@ function Preview() {
             {io === 'agent' ? <OverviewTab agent={agent} /> : <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />}
           </div>
           <AgentRail view={io === 'agent' ? { kind: 'agent', ref: agent.ref } : { kind: 'home' }} onSelect={() => {}} onNewAgent={() => {}} />
-        </div>
-      </div>
-    );
-  }
-
-  if (resources) {
-    return (
-      <div data-preview-resources style={{ height: '100vh', overflowY: 'auto', background: 'var(--color-ink)' }}>
-        <div style={{ height: 300 }}>
-          <HomeView onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
-        </div>
-        <div className="mx-auto grid max-w-3xl gap-4 px-4 pb-10">
-          <Panel>
-            <NewAgentResources />
-          </Panel>
-          <Panel className="p-5" data-preview-limits>
-            <LimitsEditor agent={{ ...fixtures.agents[0], limits: { cpu: '4', allowance: '', memory: '8GiB', configuredCPU: '4' } }} />
-          </Panel>
         </div>
       </div>
     );

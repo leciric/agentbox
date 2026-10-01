@@ -152,9 +152,8 @@ func newCreateCmd(a *app) *cobra.Command {
 	// agents start on", and --autonomous=false is a real choice, so each is
 	// read from the flag only when it was actually typed.
 	var (
-		autonomous, queue         bool
-		model, effort, window     string
-		cpu, memory, cpuAllowance string
+		autonomous, queue     bool
+		model, effort, window string
 	)
 	cmd := &cobra.Command{
 		Use:   "create <project>",
@@ -176,19 +175,6 @@ func newCreateCmd(a *app) *cobra.Command {
 			// Left off, the project's "always queue new agents" decides.
 			if f.Changed("queue") {
 				req.Queue = &queue
-			}
-			// The limits are read the same way, and for a sharper reason:
-			// --cpu "" is a real choice (this agent gets every core), so an
-			// untyped flag can't be sent as "" or every agent would come out
-			// uncapped.
-			if f.Changed("cpu") {
-				req.CPU = &cpu
-			}
-			if f.Changed("memory") {
-				req.Memory = &memory
-			}
-			if f.Changed("cpu-allowance") {
-				req.CPUAllowance = &cpuAllowance
 			}
 			c, err := a.client(cmd)
 			if err != nil {
@@ -220,9 +206,6 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
 	f.BoolVar(&req.CatchUp, "catch-up", false, "bring the machine up to the current base image's packages and agent tools before its task: how a project base is refreshed")
-	f.StringVar(&cpu, "cpu", "", `how many cores this agent gets, like 4; "" gives it every core (default: what new agents get)`)
-	f.StringVar(&memory, "memory", "", `how much memory this agent gets, like 8GiB; "" gives it all of it (default: what new agents get)`)
-	f.StringVar(&cpuAllowance, "cpu-allowance", "", `this agent's share of the CPUs: a percentage like 50%, which only counts when the host is busy, or a hard ceiling like 25ms/100ms (default: what new agents get)`)
 	return cmd
 }
 
@@ -263,7 +246,6 @@ func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 		_, _ = fmt.Fprintf(w, "  account\t%s (GitHub)\n", ag.GitHubAccount)
 	}
 	_, _ = fmt.Fprintf(w, "  machine\tcopy of %s\n", ag.Source)
-	_, _ = fmt.Fprintf(w, "  limits\t%s\n", limitWords(ag.Limits))
 	_, _ = fmt.Fprintf(w, "  branch\t%s (from %s)\n", ag.Branch, ag.BaseRef)
 	_, _ = fmt.Fprintf(w, "  worktree\t%s\n", ag.Worktree)
 	_, _ = fmt.Fprintf(w, "  ip\t%s\n", ag.IP)

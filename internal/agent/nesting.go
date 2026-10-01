@@ -10,7 +10,7 @@ import (
 
 // A project can turn nesting on: its agents get a real Incus daemon of their
 // own, inside their own container, so agents working on AgentBox can test
-// features that touch agent machines (limits, GPU, image builds) for real.
+// features that touch agent machines (image builds, devices, networking) for real.
 // It needs the base image built with Incus (image.Components.Incus), and it
 // costs isolation: an agent with it can make and run containers of its own.
 //

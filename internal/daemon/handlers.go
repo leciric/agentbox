@@ -869,7 +869,6 @@ func toAPIAgent(st agent.Status) api.Agent {
 		State:         st.State,
 		QueuePosition: st.QueuePosition,
 		IP:            st.IP,
-		Limits:        api.Limits{CPU: st.Limits.CPU, Allowance: st.Limits.Allowance, Memory: st.Limits.Memory, ConfiguredCPU: st.Limits.ConfiguredCPU},
 		CreatedAt:     a.CreatedAt,
 	}
 }
@@ -973,16 +972,6 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) error {
 		}
 		if updated.Interface == state.InterfaceCLI {
 			s.chat.Stop(a.Ref(), "you switched to the command line")
-		}
-	}
-	if req.CPU != nil || req.Memory != nil || req.CPUAllowance != nil {
-		// Applied to the machine as it runs; nothing restarts.
-		if _, err := s.manager(nil).SetLimits(r.Context(), a, agent.LimitChoice{
-			CPU:       req.CPU,
-			Allowance: req.CPUAllowance,
-			Memory:    req.Memory,
-		}); err != nil {
-			return err
 		}
 	}
 	info, err := s.describe(r.Context(), a)
@@ -1114,7 +1103,6 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 
 			CopyEnv: !req.NoEnv,
 			Clean:   req.Clean,
-			Limits:  agent.LimitChoice{CPU: req.CPU, Allowance: req.CPUAllowance, Memory: req.Memory},
 
 			FinishNotice: req.FinishNotice,
 			Connectors:   connectors,
@@ -1129,12 +1117,6 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// is still waiting on, the same as a finish it asked for.
 				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
 			}
-			return nil, err
-		}
-		// A new agent starts running right away, so it joins the CPU budget
-		// every other running agent shares immediately, not from its next
-		// start.
-		if err := s.manager(log).RecomputeCPUCaps(ctx); err != nil {
 			return nil, err
 		}
 		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode))
@@ -1237,14 +1219,6 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		if err != nil {
 			return err
-		}
-		switch action {
-		case "start", "stop", "pause", "resume":
-			// Fewer or more running agents changes the CPU budget every
-			// running one shares, whether this one just joined it or left it.
-			if err := m.RecomputeCPUCaps(ctx); err != nil {
-				return err
-			}
 		}
 		s.refreshAgents(ctx)
 		info, err := s.describe(ctx, a)
@@ -1387,8 +1361,6 @@ func toAPIUsage(host agent.HostUsage, agents []agent.AgentUsage) api.Usage {
 		u.Agents = append(u.Agents, api.AgentUsage{
 			Ref: a.Ref(), State: a.State, CPU: a.CPU, Memory: a.Memory, Processes: a.Processes,
 			DiskRead: a.DiskRead, DiskWrite: a.DiskWrite,
-			Limits: api.Limits{CPU: a.Limits.CPU, Allowance: a.Limits.Allowance, Memory: a.Limits.Memory, ConfiguredCPU: a.Limits.ConfiguredCPU},
-			Cores:  a.Cores,
 		})
 	}
 	return u
@@ -1441,7 +1413,7 @@ func toAPIMemoryUsage(u agent.MemoryUsage) api.MemoryUsage {
 	}
 	for _, a := range u.Agents {
 		out.Agents = append(out.Agents, api.MemoryUsageAgent{
-			Ref: a.Ref, Title: a.Title, State: a.State, Memory: a.Memory, Swap: a.Swap, Limit: a.Limit,
+			Ref: a.Ref, Title: a.Title, State: a.State, Memory: a.Memory, Swap: a.Swap,
 		})
 	}
 	return out
@@ -1461,10 +1433,7 @@ func toAPICPUUsage(u agent.CPUUsage) api.CPUUsage {
 		Agents: make([]api.CPUUsageAgent, 0, len(u.Agents)),
 	}
 	for _, a := range u.Agents {
-		out.Agents = append(out.Agents, api.CPUUsageAgent{
-			Ref: a.Ref, Title: a.Title, State: a.State, CPU: a.CPU,
-			ConfiguredCores: a.ConfiguredCores, EffectiveCores: a.EffectiveCores,
-		})
+		out.Agents = append(out.Agents, api.CPUUsageAgent{Ref: a.Ref, Title: a.Title, State: a.State, CPU: a.CPU})
 	}
 	return out
 }

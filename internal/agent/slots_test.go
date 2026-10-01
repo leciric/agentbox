@@ -1,7 +1,9 @@
 package agent_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"agentbox/internal/agent"
 )
@@ -121,5 +123,28 @@ func TestSplitSlotsPinned(t *testing.T) {
 	})
 	if got["auto"] != 6 {
 		t.Errorf("auto beside a pinned project with one agent: %d slots, want 6", got["auto"])
+	}
+}
+
+// A project nothing is known about is expected to peak at 4 GiB; once one of
+// its agents was seen, at what its agents reached.
+func TestProjectPeak(t *testing.T) {
+	f := setup(t, fakeIncus(t, "exit 0"))
+	ctx := context.Background()
+	if peak, learned, err := f.m.ProjectPeak(ctx, "hello-stack"); err != nil || learned || peak != 4*gib {
+		t.Fatalf("before any agent: %d GiB, learned %v, %v", peak/gib, learned, err)
+	}
+	if err := f.st.RecordUsagePeak(ctx, "hello-stack", "agent-01", 3*gib, 50, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if peak, learned, err := f.m.ProjectPeak(ctx, "hello-stack"); err != nil || !learned || peak != 3*gib {
+		t.Errorf("after one agent: %d GiB, learned %v, %v", peak/gib, learned, err)
+	}
+}
+
+// SlotBudget never shares out more memory than the machine has.
+func TestSlotBudget(t *testing.T) {
+	if b := agent.SlotBudget(); b <= 0 || b > agent.HostMemory() {
+		t.Errorf("SlotBudget() = %d, with %d of memory", b, agent.HostMemory())
 	}
 }

@@ -153,7 +153,7 @@ A walkthrough recorded through the desktop tools is slow, click-by-click work �
 
 ## Testing against a real daemon
 
-This project turned nesting on, so this machine runs a real Incus daemon of its own: `incus` works here the way it does on the host, with its own storage pool (a plain directory, not btrfs) and its own bridge network, separate from the host's. Test AgentBox features that touch agent machines — limits, GPU, image builds — by running AgentBox itself against this daemon rather than mocking Incus.
+This project turned nesting on, so this machine runs a real Incus daemon of its own: `incus` works here the way it does on the host, with its own storage pool (a plain directory, not btrfs) and its own bridge network, separate from the host's. Test AgentBox features that touch agent machines — image builds, devices, networking — by running AgentBox itself against this daemon rather than mocking Incus.
 
 - `sudo agentbox host setup` sets this machine up the way a fresh host is set up, against this nested Incus.
 - `agentbox image build` builds a base image here, the same way it does on the host, and `agentbox create` makes an agent from it: a real, if tiny, AgentBox inside this one.

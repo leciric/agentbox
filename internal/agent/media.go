@@ -276,13 +276,7 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 	if st.Input == RecordInputDesktop && st.Target != "display" {
 		return RecordingStatus{}, fmt.Errorf("--input desktop records the display, not %s", st.Target)
 	}
-	devices, err := m.Incus.Devices(ctx, a.Instance)
-	if err != nil {
-		return RecordingStatus{}, err
-	}
-	_, hasGPU := devices[gpuDevice]
-	enc := m.usableEncoder(ctx, a, recordingEncoder(HostGPU(), hasGPU))
-	script, err := startRecordingScript(st, enc)
+	script, err := startRecordingScript(st)
 	if err != nil {
 		return RecordingStatus{}, err
 	}
@@ -292,9 +286,30 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 	return RecordingStatus{Recording: true, Target: st.Target, Input: st.Input, Name: st.Name, Source: st.Source, StartedAt: st.StartedAt, Limit: limit}, nil
 }
 
+// recordingOutputArgs are what a display recording is encoded with, after
+// its input: the filters, the codec, and an MP4 every Chromium plays and can
+// show the first frame of before it has the rest, which is what the Media
+// grid's thumbnails are. That means 4:2:0 (x11grab's frames are RGB, which
+// libx264 would otherwise keep as High 4:4:4, which Chromium can't decode) and
+// the index at the front (+faststart), where the app reads it with its first
+// range request; TestRecordingsPlayInChromium encodes with these and checks
+// both. fast is the desktop-input first pass, which trades size for speed
+// since it is encoded again when the overlay is burned onto it.
+func recordingOutputArgs(fast bool) string {
+	quality := "-preset veryfast -crf 28"
+	if fast {
+		quality = "-preset ultrafast -crf 16"
+	}
+	return "-vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' -c:v libx264 " + quality + " -pix_fmt yuv420p -movflags +faststart"
+}
+
+// overlayEncodeArgs encode a desktop recording again with its keys and clicks
+// drawn on (burn_overlay), to the same kind of MP4 as recordingOutputArgs.
+const overlayEncodeArgs = "-c:v libx264 -preset veryfast -crf 28 -pix_fmt yuv420p -movflags +faststart"
+
 // startRecordingScript is what runs inside the agent to start a recording, and
 // what the integration test runs against a display of its own.
-func startRecordingScript(st recordingState, enc videoEncoder) (string, error) {
+func startRecordingScript(st recordingState) (string, error) {
 	// started waits until the recorder is running, so a recorder that can't
 	// start is caught here rather than at stop. ffmpeg creates its file once it
 	// has opened the display and the encoder, about 150 ms in, so it is waited
@@ -317,9 +332,9 @@ func startRecordingScript(st recordingState, enc videoEncoder) (string, error) {
 		// XFIXES, so the cursor lands in the frames; it is spelled out here
 		// because the whole point of desktop input is seeing it.
 		recorder = fmt.Sprintf(`[ -e /tmp/.X11-unix/X99 ] || { echo "the display isn't running: start the browser first" >&2; exit 1; }
-%[2]ssetsid ffmpeg -hide_banner -loglevel %[3]s %[4]s-f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d \
-  %[5]s "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`,
-			st.Limit, overlay, level, enc.Input, enc.outputArgs(fast))
+%[2]ssetsid ffmpeg -hide_banner -loglevel %[3]s -f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d \
+  %[4]s "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`,
+			st.Limit, overlay, level, recordingOutputArgs(fast))
 		started = `i=0
 while [ ! -e "$dir/recording.mp4" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 0.05; i=$((i + 1)); done`
 	case "android":

@@ -45,7 +45,7 @@ func runningInstances(names ...string) string {
 func newQueueTest(t *testing.T, budget int64, peaks map[string]int64, instances string) *queueTest {
 	t.Helper()
 	q := &queueTest{}
-	q.testDaemon = startTestDaemon(t, t.TempDir(), cpuBudgetIncus, testConfig{instances: instances, queue: func(s *Server) {
+	q.testDaemon = startTestDaemon(t, t.TempDir(), statefulIncus, testConfig{instances: instances, queue: func(s *Server) {
 		s.queueEvery = 0 // the test looks at the queue itself
 		if err := s.store.SetFlag(context.Background(), state.SettingAgentQueue, true); err != nil {
 			t.Fatal(err)

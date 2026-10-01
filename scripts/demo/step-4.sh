@@ -13,7 +13,6 @@ source scripts/demo/lib.sh
 P=hello-stack
 A1=$P/agent-01
 A2=$P/agent-02
-A3=$P/agent-03
 REPO="$work/repos/$P"
 GIT='git -c user.name=agent -c user.email=agent@agentbox.invalid'
 PSQL='docker compose exec -T postgres psql -U postgres'
@@ -75,19 +74,11 @@ q exec $A1 -- 'tmux kill-window -t main:burn'
 expect "a busy agent shows CPU use (over 50%)" "$(awk -v c="$CPU_BUSY" 'BEGIN { print (c > 50) ? "yes" : "no (" c "%)" }')" "yes"
 expect "a paused agent uses no CPU" "$CPU_PAUSED" "0"
 
-section "7. Resource limits"
-ab create $P --ai none --cpu 2 --memory 2GiB
-host "incus config get ab-$P-agent-03 limits.cpu; incus config get ab-$P-agent-03 limits.memory"
-ab exec $A3 -- 'nproc'
-expect "limits.cpu is set" "$(incus config get ab-$P-agent-03 limits.cpu)" "2"
-expect "limits.memory is set" "$(incus config get ab-$P-agent-03 limits.memory)" "2GiB"
-expect "the agent sees 2 CPUs" "$(q exec $A3 -- nproc)" "2"
-
-section "8. Deleting snapshots and agents cleans up"
+section "7. Deleting snapshots and agents cleans up"
 ab snapshot rm $A1 before-migration
 ab snapshots $A1
 expect "the snapshot is gone" "$(q snapshots $A1 | grep -c before-migration)" "0"
-for a in $A3 $A2 $A1; do ab destroy $a --force --delete-branch; done
+for a in $A2 $A1; do ab destroy $a --force --delete-branch; done
 ab remove $P
 host "git -C $REPO for-each-ref refs/agentbox; incus list ab-$P- --format csv"
 expect "no snapshot refs left" "$(git -C "$REPO" for-each-ref refs/agentbox)" ""

@@ -149,9 +149,9 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 		return err
 	}
 	if inst.Status != "Running" {
-		// The snapshot's raw.lxc is from when it was taken, and may put the
-		// machine in or out of the shared budget against the setting now.
-		if err := m.ensureBudgetPlacement(ctx, a.Instance); err != nil {
+		// A snapshot taken by an earlier release brings back the limits it
+		// set on the machine.
+		if err := m.dropOldLimits(ctx, a.Instance); err != nil {
 			return err
 		}
 		if err := m.Incus.Start(ctx, a.Instance); err != nil {
@@ -234,15 +234,6 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 	if opts.Snapshot == "" {
 		baseRef = src.Ref()
 	}
-	// A fork is the same work on the same machine, so it is capped like the
-	// agent it came from rather than like a new agent: an agent someone had
-	// given more cores keeps them, and one that was narrowed stays narrowed.
-	// `incus copy` would carry the keys over anyway; build sets them itself, so
-	// what a fork is capped at is decided here rather than inherited by accident.
-	limits, err := m.Limits(ctx, src)
-	if err != nil {
-		return state.Agent{}, err
-	}
 	return m.build(ctx, plan{
 		project:       p,
 		repo:          repo,
@@ -257,7 +248,6 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 		baseCommit:    head,
 		tree:          tree,
 		copyEnv:       true,
-		limits:        limits,
 		connectors:    src.Connectors, // a copy is given what its source was
 	})
 }

@@ -81,9 +81,11 @@ type MovedAgent struct {
 	// Running is whether it ran when the migration stopped it: it's left
 	// running in the VM too.
 	Running bool `json:"running,omitempty"`
-	// Limits are its machine's, from the host's Incus; nil when its machine
-	// wasn't there to read, which gives the new one what new agents get.
-	Limits *MovedLimits `json:"limits,omitempty"`
+	// Machine says its machine was there to copy its home from. A record an
+	// earlier release wrote says so with the machine's limits instead
+	// (OldLimits), which nothing reads any more.
+	Machine   bool            `json:"machine,omitempty"`
+	OldLimits json.RawMessage `json:"limits,omitempty"`
 	// Home holds what was copied out of the old machine's home for the new
 	// one: its chat sessions.
 	Home string `json:"home,omitempty"`
@@ -93,14 +95,10 @@ type MovedAgent struct {
 	Made bool `json:"made,omitempty"`
 }
 
-// MovedLimits are an agent machine's limits; "" is none.
-type MovedLimits struct {
-	CPU       string `json:"cpu"`
-	Allowance string `json:"allowance"`
-	Memory    string `json:"memory"`
-}
-
 func (a MovedAgent) Ref() string { return a.Project + "/" + a.Name }
+
+// hasMachine says its machine was there on this host when it was recorded.
+func (a MovedAgent) hasMachine() bool { return a.Machine || len(a.OldLimits) > 0 }
 
 // migrationFile is where the Migration is kept: beside the VM's Config.
 func migrationFile(p paths.Paths) string { return filepath.Join(p.Config, "vm", "migration.json") }
@@ -374,10 +372,7 @@ func stopHost(ctx context.Context, p paths.Paths, rec *Migration, log io.Writer)
 		if a.Status != state.AgentReady {
 			moved.Skipped = "it was still being made on this machine"
 		}
-		if m, ok := machines[a.Instance]; ok {
-			l := agent.LimitsOf(m.Config)
-			moved.Limits = &MovedLimits{CPU: l.ConfiguredCPU, Allowance: l.Allowance, Memory: l.Memory}
-		}
+		_, moved.Machine = machines[a.Instance]
 		rec.Agents = append(rec.Agents, moved)
 	}
 	// Before anything is stopped: a run stopped from here on finds them
@@ -490,7 +485,7 @@ func stageHomes(ctx context.Context, p paths.Paths, rec *Migration, log io.Write
 	said := false
 	for i := range rec.Agents {
 		a := &rec.Agents[i]
-		if a.Skipped != "" || a.Limits == nil { // no machine to copy from
+		if a.Skipped != "" || !a.hasMachine() { // no machine to copy from
 			continue
 		}
 		dir := filepath.Join(p.Data, "migration", "homes", a.Project, a.Name)
@@ -656,9 +651,6 @@ func makeMachines(ctx context.Context, p paths.Paths, c *api.Client, rec *Migrat
 		step(log, fmt.Sprintf("Making %s's machine in the VM", a.Ref()))
 		start := time.Now()
 		req := api.RecreateRequest{Home: a.Home, Stopped: !a.Running}
-		if a.Limits != nil {
-			req.CPU, req.CPUAllowance, req.Memory = &a.Limits.CPU, &a.Limits.Allowance, &a.Limits.Memory
-		}
 		err := runJob(ctx, c, log, func() (api.Job, error) { return c.Recreate(ctx, a.Ref(), req) })
 		if err != nil && strings.Contains(err.Error(), agent.ErrHasMachine.Error()) {
 			err = nil

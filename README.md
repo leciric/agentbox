@@ -111,7 +111,7 @@ up that way keeps working exactly as it was until you move it, and nothing of it
 updating, the app says once that AgentBox runs in a VM now and takes you to Settings → Setup →
 **Move to a VM**; `agentbox vm migrate` does the same from the command line. It moves all of it in
 one step: projects, settings, accounts, notes, memory, chats and media, and every agent with its
-branch, worktree (uncommitted changes included), title, model and limits. Each agent gets a new
+branch, worktree (uncommitted changes included), title and model. Each agent gets a new
 machine in the VM, and its chat carries on; what was installed inside its old machine, and its home
 folder outside the worktree, don't come along. It backs `state.db` up first, checks that everything
 arrived, and can be run again if it stops half-way. Your system's Incus, and everything else in it,

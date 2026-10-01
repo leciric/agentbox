@@ -193,8 +193,6 @@ const bridge = {
     run: (options?: { vm?: boolean; cpus?: number; memoryCap?: string; driver?: 'vz' }): Promise<{ restarted: boolean }> =>
       ipcRenderer.invoke('hostsetup:run', options),
     onOutput: (fn: (text: string) => void) => listen('hostsetup:output', fn),
-    // `agentbox host budget` as root: the shared agent budget's cgroup.
-    budget: (): Promise<void> => ipcRenderer.invoke('hostsetup:budget'),
   },
   // On Linux, `agentbox vm migrate`: this machine's own AgentBox moved into
   // AgentBox's VM, and afterwards its old machines removed from its Incus.

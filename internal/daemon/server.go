@@ -74,11 +74,10 @@ type Server struct {
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
 	prLead  func(ctx context.Context, project, notice string, act bool)
-	files   *filesCache        // each agent's worktree file listing, served briefly stale
-	disks   *agentDiskCache    // each agent's machine and worktree sizes, for its info card
-	thrash  *agent.ThrashWatch // which agents are thrashing at their memory limit (memorythrash.go)
-	themes  *omarchy.Watcher   // the desktop theme this machine is running, if any
-	updates updates            // what the daily update check last found
+	files   *filesCache      // each agent's worktree file listing, served briefly stale
+	disks   *agentDiskCache  // each agent's machine and worktree sizes, for its info card
+	themes  *omarchy.Watcher // the desktop theme this machine is running, if any
+	updates updates          // what the daily update check last found
 	stop    context.CancelFunc
 	incus   *incusWatch // whether Incus answers, and what to do when it doesn't
 	disk    *diskWatch  // the disk guard: a floor of free space on every disk AgentBox writes to
@@ -223,14 +222,11 @@ func New(cfg Config) (*Server, error) {
 	s.queueStart = s.startQueuedAgent
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.stallTell = s.recheckTell
-	s.slotBudget = func(ctx context.Context) (int64, error) { return s.manager(nil).SlotBudget(ctx) }
+	s.slotBudget = func(context.Context) (int64, error) { return agent.SlotBudget(), nil }
 	s.projectPeak = func(ctx context.Context, project string) (int64, bool, error) {
 		return s.manager(nil).ProjectPeak(ctx, project)
 	}
 	s.connectors = s.newConnectors()
-	s.thrash = agent.NewThrashWatch(func(ctx context.Context, instance string, limit int64) string {
-		return s.manager(nil).MemoryRaise(ctx, instance, limit)
-	})
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.wakeAndTell, s.tellLead
 	s.chat = &chat.Manager{
@@ -321,13 +317,12 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.runQueue(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
-	loops.Go(func() { s.watchSharedBudget(ctx) })
-	loops.Go(func() { s.watchMemoryThrash(ctx) })
 	loops.Go(func() { s.watchStalls(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
+	loops.Go(func() { s.dropOldLimits(ctx) })
 	loops.Go(func() { s.watchDisk(ctx) })
 	loops.Go(func() { s.refreshConnectors(ctx) })
 	s.runCtx = ctx
@@ -401,9 +396,6 @@ func claimSocket(path string) error {
 // reconcile brings state left by a previous daemon, or by an older AgentBox,
 // up to date.
 func (s *Server) reconcile(ctx context.Context) {
-	if err := s.seedResourceDefaults(ctx); err != nil {
-		s.logf("reconcile resource defaults: %v", err)
-	}
 	if n, err := s.store.FailRunningJobs(ctx, "the daemon stopped while this job was running", time.Now()); err != nil {
 		s.logf("reconcile jobs: %v", err)
 	} else if n > 0 {

@@ -51,17 +51,12 @@ import {
   CompactWindow,
   DefaultContextWindow,
   DefaultModel,
-  GPUForAgents,
   LeadRecheck,
   MediaRetention,
-  NeverFreezeCPU,
   DiskFloor,
-  NewAgentCPUShare,
   NewAgentEffort,
-  NewAgentResources,
   OpenCodeInImage,
   ResumeAfterLimit,
-  SharedBudget,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -142,8 +137,6 @@ const descriptions: Record<string, string> = {
   android:
     "KVM and an Android SDK with a system image, shared read-only with agents of Android projects.",
   preview: "Opens agents' dev servers from your own browser.",
-  budget:
-    "Reserves memory for your own apps and gives every agent together one memory, swap and CPU budget, so they can't slow this computer down. Off unless you turn it on, in Settings, under Resources.",
 };
 
 // The two groups the tabbed page sorts steps into, once the wizard is behind
@@ -156,7 +149,6 @@ const environmentIds = new Set([
   "storage",
   "android",
   "preview",
-  "budget",
 ]);
 const accountIds = new Set(["claude", "codex", "opencode", "github"]);
 
@@ -1121,43 +1113,13 @@ function InstalledSettings({
       id: "resources",
       title: "Resources",
       description:
-        "What agents may take from this machine: each one's limits, what they share, and its GPU.",
+        "What agents may take from this machine: the free space AgentBox keeps on your disks, and the size of its VM.",
       scope: "installation",
       groups: [
         {
-          id: "each",
-          title: "Each new agent",
-          description: "Change an agent you already have on its Overview tab.",
+          id: "disk",
+          title: "Disk",
           entries: [
-            {
-              id: "resources",
-              label: "Resources for new agents",
-              keywords: "limits cpu cores memory ram gib",
-              modified: changed((s) => s.defaultCPU !== "2" || s.defaultMemory !== s.seedMemory),
-              render: () => <NewAgentResources />,
-            },
-            {
-              id: "cpu-share",
-              label: "CPU share for new agents",
-              keywords: "cpu allowance percent priority ceiling limits",
-              advanced: true,
-              modified: changed((s) => s.defaultCPUAllowance !== ""),
-              render: () => <NewAgentCPUShare />,
-            },
-          ],
-        },
-        {
-          id: "together",
-          title: "All agents together",
-          description: "These reach the agents you already have, as well as the next one.",
-          entries: [
-            {
-              id: "never-freeze",
-              label: "Never freeze my CPU",
-              keywords: "cpu cores keep free host starve cap limits",
-              modified: changed((s) => s.neverFreezeCPU),
-              render: () => <NeverFreezeCPU />,
-            },
             {
               id: "disk-floor",
               label: "Keep free on every disk",
@@ -1165,36 +1127,8 @@ function InstalledSettings({
               modified: changed((s) => s.diskFloorMin !== 10 * 1024 ** 3 || s.diskFloorPercent !== 5),
               render: () => <DiskFloor />,
             },
-            ...(s?.sharedBudget && !s.sharedBudget.unsupported
-              ? [
-                  {
-                    id: "shared-budget",
-                    label: "Shared agent budget",
-                    keywords: "memory swap cpu cgroup pool limits zram reserve protect apps",
-                    modified: changed((s) => s.sharedBudget.on),
-                    render: () => <SharedBudget />,
-                  },
-                ]
-              : []),
           ],
         },
-        ...(s?.gpuAvailable
-          ? [
-              {
-                id: "hardware",
-                title: "Hardware",
-                entries: [
-                  {
-                    id: "gpu",
-                    label: "GPU for agents",
-                    keywords: "gpu graphics render amd nvidia intel acceleration",
-                    modified: changed((s) => s.gpuForAgents),
-                    render: () => <GPUForAgents />,
-                  },
-                ],
-              },
-            ]
-          : []),
         ...(vm?.exists || chv
           ? [
               {

@@ -6,7 +6,6 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -25,7 +24,7 @@ func newHostCmd(a *app) *cobra.Command {
 		// host, agentbox vm init sets AgentBox up.
 		Hidden: true,
 	}
-	cmd.AddCommand(newHostSetupCmd(), newHostBudgetCmd(), newHostCheckCmd(a))
+	cmd.AddCommand(newHostSetupCmd(), newHostCheckCmd(a))
 	return cmd
 }
 
@@ -43,8 +42,8 @@ so heavy agent work can freeze your desktop.
 Installs Incus (Arch, Debian/Ubuntu or Fedora), gives your user access to it — in the
 session running now, not only the next login — creates its storage pool and network,
 lets agents map your user, and keeps ufw and Docker from blocking the Incus bridge.
-It also does what host budget does: the cgroup the shared agent budget lives in, ready
-for when you turn the budget on. Safe to run again. Run it with sudo:
+It also removes the unit earlier releases installed for a shared agent budget.
+Safe to run again. Run it with sudo:
 
   ` + hostsetup.Command + `
 
@@ -75,19 +74,12 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 			if os.Geteuid() != 0 {
 				return errors.New("host setup is for " + target + ", but it has to run as root: " + hostsetup.Command)
 			}
-			// The shared budget's cgroup first, so the script's own result is
-			// what the output ends on. It only makes the budget possible:
-			// turning it on is the user's. Here in the Mac's VM and WSL as
-			// well, where the budget can't be turned on: the unit costs
-			// nothing and is ready if it ever can.
+			// The unit an earlier release installed for the shared agent
+			// budget goes first, so the script's own result is what the output
+			// ends on. Failing to remove it doesn't fail the setup.
 			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintln(out, "==> The shared agent budget's cgroup")
-			u, err := hostsetup.System().ByName(target)
-			if err == nil {
-				err = hostsetup.SetUpBudget(target, u.Uid, func(line string) { _, _ = fmt.Fprintln(out, line) })
-			}
-			if err != nil {
-				_, _ = fmt.Fprintf(out, "Couldn't make it, so agents have no shared budget yet (%v): Settings says what's missing, and %s tries again.\n", err, hostsetup.BudgetCommand)
+			if err := hostsetup.RemoveBudget(func(line string) { _, _ = fmt.Fprintln(out, line) }); err != nil {
+				_, _ = fmt.Fprintf(out, "Couldn't remove the shared agent budget's unit: %v\n", err)
 			}
 			f, err := os.CreateTemp("", "agentbox-host-setup-*.sh")
 			if err != nil {
@@ -109,52 +101,6 @@ Mac's VM needs it, since Incus can't find a free subnet on Lima's network.`,
 	cmd.Flags().BoolVar(&print, "print", false, "only print the script")
 	cmd.Flags().StringVar(&forUser, "user", "", "the user to set this machine up for, when sudo and pkexec don't say")
 	cmd.Flags().StringVar(&bridgeSubnet, "bridge-subnet", "", "the Incus bridge's address and subnet, like 10.87.0.1/24, instead of one Incus picks")
-	return cmd
-}
-
-func newHostBudgetCmd() *cobra.Command {
-	var forUser string
-	var remove bool
-	cmd := &cobra.Command{
-		Use:   "budget",
-		Short: "Make the cgroup the shared agent budget needs (once, as root)",
-		Long: `Installs ` + hostsetup.BudgetUnitName + `, a oneshot systemd unit that makes
-` + hostsetup.BudgetCgroupDir + ` at every boot, enables the memory and CPU controllers for it,
-and gives your user its budget files (` + strings.Join(hostsetup.BudgetFiles, ", ") + `) and the
-memory.low of ` + strings.Join(hostsetup.ReserveSlices, " and ") + `, so the daemon can put every agent under
-one shared budget, change it while they run, and reserve the rest of the memory
-for your own apps. It doesn't turn the budget on: that's yours to do, in Settings
-or with agentbox limits --shared-budget true. Run it with sudo:
-
-  ` + hostsetup.BudgetCommand + `
-
-Host setup does this too; it's here on its own for hosts set up before it did, and
-Settings runs it through pkexec. --remove takes the unit away again.`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			log := func(line string) { _, _ = fmt.Fprintln(cmd.OutOrStdout(), line) }
-			if remove {
-				if os.Geteuid() != 0 {
-					return errors.New("removing the shared budget's unit has to run as root: " + hostsetup.BudgetCommand + " --remove")
-				}
-				return hostsetup.RemoveBudget(log)
-			}
-			if os.Geteuid() != 0 {
-				return errors.New("making the shared budget's cgroup has to run as root: " + hostsetup.BudgetCommand)
-			}
-			target, err := hostsetup.TargetUser(os.Getenv("SUDO_USER"), os.Getenv("PKEXEC_UID"), forUser, hostsetup.System())
-			if err != nil {
-				return err
-			}
-			u, err := hostsetup.System().ByName(target)
-			if err != nil {
-				return err
-			}
-			return hostsetup.InstallBudget(target, u.Uid, log)
-		},
-	}
-	cmd.Flags().StringVar(&forUser, "user", "", "the user the budget is for, when sudo and pkexec don't say")
-	cmd.Flags().BoolVar(&remove, "remove", false, "remove the unit instead")
 	return cmd
 }
 

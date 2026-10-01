@@ -66,7 +66,7 @@ sequenceDiagram
     Git-->>Mgr: git worktree add -b <branch> <path> <commit>
     Mgr->>Incus: copy agentbox-base/ready (or project's own base) -> instance
     Incus->>Container: incus copy, mount worktree + .git as disk devices
-    Mgr->>Incus: apply CPU/memory limits, start instance
+    Mgr->>Incus: start instance
     Incus->>Container: incus start
     Mgr->>Container: wait for boot + IPv4 (WaitReady, 2 minute timeout)
     Mgr->>Container: verify git mount (git rev-parse --git-dir), fix ownership
@@ -92,7 +92,7 @@ Steps, from `build()` in `internal/agent/agent.go`:
 7. Create the Incus container: copy from a snapshot (the project's own saved base, or
    `agentbox-base/ready` — see [The base image](base-image.md)), strip devices carried over from
    the clone, mount the worktree and its `.git` as disk devices so git crosses the container
-   boundary, apply CPU/memory limits, and start it. `WaitReady()` (`internal/incus`) waits up to
+   boundary, and start it. `WaitReady()` (`internal/incus`) waits up to
    two minutes for systemd and an IPv4 address.
 8. Verify the git mount works (`git rev-parse --git-dir` as the agent user) and fix `.git`
    ownership for tools that write next to it.

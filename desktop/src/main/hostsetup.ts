@@ -440,22 +440,6 @@ export function runVMMigration(
   return running;
 }
 
-// runBudgetSetup makes the shared agent budget's cgroup: `agentbox host
-// budget`, as root through pkexec, which installs a oneshot unit that makes
-// /sys/fs/cgroup/agentbox at every boot and hands its budget files to you
-// (internal/hostsetup/budget.go). Settings offers it where the budget exists
-// at all, which is never on a Mac or Windows.
-let budgetRunning: Promise<void> | undefined;
-
-export function runBudgetSetup(): Promise<void> {
-  if (budgetRunning)
-    return Promise.reject(new Error("the budget's setup is already running"));
-  budgetRunning = runAsRoot(["host", "budget"], () => {}).finally(() => {
-    budgetRunning = undefined;
-  });
-  return budgetRunning;
-}
-
 // runAsRoot runs an agentbox subcommand as root through pkexec, for the user
 // running the app, and streams what it prints to onOutput.
 function runAsRoot(

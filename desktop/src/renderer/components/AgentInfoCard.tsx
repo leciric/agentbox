@@ -54,8 +54,6 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
         <Row label="GitHub account" value={agent.githubAccount || '—'} />
         <Row label="Branch" value={agent.branch} mono />
         <Row label="Uptime" value={timeAgo(agent.createdAt)} />
-        <Row label="CPU" value={agent.limits.configuredCPU || agent.limits.cpu || '—'} />
-        <Row label="Memory" value={agent.limits.memory || '—'} />
         <Row label="Machine disk" value={diskSize(disk.data?.machine, disk.isPending)} />
         <Row label="Worktree on host" value={diskSize(disk.data?.worktree, disk.isPending)} />
         <Row label="Tokens" value={mine ? `${humanTokens(mine.total)} · ${usd(mine.costUSD)}` : '0'} />

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
@@ -26,108 +25,6 @@ func patchSettings(t *testing.T, d testDaemon, body string) (api.Settings, error
 		t.Fatal(err)
 	}
 	return out, nil
-}
-
-// TestResourceDefaultsAreSeededThenChosen covers the one thing the resource
-// settings do that the Claude Code settings don't: "" is a real choice there
-// (new agents get no limit at all), so it can't also mean "nobody chose". The
-// daemon seeds a concrete value once, and never writes over what was chosen —
-// including a choice of no limit, which a re-seed would silently undo.
-func TestResourceDefaultsAreSeededThenChosen(t *testing.T) {
-	t.Parallel()
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	ctx := context.Background()
-
-	seeded := agent.DefaultLimits(agent.HostCores(), agent.HostMemory())
-	// Seeded, not invented on every read: the app's inputs show a number.
-	for key, want := range map[string]string{state.SettingDefaultCPU: seeded.CPU, state.SettingDefaultMemory: seeded.Memory} {
-		value, set, err := d.srv.store.SettingValue(ctx, key)
-		if err != nil || !set || value != want || want == "" {
-			t.Fatalf("%s after a first start = %q, set %v, %v; want %q", key, value, set, err, want)
-		}
-	}
-	// And the share starts off deliberately empty.
-	if value, set, err := d.srv.store.SettingValue(ctx, state.SettingDefaultCPUAllowance); err != nil || !set || value != "" {
-		t.Errorf("the CPU share = %q, set %v, %v; want it stored and empty", value, set, err)
-	}
-
-	out, err := patchSettings(t, d, `{"defaultCPU":"","defaultMemory":"8GiB","defaultCPUAllowance":"50%"}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.DefaultCPU != "" || out.DefaultMemory != "8GiB" || out.DefaultCPUAllowance != "50%" {
-		t.Errorf("settings after the change = %+v", out)
-	}
-	if out.HostCores != agent.HostCores() {
-		t.Errorf("hostCores = %d, want %d: the app shows what a limit is carved out of", out.HostCores, agent.HostCores())
-	}
-
-	// Another daemon start must leave the choice of "no CPU limit" alone.
-	if err := d.srv.seedResourceDefaults(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if value, _, _ := d.srv.store.SettingValue(ctx, state.SettingDefaultCPU); value != "" {
-		t.Errorf("a restart put the CPU default back to %q; a chosen empty limit is a choice", value)
-	}
-	// Nor a choice of no memory ceiling, made after the ceiling was seeded.
-	if _, err := patchSettings(t, d, `{"defaultMemory":""}`); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.srv.seedResourceDefaults(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if value, _, _ := d.srv.store.SettingValue(ctx, state.SettingDefaultMemory); value != "" {
-		t.Errorf("a restart put the memory default back to %q; a chosen empty limit is a choice", value)
-	}
-}
-
-// TestMemoryDefaultReachesOlderInstallations checks the one-off upgrade: an
-// installation seeded before there was a memory ceiling has default_memory
-// stored as "", written by the daemon rather than chosen, and gets the ceiling
-// on its next start. One whose memory default was set to a size keeps it.
-func TestMemoryDefaultReachesOlderInstallations(t *testing.T) {
-	t.Parallel()
-	for _, c := range []struct{ before, want string }{
-		{"", agent.DefaultMemory(agent.HostMemory())},
-		{"12GiB", "12GiB"},
-	} {
-		d := startTestDaemon(t, t.TempDir(), fakeIncus)
-		ctx := context.Background()
-		// What an older build left behind: the value, and no marker.
-		if err := d.srv.store.SetSetting(ctx, state.SettingDefaultMemory, c.before); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := d.srv.store.DB().ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, state.SettingDefaultMemorySeeded); err != nil {
-			t.Fatal(err)
-		}
-		if err := d.srv.seedResourceDefaults(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if value, _, _ := d.srv.store.SettingValue(ctx, state.SettingDefaultMemory); value != c.want {
-			t.Errorf("default_memory %q after an upgrade = %q, want %q", c.before, value, c.want)
-		}
-	}
-}
-
-// TestSettingsRefuseLimitsThatDontMeanWhatTheySay checks a bad default is
-// refused where it is typed, rather than when the next agent is built.
-func TestSettingsRefuseLimitsThatDontMeanWhatTheySay(t *testing.T) {
-	t.Parallel()
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	for _, c := range []struct{ body, want string }{
-		{`{"defaultCPU":"0-3"}`, "pin the agent to those exact cores"},
-		{`{"defaultCPU":"two"}`, "whole number of cores"},
-		{`{"defaultCPUAllowance":"200%"}`, "between 1% and 100%"},
-		{`{"defaultMemory":"loads"}`, "a size like 8GiB"},
-	} {
-		if _, err := patchSettings(t, d, c.body); err == nil || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("PATCH %s error = %v, want one mentioning %q", c.body, err, c.want)
-		}
-	}
-	// And nothing was stored on the way to refusing.
-	if value, _, _ := d.srv.store.SettingValue(context.Background(), state.SettingDefaultCPU); value == "0-3" {
-		t.Error("a refused CPU default was stored anyway")
-	}
 }
 
 // Resuming after a usage limit is on for an installation that has never
@@ -261,47 +158,5 @@ func TestOpusOffersItsWholeWindowInSettings(t *testing.T) {
 	}
 	if _, err := patchSettings(t, d, `{"defaultLeadModel":"","defaultLeadContextWindow":"1m"}`); err != nil {
 		t.Errorf("1M on Claude Code's default for the lead: %v", err)
-	}
-}
-
-// TestGPUForAgentsPersistsAndReapplies checks the setting round-trips through
-// Settings and that turning it on or off recomputes it against every agent
-// rather than only the next one created (RecomputeGPU), the same way
-// NeverFreezeCPU does for the CPU budget. This machine's own container has no
-// GPU device, so agent.HostGPU reports GPUAvailable false regardless of the
-// flag — exactly the case a host without one is meant to see — and the flag
-// itself, which Settings stores independently of that, still has to survive
-// being read back.
-func TestGPUForAgentsPersistsAndReapplies(t *testing.T) {
-	t.Parallel()
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	ctx := context.Background()
-
-	out, err := patchSettings(t, d, `{}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.GPUForAgents {
-		t.Errorf("GPU for agents should start off: %+v", out)
-	}
-
-	on := true
-	out, err = patchSettings(t, d, `{"gpuForAgents":true}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !out.GPUForAgents {
-		t.Errorf("GPU for agents after turning it on = %+v", out)
-	}
-	if value, err := d.srv.store.Flag(ctx, state.SettingGPUForAgents); err != nil || value != on {
-		t.Errorf("the stored flag = %v, %v; want %v", value, err, on)
-	}
-
-	out, err = patchSettings(t, d, `{"gpuForAgents":false}`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out.GPUForAgents {
-		t.Errorf("GPU for agents after turning it off = %+v", out)
 	}
 }

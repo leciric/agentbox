@@ -26,7 +26,6 @@ export function homeAgentFrom(info: T.ProjectChat): T.Agent {
     chat: info.chat,
     state: 'running', // no machine: the chat can always run
     ip: '',
-    limits: { cpu: '', allowance: '', memory: '', configuredCPU: '' },
     createdAt: '',
   };
 }

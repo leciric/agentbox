@@ -20,11 +20,6 @@ import (
 
 // RecreateOptions are Recreate's.
 type RecreateOptions struct {
-	// Limits caps the new machine, the way Create's does: a field nobody set
-	// falls back to the installation's default. A choice this machine can't
-	// take (more memory than it has) falls back to the default too, and says
-	// so, rather than leaving the agent without a machine.
-	Limits LimitChoice
 	// Home is a directory whose contents go into the agent user's home in the
 	// new machine before its AI tool starts: what the old machine's chat
 	// sessions were, so its chat resumes where it was. Optional.
@@ -79,19 +74,6 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 	if !ready {
 		return errors.New("the base image isn't built: run agentbox image build")
 	}
-	defaults, err := m.Defaults(ctx)
-	if err != nil {
-		return err
-	}
-	limits, err := opts.Limits.Resolve(defaults)
-	if err == nil {
-		err = fitsHere(limits, HostMemory())
-	}
-	if err != nil {
-		m.logf("Its limits don't fit here (%v): it gets what new agents get, %s", err, defaults.Describe())
-		limits = defaults
-	}
-
 	if err := m.Store.SetAgentStatus(ctx, a.Project, a.Name, state.AgentCreating); err != nil {
 		return err
 	}
@@ -105,7 +87,7 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 		_ = m.Store.SetAgentStatus(cleanup, a.Project, a.Name, state.AgentReady)
 		return fmt.Errorf("making %s's machine: %s: %w", a.Ref(), step, err)
 	}
-	if step, err := m.makeMachine(ctx, a, repo, image.SnapshotRef(), limits, nil, "", opts.Home, &undo); err != nil {
+	if step, err := m.makeMachine(ctx, a, repo, image.SnapshotRef(), nil, "", opts.Home, &undo); err != nil {
 		return fail(step, err)
 	}
 	// The first snapshot's machine half was a machine fresh from the base,
@@ -131,20 +113,6 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 		return m.Stop(ctx, a)
 	}
 	return nil
-}
-
-// fitsHere says why limits can't be a machine's on a host with memory bytes of
-// memory (the VM's cap, in AgentBox's VM): a memory ceiling above it, which a
-// machine moved from a bigger host can have.
-func fitsHere(limits Limits, memory int64) error {
-	if limits.Memory == "" || memory <= 0 {
-		return nil
-	}
-	limit, err := ParseBytes(limits.Memory)
-	if err != nil || limit <= memory {
-		return nil // a percentage of the host fits by definition
-	}
-	return fmt.Errorf("a memory limit of %s is more than the %s this machine has", limits.Memory, HumanBytes(memory))
 }
 
 // pushHome copies the contents of dir into the agent user's home, as that

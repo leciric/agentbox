@@ -70,35 +70,20 @@ func renderTop(w io.Writer, u api.Usage) error {
 		return nil
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 3, ' ', 0)
-	// Two fractions, because they answer different questions. OF LIMIT is how
-	// close this agent is to its own ceiling — the one that decides whether it
-	// is the agent that needs more room. OF HOST is what it is costing the
+	// CPU is in cores' worth, 100% a core; OF HOST is what it is costing the
 	// machine everything else is sharing.
-	_, _ = fmt.Fprintln(tw, "AGENT\tSTATE\tCPU\tOF LIMIT\tOF HOST\tMEMORY\tDISK IO\tPROCESSES")
+	_, _ = fmt.Fprintln(tw, "AGENT\tSTATE\tCPU\tOF HOST\tMEMORY\tDISK IO\tPROCESSES")
 	for _, a := range u.Agents {
-		ofLimit := "-" // uncapped: there is no limit to be a fraction of
-		if a.Limits.CPU != "" && a.Cores > 0 {
-			ofLimit = fmt.Sprintf("%.0f%% of %s cores", a.CPU/a.Cores, a.Limits.CPU)
-			// "Never freeze my CPU" holding it below what it was chosen to be
-			// is the fact worth a glance here, not the number alone.
-			if a.Limits.ConfiguredCPU != "" && a.Limits.ConfiguredCPU != a.Limits.CPU {
-				ofLimit += fmt.Sprintf(" (chosen: %s)", a.Limits.ConfiguredCPU)
-			}
-		}
 		ofHost := "-"
 		if host.Cores > 0 {
 			ofHost = fmt.Sprintf("%.0f%%", a.CPU/float64(host.Cores))
 		}
-		memory := humanBytes(a.Memory) + " / no limit"
-		if a.Limits.Memory != "" {
-			memory = humanBytes(a.Memory) + " / " + a.Limits.Memory
-		}
 		disk := fmt.Sprintf("%s/s read, %s/s write", humanBytes(a.DiskRead), humanBytes(a.DiskWrite))
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%.0f%%\t%s\t%s\t%s\t%s\t%d\n", a.Ref, a.State, a.CPU, ofLimit, ofHost, memory, disk, a.Processes)
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%.0f%%\t%s\t%s\t%s\t%d\n", a.Ref, a.State, a.CPU, ofHost, humanBytes(a.Memory), disk, a.Processes)
 	}
 	return tw.Flush()
 }
 
 // humanBytes is agent.HumanBytes, so a size reads the same in `agentbox top`
-// as in the message that refuses a memory limit below what an agent is using.
+// as everywhere else AgentBox shows one.
 func humanBytes(n int64) string { return agent.HumanBytes(n) }
