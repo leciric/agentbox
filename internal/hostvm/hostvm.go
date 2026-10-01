@@ -30,7 +30,9 @@
 //   - The Mac's home directory is shared into the VM at the same path, so a
 //     project keeps its path, which is what AgentBox mounts into each agent.
 //     The daemon's state stays on the VM's own disk; agents' worktrees go on
-//     the share, where the Mac's editors can open them (paths.Worktrees).
+//     the share, where the Mac's editors can open them (paths.Worktrees), and
+//     so does their media, which the app opens in the host's default app or
+//     shows in its folder (paths.Media).
 //
 // The VM's agentbox is the Linux build this front end ships beside it, kept
 // identical: a command first compares the two and installs the Mac's copy
@@ -647,7 +649,7 @@ func (v *VM) setup(ctx context.Context, daemon bool) error {
 var hostOnly = map[string]bool{
 	"AGENTBOX_FRONT_END": true, "AGENTBOX_VM": true, "AGENTBOX_VM_TYPE": true,
 	"AGENTBOX_LIMACTL": true, "AGENTBOX_LINUX_BINARY": true, "AGENTBOX_BIN": true,
-	"AGENTBOX_SOCKET": true, "AGENTBOX_WORKTREES": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
+	"AGENTBOX_SOCKET": true, "AGENTBOX_WORKTREES": true, "AGENTBOX_MEDIA": true, hostos.Env: true, hostos.HomeEnv: true, hostos.VMDisksEnv: true,
 	vmMemoryCapEnv: true,
 }
 
@@ -656,7 +658,7 @@ var hostOnly = map[string]bool{
 const vmMemoryCapEnv = "AGENTBOX_VM_MEMORY_CAP"
 
 // vmEnv is what the VM's agentbox has to be told about the host whoever runs
-// it: the host's OS, its home directory, and where the worktrees go. A Cloud
+// it: the host's OS, its home directory, and where the worktrees and media go. A Cloud
 // Hypervisor VM's is also told the most memory it may be given, which is what
 // its agents' default limits are shares of (agent.HostMemory): its own
 // /proc/meminfo only has what it was granted so far. And where the host's
@@ -668,6 +670,7 @@ func (v *VM) vmEnv() []string {
 		hostos.Env + "=" + runtime.GOOS,
 		hostos.HomeEnv + "=" + v.Home,
 		"AGENTBOX_WORKTREES=" + v.Paths.Worktrees(),
+		"AGENTBOX_MEDIA=" + v.Paths.Media(),
 	}
 	if v.CHV != nil {
 		env = append(env, fmt.Sprintf("%s=%d", vmMemoryCapEnv, v.CHV.Config.MemoryCap))

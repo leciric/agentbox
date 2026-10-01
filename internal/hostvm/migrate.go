@@ -564,8 +564,8 @@ func migrationVM(ctx context.Context, p paths.Paths, opts MigrateOptions) (*VM, 
 
 // copyScript copies the host's AgentBox files into the VM user's own, run in
 // the VM, where the host's home is shared at its own path: everything in the
-// host's data directory but what is the host's alone (its worktrees, which
-// the VM uses where they are; its VM; sockets; logs; the lead's tools, which
+// host's data directory but what is the host's alone (its worktrees and
+// media, which the VM uses where they are, paths.Media; its VM; sockets; logs; the lead's tools, which
 // the VM installs for itself; the migration's own files), everything in its
 // config directory but the VM's config, and the state.db from its backup,
 // replacing whatever state a daemon of the VM's own made.
@@ -576,7 +576,7 @@ mkdir -p "$data" "$config"
 chmod 700 "$data" "$config"
 for f in "$src_data"/* "$src_data"/.[!.]*; do
   [ -e "$f" ] || [ -L "$f" ] || continue
-  case "${f##*/}" in worktrees|vm|run|tools|backups|migration|daemon.log*|state.db*) continue ;; esac
+  case "${f##*/}" in worktrees|media|vm|run|tools|backups|migration|daemon.log*|state.db*) continue ;; esac
   cp -a "$f" "$data/"
 done
 for f in "$src_config"/* "$src_config"/.[!.]*; do

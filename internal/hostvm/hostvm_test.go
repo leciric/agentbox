@@ -187,6 +187,7 @@ func TestForwardArgs(t *testing.T) {
 	got := vm.ForwardArgs("/Users/alice/app", []string{"create", "app", "--name", "it's mine"})
 	want := []string{vm.Limactl, "shell", "--workdir", "/Users/alice/app", "agentbox", "--", "env",
 		hostos.Env + "=" + goos(), hostos.HomeEnv + "=" + vm.Home, "AGENTBOX_WORKTREES=" + filepath.Join(vm.Paths.Data, "worktrees"),
+		"AGENTBOX_MEDIA=" + filepath.Join(vm.Paths.Data, "media"),
 		"AGENTBOX_PREVIEW_ADDR=127.0.0.1:17777",
 		"/usr/local/bin/agentbox", "create", "app", "--name", "it's mine"}
 	if !slices.Equal(got, want) {
@@ -248,7 +249,7 @@ func TestSetup(t *testing.T) {
 func goos() string { return runtime.GOOS }
 
 // A shell in the VM gets the settings the front end gives every command, so a
-// daemon started from it puts worktrees on the share too.
+// daemon started from it puts worktrees and media on the share too.
 func TestProfile(t *testing.T) {
 	vm, _ := newFake(t)
 	vm.Home = "/Users/o'brien"
@@ -257,6 +258,7 @@ func TestProfile(t *testing.T) {
 		"export " + hostos.Env + "=" + shellQuote(goos()) + "\n",
 		"export " + hostos.HomeEnv + `='/Users/o'\''brien'` + "\n",
 		"export AGENTBOX_WORKTREES=" + shellQuote(vm.Paths.Worktrees()) + "\n",
+		"export AGENTBOX_MEDIA=" + shellQuote(vm.Paths.Media()) + "\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the profile has no %q:\n%s", want, got)
