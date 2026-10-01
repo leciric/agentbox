@@ -50,12 +50,20 @@ func allocated(fi os.FileInfo) int64 {
 	return fi.Size()
 }
 
-// hostFree is what's free on the file system that holds dir, to its user, or
+// HostFree is what's free on the file system that holds dir, to its user, or
 // 0 when that can't be read.
-func hostFree(dir string) int64 {
+func HostFree(dir string) int64 {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(dir, &st); err != nil {
 		return 0
 	}
 	return int64(st.Bavail) * int64(st.Bsize)
+}
+
+// fileID is a file's device and inode, to count a hard link once.
+func fileID(fi os.FileInfo) ([2]uint64, bool) {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return [2]uint64{uint64(st.Dev), st.Ino}, true //nolint:unconvert // Dev is int32 on darwin
+	}
+	return [2]uint64{}, false
 }

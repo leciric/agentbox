@@ -66,7 +66,7 @@
 //                           Claude account: its limits card shows only that one
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Overview tab
-//   ?meters=cpu|disk        the top bar's "Host CPU" or "Agents' disk"
+//   ?meters=cpu|disk|pool   the top bar's "Host CPU", or its disk meter in VM mode or host mode
 //                           popover, against a CPU-capped agent, a paused
 //                           one and a plain one —
 //                           scenarios.json clicks the meter open before its
@@ -180,7 +180,7 @@ import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
-import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
 
 installDevBridge();
 
@@ -201,7 +201,7 @@ const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
-const meters = params.get('meters'); // "cpu" | "disk" | null
+const meters = params.get('meters'); // "cpu" | "disk" | "pool" | null
 const power = params.get('power');
 const free = params.get('free');
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
@@ -306,9 +306,10 @@ if (linuxHost === 'move') {
 }
 if (meters) {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 41.6 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
+  queryClient.setQueryData(['usage'], { host: { cpu: 62, cores: 8, memUsed: 15 * GiB, memTotal: 32 * GiB, poolUsed: 15.5 * GiB, poolTotal: 100 * GiB, diskRead: 0, diskWrite: 0 }, agents: [] });
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
+  if (meters === 'disk') seedVMDisk(queryClient);
 }
 
 const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };

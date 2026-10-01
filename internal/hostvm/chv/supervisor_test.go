@@ -74,8 +74,11 @@ func TestVMSocketStatus(t *testing.T) {
 	if st.Memory.Min != 4*GiB || st.Memory.Cap != 12*GiB || st.Memory.Granted != 6*GiB || st.Memory.Used != 2*GiB {
 		t.Errorf("memory = %+v", st.Memory)
 	}
-	if st.Disk.Size != 2*GiB || st.Disk.Used <= 0 || st.Disk.Used >= GiB {
+	if st.Disk.Size != 2*GiB || st.Disk.Allocated <= 0 || st.Disk.Allocated >= GiB {
 		t.Errorf("disk = %+v, want 2 GiB, sparse", st.Disk)
+	}
+	if st.Disk.Pool.Size+st.Disk.Root.Size != st.Disk.Size || st.Disk.Pool.Allocated+st.Disk.Root.Allocated != st.Disk.Allocated {
+		t.Errorf("disk = %+v, want its totals to be its images'", st.Disk)
 	}
 }
 

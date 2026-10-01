@@ -12,6 +12,8 @@
 //   agentbox vm pause           start and resume only once the daemon inside
 //   agentbox vm resume          answers. On failure, exit non-zero with why as
 //   agentbox vm stop            the last line of stderr
+//   agentbox vm disk --json     prints a VMHomeDisk (shared/api.ts): the
+//                               worktrees and media in the host's home
 //
 // A tool without `vm power` (every one before VM mode) is host mode. The mode
 // is asked once and kept, until a setup run switches the machine to a VM.
@@ -22,6 +24,7 @@
 import { execFile } from 'node:child_process';
 import { ipcMain } from 'electron';
 import type { VMPower, VMPowerAction, VMPowerState } from '../preload';
+import type { VMDisk, VMHomeDisk } from '../shared/api';
 import { agentboxBin } from './cli';
 import { linuxVM } from './vmmode';
 
@@ -81,6 +84,14 @@ export async function actOnVM(action: VMPowerAction): Promise<VMPower> {
   return power;
 }
 
+// vmDisk is `agentbox vm disk --json`: the worktrees and media in the host's
+// home, measured on the host, for the top bar's disk popover.
+export async function vmDisk(): Promise<VMHomeDisk | null> {
+  if (process.env.AGENTBOX_FAKE_VM) return { worktrees: 5.1 * 1024 ** 3, media: 0.5 * 1024 ** 3 };
+  if (mode !== 'vm') return null;
+  return JSON.parse(await run(['vm', 'disk', '--json'])) as VMHomeDisk;
+}
+
 function run(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(agentboxBin(), args, { timeout: 5 * 60_000 }, (err, stdout, stderr) => {
@@ -96,6 +107,7 @@ function run(args: string[]): Promise<string> {
 
 ipcMain.handle('vm:power', () => vmPower());
 ipcMain.handle('vm:act', (_event, action: VMPowerAction) => actOnVM(action));
+ipcMain.handle('vm:disk', () => vmDisk());
 
 // fake is AGENTBOX_FAKE_VM's VM: 24 GiB at most, and a few seconds for each
 // transition, so every state shows long enough to see.
@@ -112,6 +124,7 @@ const fake = (() => {
       memoryGranted: up ? granted : 0,
       memoryCap: 24 * GiB,
       cpus: 8,
+      disk: fakeDisk(),
     };
   };
   const act = async (action: VMPowerAction): Promise<VMPower> => {
@@ -123,3 +136,13 @@ const fake = (() => {
   };
   return { power, act };
 })();
+
+// fakeDisk is the fake VM's disk images, as measured on a real one: a 100 GiB
+// pool taking 18.4 GiB of the host's disk and a 20 GiB system disk taking
+// 5.8 GiB, 24.2 GiB of 120 GiB together.
+export function fakeDisk(): VMDisk {
+  const GiB = 1024 ** 3;
+  const pool = { size: 100 * GiB, allocated: Math.round(18.4 * GiB) };
+  const root = { size: 20 * GiB, allocated: Math.round(5.8 * GiB) };
+  return { size: pool.size + root.size, allocated: pool.allocated + root.allocated, pool, root, hostFree: 310 * GiB };
+}

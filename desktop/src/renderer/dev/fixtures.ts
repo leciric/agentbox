@@ -696,6 +696,7 @@ const devState: {
   memoryUsage?: T.MemoryUsage;
   cpuUsage?: T.CPUUsage;
   diskUsage?: T.DiskUsage;
+  homeDisk?: T.VMHomeDisk;
   agents?: T.Agent[];
   vmPower?: VMPower | null;
   hostSetup?: HostSetupStatus;
@@ -877,7 +878,7 @@ function fakeVM() {
       const chv = devState.hostSetup?.chv;
       if (chv) {
         const GiB = 1024 ** 3;
-        const pool = disk ? parseFloat(disk) * GiB : (chv.disk.pool ?? 0);
+        const pool = disk ? parseFloat(disk) * GiB : chv.disk.pool.size;
         const size = `${cpus} CPUs, a memory cap of ${memory} and a ${pool / GiB}GiB disk`;
         const flags = `--cpus ${cpus} --memory-cap ${memory}${disk ? ` --disk ${disk}` : ''}`;
         const lines = restart
@@ -906,7 +907,11 @@ function fakeVM() {
             ...chv,
             cpus,
             memory: { ...chv.memory, cap: parseFloat(memory) * GiB },
-            disk: { ...chv.disk, pool, size: chv.disk.size - (chv.disk.pool ?? 0) + pool },
+            disk: {
+              ...chv.disk,
+              pool: { ...chv.disk.pool, size: pool },
+              size: chv.disk.size - chv.disk.pool.size + pool,
+            },
             limits: { ...chv.limits!, minDisk: pool },
             live: room,
           },
@@ -933,6 +938,7 @@ function fakeVM() {
     // The ?power= scenarios' VM (seedPower): each action takes a moment in
     // its transition, the way `agentbox vm start` and friends do.
     power: async () => devState.vmPower ?? null,
+    disk: async () => (devState.vmPower ? (devState.homeDisk ?? null) : null),
     act: async (action: VMPowerAction) => {
       const vm = devState.vmPower;
       if (!vm) throw new Error('AgentBox is not in VM mode');
@@ -1168,7 +1174,7 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
     since: new Date(Date.now() - 3_600_000).toISOString(),
     cpus: 8,
     memory: { min: 4 * GiB, cap: 24 * GiB, granted: kind === 'off' ? 0 : 9 * GiB, used: 6.2 * GiB, resident: 0 },
-    disk: { size: 120 * GiB, used: 14 * GiB, pool: 100 * GiB },
+    disk: { size: 120 * GiB, allocated: 14 * GiB, pool: { size: 100 * GiB, allocated: 10 * GiB }, root: { size: 20 * GiB, allocated: 4 * GiB } },
     limits: room,
     live: kind === 'live' ? room : undefined,
   };
@@ -1215,29 +1221,46 @@ export function seedMeterUsage(queryClient: QueryClient): void {
       { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', cpu: 0 },
     ],
   };
+  // The pool's machines and bases add up to the 15.5 GiB in use inside the
+  // user's VM, measured on 2026-10-01.
   const diskUsage: T.DiskUsage = {
-    total: 41.6 * GiB,
+    total: 21.2 * GiB,
     categories: [
       {
+        kind: 'machines',
         label: 'Agent machines',
-        bytes: 23.5 * GiB,
+        bytes: 9.8 * GiB,
         items: [
-          { label: `${PROJECT}/agent-99`, bytes: 14.2 * GiB },
-          { label: `${PROJECT}/agent-12`, bytes: 6.1 * GiB },
-          { label: `${PROJECT}/agent-90`, bytes: 3.2 * GiB },
+          { label: `${PROJECT}/agent-99`, bytes: 5.9 * GiB },
+          { label: `${PROJECT}/agent-12`, bytes: 2.6 * GiB },
+          { label: `${PROJECT}/agent-90`, bytes: 1.3 * GiB },
         ],
       },
-      { label: 'Base images and saved bases', bytes: 12.4 * GiB, items: [{ label: 'Base image', bytes: 7.9 * GiB }, { label: `${PROJECT} base`, bytes: 4.5 * GiB }] },
-      { label: 'Worktrees', bytes: 5.1 * GiB, items: [{ label: `${PROJECT}/agent-99`, bytes: 2.6 * GiB }, { label: `${PROJECT}/agent-12`, bytes: 2.5 * GiB }] },
-      { label: 'Media', bytes: 0.5 * GiB, items: [{ label: PROJECT, bytes: 0.5 * GiB }] },
-      { label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB }] },
+      { kind: 'bases', label: 'Base images and saved bases', bytes: 5.7 * GiB, items: [{ label: 'Base image', bytes: 3.9 * GiB }, { label: `${PROJECT} base`, bytes: 1.8 * GiB }] },
+      { kind: 'worktrees', label: 'Worktrees', bytes: 5.1 * GiB, items: [{ label: `${PROJECT}/agent-99`, bytes: 2.6 * GiB }, { label: `${PROJECT}/agent-12`, bytes: 2.5 * GiB }] },
+      { kind: 'media', label: 'Media', bytes: 0.5 * GiB, items: [{ label: PROJECT, bytes: 0.5 * GiB }] },
+      { kind: 'state', label: 'state.db and logs', bytes: 0.1 * GiB, items: [{ label: 'state.db', bytes: 0.1 * GiB }] },
     ],
   };
   devState.memoryUsage = memoryUsage;
   devState.cpuUsage = cpuUsage;
   devState.diskUsage = diskUsage;
+  devState.homeDisk = { worktrees: 5.1 * GiB, media: 0.5 * GiB };
   queryClient.setQueryData(['memoryUsage'], memoryUsage);
   queryClient.setQueryData(['cpuUsage'], cpuUsage);
+}
+
+// seedVMDisk is the top bar's disk meter in VM mode (?meters=disk), with the
+// numbers measured on the user's Cloud Hypervisor VM on 2026-10-01: pool.raw
+// is 100 GiB taking 18.4 GiB of the host's disk, with 15.5 GiB in use inside;
+// root.raw is 20 GiB taking 5.8 GiB. The meter reads 24.2 GiB/120.0 GiB.
+export function seedVMDisk(queryClient: QueryClient): void {
+  const GiB = 1024 ** 3;
+  const pool = { size: 100 * GiB, allocated: Math.round(18.4 * GiB) };
+  const root = { size: 20 * GiB, allocated: Math.round(5.8 * GiB) };
+  const disk: T.VMDisk = { size: pool.size + root.size, allocated: pool.allocated + root.allocated, pool, root, hostFree: 310 * GiB };
+  devState.vmPower = { state: 'running', memoryUsed: 11.3 * GiB, memoryGranted: 16 * GiB, memoryCap: 24 * GiB, cpus: 12, hostFree: disk.hostFree, disk };
+  queryClient.setQueryData(['vmPower'], devState.vmPower);
 }
 
 // --- The agent queue (?queue=busy|alone|demo|off|settings|tasks) -----------

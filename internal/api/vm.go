@@ -131,16 +131,45 @@ type VMMemory struct {
 	Resident int64 `json:"resident"`
 }
 
-// VMDisk is the VM's disk image, in bytes.
+// VMDisk is the VM's disk images, in bytes, as the host sees them. Each has
+// two sizes, never to be mixed: Size is what the VM sees, the image's
+// apparent size as the VM's disk settings made it, and Allocated is what it
+// really takes on the host's disk. The images are sparse: they start near
+// nothing, grow as the VM writes, and only shrink when the VM's discards
+// reach them, so Allocated can be more than what the VM says it uses.
 type VMDisk struct {
-	Size int64 `json:"size"` // what the VM sees
-	// Pool is the size of the disk agents are on (Incus's pool), which is
-	// part of Size and what `agentbox vm resize --disk` grows.
-	Pool int64 `json:"pool,omitempty"`
-	Used int64 `json:"used"` // what it takes on the host's disk (it's sparse)
+	Size      int64 `json:"size"`      // Pool.Size + Root.Size
+	Allocated int64 `json:"allocated"` // Pool.Allocated + Root.Allocated
+	// Pool holds Incus's storage pool, every agent's machine and saved base;
+	// Root is the VM's own system disk. A Lima VM has one disk for both, in
+	// Root, and no Pool. Pool.Size is also what `agentbox vm resize --disk`
+	// grows.
+	Pool VMDiskImage `json:"pool"`
+	Root VMDiskImage `json:"root"`
 	// HostFree is what's free on the host's disk that holds the VM's disk
 	// images: all they can still grow into.
 	HostFree int64 `json:"hostFree,omitempty"`
+}
+
+// VMDiskImage is one of the VM's disk images: Size is its apparent size,
+// what the VM sees, and Allocated the bytes it takes on the host's disk.
+type VMDiskImage struct {
+	Size      int64 `json:"size"`
+	Allocated int64 `json:"allocated"`
+}
+
+// Add counts img in d's totals.
+func (d *VMDisk) Add(img VMDiskImage) {
+	d.Size += img.Size
+	d.Allocated += img.Allocated
+}
+
+// VMHomeDisk is what AgentBox keeps in the host's home, outside the VM's disk
+// images, measured on the host (`agentbox vm disk --json`): the VM shares
+// that home, so neither is in VMDisk. Bytes allocated on the host's disk.
+type VMHomeDisk struct {
+	Worktrees int64 `json:"worktrees"`
+	Media     int64 `json:"media"`
 }
 
 // VMStopRequest is POST /v1/vm/stop.

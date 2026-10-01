@@ -1396,7 +1396,7 @@ func (s *Server) usage(w http.ResponseWriter, r *http.Request) error {
 func toAPIDiskUsage(u agent.DiskUsage) api.DiskUsage {
 	out := api.DiskUsage{Total: u.Total, Categories: make([]api.DiskUsageCategory, 0, len(u.Categories))}
 	for _, c := range u.Categories {
-		cat := api.DiskUsageCategory{Label: c.Label, Bytes: c.Bytes, Items: make([]api.DiskUsageItem, 0, len(c.Items))}
+		cat := api.DiskUsageCategory{Kind: c.Kind, Label: c.Label, Bytes: c.Bytes, Items: make([]api.DiskUsageItem, 0, len(c.Items))}
 		for _, it := range c.Items {
 			cat.Items = append(cat.Items, api.DiskUsageItem{Label: it.Label, Bytes: it.Bytes})
 		}

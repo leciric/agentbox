@@ -393,6 +393,7 @@ export interface DiskUsageItem {
 }
 
 export interface DiskUsageCategory {
+  kind: string;
   label: string;
   bytes: number;
   items?: DiskUsageItem[];
@@ -1779,9 +1780,20 @@ export interface VMMemory {
 
 export interface VMDisk {
   size: number;
-  pool?: number;
-  used: number;
+  allocated: number;
+  pool: VMDiskImage;
+  root: VMDiskImage;
   hostFree?: number;
+}
+
+export interface VMDiskImage {
+  size: number;
+  allocated: number;
+}
+
+export interface VMHomeDisk {
+  worktrees: number;
+  media: number;
 }
 
 export interface VMLimits {

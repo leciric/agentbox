@@ -222,7 +222,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
   const running = (agents.data ?? []).filter((a) => a.state === 'running').length;
   // The disk it has, or will have when it next starts. A front end older than
   // disk resizing says neither, and the disk field isn't shown.
-  const hasDisk = Math.max(vm.disk.pool ?? 0, vm.limits?.minDisk ?? 0);
+  const hasDisk = Math.max(vm.disk.pool.size, vm.limits?.minDisk ?? 0);
   const current = () => ({ cpus: String(vm.cpus ?? ''), memory: vm.memory.cap ? gib(vm.memory.cap) : '', disk: hasDisk ? gib(hasDisk) : '' });
   const [form, setForm] = useState(current);
   const [confirming, setConfirming] = useState(false);

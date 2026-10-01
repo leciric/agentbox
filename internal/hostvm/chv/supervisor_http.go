@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"agentbox/internal/api"
@@ -235,20 +234,14 @@ func offStatus(c Config, l Layout) api.VMStatus {
 		Memory: api.VMMemory{Min: c.MemoryMin, Cap: c.MemoryMin + hotplugSize(c)},
 		Limits: &api.VMLimits{MinCPUs: 1, MaxCPUs: max(hostCPUs(), c.CPUs), MinMemory: c.MemoryMin, MaxMemory: max(hostMemory(), c.MemoryCap)},
 	}
-	for _, disk := range []string{l.RootDisk(), l.PoolDisk()} {
-		if fi, err := os.Stat(disk); err == nil {
-			st.Disk.Size += fi.Size()
-			st.Disk.Used += allocated(fi)
-			if disk == l.PoolDisk() {
-				st.Disk.Pool = fi.Size()
-			}
-		}
-	}
+	st.Disk.Pool, st.Disk.Root = DiskImage(l.PoolDisk()), DiskImage(l.RootDisk())
+	st.Disk.Add(st.Disk.Pool)
+	st.Disk.Add(st.Disk.Root)
 	// A disk only grows, and a VM that's off has the size it was given
 	// (Config.Disk) when it next starts.
-	st.Limits.MinDisk = max(st.Disk.Pool, c.Disk)
+	st.Limits.MinDisk = max(st.Disk.Pool.Size, c.Disk)
 	st.Limits.MaxDisk = max(api.VMMaxDisk, st.Limits.MinDisk)
-	st.Disk.HostFree = hostFree(l.Dir())
+	st.Disk.HostFree = HostFree(l.Dir())
 	return st
 }
 
