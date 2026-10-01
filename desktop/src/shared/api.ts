@@ -120,6 +120,8 @@ export interface Settings {
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
+  errorReports: boolean;
+  errorReportsAsked: boolean;
   prWatch: boolean;
   mediaRetention: string;
   defaultClaudeCompactWindow: number;
@@ -177,6 +179,7 @@ export interface UpdateSettingsRequest {
   updateCheck?: boolean;
   updateChannel?: string;
   usageStats?: boolean;
+  errorReports?: boolean;
   prWatch?: boolean;
   mediaRetention?: string;
   neverFreezeCPU?: boolean;
@@ -1781,6 +1784,35 @@ export interface VMStopRequest {
   agents?: boolean;
 }
 
+export interface ReportSection {
+  id: string;
+  title: string;
+  content: string;
+}
+
+export interface ReportDraftRequest {
+  sections: ReportSection[];
+}
+
+export interface ReportDraft {
+  install: string;
+  version: string;
+  os: string;
+  arch: string;
+  sections: ReportSection[];
+  endpoint: string;
+}
+
+export interface ReportRequest {
+  kind: string;
+  message: string;
+  sections: ReportSection[];
+}
+
+export interface ReportSent {
+  id: string;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -1832,6 +1864,14 @@ export const MemoryKindEpisodic = "episodic";
 export const MemoryKindDecision = "decision";
 export const MemoryKindDiscovery = "discovery";
 export const MemoryKindIssue = "issue";
+export const ReportKindProblem = "problem";
+export const ReportKindError = "error";
+export const ReportSectionSystem = "system";
+export const ReportSectionDaemonLog = "daemon-log";
+export const ReportSectionVMLog = "vm-log";
+export const ReportSectionAppLog = "app-log";
+export const ReportSectionAppErrors = "app-errors";
+export const ReportSectionError = "error";
 export const ReportDone = "done";
 export const ReportPartial = "partial";
 export const ReportBlocked = "blocked";

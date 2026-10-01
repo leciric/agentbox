@@ -20,6 +20,7 @@ import (
 	"agentbox/internal/hostos"
 	"agentbox/internal/hostvm/chv"
 	"agentbox/internal/paths"
+	"agentbox/internal/report"
 )
 
 // clearEnv leaves the tests' AGENTBOX_ settings (and where an Android SDK is)
@@ -407,7 +408,7 @@ func TestCHVForward(t *testing.T) {
 	got := vm.ForwardArgs(vm.Home, []string{"create", "app"})
 	wantArgs := []string{filepath.Join(dir, "ssh"), "env",
 		hostos.Env + "=linux", hostos.HomeEnv + "=" + vm.Home, "AGENTBOX_WORKTREES=" + vm.Paths.Worktrees(),
-		vmMemoryCapEnv + "=25769803776", "AGENTBOX_PREVIEW_ADDR=127.0.0.1:17777",
+		vmMemoryCapEnv + "=25769803776", report.VMLogEnv + "=" + vm.CHV.Layout.Log(), "AGENTBOX_PREVIEW_ADDR=127.0.0.1:17777",
 		"/usr/local/bin/agentbox", "create", "app"}
 	if !slices.Equal(got, wantArgs) {
 		t.Errorf("got  %q\nwant %q", got, wantArgs)

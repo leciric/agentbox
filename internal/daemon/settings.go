@@ -229,6 +229,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.ErrorReports != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingErrorReports, *req.ErrorReports); err != nil {
+			return err
+		}
+	}
 	if req.PRWatch != nil {
 		if err := s.setPRWatch(r.Context(), *req.PRWatch); err != nil {
 			return err
@@ -426,6 +431,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	errorReports, err := s.store.Setting(r.Context(), state.SettingErrorReports)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	prWatch, err := s.store.FlagOn(r.Context(), state.SettingPRWatch)
 	if err != nil {
 		return api.Settings{}, err
@@ -502,11 +511,13 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		HostMemory:          agent.HostMemory(),
 		SeedMemory:          agent.DefaultMemory(agent.HostMemory()),
 
-		ResumeAfterLimit: resumeAfterLimit,
-		UpdateCheck:      updateCheck,
-		UsageStats:       usageStats,
-		PRWatch:          prWatch,
-		MediaRetention:   mediaRetention,
+		ResumeAfterLimit:  resumeAfterLimit,
+		UpdateCheck:       updateCheck,
+		UsageStats:        usageStats,
+		ErrorReports:      errorReports == "1",
+		ErrorReportsAsked: errorReports != "",
+		PRWatch:           prWatch,
+		MediaRetention:    mediaRetention,
 
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,

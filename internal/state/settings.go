@@ -152,6 +152,10 @@ const (
 	// feature_usage counts. On until somebody turns it off (FlagOn), and
 	// never sent while SettingUpdateCheck is off.
 	SettingUsageStats = "usage_stats"
+	// SettingErrorReports says whether the app sends a report of each
+	// uncaught error by itself. Off until somebody turns it on (Flag), and
+	// empty until they chose either way, which is how the app knows to ask.
+	SettingErrorReports = "error_reports"
 	// SettingPRWatch says whether the daemon watches every agent's open pull
 	// request and tells the agent when it breaks: a conflict with its base,
 	// failing checks, changes requested. On until somebody turns it off
@@ -165,8 +169,8 @@ const (
 	SettingMediaRetention = "media_retention"
 	// SettingInstallID is the random UUID the update check sends, so the
 	// server can count installations without anything that identifies the
-	// machine. Made on the first check, so an installation that never checks
-	// never has one.
+	// machine. Made on the first check or problem report, so an installation
+	// that never sends either never has one.
 	SettingInstallID = "install_id"
 	// SettingNeverFreezeCPU says whether the daemon keeps every running
 	// agent's limits.cpu adding up to at most the host's cores minus

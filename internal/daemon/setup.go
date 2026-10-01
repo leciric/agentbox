@@ -26,7 +26,15 @@ import (
 // setup checks what AgentBox needs on this machine, for the app's Setup page
 // and `agentbox host check`.
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
+	status, err := s.setupStatus(r.Context())
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, status)
+}
+
+// setupStatus is what setup answers, which a problem report also carries.
+func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 	var checks []api.SetupCheck
 	check := func(c api.SetupCheck, ok bool, okDetail string) {
 		if ok {
@@ -65,7 +73,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 	// differ after someone turns a component on and hasn't rebuilt yet.
 	wanted, err := s.imageComponents(ctx)
 	if err != nil {
-		return err
+		return api.SetupStatus{}, err
 	}
 	installed, _ := image.InstalledBuild(ctx, s.cfg.Incus)
 
@@ -150,7 +158,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 			ready = false
 		}
 	}
-	return writeJSON(w, http.StatusOK, api.SetupStatus{
+	return api.SetupStatus{
 		Ready:  ready,
 		Checks: checks,
 		Image: api.ImageBuild{
@@ -160,7 +168,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 			Downloads:  apiDownloads(image.Downloads),
 			Hint:       image.DownloadsHint,
 		},
-	})
+	}, nil
 }
 
 // storagePoolCheck warns when the "default" storage pool isn't btrfs or zfs:
