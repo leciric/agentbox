@@ -344,14 +344,20 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
-	return m.writeLeadHome(home, a.Worktree, text, socket, nil, m.leadGitHubToken(p) != "")
+	connectors, err := m.connectorNames(ctx, a)
+	if err != nil {
+		return err
+	}
+	return m.writeLeadHome(home, a.Worktree, text, socket, nil, connectors, m.leadGitHubToken(p) != "")
 }
 
 // writeLeadHome writes what a lead's private HOME holds: its policy, its brief,
 // the state that skips Claude Code's onboarding and registers the MCP server,
 // and its git config. A project's lead and the Home chat share it, and differ
-// in their brief and in mcpEnv, added to the MCP server's environment.
-func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[string]string, github bool) error {
+// in their brief, in mcpEnv (added to the MCP server's environment) and in
+// connectors, the project's enabled connectors (leadMCPServers); the Home chat
+// spans every project rather than one, so it is given none.
+func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[string]string, connectors []string, github bool) error {
 	policy := leadSettings()
 	// The policy is rewritten whole, so a lead made by an older AgentBox gets
 	// what a newer one denies. The model isn't policy: it's what the user
@@ -375,12 +381,12 @@ func (m *Manager) writeLeadHome(home, worktree, text, socket string, mcpEnv map[
 		for k, v := range mcpEnv {
 			env[k] = v
 		}
-		claude["mcpServers"] = map[string]any{
-			"agentbox": map[string]any{
-				"type": "stdio", "command": m.Binary, "args": []string{"mcp"},
-				"env": env,
-			},
+		servers := m.leadMCPServers(socket, connectors)
+		servers["agentbox"] = map[string]any{
+			"type": "stdio", "command": m.Binary, "args": []string{"mcp"},
+			"env": env,
 		}
+		claude["mcpServers"] = servers
 	}
 	claudeState, err := json.Marshal(claude)
 	if err != nil {

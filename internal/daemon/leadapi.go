@@ -108,6 +108,15 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/agents/{agent}/run", withProject(s.leadRunInAgent))
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))
+	// The project's connectors: listed for list_connectors, and relayed to
+	// for the chat's own Claude Code, which is given them as MCP servers.
+	mux.HandleFunc("GET /v1/project/connectors", withProject(func(w http.ResponseWriter, r *http.Request) error {
+		return s.listConnectors(w, r, s.projectConnectorScope)
+	}))
+	mux.HandleFunc("GET /v1/self/connectors", withProject(s.leadConnectors))
+	for _, method := range []string{http.MethodPost, http.MethodGet, http.MethodDelete} {
+		mux.HandleFunc(method+" /v1/self/connectors/{name}/mcp", s.leadConnectorMCP(project))
+	}
 	mux.HandleFunc("GET /v1/project/notes", withProject(s.getNotes))
 	mux.HandleFunc("POST /v1/project/notes", withProject(s.appendNote))
 	mux.HandleFunc("POST /v1/project/notes/edit", withProject(s.editNote))

@@ -271,13 +271,16 @@ func (s *Server) answerAsUser(w http.ResponseWriter, r *http.Request) error {
 // errOnlyTheUser refuses the lead a credential request: the user answers it,
 // in the app, so that the value never passes through a chat (D95).
 func errOnlyTheUser(q state.Question) error {
+	if q.Kind == state.QuestionConnector {
+		return fmt.Errorf("%s asked the user to connect %s, which only the user can do, in the app", q.Ref(), q.Connector)
+	}
 	return fmt.Errorf("%s asked the user for %s, which only the user can answer, in the app: don't ask for the value in chat", q.Ref(), credentialWanted(q))
 }
 
 func toAPIQuestion(q state.Question) api.Question {
 	out := api.Question{
 		ID: q.ID, Project: q.Project, Agent: q.Agent, Ref: q.Ref(),
-		Kind: q.Kind, SecretName: q.SecretName, Question: q.Text, Context: q.Context, Status: q.Status,
+		Kind: q.Kind, SecretName: q.SecretName, Connector: q.Connector, ConnectorURL: q.ConnectorURL, Question: q.Text, Context: q.Context, Status: q.Status,
 		Answer: q.Answer, AnsweredBy: q.AnsweredBy, Escalation: q.Escalation,
 		CreatedAt: q.CreatedAt,
 	}

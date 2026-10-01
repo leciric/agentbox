@@ -53,7 +53,7 @@ func startDaemon(t *testing.T) {
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := daemon.New(daemon.Config{Paths: p, Incus: incus.Client{Bin: fake}, User: image.User{Name: "dev", UID: 1000, GID: 1000}})
+	srv, err := daemon.New(daemon.Config{Paths: p, Incus: incus.Client{Bin: fake}, User: image.User{Name: "dev", UID: 1000, GID: 1000}, ConnectorsLoopback: true})
 	if err != nil {
 		t.Fatal(err)
 	}

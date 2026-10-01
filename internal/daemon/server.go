@@ -20,6 +20,7 @@ import (
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
+	"agentbox/internal/connectors"
 	"agentbox/internal/credentials"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
@@ -50,6 +51,10 @@ type Config struct {
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string
+	// ConnectorsLoopback lets connectors reach servers on this machine's
+	// loopback, where only tests' fake MCP servers listen
+	// (connectors.OAuth.Loopback).
+	ConnectorsLoopback bool
 	// GitHubAPI is the GitHub API root; empty is github.Client's own, which
 	// AGENTBOX_GITHUB_API can move.
 	GitHubAPI string
@@ -97,6 +102,10 @@ type Server struct {
 
 	waiting *waiters // agents waiting for an answer to a question
 
+	// connectors are the remote MCP servers agents use, signed in to here
+	// (connectors.go, internal/connectors).
+	connectors *connectors.Service
+
 	// firstSweeps is done once the sweeps Run starts have each made their
 	// first pass, the one at startup: what a test waits for, so that pass
 	// can't land in the middle of what it is checking.
@@ -121,7 +130,11 @@ type Server struct {
 	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
 	lan          *lanState                // phones chatting from the local network or a tunnel (lan.go)
-	remoteStop   context.CancelFunc
+	// connectorsGiven is whether each connector was last given to agents,
+	// by scope and name, so only a change to that rewrites their MCP
+	// servers (connectors.go).
+	connectorsGiven map[string]bool
+	remoteStop      context.CancelFunc
 	// openCodeModels is the state of the background ask that fills OpenCode's
 	// model menu: whether one is running, and when the last one started.
 	openCodeModels struct {
@@ -203,6 +216,7 @@ func New(cfg Config) (*Server, error) {
 		recheckedWhat:    map[string]string{},
 		stalls:           map[string]*stallTrack{},
 		cpuTime:          agent.CPUTime,
+		connectorsGiven:  map[string]bool{},
 	}
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
@@ -213,6 +227,7 @@ func New(cfg Config) (*Server, error) {
 	s.projectPeak = func(ctx context.Context, project string) (int64, bool, error) {
 		return s.manager(nil).ProjectPeak(ctx, project)
 	}
+	s.connectors = s.newConnectors()
 	s.thrash = agent.NewThrashWatch(func(ctx context.Context, instance string, limit int64) string {
 		return s.manager(nil).MemoryRaise(ctx, instance, limit)
 	})
@@ -314,6 +329,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
 	loops.Go(func() { s.watchDisk(ctx) })
+	loops.Go(func() { s.refreshConnectors(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
@@ -328,6 +344,7 @@ func (s *Server) Run(ctx context.Context) error {
 		_ = srv.Shutdown(shutdown)
 		s.closeAgentAPIs()
 		s.closeLeadAPIs()
+		s.connectors.Close()
 	}()
 	s.logf("AgentBox daemon %s listening on %s", Version, socket)
 	err = srv.Serve(ln)
@@ -550,6 +567,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/{project}/{agent}/fork", s.fork)
 	h("POST /v1/agents/{project}/{agent}/recreate", s.recreate)
 	h("POST /v1/migration/check", s.checkMigration)
+	s.connectorRoutes(h)
 	h("GET /v1/agents/{project}/{agent}/secrets", s.listAgentSecrets)
 	h("PUT /v1/agents/{project}/{agent}/secrets/{name}", s.setAgentSecret)
 	h("DELETE /v1/agents/{project}/{agent}/secrets/{name}", s.removeAgentSecret)

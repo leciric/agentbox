@@ -339,6 +339,21 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "list_connectors",
+			Description: "This project's connectors: remote MCP servers like Notion or Linear that its agents get as tools, " +
+				"signed in once by the user and held by AgentBox, so no agent ever sees a token. Shows each one's status and " +
+				"which agents have it. The connected ones are your own tools too (mcp__<name>__*). Pass create_agent's " +
+				"connectors to give an agent only some of them. To add one, ask the user to (the Connectors tab on the project's " +
+				"page); an agent that finds it needs one asks the user itself, with request_connector.",
+			Run: func(json.RawMessage) (string, error) {
+				found, err := c.ProjectConnectors(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeConnectors(found), nil
+			},
+		},
+		{
 			Name: "create_agent",
 			Description: "Create an agent and give it a task. It gets its own machine and, unless " +
 				"research is true, its own branch. Prefer several small well-briefed agents over one " +
@@ -361,6 +376,10 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"\"off\" to only have the finish recorded — for a small, mechanical job you don't need to react to. This only "+
 					"matters when this project's finish notices are set to \"lead\"; otherwise the project's own setting decides for "+
 					"every agent, whatever you choose here. Leave this out to be woken, the same as \"chat\".", "chat", "off"),
+				"connectors": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
+					"description": "which of this project's connectors (list_connectors) the agent gets as tools, by name, like " +
+						"[\"notion\"]; [] for none. Leave it out to give it all of them. Each tool it has costs context in every " +
+						"turn, so give an agent only the ones its task needs."},
 				"claude_account": str("which of this project's Claude Code accounts (list_accounts) this agent logs in as. Only applies " +
 					"when it runs Claude Code; sending it for an agent with ai=\"opencode\" is an error. An unknown or disallowed name is " +
 					"refused, and the error names the ones it may use — use list_accounts to see them, along with how much " +
@@ -378,6 +397,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					// to what new agents start on.
 					Model, Effort, Permissions, Notify *string
 					ContextWindow                      *string `json:"context_window"`
+					Connectors                         *[]string
 				}
 				if err := decode(args, &in); err != nil {
 					return "", err
@@ -417,6 +437,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					ClaudeAccount: in.ClaudeAccount,
 					FinishNotice:  notify,
 					Queue:         in.Queue,
+					Connectors:    in.Connectors,
 				})
 				if err != nil {
 					return "", err
@@ -428,7 +449,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 						in.Title, ag.Name, ag.QueuePosition), nil
 				}
 				return fmt.Sprintf("Creating %q%s; it starts on the task by itself. Job %s.",
-					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, in.ClaudeAccount)+windowChoice(in.ContextWindow), job.ID), nil
+					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, in.ClaudeAccount)+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
 			},
 		},
 		{
@@ -1019,6 +1040,43 @@ func describeSecrets(secrets []api.Secret) string {
 		fmt.Fprintf(&b, "- $%s — %s\n", s.Name, where)
 	}
 	return b.String()
+}
+
+// describeConnectors is list_connectors' answer.
+func describeConnectors(found []api.Connector) string {
+	if len(found) == 0 {
+		return "This project has no connectors. If an agent needs a service like Notion or Linear as tools, ask the user " +
+			"to add it on the project's Connectors tab (or with agentbox connector add), or let the agent ask with request_connector."
+	}
+	var b strings.Builder
+	b.WriteString("This project's connectors:\n")
+	for _, conn := range found {
+		status := conn.Status
+		if conn.Error != "" {
+			status += " (" + conn.Error + ")"
+		}
+		if !conn.Enabled {
+			status = "turned off"
+		}
+		given := "no agent"
+		if len(conn.Agents) > 0 {
+			given = strings.Join(conn.Agents, ", ")
+		}
+		fmt.Fprintf(&b, "- %s — %s, %s; given to %s\n", conn.Name, conn.URL, status, given)
+	}
+	return b.String()
+}
+
+// connectorChoice says which connectors an agent was given, when it wasn't
+// every one.
+func connectorChoice(connectors *[]string) string {
+	switch {
+	case connectors == nil:
+		return ""
+	case len(*connectors) == 0:
+		return ", with no connectors"
+	}
+	return ", with the connectors " + strings.Join(*connectors, ", ")
 }
 
 // maxChatDiff is the most of a diff agent_diff hands the chat whole (D87).

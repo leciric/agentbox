@@ -97,7 +97,7 @@ func (m *Manager) configureHome(ctx context.Context, a state.Agent) error {
 	}
 	home := m.Paths.LeadHome(state.HomeProject)
 	return m.writeLeadHome(home, a.Worktree, text, m.LeadSocket(state.HomeProject),
-		map[string]string{"AGENTBOX_CHAT": "home"}, m.leadGitHubToken(homeProject) != "")
+		map[string]string{"AGENTBOX_CHAT": "home"}, nil, m.leadGitHubToken(homeProject) != "")
 }
 
 // CloneForHome clones a repository from a URL into dest, for the Home chat's

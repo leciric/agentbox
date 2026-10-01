@@ -13,9 +13,10 @@ import (
 	"agentbox/internal/api"
 )
 
-// TestMyTaskTools covers my_task and request_credential against the fake
-// agent API: what an agent reads about its own work, that it has nothing to
-// change the user's task list with, and how it asks for a credential it lacks.
+// TestMyTaskTools covers my_task, request_credential and request_connector
+// against the fake agent API: what an agent reads about its own work, that it
+// has nothing to change the user's task list with, and how it asks for a
+// credential or a connector it lacks.
 func TestMyTaskTools(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "agent2.sock")
 	calls := make(chan string, 8)
@@ -49,6 +50,15 @@ func TestMyTaskTools(t *testing.T) {
 	}
 	if ans != "use work" {
 		t.Errorf("request_credential = %q, want the answer text", ans)
+	}
+
+	ans, err = tools[byName["request_connector"]].Wait(context.Background(),
+		json.RawMessage(`{"name":"notion","url":"https://mcp.notion.com/mcp","reason":"the spec is in Notion"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans != "The user connected notion (https://mcp.notion.com/mcp) for the spec is in Notion" {
+		t.Errorf("request_connector = %q, want the answer text", ans)
 	}
 
 	art, err := tools[byName["record_artifact"]].Run(json.RawMessage(`{"type":"branch","path":"agentbox/agent-01"}`))
@@ -179,6 +189,11 @@ func serveFakeAgentAPI(t *testing.T, socket string, calls chan<- string) {
 			_ = json.NewEncoder(w).Encode(out)
 		case r.URL.Path == "/v1/self/credential":
 			_ = json.NewEncoder(w).Encode(api.Question{ID: "q1", Answer: "use work", Status: "answered"})
+		case r.URL.Path == "/v1/self/connector":
+			var in api.ConnectorRequest
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			_ = json.NewEncoder(w).Encode(api.Question{ID: "q2", Kind: api.QuestionConnector, Connector: in.Name,
+				Answer: "The user connected " + in.Name + " (" + in.URL + ") for " + in.Reason, Status: "answered"})
 		default:
 			_ = json.NewEncoder(w).Encode(api.MemorySearchResults{})
 		}

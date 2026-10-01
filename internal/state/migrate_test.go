@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -72,10 +71,10 @@ func TestNameReuseMigrationCleansUpOrphans(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 
-	// The name-reuse migration set is the 8 entries just before agent_prs,
-	// and those after it don't touch what it does; stop just short of the
-	// name-reuse set, not of the very end.
-	start := slices.IndexFunc(migrations, func(q string) bool { return strings.Contains(q, "ADD COLUMN agent_prs") }) - 8
+	// Stop just short of the name-reuse set's id backfill, not of the very
+	// end: everything appended since doesn't touch what it does, and is
+	// found by its text so that appending more doesn't move it.
+	start := migrationIndex(t, "UPDATE agents SET id = lower(hex(randomblob(16))) WHERE id = ''")
 	for i, m := range migrations[:start] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)
@@ -161,4 +160,24 @@ func TestNameReuseMigrationCleansUpOrphans(t *testing.T) {
 	if id == "" {
 		t.Error("agent-01's row got no id from the migration")
 	}
+}
+
+// migrationIndex is the position of the one migration containing text: what a
+// test that stops short of a past migration counts from, rather than from the
+// end, which moves every time one is appended.
+func migrationIndex(t *testing.T, text string) int {
+	t.Helper()
+	found := -1
+	for i, m := range migrations {
+		if strings.Contains(m, text) {
+			if found >= 0 {
+				t.Fatalf("migrations %d and %d both contain %q", found, i, text)
+			}
+			found = i
+		}
+	}
+	if found < 0 {
+		t.Fatalf("no migration contains %q", text)
+	}
+	return found
 }

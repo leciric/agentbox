@@ -105,6 +105,38 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "RequestConnector", method: http.MethodPost, path: "/v1/self/connector",
+			body: `{"name":"notion","url":"https://mcp.notion.com/mcp","reason":"the spec"}`,
+			resp: `{"id":"q3","kind":"connector","connector":"notion","url":"https://mcp.notion.com/mcp","status":"answered"}`,
+			run: func(t *testing.T, c *Client) {
+				q, err := c.RequestConnector(context.Background(), ConnectorRequest{Name: "notion", URL: "https://mcp.notion.com/mcp", Reason: "the spec"})
+				if err != nil || q.Connector != "notion" || q.ConnectorURL != "https://mcp.notion.com/mcp" {
+					t.Errorf("RequestConnector() = %+v, %v", q, err)
+				}
+			},
+		},
+		{
+			name: "AnswerConnectorRequest", method: http.MethodPost, path: "/v1/projects/pawly/questions/q3/credential",
+			body: `{"connector":"notion"}`,
+			resp: `{"id":"q3","status":"answered"}`,
+			run: func(t *testing.T, c *Client) {
+				q, err := c.AnswerCredential(context.Background(), "pawly", "q3", AnswerCredentialRequest{Connector: "notion"})
+				if err != nil || q.Status != "answered" {
+					t.Errorf("AnswerCredential(connector) = %+v, %v", q, err)
+				}
+			},
+		},
+		{
+			name: "ProjectConnectors", method: http.MethodGet, path: "/v1/project/connectors",
+			resp: `[{"name":"notion","status":"connected"}]`,
+			run: func(t *testing.T, c *Client) {
+				found, err := c.ProjectConnectors(context.Background())
+				if err != nil || len(found) != 1 || found[0].Name != "notion" {
+					t.Errorf("ProjectConnectors() = %+v, %v", found, err)
+				}
+			},
+		},
+		{
 			name: "AnswerCredential", method: http.MethodPost, path: "/v1/projects/pawly/questions/q2/credential",
 			body: `{"value":"secret-value"}`,
 			resp: `{"id":"q2","status":"answered"}`,

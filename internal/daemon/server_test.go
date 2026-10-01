@@ -154,6 +154,8 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 		ReleasesURL: cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
 		PreviewAddr: cmp.Or(tc.previewAddr, "off"),
 		GitHubAPI:   gh.URL,
+		// Every fake connector server listens on loopback.
+		ConnectorsLoopback: true,
 	})
 	if err != nil {
 		t.Fatal(err)
