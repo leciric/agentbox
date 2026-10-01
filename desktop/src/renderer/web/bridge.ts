@@ -199,6 +199,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   },
   vm: {
     resize: unavailable("Resizing AgentBox's VM"),
+    swap: unavailable("Changing AgentBox's VM's swap"),
+    onSwapOutput: () => () => {},
     onOutput: () => () => {},
     power: () => Promise.resolve(null),
     act: unavailable("Turning AgentBox's VM on and off"),

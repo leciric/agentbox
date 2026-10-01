@@ -68,7 +68,7 @@ Your home directory is shared with the VM at the same path.`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newUpgradeCmd(), newDeleteCmd())
+	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd())
 	return root
 }
 
@@ -85,7 +85,7 @@ the CPUs and memory you give it rather than all of this machine's, and every age
 command other than these runs there too. Your home directory is shared with the VM at
 the same path. The VM starts with a little memory, takes more as its agents need it,
 up to a cap, and gives it back; stopping it gives back all of it. agentbox vm resize
-changes its CPUs and cap, while it runs.
+changes its CPUs and cap, while it runs, and agentbox vm swap gives it swap.
 
 A machine that runs AgentBox itself, set up before AgentBox ran in a VM on Linux,
 keeps working as it is until agentbox vm migrate moves it into the VM.`,
@@ -94,7 +94,7 @@ keeps working as it is until agentbox vm migrate moves it into the VM.`,
 		Version:       version,
 	}
 	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
-		newShellCmd(), newCHVResizeCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
+		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
 	return root
 }
 
@@ -115,7 +115,7 @@ agentbox vm init then makes Lima's VM, the default, again.`,
 		Version:       version,
 	}
 	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
-		newShellCmd(), newCHVResizeCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
+		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
 	return root
 }
 
@@ -594,6 +594,8 @@ type Status struct {
 	// memory back to the Mac: set before there's a VM, on a Mac with Apple
 	// Silicon.
 	Krunkit *KrunkitCheck `json:"krunkit,omitempty"`
+	// Swap is what `agentbox vm swap` set (Size only).
+	Swap *api.VMSwap `json:"swap,omitempty"`
 }
 
 func newStatusCmd() *cobra.Command {
@@ -628,6 +630,9 @@ func newStatusCmd() *cobra.Command {
 			} else if !st.Exists {
 				st.Problem = ErrNotCreated.Error()
 				st.Krunkit = vm.krunkitCheck(cmd.Context())
+			}
+			if st.Exists {
+				st.Swap = &api.VMSwap{Size: SwapSize(vm.Paths, vm.Name)}
 			}
 			if asJSON {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(st)
@@ -677,6 +682,8 @@ func vzStatus(cmd *cobra.Command, asJSON bool) error {
 	if err != nil {
 		out.Problem = err.Error()
 	}
+	withSwap(&st, vm.Paths)
+	out.Swap = st.Swap
 	out.State = State{Exists: st.State != api.VMMissing, Status: "Stopped", Dir: vm.CHV.Layout.Dir(), CPUs: st.CPUs, Memory: st.Memory.Cap, Disk: st.Disk.Size, Arch: runtime.GOARCH}
 	switch st.State {
 	case api.VMRunning, api.VMStarting, api.VMPaused, api.VMStopping:
@@ -695,6 +702,7 @@ func linuxStatus(cmd *cobra.Command, asJSON bool) error {
 	switch {
 	case err == nil && vm.CHV != nil:
 		st = chvStatus(cmd.Context(), vm.CHV.Config, vm.CHV.Layout, vm.Paths)
+		withSwap(&st, vm.Paths)
 	case err != nil && !errors.Is(err, ErrNotCreated):
 		return err
 	case HostInstall(vm.Paths):

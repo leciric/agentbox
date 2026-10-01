@@ -1768,6 +1768,7 @@ export interface VMStatus {
   limits?: VMLimits;
   live?: VMLimits;
   pausedForDisk?: boolean;
+  swap?: VMSwap;
 }
 
 export interface VMMemory {
@@ -1794,6 +1795,12 @@ export interface VMDiskImage {
 export interface VMHomeDisk {
   worktrees: number;
   media: number;
+}
+
+export interface VMSwap {
+  size: number;
+  total: number;
+  used: number;
 }
 
 export interface VMLimits {
