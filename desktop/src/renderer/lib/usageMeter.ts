@@ -38,3 +38,21 @@ export function pickMeter({ limits, project, agent }: { limits: T.ClaudeLimit[];
   if (project) return byAccount(project.claudeAccount, `${project.name}'s account`);
   return byAccount('', '');
 }
+
+// projectLimits is the readings a project's Tokens tab shows: the account it
+// spends — its own, else the machine's default — first, then any other account
+// one of its Claude Code agents holds. Every other account is left out, the
+// default too when nothing of the project's uses it: its readings say nothing
+// about what this project is spending against.
+export function projectLimits({ limits, project, agents }: { limits: T.ClaudeLimit[]; project: T.Project; agents: T.Agent[] }): T.ClaudeLimit[] {
+  const resolve = (name: string) => (name ? limits.find((l) => l.account === name) : limits.find((l) => l.default));
+  const out: T.ClaudeLimit[] = [];
+  const add = (reading?: T.ClaudeLimit) => {
+    if (reading && !out.includes(reading)) out.push(reading);
+  };
+  add(resolve(project.claudeAccount));
+  for (const a of agents) {
+    if (a.project === project.name && a.ai === 'claude') add(resolve(a.claudeAccount));
+  }
+  return out;
+}

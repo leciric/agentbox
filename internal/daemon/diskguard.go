@@ -317,7 +317,7 @@ func (s *Server) measureDisks(ctx context.Context) []agent.DiskSpace {
 		// host's home, unless the host moved its data directory away.
 		dirs = append(dirs, dir{"the VM's disk images", home})
 	}
-	dirs = append(dirs, dir{"worktrees", s.cfg.Paths.Worktrees()}, dir{"AgentBox's data", s.cfg.Paths.Data})
+	dirs = append(dirs, dir{"worktrees", s.cfg.Paths.Worktrees()}, dir{"media", s.cfg.Paths.Media()}, dir{"AgentBox's data", s.cfg.Paths.Data})
 	if _, err := os.Stat("/var/lib/incus"); err == nil && !hostos.InVM() {
 		dirs = append(dirs, dir{"Incus", "/var/lib/incus"})
 	}

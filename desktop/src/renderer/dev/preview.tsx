@@ -61,6 +61,9 @@
 //                           GitHub login on one row
 //   ?tokens=1               a project's Tokens tab: headline (with average
 //                           TPS), by agent and by model, and spend over time
+//   ?tokens=1&account=work
+//                           the same, its project and agents on the "work"
+//                           Claude account: its limits card shows only that one
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Overview tab
 //   ?meters=cpu|disk        the top bar's "Host CPU" or "Agents' disk"
@@ -351,7 +354,11 @@ if (io) {
   queryClient.setQueryData(['agentEvents', PROJECT], []);
 }
 
-if (usage) {
+// ?account=work puts the project, and its Claude Code agents, on that account,
+// as creating them under a project with its own account does, with both
+// accounts' readings below.
+const account = params.get('account');
+if (usage || account) {
   const at = new Date(Date.now() - 12 * 60_000).toISOString();
   const resets = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
   queryClient.setQueryData(['claudeLimits'], [
@@ -364,6 +371,11 @@ if (usage) {
       { name: 'seven_day', label: 'Weekly', utilization: 0.52, resetsAt: resets(40) },
     ] },
   ] satisfies T.ClaudeLimit[]);
+}
+
+if (account) {
+  queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, claudeAccount: account } : p)));
+  queryClient.setQueryData<T.Agent[]>(['agents'], (as) => as?.map((a) => (a.project === PROJECT && a.ai === 'claude' ? { ...a, claudeAccount: account } : a)));
 }
 
 // ?queue=alone has nothing left in agentbox: organic is the project worth

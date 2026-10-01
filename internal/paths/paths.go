@@ -111,6 +111,18 @@ func (p Paths) Worktrees() string {
 	return filepath.Join(p.Data, "worktrees")
 }
 
+// Media is where agents' media is kept, one directory per agent: with the
+// state, unless AGENTBOX_MEDIA names another directory. In a VM, the front end
+// names one on the host's home, which the VM shares at the same path, so the
+// app on the host can open an item with its default app or show it in its
+// folder (package hostvm).
+func (p Paths) Media() string {
+	if d := os.Getenv("AGENTBOX_MEDIA"); filepath.IsAbs(d) {
+		return d
+	}
+	return filepath.Join(p.Data, "media")
+}
+
 func (p Paths) Worktree(project, agent string) string {
 	return filepath.Join(p.Worktrees(), project, agent)
 }

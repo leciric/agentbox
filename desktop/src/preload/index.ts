@@ -207,10 +207,12 @@ const bridge = {
   // `agentbox vm resize`: new CPUs and memory (like 12GiB) for AgentBox's VM.
   // On a Mac that restarts it and stops every agent; on Linux memory is the
   // memory cap, and the VM changes while it runs when it can (chv.live), or
-  // restarts with restart. resize resolves when the VM has its new size; its
-  // output arrives on onOutput as it is printed.
+  // restarts with restart; disk (like 200GiB), on Linux, grows its disk. resize
+  // resolves when the VM has its new size; its output arrives on onOutput as
+  // it is printed.
   vm: {
-    resize: (cpus: number, memory: string, restart?: boolean): Promise<void> => ipcRenderer.invoke('vm:resize', cpus, memory, restart),
+    resize: (cpus: number, memory: string, restart?: boolean, disk?: string): Promise<void> =>
+      ipcRenderer.invoke('vm:resize', cpus, memory, restart, disk),
     onOutput: (fn: (text: string) => void) => listen('vm:output', fn),
     // In VM mode, the VM's power and memory; null when AgentBox isn't in VM
     // mode. act resolves once the VM is in its new state, and after start or

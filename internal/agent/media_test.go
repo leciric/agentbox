@@ -223,3 +223,36 @@ func TestExportMediaWritesAReadmeAndCopiesEachItem(t *testing.T) {
 		t.Errorf("ExportMedia() of an agent with no media = %v, want it refused", err)
 	}
 }
+
+// TestMoveMediaToTheShare is a VM whose front end now names a media directory
+// on the host's share: an item made on the VM's disk is still found there,
+// until MoveMedia moves it, after which it is found on the share alone.
+func TestMoveMediaToTheShare(t *testing.T) {
+	f := setup(t, fakeIncus(t, "exit 0"))
+	a := destroyFixture(t, f)
+	t.Setenv("AGENTBOX_MEDIA", "")
+	item := addMediaFixture(t, f, a)
+	old := f.m.MediaPath(item)
+
+	share := filepath.Join(t.TempDir(), "media")
+	t.Setenv("AGENTBOX_MEDIA", share)
+	if got := f.m.MediaPath(item); got != old {
+		t.Errorf("before the move, MediaPath() = %s, want where it was made, %s", got, old)
+	}
+	if n, err := f.m.MoveMedia(); err != nil || n != 1 {
+		t.Fatalf("MoveMedia() = %d, %v", n, err)
+	}
+	got := f.m.MediaPath(item)
+	if !strings.HasPrefix(got, share+string(filepath.Separator)) {
+		t.Errorf("after the move, MediaPath() = %s, want it under %s", got, share)
+	}
+	if _, err := os.Stat(got); err != nil {
+		t.Errorf("the moved item isn't there: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.m.Paths.Data, "media")); !os.IsNotExist(err) {
+		t.Errorf("the old media directory is still there: %v", err)
+	}
+	if n, err := f.m.MoveMedia(); err != nil || n != 0 {
+		t.Errorf("MoveMedia() again = %d, %v; want nothing to move", n, err)
+	}
+}

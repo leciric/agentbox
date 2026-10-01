@@ -495,7 +495,7 @@ func TestCHVForward(t *testing.T) {
 
 	got := vm.ForwardArgs(vm.Home, []string{"create", "app"})
 	wantArgs := []string{filepath.Join(dir, "ssh"), "env",
-		hostos.Env + "=linux", hostos.HomeEnv + "=" + vm.Home, "AGENTBOX_WORKTREES=" + vm.Paths.Worktrees(),
+		hostos.Env + "=linux", hostos.HomeEnv + "=" + vm.Home, "AGENTBOX_WORKTREES=" + vm.Paths.Worktrees(), "AGENTBOX_MEDIA=" + vm.Paths.Media(),
 		vmMemoryCapEnv + "=25769803776", report.VMLogEnv + "=" + vm.CHV.Layout.Log(), hostos.VMDisksEnv + "=" + vm.CHV.Layout.Dir(), "AGENTBOX_PREVIEW_ADDR=127.0.0.1:17777",
 		"/usr/local/bin/agentbox", "create", "app"}
 	if !slices.Equal(got, wantArgs) {
@@ -562,6 +562,55 @@ func TestCHVResize(t *testing.T) {
 	}
 	if err := vm.Resize(context.Background(), 0, 2*chv.GiB); err == nil {
 		t.Error("a cap below the memory it boots with")
+	}
+}
+
+// A bigger disk is saved for the VM's next start, when its file grows and
+// the pool in it with it; a smaller one is refused, since a disk only grows.
+func TestCHVResizeDisk(t *testing.T) {
+	state, steps := api.VMOff, []string{}
+	vm, dir := fakeCHV(t, &state, &steps)
+	l := vm.CHV.Layout
+	_ = os.MkdirAll(l.Dir(), 0o755)
+	if err := os.WriteFile(l.PoolDisk(), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Truncate(l.PoolDisk(), 100*chv.GiB)
+	cpus := vm.CHV.Config.CPUs
+	if err := vm.CHV.resize(context.Background(), vm, 0, 0, 200*chv.GiB, false); err != nil {
+		t.Fatal(err)
+	}
+	c, err := chv.Load(vm.Paths, vm.Name)
+	if err != nil || c.Disk != 200*chv.GiB || c.CPUs != cpus {
+		t.Fatalf("saved %+v, %v", c, err)
+	}
+	if !strings.Contains(vm.Log.(*bytes.Buffer).String(), "a 200GiB disk when it next starts") {
+		t.Errorf("didn't say when it applies: %q", vm.Log)
+	}
+	for _, disk := range []int64{150 * chv.GiB, 50 * chv.GiB} {
+		if err := vm.CHV.resize(context.Background(), vm, 0, 0, disk, false); err == nil || !strings.Contains(err.Error(), "only grows") {
+			t.Errorf("a %s disk: %v", sizeWords(disk), err)
+		}
+	}
+	// Starting grows the pool in the VM to the disk.
+	if err := vm.Ready(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if log := strings.Join(calls(t, dir), "\n"); !strings.Contains(log, "btrfs filesystem resize max") || !strings.Contains(log, "-ge 214748364800") {
+		t.Errorf("starting didn't grow the pool:\n%s", log)
+	}
+}
+
+func TestDiskArg(t *testing.T) {
+	for in, want := range map[string]int64{"200GiB": 200 * chv.GiB, "1T": 1 << 40, "20.0001G": 20*chv.GiB + 1<<20} {
+		if got, err := diskArg(in); err != nil || got != want {
+			t.Errorf("%s: %d, %v; want %d", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"10GiB", "17TiB", "big"} {
+		if _, err := diskArg(in); err == nil {
+			t.Errorf("%s: no error", in)
+		}
 	}
 }
 

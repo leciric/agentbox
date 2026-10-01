@@ -68,12 +68,15 @@ type VMStatus struct {
 	Memory  VMMemory `json:"memory"`
 	Disk    VMDisk   `json:"disk"`
 	// Limits are the sizes `agentbox vm resize` takes for a Cloud Hypervisor
-	// VM on this machine: 1 CPU to every core, and a memory cap from what the
-	// VM boots with to all of the host's memory. Missing for Lima's.
+	// VM on this machine: 1 CPU to every core, a memory cap from what the
+	// VM boots with to all of the host's memory, and a pool disk from the
+	// size it has (it only grows) to VMMaxDisk. Missing for Lima's.
 	Limits *VMLimits `json:"limits,omitempty"`
 	// Live is what the running VM can be resized to without a restart: the
 	// CPUs it can hotplug and the memory its virtio-mem region holds, both
-	// fixed when it booted. Missing when it isn't running.
+	// fixed when it booted, and its pool disk when it can grow while it runs
+	// (Cloud Hypervisor's can, the vz driver's can't: MaxDisk is 0). Missing
+	// when it isn't running.
 	Live *VMLimits `json:"live,omitempty"`
 	// PausedForDisk says the supervisor paused the VM because the host's disk
 	// that holds its disk images got down to its last VMDiskBackstop bytes
@@ -88,12 +91,19 @@ type VMStatus struct {
 // the daemon's own disk guard in the VM, for when that one can't act.
 const VMDiskBackstop = int64(2) << 30
 
-// VMLimits bound a VM's CPUs and memory (bytes).
+// VMMaxDisk is the largest pool disk `agentbox vm resize --disk` makes. The
+// disk is sparse, so its size is only what it may grow to on the host's disk.
+const VMMaxDisk = int64(16) << 40
+
+// VMLimits bound a VM's CPUs, memory and pool disk (bytes). The disk's are 0
+// where it can't be resized.
 type VMLimits struct {
 	MinCPUs   int   `json:"minCpus"`
 	MaxCPUs   int   `json:"maxCpus"`
 	MinMemory int64 `json:"minMemory"`
 	MaxMemory int64 `json:"maxMemory"`
+	MinDisk   int64 `json:"minDisk,omitempty"`
+	MaxDisk   int64 `json:"maxDisk,omitempty"`
 }
 
 // VMResizeRequest is POST /v1/vm/resize, which the VM's supervisor does
@@ -101,6 +111,9 @@ type VMLimits struct {
 type VMResizeRequest struct {
 	CPUs      int   `json:"cpus,omitempty"`
 	MemoryCap int64 `json:"memoryCap,omitempty"`
+	// Disk is the pool disk's new size, which may only grow: the disk image
+	// grows, the guest sees the bigger disk and its btrfs pool is grown to it.
+	Disk int64 `json:"disk,omitempty"`
 }
 
 // VMMemory is the VM's memory, in bytes. A Cloud Hypervisor VM starts at Min
@@ -121,6 +134,9 @@ type VMMemory struct {
 // VMDisk is the VM's disk image, in bytes.
 type VMDisk struct {
 	Size int64 `json:"size"` // what the VM sees
+	// Pool is the size of the disk agents are on (Incus's pool), which is
+	// part of Size and what `agentbox vm resize --disk` grows.
+	Pool int64 `json:"pool,omitempty"`
 	Used int64 `json:"used"` // what it takes on the host's disk (it's sparse)
 	// HostFree is what's free on the host's disk that holds the VM's disk
 	// images: all they can still grow into.

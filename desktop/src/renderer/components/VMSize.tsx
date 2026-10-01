@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cpu, LoaderCircle, MemoryStick, RotateCcw } from 'lucide-react';
+import { Cpu, HardDrive, LoaderCircle, MemoryStick, RotateCcw } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { VMStatus } from '../../preload';
@@ -212,12 +212,18 @@ function Bad({ children }: { children: string }) {
 // changes a running VM at once when the new size fits in what it booted with
 // room for (vm.live: every core and all of the host's memory, for a VM started
 // by this version), and every agent keeps running; only a size that doesn't
-// fit restarts the VM, which the dialog says before it happens.
+// fit restarts the VM, which the dialog says before it happens. Its disk for
+// agents (Incus's pool) only grows: while it runs on Cloud Hypervisor, and
+// with a restart on the vz driver. It's sparse, so its size is only what it
+// may grow to on this computer's disk.
 export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean }) {
   const queryClient = useQueryClient();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const running = (agents.data ?? []).filter((a) => a.state === 'running').length;
-  const current = { cpus: String(vm.cpus ?? ''), memory: vm.memory.cap ? gib(vm.memory.cap) : '' };
+  // The disk it has, or will have when it next starts. A front end older than
+  // disk resizing says neither, and the disk field isn't shown.
+  const hasDisk = Math.max(vm.disk.pool ?? 0, vm.limits?.minDisk ?? 0);
+  const current = () => ({ cpus: String(vm.cpus ?? ''), memory: vm.memory.cap ? gib(vm.memory.cap) : '', disk: hasDisk ? gib(hasDisk) : '' });
   const [form, setForm] = useState(current);
   const [confirming, setConfirming] = useState(false);
   const [lines, setLines] = useState<string[]>([]);
@@ -225,16 +231,16 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
 
   const [edited, setEdited] = useState(false);
   useEffect(() => {
-    if (!edited) setForm({ cpus: String(vm.cpus ?? ''), memory: vm.memory.cap ? gib(vm.memory.cap) : '' });
-  }, [vm.cpus, vm.memory.cap, edited]);
+    if (!edited) setForm({ cpus: String(vm.cpus ?? ''), memory: vm.memory.cap ? gib(vm.memory.cap) : '', disk: hasDisk ? gib(hasDisk) : '' });
+  }, [vm.cpus, vm.memory.cap, hasDisk, edited]);
 
   const resize = useMutation({
-    mutationFn: ({ cpus, memory, restart }: { cpus: number; memory: number; restart: boolean }) =>
-      window.agentbox.vm.resize(cpus, `${memory}GiB`, restart),
+    mutationFn: ({ cpus, memory, disk, restart }: { cpus: number; memory: number; disk?: number; restart: boolean }) =>
+      window.agentbox.vm.resize(cpus, `${memory}GiB`, restart, disk ? `${disk}GiB` : undefined),
     onMutate: () => setLines([]),
-    onSuccess: async (_, { cpus, memory, restart }) => {
+    onSuccess: async (_, { cpus, memory, disk, restart }) => {
       setEdited(false);
-      toast(`AgentBox's VM has ${cpus} CPUs and a memory cap of ${memory} GiB`, {
+      toast(`AgentBox's VM has ${cpus} CPUs, a memory cap of ${memory} GiB${disk ? ` and a ${disk} GiB disk` : ''}`, {
         description: restart
           ? 'Start the agents you need again from their Overview tabs.'
           : on
@@ -253,10 +259,26 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
   const cpusOk = Number.isInteger(cpus) && limits !== undefined && cpus >= limits.minCpus && cpus <= limits.maxCpus;
   const memoryOk =
     form.memory.trim() !== '' && Number.isFinite(memory) && limits !== undefined && memory * GiB >= limits.minMemory && memory * GiB <= limits.maxMemory;
-  const changed = cpus !== vm.cpus || Math.abs(memory * GiB - vm.memory.cap) >= GiB / 20;
+  const disk = Number(form.disk);
+  const minDisk = limits?.minDisk ?? 0;
+  const maxDisk = limits?.maxDisk ?? 0;
+  const diskOk = !minDisk || (form.disk.trim() !== '' && Number.isFinite(disk) && disk * GiB >= minDisk - GiB / 20 && disk * GiB <= maxDisk);
+  // Only a bigger disk is sent: one that stays as it is goes unsaid.
+  const diskGrows = minDisk > 0 && diskOk && disk * GiB - hasDisk >= GiB / 20;
+  const changed = cpus !== vm.cpus || Math.abs(memory * GiB - vm.memory.cap) >= GiB / 20 || diskGrows;
   // A VM that's off takes the new size when it starts; a running one takes it
   // now, when it fits, and otherwise only by restarting.
-  const needsRestart = on && !(live && cpus >= live.minCpus && cpus <= live.maxCpus && memory * GiB >= live.minMemory && memory * GiB <= live.maxMemory);
+  const needsRestart =
+    on &&
+    !(
+      live &&
+      cpus >= live.minCpus &&
+      cpus <= live.maxCpus &&
+      memory * GiB >= live.minMemory &&
+      memory * GiB <= live.maxMemory &&
+      (!diskGrows || disk * GiB <= (live.maxDisk ?? 0))
+    );
+  const request = () => ({ cpus, memory, disk: diskGrows ? disk : undefined });
   const busy = resize.isPending || resizing;
 
   return (
@@ -268,11 +290,13 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
           <div className="text-[12px] text-subtle" data-vm-size-current>
             {vm.state} · {vm.cpus ?? '—'} CPUs · memory up to {vm.memory.cap ? `${gib(vm.memory.cap)} GiB` : '—'}
             {on && vm.memory.granted ? `, ${gib(vm.memory.granted)} GiB now` : ''}
+            {hasDisk ? ` · ${gib(hasDisk)} GiB disk` : ''}
           </div>
         </div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
           The daemon, Incus and every agent run in one VM, and share what it has. The VM starts small and takes
-          memory as its agents need it, up to the cap, and gives it back as they stop.
+          memory as its agents need it, up to the cap, and gives it back as they stop. Its disk takes room on this
+          computer only as agents fill it, and can grow but not shrink.
         </p>
       </div>
 
@@ -281,9 +305,9 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
           className="grid gap-3"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!cpusOk || !memoryOk || !changed || busy) return;
+            if (!cpusOk || !memoryOk || !diskOk || !changed || busy) return;
             if (needsRestart) setConfirming(true);
-            else resize.mutate({ cpus, memory, restart: false });
+            else resize.mutate({ ...request(), restart: false });
           }}
         >
           <div className="grid gap-4 sm:grid-cols-2">
@@ -347,9 +371,42 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
                 />
               </div>
             </Field>
+            {minDisk > 0 && (
+              <Field
+                label="Disk, in GiB"
+                htmlFor="vm-disk"
+                hint={
+                  diskOk || form.disk === '' ? (
+                    `${gib(hasDisk)} GiB now: it can grow, up to ${gib(maxDisk)} GiB, but not shrink.`
+                  ) : (
+                    <Bad>{`${gib(hasDisk)} to ${gib(maxDisk)} GiB: a disk can grow, but not shrink.`}</Bad>
+                  )
+                }
+              >
+                <div className="relative">
+                  <HardDrive className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
+                  <Input
+                    id="vm-disk"
+                    type="number"
+                    inputMode="numeric"
+                    min={gib(hasDisk)}
+                    max={gib(maxDisk)}
+                    step={10}
+                    className="h-8 pl-8 font-mono text-[12.5px]"
+                    disabled={busy}
+                    value={form.disk}
+                    onChange={(e) => {
+                      setEdited(true);
+                      setForm({ ...form, disk: e.target.value });
+                    }}
+                    data-vm-disk
+                  />
+                </div>
+              </Field>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" variant="primary" size="sm" disabled={busy || !changed || !cpusOk || !memoryOk} data-vm-resize>
+            <Button type="submit" variant="primary" size="sm" disabled={busy || !changed || !cpusOk || !memoryOk || !diskOk} data-vm-resize>
               {busy && <LoaderCircle className="animate-spin" />}
               {busy ? 'Resizing…' : needsRestart ? 'Restart and resize' : 'Resize the VM'}
             </Button>
@@ -375,7 +432,9 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
                   ? 'The VM is off: it has the new size when it next starts.'
                   : needsRestart
                     ? live
-                      ? `The VM started with room for ${live.maxCpus} CPUs and ${gib(live.maxMemory)} GiB: this needs a restart, which stops every agent.`
+                      ? diskGrows && !live.maxDisk
+                        ? "This VM's disk can't grow while it runs: this needs a restart, which stops every agent."
+                        : `The VM started with room for ${live.maxCpus} CPUs and ${gib(live.maxMemory)} GiB: this needs a restart, which stops every agent.`
                       : 'This VM was started by an older AgentBox: resizing it restarts it, which stops every agent.'
                     : 'Changes at once. Every agent keeps running.'}
             </span>
@@ -397,7 +456,8 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
         title="Restart AgentBox's VM?"
         description={
           <>
-            It will have {cpus} CPUs and a memory cap of {memory} GiB. That's more than the running VM has room for, so it restarts, and{' '}
+            It will have {cpus} CPUs and a memory cap of {memory} GiB{diskGrows ? `, and a ${disk} GiB disk` : ''}. That's more than the running VM can
+            take while it runs, so it restarts, and{' '}
             {running > 0 ? (
               <strong className="font-medium text-primary">
                 {running === 1 ? 'the agent running now stops' : `the ${running} agents running now stop`}
@@ -411,7 +471,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
         }
         confirmLabel="Restart and resize"
         destructive
-        onConfirm={async () => resize.mutate({ cpus, memory, restart: true })}
+        onConfirm={async () => resize.mutate({ ...request(), restart: true })}
       />
     </Panel>
   );

@@ -5,6 +5,7 @@ import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api, type TokenQuery } from '../lib/api';
 import { humanTokens, limitTone, share, tps, usd, windowNow } from '../lib/tokens';
+import { projectLimits } from '../lib/usageMeter';
 import { cn, errorMessage, timeAgo, timeUntil } from '../lib/utils';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
@@ -70,7 +71,7 @@ export function TokensPanel({ project, onOpenAgent }: { project?: string; onOpen
         </p>
       </div>
 
-      <ClaudeLimits />
+      <ClaudeLimits project={project} />
 
       {report.error && <Notice>{errorMessage(report.error)}</Notice>}
       {report.isPending && <p className="text-[13px] text-subtle">Loading…</p>}
@@ -100,14 +101,21 @@ export function TokensPanel({ project, onOpenAgent }: { project?: string; onOpen
 
 // ClaudeLimits is how much of each Claude account's limits is used, as the last
 // chat on the account was told (D85): what the ledger below is being spent
-// against. Nothing shows until a chat has reported one.
-function ClaudeLimits() {
+// against. For a project, that is only the accounts it spends (projectLimits),
+// not the machine's default when the project uses another. Nothing shows until
+// a chat has reported one.
+function ClaudeLimits({ project }: { project?: string }) {
   const limits = useQuery({ queryKey: ['claudeLimits'], queryFn: api.claudeLimits, refetchInterval: 30_000 });
-  if (!limits.data?.length) return null;
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: !!project });
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: !!project });
+  const p = project ? projects.data?.find((x) => x.name === project) : undefined;
+  if (project && !p) return null;
+  const shown = p ? projectLimits({ limits: limits.data ?? [], project: p, agents: agents.data ?? [] }) : (limits.data ?? []);
+  if (!shown.length) return null;
   return (
     <Card title="Claude limits" icon={Gauge} description="Shared by every agent on the account. As Anthropic reported them to the account's last chat.">
       <div className="grid gap-4">
-        {limits.data.map((l) => (
+        {shown.map((l) => (
           <div key={l.account} className="min-w-0" data-claude-limit={l.account}>
             <div className="mb-2 flex flex-wrap items-baseline gap-x-2 text-[12px]">
               <span className="font-medium text-secondary">{l.account}</span>
