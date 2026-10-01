@@ -165,3 +165,29 @@ func TestDeletingAQueuedTaskUnqueuesIt(t *testing.T) {
 		t.Error("the task is still on the list")
 	}
 }
+
+// Marking a queued task done takes its agent out of the queue: the work is
+// over, so nothing should start for it.
+func TestClosingAQueuedTaskUnqueuesIt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := newQueueTest(t, 4*gib, map[string]int64{"p": 4 * gib}, runningInstances())
+	q.addProject(t, "p")
+	q.enqueue(t, "p", "q1")
+	task, err := q.srv.memory().AddTask(ctx, memory.Task{Project: "p", Agent: "q1", Goal: "Fix the login redirect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := memory.TaskDone
+	out, err := q.client.ProjectMemory("p").UpdateTask(ctx, task.ID, api.UpdateTaskRequest{Status: &done})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != memory.TaskDone || out.Agent != "" {
+		t.Errorf("closed task = %s, agent %q; want done with no agent", out.Status, out.Agent)
+	}
+	if _, err := q.srv.store.Agent(ctx, "p", "q1"); err == nil {
+		t.Error("the queued agent for a done task is still there")
+	}
+}

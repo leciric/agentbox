@@ -315,6 +315,10 @@ type Task struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 	// ClosedAt is when it stopped being open, and absent while it still is.
 	ClosedAt time.Time `json:"closedAt,omitzero,omitempty"`
+	// PullURL and PullNumber are the merged pull request a done task was
+	// implemented by; absent on a task done by hand, and on any open one.
+	PullURL    string `json:"pullUrl,omitempty"`
+	PullNumber int    `json:"pullNumber,omitempty"`
 	// DependsOn are the tasks this one is waiting on, and Blocks the ones
 	// waiting on it. Neither is a column: they are the blocking edges, read
 	// both ways.

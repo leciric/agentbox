@@ -1609,6 +1609,8 @@ export interface Task {
   createdAt: string;
   updatedAt: string;
   closedAt?: string;
+  pullUrl?: string;
+  pullNumber?: number;
   dependsOn?: string[];
   blocks?: string[];
 }

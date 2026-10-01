@@ -709,9 +709,11 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	}
 	pr.State = "merged"
 	s.pulls.merged(repo.String(), number)
-	s.captureEvent(ctx, project, agentOfCommit(s.agentsOf(ctx, p), pr.HeadSHA), "pr_merged", map[string]any{
+	by := agentOfCommit(s.agentsOf(ctx, p), pr.HeadSHA)
+	s.captureEvent(ctx, project, by, "pr_merged", map[string]any{
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
 	}, "")
+	s.tasksImplemented(ctx, project, by, pr.URL, pr.Number)
 
 	s.countFeature(api.FeaturePullMerge)
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
