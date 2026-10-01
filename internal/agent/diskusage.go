@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"agentbox/internal/api"
 	"agentbox/internal/image"
 	"agentbox/internal/state"
 )
@@ -25,6 +26,7 @@ type DiskUsageItem struct {
 // DiskUsageCategory groups items of one kind, largest first, with its own
 // total.
 type DiskUsageCategory struct {
+	Kind  string // api.DiskMachines and so on
 	Label string
 	Bytes int64
 	Items []DiskUsageItem
@@ -51,14 +53,14 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 		return DiskUsage{}, err
 	}
 
-	machines := DiskUsageCategory{Label: "Agent machines"}
+	machines := DiskUsageCategory{Kind: api.DiskMachines, Label: "Agent machines"}
 	for _, a := range agents {
 		if used, err := m.Incus.VolumeUsage(ctx, pool, a.Instance); err == nil {
 			machines.Items = append(machines.Items, DiskUsageItem{Label: a.Ref(), Bytes: used})
 		}
 	}
 
-	bases := DiskUsageCategory{Label: "Base images and saved bases"}
+	bases := DiskUsageCategory{Kind: api.DiskBases, Label: "Base images and saved bases"}
 	if used, err := m.Incus.VolumeUsage(ctx, pool, image.Base); err == nil {
 		bases.Items = append(bases.Items, DiskUsageItem{Label: "Base image", Bytes: used})
 	}
@@ -71,7 +73,7 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 		}
 	}
 
-	worktrees := DiskUsageCategory{Label: "Worktrees"}
+	worktrees := DiskUsageCategory{Kind: api.DiskWorktrees, Label: "Worktrees"}
 	for _, a := range agents {
 		if a.Worktree == "" {
 			continue
@@ -81,14 +83,14 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 		}
 	}
 
-	media := DiskUsageCategory{Label: "Media"}
+	media := DiskUsageCategory{Kind: api.DiskMedia, Label: "Media"}
 	for _, p := range projects {
 		if size, err := dirSize(filepath.Join(m.Paths.Data, "media", p.Name)); err == nil {
 			media.Items = append(media.Items, DiskUsageItem{Label: p.Name, Bytes: size})
 		}
 	}
 
-	state := DiskUsageCategory{Label: "state.db and logs"}
+	state := DiskUsageCategory{Kind: api.DiskState, Label: "state.db and logs"}
 	if info, err := os.Stat(m.Paths.StateDB()); err == nil {
 		state.Items = append(state.Items, DiskUsageItem{Label: "state.db", Bytes: info.Size()})
 	}

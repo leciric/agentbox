@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"time"
 
 	"agentbox/internal/api"
@@ -215,13 +214,10 @@ func offStatus(c Config, l Layout) api.VMStatus {
 		Memory: api.VMMemory{Min: c.MemoryMin, Cap: c.MemoryMin + hotplugSize(c)},
 		Limits: &api.VMLimits{MinCPUs: 1, MaxCPUs: max(hostCPUs(), c.CPUs), MinMemory: c.MemoryMin, MaxMemory: max(hostMemory(), c.MemoryCap)},
 	}
-	for _, disk := range []string{l.RootDisk(), l.PoolDisk()} {
-		if fi, err := os.Stat(disk); err == nil {
-			st.Disk.Size += fi.Size()
-			st.Disk.Used += allocated(fi)
-		}
-	}
-	st.Disk.HostFree = hostFree(l.Dir())
+	st.Disk.Pool, st.Disk.Root = DiskImage(l.PoolDisk()), DiskImage(l.RootDisk())
+	st.Disk.Add(st.Disk.Pool)
+	st.Disk.Add(st.Disk.Root)
+	st.Disk.HostFree = HostFree(l.Dir())
 	return st
 }
 

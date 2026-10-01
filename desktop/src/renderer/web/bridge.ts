@@ -202,6 +202,7 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     onOutput: () => () => {},
     power: () => Promise.resolve(null),
     act: unavailable("Turning AgentBox's VM on and off"),
+    disk: () => Promise.resolve(null),
   },
   hubs: {
     list: async () => {

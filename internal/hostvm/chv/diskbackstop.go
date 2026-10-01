@@ -50,7 +50,7 @@ func (s *supervisor) diskLoop(ctx context.Context) {
 			return
 		case <-tick.C:
 		}
-		s.checkDisk(ctx, hostFree(s.l.Dir()))
+		s.checkDisk(ctx, HostFree(s.l.Dir()))
 	}
 }
 

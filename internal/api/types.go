@@ -919,10 +919,22 @@ type DiskUsageItem struct {
 // DiskUsageCategory groups items of one kind, largest first, with its own
 // total.
 type DiskUsageCategory struct {
+	Kind  string          `json:"kind"` // DiskMachines, DiskBases, DiskWorktrees, DiskMedia or DiskState
 	Label string          `json:"label"`
 	Bytes int64           `json:"bytes"`
 	Items []DiskUsageItem `json:"items,omitempty"`
 }
+
+// Kinds of DiskUsageCategory. In VM mode the machines and bases are on the
+// VM's pool disk, the worktrees and media in the host's home, and state.db on
+// the VM's system disk.
+const (
+	DiskMachines  = "machines"
+	DiskBases     = "bases"
+	DiskWorktrees = "worktrees"
+	DiskMedia     = "media"
+	DiskState     = "state"
+)
 
 // DiskUsage is what AgentBox uses on disk, broken down by kind, largest
 // first, with a total. The "Storage pool" indicator in the top bar opens it,

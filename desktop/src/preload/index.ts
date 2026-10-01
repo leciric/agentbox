@@ -94,6 +94,9 @@ export interface VMPower {
   // its disk images is nearly full; hostFree is what that disk has free.
   pausedForDisk?: boolean;
   hostFree?: number;
+  // disk is its disk images as the host sees them: what they take on the
+  // host's disk (allocated) against the size the VM was given (size).
+  disk?: T.VMDisk;
 }
 
 export type VMPowerState = 'off' | 'starting' | 'running' | 'pausing' | 'paused' | 'resuming' | 'stopping';
@@ -217,6 +220,10 @@ const bridge = {
     // resume, once the daemon inside answers.
     power: (): Promise<VMPower | null> => ipcRenderer.invoke('vm:power'),
     act: (action: VMPowerAction): Promise<VMPower> => ipcRenderer.invoke('vm:act', action),
+    // What the worktrees and media in the host's home take on its disk,
+    // outside the VM's disk images; null when AgentBox isn't in VM mode. It
+    // walks both, so it's asked for on demand rather than polled.
+    disk: (): Promise<T.VMHomeDisk | null> => ipcRenderer.invoke('vm:disk'),
   },
   // Hubs you signed in to, and their environments.
   hubs: {

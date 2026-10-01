@@ -636,6 +636,85 @@ func TestPowerFrom(t *testing.T) {
 	}
 }
 
+// The top bar's disk meter reads what the VM costs on the host's disk
+// against the size it was given, from power's disk. Measured on the user's
+// VM on 2026-10-01: pool.raw 100 GiB with 18.4 GiB allocated, root.raw 20 GiB
+// with 5.8 GiB, which is 24.2 GiB of 120 GiB; the 15.5 GiB the pool says it
+// uses inside isn't any of these.
+func TestPowerFromDisk(t *testing.T) {
+	gib := func(f float64) int64 { return int64(f * (1 << 30)) }
+	st := api.VMStatus{State: api.VMRunning, Disk: api.VMDisk{
+		Pool: api.VMDiskImage{Size: gib(100), Allocated: gib(18.4)},
+		Root: api.VMDiskImage{Size: gib(20), Allocated: gib(5.8)},
+		HostFree: gib(310),
+	}}
+	st.Disk.Add(st.Disk.Pool)
+	st.Disk.Add(st.Disk.Root)
+	p := powerFrom(st)
+	if p.Disk == nil || p.Disk.Size != gib(120) || p.Disk.Allocated != gib(18.4)+gib(5.8) || p.HostFree != gib(310) {
+		t.Fatalf("disk = %+v, host free %d", p.Disk, p.HostFree)
+	}
+	b, _ := json.Marshal(p.Disk)
+	if want := `{"size":128849018880,"allocated":25984552140,"pool":{"size":107374182400,"allocated":19756849561},"root":{"size":21474836480,"allocated":6227702579},"hostFree":332859965440}`; string(b) != want {
+		t.Errorf("got  %s\nwant %s", b, want)
+	}
+	if p := powerFrom(api.VMStatus{State: api.VMMissing}); p.Disk != nil {
+		t.Errorf("a VM with no disks has a disk: %+v", p.Disk)
+	}
+}
+
+// A Lima VM's one disk is its Root: Lima's size, and its images' allocated
+// bytes in the instance's directory.
+func TestLimaDisk(t *testing.T) {
+	dir := t.TempDir()
+	f, err := os.Create(filepath.Join(dir, "diffdisk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(make([]byte, 1<<20)); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(1 << 30); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	p := limaPower(State{Exists: true, Status: "Running", Dir: dir, Disk: 100 << 30, Memory: 8 << 30}, nil)
+	if p.Disk == nil || p.Disk.Size != 100<<30 || p.Disk.Root.Size != 100<<30 || p.Disk.Pool != (api.VMDiskImage{}) {
+		t.Fatalf("disk = %+v", p.Disk)
+	}
+	if p.Disk.Allocated < 1<<20 || p.Disk.Allocated >= 1<<30 || p.Disk.Allocated != p.Disk.Root.Allocated {
+		t.Errorf("allocated = %d, want what diffdisk takes, not its size", p.Disk.Allocated)
+	}
+	if p.HostFree <= 0 || p.HostFree != p.Disk.HostFree {
+		t.Errorf("host free = %d, disk's %d", p.HostFree, p.Disk.HostFree)
+	}
+	if p := limaPower(State{Exists: true, Status: "Stopped"}, nil); p.Disk != nil {
+		t.Errorf("no directory, yet a disk: %+v", p.Disk)
+	}
+}
+
+// vm disk measures the worktrees and media in the host's home, not the VM's
+// disk images beside them.
+func TestHomeDisk(t *testing.T) {
+	p := paths.Paths{Data: t.TempDir()}
+	t.Setenv("AGENTBOX_WORKTREES", "")
+	for name, size := range map[string]int{"worktrees/p/agent-1/a": 3 << 20, "media/p/agent-1/rec.webm": 1 << 20, "vm/agentbox/pool.raw": 5 << 20} {
+		path := filepath.Join(p.Data, name)
+		_ = os.MkdirAll(filepath.Dir(path), 0o700)
+		if err := os.WriteFile(path, make([]byte, size), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A hard link takes no more room.
+	if err := os.Link(filepath.Join(p.Data, "worktrees/p/agent-1/a"), filepath.Join(p.Data, "worktrees/p/agent-1/b")); err != nil {
+		t.Fatal(err)
+	}
+	home := HomeDisk(p)
+	if home.Worktrees < 3<<20 || home.Worktrees >= 4<<20 || home.Media < 1<<20 || home.Media >= 2<<20 {
+		t.Errorf("home = %+v, want 3 MiB of worktrees and 1 MiB of media", home)
+	}
+}
+
 func TestLimaPower(t *testing.T) {
 	for _, tc := range []struct {
 		st      State
