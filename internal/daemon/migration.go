@@ -40,7 +40,6 @@ func (s *Server) recreate(w http.ResponseWriter, r *http.Request) error {
 		// A chat started before the machine was there has nothing to talk to.
 		s.chat.Stop(a.Ref(), "the agent's machine is being made")
 		err := s.manager(log).Recreate(ctx, a, agent.RecreateOptions{
-			Limits:  agent.LimitChoice{CPU: req.CPU, Allowance: req.CPUAllowance, Memory: req.Memory},
 			Home:    req.Home,
 			Stopped: req.Stopped,
 		})

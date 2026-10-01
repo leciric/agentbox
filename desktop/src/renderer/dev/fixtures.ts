@@ -70,7 +70,6 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
     interface: 'claude',
     state: 'running',
     ip: '',
-    limits: { cpu: '2', allowance: '400%', memory: '4Gi', configuredCPU: '2' },
     createdAt: new Date().toISOString(),
     ...overrides,
   };
@@ -960,12 +959,6 @@ let defaultsSettings = {
   claudeEffortChoices: [],
   openCodeModelChoices: [],
   openCodeReady: false,
-  defaultCPU: '4',
-  defaultCPUAllowance: '',
-  defaultMemory: '8GiB',
-  hostCores: 16,
-  hostMemory: 32 * 1024 ** 3,
-  seedMemory: '8GiB',
   resumeAfterLimit: true,
   claudeCompactWindow: 200_000,
   updateCheck: true,
@@ -974,34 +967,13 @@ let defaultsSettings = {
   errorReportsAsked: false,
   prWatch: true,
   defaultClaudeCompactWindow: 200_000,
-  neverFreezeCPU: false,
-  keepFreeCPU: 1,
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
-  gpuAvailable: true,
-  gpuKind: 'amd',
-  gpuForAgents: false,
   autoStopIdle: false,
   idleTimeSeconds: 2 * 60 * 60,
   agentQueue: false,
   leadRecheck: false,
   leadRecheckMinutes: 20,
-  sharedBudget: {
-    on: false,
-    memory: '21GiB',
-    swap: '8GiB',
-    cpu: 12,
-    chosen: false,
-    suggested: { memory: '21GiB', swap: '8GiB', cpu: 12 },
-    why:
-      "Reserves 11.0 GiB of this host's 32.0 GiB of memory for your own apps, and keeps 4 of its 16 cores free; agents may use 8.0 GiB of its 16.0 GiB of zram swap. Agents may borrow the reserved memory while your apps aren't using it, and give it back first when they are.",
-    hostMemory: 32 * 1024 ** 3,
-    hostSwap: 16 * 1024 ** 3,
-    hostSwapKind: 'zram',
-    setupCommand: 'sudo "$(command -v agentbox)" host budget',
-    inside: 0,
-    pending: 0,
-  } as T.SharedBudget,
 } as T.Settings;
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
@@ -1012,42 +984,15 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
   if (req.enforceAgentDefaults !== undefined) next.enforceAgentDefaults = req.enforceAgentDefaults;
   if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
-  if (req.neverFreezeCPU !== undefined) next.neverFreezeCPU = req.neverFreezeCPU;
-  if (req.keepFreeCPU !== undefined) next.keepFreeCPU = req.keepFreeCPU;
   if (req.diskFloorMin !== undefined) next.diskFloorMin = req.diskFloorMin || 10 * 1024 ** 3;
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
-  if (req.gpuForAgents !== undefined) next.gpuForAgents = req.gpuForAgents;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
-  // Turned on, the cgroup is there (the dev bridge's hostSetup.budget stands
-  // in for pkexec) and two running agents are waiting for their next start.
-  if (req.sharedBudget !== undefined)
-    next.sharedBudget = {
-      ...next.sharedBudget,
-      on: req.sharedBudget,
-      ...(req.sharedBudget && next.sharedBudget.notReady ? { notReady: undefined, pending: 2 } : {}),
-    };
-  if (req.sharedBudget !== undefined && devState.setup)
-    devState.setup = {
-      ...devState.setup,
-      checks: devState.setup.checks.map((c) =>
-        c.id !== 'budget'
-          ? c
-          : req.sharedBudget
-            ? { ...c, status: 'ok', fix: undefined, detail: `on: agents share ${next.sharedBudget.memory} of memory, ${next.sharedBudget.swap} of swap and ${next.sharedBudget.cpu} cores. 2 running agents join it at their next start` }
-            : { ...c, fix: undefined, detail: 'off: turn it on in Settings, under Resources, to reserve memory for your own apps and keep agents to the rest' },
-      ),
-    };
-  if (req.sharedBudgetMemory !== undefined)
-    next.sharedBudget = { ...next.sharedBudget, memory: req.sharedBudgetMemory || next.sharedBudget.suggested.memory, chosen: req.sharedBudgetMemory !== '' };
   // The channel changes what the update check offers (seedNightly).
   if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.
   for (const key of [
     'defaultClaudeEffort',
-    'defaultCPU',
-    'defaultCPUAllowance',
-    'defaultMemory',
     'resumeAfterLimit',
     'claudeCompactWindow',
     'updateCheck',
@@ -1073,53 +1018,6 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   // that is the same object it already holds.
   defaultsSettings = next;
   return { status: 200, body: JSON.stringify(defaultsSettings), contentType: 'application/json' };
-}
-
-// seedBudget turns the shared budget on in defaultsSettings (?budget=on), for
-// Settings' fields.
-export function seedBudget(queryClient: QueryClient): void {
-  defaultsSettings = {
-    ...defaultsSettings,
-    sharedBudget: {
-      ...defaultsSettings.sharedBudget,
-      on: true,
-      memory: '20GiB',
-      inside: 4,
-    },
-  };
-  queryClient.setQueryData(['settings'], defaultsSettings);
-}
-
-// seedBudgetOff is the shared budget as a new installation has it
-// (?budget=off): off, and its cgroup not made yet, so Settings offers to set
-// it up and turn it on in one click, through pkexec, and Setup says where.
-export function seedBudgetOff(queryClient: QueryClient): void {
-  defaultsSettings = {
-    ...defaultsSettings,
-    sharedBudget: {
-      ...defaultsSettings.sharedBudget,
-      notReady:
-        "it needs /sys/fs/cgroup/agentbox, a cgroup only root can make, and the memory.low of user.slice and system.slice, where it reserves memory for your apps: Set up asks for your password once, and installs a small unit that makes it and hands those over at every boot. (/sys/fs/cgroup/agentbox doesn't exist)",
-    },
-  };
-  queryClient.setQueryData(['settings'], defaultsSettings);
-  const setup = queryClient.getQueryData<T.SetupStatus>(['setup']);
-  if (setup) {
-    devState.setup = {
-      ...setup,
-      checks: [
-        ...setup.checks,
-        {
-          id: 'budget',
-          title: 'Shared agent budget',
-          status: 'optional',
-          required: false,
-          detail: 'off: turn it on in Settings, under Resources, to reserve memory for your own apps and keep agents to the rest',
-        },
-      ],
-    };
-    queryClient.setQueryData(['setup'], devState.setup);
-  }
 }
 
 // seedDefaults puts defaultsSettings where the Settings components read them.
@@ -1272,9 +1170,8 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
 }
 
 // seedMeterUsage is the top bar's CPU popover (?meters=cpu) against three
-// agents: one paused but still holding RAM and zram swap, one capped below
-// its configured cores by "Never freeze my CPU", and one plain running
-// agent — so the popover has a largest-first list worth a screenshot,
+// agents: one paused but still holding RAM and zram swap, and two running —
+// so the popover has a largest-first list worth a screenshot,
 // without a daemon or Incus to ask for one.
 export function seedMeterUsage(queryClient: QueryClient): void {
   const GiB = 1024 ** 3;
@@ -1287,9 +1184,9 @@ export function seedMeterUsage(queryClient: QueryClient): void {
     agentsSwap: 17.5 * GiB,
     zram: { swapBytes: 17.5 * GiB, realBytes: 3.6 * GiB },
     agents: [
-      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 4 * GiB, swap: 17.5 * GiB, limit: 8 * GiB },
-      { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', memory: 6 * GiB, swap: 0, limit: 8 * GiB },
-      { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', memory: 2 * GiB, swap: 0, limit: 8 * GiB },
+      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', memory: 4 * GiB, swap: 17.5 * GiB },
+      { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', memory: 6 * GiB, swap: 0 },
+      { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', memory: 2 * GiB, swap: 0 },
     ],
   };
   const cpuUsage: T.CPUUsage = {
@@ -1297,9 +1194,9 @@ export function seedMeterUsage(queryClient: QueryClient): void {
     hostCores: 8,
     otherCPU: 9,
     agents: [
-      { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', cpu: 41, configuredCores: '4', effectiveCores: '2' },
-      { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', cpu: 12, configuredCores: '', effectiveCores: '' },
-      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', cpu: 0, configuredCores: '2', effectiveCores: '2' },
+      { ref: `${PROJECT}/agent-99`, title: 'PR agent', state: 'running', cpu: 41 },
+      { ref: `${PROJECT}/agent-12`, title: 'Add a "New project" button to the Sidebar', state: 'running', cpu: 12 },
+      { ref: `${PROJECT}/agent-90`, title: 'Bump Electron to the next major, and every native module that breaks with it', state: 'paused', cpu: 0 },
     ],
   };
   devState.memoryUsage = memoryUsage;

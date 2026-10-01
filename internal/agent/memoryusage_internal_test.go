@@ -23,25 +23,6 @@ func TestAgentSwap(t *testing.T) {
 	}
 }
 
-func TestLimitBytes(t *testing.T) {
-	tests := []struct {
-		memory    string
-		hostTotal int64
-		want      int64
-	}{
-		{"", 32 << 30, 0},
-		{"8GiB", 32 << 30, 8 << 30},
-		{"50%", 32 << 30, 16 << 30},
-		{"50%", 0, 0},
-		{"not a size", 32 << 30, 0},
-	}
-	for _, tc := range tests {
-		if got := limitBytes(tc.memory, tc.hostTotal); got != tc.want {
-			t.Errorf("limitBytes(%q, %d) = %d, want %d", tc.memory, tc.hostTotal, got, tc.want)
-		}
-	}
-}
-
 func TestZramTotal(t *testing.T) {
 	root := t.TempDir()
 

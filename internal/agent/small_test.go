@@ -11,24 +11,6 @@ import (
 	"agentbox/internal/state"
 )
 
-func TestLimitsDescribeSummarizesTheCaps(t *testing.T) {
-	cases := []struct {
-		limits agent.Limits
-		want   string
-	}{
-		{agent.Limits{}, "every core, no memory limit"},
-		{agent.Limits{CPU: "1"}, "1 core, no memory limit"},
-		{agent.Limits{CPU: "4"}, "4 cores, no memory limit"},
-		{agent.Limits{Memory: "4GB"}, "every core, 4GB of memory"},
-		{agent.Limits{CPU: "2", Memory: "8GB", Allowance: "50%"}, "2 cores, 8GB of memory, a CPU share of 50%"},
-	}
-	for _, c := range cases {
-		if got := c.limits.Describe(); got != c.want {
-			t.Errorf("Describe(%+v) = %q, want %q", c.limits, got, c.want)
-		}
-	}
-}
-
 func TestLeadRefNamesTheProjectsLead(t *testing.T) {
 	if got, want := agent.LeadRef("pawly"), "pawly/"+state.LeadName; got != want {
 		t.Errorf("LeadRef(pawly) = %q, want %q", got, want)

@@ -9,21 +9,24 @@ import (
 	"strings"
 )
 
-// An earlier AgentBox gave the shared budget disk controls, and a memory.high
-// of 90% of its memory. The disk controls froze the host rather than
-// protecting it: on the user's host (LUKS over btrfs on a Kingston NV3), the
-// write ceiling on io.max made btrfs transaction commits wait on the agents'
-// throttled writeback — commits of up to 11.5 s, user.slice stalled on IO
-// 45–50% of the time — and io.cost's latency QoS, 5 ms for reads and a 5%
-// floor, slowed the whole disk for everyone. The budget no longer writes any
-// of them (budget.go), but a host that ran that version still has them set
-// until it reboots, or longer where cgroupfs isn't reset. ResetLegacyBudget
-// puts them back.
+// Earlier releases could put every agent under one shared budget, a parent
+// cgroup (oldBudgetCgroup) whose memory.max, memory.swap.max and cpu.max held
+// the agents together, with memory.low on the host's user.slice and
+// system.slice reserving the rest of the memory for the host's own apps. An
+// earlier one still gave that budget disk controls and a memory.high, which
+// froze the host rather than protecting it: on the user's host (LUKS over
+// btrfs on a Kingston NV3), the write ceiling on io.max made btrfs transaction
+// commits wait on the agents' throttled writeback, and io.cost's latency QoS
+// slowed the whole disk for everyone. Nothing writes any of it now, but cgroup
+// files keep what was written until the host reboots, or longer where cgroupfs
+// isn't reset, and agents still running inside the budget would stay held by
+// it. ResetLegacyBudget puts them back.
 
 // ResetLegacyBudget turns off io.cost on every disk whose QoS is the one the
-// earlier budget wrote, lifts the budget's io.max, and puts its io.weight and
-// memory.high back to the kernel's defaults. It writes only what differs, so
-// on a host that never had them it touches nothing. It reports what it reset.
+// earlier budget wrote, and, where the budget's cgroup is there, lifts every
+// limit it had and the reserve it kept on the host's slices. It writes only
+// what differs, so on a host that never had them it touches nothing. It
+// reports what it reset.
 func ResetLegacyBudget() (reset []string, err error) {
 	var errs []error
 	put := func(path, line, what string) {
@@ -33,13 +36,17 @@ func ResetLegacyBudget() (reset []string, err error) {
 		}
 		reset = append(reset, what)
 	}
-	qos := filepath.Join(filepath.Dir(BudgetDir), "io.cost.qos")
+	root := filepath.Dir(OldBudgetDir)
+	qos := filepath.Join(root, "io.cost.qos")
 	for dev, kv := range nestedKeyed(readString(qos)) {
 		if legacyQoS(kv) {
 			put(qos, dev+" enable=0", "io.cost on "+dev)
 		}
 	}
-	ioMax := filepath.Join(BudgetDir, "io.max")
+	if _, err := os.Stat(OldBudgetDir); err != nil {
+		return reset, errors.Join(errs...)
+	}
+	ioMax := filepath.Join(OldBudgetDir, "io.max")
 	for dev, kv := range nestedKeyed(readString(ioMax)) {
 		for _, v := range kv {
 			if v != "max" {
@@ -48,13 +55,25 @@ func ResetLegacyBudget() (reset []string, err error) {
 			}
 		}
 	}
-	weight := filepath.Join(BudgetDir, "io.weight")
+	weight := filepath.Join(OldBudgetDir, "io.weight")
 	if w := strings.TrimSpace(readString(weight)); w != "" && w != "default 100" {
 		put(weight, "default 100", "the budget's io.weight")
 	}
-	high := filepath.Join(BudgetDir, "memory.high")
-	if h := strings.TrimSpace(readString(high)); h != "" && h != "max" {
-		put(high, "max", "the budget's memory.high")
+	for _, name := range []string{"memory.high", "memory.max", "memory.swap.max"} {
+		path := filepath.Join(OldBudgetDir, name)
+		if v := strings.TrimSpace(readString(path)); v != "" && v != "max" {
+			put(path, "max", "the budget's "+name)
+		}
+	}
+	cpuMax := filepath.Join(OldBudgetDir, "cpu.max")
+	if quota, _, _ := strings.Cut(strings.TrimSpace(readString(cpuMax)), " "); quota != "" && quota != "max" {
+		put(cpuMax, "max 100000", "the budget's cpu.max")
+	}
+	for _, slice := range []string{"user.slice", "system.slice"} {
+		path := filepath.Join(root, slice, "memory.low")
+		if v := strings.TrimSpace(readString(path)); v != "" && v != "0" {
+			put(path, "0", "the reserve on "+slice)
+		}
 	}
 	return reset, errors.Join(errs...)
 }

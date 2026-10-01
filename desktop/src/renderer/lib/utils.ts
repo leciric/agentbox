@@ -16,8 +16,7 @@ export function humanBytes(n: number): string {
   return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`;
 }
 
-// parseBytes reads the sizes Incus takes: an agent's memory limit, or the
-// shared budget's memory.
+// parseBytes reads the sizes Incus takes, like the disk guard's floor.
 export function parseBytes(size: string): number | undefined {
   const match = /^\s*([0-9.]+)\s*(B|kB|MB|GB|TB|KiB|MiB|GiB|TiB)?\s*$/.exec(size);
   if (!match) return undefined;

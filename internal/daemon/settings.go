@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
@@ -73,30 +72,6 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	for _, field := range []struct {
-		key   string
-		value *string
-		check func(string) error
-	}{
-		{state.SettingDefaultCPU, req.DefaultCPU, agent.ValidateCPU},
-		{state.SettingDefaultCPUAllowance, req.DefaultCPUAllowance, agent.ValidateAllowance},
-		{state.SettingDefaultMemory, req.DefaultMemory, agent.ValidateMemory},
-	} {
-		if field.value == nil {
-			continue
-		}
-		// "" is stored, not treated as "nobody chose": it is how you say that
-		// new agents get no limit at all, and the difference is what
-		// SettingValue exists for. Agents that already exist keep what they
-		// have, like the model and effort settings above.
-		want := strings.TrimSpace(*field.value)
-		if err := field.check(want); err != nil {
-			return err
-		}
-		if err := s.store.SetSetting(r.Context(), field.key, want); err != nil {
-			return err
-		}
-	}
 	if req.ResumeAfterLimit != nil {
 		// Stored as a flag rather than as "" / "1", because this one is on
 		// until it is turned off: see state.FlagOn. Turning it off leaves any
@@ -131,39 +106,8 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		// wait out its hour to act on it.
 		go s.sweepExpiredMedia(s.background(), time.Now())
 	}
-	if req.KeepFreeCPU != nil {
-		if *req.KeepFreeCPU < 0 {
-			return fmt.Errorf("cores to keep free is at least 0; %d isn't", *req.KeepFreeCPU)
-		}
-		if err := s.store.SetSetting(r.Context(), state.SettingKeepFreeCPU, strconv.Itoa(*req.KeepFreeCPU)); err != nil {
-			return err
-		}
-	}
-	if req.NeverFreezeCPU != nil {
-		if err := s.store.SetFlag(r.Context(), state.SettingNeverFreezeCPU, *req.NeverFreezeCPU); err != nil {
-			return err
-		}
-	}
-	if req.NeverFreezeCPU != nil || req.KeepFreeCPU != nil {
-		// Recomputed now rather than left for the next agent to start or
-		// stop: turning this on, or tightening it, should take hold at once,
-		// not the next time something happens to notice it.
-		if err := s.manager(nil).RecomputeCPUCaps(r.Context()); err != nil {
-			return err
-		}
-	}
 	if req.DiskFloorMin != nil || req.DiskFloorPercent != nil {
 		if err := s.setDiskFloor(r.Context(), req.DiskFloorMin, req.DiskFloorPercent); err != nil {
-			return err
-		}
-	}
-	if req.GPUForAgents != nil {
-		if err := s.store.SetFlag(r.Context(), state.SettingGPUForAgents, *req.GPUForAgents); err != nil {
-			return err
-		}
-		// Reaches the agents you already have at once, the same as toggling
-		// the CPU budget above.
-		if err := s.manager(nil).RecomputeGPU(r.Context()); err != nil {
 			return err
 		}
 	}
@@ -215,9 +159,6 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		// now rather than at the next tick, so check right away instead of
 		// leaving it stuck until the next sweep.
 		go s.stopIdleAgents(s.background(), time.Now())
-	}
-	if err := s.updateSharedBudget(r.Context(), req); err != nil {
-		return err
 	}
 	if req.UpdateCheck != nil {
 		if err := s.setUpdateCheck(r.Context(), *req.UpdateCheck); err != nil {
@@ -317,59 +258,6 @@ func (s *Server) updateRoleDefaults(ctx context.Context, roles []roleDefaults) e
 	return nil
 }
 
-// seedResourceDefaults writes the limits new agents start capped at, once, on
-// an installation that has never had them. They can't be resolved lazily the
-// way the Claude Code settings are: "" is a real choice there (no limit at
-// all), so an unset key and a cleared one have to be different things, and the
-// app's inputs have to show a number rather than the word "default".
-//
-// The memory ceiling is also given, once, to an installation seeded before
-// there was one, whose default_memory the daemon itself wrote as "". That ""
-// was never shown to anyone as a choice — the field was empty from the start,
-// with nothing to clear — so it is taken as the old seed rather than a
-// decision. Agents that already exist keep what they have: this only changes
-// what the next one is made with.
-func (s *Server) seedResourceDefaults(ctx context.Context) error {
-	defaults := agent.DefaultLimits(agent.HostCores(), agent.HostMemory())
-	seeded := false
-	for _, field := range []struct{ key, value string }{
-		{state.SettingDefaultCPU, defaults.CPU},
-		{state.SettingDefaultCPUAllowance, defaults.Allowance},
-		{state.SettingDefaultMemory, defaults.Memory},
-	} {
-		value, set, err := s.store.SettingValue(ctx, field.key)
-		if err != nil {
-			return err
-		}
-		if field.key == state.SettingDefaultMemory {
-			_, memorySeeded, err := s.store.SettingValue(ctx, state.SettingDefaultMemorySeeded)
-			if err != nil {
-				return err
-			}
-			if !memorySeeded {
-				if err := s.store.SetSetting(ctx, state.SettingDefaultMemorySeeded, "1"); err != nil {
-					return err
-				}
-				// Set before this build, to "" by the old seed: the new one
-				// replaces it. Set to a size: that was chosen, and stays.
-				set = set && value != ""
-			}
-		}
-		if set {
-			continue
-		}
-		if err := s.store.SetSetting(ctx, field.key, field.value); err != nil {
-			return err
-		}
-		seeded = true
-	}
-	if seeded {
-		s.logf("new agents are capped at %s, of this host's %d cores and %s; change it in Settings, or per agent with agentbox limits",
-			defaults.Describe(), agent.HostCores(), agent.HumanBytes(agent.HostMemory()))
-	}
-	return nil
-}
-
 func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	model, err := s.store.Setting(r.Context(), state.SettingDefaultClaudeModel)
 	if err != nil {
@@ -420,10 +308,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if len(openCodeModels) == 0 && openCodeReady {
 		s.refreshOpenCodeModels()
 	}
-	limits, err := s.manager(nil).Defaults(r.Context())
-	if err != nil {
-		return api.Settings{}, err
-	}
 	resumeAfterLimit, err := s.store.FlagOn(r.Context(), state.SettingResumeAfterLimit)
 	if err != nil {
 		return api.Settings{}, err
@@ -470,15 +354,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	diskFloor := s.diskFloor(r.Context())
-	neverFreezeCPU, keepFreeCPU, err := s.manager(nil).NeverFreezeCPU(r.Context())
-	if err != nil {
-		return api.Settings{}, err
-	}
-	gpuForAgents, err := s.manager(nil).GPUForAgents(r.Context())
-	if err != nil {
-		return api.Settings{}, err
-	}
-	gpu := agent.HostGPU()
 	autoStopIdle, idleTime, err := s.store.AutoStopIdle(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -488,10 +363,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		return api.Settings{}, err
 	}
 	leadRecheck, recheckEvery, err := s.store.LeadRecheck(r.Context())
-	if err != nil {
-		return api.Settings{}, err
-	}
-	sharedBudget, err := s.sharedBudget(r.Context())
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -510,13 +381,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,
 
-		DefaultCPU:          limits.CPU,
-		DefaultCPUAllowance: limits.Allowance,
-		DefaultMemory:       limits.Memory,
-		HostCores:           agent.HostCores(),
-		HostMemory:          agent.HostMemory(),
-		SeedMemory:          agent.DefaultMemory(agent.HostMemory()),
-
 		ResumeAfterLimit:  resumeAfterLimit,
 		UpdateCheck:       updateCheck,
 		UsageStats:        usageStats,
@@ -528,23 +392,15 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,
 
-		NeverFreezeCPU: neverFreezeCPU,
-		KeepFreeCPU:    keepFreeCPU,
-
 		DiskFloorMin:     diskFloor.Min,
 		DiskFloorPercent: diskFloor.Percent,
 
-		GPUAvailable:    gpu.Kind != "",
-		GPUKind:         gpu.Kind,
-		GPUForAgents:    gpuForAgents,
 		AutoStopIdle:    autoStopIdle,
 		IdleTimeSeconds: int(idleTime / time.Second),
 
 		AgentQueue:         agentQueue,
 		LeadRecheck:        leadRecheck,
 		LeadRecheckMinutes: int(recheckEvery / time.Minute),
-
-		SharedBudget: sharedBudget,
 	}, nil
 }
 

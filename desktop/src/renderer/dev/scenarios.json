@@ -218,20 +218,6 @@
     "reducedMotion": "reduce"
   },
   {
-    "id": "resources-dark",
-    "description": "Resource limits' copy: Home's host stats, Settings' defaults for new agents, an agent's limits editor \u2014 dark",
-    "query": "resources=1&theme=dark",
-    "width": 1280,
-    "height": 1400
-  },
-  {
-    "id": "resources-light",
-    "description": "Resource limits' copy: Home's host stats, Settings' defaults for new agents, an agent's limits editor \u2014 light",
-    "query": "resources=1&theme=light",
-    "width": 1280,
-    "height": 1400
-  },
-  {
     "id": "rail-finished-closed-dark",
     "description": "Working and waiting agents on top, the idle, paused and stopped ones folded into Finished at the bottom \u2014 dark, xl width",
     "query": "theme=dark",

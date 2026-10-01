@@ -6,7 +6,7 @@ import { api } from '../lib/api';
 import { branchSlug, branchSlugPattern, maxBranchSlugLen } from '../lib/branch';
 import { formatTokens } from '../lib/chat';
 import { choiceName } from '../lib/modelChoices';
-import { cn, errorMessage, humanBytes } from '../lib/utils';
+import { cn, errorMessage } from '../lib/utils';
 import { JobProgress } from './JobProgress';
 import { AIIcon, aiLabel } from './state';
 import { Button } from './ui/button';
@@ -42,14 +42,6 @@ interface Form {
   // the project's own setting, "chat" wakes it and "off" only records the
   // finish. Only matters when the project's setting is "lead".
   notify: '' | 'chat' | 'off';
-  // What this agent's machine may take. "" is not "no limit" here either: an
-  // untouched box leaves the field out of the request, so what new agents get
-  // applies. Clearing a box that was prefilled is how you ask for no limit,
-  // which is why touched is tracked rather than compared against "".
-  cpu: string;
-  cpuAllowance: string;
-  memory: string;
-  resourcesTouched: boolean;
   // Start when a slot is free, rather than right away. Defaults to the
   // project's own alwaysQueue until you touch the switch yourself.
   queue: boolean;
@@ -73,10 +65,6 @@ const emptyForm: Form = {
   claudeAccount: '',
   githubAccount: '',
   notify: '',
-  cpu: '',
-  cpuAllowance: '',
-  memory: '',
-  resourcesTouched: false,
   queue: false,
   queueTouched: false,
 };
@@ -174,12 +162,6 @@ export function NewAgentDialog({
         // Off outright while the installation's Agent queue is off, whatever
         // the switch (disabled, so untouched) still carries from before.
         queue: queueEnabled && form.queue,
-        // Sent only once a box has been touched. An empty string is a real
-        // choice — no limit for this agent — so an untouched form must leave
-        // all three out rather than send "" and uncap the agent.
-        cpu: form.resourcesTouched ? form.cpu.trim() : undefined,
-        cpuAllowance: form.resourcesTouched ? form.cpuAllowance.trim() : undefined,
-        memory: form.resourcesTouched ? form.memory.trim() : undefined,
       }),
     onSuccess: setJob,
   });
@@ -207,17 +189,6 @@ export function NewAgentDialog({
     setForm((f) => (f.queueTouched ? f : { ...f, queue: selected.alwaysQueue }));
   }, [open, selected]);
 
-  // Prefilled with what new agents get, so More options shows the real numbers
-  // rather than the word "default". Only until you touch them: after that the
-  // boxes are yours, and a later settings refetch doesn't overwrite them.
-  const { defaultCPU, defaultCPUAllowance, defaultMemory } = settings.data ?? {};
-  useEffect(() => {
-    if (!open || defaultCPU === undefined) return;
-    setForm((f) =>
-      f.resourcesTouched ? f : { ...f, cpu: defaultCPU, cpuAllowance: defaultCPUAllowance ?? '', memory: defaultMemory ?? '' },
-    );
-  }, [open, defaultCPU, defaultCPUAllowance, defaultMemory]);
-
   const onDone = useCallback(
     async (done: T.Job) => {
       setFinished(done);
@@ -231,15 +202,10 @@ export function NewAgentDialog({
   );
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
-  // Touching any of the three resource boxes stops them following the defaults
-  // and starts them being sent, empty or not.
-  const setResource = (key: 'cpu' | 'cpuAllowance' | 'memory', value: string) => setForm((f) => ({ ...f, [key]: value, resourcesTouched: true }));
-  const hostCores = settings.data?.hostCores ?? 0;
   // The installation's own switch (Settings → Agents → Agent queue): off,
   // this dialog's Queue switch does nothing, so it shows disabled instead of
   // offering a choice the daemon would refuse to act on.
   const queueEnabled = settings.data?.agentQueue ?? false;
-  const hostMemory = settings.data?.hostMemory ?? 0;
   const needsLogin =
     (form.ai === 'claude' && auth.data?.claude === false) ||
     (form.ai === 'codex' && auth.data?.codex === false) ||
@@ -522,35 +488,6 @@ export function NewAgentDialog({
                     <SelectOption value="off">Only record it</SelectOption>
                   </Select>
                 </Field>
-                <div className="grid grid-cols-3 gap-4">
-                  <Field label="CPU cores" htmlFor="agent-cpu" hint={hostCores ? `${hostCores} on this host` : undefined}>
-                    <Input
-                      id="agent-cpu"
-                      className="font-mono text-[13px]"
-                      placeholder="every core"
-                      value={form.cpu}
-                      onChange={(event) => setResource('cpu', event.target.value)}
-                    />
-                  </Field>
-                  <Field label="CPU share" htmlFor="agent-cpu-allowance" hint="Only when busy">
-                    <Input
-                      id="agent-cpu-allowance"
-                      className="font-mono text-[13px]"
-                      placeholder="all of it"
-                      value={form.cpuAllowance}
-                      onChange={(event) => setResource('cpuAllowance', event.target.value)}
-                    />
-                  </Field>
-                  <Field label="Memory" htmlFor="agent-memory" hint={hostMemory ? `${humanBytes(hostMemory)} on this host` : undefined}>
-                    <Input
-                      id="agent-memory"
-                      className="font-mono text-[13px]"
-                      placeholder="all of it"
-                      value={form.memory}
-                      onChange={(event) => setResource('memory', event.target.value)}
-                    />
-                  </Field>
-                </div>
                 <SwitchRow
                   id="agent-autonomous"
                   label="Autonomous"

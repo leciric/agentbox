@@ -319,7 +319,7 @@ func newNestingCmd(a *app) *cobra.Command {
 		Short: "Whether a project's agents run a real Incus daemon of their own",
 		Long: `Shows or sets whether a project's agents run their own Incus, inside their own
 container, so agents working on AgentBox can test features that touch agent
-machines (limits, GPU, image builds) for real. Off by default: it costs
+machines (image builds, devices, networking) for real. Off by default: it costs
 isolation, and needs the base image built with agentbox image build --incus.`,
 		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {

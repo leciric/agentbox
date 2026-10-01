@@ -244,7 +244,7 @@ func gib(n int64) string { return fmt.Sprintf("%.1f GiB", float64(n)/float64(GiB
 
 // memScript prints what parseMemSample reads, in one ssh round trip. An
 // agent's machine is a cgroup of its own while it runs: lxc.payload.<name>,
-// or agentbox/<name> under the shared budget (internal/agent/budget.go),
+// or agentbox/<name> where an earlier release's shared budget started it,
 // beside its .monitor.
 const memScript = `cat /proc/meminfo /proc/pressure/memory 2>/dev/null
 head -n1 /proc/stat

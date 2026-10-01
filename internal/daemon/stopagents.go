@@ -125,11 +125,6 @@ func (s *Server) runStopAgents(ctx context.Context, m *agent.Manager, targets []
 	}
 	wg.Wait()
 
-	// Fewer running agents changes the CPU budget the rest share: none, now,
-	// unless some failed to stop.
-	if err := m.RecomputeCPUCaps(ctx); err != nil {
-		s.logf("stop agents: %v", err)
-	}
 	s.refreshAgents(ctx)
 	if mem, err := m.MemoryUsage(ctx); err == nil {
 		result.HostMemoryAfter = mem.AgentsUsed + mem.OtherUsed

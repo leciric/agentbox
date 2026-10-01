@@ -33,7 +33,7 @@ func TestRenderTopShowsTheHostAndEveryAgent(t *testing.T) {
 		Host: api.HostUsage{CPU: 42.3, Cores: 8, MemUsed: 4 << 30, MemTotal: 16 << 30, PoolUsed: 10 << 30, PoolTotal: 100 << 30,
 			DiskRead: 30 << 20, DiskWrite: 2 << 20, Pressure: &api.HostPressure{IOFull: 35.2, MemoryFull: 19, Stalling: true}},
 		Agents: []api.AgentUsage{
-			{Ref: "pawly/agent-01", State: "running", CPU: 150, Memory: 512 << 20, Processes: 12, DiskRead: 25 << 20, Cores: 4, Limits: api.Limits{CPU: "4", Memory: "8GiB"}},
+			{Ref: "pawly/agent-01", State: "running", CPU: 150, Memory: 512 << 20, Processes: 12, DiskRead: 25 << 20},
 			{Ref: "pawly/agent-02", State: "paused", CPU: 0, Memory: 100 << 20, Processes: 1},
 		},
 	}
@@ -43,9 +43,8 @@ func TestRenderTopShowsTheHostAndEveryAgent(t *testing.T) {
 	out := buf.String()
 	for _, want := range []string{
 		"HOST   CPU 42%", "MEMORY 4.0 GiB / 16.0 GiB", "DISK POOL 10.0 GiB used, 90.0 GiB free",
-		"pawly/agent-01", "38% of 4 cores", // 150/4 = 37.5 -> rounds to 38
-		"pawly/agent-02", "512.0 MiB / 8GiB",
-		"100.0 MiB / no limit", // agent-02 has no memory limit
+		"pawly/agent-01", "150%", "19%", // 150/8 = 18.75 of the host -> rounds to 19
+		"pawly/agent-02", "512.0 MiB", "100.0 MiB",
 		"DISK IO read 30.0 MiB/s, write 2.0 MiB/s", "STALLED io 35%, memory 19% (the host is stalling)",
 		"25.0 MiB/s read, 0 B/s write",
 	} {
@@ -259,15 +258,6 @@ func TestWaitingForAndAutonomyWords(t *testing.T) {
 	}
 	if got := autonomyWords("ask"); !strings.Contains(got, "does the routine itself") {
 		t.Errorf("autonomyWords(ask) = %q", got)
-	}
-}
-
-func TestLimitWords(t *testing.T) {
-	if got := limitWords(api.Limits{}); !strings.Contains(got, "every core") || !strings.Contains(got, "no memory limit") {
-		t.Errorf("limitWords(no limits) = %q", got)
-	}
-	if got := limitWords(api.Limits{CPU: "4", Memory: "8GiB"}); !strings.Contains(got, "4") || !strings.Contains(got, "8GiB") {
-		t.Errorf("limitWords(capped) = %q", got)
 	}
 }
 
@@ -701,21 +691,4 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return b
-}
-
-func TestShortageWords(t *testing.T) {
-	got := shortageWords("organic/agent-03", &api.MemoryShortage{Pressure: 45, RefaultRate: 80 << 20, Limit: 4 << 30, RaiseTo: "8GiB"})
-	for _, want := range []string{"short of memory and slowing the whole computer down", "at its memory limit", "80.0 MiB/s", "45%", "raise it to 8GiB with: agentbox limits organic/agent-03 --raise"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("shortageWords missing %q:\n%s", want, got)
-		}
-	}
-	got = shortageWords("p/a", &api.MemoryShortage{Pressure: 30, InBudget: true})
-	if !strings.Contains(got, "at the shared budget's memory") || !strings.Contains(got, "--budget-memory") || strings.Contains(got, "--raise") {
-		t.Errorf("shortageWords, held by the shared budget:\n%s", got)
-	}
-	got = shortageWords("p/a", &api.MemoryShortage{Pressure: 30, Limit: 30 << 30})
-	if !strings.Contains(got, "no room to raise it") || strings.Contains(got, "--raise") {
-		t.Errorf("shortageWords, with no room to raise:\n%s", got)
-	}
 }

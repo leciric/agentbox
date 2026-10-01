@@ -296,10 +296,6 @@ type CreateOptions struct {
 	GitHubAccount string
 	CopyEnv       bool // copy gitignored env files from the project
 	Clean         bool // start from the base image even if the project has a saved base
-	// Limits caps this one agent's machine. A field nobody set falls back to
-	// the installation's default; a field set to "" removes that cap for this
-	// agent alone. See LimitChoice.
-	Limits LimitChoice
 	// FinishNotice is this agent's own choice of what it does to its
 	// project's chat when it genuinely finishes: state.FinishNoticesChat,
 	// state.FinishNoticesOff, or "" to leave it unsaid. It only matters when
@@ -399,14 +395,6 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 			return state.Agent{}, errors.New("the base image isn't built: run agentbox image build")
 		}
 	}
-	defaults, err := m.Defaults(ctx)
-	if err != nil {
-		return state.Agent{}, err
-	}
-	limits, err := opts.Limits.Resolve(defaults)
-	if err != nil {
-		return state.Agent{}, err
-	}
 	from := opts.From
 	if from == "" {
 		from = repo.CurrentBranch()
@@ -440,7 +428,6 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		baseRef:       from,
 		baseCommit:    commit,
 		copyEnv:       opts.CopyEnv,
-		limits:        limits,
 		finishNotice:  opts.FinishNotice,
 		task:          opts.Task,
 		queued:        queued,
@@ -517,7 +504,6 @@ type plan struct {
 	baseCommit    string // the new branch starts here
 	tree          string // optional snapshot commit whose files are applied on top
 	copyEnv       bool
-	limits        Limits       // already resolved: what this machine is capped at
 	finishNotice  string       // this agent's own choice; see CreateOptions.FinishNotice
 	task          string       // what it is about to be asked to do; see CreateOptions.Task
 	queued        *state.Agent // the queued agent this makes, when it isn't a new one
@@ -636,7 +622,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
-	if step, err := m.makeMachine(ctx, a, pl.repo, pl.source, pl.limits, envFiles, pl.task, "", &undo); err != nil {
+	if step, err := m.makeMachine(ctx, a, pl.repo, pl.source, envFiles, pl.task, "", &undo); err != nil {
 		return fail(step, err)
 	}
 	m.logf("Taking the %q snapshot", initialSnapshot)
@@ -653,13 +639,13 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 }
 
 // makeMachine makes a's machine from the instance snapshot source, for a's
-// worktree, which exists already: the Incus instance, its mounts and limits,
+// worktree, which exists already: the Incus instance, its mounts,
 // the in-agent API, its configuration and the tmux session. home, when set,
 // is a directory whose contents are copied into the agent user's home before
 // the AI tool first starts (Recreate's, for what the old machine's chat
 // sessions were). What undoes the instance is appended to undo; on failure it
 // returns the step that failed, as build names them.
-func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.Repo, source string, limits Limits, envFiles []string, task, home string, undo *[]func()) (string, error) {
+func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.Repo, source string, envFiles []string, task, home string, undo *[]func()) (string, error) {
 	cleanup := context.WithoutCancel(ctx)
 	// Instance commands run to completion even after Ctrl-C, and cancellation is
 	// checked between them, so the rollback never races an unfinished Incus operation.
@@ -705,15 +691,9 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 			return c.AddDevice(ctx, a.Instance, "gitdir", "disk", "source="+repo.GitDir, "path="+repo.GitDir)
 		},
 	)
-	steps = append(steps, limitSteps(a.Instance, limits, copied.Config, m.budgetOn(ctx))...)
-	steps = append(steps, budgetSteps(a.Instance, m.budgetOn(ctx), copied.Config)...)
-	steps = append(steps, configuredCPUSteps(a.Instance, limits.CPU, copied.Config)...)
-	if on, status, err := gpuOn(ctx, m); err != nil {
-		return "instance", err
-	} else if on {
-		_, has := copied.Devices[gpuDevice]
-		steps = append(steps, gpuCreateSteps(a.Instance, status, has)...)
-	}
+	// A copy of a machine made by an earlier release, or of a base saved from
+	// one, carries the limits that release set on it.
+	steps = append(steps, oldLimitSteps(a.Instance, copied.Config, copied.Devices)...)
 	steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) })
 	for _, step := range steps {
 		if err := run(step); err != nil {
@@ -1684,9 +1664,9 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 			return inst, err
 		}
 	default:
-		// A machine only changes cgroup when it starts: this is when an
-		// agent moves into the shared budget, or out of it.
-		if err := m.ensureBudgetPlacement(ctx, a.Instance); err != nil {
+		// A machine only changes cgroup when it starts: this is when one an
+		// earlier release put in its shared budget moves out of it.
+		if err := m.dropOldLimits(ctx, a.Instance); err != nil {
 			return inst, err
 		}
 		if err := m.Incus.Start(ctx, a.Instance); err != nil {
@@ -1878,10 +1858,6 @@ type Status struct {
 	state.Agent
 	State string // running, stopped, paused, initializing (create job still running), incomplete (unfinished create, nothing running) or missing
 	IP    string
-	// Limits is what the machine is capped at, read from the same `incus list`
-	// that gives the state: the machine is the truth about its own limits, and
-	// nothing has to be remembered alongside it.
-	Limits Limits
 	// QueuePosition is a queued agent's place in its project's queue, 1 for
 	// next; 0 for every agent that isn't queued.
 	QueuePosition int
@@ -1918,7 +1894,6 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 		default:
 			if inst, ok := byName[a.Instance]; ok {
 				s.State, s.IP = displayState(inst.Status), inst.IPv4()
-				s.Limits = LimitsOf(inst.ExpandedConfig)
 			}
 		}
 		if a.Status == state.AgentQueued {

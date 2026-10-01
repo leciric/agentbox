@@ -130,10 +130,11 @@ type Instance struct {
 	State  *InstanceState `json:"state"`
 	// Config is what was set on the instance itself; ExpandedConfig adds what
 	// its profiles contribute, and so is what Incus actually applies. Both
-	// come back from `incus list --format json` at no extra cost, which is how
-	// Usage reports every agent's limits without a query per agent.
+	// come back from `incus list --format json` at no extra cost.
 	Config         map[string]string `json:"config"`
 	ExpandedConfig map[string]string `json:"expanded_config"`
+	// Devices are the instance's own devices, without its profiles'.
+	Devices map[string]map[string]string `json:"devices"`
 }
 
 type InstanceState struct {
@@ -241,6 +242,7 @@ func instanceOf(full *api.InstanceFull) Instance {
 		Status:         full.Status,
 		Config:         full.Config,
 		ExpandedConfig: full.ExpandedConfig,
+		Devices:        full.Devices,
 	}
 	if st := full.State; st != nil {
 		inst.State = &InstanceState{}

@@ -24,13 +24,6 @@ type AgentUsage struct {
 	// disks over the sample, in bytes a second, from its cgroup's io.stat.
 	DiskRead  int64
 	DiskWrite int64
-	// Limits are the caps on this agent's machine, and Cores is how many cores
-	// its CPU figure can add up to: its limits.cpu, or the host's cores when
-	// it has none. A percentage of the host says whether the machine is busy;
-	// a percentage of the agent's own limit says whether *this* agent is the
-	// one hitting a wall, which is the question a capped agent raises.
-	Limits Limits
-	Cores  float64
 }
 
 type HostUsage struct {
@@ -117,16 +110,10 @@ func (m *Manager) Usage(ctx context.Context, interval time.Duration) (HostUsage,
 	}
 	usage := make([]AgentUsage, 0, len(agents))
 	for _, a := range agents {
-		u := AgentUsage{Agent: a, State: "missing", Cores: float64(host.Cores)}
+		u := AgentUsage{Agent: a, State: "missing"}
 		if i, ok := current[a.Instance]; ok {
 			inst := after[i]
 			u.State = displayState(inst.Status)
-			// `incus list --format json` already carries the configuration, so
-			// every agent's limits come back with its usage, not a query each.
-			u.Limits = LimitsOf(inst.ExpandedConfig)
-			if cores, err := strconv.ParseFloat(u.Limits.CPU, 64); err == nil && cores > 0 {
-				u.Cores = cores
-			}
 			if inst.State != nil {
 				u.Memory = agentMemory(cgroupRoot, a.Instance, inst.State.Memory.Usage)
 				u.Processes = inst.State.Processes
@@ -147,8 +134,7 @@ func (m *Manager) Usage(ctx context.Context, interval time.Duration) (HostUsage,
 
 type cpuTimes struct{ idle, total uint64 }
 
-// HostCores is how many cores the host has, the number an agent's limits.cpu
-// is carved out of.
+// HostCores is how many cores the host has.
 func HostCores() int { return runtime.NumCPU() }
 
 // VMMemoryCapEnv is set by a Linux front end (package hostvm) on everything
@@ -199,9 +185,20 @@ func hostCPU() (cpuTimes, error) {
 }
 
 // cgroupRoot is where cgroup2 is mounted. Incus runs each container in
-// lxc.payload.<instance> under it, or in agentbox/<instance> inside the shared
-// budget (agentCgroup).
+// lxc.payload.<instance> under it, or, until it restarts, in
+// agentbox/<instance> inside an earlier release's shared budget (agentCgroup).
 const cgroupRoot = "/sys/fs/cgroup"
+
+// agentCgroup is the directory of an agent's cgroup: lxc.payload.<instance>
+// at the root, or inside the shared budget's parent for a machine an earlier
+// release started there and nothing has restarted since.
+func agentCgroup(root, instance string) string {
+	inside := filepath.Join(root, oldBudgetCgroup, instance)
+	if _, err := os.Stat(inside); err == nil {
+		return inside
+	}
+	return filepath.Join(root, "lxc.payload."+instance)
+}
 
 // agentMemory returns the memory an agent uses the way the host's figure
 // counts it, and `free` inside the agent: without the page cache and the
@@ -256,4 +253,17 @@ func hostMemory() (total, used int64, err error) {
 		}
 	}
 	return total, total - available, s.Err()
+}
+
+// statValue reads one "key value" line out of a flat-keyed cgroup file such
+// as memory.stat or cpu.stat.
+func statValue(file, key string) int64 {
+	for _, line := range strings.Split(file, "\n") {
+		k, v, ok := strings.Cut(line, " ")
+		if ok && k == key {
+			n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+			return n
+		}
+	}
+	return 0
 }

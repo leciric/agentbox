@@ -110,12 +110,6 @@ export interface Settings {
   claudeEffortChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
-  defaultCPU: string;
-  defaultCPUAllowance: string;
-  defaultMemory: string;
-  hostCores: number;
-  hostMemory: number;
-  seedMemory: string;
   resumeAfterLimit: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
@@ -125,45 +119,13 @@ export interface Settings {
   prWatch: boolean;
   mediaRetention: string;
   defaultClaudeCompactWindow: number;
-  neverFreezeCPU: boolean;
-  keepFreeCPU: number;
   diskFloorMin: number;
   diskFloorPercent: number;
-  gpuAvailable: boolean;
-  gpuKind: string;
-  gpuForAgents: boolean;
   autoStopIdle: boolean;
   idleTimeSeconds: number;
   agentQueue: boolean;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
-  sharedBudget: SharedBudget;
-}
-
-export interface SharedBudget {
-  on: boolean;
-  memory: string;
-  swap: string;
-  cpu: number;
-  chosen: boolean;
-  suggested: SharedBudgetSize;
-  why: string;
-  hostMemory: number;
-  hostSwap: number;
-  hostSwapKind: string;
-  unsupported?: string;
-  notReady?: string;
-  setupCommand: string;
-  problem?: string;
-  inside: number;
-  pending: number;
-  shortage?: MemoryShortage;
-}
-
-export interface SharedBudgetSize {
-  memory: string;
-  swap: string;
-  cpu: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -173,9 +135,6 @@ export interface UpdateSettingsRequest {
   defaultLeadModel?: string;
   defaultLeadContextWindow?: string;
   defaultClaudeEffort?: string;
-  defaultCPU?: string;
-  defaultCPUAllowance?: string;
-  defaultMemory?: string;
   resumeAfterLimit?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
@@ -184,27 +143,13 @@ export interface UpdateSettingsRequest {
   errorReports?: boolean;
   prWatch?: boolean;
   mediaRetention?: string;
-  neverFreezeCPU?: boolean;
-  keepFreeCPU?: number;
-  gpuForAgents?: boolean;
   autoStopIdle?: boolean;
   idleTimeSeconds?: number;
   agentQueue?: boolean;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
-  sharedBudget?: boolean;
-  sharedBudgetMemory?: string;
-  sharedBudgetSwap?: string;
-  sharedBudgetCPU?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
-}
-
-export interface Limits {
-  cpu: string;
-  allowance: string;
-  memory: string;
-  configuredCPU: string;
 }
 
 export interface Agent {
@@ -228,8 +173,6 @@ export interface Agent {
   state: string;
   queuePosition?: number;
   ip: string;
-  limits: Limits;
-  memoryShortage?: MemoryShortage;
   createdAt: string;
 }
 
@@ -256,9 +199,6 @@ export interface CreateAgentRequest {
   noEnv?: boolean;
   clean?: boolean;
   catchUp?: boolean;
-  cpu?: string;
-  memory?: string;
-  cpuAllowance?: string;
   finishNotice?: string;
   queue?: boolean;
   taskId?: string;
@@ -275,9 +215,6 @@ export interface UpdateAgentRequest {
   claudeAccount?: string;
   githubAccount?: string;
   interface?: string;
-  cpu?: string;
-  memory?: string;
-  cpuAllowance?: string;
 }
 
 export interface Snapshot {
@@ -440,8 +377,6 @@ export interface AgentUsage {
   processes: number;
   diskRead: number;
   diskWrite: number;
-  limits: Limits;
-  cores: number;
 }
 
 export interface Usage {
@@ -494,7 +429,6 @@ export interface MemoryUsageAgent {
   state: string;
   memory: number;
   swap: number;
-  limit: number;
 }
 
 export interface ZramUsage {
@@ -513,23 +447,11 @@ export interface MemoryUsage {
   agents: MemoryUsageAgent[];
 }
 
-export interface MemoryShortage {
-  since: string;
-  pressure: number;
-  refaultRate: number;
-  readRate: number;
-  limit: number;
-  inBudget: boolean;
-  raiseTo?: string;
-}
-
 export interface CPUUsageAgent {
   ref: string;
   title?: string;
   state: string;
   cpu: number;
-  configuredCores?: string;
-  effectiveCores?: string;
 }
 
 export interface CPUUsage {
@@ -581,7 +503,6 @@ export interface AgentChange {
   state: string;
   ip?: string;
   removed?: boolean;
-  shortOfMemory?: boolean;
   queuePosition?: number;
 }
 
@@ -969,8 +890,6 @@ export interface FleetAgent {
   state: string;
   queuePosition?: number;
   ip: string;
-  limits: Limits;
-  memoryShortage?: MemoryShortage;
   createdAt: string;
   changes: AgentChanges;
   media: number;
@@ -1849,7 +1768,6 @@ export const EventMedia = "media";
 export const EventPulls = "pulls";
 export const EventTheme = "theme";
 export const EventUpdate = "update";
-export const EventBudget = "budget";
 export const EventDisk = "disk";
 export const DiskOK = "ok";
 export const DiskLow = "low";

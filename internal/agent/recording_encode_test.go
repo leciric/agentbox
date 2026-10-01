@@ -24,10 +24,9 @@ func TestRecordingsPlayInChromium(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	const source = `-f lavfi -i 'testsrc2=size=1365x767:rate=15,format=bgr0' -t 2`
-	software := videoEncoder{Codec: "libx264"}
 	cases := []struct{ name, command string }{
-		{"recording", "ffmpeg -hide_banner -loglevel error -y " + source + " " + software.outputArgs(false) + " recording.mp4"},
-		{"desktop first pass", "ffmpeg -hide_banner -loglevel error -y " + source + " " + software.outputArgs(true) + " fast.mp4"},
+		{"recording", "ffmpeg -hide_banner -loglevel error -y " + source + " " + recordingOutputArgs(false) + " recording.mp4"},
+		{"desktop first pass", "ffmpeg -hide_banner -loglevel error -y " + source + " " + recordingOutputArgs(true) + " fast.mp4"},
 		{"overlay pass", "ffmpeg -hide_banner -loglevel error -y -i fast.mp4 -vf null " + overlayEncodeArgs + " overlay.mp4"},
 	}
 	for _, c := range cases {

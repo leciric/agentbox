@@ -200,7 +200,7 @@ Incus: `sudo scripts/check-personalise.sh`.
 ## Testing against a real daemon
 
 An agent working on AgentBox has none of the above to test against: its own machine has no Incus,
-so features that touch agent machines — limits, GPU, image builds — can only be unit-tested there,
+so features that touch agent machines — image builds, devices, networking — can only be unit-tested there,
 against fakes. **Nesting** gives an agent a real Incus daemon of its own, inside its own container,
 so it can run AgentBox against it for real.
 

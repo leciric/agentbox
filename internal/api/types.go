@@ -346,27 +346,6 @@ type Settings struct {
 	// image has it and AgentBox has a login for it. A project's chat reads
 	// this to know whether it may create OpenCode agents at all.
 	OpenCodeReady bool `json:"openCodeReady"`
-	// DefaultCPU is how many cores a new agent's machine gets, as a count like
-	// "4"; "" is every core the host has. Unlike the Claude Code settings
-	// above, "" here is a real choice — no limit — not "AgentBox's own
-	// default", which is seeded into the setting when the daemon first runs.
-	DefaultCPU string `json:"defaultCPU"`
-	// DefaultCPUAllowance is the share of the CPUs a new agent gets (Incus
-	// limits.cpu.allowance): a percentage like "50%", which only decides who
-	// wins when the host is busy, or a time chunk like "25ms/100ms", which is
-	// a ceiling even on an idle host. "" is all of it.
-	DefaultCPUAllowance string `json:"defaultCPUAllowance"`
-	// DefaultMemory is the memory ceiling on a new agent's machine, like
-	// "8GiB"; "" is all the host's memory.
-	DefaultMemory string `json:"defaultMemory"`
-	// HostCores and HostMemory are what this machine has, so a client can show
-	// what a limit is being carved out of without a second call.
-	HostCores  int   `json:"hostCores"`
-	HostMemory int64 `json:"hostMemory"`
-	// SeedMemory is the memory ceiling a new installation starts new agents
-	// at on this host: 8GiB, or half its memory when that is less. The app
-	// shows it, so "the default" means a size and not a rule to work out.
-	SeedMemory string `json:"seedMemory"`
 	// ResumeAfterLimit says whether a chat whose turn was cut short by a
 	// Claude usage limit carries on by itself once the limit resets. On
 	// unless it was turned off, and unlike the settings above it applies to
@@ -406,30 +385,11 @@ type Settings struct {
 	// DefaultClaudeCompactWindow is what ClaudeCompactWindow is when nobody
 	// chose, so a client can offer to go back to it.
 	DefaultClaudeCompactWindow int64 `json:"defaultClaudeCompactWindow"`
-	// NeverFreezeCPU and KeepFreeCPU are "never freeze my CPU" (D95): while
-	// on, the daemon keeps every running agent's limits.cpu adding up to at
-	// most HostCores minus KeepFreeCPU, recomputed live as agents start,
-	// stop, are paused, resumed, created or destroyed. Off unless it was
-	// turned on.
-	NeverFreezeCPU bool `json:"neverFreezeCPU"`
-	// KeepFreeCPU is how many cores are kept free for the host; DefaultKeepFreeCPU when nobody chose.
-	KeepFreeCPU int `json:"keepFreeCPU"`
 	// DiskFloorMin and DiskFloorPercent are the free space the disk guard
 	// keeps on every disk AgentBox writes to: the larger of DiskFloorMin bytes
 	// and DiskFloorPercent of the disk (DiskGuard).
 	DiskFloorMin     int64   `json:"diskFloorMin"`
 	DiskFloorPercent float64 `json:"diskFloorPercent"`
-	// GPUAvailable and GPUKind are what agent.HostGPU found on this machine:
-	// whether it has a GPU to give agents at all, and "amd" or "nvidia" for
-	// the description shown beside the switch. GPUForAgents is only offered
-	// when GPUAvailable is true.
-	GPUAvailable bool   `json:"gpuAvailable"`
-	GPUKind      string `json:"gpuKind"`
-	// GPUForAgents turns passing the host's GPU into every agent's container
-	// on or off, as an Incus gpu device: applied to the agents you already
-	// have, as well as the next one, the moment it changes. Off unless it was
-	// turned on.
-	GPUForAgents bool `json:"gpuForAgents"`
 	// AutoStopIdle and IdleTimeSeconds are "auto-stop idle agents": while on,
 	// the daemon stops a running or paused agent once it has gone
 	// IdleTimeSeconds with no chat turn in progress, no running job, no
@@ -452,60 +412,6 @@ type Settings struct {
 	// state — so it can retire finished agents and free their slots.
 	LeadRecheck        bool `json:"leadRecheck"`
 	LeadRecheckMinutes int  `json:"leadRecheckMinutes"`
-	// SharedBudget is the shared agent budget: every agent's machine under
-	// one parent cgroup with one memory, swap and CPU budget between them.
-	SharedBudget SharedBudget `json:"sharedBudget"`
-}
-
-// SharedBudget is the shared agent budget's state: whether it is on, its
-// size, what this host would be suggested, and whether it can be on here at
-// all. Off unless it was turned on.
-type SharedBudget struct {
-	On bool `json:"on"`
-	// Memory, Swap and CPU are the budget: what was chosen, or Suggested
-	// where nothing was. Swap is "" on a host with no swap. Memory is what
-	// agents may use while the host's apps need theirs: HostMemory less it is
-	// reserved for those apps, which agents may borrow while they don't.
-	Memory string `json:"memory"`
-	Swap   string `json:"swap"`
-	CPU    int    `json:"cpu"`
-	// Chosen says whether any of the three was chosen, rather than all of
-	// them following Suggested.
-	Chosen bool `json:"chosen"`
-	// Suggested is what this host's memory, swap and cores come to, and
-	// Why says how, in one line.
-	Suggested SharedBudgetSize `json:"suggested"`
-	Why       string           `json:"why"`
-	// HostMemory is the host's memory, and HostSwap and HostSwapKind
-	// ("zram", "disk" or "") its swap.
-	HostMemory   int64  `json:"hostMemory"`
-	HostSwap     int64  `json:"hostSwap"`
-	HostSwapKind string `json:"hostSwapKind"`
-	// Unsupported says why this machine can't have the budget at all — a VM
-	// on a Mac or on Windows, or no cgroup v2 — or is "" when it can.
-	Unsupported string `json:"unsupported,omitempty"`
-	// NotReady says what is missing before it can be turned on: the cgroup,
-	// which needs root once. "" when it's ready. SetupCommand runs that step
-	// from a terminal.
-	NotReady     string `json:"notReady,omitempty"`
-	SetupCommand string `json:"setupCommand"`
-	// Problem is why the budget, while on, isn't applied right now.
-	Problem string `json:"problem,omitempty"`
-	// Inside is how many running agents are in the budget, and Pending how
-	// many running agents are yet to move in, or out, when they restart.
-	Inside  int `json:"inside"`
-	Pending int `json:"pending"`
-	// Shortage is set while the agents in the budget are thrashing at its
-	// memory together (agent.ThrashWatch's group), whether or not any one of
-	// them is on its own. EventBudget says when it starts and stops.
-	Shortage *MemoryShortage `json:"shortage,omitempty"`
-}
-
-// SharedBudgetSize is a shared budget's size alone.
-type SharedBudgetSize struct {
-	Memory string `json:"memory"`
-	Swap   string `json:"swap"`
-	CPU    int    `json:"cpu"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -525,13 +431,6 @@ type UpdateSettingsRequest struct {
 	DefaultLeadContextWindow *string `json:"defaultLeadContextWindow,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
-	// DefaultCPU, DefaultCPUAllowance and DefaultMemory are what new agents
-	// are capped at. "" removes that cap for new agents rather than restoring
-	// AgentBox's own default, which is why they are pointers: a field left out
-	// keeps what is set.
-	DefaultCPU          *string `json:"defaultCPU,omitempty"`
-	DefaultCPUAllowance *string `json:"defaultCPUAllowance,omitempty"`
-	DefaultMemory       *string `json:"defaultMemory,omitempty"`
 	// ResumeAfterLimit turns the automatic resume after a Claude usage limit
 	// on or off, for every agent.
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
@@ -552,12 +451,6 @@ type UpdateSettingsRequest struct {
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
-	// NeverFreezeCPU turns "never freeze my CPU" on or off.
-	NeverFreezeCPU *bool `json:"neverFreezeCPU,omitempty"`
-	// KeepFreeCPU is how many cores NeverFreezeCPU keeps free, at least 0.
-	KeepFreeCPU *int `json:"keepFreeCPU,omitempty"`
-	// GPUForAgents turns "GPU for agents" on or off.
-	GPUForAgents *bool `json:"gpuForAgents,omitempty"`
 	// AutoStopIdle turns "auto-stop idle agents" on or off.
 	AutoStopIdle *bool `json:"autoStopIdle,omitempty"`
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
@@ -569,14 +462,6 @@ type UpdateSettingsRequest struct {
 	// LeadRecheckMinutes is how often, from 5 to 1440.
 	LeadRecheck        *bool `json:"leadRecheck,omitempty"`
 	LeadRecheckMinutes *int  `json:"leadRecheckMinutes,omitempty"`
-	// SharedBudget turns the shared agent budget on or off. On is refused
-	// until its cgroup is set up (SharedBudget.NotReady).
-	SharedBudget *bool `json:"sharedBudget,omitempty"`
-	// SharedBudgetMemory, SharedBudgetSwap and SharedBudgetCPU size it; ""
-	// (or 0 cores) goes back to what this host is suggested.
-	SharedBudgetMemory *string `json:"sharedBudgetMemory,omitempty"`
-	SharedBudgetSwap   *string `json:"sharedBudgetSwap,omitempty"`
-	SharedBudgetCPU    *int    `json:"sharedBudgetCPU,omitempty"`
 	// DiskFloorMin sets Settings.DiskFloorMin, in bytes, 0 going back to the
 	// default; DiskFloorPercent sets Settings.DiskFloorPercent, a negative
 	// one going back to the default.
@@ -593,19 +478,6 @@ const (
 	MediaRetentionMonth       = "30d"
 	MediaRetentionForever     = "forever"
 )
-
-// Limits are the resource limits on an agent's machine, as Incus applies them.
-// Empty means no limit.
-type Limits struct {
-	CPU       string `json:"cpu"`       // cores, as a count like "4"
-	Allowance string `json:"allowance"` // a share of the CPUs: "50%", or "25ms/100ms"
-	Memory    string `json:"memory"`    // a ceiling, like "8GiB"
-	// ConfiguredCPU is what CPU was actually chosen — CPU itself, unless
-	// "never freeze my CPU" (Settings.NeverFreezeCPU) is holding it below
-	// that to keep the host from being starved. Equal to CPU whenever that
-	// isn't happening.
-	ConfiguredCPU string `json:"configuredCPU"`
-}
 
 type Agent struct {
 	Ref        string `json:"ref"`
@@ -636,38 +508,9 @@ type Agent struct {
 	State        string     `json:"state"` // running, stopped, paused, initializing, incomplete, missing or queued
 	// QueuePosition is a queued agent's place in its project's queue, 1 for
 	// the next to start; absent for any other agent.
-	QueuePosition int    `json:"queuePosition,omitempty"`
-	IP            string `json:"ip"`
-	// Limits is what its machine is capped at, read from Incus rather than
-	// remembered: the machine is the truth, and it can be changed from
-	// outside AgentBox.
-	Limits Limits `json:"limits"`
-	// MemoryShortage is set while its machine is thrashing at its memory
-	// limit: held at it, and re-reading from disk what it had to drop to stay
-	// under it, which slows the whole host down. nil the rest of the time.
-	MemoryShortage *MemoryShortage `json:"memoryShortage,omitempty"`
-	CreatedAt      time.Time       `json:"createdAt"`
-}
-
-// MemoryShortage is how badly an agent is short of memory, measured from its
-// cgroup over the last half a minute (agent.ThrashWatch).
-type MemoryShortage struct {
-	Since time.Time `json:"since"`
-	// Pressure is the share of the last minute, in percent, that some of its
-	// processes were stalled waiting on memory (PSI's "some avg60").
-	Pressure float64 `json:"pressure"`
-	// RefaultRate is how fast it reads back pages it had only just dropped,
-	// and ReadRate how fast it reads from disk at all, in bytes a second.
-	RefaultRate int64 `json:"refaultRate"`
-	ReadRate    int64 `json:"readRate"`
-	// Limit is its own memory ceiling in bytes; 0 when it has none, and it's
-	// the shared budget it's held by (InBudget).
-	Limit    int64 `json:"limit"`
-	InBudget bool  `json:"inBudget"`
-	// RaiseTo is the memory limit to offer it, like "8GiB": twice what it
-	// has, within the shared budget or what the host can spare. Empty when
-	// there's no room to offer more; set it with UpdateAgentRequest.Memory.
-	RaiseTo string `json:"raiseTo,omitempty"`
+	QueuePosition int       `json:"queuePosition,omitempty"`
+	IP            string    `json:"ip"`
+	CreatedAt     time.Time `json:"createdAt"`
 }
 
 // WorktreeFiles is an agent's or a project's lead's worktree files, for @
@@ -728,13 +571,6 @@ type CreateAgentRequest struct {
 	// project base catches the base up, and the task is told what was done,
 	// or what failed. An agent that isn't behind is left as it is.
 	CatchUp bool `json:"catchUp,omitempty"`
-	// CPU, Memory and CPUAllowance cap this one agent's machine, whatever new
-	// agents are capped at. Absent falls back to that default; an explicit ""
-	// is a choice, and removes the cap for this agent alone, which is why all
-	// three are pointers.
-	CPU          *string `json:"cpu,omitempty"`
-	Memory       *string `json:"memory,omitempty"`
-	CPUAllowance *string `json:"cpuAllowance,omitempty"`
 	// FinishNotice is this one agent's own choice of what it does to the
 	// project's chat when it genuinely finishes: "chat" wakes it and "off"
 	// only records the finish. It only matters when the project's own
@@ -761,10 +597,9 @@ type QueueStatus struct {
 	// Enabled is Settings.AgentQueue: off, nothing queues and the slots
 	// below are only what they would be.
 	Enabled bool `json:"enabled"`
-	// Budget is the memory auto slots are shared from, in bytes: the shared
-	// budget, the VM's memory in VM mode, or what the shared budget would be
-	// on this host. Reserve is what's kept free of it, so auto slots share
-	// Budget - Reserve.
+	// Budget is the memory auto slots are shared from, in bytes: the VM's
+	// memory. Reserve is what's kept free of it, so auto slots share Budget -
+	// Reserve.
 	Budget  int64 `json:"budget"`
 	Reserve int64 `json:"reserve"`
 	// Projects is every project, the ones with nothing queued or running
@@ -844,14 +679,6 @@ type UpdateAgentRequest struct {
 	GitHubAccount *string `json:"githubAccount,omitempty"`
 	// Interface switches between the chat and the AI tool's command line.
 	Interface *string `json:"interface,omitempty"`
-	// CPU, Memory and CPUAllowance change what the agent's machine is capped
-	// at, while it runs: Incus applies all three to a running instance. ""
-	// removes that cap. A memory ceiling below what the agent is using is
-	// refused — Incus would take it, and the kernel would kill processes
-	// inside the agent to get under it.
-	CPU          *string `json:"cpu,omitempty"`
-	Memory       *string `json:"memory,omitempty"`
-	CPUAllowance *string `json:"cpuAllowance,omitempty"`
 }
 
 type Snapshot struct {
@@ -873,13 +700,6 @@ type RestoreRequest struct {
 // image, for its worktree, branch and chat, which stay as they are: what
 // `agentbox vm migrate` does for each agent it moves into AgentBox's VM.
 type RecreateRequest struct {
-	// CPU, Memory and CPUAllowance cap the new machine, as CreateAgentRequest's
-	// do: absent is what new agents get, and an explicit "" is no cap. Limits
-	// the machine can't have (more memory than it has) fall back to what new
-	// agents get.
-	CPU          *string `json:"cpu,omitempty"`
-	Memory       *string `json:"memory,omitempty"`
-	CPUAllowance *string `json:"cpuAllowance,omitempty"`
 	// Home is a directory, on the daemon's machine, whose contents go into
 	// the agent user's home before its AI tool starts: the old machine's chat
 	// sessions, so its chat resumes where it was.
@@ -1055,12 +875,6 @@ type AgentUsage struct {
 	// disks over the sample, in bytes a second, from its cgroup's io.stat.
 	DiskRead  int64 `json:"diskRead"`
 	DiskWrite int64 `json:"diskWrite"`
-	// Limits is what this agent's machine is capped at, and Cores is how many
-	// cores its CPU figure can add up to: its own limit, or the host's cores
-	// when it has none. CPU as a share of the host says the machine is busy;
-	// CPU as a share of Cores says whether this agent is the one at its wall.
-	Limits Limits  `json:"limits"`
-	Cores  float64 `json:"cores"`
 }
 
 type Usage struct {
@@ -1114,7 +928,6 @@ type MemoryUsageAgent struct {
 	State  string `json:"state"`
 	Memory int64  `json:"memory"`
 	Swap   int64  `json:"swap"`
-	Limit  int64  `json:"limit"` // 0 is no limit
 }
 
 // ZramUsage is what a host's zram swap devices report: SwapBytes is the
@@ -1139,17 +952,12 @@ type MemoryUsage struct {
 	Agents     []MemoryUsageAgent `json:"agents"`
 }
 
-// CPUUsageAgent is one agent's share of the host's CPU: its current use, and
-// the cores it's carved out of — ConfiguredCores is what was chosen,
-// EffectiveCores what actually applies right now, which "never freeze my
-// CPU" may hold below it when the host is busy.
+// CPUUsageAgent is one agent's share of the host's CPU: its current use.
 type CPUUsageAgent struct {
-	Ref             string  `json:"ref"`
-	Title           string  `json:"title,omitempty"`
-	State           string  `json:"state"`
-	CPU             float64 `json:"cpu"`
-	ConfiguredCores string  `json:"configuredCores,omitempty"`
-	EffectiveCores  string  `json:"effectiveCores,omitempty"`
+	Ref   string  `json:"ref"`
+	Title string  `json:"title,omitempty"`
+	State string  `json:"state"`
+	CPU   float64 `json:"cpu"`
 }
 
 // CPUUsage is the host's CPU, broken down the way the "Host CPU" popover
@@ -1585,10 +1393,6 @@ const (
 	// EventUpdate carries a new UpdateStatus: a check found something, or the
 	// setting behind it changed.
 	EventUpdate = "update"
-	// EventBudget says the agents in the shared budget started or stopped
-	// thrashing at its memory together (SharedBudget.Shortage), so a client
-	// reads Settings again.
-	EventBudget = "budget"
 	// EventIncus carries a new IncusStatus: Incus stopped answering the
 	// daemon, or answers again.
 	EventIncus = "incus"
@@ -1742,10 +1546,6 @@ type AgentChange struct {
 	State   string `json:"state"`
 	IP      string `json:"ip,omitempty"`
 	Removed bool   `json:"removed,omitempty"`
-	// ShortOfMemory flips when the agent starts or stops thrashing at its
-	// memory limit (Agent.MemoryShortage), which the agent itself says more
-	// about.
-	ShortOfMemory bool `json:"shortOfMemory,omitempty"`
 	// QueuePosition is a queued agent's place in its project's queue
 	// (Agent.QueuePosition), so the sidebar's "Queued #N" follows it.
 	QueuePosition int `json:"queuePosition,omitempty"`

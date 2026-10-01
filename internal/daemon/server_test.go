@@ -96,11 +96,10 @@ func TestMain(m *testing.M) {
 	_ = os.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
 	// The daemon runs git itself, so git's isolation from the developer's
 	// configuration has to be the whole process's too.
-	// Nor on this host's shared budget, or what an earlier version of it
-	// left on the disk, which the daemon resets at start: a developer's
-	// cgroup may well be usable. A test that wants one points
-	// agent.BudgetDir at a directory of its own.
-	agent.BudgetDir = filepath.Join(os.TempDir(), fmt.Sprintf("agentbox-no-budget-%d", os.Getpid()))
+	// Nor on what an earlier release's shared budget left on this host,
+	// which the daemon resets at start: a developer's cgroup may well be
+	// writable.
+	agent.OldBudgetDir = filepath.Join(os.TempDir(), fmt.Sprintf("agentbox-no-budget-%d", os.Getpid()))
 	cleanup, err := testutil.IsolateGit()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

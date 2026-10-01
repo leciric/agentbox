@@ -65,27 +65,6 @@ const (
 	// (Haiku 4.5 sends no effort option). So this is the levels Claude Code
 	// has been seen to name, not a promise about one model.
 	SettingClaudeEffortChoices = "claude_effort_choices"
-	// SettingDefaultCPU is how many cores a new agent's machine gets, as a
-	// count like "4". Unlike the settings above, "" is not "AgentBox's own
-	// default" but a real choice — every core, no limit — so this key is read
-	// with SettingValue, which says whether it was ever set at all. An
-	// installation that has never chosen is seeded with 2 cores, or fewer on a
-	// one-core host, when the daemon starts (see agent.DefaultLimits).
-	SettingDefaultCPU = "default_cpu"
-	// SettingDefaultCPUAllowance is the share of the CPUs a new agent gets
-	// (Incus limits.cpu.allowance): "50%", or "25ms/100ms". "" is all of it.
-	SettingDefaultCPUAllowance = "default_cpu_allowance"
-	// SettingDefaultMemory is the memory ceiling on a new agent's machine,
-	// like "8GiB". "" is no ceiling, and read with SettingValue like the CPU
-	// default. An installation that has never chosen is seeded with 8GiB, or
-	// half the host's memory when that is less (see agent.DefaultMemory).
-	SettingDefaultMemory = "default_memory"
-	// SettingDefaultMemorySeeded records that SettingDefaultMemory was seeded
-	// with a ceiling. Before it was, every installation was seeded with "",
-	// and a stored "" can't say whether the user chose it or the daemon wrote
-	// it; this key is how the daemon gives those installations the ceiling
-	// once, and never again.
-	SettingDefaultMemorySeeded = "default_memory_seeded"
 	// SettingOpenCodeModelChoices is the model menu OpenCode last advertised,
 	// as JSON, remembered for the same reason as the Claude Code menus: which
 	// models OpenCode can run depends on which providers the login has keys
@@ -172,16 +151,6 @@ const (
 	// machine. Made on the first check or problem report, so an installation
 	// that never sends either never has one.
 	SettingInstallID = "install_id"
-	// SettingNeverFreezeCPU says whether the daemon keeps every running
-	// agent's limits.cpu adding up to at most the host's cores minus
-	// SettingKeepFreeCPU, so the sum of what agents are capped at can't starve
-	// the host the way an uncapped make -j on all of them would (D95). Off
-	// until somebody turns it on, so an installation that has never touched it
-	// keeps exactly the behaviour it had before this setting existed.
-	SettingNeverFreezeCPU = "never_freeze_cpu"
-	// SettingKeepFreeCPU is how many cores SettingNeverFreezeCPU keeps free
-	// for the host, as a count. Empty means DefaultKeepFreeCPU.
-	SettingKeepFreeCPU = "keep_free_cpu"
 	// SettingDiskFloorMin and SettingDiskFloorPercent are the free space the
 	// disk guard keeps on every disk AgentBox writes to (agent.DiskFloor):
 	// bytes, and a percentage of the disk, the larger of the two. Empty means
@@ -192,12 +161,6 @@ const (
 	// resumed yet, as a JSON list of refs, so a daemon restarted while a disk
 	// was at its floor still resumes them when there's room again.
 	SettingDiskGuardPaused = "disk_guard_paused"
-	// SettingGPUForAgents says whether the daemon passes the host's GPU into
-	// every agent's container, as an Incus gpu device (D-gpu): only offered
-	// where agent.HostGPU finds one, and off until somebody turns it on, so an
-	// installation that has never touched it keeps every agent exactly as
-	// unaccelerated as it was before this setting existed.
-	SettingGPUForAgents = "gpu_for_agents"
 	// SettingAutoStopIdle says whether the daemon stops a running or paused
 	// agent once it has gone SettingIdleTime with nothing happening: no chat
 	// turn in progress, no running job, no pending question or credential
@@ -211,19 +174,6 @@ const (
 	// SettingIdleTime is how long SettingAutoStopIdle waits, as a count of
 	// seconds. Empty means DefaultIdleTime.
 	SettingIdleTime = "idle_time"
-	// SettingSharedBudget says whether every agent's machine runs under one
-	// parent cgroup, /sys/fs/cgroup/agentbox, with one memory, swap and CPU
-	// budget for all of them together, so an idle agent's share goes to a
-	// busy one (agent.SharedBudget). Off until the user turns it on.
-	SettingSharedBudget = "shared_budget"
-	// SettingSharedBudgetMemory, SettingSharedBudgetSwap and
-	// SettingSharedBudgetCPU are the budget itself: the memory agents may use,
-	// the host's less it being reserved for its own apps (agent/reserve.go), a
-	// size for memory.swap.max, and a count of cores for cpu.max. Empty means
-	// what agent.SuggestBudget works out for this host.
-	SettingSharedBudgetMemory = "shared_budget_memory"
-	SettingSharedBudgetSwap   = "shared_budget_swap"
-	SettingSharedBudgetCPU    = "shared_budget_cpu"
 	// SettingAgentQueue turns the agent queue on: creates may queue, and
 	// queued agents wait for one of their project's slots. Off until the user
 	// turns it on, and off, nothing queues and no slots are enforced — an
@@ -280,11 +230,6 @@ func (s *Store) AutoStopIdle(ctx context.Context) (on bool, idleTime time.Durati
 	}
 	return on, idleTime, nil
 }
-
-// DefaultKeepFreeCPU is how many cores SettingNeverFreezeCPU keeps free for
-// the host when nobody has chosen: one, enough for the desktop around the
-// agents to stay responsive without giving up much of what they can run on.
-const DefaultKeepFreeCPU = 1
 
 // DefaultMediaRetention is how long a removed agent's media is kept when
 // nobody chose: long enough to look at what it did the day after, short

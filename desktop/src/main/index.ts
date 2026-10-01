@@ -10,7 +10,7 @@ import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
 import { EventStream } from './events';
-import { hostSetupStatus, onMac, runBudgetSetup, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
+import { hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
@@ -208,10 +208,6 @@ ipcMain.handle('vmmigrate:status', () => vmMigration());
 ipcMain.handle('vmmigrate:run', (_event, removeOld?: boolean) =>
   runVMMigration((text) => send('vmmigrate:output', text), removeOld === true),
 );
-
-// The shared agent budget's cgroup, made as root through pkexec for the same
-// reason: the daemon runs as you. Settings asks the daemon again afterwards.
-ipcMain.handle('hostsetup:budget', () => runBudgetSetup());
 
 // On Windows the daemon only knows the WSL distro's paths: the picker starts in
 // the distro, where projects belong, and what it picks is given in Linux terms.

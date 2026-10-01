@@ -102,7 +102,7 @@ function followEvents() {
       // not an event we understand
     }
   };
-  const types = [T.EventJob, T.EventJobLog, T.EventAgent, T.EventUsage, T.EventProject, T.EventMedia, T.EventPulls, T.EventTheme, T.EventUpdate, T.EventBudget, T.EventLAN, T.EventChat, T.EventChatCache, T.EventQuestion, T.EventAgentEvent];
+  const types = [T.EventJob, T.EventJobLog, T.EventAgent, T.EventUsage, T.EventProject, T.EventMedia, T.EventPulls, T.EventTheme, T.EventUpdate, T.EventLAN, T.EventChat, T.EventChatCache, T.EventQuestion, T.EventAgentEvent];
   for (const type of types) es.addEventListener(type, deliver as EventListener);
 }
 
@@ -190,7 +190,6 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     status: () => Promise.resolve<HostSetupStatus>({ pkexec: null, user: '', running: false, resizing: false, vm: null, wsl: null }),
     run: unavailable('Setting the host up'),
     onOutput: () => () => {},
-    budget: unavailable('Setting the shared budget up'),
   },
   vmMigrate: {
     status: () => Promise.resolve(null),

@@ -164,13 +164,6 @@ function CPUMeter({ host, onSelect }: { host: T.HostUsage; onSelect: (view: View
   );
 }
 
-function coresLabel(a: T.CPUUsageAgent): string {
-  const effective = a.effectiveCores || 'every core';
-  const configured = a.configuredCores || 'every core';
-  if (effective === configured) return effective === 'every core' ? effective : `${effective} cores`;
-  return `${effective} of ${configured} cores`;
-}
-
 function CPUUsageBreakdown({
   host,
   query,
@@ -202,7 +195,6 @@ function CPUUsageBreakdown({
               state={a.state}
               onSelect={onSelect}
               value={`${a.cpu.toFixed(0)}%`}
-              detail={coresLabel(a)}
             />
           ))}
           <div className="flex items-center justify-between gap-3 border-t border-line pt-1.5 text-[11.5px] text-muted">
@@ -215,25 +207,21 @@ function CPUUsageBreakdown({
   );
 }
 
-// AgentUsageRow is one agent in the CPU or memory popover: a link to the
-// agent, its usage, and a Stop button — Pause isn't enough for either meter,
-// since a paused agent still holds its memory, and stopping is what frees it.
+// AgentUsageRow is one agent in the CPU popover: a link to the agent, its
+// usage, and a Stop button — Pause isn't enough, since a paused agent still
+// holds its memory, and stopping is what frees it.
 function AgentUsageRow({
   agentRef,
   title,
   state,
   onSelect,
   value,
-  detail,
-  note,
 }: {
   agentRef: string;
   title?: string;
   state: string;
   onSelect: (view: View) => void;
   value: string;
-  detail: string;
-  note?: string;
 }) {
   const queryClient = useQueryClient();
   const stop = useMutation({
@@ -276,8 +264,6 @@ function AgentUsageRow({
           )}
         </span>
       </div>
-      <span className="truncate text-[11px] text-faint">{detail}</span>
-      {note && <span className="text-[10.5px] text-amber-300/80">{note}</span>}
     </div>
   );
 }

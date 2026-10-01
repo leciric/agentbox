@@ -362,7 +362,7 @@ function QueueOffNote() {
 }
 
 // SlotsSetting chooses how many of this project's agents may run at once: 0
-// (Auto) shares the shared budget fairly with every other project, by how
+// (Auto) shares the VM's memory fairly with every other project, by how
 // much memory each one's agents actually use; a fixed number pins it,
 // whatever else is running. GET /v1/queue's ProjectSlots says what Auto comes
 // to right now, whether the per-agent figure is learned from this project's
@@ -396,7 +396,7 @@ function SlotsSetting({ project }: { project: T.Project }) {
     <SettingRow
       label="Agents at once"
       description={auto ? (mine ? `Auto: currently ${mine.slots}${perAgent ? `, ${perAgent}` : ''}.` : 'Auto: split fairly with other projects, by memory.') : `Up to ${project.slots} of this project's agents run at once; the rest queue.`}
-      details="Whatever doesn't fit queues instead of starting, and starts as soon as a slot frees up. Auto gives every active project at least one slot and splits what's left of the shared budget by how much memory each project's agents actually use, least-memory projects first."
+      details="Whatever doesn't fit queues instead of starting, and starts as soon as a slot frees up. Auto gives every active project at least one slot and splits what's left of the VM's memory by how much memory each project's agents actually use, least-memory projects first."
       control={
         <Select
           aria-label="Agents at once"
@@ -728,7 +728,7 @@ function SyncBaseToggle({ project }: { project: T.Project }) {
 
 // NestingToggle turns nesting on for this project's agents: a real Incus
 // daemon of their own, inside their own container, for testing AgentBox
-// features that touch agent machines (limits, GPU, image builds) for real.
+// features that touch agent machines (image builds, devices, networking) for real.
 // Off by default, and only offered once the base image is built with Incus,
 // since that's what it needs to nest.
 function NestingToggle({ project }: { project: T.Project }) {
@@ -753,7 +753,7 @@ function NestingToggle({ project }: { project: T.Project }) {
           ? 'A new agent gets a real Incus daemon of its own, to test AgentBox itself.'
           : 'Build the base image with Incus first: agentbox image build --incus.'
       }
-      details="For a project whose agents work on AgentBox: they can test the features that touch agent machines — limits, GPU, image builds — for real. It costs isolation: the agent can make and run containers of its own."
+      details="For a project whose agents work on AgentBox: they can test the features that touch agent machines — image builds, devices, networking — for real. It costs isolation: the agent can make and run containers of its own."
       control={
         <Switch
           id="project-nesting"
