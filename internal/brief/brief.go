@@ -16,9 +16,13 @@ var source string
 //go:embed lead.md.tmpl
 var leadSource string
 
+//go:embed home.md.tmpl
+var homeSource string
+
 var (
 	tmpl     = template.Must(template.New("brief").Parse(source))
 	leadTmpl = template.Must(template.New("lead").Parse(leadSource))
+	homeTmpl = template.Must(template.New("home").Parse(homeSource))
 )
 
 type Data struct {
@@ -168,6 +172,26 @@ func RenderLead(d LeadData) (string, error) {
 	d.Notes = strings.TrimSpace(d.Notes)
 	d.Recap = strings.TrimSpace(d.Recap)
 	return render(leadTmpl, d)
+}
+
+// HomeData is what the Home chat's brief is rendered from: the user's main
+// chat, across every project and tied to none.
+type HomeData struct {
+	Dir      string // its working directory, ~/.agentbox
+	Projects []HomeProject
+	// VM and Host are LeadData's: where the chat's shell is.
+	VM   bool
+	Host string
+}
+
+// HomeProject is one project the Home chat is told about.
+type HomeProject struct {
+	Name string
+	Root string
+}
+
+func RenderHome(d HomeData) (string, error) {
+	return render(homeTmpl, d)
 }
 
 func render(t *template.Template, d any) (string, error) {

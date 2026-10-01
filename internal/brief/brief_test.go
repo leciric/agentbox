@@ -739,3 +739,31 @@ func TestRenderLeadQueueAndRecheck(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderHome checks the Home chat's brief, with projects and without.
+func TestRenderHome(t *testing.T) {
+	for name, projects := range map[string][]brief.HomeProject{
+		"home":       {{Name: "pawly", Root: "/home/dev/www/pawly"}, {Name: "agentbox", Root: "/home/dev/www/agentbox"}},
+		"home-empty": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := brief.RenderHome(brief.HomeData{Dir: "/home/dev/.agentbox", Projects: projects, VM: true, Host: "a Linux host"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			golden := filepath.Join("testdata", name+".golden")
+			if *update {
+				if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			want, err := os.ReadFile(golden)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != string(want) {
+				t.Errorf("RenderHome() mismatch (run with -update to accept)\n--- got ---\n%s\n--- want ---\n%s", got, want)
+			}
+		})
+	}
+}

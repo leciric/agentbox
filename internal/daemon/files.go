@@ -65,6 +65,10 @@ func (s *Server) listFiles(from agentFrom) func(http.ResponseWriter, *http.Reque
 		if err != nil {
 			return err
 		}
+		if a.IsHome() {
+			// AgentBox's own folder, not a repository: nothing to mention.
+			return writeJSON(w, http.StatusOK, api.WorktreeFiles{Files: []string{}})
+		}
 		root := a.Worktree
 		if root == "" {
 			// The project's chat hasn't started yet, so it has no worktree of its
