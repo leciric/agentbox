@@ -106,7 +106,7 @@ export function ErrorReportOffer({ error, onClose }: { error: UncaughtError | nu
             </span>
           </button>
           {shown && (
-            <pre className="max-h-56 min-w-0 overflow-auto whitespace-pre-wrap break-all border-t border-line bg-sunken px-3 py-2 font-mono text-[11px] leading-relaxed text-secondary">
+            <pre className="max-h-56 min-w-0 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] border-t border-line bg-sunken px-3 py-2 font-mono text-[11px] leading-relaxed text-secondary">
               {preview}
             </pre>
           )}

@@ -167,7 +167,7 @@ function SectionRow({ section, included, onIncluded }: { section: T.ReportSectio
         </button>
       </div>
       {shown && (
-        <pre className="max-h-64 min-w-0 overflow-auto whitespace-pre-wrap break-all border-t border-line bg-sunken px-3 py-2 font-mono text-[11px] leading-relaxed text-secondary">
+        <pre className="max-h-64 min-w-0 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere] border-t border-line bg-sunken px-3 py-2 font-mono text-[11px] leading-relaxed text-secondary">
           {section.content}
         </pre>
       )}

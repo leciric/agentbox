@@ -150,9 +150,13 @@ func (s *Server) systemReport(ctx context.Context) string {
 	}
 	line("Setup", map[bool]string{true: "ready", false: "not ready"}[setup.Ready])
 	for _, c := range setup.Checks {
-		fmt.Fprintf(&b, "  %-14s %s", c.ID, c.Status)
-		if c.Status != api.SetupOK && c.Detail != "" {
-			fmt.Fprintf(&b, ": %s", c.Detail)
+		switch {
+		case c.Status == api.SetupOK || c.Detail == "":
+			fmt.Fprintf(&b, "  %-14s %s", c.ID, c.Status)
+		case strings.HasPrefix(c.Detail, c.Status+":"):
+			fmt.Fprintf(&b, "  %-14s %s", c.ID, c.Detail) // it says the status itself
+		default:
+			fmt.Fprintf(&b, "  %-14s %s: %s", c.ID, c.Status, c.Detail)
 		}
 		b.WriteString("\n")
 	}
