@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
 import { AgentView, type AgentTab } from "./components/AgentView";
+import { ErrorReports } from "./components/ErrorReports";
 import { HomeView } from "./components/HomeView";
 import { JobsView } from "./components/JobsView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
@@ -278,6 +279,7 @@ export function App() {
         onClose={() => setNewAgentProject(null)}
         onCreated={(ref) => select({ kind: "agent", ref })}
       />
+      <ErrorReports />
       {info.data && (
         <WhatsNewDialog
           open={whatsNew}

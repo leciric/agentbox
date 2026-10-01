@@ -966,6 +966,8 @@ let defaultsSettings = {
   claudeCompactWindow: 200_000,
   updateCheck: true,
   usageStats: true,
+  errorReports: false,
+  errorReportsAsked: false,
   prWatch: true,
   defaultClaudeCompactWindow: 200_000,
   neverFreezeCPU: false,
@@ -1042,6 +1044,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'claudeCompactWindow',
     'updateCheck',
     'usageStats',
+    'errorReports',
     'prWatch',
     'mediaRetention',
     'agentQueue',
@@ -1050,6 +1053,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   ] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
   }
+  if (req.errorReports !== undefined) next.errorReportsAsked = true;
   for (const [model, win] of [
     [next.defaultClaudeModel || 'opus', next.defaultAgentContextWindow],
     [next.defaultLeadModel || 'default', next.defaultLeadContextWindow],
@@ -1610,6 +1614,7 @@ export function installDevBridge(): void {
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },
     mediaUrl: (id: string) => mediaFiles.get(id) ?? '',
+    report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '' },
     pickDirectory: async () => null,
     openPath: async () => '',
     showItem: async () => {},
