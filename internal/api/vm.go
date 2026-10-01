@@ -84,7 +84,27 @@ type VMStatus struct {
 	// has, and a write the host can't take would corrupt them. It's resumed
 	// once the host has twice that free again.
 	PausedForDisk bool `json:"pausedForDisk,omitempty"`
+	// Swap is the VM's swap: what `agentbox vm swap` set, and, while a Cloud
+	// Hypervisor VM runs, what it has and uses. Missing in ModeHost.
+	Swap *VMSwap `json:"swap,omitempty"`
 }
+
+// VMSwap is the VM's swap, in bytes. `agentbox vm swap on` makes it a
+// swapfile on the VM's own disk, listed in its /etc/fstab so it's back after
+// a restart; the VM has none until then.
+type VMSwap struct {
+	// Size is the swapfile `agentbox vm swap` last made: 0 when it's off.
+	Size int64 `json:"size"`
+	// Total and Used are the swap the running VM has and uses
+	// (/proc/meminfo's SwapTotal, and SwapTotal less SwapFree): 0 when it's
+	// off, and when that can't be read cheaply (a Lima VM).
+	Total int64 `json:"total"`
+	Used  int64 `json:"used"`
+}
+
+// VMSwapDefault is the swapfile `agentbox vm swap on` makes when it isn't
+// given a size, and the app's switch starts at.
+const VMSwapDefault = int64(8) << 30
 
 // VMDiskBackstop is the free space on the host's disk below which the
 // supervisor pauses the VM (VMStatus.PausedForDisk): the last line, under

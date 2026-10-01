@@ -71,6 +71,7 @@ import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { VMMigrate } from "./VMMigrate";
 import { CHVSize, VMSize } from "./VMSize";
+import { VMSwap } from "./VMSwap";
 import { MoveToVM, moveToVMKeywords } from "./RunInVM";
 import { pushToTalkGroup, useReadAloudGroup } from "./VoiceSettings";
 
@@ -1153,6 +1154,17 @@ function InstalledSettings({
                         <CHVSize vm={chv} busy={hostSetup.data?.resizing === true} />
                       ) : (
                         <VMSize vm={vm!} busy={hostSetup.data?.resizing === true} />
+                      ),
+                  },
+                  {
+                    id: "vm-swap",
+                    label: "VM swap",
+                    keywords: "swap swapfile memory disk virtual machine",
+                    render: () =>
+                      chv ? (
+                        <VMSwap swap={chv.swap} running={chv.state === "running"} />
+                      ) : (
+                        <VMSwap swap={vm!.swap} running={vm!.status === "Running"} />
                       ),
                   },
                 ],

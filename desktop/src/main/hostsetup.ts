@@ -97,6 +97,9 @@ export interface VMStatus {
   // Whether `agentbox vm init` would make the VM with krunkit, which gives
   // memory back to the Mac: only before there's a VM, on Apple Silicon.
   krunkit?: KrunkitCheck;
+  // What `agentbox vm swap` set: size only, Lima's VM isn't asked what it
+  // uses. Missing before there's a VM, and from an older front end.
+  swap?: T.VMSwap;
 }
 
 export interface KrunkitCheck {
@@ -575,6 +578,31 @@ ipcMain.handle("vm:resize", (event, cpus: number, memory: string, restart?: bool
     },
     typeof disk === "string" && disk !== "" ? disk : undefined,
   ),
+);
+
+let swapping: Promise<void> | undefined;
+
+// swapVM gives AgentBox's running VM a swapfile of size (like 8GiB), or takes
+// its swap away with null: `agentbox vm swap on --size …` or `off`, streaming
+// what it prints to onOutput. Every agent keeps running. The command refuses
+// a size that would leave the VM's disk under its disk floor, and a VM that
+// isn't running.
+export function swapVM(size: string | null, onOutput: (text: string) => void): Promise<void> {
+  if (onWindows) return Promise.reject(new Error("AgentBox's WSL distro has no swap to change"));
+  if (!onMac && !linuxVM()) return Promise.reject(new Error("AgentBox doesn't run in a VM on this machine"));
+  if (swapping) return Promise.reject(new Error("AgentBox's VM's swap is already changing"));
+  const args = size === null ? ["swap", "off"] : ["swap", "on", "--size", size];
+  swapping = runVM(args, "changing AgentBox's VM's swap failed", onOutput).finally(() => {
+    swapping = undefined;
+    lastCHV = undefined;
+  });
+  return swapping;
+}
+
+ipcMain.handle("vm:swap", (event, size: string | null) =>
+  swapVM(size, (text) => {
+    if (!event.sender.isDestroyed()) event.sender.send("vm:swap-output", text);
+  }),
 );
 
 // runVM runs `agentbox vm <args>` and streams what it prints to onOutput. It

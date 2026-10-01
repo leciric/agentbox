@@ -208,6 +208,9 @@ func (s *supervisor) status(ctx context.Context) api.VMStatus {
 	st.PausedForDisk = s.pausedForDisk && s.state == api.VMPaused
 	if s.sample != nil {
 		st.Memory.Used = s.sample.Used()
+		if running {
+			st.Swap = &api.VMSwap{Total: s.sample.SwapTotal, Used: s.sample.SwapTotal - s.sample.SwapFree}
+		}
 	}
 	requested := s.mem.Requested
 	s.mu.Unlock()
