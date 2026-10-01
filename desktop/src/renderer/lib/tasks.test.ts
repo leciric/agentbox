@@ -2,7 +2,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { taskActions, taskFromText, taskLane, taskLanes, taskListCounts, taskOutcome, taskText, type TasksApi } from './tasks.ts';
+import {
+  taskActions,
+  taskFromText,
+  taskLane,
+  taskLanes,
+  taskListCounts,
+  taskOutcome,
+  taskTarget,
+  taskText,
+  type TasksApi,
+} from './tasks.ts';
 
 const task = (id: string, extra: Partial<T.Task> = {}): T.Task => ({
   id,
@@ -26,8 +36,8 @@ function recorder() {
     addTask: record('addTask'),
     updateTask: record('updateTask'),
     deleteTask: record('deleteTask'),
-    createAgent: record('createAgent'),
-    removeQueued: record('removeQueued'),
+    startTask: record('startTask'),
+    unqueueTask: record('unqueueTask'),
     moveQueued: record('moveQueued'),
   };
   return { calls, actions: taskActions(api, 'p') };
@@ -46,9 +56,9 @@ test("a task's lane follows its agent: queued, running, or gone", () => {
 
 test('the queue is in the order it starts, the backlog newest first', () => {
   const agents = new Map([
-    ['a1', { state: 'queued', queuePosition: 2 }],
-    ['a2', { state: 'queued', queuePosition: 1 }],
-    ['a3', { state: 'running' }],
+    ['a1', { state: 'queued', queuePosition: 2, createdAt: '2026-10-01T00:00:02Z' }],
+    ['a2', { state: 'queued', queuePosition: 1, createdAt: '2026-10-01T00:00:01Z' }],
+    ['a3', { state: 'running', createdAt: '2026-10-01T00:00:00Z' }],
   ]);
   const lanes = taskLanes(
     [task('t1', { agent: 'a1' }), task('t2', { agent: 'a2' }), task('t3', { agent: 'a3' }), task('t4'), task('t5'), task('t6', { status: 'abandoned' })],
@@ -74,8 +84,8 @@ test('the queue is in the order it starts, the backlog newest first', () => {
 
 test('the Open list is the queue, in progress and the backlog; Done is the rest, latest closed first', () => {
   const agents = new Map([
-    ['a1', { state: 'queued', queuePosition: 1 }],
-    ['a2', { state: 'running' }],
+    ['a1', { state: 'queued', queuePosition: 1, createdAt: '2026-10-01T00:00:01Z' }],
+    ['a2', { state: 'running', createdAt: '2026-10-01T00:00:00Z' }],
   ]);
   const lanes = taskLanes(
     [
@@ -136,13 +146,51 @@ test('creating, editing, finishing and deleting a task are one call each', async
   ]);
 });
 
-test('queueing a backlog task makes a queued agent for it, and the backlog takes it back out', async () => {
+test('queueing a backlog task queues it where it goes, and the backlog takes it back out', async () => {
   const { calls, actions } = recorder();
   await actions.setLane(task('t1'), undefined, 'queue');
   await actions.setLane(task('t2', { agent: 'a2' }), { name: 'a2', state: 'queued' }, 'backlog');
+  await actions.setLane(task('t3', { leadQueuedAt: '2026-10-01T00:00:03Z' }), undefined, 'backlog');
   assert.deepEqual(calls, [
-    ['createAgent', { project: 'p', taskId: 't1', queue: true, ai: 'claude' }],
-    ['removeQueued', 'p', 'a2'],
+    ['startTask', 'p', 't1', { queue: true }],
+    ['unqueueTask', 'p', 't2'],
+    ['unqueueTask', 'p', 't3'],
+  ]);
+});
+
+test("a task goes where it chose, else where the setting says, else to a new agent", () => {
+  assert.equal(taskTarget(task('t1'), undefined), 'agent');
+  assert.equal(taskTarget(task('t1'), 'agent'), 'agent');
+  assert.equal(taskTarget(task('t1'), 'lead'), 'lead');
+  assert.equal(taskTarget(task('t1', { route: 'agent' }), 'lead'), 'agent');
+  assert.equal(taskTarget(task('t1', { route: 'lead' }), 'agent'), 'lead');
+});
+
+test("a task queued for the lead is queued, one the lead has is running, and neither needs an agent", () => {
+  assert.equal(taskLane(task('t1', { leadQueuedAt: '2026-10-01T00:00:01Z' }), undefined), 'queue');
+  assert.equal(taskLane(task('t1', { agent: 'lead', status: 'active' }), undefined), 'running');
+  assert.equal(taskLane(task('t1', { agent: 'lead', status: 'done' }), undefined), 'done');
+});
+
+test('a task queued for the lead waits behind the agents queued before it', () => {
+  const agents = new Map([
+    ['a1', { state: 'queued', queuePosition: 1, createdAt: '2026-10-01T00:00:01Z' }],
+    ['a2', { state: 'queued', queuePosition: 2, createdAt: '2026-10-01T00:00:05Z' }],
+  ]);
+  const lanes = taskLanes([task('t1', { agent: 'a1' }), task('t2', { agent: 'a2' }), task('t3', { leadQueuedAt: '2026-10-01T00:00:03Z' })], agents);
+  assert.deepEqual(
+    lanes.queue.map((t) => t.id),
+    ['t1', 't3', 't2'],
+  );
+});
+
+test("choosing a task's route sets it on the task, and following the setting clears it", async () => {
+  const { calls, actions } = recorder();
+  await actions.setRoute(task('t1'), 'lead');
+  await actions.setRoute(task('t1', { route: 'lead' }), '');
+  assert.deepEqual(calls, [
+    ['updateTask', 'p', 't1', { route: 'lead' }],
+    ['updateTask', 'p', 't1', { route: '' }],
   ]);
 });
 
@@ -163,7 +211,7 @@ test('a task whose agent is gone is let go before it is queued again', async () 
   await actions.setLane(task('t1', { agent: 'gone' }), undefined, 'queue');
   assert.deepEqual(calls, [
     ['updateTask', 'p', 't1', { agent: '' }],
-    ['createAgent', { project: 'p', taskId: 't1', queue: true, ai: 'claude' }],
+    ['startTask', 'p', 't1', { queue: true }],
   ]);
 });
 
@@ -177,8 +225,8 @@ test('reordering moves the queued agent, never above first', async () => {
   ]);
 });
 
-test('with the queue off, starting a task makes its agent now', async () => {
+test('with the queue off, starting a task sends it now', async () => {
   const { calls, actions } = recorder();
   await actions.start(task('t1'), undefined);
-  assert.deepEqual(calls, [['createAgent', { project: 'p', taskId: 't1', ai: 'claude' }]]);
+  assert.deepEqual(calls, [['startTask', 'p', 't1', {}]]);
 });

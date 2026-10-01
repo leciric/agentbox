@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/memory"
 )
@@ -301,5 +302,79 @@ func TestDeleteTask(t *testing.T) {
 	}
 	if err := s.DeleteTask(ctx, "other", blocker.ID); !errors.Is(err, memory.ErrNotFound) {
 		t.Errorf("deleting another project's task = %v, want not found", err)
+	}
+}
+
+// A task goes where it chose, when it chose; otherwise where the setting says,
+// and to a new agent when the setting says nothing it knows.
+func TestEffectiveTaskRoute(t *testing.T) {
+	for _, c := range []struct{ route, setting, want string }{
+		{memory.TaskRouteFollow, "", memory.TaskRouteAgent},
+		{memory.TaskRouteFollow, memory.TaskRouteAgent, memory.TaskRouteAgent},
+		{memory.TaskRouteFollow, memory.TaskRouteLead, memory.TaskRouteLead},
+		{memory.TaskRouteFollow, "something else", memory.TaskRouteAgent},
+		{memory.TaskRouteAgent, memory.TaskRouteLead, memory.TaskRouteAgent},
+		{memory.TaskRouteLead, memory.TaskRouteAgent, memory.TaskRouteLead},
+		{memory.TaskRouteLead, "", memory.TaskRouteLead},
+	} {
+		if got := memory.EffectiveTaskRoute(c.route, c.setting); got != c.want {
+			t.Errorf("EffectiveTaskRoute(%q, %q) = %q, want %q", c.route, c.setting, got, c.want)
+		}
+	}
+}
+
+// A task's route and its place in the lead's queue are kept, changed and read
+// back; a route outside the set is refused.
+func TestTaskRouteAndLeadQueue(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	task := addTask(t, s, "p", "Split the settings page")
+	if task.Route != memory.TaskRouteFollow || !task.LeadQueuedAt.IsZero() {
+		t.Fatalf("a new task = %+v, want it following the setting and not queued", task)
+	}
+	if _, err := s.AddTask(ctx, memory.Task{Project: "p", Goal: "x", Route: "robot"}); err == nil {
+		t.Error("a task was written down with an unknown route")
+	}
+	if _, err := s.UpdateTask(ctx, "p", task.ID, memory.TaskPatch{Route: new("robot")}); err == nil {
+		t.Error("a task was given an unknown route")
+	}
+
+	lead := memory.TaskRouteLead
+	when := time.Now()
+	if _, err := s.UpdateTask(ctx, "p", task.ID, memory.TaskPatch{Route: &lead, LeadQueuedAt: &when}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Task(ctx, "p", task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Route != memory.TaskRouteLead || got.LeadQueuedAt.UnixMilli() != when.UnixMilli() {
+		t.Errorf("the task read back = %+v, want it the lead's and queued at %v", got, when)
+	}
+	addTask(t, s, "q", "Another project's")
+	if queue, err := s.LeadQueue(ctx, "p"); err != nil || len(queue) != 1 || queue[0].ID != task.ID {
+		t.Errorf("p's lead queue = %+v, %v; want the one task", queue, err)
+	}
+	done := memory.TaskDone
+	if _, err := s.UpdateTask(ctx, "p", task.ID, memory.TaskPatch{Status: &done}); err != nil {
+		t.Fatal(err)
+	}
+	if queue, err := s.LeadQueue(ctx, "p"); err != nil || len(queue) != 0 {
+		t.Errorf("the lead queue once its task is done = %+v, %v; want nothing", queue, err)
+	}
+	open := memory.TaskOpen
+	if _, err := s.UpdateTask(ctx, "p", task.ID, memory.TaskPatch{Status: &open}); err != nil {
+		t.Fatal(err)
+	}
+
+	follow, none := memory.TaskRouteFollow, time.Time{}
+	if _, err := s.UpdateTask(ctx, "p", task.ID, memory.TaskPatch{Route: &follow, LeadQueuedAt: &none}); err != nil {
+		t.Fatal(err)
+	}
+	if queue, err := s.LeadQueue(ctx, ""); err != nil || len(queue) != 0 {
+		t.Errorf("the lead queue after unqueueing = %+v, %v; want nothing", queue, err)
+	}
+	if got, _ := s.Task(ctx, "p", task.ID); got.Route != memory.TaskRouteFollow {
+		t.Errorf("the route after going back to the setting = %q", got.Route)
 	}
 }

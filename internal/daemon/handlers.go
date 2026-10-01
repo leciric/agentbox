@@ -995,9 +995,20 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) error {
 // byLead says the project's chat asked for the agent, so it is waiting to hear
 // how its task went (D87).
 func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api.CreateAgentRequest, byLead bool) error {
-	p, err := s.store.Project(r.Context(), req.Project)
+	j, err := s.createAgentJob(r.Context(), req, byLead)
 	if err != nil {
 		return err
+	}
+	return writeJSON(w, http.StatusAccepted, j)
+}
+
+// createAgentJob is createAgentFrom's work, for a caller that answers with
+// more than the job: the job that makes the agent, or the finished one that
+// queued it.
+func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest, byLead bool) (api.Job, error) {
+	p, err := s.store.Project(ctx, req.Project)
+	if err != nil {
+		return api.Job{}, err
 	}
 	if req.AI == "" {
 		req.AI = "claude"
@@ -1005,8 +1016,8 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	// A model or effort this agent could never run on is a mistake worth
 	// seeing now, in the reply to the request that made it, rather than in a
 	// job that has already started copying a machine.
-	if err := s.manager(nil).ChatChoices(r.Context(), req.AI, req.Model, req.Effort); err != nil {
-		return err
+	if err := s.manager(nil).ChatChoices(ctx, req.AI, req.Model, req.Effort); err != nil {
+		return api.Job{}, err
 	}
 	// The lead is held to Settings → Models: the model and window chosen there
 	// are either the only ones it may give an agent or the most it may, and
@@ -1014,13 +1025,13 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	// choice quietly changed. The user, in the dialog or the command line,
 	// isn't.
 	if byLead {
-		if err := s.manager(nil).CheckLeadChoice(r.Context(), p, req.AI, req.Model, req.ContextWindow); err != nil {
-			return err
+		if err := s.manager(nil).CheckLeadChoice(ctx, p, req.AI, req.Model, req.ContextWindow); err != nil {
+			return api.Job{}, err
 		}
 	}
 	// And for a branch that could never be one.
 	if err := agent.CheckBranchSlug(req.Branch); err != nil {
-		return err
+		return api.Job{}, err
 	}
 	// Same for the account: unknown, outside the project's allow-list, or
 	// named for a tool that isn't Claude Code are all mistakes this can see
@@ -1030,18 +1041,18 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	// notice below, for what Create can still fail at once the job is
 	// running).
 	if _, err := s.manager(nil).CheckLogin(req.AI, p, req.ClaudeAccount); err != nil {
-		return err
+		return api.Job{}, err
 	}
 	if req.Connectors != nil {
-		if err := s.manager(nil).CheckConnectorLimit(r.Context(), p.Name, *req.Connectors); err != nil {
-			return err
+		if err := s.manager(nil).CheckConnectorLimit(ctx, p.Name, *req.Connectors); err != nil {
+			return api.Job{}, err
 		}
 	}
 	// A task of the plan the agent is for: its words are the agent's task
 	// unless the request brings its own.
 	if req.TaskID != "" {
-		if err := s.taskForAgent(r.Context(), &req); err != nil {
-			return err
+		if err := s.taskForAgent(ctx, &req); err != nil {
+			return api.Job{}, err
 		}
 	}
 	queue := p.AlwaysQueue
@@ -1050,17 +1061,17 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	}
 	// With the agent queue off, nothing queues: every create makes its agent
 	// now, as it always has.
-	if on, err := s.store.Flag(r.Context(), state.SettingAgentQueue); err != nil || !on {
+	if on, err := s.store.Flag(ctx, state.SettingAgentQueue); err != nil || !on {
 		queue = false
 	}
 	if queue {
 		// A queued agent waits while a disk is at its floor (admitQueued).
-		return s.enqueueAgent(w, r.Context(), req, byLead)
+		return s.enqueueAgent(ctx, req, byLead)
 	}
 	if err := s.diskRefusal("creating an agent"); err != nil {
-		return err
+		return api.Job{}, err
 	}
-	return s.startJob(w, "create", req.Project, s.createJob(req, byLead, ""))
+	return s.launchJob("create", req.Project, s.createJob(req, byLead, ""))
 }
 
 // createJob is the job that makes an agent from req: a new one, or, when
@@ -1788,6 +1799,15 @@ func githubAccounts(creds credentials.Store) ([]api.GitHubAccount, error) {
 // Jobs
 
 func (s *Server) startJob(w http.ResponseWriter, kind, target string, fn func(context.Context, io.Writer) (any, error)) error {
+	j, err := s.launchJob(kind, target, fn)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusAccepted, j)
+}
+
+// launchJob is startJob without the answer: the job as it is now.
+func (s *Server) launchJob(kind, target string, fn func(context.Context, io.Writer) (any, error)) (api.Job, error) {
 	j, err := s.jobs.start(kind, target, func(ctx context.Context, log io.Writer) (any, error) {
 		s.logf("job %s started", kind+" "+target)
 		result, err := fn(ctx, log)
@@ -1797,9 +1817,9 @@ func (s *Server) startJob(w http.ResponseWriter, kind, target string, fn func(co
 		return result, err
 	})
 	if err != nil {
-		return err
+		return api.Job{}, err
 	}
-	return writeJSON(w, http.StatusAccepted, j.snapshot())
+	return j.snapshot(), nil
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) error {

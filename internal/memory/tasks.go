@@ -52,6 +52,38 @@ var TaskOpenStatuses = []string{TaskBlocked, TaskActive, TaskOpen}
 // TaskClosed reports whether a status means the task is over, either way.
 func TaskClosed(status string) bool { return status == TaskDone || status == TaskAbandoned }
 
+// Where a task goes when it starts: to a new agent of its own, or to the
+// project's lead, which may split it across several agents.
+const (
+	// TaskRouteFollow is a task that made no choice of its own: it goes where
+	// the installation's setting says, and follows that setting when it
+	// changes. Every task starts out this way.
+	TaskRouteFollow = ""
+	TaskRouteAgent  = "agent"
+	TaskRouteLead   = "lead"
+)
+
+// TaskRoutes are the routes a task may have.
+var TaskRoutes = []string{TaskRouteFollow, TaskRouteAgent, TaskRouteLead}
+
+// TaskLead is the owner a task handed to the project's lead has, in Agent:
+// the lead's own agent name, so it reads as "the lead's" wherever a task's
+// agent is shown.
+const TaskLead = "lead"
+
+// EffectiveTaskRoute is where a task with this route goes when the
+// installation's setting is this: its own choice when it made one, else the
+// setting's, and a new agent when the setting names nothing it knows.
+func EffectiveTaskRoute(route, setting string) string {
+	switch {
+	case route == TaskRouteAgent || route == TaskRouteLead:
+		return route
+	case setting == TaskRouteLead:
+		return TaskRouteLead
+	}
+	return TaskRouteAgent
+}
+
 // Task is one piece of work the project has: what it is, who is on it, where
 // it sits in the plan and what it is waiting on.
 type Task struct {
@@ -67,9 +99,16 @@ type Task struct {
 	Goal string `json:"goal"`
 	// Detail is everything else — the task as it was handed over, and what
 	// has been reported about it since.
-	Detail    string    `json:"detail,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	Detail string `json:"detail,omitempty"`
+	// Route is where it goes when it starts (TaskRoutes): empty follows the
+	// installation's setting.
+	Route string `json:"route,omitempty"`
+	// LeadQueuedAt is when it joined its project's queue on its way to the
+	// lead, and zero when it isn't waiting there. Such a task has no agent
+	// yet: it gets the lead as its agent when it is handed over.
+	LeadQueuedAt time.Time `json:"leadQueuedAt,omitzero,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 	// ClosedAt is when it stopped being open, and zero while it still is. It
 	// is derived from Status on every write rather than set separately, so
 	// the two can never disagree.
@@ -113,6 +152,10 @@ type TaskPatch struct {
 	Detail   *string `json:"detail,omitempty"`
 	Agent    *string `json:"agent,omitempty"`
 	ParentID *string `json:"parentId,omitempty"`
+	Route    *string `json:"route,omitempty"`
+	// LeadQueuedAt puts the task in its project's queue for the lead, or a
+	// zero time takes it out.
+	LeadQueuedAt *time.Time `json:"leadQueuedAt,omitempty"`
 	// Pull is the pull request that finished the task, set with a status of
 	// done; it is dropped on any other status.
 	Pull *TaskPull `json:"pull,omitempty"`
@@ -126,7 +169,8 @@ type TaskPull struct {
 
 // Empty reports whether the patch asks for nothing.
 func (p TaskPatch) Empty() bool {
-	return p.Status == nil && p.Goal == nil && p.Detail == nil && p.Agent == nil && p.ParentID == nil && p.Pull == nil
+	return p.Status == nil && p.Goal == nil && p.Detail == nil && p.Agent == nil && p.ParentID == nil &&
+		p.Route == nil && p.LeadQueuedAt == nil && p.Pull == nil
 }
 
 // maxTaskGoal is how long a task's goal may be. It is a line somebody reads a
@@ -161,6 +205,9 @@ func (s *Store) AddTask(ctx context.Context, t Task) (Task, error) {
 	}
 	t.Goal, t.Detail = goal, detail
 	t.Agent = strings.TrimSpace(t.Agent)
+	if t.Route = strings.TrimSpace(t.Route); oneOf("a task's route", t.Route, TaskRoutes) != nil {
+		return Task{}, routeError(t.Route)
+	}
 	if t.ID == "" {
 		t.ID = newID("task")
 	}
@@ -182,10 +229,10 @@ func (s *Store) AddTask(ctx context.Context, t Task) (Task, error) {
 		}
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO tasks (id, project, agent, parent_task_id, status, goal, detail, created_at, updated_at, closed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO tasks (id, project, agent, parent_task_id, status, goal, detail, created_at, updated_at, closed_at, route, lead_queued_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.ID, t.Project, t.Agent, nullable(t.ParentID), t.Status, t.Goal, t.Detail,
-		t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), millis(t.ClosedAt))
+		t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), millis(t.ClosedAt), t.Route, millis(t.LeadQueuedAt))
 	if err != nil {
 		return Task{}, err
 	}
@@ -335,6 +382,16 @@ func (s *Store) UpdateTask(ctx context.Context, project, id string, patch TaskPa
 		}
 		updated.ParentID = parent
 	}
+	if patch.Route != nil {
+		route := strings.TrimSpace(*patch.Route)
+		if oneOf("a task's route", route, TaskRoutes) != nil {
+			return Task{}, routeError(route)
+		}
+		updated.Route = route
+	}
+	if patch.LeadQueuedAt != nil {
+		updated.LeadQueuedAt = stamp(*patch.LeadQueuedAt)
+	}
 	if patch.Pull != nil {
 		updated.PullURL, updated.PullNumber = strings.TrimSpace(patch.Pull.URL), patch.Pull.Number
 	}
@@ -346,14 +403,32 @@ func (s *Store) UpdateTask(ctx context.Context, project, id string, patch TaskPa
 	updated.ClosedAt = closedStamp(updated.Status, now, current.ClosedAt)
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE tasks SET agent = ?, parent_task_id = ?, status = ?, goal = ?, detail = ?, updated_at = ?, closed_at = ?,
-		 pull_url = ?, pull_number = ?
+		 route = ?, lead_queued_at = ?, pull_url = ?, pull_number = ?
 		 WHERE project = ? AND id = ?`,
 		updated.Agent, nullable(updated.ParentID), updated.Status, updated.Goal, updated.Detail,
-		updated.UpdatedAt.UnixMilli(), millis(updated.ClosedAt), updated.PullURL, updated.PullNumber, project, id)
+		updated.UpdatedAt.UnixMilli(), millis(updated.ClosedAt), updated.Route, millis(updated.LeadQueuedAt),
+		updated.PullURL, updated.PullNumber, project, id)
 	if err != nil {
 		return Task{}, err
 	}
 	return updated, nil
+}
+
+// routeError names the routes a task may have, the follow-the-setting one by
+// what it means rather than as an empty string.
+func routeError(route string) error {
+	return fmt.Errorf("a task's route is %q, %q or empty to follow the setting; %q isn't", TaskRouteAgent, TaskRouteLead, route)
+}
+
+// LeadQueue is the tasks waiting in a project's queue for its lead, the
+// longest-waiting first; every project's when project is empty.
+func (s *Store) LeadQueue(ctx context.Context, project string) ([]Task, error) {
+	// A task closed while it waited is no longer anybody's to hand out.
+	clause, args := `WHERE lead_queued_at > 0 AND status NOT IN (?, ?)`, []any{TaskDone, TaskAbandoned}
+	if project != "" {
+		clause, args = clause+` AND project = ?`, append(args, project)
+	}
+	return s.queryTasks(ctx, clause+` ORDER BY lead_queued_at, rowid`, args...)
 }
 
 // closedStamp keeps closed_at and status agreeing. A task that closes now
@@ -585,7 +660,7 @@ func (s *Store) fillEdges(ctx context.Context, project string, tasks []Task) err
 	return nil
 }
 
-const taskColumns = `id, project, agent, parent_task_id, status, goal, detail, created_at, updated_at, closed_at, pull_url, pull_number`
+const taskColumns = `id, project, agent, parent_task_id, status, goal, detail, created_at, updated_at, closed_at, route, lead_queued_at, pull_url, pull_number`
 
 func (s *Store) queryTasks(ctx context.Context, clause string, args ...any) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks `+clause, args...)
@@ -597,15 +672,16 @@ func (s *Store) queryTasks(ctx context.Context, clause string, args ...any) ([]T
 	for rows.Next() {
 		var t Task
 		var parent *string
-		var created, updated, closed int64
+		var created, updated, closed, leadQueued int64
 		if err := rows.Scan(&t.ID, &t.Project, &t.Agent, &parent, &t.Status, &t.Goal, &t.Detail,
-			&created, &updated, &closed, &t.PullURL, &t.PullNumber); err != nil {
+			&created, &updated, &closed, &t.Route, &leadQueued, &t.PullURL, &t.PullNumber); err != nil {
 			return nil, err
 		}
 		if parent != nil {
 			t.ParentID = *parent
 		}
 		t.CreatedAt, t.UpdatedAt, t.ClosedAt = attime(created), attime(updated), attime(closed)
+		t.LeadQueuedAt = attime(leadQueued)
 		out = append(out, t)
 	}
 	return out, rows.Err()

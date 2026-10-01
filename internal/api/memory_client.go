@@ -229,6 +229,21 @@ func (m *MemoryClient) DeleteTask(ctx context.Context, id string) error {
 	return m.c.do(ctx, http.MethodDelete, m.base+"/tasks/"+url.PathEscape(id), nil, nil)
 }
 
+// StartTask sends a task where it goes (Task.Route, else
+// Settings.TaskTarget): a new agent, or the project's chat. The user's routes
+// only, like AddTask.
+func (m *MemoryClient) StartTask(ctx context.Context, id string, req StartTaskRequest) (StartTaskResponse, error) {
+	var out StartTaskResponse
+	return out, m.c.do(ctx, http.MethodPost, m.base+"/tasks/"+url.PathEscape(id)+"/start", req, &out)
+}
+
+// UnqueueTask takes a queued task back out of the queue, whichever way it was
+// going. The user's routes only, like AddTask.
+func (m *MemoryClient) UnqueueTask(ctx context.Context, id string) (Task, error) {
+	var out Task
+	return out, m.c.do(ctx, http.MethodPost, m.base+"/tasks/"+url.PathEscape(id)+"/unqueue", nil, &out)
+}
+
 // LinkTasks says one task is waiting on another. A cycle is refused, with the
 // edge that would have closed it named.
 func (m *MemoryClient) LinkTasks(ctx context.Context, task, dependsOn string) error {

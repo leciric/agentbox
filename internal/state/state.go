@@ -759,6 +759,13 @@ var migrations = []string{
 	// task closed by hand, and on any task that isn't done.
 	`ALTER TABLE tasks ADD COLUMN pull_url TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tasks ADD COLUMN pull_number INTEGER NOT NULL DEFAULT 0`,
+
+	// Where a task of the Tasks tab goes when it starts: '' follows the
+	// installation's setting (task_target), 'agent' and 'lead' are the task's
+	// own choice. lead_queued_at is when a lead-bound task joined its
+	// project's queue, and 0 when it isn't waiting there.
+	`ALTER TABLE tasks ADD COLUMN route TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN lead_queued_at INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

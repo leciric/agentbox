@@ -1,15 +1,40 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, GitMerge, ListTodo, LoaderCircle, Pencil, Play, Plus, RotateCcw, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  GitMerge,
+  ListTodo,
+  LoaderCircle,
+  MessagesSquare,
+  Pencil,
+  Play,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { type TaskList, taskActions, taskLane, taskLanes, taskListCounts, taskOutcome, taskText } from '../lib/tasks';
+import {
+  leadOwner,
+  type TaskList,
+  taskActions,
+  taskLane,
+  taskLanes,
+  taskListCounts,
+  taskOutcome,
+  taskTarget,
+  taskText,
+  type TaskTarget,
+} from '../lib/tasks';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
 import { Button } from './ui/button';
 import { EmptyState, Notice, Panel } from './ui/card';
 import { Textarea } from './ui/input';
+import { Select, SelectOption } from './ui/select';
 
 // ProjectTasksPanel is the project's task list, which only the user writes:
 // nothing in AgentBox adds a task on its own, and neither the project's chat
@@ -17,9 +42,20 @@ import { Textarea } from './ui/input';
 // goes, or in the Queue, which hands it to the agent queue as a queued agent
 // (lib/tasks.ts); queued tasks can be moved up and down or sent back. With the
 // agent queue off there is no Queue: a backlog task's Start makes its agent
-// at once. What's done — by hand, or by its agent's pull request merging — is
-// a second list, switched to above the lanes.
-export function ProjectTasksPanel({ project, onSelect }: { project: string; onSelect: (view: View) => void }) {
+// at once. A task goes to a new agent or to the project's lead, as Settings'
+// "Tasks go to" says unless the task chose for itself; one the lead has shows
+// the lead as its owner, a link to the chat. What's done — by hand, or by its
+// agent's pull request merging — is a second list, switched to above the
+// lanes.
+export function ProjectTasksPanel({
+  project,
+  onSelect,
+  onOpenChat,
+}: {
+  project: string;
+  onSelect: (view: View) => void;
+  onOpenChat: () => void;
+}) {
   const queryClient = useQueryClient();
   const tasksQuery = useQuery({ queryKey: ['memoryTasks', project], queryFn: () => api.memoryTasks(project) });
   // Refetching every few seconds keeps the slot count and each task's queue
@@ -33,6 +69,7 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
 
   // The installation's own switch (Settings → Agents → Agent queue).
   const queueOn = settings.data?.agentQueue ?? false;
+  const target = settings.data?.taskTarget;
   const slots = queueQuery.data?.projects.find((p) => p.project === project);
   const agentsByName = new Map((agentsQuery.data ?? []).filter((a) => a.project === project).map((a) => [a.name, a] as const));
   const lanes = taskLanes(tasksQuery.data ?? [], agentsByName);
@@ -59,17 +96,26 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
     },
   });
 
+  // Only a task waiting for its agent moves in the queue: one waiting for the
+  // lead keeps its place behind the agents queued before it.
+  const agentQueue = lanes.queue.filter((t) => !t.leadQueuedAt);
   const row = (task: T.Task, index?: number) => {
     const agent = task.agent ? agentsByName.get(task.agent) : undefined;
+    const moveIndex = agentQueue.indexOf(task);
     return (
       <TaskRow
         key={task.id}
         task={task}
         agent={agent}
         queueOn={queueOn}
+        target={taskTarget(task, target)}
+        defaultTarget={taskTarget({}, target)}
         busy={act.isPending}
-        queueIndex={index}
-        queueLength={lanes.queue.length}
+        place={index}
+        queueIndex={index === undefined || moveIndex < 0 ? undefined : moveIndex}
+        queueLength={agentQueue.length}
+        onRoute={(route) => act.mutate(() => actions.setRoute(task, route))}
+        onOpenChat={onOpenChat}
         onLane={(lane) => act.mutate(() => actions.setLane(task, agent, lane))}
         onMove={(position) => agent && act.mutate(() => actions.move(agent.name, position))}
         onStart={() => act.mutate(() => actions.start(task, agent))}
@@ -86,7 +132,16 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
       {queueOn ? (
         <SlotsStrip slots={slots} loading={queueQuery.isPending} />
       ) : (
-        settings.data && <p className="px-1 text-[12px] text-subtle">Agent queue is off: a task's Start makes its agent right away. Turn the queue on in Settings to queue tasks instead.</p>
+        settings.data && (
+          <p className="px-1 text-[12px] text-subtle">
+            Agent queue is off: a task's Start {target === 'lead' ? 'sends it to the lead' : 'makes its agent'} right away. Turn the queue on in Settings to queue tasks instead.
+          </p>
+        )
+      )}
+      {settings.data && (
+        <p className="-mt-3 px-1 text-[12px] text-subtle" data-task-target={target}>
+          Tasks go to {target === 'lead' ? "the project's lead, which can split one across several agents" : 'a new agent each'}, unless a task says otherwise. Change it in Settings.
+        </p>
       )}
 
       <form
@@ -306,13 +361,52 @@ function LaneChoice({ lane, disabled, onChange, goal }: { lane: 'backlog' | 'que
   );
 }
 
+// RouteChoice is where a backlog task goes when it starts: wherever Settings'
+// "Tasks go to" says, which is every new task's, or a new agent or the lead
+// whatever that says.
+function RouteChoice({
+  route,
+  target,
+  defaultTarget,
+  goal,
+  disabled,
+  onChange,
+}: {
+  route: string | undefined;
+  target: TaskTarget;
+  defaultTarget: TaskTarget;
+  goal: string;
+  disabled: boolean;
+  onChange: (route: '' | TaskTarget) => void;
+}) {
+  const value = route === 'agent' || route === 'lead' ? route : '';
+  return (
+    <Select
+      aria-label={`Where “${goal}” goes`}
+      data-task-route={value || 'follow'}
+      data-task-target={target}
+      className="h-8 w-auto text-[12px]"
+      value={value} disabled={disabled} onChange={(next) => next !== value && onChange(next as '' | TaskTarget)}
+    >
+      <SelectOption value="">Follow setting ({defaultTarget === 'lead' ? 'the lead' : 'a new agent'})</SelectOption>
+      <SelectOption value="agent">A new agent</SelectOption>
+      <SelectOption value="lead">The lead</SelectOption>
+    </Select>
+  );
+}
+
 function TaskRow({
   task,
   agent,
   queueOn,
+  target,
+  defaultTarget,
   busy,
+  place,
   queueIndex,
   queueLength,
+  onRoute,
+  onOpenChat,
   onLane,
   onMove,
   onStart,
@@ -324,9 +418,14 @@ function TaskRow({
   task: T.Task;
   agent: T.Agent | undefined;
   queueOn: boolean;
+  target: TaskTarget;
+  defaultTarget: TaskTarget;
   busy: boolean;
+  place?: number;
   queueIndex?: number;
   queueLength: number;
+  onRoute: (route: '' | TaskTarget) => void;
+  onOpenChat: () => void;
   onLane: (lane: 'backlog' | 'queue') => void;
   onMove: (position: number) => void;
   onStart: () => void;
@@ -368,13 +467,23 @@ function TaskRow({
 
   return (
     <div className="panel flex flex-wrap items-start gap-3 rounded-2xl px-4 py-3" data-task={task.id} data-task-status={task.status}>
-      {lane === 'queue' && <span className="mt-0.5 w-6 shrink-0 text-center text-[12.5px] font-semibold text-subtle tabular-nums">#{agent?.queuePosition ?? (queueIndex ?? 0) + 1}</span>}
+      {lane === 'queue' && <span className="mt-0.5 w-6 shrink-0 text-center text-[12.5px] font-semibold text-subtle tabular-nums">#{(place ?? 0) + 1}</span>}
       <div className="min-w-0 flex-1">
         <p className={cn('text-[13.5px] font-medium text-primary', lane === 'done' && 'text-subtle line-through')}>{task.goal}</p>
         {task.detail && <p className="mt-1 line-clamp-2 whitespace-pre-line text-[12px] text-subtle">{task.detail}</p>}
         <p className="mt-1 text-[11px] text-faint">
           {timeAgo(task.createdAt)}
-          {lane === 'running' && agent && (
+          {lane === 'queue' && task.leadQueuedAt && ' · for the lead'}
+          {lane === 'running' && task.agent === leadOwner && (
+            <>
+              {' · '}
+              <button type="button" className="inline-flex items-center gap-1 text-tertiary underline-offset-2 hover:text-primary hover:underline" onClick={onOpenChat}>
+                <MessagesSquare className="size-3" />
+                lead
+              </button>
+            </>
+          )}
+          {lane === 'running' && agent && task.agent !== leadOwner && (
             <>
               {' · '}
               <button type="button" className="text-tertiary underline-offset-2 hover:text-primary hover:underline" onClick={() => onOpenAgent(`${task.project}/${agent.name}`)}>
@@ -385,6 +494,7 @@ function TaskRow({
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        {lane === 'backlog' && <RouteChoice route={task.route} target={target} defaultTarget={defaultTarget} goal={task.goal} disabled={busy} onChange={onRoute} />}
         {lane === 'queue' && queueIndex !== undefined && (
           <>
             <Button size="icon-sm" variant="ghost" aria-label={`Move “${task.goal}” up`} disabled={busy || queueIndex === 0} onClick={() => onMove(queueIndex)}>

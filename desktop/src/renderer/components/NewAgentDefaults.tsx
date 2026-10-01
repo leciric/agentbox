@@ -572,6 +572,40 @@ export function AgentQueue() {
   );
 }
 
+// TaskTarget is where a task of the Tasks tab goes when it starts: a new agent
+// of its own, the way it always did, or the project's lead, which can split
+// it across several agents. A task can choose for itself on its row; until it
+// does, it goes where this says.
+export function TaskTarget() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (taskTarget: string) => api.updateSettings({ taskTarget }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Tasks go to"
+      description="Where a task from a project's Tasks tab goes when it starts. The lead can split one across several agents, and takes no slot. A task can choose otherwise on its own row."
+      control={
+        <Select
+          data-task-target
+          aria-label="Tasks go to"
+          disabled={save.isPending || settings.data === undefined}
+          placeholder="Loading…"
+          value={settings.data?.taskTarget ?? ''}
+          onChange={(next) => save.mutate(next)}
+        >
+          <SelectOption value="agent">A new agent</SelectOption>
+          <SelectOption value="lead">The lead</SelectOption>
+        </Select>
+      }
+    />
+  );
+}
+
 // leadRecheckFallback is the minutes it defaults to once you turn it on.
 const leadRecheckFallback = 20;
 

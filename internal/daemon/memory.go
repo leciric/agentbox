@@ -103,6 +103,10 @@ var memoryRoutes = []struct {
 	{http.MethodDelete, "/tasks/{task}", "delete-task", false, true},
 	{http.MethodPost, "/tasks/link", "link-tasks", false, true},
 	{http.MethodPost, "/tasks/unlink", "unlink-tasks", false, true},
+	// Starting a task sends it where it goes (tasks.go): a new agent, or the
+	// project's chat. Unqueueing takes it back out of the queue either way.
+	{http.MethodPost, "/tasks/{task}/start", "start-task", false, true},
+	{http.MethodPost, "/tasks/{task}/unqueue", "unqueue-task", false, true},
 }
 
 // memoryHandler is one route of the memory surface, for whichever scope the
@@ -366,11 +370,11 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 				return err
 			}
 			patch := memory.TaskPatch{Status: req.Status, Goal: req.Goal,
-				Detail: req.Detail, Agent: req.Agent, ParentID: req.ParentID}
+				Detail: req.Detail, Agent: req.Agent, ParentID: req.ParentID, Route: req.Route}
 			// A queued task closed before it started leaves the queue: nothing
 			// should start for work that's over.
 			if req.Status != nil && memory.TaskClosed(*req.Status) && was.Open() {
-				unqueued, err := s.unqueueTask(ctx, was)
+				unqueued, err := s.unqueueAgentForTask(ctx, was)
 				if err != nil {
 					return err
 				}
@@ -393,6 +397,24 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			}
 			w.WriteHeader(http.StatusNoContent)
 			return nil
+
+		case "start-task":
+			var req api.StartTaskRequest
+			if err := readJSON(r, &req); err != nil {
+				return err
+			}
+			out, err := s.startTask(ctx, who.project, r.PathValue("task"), req)
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusOK, out)
+
+		case "unqueue-task":
+			out, err := s.unqueueTask(ctx, who.project, r.PathValue("task"))
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusOK, apiTask(out))
 
 		case "link-tasks", "unlink-tasks":
 			var req api.LinkTasksRequest
@@ -480,7 +502,7 @@ func taskFilter(r *http.Request) (memory.TaskFilter, error) {
 func apiTask(t memory.Task) api.Task {
 	return api.Task{
 		ID: t.ID, Project: t.Project, Agent: t.Agent, ParentID: t.ParentID, Status: t.Status,
-		Goal: t.Goal, Detail: t.Detail, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Goal: t.Goal, Detail: t.Detail, Route: t.Route, LeadQueuedAt: t.LeadQueuedAt, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 		ClosedAt: t.ClosedAt, PullURL: t.PullURL, PullNumber: t.PullNumber, DependsOn: t.DependsOn, Blocks: t.Blocks,
 	}
 }

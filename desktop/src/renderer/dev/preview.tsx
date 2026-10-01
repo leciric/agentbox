@@ -472,7 +472,7 @@ function Preview() {
   if (queue === 'tasks') {
     return (
       <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
-        <ProjectTasksPanel project={PROJECT} onSelect={() => {}} />
+        <ProjectTasksPanel project={PROJECT} onSelect={() => {}} onOpenChat={() => {}} />
       </div>
     );
   }
