@@ -78,6 +78,7 @@ export interface VMStatus {
   // Whether `agentbox vm init` would make the VM with krunkit, which gives
   // memory back to the Mac: only before there's a VM, on Apple Silicon.
   krunkit?: { available: boolean; missing?: 'krunkit' | 'driver' };
+  swap?: T.VMSwap; // what `agentbox vm swap` set (size only)
 }
 
 // VMPower is AgentBox's VM in VM mode (the daemon, Incus and every agent in
@@ -211,6 +212,11 @@ const bridge = {
   // output arrives on onOutput as it is printed.
   vm: {
     resize: (cpus: number, memory: string, restart?: boolean): Promise<void> => ipcRenderer.invoke('vm:resize', cpus, memory, restart),
+    // `agentbox vm swap`: a swapfile of size (like 8GiB) in the running VM,
+    // or none with null. Every agent keeps running; its output arrives on
+    // onSwapOutput, apart from a resize's.
+    swap: (size: string | null): Promise<void> => ipcRenderer.invoke('vm:swap', size),
+    onSwapOutput: (fn: (text: string) => void) => listen('vm:swap-output', fn),
     onOutput: (fn: (text: string) => void) => listen('vm:output', fn),
     // In VM mode, the VM's power and memory; null when AgentBox isn't in VM
     // mode. act resolves once the VM is in its new state, and after start or

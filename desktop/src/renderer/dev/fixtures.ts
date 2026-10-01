@@ -866,7 +866,12 @@ export function freeRun(queryClient: QueryClient, phase: string): FreeRun {
 // preview shows a resize in progress and after.
 function fakeVM() {
   const listeners = new Set<(text: string) => void>();
+  const swapListeners = new Set<(text: string) => void>();
   return {
+    onSwapOutput: (fn: (text: string) => void) => {
+      swapListeners.add(fn);
+      return () => swapListeners.delete(fn);
+    },
     onOutput: (fn: (text: string) => void) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
@@ -915,6 +920,33 @@ function fakeVM() {
         await new Promise((resolve) => setTimeout(resolve, 450));
         for (const fn of listeners) fn(line);
       }
+    },
+    // `agentbox vm swap`, against ?chv='s VM: made in a moment, while it runs.
+    swap: async (size: string | null) => {
+      const chv = devState.hostSetup?.chv;
+      if (!chv) throw new Error('AgentBox is not in VM mode');
+      if (chv.state !== 'running') throw new Error("AgentBox's VM is off: start it (agentbox vm start), then change its swap");
+      const GiB = 1024 ** 3;
+      const bytes = size === null ? 0 : parseFloat(size) * GiB;
+      // The VM's 120 GiB disk has 40 GiB free and keeps 10 GiB of it free.
+      if (bytes > 30 * GiB)
+        throw new Error(
+          `a ${size} swapfile would leave ${Math.max(40 - bytes / GiB, 0).toFixed(1)} GiB free on the VM's disk, under the 10.0 GiB it keeps free (the disk floor, in Settings): make it at most 30GiB`,
+        );
+      const lines =
+        size === null
+          ? ['$ agentbox vm swap off\n', "==> Turning AgentBox's VM's swap off\n", '    (took 0.4s)\n', "AgentBox's VM has no swap now.\n"]
+          : [
+              `$ agentbox vm swap on --size ${size}\n`,
+              `==> Making a ${size} swapfile in AgentBox's VM\n`,
+              '    (took 1.2s)\n',
+              `AgentBox's VM has ${size} of swap now, a swapfile on its own disk that it keeps across restarts.\n`,
+            ];
+      for (const line of lines) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        for (const fn of swapListeners) fn(line);
+      }
+      devState.hostSetup = { ...devState.hostSetup!, chv: { ...chv, swap: { size: bytes, total: bytes, used: 0 } } };
     },
     // The ?power= scenarios' VM (seedPower): each action takes a moment in
     // its transition, the way `agentbox vm start` and friends do.
@@ -1157,6 +1189,7 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
     disk: { size: 120 * GiB, used: 14 * GiB },
     limits: room,
     live: kind === 'live' ? room : undefined,
+    swap: kind === 'live' ? { size: 8 * GiB, total: 8 * GiB, used: 1.3 * GiB } : { size: 0, total: 0, used: 0 },
   };
   devState.hostSetup = {
     pkexec: '/usr/bin/pkexec',

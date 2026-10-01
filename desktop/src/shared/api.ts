@@ -1767,6 +1767,7 @@ export interface VMStatus {
   limits?: VMLimits;
   live?: VMLimits;
   pausedForDisk?: boolean;
+  swap?: VMSwap;
 }
 
 export interface VMMemory {
@@ -1781,6 +1782,12 @@ export interface VMDisk {
   size: number;
   used: number;
   hostFree?: number;
+}
+
+export interface VMSwap {
+  size: number;
+  total: number;
+  used: number;
 }
 
 export interface VMLimits {

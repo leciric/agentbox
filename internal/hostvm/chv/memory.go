@@ -80,6 +80,9 @@ const (
 type memSample struct {
 	Total     int64 // MemTotal: the memory that's plugged and online
 	Available int64 // MemAvailable: what could be had without swapping
+	// SwapTotal and SwapFree are the swap `agentbox vm swap` gave it, and
+	// what of it is free.
+	SwapTotal, SwapFree int64
 	// Pressure is the share of the last 10 s some task stalled on memory
 	// (PSI "some avg10"), in percent.
 	Pressure float64
@@ -273,6 +276,13 @@ func parseMemSample(out string) (memSample, error) {
 				s.Available = kb << 10
 			}
 			seen++
+		case "SwapTotal:", "SwapFree:":
+			kb, _ := strconv.ParseInt(f[1], 10, 64)
+			if f[0] == "SwapTotal:" {
+				s.SwapTotal = kb << 10
+			} else {
+				s.SwapFree = kb << 10
+			}
 		case "some":
 			for _, kv := range f[1:] {
 				if v, ok := strings.CutPrefix(kv, "avg10="); ok {
