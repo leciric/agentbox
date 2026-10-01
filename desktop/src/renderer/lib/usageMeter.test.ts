@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { pickMeter } from './usageMeter.ts';
+import { pickMeter, projectLimits } from './usageMeter.ts';
 
 const reading = (account: string, isDefault = false): T.ClaudeLimit => ({
   account,
@@ -44,4 +44,14 @@ test('Codex and OpenCode have no reading, so the meter hides', () => {
     assert.equal(pick.tool, ai);
     assert.equal(pick.reading, undefined);
   }
+});
+
+test("a project's Tokens tab shows its own account first, then its agents', and no other", () => {
+  const all = [reading('personal', true), reading('work'), reading('side')];
+  const mine = (ai: string, claudeAccount = '', of = 'agentbox') => ({ project: of, ai, claudeAccount }) as T.Agent;
+  const accounts = (p: T.Project, agents: T.Agent[] = []) => projectLimits({ limits: all, project: p, agents }).map((l) => l.account);
+  assert.deepEqual(accounts(project('work')), ['work']);
+  assert.deepEqual(accounts(project('')), ['personal']);
+  assert.deepEqual(accounts(project('work'), [mine('claude', 'work'), mine('claude'), mine('codex', 'side'), mine('claude', 'side', 'other')]), ['work', 'personal']);
+  assert.deepEqual(accounts(project('gone'), [mine('claude', 'side')]), ['side']);
 });
