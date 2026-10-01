@@ -307,9 +307,11 @@ if (settingsPage) seedSettings(queryClient);
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
 // ?page= shows whole pages, and their sections ask for what no other
-// scenario seeds: no limits read yet, and no secrets or connectors.
+// scenario seeds: no limits read yet, an empty queue, and no secrets or
+// connectors.
 if (page) {
   queryClient.setQueryData(['claudeLimits'], []);
+  queryClient.setQueryData(['queue', PROJECT], { enabled: true, budget: 0, reserve: 0, projects: [], queued: [] } satisfies T.QueueStatus);
   for (const target of [PROJECT, `${PROJECT}/${openAgent ?? 'agent-99'}`]) {
     queryClient.setQueryData(['secrets', target], []);
     queryClient.setQueryData(['connectors', target], []);
@@ -330,6 +332,7 @@ if (meters) {
 const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
 if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
 if (queue === 'tasks') tasksBridge();
+if (page) pageBridge();
 if (power) seedPower(queryClient, power);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
@@ -757,6 +760,21 @@ function tasksBridge(): void {
       queryClient.setQueryData(['memoryTasks', PROJECT], next);
       return answer(next.find((t) => t.id === id));
     }
+    return inner(method, path, body);
+  };
+}
+
+// pageBridge answers what a page's sections read and no fixture has: a
+// project's memory lists, with none, and an agent's diff, rather than the dev
+// bridge's generic {}.
+function pageBridge(): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  const lists = /^\/v1\/projects\/[^/]+\/memory\/(memories|events|artifacts|reports|duplicates|tasks)(\?|$)/;
+  bridge.request = async (method, path, body) => {
+    if (method === 'GET' && lists.test(path)) return { status: 200, body: '[]', contentType: 'application/json' };
+    if (method === 'GET' && path.endsWith('/diff?stat=true')) return { status: 200, body: JSON.stringify(' desktop/src/renderer/lib/tabs.ts | 46 ++++++\n 1 file changed, 46 insertions(+)'), contentType: 'application/json' };
     return inner(method, path, body);
   };
 }
