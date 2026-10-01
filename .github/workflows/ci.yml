@@ -33,6 +33,10 @@ jobs:
           key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
           restore-keys: go-${{ runner.os }}-
 
+      # TestRecordingsPlayInChromium encodes with a recording's own arguments
+      # and checks the file with ffprobe; without them it skips.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends ffmpeg
+
       - run: go vet ./...
 
       # The Incus tests are behind the `integration` build tag, so no ordinary

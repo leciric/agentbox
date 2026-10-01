@@ -290,6 +290,22 @@ func (e videoEncoder) pixelFormat() string {
 	return "-pix_fmt yuv420p "
 }
 
+// outputArgs are what a display recording is encoded with, after its input:
+// the filters, the codec, and an MP4 every Chromium plays and can show the
+// first frame of before it has the rest, which is what the Media grid's
+// thumbnails are. That means 4:2:0 (x11grab's frames are RGB, which libx264
+// would otherwise keep as High 4:4:4, which Chromium can't decode) and the
+// index at the front (+faststart), where the app reads it with its first range
+// request; TestRecordingsPlayInChromium encodes with these and checks both.
+func (e videoEncoder) outputArgs(fast bool) string {
+	return fmt.Sprintf("-vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2%s' -c:v %s %s %s-movflags +faststart", e.Filter, e.Codec, e.codecArgs(fast), e.pixelFormat())
+}
+
+// overlayEncodeArgs encode a desktop recording again with its keys and clicks
+// drawn on (burn_overlay), always in software, to the same kind of MP4 as
+// outputArgs.
+const overlayEncodeArgs = "-c:v libx264 -preset veryfast -crf 28 -pix_fmt yuv420p -movflags +faststart"
+
 // RecomputeGPU applies the installation's "GPU for agents" choice to every
 // agent this daemon knows about, the way RecomputeCPUCaps applies its own
 // setting: called wherever a change has to reach agents that already exist,

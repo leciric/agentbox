@@ -164,6 +164,10 @@ const bridge = {
   onConnection: (fn: (state: ConnectionState) => void) => listen('daemon:connection', fn),
   onEvent: (fn: (event: unknown) => void) => listen('daemon:event', fn),
   info: (): Promise<{ socket: string; version: string; electron: string; packaged: boolean; platform: string }> => ipcRenderer.invoke('app:info'),
+  // Whether push-to-talk may put Chromium on Vulkan (main/voicegpu.ts): saved
+  // is the choice, running what this run started with.
+  voiceGPU: (): Promise<{ saved: { vulkan: boolean }; running: { vulkan: boolean }; platform: string }> => ipcRenderer.invoke('voice:gpu'),
+  setVoiceGPU: (settings: { vulkan: boolean }): Promise<void> => ipcRenderer.invoke('voice:set-gpu', settings),
   // WebSocket endpoints of the API: bytes go as binary messages, strings as text messages.
   stream: {
     open: (path: string): Promise<number> => ipcRenderer.invoke('stream:open', path),

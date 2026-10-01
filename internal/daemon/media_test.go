@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -98,7 +99,7 @@ func TestMediaFilesAreServedWithRanges(t *testing.T) {
 		}
 	}
 
-	get := func(path, rangeHeader string) (int, string) {
+	getWithHeaders := func(path, rangeHeader string) (int, string, http.Header) {
 		req, err := http.NewRequest(http.MethodGet, "http://agentbox"+path, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -112,10 +113,37 @@ func TestMediaFilesAreServedWithRanges(t *testing.T) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, string(body)
+		return resp.StatusCode, string(body), resp.Header
 	}
-	if code, body := get("/v1/media/clip/file", "bytes=0-4"); code != http.StatusPartialContent || body != "hello" {
-		t.Errorf("a range of the video = %d %q, want 206 \"hello\"", code, body)
+	get := func(path, rangeHeader string) (int, string) {
+		code, body, _ := getWithHeaders(path, rangeHeader)
+		return code, body
+	}
+	// What a <video> needs to play and seek, and the Media grid to draw a
+	// recording's first frame: its type, and byte ranges, both the open
+	// "bytes=0-" Chromium starts with and a range from the middle.
+	for _, c := range []struct{ rng, body, contentRange string }{
+		{"bytes=0-4", "hello", "bytes 0-4/11"},
+		{"bytes=0-", "hello video", "bytes 0-10/11"},
+		{"bytes=6-", "video", "bytes 6-10/11"},
+	} {
+		code, body, h := getWithHeaders("/v1/media/clip/file", c.rng)
+		if code != http.StatusPartialContent || body != c.body {
+			t.Errorf("%s of the video = %d %q, want 206 %q", c.rng, code, body, c.body)
+		}
+		if got := h.Get("Content-Range"); got != c.contentRange {
+			t.Errorf("%s: Content-Range = %q, want %q", c.rng, got, c.contentRange)
+		}
+		if got, want := h.Get("Content-Length"), strconv.Itoa(len(c.body)); got != want {
+			t.Errorf("%s: Content-Length = %q, want %q", c.rng, got, want)
+		}
+		if got := h.Get("Content-Type"); got != "video/mp4" {
+			t.Errorf("%s: Content-Type = %q, want video/mp4", c.rng, got)
+		}
+	}
+	code, whole, h := getWithHeaders("/v1/media/clip/file", "")
+	if code != http.StatusOK || whole != "hello video" || h.Get("Accept-Ranges") != "bytes" || h.Get("Content-Type") != "video/mp4" {
+		t.Errorf("the whole video = %d %q, Accept-Ranges %q, Content-Type %q; want 200, bytes and video/mp4", code, whole, h.Get("Accept-Ranges"), h.Get("Content-Type"))
 	}
 	if code, body := get("/v1/media/report/file", ""); code != http.StatusOK || !strings.Contains(body, "12 passed") {
 		t.Errorf("the report's entry = %d %q", code, body)

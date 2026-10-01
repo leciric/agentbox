@@ -143,6 +143,9 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   onConnection: (fn) => listen(connectionListeners, fn),
   onEvent: (fn) => listen(eventListeners, fn),
   info: () => Promise.resolve({ socket: location.origin, version: 'web', electron: '', packaged: false, platform: 'web' }),
+  // The browser's own Chromium, whose switches the app can't choose.
+  voiceGPU: () => Promise.resolve({ saved: { vulkan: false }, running: { vulkan: false }, platform: 'web' }),
+  setVoiceGPU: () => Promise.resolve(),
   stream: {
     open: (path: string) => {
       const id = nextStream++;

@@ -1,15 +1,20 @@
 // Push-to-talk runs Whisper in the renderer (lib/voice), so all the main
 // process does for it is let the page have the microphone and the GPU.
-import { app, session } from 'electron';
+import { app, ipcMain, session } from 'electron';
+import { join } from 'node:path';
+import { chromiumSwitches, readVoiceGPU, writeVoiceGPU, type VoiceGPU } from './voicegpu';
 
-// enableWebGPU must run before the app is ready. Chromium ships WebGPU on
-// Linux behind these switches still: without them navigator.gpu finds no
-// adapter, and with enable-unsafe-webgpu alone only SwiftShader, the CPU
-// pretending to be a GPU; Vulkan is what reaches the real one.
+const voiceGPUFile = () => join(app.getPath('userData'), 'voice-gpu.json');
+
+// enableWebGPU must run before the app is ready: it puts the switches the
+// saved choice asks for on Chromium's command line (voicegpu.ts). The choice
+// is read once, here, so changing it in Settings takes effect on the next
+// start; voice:gpu answers with both what's saved and what this run has.
 export function enableWebGPU(): void {
-  if (process.platform !== 'linux') return;
-  app.commandLine.appendSwitch('enable-unsafe-webgpu');
-  app.commandLine.appendSwitch('enable-features', 'Vulkan');
+  const running = readVoiceGPU(voiceGPUFile());
+  for (const [name, value] of chromiumSwitches(running, process.platform)) app.commandLine.appendSwitch(name, value);
+  ipcMain.handle('voice:gpu', () => ({ saved: readVoiceGPU(voiceGPUFile()), running, platform: process.platform }));
+  ipcMain.handle('voice:set-gpu', (_event, settings: VoiceGPU) => writeVoiceGPU(voiceGPUFile(), { vulkan: settings.vulkan === true }));
 }
 
 // allowMicrophone lets the app's own page record audio (getUserMedia), and

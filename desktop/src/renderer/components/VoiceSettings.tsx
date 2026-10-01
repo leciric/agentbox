@@ -45,6 +45,12 @@ export function pushToTalkGroup(s: VoiceSettings): SettingGroup {
         render: () => <LanguageRow />,
       },
       {
+        id: 'voice-gpu',
+        label: 'Faster voice transcription (GPU, Vulkan)',
+        keywords: 'voice whisper gpu vulkan webgpu faster speed video white recordings restart',
+        render: () => <VulkanRow />,
+      },
+      {
         id: 'voice-downloads',
         label: 'Downloaded models',
         keywords: 'voice whisper download cache clear delete disk size',
@@ -67,7 +73,7 @@ function ModelRow() {
         device === 'webgpu' ? (
           <>Runs on the GPU with WebGPU{whisper.adapter ? ` (${whisper.adapter})` : ''}.</>
         ) : device === 'wasm' ? (
-          <span className="text-amber-300">No WebGPU here, so Whisper runs on the CPU: slower, and Automatic picks a smaller model. {whisper.reason}</span>
+          <span className="text-amber-300">No WebGPU here, so Whisper runs on the CPU: slower, and Automatic picks a smaller model. {whisper.reason} On Linux, Faster voice transcription, below, reaches the GPU.</span>
         ) : (
           'Looking for a GPU…'
         )
@@ -83,6 +89,42 @@ function ModelRow() {
           ))}
         </Select>
       }
+    />
+  );
+}
+
+// VulkanRow is the one push-to-talk setting the main process keeps rather
+// than localStorage, since it decides Chromium's switches before any page
+// loads (main/voicegpu.ts): it takes effect when AgentBox next starts.
+function VulkanRow() {
+  const queryClient = useQueryClient();
+  const gpu = useQuery({ queryKey: ['voice-gpu'], queryFn: () => window.agentbox.voiceGPU() });
+  const linux = gpu.data?.platform === 'linux';
+  const pending = gpu.data && gpu.data.saved.vulkan !== gpu.data.running.vulkan;
+  const set = async (vulkan: boolean) => {
+    try {
+      await window.agentbox.setVoiceGPU({ vulkan });
+      await queryClient.invalidateQueries({ queryKey: ['voice-gpu'] });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <SettingRow
+      label="Faster voice transcription (GPU, Vulkan)"
+      description={
+        !gpu.data ? null : gpu.data.platform === 'web' ? (
+          'Set in the desktop app.'
+        ) : !linux ? (
+          'Only needed on Linux: here WebGPU reaches the GPU on its own.'
+        ) : pending ? (
+          <span className="text-amber-300">Takes effect when you restart AgentBox.</span>
+        ) : (
+          'Lets Whisper run on your GPU through Vulkan. On some GPUs it breaks video: recordings in Media stay white and don’t play. Applies when AgentBox restarts.'
+        )
+      }
+      details="Chromium only reaches a Linux GPU from WebGPU with Vulkan turned on, and that moves the whole app's drawing onto Vulkan too, not only Whisper. Without it, Whisper runs on the CPU: slower, and Automatic picks a smaller model."
+      control={<Switch aria-label="Faster voice transcription (GPU, Vulkan)" disabled={!linux} checked={gpu.data?.saved.vulkan ?? false} onCheckedChange={(checked) => void set(checked)} />}
     />
   );
 }
