@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -68,40 +67,42 @@ var memoryRoutes = []struct {
 	path    string
 	action  string
 	inAgent bool
+	// userOnly marks the routes served on the user's socket alone, and not
+	// on a project chat's either: the task list is the user's to write.
+	userOnly bool
 }{
-	{http.MethodGet, "/events", "events", true},
-	{http.MethodPost, "/events", "append-event", true},
-	{http.MethodGet, "/memories", "memories", true},
-	{http.MethodPost, "/memories", "add-memory", false},
-	{http.MethodPost, "/search", "search", true},
-	{http.MethodGet, "/working", "working", true},
-	{http.MethodPatch, "/working", "set-working", false},
-	{http.MethodGet, "/artifacts", "artifacts", true},
-	{http.MethodPost, "/artifacts", "add-artifact", true},
-	{http.MethodGet, "/reports", "reports", true},
-	{http.MethodPost, "/reports", "add-report", true},
-	{http.MethodPost, "/context", "context", true},
-	{http.MethodGet, "/context/stats", "context-stats", true},
+	{http.MethodGet, "/events", "events", true, false},
+	{http.MethodPost, "/events", "append-event", true, false},
+	{http.MethodGet, "/memories", "memories", true, false},
+	{http.MethodPost, "/memories", "add-memory", false, false},
+	{http.MethodPost, "/search", "search", true, false},
+	{http.MethodGet, "/working", "working", true, false},
+	{http.MethodPatch, "/working", "set-working", false, false},
+	{http.MethodGet, "/artifacts", "artifacts", true, false},
+	{http.MethodPost, "/artifacts", "add-artifact", true, false},
+	{http.MethodGet, "/reports", "reports", true, false},
+	{http.MethodPost, "/reports", "add-report", true, false},
+	{http.MethodPost, "/context", "context", true, false},
+	{http.MethodGet, "/context/stats", "context-stats", true, false},
 	// Consolidation (D76). An agent reads how its project's memory is being
 	// kept, the same way it reads the memory itself; closing an issue and
 	// spending the project's tokens on a distillation are curation, and stay
 	// with the user and the lead.
-	{http.MethodGet, "/consolidation", "consolidation", true},
-	{http.MethodGet, "/duplicates", "duplicates", true},
-	{http.MethodPost, "/resolve", "resolve-memory", false},
-	{http.MethodPost, "/consolidate", "consolidate", false},
-	// The task graph (D77). A worker reads the whole of it — what everybody
-	// is on and what is waiting on what is exactly the thing it needs before
-	// it touches the same files — and updates its own task, which is the one
-	// row it is the authority on. Writing work down for somebody else,
-	// moving a task under another and drawing a blocking edge are curating
-	// the plan, and need every agent in view.
-	{http.MethodGet, "/tasks", "tasks", true},
-	{http.MethodGet, "/tasks/{task}", "task", true},
-	{http.MethodPost, "/tasks", "add-task", false},
-	{http.MethodPatch, "/tasks/{task}", "update-task", true},
-	{http.MethodPost, "/tasks/link", "link-tasks", false},
-	{http.MethodPost, "/tasks/unlink", "unlink-tasks", false},
+	{http.MethodGet, "/consolidation", "consolidation", true, false},
+	{http.MethodGet, "/duplicates", "duplicates", true, false},
+	{http.MethodPost, "/resolve", "resolve-memory", false, false},
+	{http.MethodPost, "/consolidate", "consolidate", false, false},
+	// The project's tasks (D77), which are the user's own list: an agent and
+	// the project's chat may read it, and only the user writes it, from the
+	// app's Tasks tab. Nothing in the daemon writes a task on its own either,
+	// beyond linking one to the agent the user started or queued for it.
+	{http.MethodGet, "/tasks", "tasks", true, false},
+	{http.MethodGet, "/tasks/{task}", "task", true, false},
+	{http.MethodPost, "/tasks", "add-task", false, true},
+	{http.MethodPatch, "/tasks/{task}", "update-task", false, true},
+	{http.MethodDelete, "/tasks/{task}", "delete-task", false, true},
+	{http.MethodPost, "/tasks/link", "link-tasks", false, true},
+	{http.MethodPost, "/tasks/unlink", "unlink-tasks", false, true},
 }
 
 // memoryHandler is one route of the memory surface, for whichever scope the
@@ -364,11 +365,8 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			if err != nil {
 				return err
 			}
-			patch, err := taskPatch(who, was, req)
-			if err != nil {
-				return err
-			}
-			out, err := m.UpdateTask(ctx, who.project, id, patch)
+			out, err := m.UpdateTask(ctx, who.project, id, memory.TaskPatch{Status: req.Status, Goal: req.Goal,
+				Detail: req.Detail, Agent: req.Agent, ParentID: req.ParentID})
 			if err != nil {
 				return err
 			}
@@ -376,6 +374,13 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 				s.captureTaskStatus(ctx, out, was.Status)
 			}
 			return writeJSON(w, http.StatusOK, apiTask(out))
+
+		case "delete-task":
+			if err := s.deleteTask(ctx, who.project, r.PathValue("task")); err != nil {
+				return err
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return nil
 
 		case "link-tasks", "unlink-tasks":
 			var req api.LinkTasksRequest
@@ -436,34 +441,6 @@ func (s *Server) buildContext(ctx context.Context, m *memory.Store, who memorySc
 		return api.ContextResult{}, err
 	}
 	return apiContext(built), nil
-}
-
-// taskPatch is what a caller is allowed to change about a task. From the
-// user's routes or a project chat's it is the whole of the request: curating
-// the plan is what those two are for. Inside an agent it is the status and
-// the detail of *its own* task and nothing else — a worker knows how its own
-// work is going better than anything else does, and knows nothing about
-// whether it should still be the one doing it, what contains it, or what it
-// is now called.
-func taskPatch(who memoryScope, task memory.Task, req api.UpdateTaskRequest) (memory.TaskPatch, error) {
-	patch := memory.TaskPatch{Status: req.Status, Goal: req.Goal, Detail: req.Detail,
-		Agent: req.Agent, ParentID: req.ParentID}
-	if who.agent == "" {
-		return patch, nil
-	}
-	if task.Agent != who.agent {
-		whose := "nobody's yet"
-		if task.Agent != "" {
-			whose = task.Agent + "'s"
-		}
-		return memory.TaskPatch{}, fmt.Errorf("%s is %s task, not yours: say how your own is going, and ask the project's chat to change the plan",
-			task.ID, whose)
-	}
-	if req.Goal != nil || req.Agent != nil || req.ParentID != nil {
-		return memory.TaskPatch{}, errors.New("an agent may say how its own task is going — its status and its detail — " +
-			"and not what the task is, who it belongs to or what contains it: that is the project chat's to decide")
-	}
-	return memory.TaskPatch{Status: req.Status, Detail: req.Detail}, nil
 }
 
 // taskFilter reads the query parameters of a task listing. ?open=true is the

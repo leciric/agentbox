@@ -145,15 +145,12 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		},
 		{
 			Name: "my_task",
-			Description: "The task you were made for, as the project's plan has it: what it is, where it stands, " +
-				"what it is part of, and what it is waiting on. Read it before you start — it is what the project's " +
-				"chat wrote down, which is not always the same as what your first message said — and read it again " +
-				"if you are about to go beyond it. It also shows the rest of the plan, so you can see what other " +
-				"agents are on before you touch the same files.",
+			Description: "The task from the user's task list you were made for, when the user started you from " +
+				"one: what it is, in their words. The list is the user's, and only they change it. It can also show " +
+				"the rest of the list, so you can see what else is planned before you touch the same files.",
 			Schema: object(nil, map[string]any{
 				"all": map[string]any{"type": "boolean",
-					"description": "show every open task of the project, not only yours. Useful before you change " +
-						"something somebody else is working on"},
+					"description": "show every open task on the user's list, not only yours"},
 			}),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct{ All bool }
@@ -161,45 +158,6 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return "", err
 				}
 				return describeMyTask(ctx, c, in.All), nil
-			},
-		},
-		{
-			Name: "update_my_task",
-			Description: "Say how your own task is going, so the project's plan is true while you are still " +
-				"working rather than only after you finish. Mark it \"active\" when you pick it up, \"blocked\" the " +
-				"moment something stops you — say what in detail, and ask the project's chat as well if you are " +
-				"waiting on a decision — and \"done\" when it is finished. This is not report: report is the " +
-				"structured record you file as you finish, and this is the one line of state the plan is read by " +
-				"while you are still going. You can only change your own task, and only its status and its detail: " +
-				"what the task is, who it belongs to and what it is part of are the project chat's to decide.",
-			Schema: object(nil, map[string]any{
-				"status": choiceOf("where your task now stands. \"active\" is you are on it. \"blocked\" is something "+
-					"is stopping you. \"done\" is finished. \"open\" is you put it back down without finishing it.",
-					"open", "active", "blocked", "done"),
-				"detail": str("what to record about it now, replacing what was there: how far you have got, and " +
-					"what is stopping you if anything is"),
-			}),
-			Run: func(args json.RawMessage) (string, error) {
-				var in struct {
-					Status *string
-					Detail *string
-				}
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				mine, err := myTask(ctx, c)
-				if err != nil {
-					return "", err
-				}
-				t, err := m.UpdateTask(ctx, mine.ID, api.UpdateTaskRequest{Status: in.Status, Detail: in.Detail})
-				if err != nil {
-					return "", err
-				}
-				if t.Status == api.TaskBlocked {
-					return fmt.Sprintf("%s is blocked. The project's chat sees it in project_state and in its next "+
-						"brief; if you need a decision to get past it, ask for one as well.", t.ID), nil
-				}
-				return fmt.Sprintf("%s is %s.", t.ID, t.Status), nil
 			},
 		},
 		{
@@ -277,8 +235,8 @@ func myTask(ctx context.Context, c *api.Client) (api.Task, error) {
 		return api.Task{}, err
 	}
 	if len(tasks) == 0 {
-		return api.Task{}, errors.New("the project's plan has no open task against your name. " +
-			"Say what you are doing in your report as you finish; the project's chat is what writes tasks down")
+		return api.Task{}, errors.New("the user's task list has no open task against your name: " +
+			"your task is the one in your first message")
 	}
 	return tasks[0], nil
 }
@@ -305,10 +263,6 @@ func describeMyTask(ctx context.Context, c *api.Client, all bool) string {
 	} else {
 		b.WriteString("Your task:\n")
 		b.WriteString(describeTasks([]api.Task{mine}))
-		if len(mine.DependsOn) > 0 {
-			b.WriteString("You are waiting on those. update_my_task marks yourself blocked; " +
-				"the project's chat is what unblocks the plan.\n")
-		}
 	}
 	if !all {
 		return b.String()
@@ -317,7 +271,7 @@ func describeMyTask(ctx context.Context, c *api.Client, all bool) string {
 	if err != nil || len(tasks) == 0 {
 		return b.String()
 	}
-	b.WriteString("\nEverything still open in this project:\n")
+	b.WriteString("\nEverything still open on the user's list:\n")
 	b.WriteString(describeTasks(tasks))
 	return b.String()
 }

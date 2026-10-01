@@ -234,3 +234,36 @@ func TestSubtasksRefuseACycle(t *testing.T) {
 		t.Errorf("a subtask couldn't be made to wait on its parent: %v", err)
 	}
 }
+
+// Deleting a task takes its edges with it both ways, and leaves its subtasks
+// standing on their own rather than pointing at nothing.
+func TestDeleteTask(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+
+	parent := addTask(t, s, "pawly", "Ship the reminders page")
+	child := addTask(t, s, "pawly", "Paginate it", func(in *memory.Task) { in.ParentID = parent.ID })
+	blocker := addTask(t, s, "pawly", "Index the count query")
+	if err := s.LinkTasks(ctx, "pawly", parent.ID, blocker.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteTask(ctx, "pawly", parent.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Task(ctx, "pawly", parent.ID); !errors.Is(err, memory.ErrNotFound) {
+		t.Errorf("a deleted task still reads back: %v", err)
+	}
+	if got, err := s.Task(ctx, "pawly", child.ID); err != nil || got.ParentID != "" {
+		t.Errorf("the subtask after its parent went = %+v, %v; want it standing alone", got, err)
+	}
+	if got, err := s.Task(ctx, "pawly", blocker.ID); err != nil || len(got.Blocks) != 0 {
+		t.Errorf("the blocker still blocks a deleted task: %+v, %v", got, err)
+	}
+	if err := s.DeleteTask(ctx, "pawly", parent.ID); !errors.Is(err, memory.ErrNotFound) {
+		t.Errorf("deleting it twice = %v, want not found", err)
+	}
+	if err := s.DeleteTask(ctx, "other", blocker.ID); !errors.Is(err, memory.ErrNotFound) {
+		t.Errorf("deleting another project's task = %v, want not found", err)
+	}
+}
