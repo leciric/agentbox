@@ -19,6 +19,8 @@ func TestDiskFloorIsTheLargerOfMinAndPercentCappedOnSmallDisks(t *testing.T) {
 		{"a 1 TiB disk keeps 5%", DefaultDiskFloor, 1024 * gib, 1024 * gib / 20},
 		{"the VM's 20 GiB system disk keeps a quarter", DefaultDiskFloor, 20 * gib, 5 * gib},
 		{"a chosen floor", DiskFloor{Min: 20 * gib, Percent: 0}, 500 * gib, 20 * gib},
+		{"a chosen floor on a small disk", DiskFloor{Min: 20 * gib, Percent: 0}, 20 * gib, 5 * gib},
+		{"a chosen share isn't held to a quarter", DiskFloor{Min: 2 * gib, Percent: 40}, 20 * gib, 8 * gib},
 		{"an unknown size keeps Min", DefaultDiskFloor, 0, 10 * gib},
 	} {
 		if got := tc.floor.For(tc.total); got != tc.want {

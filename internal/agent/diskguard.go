@@ -41,9 +41,9 @@ const (
 	// floor, and where agents it paused are resumed: the gap between the two
 	// is what keeps an agent from being paused and resumed on every check.
 	DiskWarnFactor = 1.5
-	// diskFloorShare caps the floor at a quarter of a small disk, such as the
-	// VM's own 20 GiB system disk, which a 10 GiB floor would hold at full
-	// forever.
+	// diskFloorShare holds DiskFloor.Min to a quarter of a small disk, such
+	// as the VM's own 20 GiB system disk, which a 10 GiB floor would hold at
+	// full forever.
 	diskFloorShare = 4
 	// diskWriting is the least an agent must have written since the last
 	// check to be paused as one of the agents filling the disk.
@@ -71,13 +71,14 @@ func (f DiskFloor) Validate() error {
 	return nil
 }
 
-// For is the floor on a disk of total bytes.
+// For is the floor on a disk of total bytes. Min is held to a quarter of a
+// small disk; Percent, a share already, isn't.
 func (f DiskFloor) For(total int64) int64 {
-	floor := max(f.Min, int64(float64(total)*f.Percent/100))
+	least := f.Min
 	if total > 0 {
-		floor = min(floor, total/diskFloorShare)
+		least = min(least, total/diskFloorShare)
 	}
-	return floor
+	return max(least, int64(float64(total)*f.Percent/100))
 }
 
 // DiskSpace is one disk the guard watches, as measured.
@@ -225,6 +226,17 @@ func (g *DiskGuard) Step(now time.Time, floor DiskFloor, spaces []DiskSpace, wri
 		level = worseDisk(level, c.Level)
 	}
 
+	var step DiskStep
+	if writers == nil {
+		g.status = DiskStatus{Level: level, Disks: checks, Paused: g.pausedList(), Since: prev.Since}
+		if level != prev.Level || g.status.Since.IsZero() {
+			g.status.Since = now
+		}
+		step.Status = g.status
+		step.Changed = level != prev.Level
+		return step
+	}
+
 	// What each agent wrote since the last check. A first sight, or a
 	// counter that went backwards (a machine restarted), counts nothing.
 	delta := map[string]int64{}
@@ -242,16 +254,6 @@ func (g *DiskGuard) Step(now time.Time, floor DiskFloor, spaces []DiskSpace, wri
 		}
 	}
 
-	var step DiskStep
-	if writers == nil {
-		g.status = DiskStatus{Level: level, Disks: checks, Paused: g.pausedList(), Since: prev.Since}
-		if level != prev.Level || g.status.Since.IsZero() {
-			g.status.Since = now
-		}
-		step.Status = g.status
-		step.Changed = level != prev.Level
-		return step
-	}
 	byRef := map[string]DiskWriter{}
 	for _, w := range writers {
 		byRef[w.Ref] = w

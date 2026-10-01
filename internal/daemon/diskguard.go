@@ -47,10 +47,14 @@ type diskWatch struct {
 	every    time.Duration // between checks while every disk is fine; 0 for tests, which drive checkDisk
 	lowEvery time.Duration // between checks while one is near or at its floor
 
-	mu     sync.Mutex
+	mu     sync.Mutex // held through a check, which may wait on Incus
 	guard  *agent.DiskGuard
-	status agent.DiskStatus
 	loaded bool // the guard has been given the agents it paused before a restart
+
+	// status is what the last check found, behind a lock of its own so a
+	// refusal never waits on a check.
+	statusMu sync.Mutex
+	status   agent.DiskStatus
 
 	measure func(ctx context.Context) []agent.DiskSpace
 	writers func(ctx context.Context) ([]agent.DiskWriter, error)
@@ -146,8 +150,10 @@ func (s *Server) checkDisk(ctx context.Context) {
 	}
 	status := w.guard.Status()
 	changed := step.Changed || step.Pause != nil || len(step.Resume) > 0
+	w.statusMu.Lock()
 	prev := w.status
 	w.status = status
+	w.statusMu.Unlock()
 	if !changed {
 		return
 	}
@@ -184,8 +190,8 @@ func (s *Server) diskTellLead(ctx context.Context, project, notice string) {
 
 // diskStatus is what the guard last found.
 func (s *Server) diskStatus() agent.DiskStatus {
-	s.disk.mu.Lock()
-	defer s.disk.mu.Unlock()
+	s.disk.statusMu.Lock()
+	defer s.disk.statusMu.Unlock()
 	return s.disk.status
 }
 
@@ -202,12 +208,11 @@ func (s *Server) diskRefusal(what string) error {
 // while the disk it paused it for is still at its floor: it would only go on
 // filling it. The guard resumes it itself once there's room.
 func (s *Server) diskPausedRefusal(ref string) error {
-	s.disk.mu.Lock()
-	defer s.disk.mu.Unlock()
-	if !s.disk.guard.PausedByGuard(ref) {
+	status := s.diskStatus()
+	if !slices.Contains(status.Paused, ref) {
 		return nil
 	}
-	if err := s.disk.status.Refusal("resuming " + ref); err != nil {
+	if err := status.Refusal("resuming " + ref); err != nil {
 		return &diskFullError{fmt.Errorf("%w. AgentBox paused it for that, and resumes it by itself once there's room", err)}
 	}
 	return nil
@@ -313,16 +318,12 @@ func (s *Server) measureDisks(ctx context.Context) []agent.DiskSpace {
 		dirs = append(dirs, dir{"the VM's disk images", home})
 	}
 	dirs = append(dirs, dir{"worktrees", s.cfg.Paths.Worktrees()}, dir{"AgentBox's data", s.cfg.Paths.Data})
-	if !hostos.InVM() {
+	if _, err := os.Stat("/var/lib/incus"); err == nil && !hostos.InVM() {
 		dirs = append(dirs, dir{"Incus", "/var/lib/incus"})
 	}
 	byID := map[string]int{}
 	for _, d := range dirs {
-		path := existingParent(d.path)
-		if _, err := os.Stat(path); err != nil {
-			continue
-		}
-		free, total, id, ok := diskSpace(path)
+		free, total, id, ok := diskSpace(existingParent(d.path))
 		if !ok || total <= 0 {
 			continue
 		}

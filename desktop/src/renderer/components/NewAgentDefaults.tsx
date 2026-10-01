@@ -602,8 +602,8 @@ export function DiskFloor() {
           id="disk-floor-min"
           label="At least"
           placeholder="10GiB"
-          hint="Default 10GiB, and 2GiB at the least."
-          value={humanBytes(min).replace(' ', '').replace('.0', '')}
+          hint="Default 10GiB, 2GiB at the least, and never more than a quarter of a small disk."
+          value={min % 1024 ** 3 === 0 ? `${min / 1024 ** 3}GiB` : humanBytes(min).replace(' ', '')}
           disabled={disabled}
           onCommit={(value) => {
             if (value.trim() === '') return save.mutate({ diskFloorMin: 0 });
