@@ -656,7 +656,7 @@ func describe(st api.VMStatus) string {
 		}
 	}
 	if st.Disk.Size > 0 {
-		fmt.Fprintf(&b, ", a %s disk (%s on this machine's)", sizeWords(st.Disk.Size), sizeWords(st.Disk.Used))
+		fmt.Fprintf(&b, ", a %s disk (%s on this machine's)", sizeWords(st.Disk.Size), sizeWords(st.Disk.Allocated))
 	}
 	if st.Problem != "" {
 		fmt.Fprintf(&b, "\n%s", st.Problem)

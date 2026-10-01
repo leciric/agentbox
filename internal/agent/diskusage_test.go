@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
 
@@ -66,8 +67,17 @@ exit 0`)
 	}
 
 	labels := make([]string, len(usage.Categories))
+	kinds := map[string]string{}
 	for i, c := range usage.Categories {
 		labels[i] = c.Label
+		kinds[c.Label] = c.Kind
+	}
+	// The top bar tells the pool's from the home's by kind, in VM mode.
+	wantKinds := map[string]string{"Agent machines": api.DiskMachines, "Base images and saved bases": api.DiskBases, "Worktrees": api.DiskWorktrees, "Media": api.DiskMedia, "state.db and logs": api.DiskState}
+	for label, kind := range wantKinds {
+		if kinds[label] != kind {
+			t.Errorf("%s: kind %q, want %q", label, kinds[label], kind)
+		}
 	}
 	wantOrder := []string{"Base images and saved bases", "Agent machines", "Media", "Worktrees", "state.db and logs"}
 	if len(labels) != len(wantOrder) {

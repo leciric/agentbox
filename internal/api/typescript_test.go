@@ -46,7 +46,7 @@ var tsTypes = []any{
 	ResolveMemoryRequest{}, ConsolidateRequest{}, ConsolidationPass{}, MemoryConsolidation{}, MemoryDuplicate{},
 	Task{}, AddTaskRequest{}, UpdateTaskRequest{}, LinkTasksRequest{}, StartTaskRequest{}, StartTaskResponse{},
 	TokenCounts{}, ModelTokens{}, AgentTokens{}, TokenBucket{}, TokenReport{}, TokenTurn{}, ClaudeLimit{}, ClaudeLimitWindow{},
-	VMStatus{}, VMMemory{}, VMDisk{}, VMSwap{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
+	VMStatus{}, VMMemory{}, VMDisk{}, VMDiskImage{}, VMHomeDisk{}, VMSwap{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
 	ReportSection{}, ReportDraftRequest{}, ReportDraft{}, ReportRequest{}, ReportSent{},
 }
 

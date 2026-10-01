@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -67,7 +68,7 @@ Your home directory is shared with the VM at the same path.`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd())
+	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(), newShellCmd(), newResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd())
 	return root
 }
 
@@ -92,7 +93,7 @@ keeps working as it is until agentbox vm migrate moves it into the VM.`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(),
+	root.AddCommand(newCHVInitCmd(), newMigrateCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
 		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
 	return root
 }
@@ -113,7 +114,7 @@ agentbox vm init then makes Lima's VM, the default, again.`,
 		SilenceErrors: true,
 		Version:       version,
 	}
-	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(),
+	root.AddCommand(newInitCmd(), newStartCmd(), newStopCmd(), newPauseCmd(), newResumeCmd(), newStatusCmd(), newPowerCmd(), newDiskCmd(),
 		newShellCmd(), newCHVResizeCmd(), newSwapCmd(), newUpgradeCmd(), newDeleteCmd(), newRunCmd(), newProxyCmd())
 	return root
 }
@@ -742,6 +743,10 @@ type Power struct {
 	// and HostFree is what that disk has free.
 	PausedForDisk bool  `json:"pausedForDisk,omitempty"`
 	HostFree      int64 `json:"hostFree,omitempty"`
+	// Disk is the VM's disk images as the host sees them, which the top bar's
+	// disk meter shows: what they take on the host's disk against the size
+	// the VM was given. Missing when there are none to measure.
+	Disk *api.VMDisk `json:"disk,omitempty"`
 }
 
 // powerFrom is a Cloud Hypervisor VM's Power. A VM vm init hasn't finished
@@ -749,6 +754,9 @@ type Power struct {
 func powerFrom(st api.VMStatus) Power {
 	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs, Error: st.Problem,
 		PausedForDisk: st.PausedForDisk, HostFree: st.Disk.HostFree}
+	if st.Disk.Size > 0 {
+		p.Disk = &st.Disk
+	}
 	if st.State == api.VMMissing {
 		p.State = api.VMOff
 		if p.Error == "" {
@@ -766,7 +774,10 @@ func limaPower(st State, err error) Power {
 	case !st.Exists:
 		return Power{State: api.VMOff, Error: ErrNotCreated.Error()}
 	}
-	p := Power{State: api.VMOff, MemoryCap: st.Memory, CPUs: st.CPUs}
+	p := Power{State: api.VMOff, MemoryCap: st.Memory, CPUs: st.CPUs, Disk: limaDisk(st)}
+	if p.Disk != nil {
+		p.HostFree = p.Disk.HostFree
+	}
 	switch st.Status {
 	case "Running":
 		p.State, p.MemoryGranted = api.VMRunning, st.Memory
@@ -774,6 +785,57 @@ func limaPower(st State, err error) Power {
 		p.Error = "AgentBox's VM is broken, Lima says: see limactl list"
 	}
 	return p
+}
+
+// limaDisk is a Lima VM's disk as the host sees it: one disk for the VM's
+// system and its storage pool, in Root, whose size is what Lima says and
+// whose allocated bytes are its images' in the instance's directory (the
+// disk itself, and the image it was made from where Lima keeps one). Nil
+// when Lima doesn't say where they are.
+func limaDisk(st State) *api.VMDisk {
+	if st.Dir == "" || st.Disk == 0 {
+		return nil
+	}
+	d := api.VMDisk{HostFree: chv.HostFree(st.Dir)}
+	d.Root.Size = st.Disk
+	for _, name := range []string{"diffdisk", "basedisk"} {
+		d.Root.Allocated += chv.DiskImage(filepath.Join(st.Dir, name)).Allocated
+	}
+	d.Add(d.Root)
+	return &d
+}
+
+// newDiskCmd is `agentbox vm disk --json`: what AgentBox keeps in the host's
+// home outside the VM's disk images, its agents' worktrees and its media,
+// measured on the host. It walks both, so the app asks for it when the top
+// bar's disk popover opens rather than on its poll.
+func newDiskCmd() *cobra.Command {
+	var asJSON bool
+	cmd := &cobra.Command{
+		Use:    "disk",
+		Short:  "Say what the worktrees and media in your home take on its disk (for the app)",
+		Args:   cobra.NoArgs,
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			p, err := paths.Default()
+			if err != nil {
+				return err
+			}
+			home := HomeDisk(p)
+			if asJSON {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(home)
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "worktrees %s, media %s on this machine's disk\n", sizeWords(home.Worktrees), sizeWords(home.Media))
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&asJSON, "json", false, "print it as JSON")
+	return cmd
+}
+
+// HomeDisk measures the worktrees and media under p on this machine.
+func HomeDisk(p paths.Paths) api.VMHomeDisk {
+	return api.VMHomeDisk{Worktrees: chv.DirAllocated(p.Worktrees()), Media: chv.DirAllocated(filepath.Join(p.Data, "media"))}
 }
 
 func newPowerCmd() *cobra.Command {

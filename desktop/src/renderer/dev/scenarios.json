@@ -307,6 +307,22 @@
     "click": "[aria-label^=\"Host CPU\"]"
   },
   {
+    "id": "disk-popover-fixtures-dark",
+    "description": "The top bar's disk meter in VM mode, against the user's VM as measured: 24.2 GiB of 120 GiB on the host's disk, with its popover open breaking it down by disk image, the host's side and the agents' pool — dark",
+    "query": "meters=disk&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[aria-label^=\"AgentBox's VM takes\"]"
+  },
+  {
+    "id": "pool-popover-fixtures-dark",
+    "description": "The top bar's \"Agents' disk\" meter in host mode, the storage pool's used/size, with its popover open breaking it down by machine, base, worktree and media — dark",
+    "query": "meters=pool&theme=dark",
+    "width": 1280,
+    "height": 900,
+    "click": "[aria-label^=\"Agents' disk\"]"
+  },
+  {
     "id": "media-project-dark",
     "description": "A project's Media: 360 items across four agents, long names and unbroken notes — dark, a narrow window",
     "query": "media=project&theme=dark",

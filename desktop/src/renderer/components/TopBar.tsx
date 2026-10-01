@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronRight, Cpu, Gauge, Menu as MenuIcon, Square, TriangleAlert } from 'lucide-react';
+import { ChevronRight, Cpu, Gauge, HardDrive, Menu as MenuIcon, Square, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
@@ -9,7 +9,7 @@ import { limitTone, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
 import { useVMPower } from '../lib/vm';
-import { cn, timeAgo, timeUntil } from '../lib/utils';
+import { cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { DiskGuardPill } from './DiskGuardPill';
 import { ResourceControls } from './ResourceControls';
@@ -100,6 +100,7 @@ export function TopBar({
         <ResourceControls agents={agents.data ?? []} />
         <UsageMeter view={view} agents={agents.data ?? []} />
         {host && <CPUMeter host={host} onSelect={onSelect} />}
+        <DiskMeter host={host} vmDisk={vm?.disk} />
         {/* In VM mode, the daemon of a VM that's off or paused can't answer:
             the VM's own pill says why, and this one would only repeat it as
             "Offline". */}
@@ -137,9 +138,202 @@ function MeterBar({ percent, className }: { percent: number; className?: string 
   );
 }
 
+// DiskMeter is the "Disk" indicator, as used/size. In VM mode it's what
+// AgentBox's VM costs the host's disk against the most it can hold: the bytes
+// its two disk images (the agents' pool and the VM's system disk) really
+// take, against the sizes the VM's disk settings gave them, as the host's
+// side measures them (VMPower.disk). Otherwise it's the Incus storage pool
+// every agent's machine and saved base share. Clicking it opens a popover
+// breaking that down; the breakdown is only measured while it's open — the
+// total is cheap to poll, but the breakdown walks every worktree and media
+// directory and queries Incus once per machine and base. The label has a
+// fixed width, so the bar doesn't shift as the number ticks.
+function DiskMeter({ host, vmDisk }: { host?: T.HostUsage; vmDisk?: T.VMDisk }) {
+  const diskUsage = useQuery({ queryKey: ['diskUsage'], queryFn: api.diskUsage, enabled: false });
+  const homeDisk = useQuery({ queryKey: ['homeDisk'], queryFn: () => window.agentbox.vm.disk(), enabled: false });
+  const [used, size] = vmDisk ? [vmDisk.allocated, vmDisk.size] : [host?.poolUsed ?? 0, host?.poolTotal ?? 0];
+  if (size <= 0) return null;
+  const percent = Math.max(0, Math.min(1, used / size)) * 100;
+  return (
+    <Popover
+      onOpenChange={(open) => {
+        if (!open) return;
+        void diskUsage.refetch();
+        if (vmDisk) void homeDisk.refetch();
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
+          aria-label={
+            vmDisk
+              ? `AgentBox's VM takes ${humanBytes(used)} of your disk, of ${humanBytes(size)} it can hold`
+              : `Agents' disk: ${humanBytes(used)} of ${humanBytes(size)} used`
+          }
+        >
+          <HardDrive className="size-3.5 text-subtle" />
+          <span className="w-36 whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary">
+            {humanBytes(used)}/{humanBytes(size)}
+          </span>
+          <MeterBar percent={percent} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-96">
+        {vmDisk ? (
+          <VMDiskBreakdown disk={vmDisk} host={host} home={homeDisk} pool={diskUsage} />
+        ) : (
+          <div className="grid gap-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-medium text-primary">Agents' disk</span>
+              <span className="font-mono text-[11px] tabular-nums text-tertiary">
+                {humanBytes(used)} of {humanBytes(size)}
+              </span>
+            </div>
+            <DiskUsageCategories query={diskUsage} />
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// VMDiskBreakdown is the VM's disk images, each as what it takes on the
+// host's disk (allocated) and the size the VM sees, never one against the
+// other's kind; then what's on the host outside them, and what the agents'
+// pool holds inside.
+function VMDiskBreakdown({
+  disk,
+  host,
+  home,
+  pool,
+}: {
+  disk: T.VMDisk;
+  host?: T.HostUsage;
+  home: ReturnType<typeof useQuery<T.VMHomeDisk | null>>;
+  pool: ReturnType<typeof useQuery<T.DiskUsage>>;
+}) {
+  // A sparse image can't grow past what the host has free.
+  const room = disk.size - disk.allocated;
+  const short = disk.hostFree !== undefined && disk.hostFree > 0 && disk.hostFree < room;
+  const freed = host && host.poolTotal > 0 ? disk.pool.allocated - host.poolUsed : 0;
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-1">
+        <div className="flex items-center justify-between">
+          <span className="text-[13px] font-medium text-primary">AgentBox's VM</span>
+          <span className="font-mono text-[11px] tabular-nums text-tertiary">
+            {humanBytes(disk.allocated)} of {humanBytes(disk.size)}
+          </span>
+        </div>
+        <span className="text-[11.5px] text-muted">What its disks take on your computer's disk, of the most they can hold.</span>
+      </div>
+      <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-[12px]">
+        <span />
+        <span className="text-right text-[11px] text-faint">On your disk</span>
+        <span className="text-right text-[11px] text-faint">Size</span>
+        <DiskImageRow label="Agents' pool" image={disk.pool} />
+        <DiskImageRow label="VM system disk" image={disk.root} />
+      </div>
+      {host && host.poolTotal > 0 && (
+        <span className="text-[11.5px] text-muted">
+          Inside the VM, the agents' pool has <span className="font-mono tabular-nums text-secondary">{humanBytes(host.poolUsed)}</span> in use
+          {freed > 0.5 * 1024 ** 3 && (
+            <>
+              ; the other <span className="font-mono tabular-nums text-secondary">{humanBytes(freed)}</span> it takes is space the agents freed that the VM
+              hasn't given back to your disk yet
+            </>
+          )}
+          .
+        </span>
+      )}
+      <div className="grid gap-1 border-t border-line pt-2.5">
+        <span className="text-[12px] font-medium text-secondary">On your computer</span>
+        {disk.hostFree !== undefined && disk.hostFree > 0 && <DiskRow label="Free on its disk" bytes={disk.hostFree} />}
+        {home.isPending || home.isFetching ? (
+          <span className="text-[11.5px] text-muted">Measuring your home…</span>
+        ) : home.isError ? (
+          <span className="text-[11.5px] text-rose-300">{home.error instanceof Error ? home.error.message : String(home.error)}</span>
+        ) : home.data ? (
+          <>
+            <DiskRow label="Worktrees, in your home" bytes={home.data.worktrees} />
+            <DiskRow label="Media, in your home" bytes={home.data.media} />
+          </>
+        ) : null}
+        {short && (
+          <span className="text-[11.5px] text-amber-300">
+            Your disk can only give the VM {humanBytes(disk.hostFree ?? 0)} more, less than the {humanBytes(room)} its size leaves it.
+          </span>
+        )}
+      </div>
+      <div className="grid gap-2 border-t border-line pt-2.5">
+        <span className="text-[12px] font-medium text-secondary">In the agents' pool</span>
+        <DiskUsageCategories query={pool} kinds={['machines', 'bases']} />
+      </div>
+    </div>
+  );
+}
+
+function DiskImageRow({ label, image }: { label: string; image: T.VMDiskImage }) {
+  return (
+    <>
+      <span className="text-secondary">{label}</span>
+      <span className="text-right font-mono tabular-nums text-tertiary">{humanBytes(image.allocated)}</span>
+      <span className="text-right font-mono tabular-nums text-faint">{humanBytes(image.size)}</span>
+    </>
+  );
+}
+
+function DiskRow({ label, bytes }: { label: string; bytes: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-[11.5px] text-muted">
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="shrink-0 font-mono tabular-nums text-tertiary">{humanBytes(bytes)}</span>
+    </div>
+  );
+}
+
+// DiskUsageCategories is the daemon's breakdown (/v1/usage/disk), largest
+// first, with its total; only kinds' categories when kinds is given.
+function DiskUsageCategories({ query, kinds }: { query: ReturnType<typeof useQuery<T.DiskUsage>>; kinds?: string[] }) {
+  if (query.isPending) return <span className="py-1 text-[12px] text-muted">Measuring what's on disk…</span>;
+  if (query.isError)
+    return <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>;
+  const categories = kinds ? query.data.categories.filter((cat) => kinds.includes(cat.kind)) : query.data.categories;
+  const total = kinds ? categories.reduce((sum, cat) => sum + cat.bytes, 0) : query.data.total;
+  return (
+    <>
+      <div className="grid max-h-72 gap-3 overflow-y-auto pr-1">
+        {categories.map((cat) => (
+          <div key={cat.label} className="grid gap-1">
+            <div className="flex items-center justify-between text-[12px] text-secondary">
+              <span className="font-medium">{cat.label}</span>
+              <span className="font-mono tabular-nums text-tertiary">{humanBytes(cat.bytes)}</span>
+            </div>
+            {cat.items && cat.items.length > 0 && (
+              <div className="grid gap-0.5 border-l border-line pl-2.5">
+                {cat.items.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between gap-3 text-[11.5px] text-muted">
+                    <span className="min-w-0 truncate">{item.label}</span>
+                    <span className="shrink-0 font-mono tabular-nums text-faint">{humanBytes(item.bytes)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between border-t border-line pt-2 text-[12px] font-medium text-primary">
+        <span>Total</span>
+        <span className="font-mono tabular-nums">{humanBytes(total)}</span>
+      </div>
+    </>
+  );
+}
+
 // CPUMeter is the "Host CPU" indicator: what Meter would show, but clicking
 // it opens a popover breaking the total down by agent, the same way
-// StoragePoolMeter does for disk. Each agent's own CPU% is only sampled
+// DiskMeter does for disk. Each agent's own CPU% is only sampled
 // while the popover is open, the same interval the top bar's own figure
 // already pays for the host as a whole.
 function CPUMeter({ host, onSelect }: { host: T.HostUsage; onSelect: (view: View) => void }) {
