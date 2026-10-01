@@ -423,7 +423,8 @@ func routeError(route string) error {
 // LeadQueue is the tasks waiting in a project's queue for its lead, the
 // longest-waiting first; every project's when project is empty.
 func (s *Store) LeadQueue(ctx context.Context, project string) ([]Task, error) {
-	clause, args := `WHERE lead_queued_at > 0`, []any{}
+	// A task closed while it waited is no longer anybody's to hand out.
+	clause, args := `WHERE lead_queued_at > 0 AND status NOT IN (?, ?)`, []any{TaskDone, TaskAbandoned}
 	if project != "" {
 		clause, args = clause+` AND project = ?`, append(args, project)
 	}

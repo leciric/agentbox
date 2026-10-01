@@ -355,6 +355,17 @@ func TestTaskRouteAndLeadQueue(t *testing.T) {
 	if queue, err := s.LeadQueue(ctx, "p"); err != nil || len(queue) != 1 || queue[0].ID != task.ID {
 		t.Errorf("p's lead queue = %+v, %v; want the one task", queue, err)
 	}
+	done := memory.TaskDone
+	if _, err := s.UpdateTask(ctx, "p", task.ID, memory.TaskPatch{Status: &done}); err != nil {
+		t.Fatal(err)
+	}
+	if queue, err := s.LeadQueue(ctx, "p"); err != nil || len(queue) != 0 {
+		t.Errorf("the lead queue once its task is done = %+v, %v; want nothing", queue, err)
+	}
+	open := memory.TaskOpen
+	if _, err := s.UpdateTask(ctx, "p", task.ID, memory.TaskPatch{Status: &open}); err != nil {
+		t.Fatal(err)
+	}
 
 	follow, none := memory.TaskRouteFollow, time.Time{}
 	if _, err := s.UpdateTask(ctx, "p", task.ID, memory.TaskPatch{Route: &follow, LeadQueuedAt: &none}); err != nil {
