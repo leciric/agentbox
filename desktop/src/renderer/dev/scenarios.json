@@ -572,31 +572,31 @@
     "height": 220
   },
   {
-    "id": "linux-setup-choice-dark",
-    "description": "A Linux machine not set up yet: Setup's Incus step asks where agents run, the VM recommended and picked — dark",
+    "id": "linux-setup-vm-dark",
+    "description": "A Linux machine's first screen, before AgentBox's VM is made: the VM to set up, at the size picked — dark",
     "query": "linux=setup&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "linux-setup-nokvm-light",
-    "description": "The same without /dev/kvm: host mode picked, the VM greyed out with why — light",
+    "description": "The same without /dev/kvm: what's missing, and the command for later — light",
     "query": "linux=nokvm&theme=light",
     "width": 1280,
     "height": 900
   },
   {
-    "id": "linux-home-suggest-dark",
-    "description": "A Linux machine that runs agents itself: Home suggests moving to AgentBox's VM — dark",
-    "query": "linux=home&theme=dark",
+    "id": "linux-move-prompt-dark",
+    "description": "A Linux machine that runs agents itself, from before the VM: the prompt to move into AgentBox's VM — dark",
+    "query": "linux=move&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
-    "id": "linux-home-move-dark",
-    "description": "Home's Move to a VM, clicked: Settings' Setup, open at the move — dark",
-    "query": "linux=home&theme=dark",
-    "click": "[data-vm-suggestion] button",
+    "id": "linux-move-settings-dark",
+    "description": "The prompt's Move to the VM, clicked: Settings' Setup, open at the move — dark",
+    "query": "linux=move&theme=dark",
+    "click": "[data-move-prompt-open]",
     "width": 1280,
     "height": 900
   },

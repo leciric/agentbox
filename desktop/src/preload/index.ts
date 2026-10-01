@@ -27,13 +27,15 @@ export interface HostSetupStatus {
   // `agentbox wsl init`: what `agentbox wsl status --json` says about that
   // distro. null elsewhere.
   wsl: WSLStatus | null;
-  // On Linux, whether AgentBox runs on the machine itself (host setup) or in
-  // a VM of its own (`agentbox vm init`), and whether it could run in a VM:
-  // the Setup page offers both. null elsewhere; missing from the web app.
+  // On Linux, where AgentBox runs: in a VM of its own (`agentbox vm init`),
+  // or, on a machine set up before that, on the machine itself until it moves
+  // (`agentbox vm migrate`); and whether it can run the VM. null elsewhere;
+  // missing from the web app.
   linux?: LinuxSetup | null;
   // On Linux in VM mode, AgentBox's Cloud Hypervisor VM as `agentbox vm
   // status --json` says: its size, and what it can be resized to, with and
-  // without a restart. null elsewhere; missing from the web app.
+  // without a restart, or state "missing" before vm init made it. null
+  // elsewhere; missing from the web app.
   chv?: T.VMStatus | null;
 }
 

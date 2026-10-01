@@ -1,8 +1,11 @@
-// Whether this Linux machine runs AgentBox itself (host setup: Incus on the
-// machine) or in a VM of its own (`agentbox vm init`: the daemon, Incus and
-// every agent in one Cloud Hypervisor VM, with this app and the command-line
-// tool as its front end, the way a Mac runs it in Lima). The user chooses at
-// setup, on the Setup page (hostsetup.ts).
+// Whether this Linux machine runs AgentBox in a VM of its own (`agentbox vm
+// init`: the daemon, Incus and every agent in one Cloud Hypervisor VM, with
+// this app and the command-line tool as its front end, the way a Mac runs it
+// in Lima), which every Linux machine does, or itself (host setup: Incus on
+// the machine), which only one set up before that does, until it moves into
+// the VM (`agentbox vm migrate`). The command-line tool says which
+// (hostvm.Front): VM mode before vm init too, with the VM missing, which the
+// app's first screen offers to make (RunInVM.tsx's LinuxVMSetup).
 //
 // In VM mode:
 //   - The host has no Incus, so nothing here asks for host setup: the daemon's

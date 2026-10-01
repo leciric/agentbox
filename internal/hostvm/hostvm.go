@@ -5,10 +5,12 @@
 //
 //   - Lima, on a Mac (D92), and on Linux with AGENTBOX_FRONT_END=vm, which is
 //     how the Mac's front end is tested without a Mac.
-//   - Cloud Hypervisor (package chv), on a Linux machine whose user chose a VM
-//     at setup (`agentbox vm init`) over installing Incus on the machine
-//     itself (`agentbox host setup`). Its Config file is what makes the
-//     machine a front end (Front); chvdriver.go is its side of this package.
+//   - Cloud Hypervisor (package chv), on every Linux machine: `agentbox vm
+//     init` makes it, and every other command runs in it. Installing Incus on
+//     the machine itself (`agentbox host setup`) is what the VM does inside;
+//     a machine that did it on the host from before is the one exception
+//     (Front), until `agentbox vm migrate` moves it into the VM. chvdriver.go
+//     is its side of this package.
 //   - vz, on a Mac whose user asked for it (`agentbox vm init --driver vz`):
 //     experimental. Apple's Virtualization framework, driven by AgentBox
 //     itself under package chv's supervisor instead of by Lima (chv/vz.go),
@@ -81,27 +83,61 @@ var definition string
 
 // Front reports whether this process is the front end of a VM rather than
 // AgentBox itself: always on macOS; on Linux when AGENTBOX_FRONT_END=vm, which
-// is how the Lima VM is tested without a Mac; and on a Linux machine where
-// `agentbox vm init` made a Cloud Hypervisor VM. It runs on every command, so
-// on Linux it is a stat or two. The agentbox in a VM is never a front end,
-// whatever its files say: its front end told it so (hostos.Env), or the VM
-// itself does (hostos.OS). Its HOME can be the host's home, shared at the
-// same path, with the host's VM in it: a front end run there would take that
-// VM for its own, and start it again under the running one.
+// is how the Lima VM is tested without a Mac; and on a Linux machine of its
+// own, which runs AgentBox in Cloud Hypervisor's VM: the VM `agentbox vm
+// init` made, or the one it is yet to make. It runs on every command, so on
+// Linux it is a stat or two.
+//
+// What runs AgentBox itself on Linux, and so isn't a front end:
+//   - The agentbox in a VM, whatever its files say: its front end told it so
+//     (hostos.Env), or the VM itself does (hostos.OS). Its HOME can be the
+//     host's home, shared at the same path, with the host's VM in it: a front
+//     end run there would take that VM for its own, and start it again under
+//     the running one.
+//   - A host-mode installation from before the VM was the only way: a machine
+//     with a state.db of its own and no VM. Its agents keep working there
+//     until `agentbox vm migrate` moves it into the VM (HostInstall).
+//   - root: `sudo agentbox host setup` and the daemon's budget unit are
+//     host setup's, in the VM and on a host-mode installation alike.
+//   - An agent's machine, where agentbox talks to its daemon through
+//     api.InAgentSocket.
+//   - AGENTBOX_FRONT_END=host, for CI and anyone else who runs AgentBox's
+//     internals on a machine of their own on purpose.
 func Front() bool {
 	if runtime.GOOS == "darwin" || os.Getenv("AGENTBOX_FRONT_END") == "vm" {
 		return true
 	}
-	if runtime.GOOS != "linux" || os.Getenv("AGENTBOX_FRONT_END") != "" || hostos.InVM() {
+	if runtime.GOOS != "linux" || os.Getenv("AGENTBOX_FRONT_END") != "" || hostos.InVM() || os.Geteuid() == 0 || inAgent() {
 		return false
 	}
 	p, err := paths.Default()
-	return err == nil && chv.Exists(p, env("AGENTBOX_VM", DefaultName))
+	if err != nil {
+		return false
+	}
+	return chv.Exists(p, env("AGENTBOX_VM", DefaultName)) || !HostInstall(p)
+}
+
+// HostInstall reports whether this Linux machine runs AgentBox itself, from
+// before AgentBox ran in a VM on Linux: whether it has a state.db of its own,
+// which is also what `agentbox vm migrate` moves (readHostInstall).
+func HostInstall(p paths.Paths) bool {
+	_, err := os.Stat(p.StateDB())
+	return err == nil
+}
+
+// inAgentSocket is api.InAgentSocket; a variable for tests, which may run in
+// an agent.
+var inAgentSocket = api.InAgentSocket
+
+// inAgent reports whether this is an agent's machine.
+func inAgent() bool {
+	_, err := os.Stat(inAgentSocket)
+	return err == nil
 }
 
 // Handles reports whether a command line (os.Args[1:]) is the front end's to
-// run: every command on a front end, and on a Linux machine of its own
-// `agentbox vm …` too, since `vm init` is what makes it a front end and
+// run: every command on a front end, and on a host-mode installation (Front)
+// `agentbox vm …` too, since `vm migrate` is what moves it into the VM and
 // `vm status --json` is how the app asks which it is. In AgentBox's VM, it is
 // only so Main can say that `agentbox vm` isn't for in there.
 func Handles(args []string) bool {

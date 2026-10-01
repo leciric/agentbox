@@ -13,6 +13,7 @@ import { Sidebar } from "./components/Sidebar";
 import { aiLabel } from "./components/state";
 import { TopBar } from "./components/TopBar";
 import { VMSetup } from "./components/VMSetup";
+import { LinuxVMSetup, MovePrompt } from "./components/RunInVM";
 import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
@@ -61,7 +62,9 @@ export function App() {
     queryKey: ["host-setup"],
     queryFn: () => window.agentbox.hostSetup.status(),
     enabled:
-      (info.data?.platform === "darwin" || info.data?.platform === "win32") &&
+      (info.data?.platform === "darwin" ||
+        info.data?.platform === "win32" ||
+        info.data?.platform === "linux") &&
       connection.state !== "connected",
     refetchInterval: 3_000,
   });
@@ -205,6 +208,8 @@ export function App() {
                 <div className="w-full max-w-2xl">
                   {setup.kind === "vm" ? (
                     <VMSetup vm={setup.vm} />
+                  ) : setup.kind === "linux" ? (
+                    <LinuxVMSetup linux={setup.linux} />
                   ) : (
                     <WSLSetup wsl={setup.wsl} />
                   )}
@@ -285,6 +290,16 @@ export function App() {
           version={info.data.version}
         />
       )}
+      {/* A Linux machine still running agents itself is told once after each
+          update that AgentBox runs in a VM now, after What's new. */}
+      {info.data?.platform === "linux" &&
+        connection.state === "connected" &&
+        !whatsNew && (
+          <MovePrompt
+            version={info.data.version}
+            onOpen={() => select({ kind: "settings" })}
+          />
+        )}
     </div>
   );
 }
