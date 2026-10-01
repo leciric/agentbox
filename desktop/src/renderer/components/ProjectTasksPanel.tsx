@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, ListTodo, LoaderCircle, Pencil, Play, Plus, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, GitMerge, ListTodo, LoaderCircle, Pencil, Play, Plus, RotateCcw, Trash2 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { taskActions, taskLane, taskLanes, taskText } from '../lib/tasks';
+import { type TaskList, taskActions, taskLane, taskLanes, taskListCounts, taskOutcome, taskText } from '../lib/tasks';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
 import { Button } from './ui/button';
 import { EmptyState, Notice, Panel } from './ui/card';
@@ -17,7 +17,8 @@ import { Textarea } from './ui/input';
 // goes, or in the Queue, which hands it to the agent queue as a queued agent
 // (lib/tasks.ts); queued tasks can be moved up and down or sent back. With the
 // agent queue off there is no Queue: a backlog task's Start makes its agent
-// at once.
+// at once. What's done — by hand, or by its agent's pull request merging — is
+// a second list, switched to above the lanes.
 export function ProjectTasksPanel({ project, onSelect }: { project: string; onSelect: (view: View) => void }) {
   const queryClient = useQueryClient();
   const tasksQuery = useQuery({ queryKey: ['memoryTasks', project], queryFn: () => api.memoryTasks(project) });
@@ -27,7 +28,7 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
   const queueQuery = useQuery({ queryKey: ['queue', project], queryFn: () => api.queue(project), refetchInterval: 5000 });
   const agentsQuery = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
-  const [showDone, setShowDone] = useState(false);
+  const [list, setList] = useState<TaskList>('open');
   const [prompt, setPrompt] = useState('');
 
   // The installation's own switch (Settings → Agents → Agent queue).
@@ -36,6 +37,7 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
   const agentsByName = new Map((agentsQuery.data ?? []).filter((a) => a.project === project).map((a) => [a.name, a] as const));
   const lanes = taskLanes(tasksQuery.data ?? [], agentsByName);
   const total = tasksQuery.data?.length ?? 0;
+  const counts = taskListCounts(lanes);
   const actions = taskActions(api, project);
 
   const refresh = async () => {
@@ -119,34 +121,125 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
         </Panel>
       )}
 
-      {queueOn && (lanes.queue.length > 0 || total > 0) && (
+      {total > 0 && <ListChoice list={list} counts={counts} onChange={setList} />}
+
+      {list === 'open' && total > 0 && counts.open === 0 && <p className="px-1 text-[12px] text-faint">Nothing left to do. Write the next task above.</p>}
+      {list === 'open' && queueOn && (lanes.queue.length > 0 || total > 0) && (
         <Lane title="Queue" count={lanes.queue.length} hint="Starts in this order as slots free up.">
           {lanes.queue.length === 0 ? <p className="px-1 text-[12px] text-faint">Nothing queued. Move a backlog task to the queue to hand it to an agent.</p> : lanes.queue.map((t, i) => row(t, i))}
         </Lane>
       )}
-      {!queueOn && lanes.queue.length > 0 && (
+      {list === 'open' && !queueOn && lanes.queue.length > 0 && (
         <Lane title="Queue" count={lanes.queue.length} hint="Left from when the agent queue was on: these start at once.">
           {lanes.queue.map((t, i) => row(t, i))}
         </Lane>
       )}
-      {lanes.running.length > 0 && (
+      {list === 'open' && lanes.running.length > 0 && (
         <Lane title="In progress" count={lanes.running.length}>
           {lanes.running.map((t) => row(t))}
         </Lane>
       )}
-      {lanes.backlog.length > 0 && (
+      {list === 'open' && lanes.backlog.length > 0 && (
         <Lane title="Backlog" count={lanes.backlog.length}>
           {lanes.backlog.map((t) => row(t))}
         </Lane>
       )}
-      {lanes.done.length > 0 && (
-        <div className="grid gap-2">
-          <button type="button" className="justify-self-start px-1 text-[12px] text-subtle underline-offset-2 hover:text-tertiary hover:underline" onClick={() => setShowDone((v) => !v)}>
-            {showDone ? 'Hide done' : `Show done (${lanes.done.length})`}
-          </button>
-          {showDone && lanes.done.map((t) => row(t))}
-        </div>
+      {list === 'done' && total > 0 && (
+        <section className="grid gap-2" data-task-lane="done">
+          {lanes.done.length === 0 ? (
+            <p className="px-1 text-[12px] text-faint">Nothing done yet. Mark a task done from its row, or it moves here when its agent's pull request merges.</p>
+          ) : (
+            lanes.done.map((t) => (
+              <DoneRow
+                key={t.id}
+                task={t}
+                busy={act.isPending}
+                onReopen={() => act.mutate(() => actions.reopen(t))}
+                onDelete={() => act.mutate(() => actions.remove(t))}
+              />
+            ))
+          )}
+        </section>
       )}
+    </div>
+  );
+}
+
+// ListChoice is the tab's Open | Done switch, each with its count.
+function ListChoice({ list, counts, onChange }: { list: TaskList; counts: Record<TaskList, number>; onChange: (list: TaskList) => void }) {
+  return (
+    <div role="tablist" aria-label="Tasks" className="inline-flex justify-self-start rounded-lg border border-line bg-surface-faint p-0.5">
+      {(['open', 'done'] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          role="tab"
+          aria-selected={list === option}
+          onClick={() => onChange(option)}
+          className={cn(
+            'flex items-baseline gap-1.5 rounded-md px-3 py-1 text-[12.5px] font-medium transition-colors',
+            list === option ? 'bg-surface-strong text-primary shadow-sm' : 'text-subtle hover:text-secondary',
+          )}
+        >
+          {option === 'open' ? 'Open' : 'Done'}
+          <span className="text-[11.5px] font-normal text-faint tabular-nums">{counts[option]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// DoneRow is a task in the Done list: how it ended — done by hand,
+// implemented by a merged pull request, or abandoned — and when, with Reopen
+// to put it back in the backlog.
+function DoneRow({ task, busy, onReopen, onDelete }: { task: T.Task; busy: boolean; onReopen: () => void; onDelete: () => void }) {
+  const outcome = taskOutcome(task);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  return (
+    <div className="panel flex flex-wrap items-start gap-3 rounded-2xl px-4 py-3" data-task={task.id} data-task-status={task.status} data-task-outcome={outcome.kind}>
+      <div className="min-w-0 flex-1">
+        <p className={cn('text-[13.5px] font-medium text-secondary', outcome.kind === 'abandoned' && 'text-subtle line-through')}>{task.goal}</p>
+        {task.detail && <p className="mt-1 line-clamp-2 whitespace-pre-line text-[12px] text-subtle">{task.detail}</p>}
+        <p className="mt-1 flex flex-wrap items-center gap-x-1 text-[11px] text-faint">
+          {outcome.kind === 'implemented' ? (
+            <>
+              <GitMerge className="size-3 text-brand-300" />
+              <span className="text-tertiary">Implemented in</span>
+              <a href={outcome.url} target="_blank" rel="noreferrer" className="text-tertiary underline underline-offset-2 hover:text-primary">
+                #{outcome.number}
+              </a>
+            </>
+          ) : outcome.kind === 'abandoned' ? (
+            <span className="text-tertiary">Abandoned</span>
+          ) : (
+            <>
+              <Check className="size-3" />
+              <span className="text-tertiary">Done by hand</span>
+            </>
+          )}
+          <span>· {timeAgo(task.closedAt ?? task.updatedAt)}</span>
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <Button size="sm" variant="ghost" disabled={busy} onClick={onReopen}>
+          <RotateCcw />
+          Reopen
+        </Button>
+        {confirmDelete ? (
+          <>
+            <Button size="sm" variant="danger" disabled={busy} onClick={onDelete}>
+              Delete
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+              Keep
+            </Button>
+          </>
+        ) : (
+          <Button size="icon-sm" variant="ghost" aria-label={`Delete “${task.goal}”`} disabled={busy} onClick={() => setConfirmDelete(true)}>
+            <Trash2 />
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -314,7 +407,7 @@ function TaskRow({
             Start
           </Button>
         )}
-        {lane === 'running' && (
+        {lane !== 'done' && (
           <Button size="sm" variant="ghost" disabled={busy} onClick={onDone}>
             <Check />
             Done

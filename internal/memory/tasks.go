@@ -74,6 +74,12 @@ type Task struct {
 	// is derived from Status on every write rather than set separately, so
 	// the two can never disagree.
 	ClosedAt time.Time `json:"closedAt,omitzero,omitempty"`
+	// PullURL and PullNumber are the pull request that finished it, on a
+	// task done because its agent's pull request merged: "implemented",
+	// rather than done by hand. They are cleared whenever the task isn't
+	// done, so reopening one doesn't leave it claiming a merge.
+	PullURL    string `json:"pullUrl,omitempty"`
+	PullNumber int    `json:"pullNumber,omitempty"`
 	// DependsOn are the tasks this one is waiting on, and Blocks the tasks
 	// waiting on it. Both are filled on read from task_dependencies; neither
 	// is a column.
@@ -107,11 +113,20 @@ type TaskPatch struct {
 	Detail   *string `json:"detail,omitempty"`
 	Agent    *string `json:"agent,omitempty"`
 	ParentID *string `json:"parentId,omitempty"`
+	// Pull is the pull request that finished the task, set with a status of
+	// done; it is dropped on any other status.
+	Pull *TaskPull `json:"pull,omitempty"`
+}
+
+// TaskPull is a merged pull request a task was done by.
+type TaskPull struct {
+	URL    string `json:"url"`
+	Number int    `json:"number"`
 }
 
 // Empty reports whether the patch asks for nothing.
 func (p TaskPatch) Empty() bool {
-	return p.Status == nil && p.Goal == nil && p.Detail == nil && p.Agent == nil && p.ParentID == nil
+	return p.Status == nil && p.Goal == nil && p.Detail == nil && p.Agent == nil && p.ParentID == nil && p.Pull == nil
 }
 
 // maxTaskGoal is how long a task's goal may be. It is a line somebody reads a
@@ -320,14 +335,21 @@ func (s *Store) UpdateTask(ctx context.Context, project, id string, patch TaskPa
 		}
 		updated.ParentID = parent
 	}
+	if patch.Pull != nil {
+		updated.PullURL, updated.PullNumber = strings.TrimSpace(patch.Pull.URL), patch.Pull.Number
+	}
+	if updated.Status != TaskDone {
+		updated.PullURL, updated.PullNumber = "", 0
+	}
 	now := stamp(time.Now())
 	updated.UpdatedAt = now
 	updated.ClosedAt = closedStamp(updated.Status, now, current.ClosedAt)
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE tasks SET agent = ?, parent_task_id = ?, status = ?, goal = ?, detail = ?, updated_at = ?, closed_at = ?
+		`UPDATE tasks SET agent = ?, parent_task_id = ?, status = ?, goal = ?, detail = ?, updated_at = ?, closed_at = ?,
+		 pull_url = ?, pull_number = ?
 		 WHERE project = ? AND id = ?`,
 		updated.Agent, nullable(updated.ParentID), updated.Status, updated.Goal, updated.Detail,
-		updated.UpdatedAt.UnixMilli(), millis(updated.ClosedAt), project, id)
+		updated.UpdatedAt.UnixMilli(), millis(updated.ClosedAt), updated.PullURL, updated.PullNumber, project, id)
 	if err != nil {
 		return Task{}, err
 	}
@@ -563,7 +585,7 @@ func (s *Store) fillEdges(ctx context.Context, project string, tasks []Task) err
 	return nil
 }
 
-const taskColumns = `id, project, agent, parent_task_id, status, goal, detail, created_at, updated_at, closed_at`
+const taskColumns = `id, project, agent, parent_task_id, status, goal, detail, created_at, updated_at, closed_at, pull_url, pull_number`
 
 func (s *Store) queryTasks(ctx context.Context, clause string, args ...any) ([]Task, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+taskColumns+` FROM tasks `+clause, args...)
@@ -577,7 +599,7 @@ func (s *Store) queryTasks(ctx context.Context, clause string, args ...any) ([]T
 		var parent *string
 		var created, updated, closed int64
 		if err := rows.Scan(&t.ID, &t.Project, &t.Agent, &parent, &t.Status, &t.Goal, &t.Detail,
-			&created, &updated, &closed); err != nil {
+			&created, &updated, &closed, &t.PullURL, &t.PullNumber); err != nil {
 			return nil, err
 		}
 		if parent != nil {

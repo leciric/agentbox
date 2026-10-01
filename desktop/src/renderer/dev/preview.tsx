@@ -117,7 +117,9 @@
 //   ?queue=alone            Only organic has work: Auto gives it two slots
 //                           instead of one, with nobody to share the budget
 //   ?queue=tasks            agentbox's Tasks tab: the slots strip, the
-//                           composer and the plan, three tasks queued
+//                           composer and the plan, three tasks queued, and
+//                           a Done list with each way a task ends; Done and
+//                           Reopen work against the fixture
 //   ?queue=demo             Starts like busy, then plays the queue draining
 //                           on a timer (~4s a step) — a slot frees, the next
 //                           queued agent starts, the rest move up — until
@@ -307,6 +309,7 @@ if (meters) {
 
 const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
 if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
+if (queue === 'tasks') tasksBridge();
 if (power) seedPower(queryClient, power);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
@@ -668,6 +671,39 @@ function GitHubPreview() {
       <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
     </div>
   );
+}
+
+// tasksBridge answers the Tasks tab from what seedQueue put in the cache, so
+// its 5s queue refetch and the refresh after each action read the fixtures
+// back rather than the dev bridge's generic {}; marking a task done and
+// reopening it change the fixture, so both can be clicked through.
+function tasksBridge(): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
+  const tasksPath = `/v1/projects/${PROJECT}/memory/tasks`;
+  bridge.request = async (method, path, body) => {
+    const tasks = queryClient.getQueryData<T.Task[]>(['memoryTasks', PROJECT]) ?? [];
+    if (method === 'GET' && path.startsWith('/v1/queue')) return answer(queryClient.getQueryData(['queue', PROJECT]));
+    if (method === 'GET' && path === '/v1/agents') return answer(queryClient.getQueryData(['agents']));
+    if (method === 'GET' && path === '/v1/settings') return answer(queryClient.getQueryData(['settings']));
+    if (method === 'GET' && path === tasksPath) return answer(tasks);
+    if (method === 'PATCH' && path.startsWith(`${tasksPath}/`)) {
+      const id = decodeURIComponent(path.slice(tasksPath.length + 1));
+      const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.UpdateTaskRequest;
+      const now = new Date().toISOString();
+      const next = tasks.map((t) => {
+        if (t.id !== id) return t;
+        const status = req.status ?? t.status;
+        const closed = status === 'done' || status === 'abandoned';
+        return { ...t, status, agent: req.agent ?? t.agent, updatedAt: now, closedAt: closed ? now : undefined, pullUrl: closed ? t.pullUrl : undefined, pullNumber: closed ? t.pullNumber : undefined };
+      });
+      queryClient.setQueryData(['memoryTasks', PROJECT], next);
+      return answer(next.find((t) => t.id === id));
+    }
+    return inner(method, path, body);
+  };
 }
 
 // slowListsBridge answers the lists the sidebar, Home and the rail read from
