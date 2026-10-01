@@ -72,9 +72,8 @@
 //                           TPS), by agent and by model, and spend over time
 //   ?tokens=agent           agent-99's own "What it spent" card, on its
 //                           Overview tab
-//   ?meters=cpu|memory      the top bar's "Host CPU" or "Host memory" popover,
-//                           against a paused agent still holding swap in
-//                           zram, a CPU-capped agent and a plain one —
+//   ?meters=cpu             the top bar's "Host CPU" popover, against a
+//                           CPU-capped agent, a paused one and a plain one —
 //                           scenarios.json clicks the meter open before its
 //                           shot, since state here comes from the URL alone
 //   ?nightly=1              a nightly build, on the nightly channel with a newer
@@ -86,8 +85,8 @@
 //                           ?loading=3000 answers them from the fixtures after
 //                           3 s; ?loading=refetch loads them, then holds every
 //                           refetch, the way a busy daemon does
-//   ?io=1|stalling          Home, the top bar and the rail with disk IO next to
-//                           CPU and memory: a quiet host, or one stalling on
+//   ?io=1|stalling          Home and the rail with disk IO next to CPU and
+//                           memory: a quiet host, or one stalling on
 //                           disk and memory the way the user's desktop froze
 //                           (io full 35%, memory full 19%); ?io=agent is
 //                           agent-12's Overview, its disk IO beside its CPU

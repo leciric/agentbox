@@ -1276,11 +1276,11 @@ export function seedLinuxVM(queryClient: QueryClient, kind: string): void {
   queryClient.setQueryData(['host-setup'], devState.hostSetup);
 }
 
-// seedMeterUsage is the top bar's CPU and memory popovers (?meters=cpu,
-// ?meters=memory) against three agents: one paused but still holding RAM and
-// zram swap, one capped below its configured cores by "Never freeze my CPU",
-// and one plain running agent — so both popovers have a largest-first list
-// worth a screenshot, without a daemon or Incus to ask for one.
+// seedMeterUsage is the top bar's CPU popover (?meters=cpu) against three
+// agents: one paused but still holding RAM and zram swap, one capped below
+// its configured cores by "Never freeze my CPU", and one plain running
+// agent — so the popover has a largest-first list worth a screenshot,
+// without a daemon or Incus to ask for one.
 export function seedMeterUsage(queryClient: QueryClient): void {
   const GiB = 1024 ** 3;
   const memoryUsage: T.MemoryUsage = {
