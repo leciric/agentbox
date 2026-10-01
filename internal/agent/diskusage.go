@@ -83,7 +83,7 @@ func (m *Manager) DiskUsage(ctx context.Context) (DiskUsage, error) {
 
 	media := DiskUsageCategory{Label: "Media"}
 	for _, p := range projects {
-		if size, err := dirSize(filepath.Join(m.Paths.Data, "media", p.Name)); err == nil {
+		if size, err := dirSize(filepath.Join(m.Paths.Media(), p.Name)); err == nil {
 			media.Items = append(media.Items, DiskUsageItem{Label: p.Name, Bytes: size})
 		}
 	}

@@ -67,7 +67,7 @@ type TestCounts struct {
 
 // MediaDir is where an agent's media is kept on the host.
 func (m *Manager) MediaDir(project, agent string) string {
-	return filepath.Join(m.Paths.Data, "media", project, agent)
+	return filepath.Join(m.Paths.Media(), project, agent)
 }
 
 // MediaPath is the host path of an item's file or directory, or "" for a note.
@@ -75,7 +75,17 @@ func (m *Manager) MediaPath(item state.Media) string {
 	if item.File == "" {
 		return ""
 	}
-	return filepath.Join(m.MediaDir(item.Project, item.Agent), item.File)
+	path := filepath.Join(m.MediaDir(item.Project, item.Agent), item.File)
+	if old := m.legacyMediaDir(); old != "" {
+		// Not yet moved there by MoveMedia: it is still where it was made.
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			legacy := filepath.Join(old, item.Project, item.Agent, item.File)
+			if _, err := os.Stat(legacy); err == nil {
+				return legacy
+			}
+		}
+	}
+	return path
 }
 
 // pendingMedia is an item whose content is being written into dir.
@@ -659,6 +669,9 @@ func (m *Manager) DeleteMedia(ctx context.Context, item state.Media) error {
 	if err := m.Store.DeleteMedia(ctx, item.ID); err != nil {
 		return err
 	}
+	if old := m.legacyMediaDir(); old != "" {
+		_ = os.RemoveAll(filepath.Join(old, item.Project, item.Agent, item.ID))
+	}
 	return os.RemoveAll(filepath.Join(m.MediaDir(item.Project, item.Agent), item.ID))
 }
 
@@ -666,15 +679,17 @@ func (m *Manager) deleteAgentMedia(ctx context.Context, a state.Agent) error {
 	if err := m.Store.DeleteAgentMedia(ctx, a.Project, a.Name); err != nil {
 		return err
 	}
+	if old := m.legacyMediaDir(); old != "" {
+		_ = os.RemoveAll(filepath.Join(old, a.Project, a.Name))
+	}
 	return os.RemoveAll(m.MediaDir(a.Project, a.Name))
 }
 
 // keepAgentMedia starts the retention clock on an agent's media, now that its
 // agent is going: from this moment, not from when each item was made, so an
 // item already older than the retention window doesn't expire the instant it
-// outlives its agent. The files themselves are untouched: MediaDir lives
-// under the data directory, never inside the worktree or instance Destroy
-// just removed.
+// outlives its agent. The files themselves are untouched: MediaDir is
+// never inside the worktree or instance Destroy just removed.
 func (m *Manager) keepAgentMedia(ctx context.Context, a state.Agent) error {
 	return m.Store.OrphanAgentMedia(ctx, a.Project, a.Name, time.Now())
 }
