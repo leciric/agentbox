@@ -12,7 +12,8 @@ import "time"
 // (desktop/src/main/vmpower.ts):
 //
 //   - `agentbox vm power --json` prints what the top bar shows:
-//     {state, memoryUsed, memoryGranted, memoryCap, cpus, error?}, or
+//     {state, memoryUsed, memoryGranted, memoryCap, cpus, error?,
+//     pausedForDisk?, hostFree?}, or
 //     {"mode":"host"} when this installation doesn't run in a VM. The app's
 //     main process serves it to the renderer as IPC vm:power.
 //   - `agentbox vm start|pause|resume|stop` each return once the VM is in its
@@ -74,7 +75,18 @@ type VMStatus struct {
 	// CPUs it can hotplug and the memory its virtio-mem region holds, both
 	// fixed when it booted. Missing when it isn't running.
 	Live *VMLimits `json:"live,omitempty"`
+	// PausedForDisk says the supervisor paused the VM because the host's disk
+	// that holds its disk images got down to its last VMDiskBackstop bytes
+	// free: the VM's disks are sparse, so they grow into whatever the host
+	// has, and a write the host can't take would corrupt them. It's resumed
+	// once the host has twice that free again.
+	PausedForDisk bool `json:"pausedForDisk,omitempty"`
 }
+
+// VMDiskBackstop is the free space on the host's disk below which the
+// supervisor pauses the VM (VMStatus.PausedForDisk): the last line, under
+// the daemon's own disk guard in the VM, for when that one can't act.
+const VMDiskBackstop = int64(2) << 30
 
 // VMLimits bound a VM's CPUs and memory (bytes).
 type VMLimits struct {
@@ -110,6 +122,9 @@ type VMMemory struct {
 type VMDisk struct {
 	Size int64 `json:"size"` // what the VM sees
 	Used int64 `json:"used"` // what it takes on the host's disk (it's sparse)
+	// HostFree is what's free on the host's disk that holds the VM's disk
+	// images: all they can still grow into.
+	HostFree int64 `json:"hostFree,omitempty"`
 }
 
 // VMStopRequest is POST /v1/vm/stop.

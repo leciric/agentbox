@@ -48,6 +48,9 @@ type supervisor struct {
 	daemonReady bool
 	sample      *memSample
 	mem         memState
+	// pausedForDisk says the supervisor paused the VM because the host's
+	// disk was nearly full (diskbackstop.go).
+	pausedForDisk bool
 }
 
 // Supervise is `agentbox vm run`: it runs the VM in the foreground (passt,
@@ -170,6 +173,7 @@ func (s *supervisor) run(ctx context.Context) error {
 	// Phones' port closes with the other forwards, before the VM stops.
 	defer func() { stopLoops(); <-lanDone }()
 	go s.memoryLoop(loops)
+	go s.diskLoop(loops)
 
 	var req api.VMStopRequest
 	select {

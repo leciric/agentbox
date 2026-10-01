@@ -185,6 +185,7 @@ func (s *supervisor) status(ctx context.Context) api.VMStatus {
 	}
 	s.mu.Lock()
 	st.State, st.Since = s.state, s.since
+	st.PausedForDisk = s.pausedForDisk && s.state == api.VMPaused
 	if s.sample != nil {
 		st.Memory.Used = s.sample.Used()
 	}
@@ -220,6 +221,7 @@ func offStatus(c Config, l Layout) api.VMStatus {
 			st.Disk.Used += allocated(fi)
 		}
 	}
+	st.Disk.HostFree = hostFree(l.Dir())
 	return st
 }
 

@@ -178,6 +178,16 @@ const (
 	// SettingKeepFreeCPU is how many cores SettingNeverFreezeCPU keeps free
 	// for the host, as a count. Empty means DefaultKeepFreeCPU.
 	SettingKeepFreeCPU = "keep_free_cpu"
+	// SettingDiskFloorMin and SettingDiskFloorPercent are the free space the
+	// disk guard keeps on every disk AgentBox writes to (agent.DiskFloor):
+	// bytes, and a percentage of the disk, the larger of the two. Empty means
+	// agent.DefaultDiskFloor's.
+	SettingDiskFloorMin     = "disk_floor_min"
+	SettingDiskFloorPercent = "disk_floor_percent"
+	// SettingDiskGuardPaused are the agents the disk guard paused and hasn't
+	// resumed yet, as a JSON list of refs, so a daemon restarted while a disk
+	// was at its floor still resumes them when there's room again.
+	SettingDiskGuardPaused = "disk_guard_paused"
 	// SettingGPUForAgents says whether the daemon passes the host's GPU into
 	// every agent's container, as an Incus gpu device (D-gpu): only offered
 	// where agent.HostGPU finds one, and off until somebody turns it on, so an

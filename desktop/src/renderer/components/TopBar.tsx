@@ -11,6 +11,7 @@ import { useNow } from '../lib/useNow';
 import { useVMPower } from '../lib/vm';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
+import { DiskGuardPill } from './DiskGuardPill';
 import { ResourceControls } from './ResourceControls';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
@@ -92,6 +93,7 @@ export function TopBar({
             <span className="hidden sm:inline">Finish setup</span>
           </button>
         )}
+        <DiskGuardPill onSelect={onSelect} />
         <ResourceControls agents={agents.data ?? []} />
         <UsageMeter view={view} agents={agents.data ?? []} />
         {host && (

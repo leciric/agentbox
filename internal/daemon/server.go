@@ -76,6 +76,7 @@ type Server struct {
 	updates updates            // what the daily update check last found
 	stop    context.CancelFunc
 	incus   *incusWatch // whether Incus answers, and what to do when it doesn't
+	disk    *diskWatch  // the disk guard: a floor of free space on every disk AgentBox writes to
 
 	runCtx context.Context // Run's, for connections that outlive a request
 
@@ -237,6 +238,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
+	s.disk = s.newDiskWatch()
 	return s, nil
 }
 
@@ -311,6 +313,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.syncBases(ctx) })
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
+	loops.Go(func() { s.watchDisk(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
@@ -577,6 +580,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/usage", s.usage)
 	h("GET /v1/usage/disk", s.diskUsage)
+	h("GET /v1/disk", s.getDiskGuard)
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
 	h("POST /v1/usage-stats/{feature}", s.countAppFeature)
@@ -631,6 +635,8 @@ func writeError(w http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	case errors.Is(err, incus.ErrNotAnswering):
 		status = http.StatusServiceUnavailable
+	case isDiskFull(err):
+		status = http.StatusInsufficientStorage
 	}
 	body := api.Error{Error: err.Error()}
 	if errors.Is(err, gitrepo.ErrNotEmpty) {
