@@ -464,21 +464,37 @@ func (s *Server) deleteTask(ctx context.Context, project, id string) error {
 	if err != nil {
 		return err
 	}
-	if t.Agent != "" {
-		if a, err := s.store.Agent(ctx, project, t.Agent); err == nil && a.Status == state.AgentQueued {
-			s.queueMu.Lock()
-			defer s.queueMu.Unlock()
-			if s.queueStarting(a.Ref()) {
-				return fmt.Errorf("%s is starting already", a.Ref())
-			}
-			if err := s.store.RemoveAgent(ctx, a.Project, a.Name); err != nil {
-				return err
-			}
-			s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": "unqueued", "branch": a.Branch}, "")
-			defer s.refreshAgents(ctx)
-		}
+	if _, err := s.unqueueAgentForTask(ctx, t); err != nil {
+		return err
 	}
 	return s.memory().DeleteTask(ctx, project, id)
+}
+
+// unqueueAgentForTask takes a task's agent out of the queue when it is still
+// waiting there, for a task deleted or closed before it started, and says
+// whether it did. An agent that has started is left alone. This is distinct
+// from the public unqueue-task endpoint (taskroute.go's unqueueTask), which
+// also takes a task waiting for the lead out of its queue, and errors rather
+// than silently doing nothing when the task isn't queued.
+func (s *Server) unqueueAgentForTask(ctx context.Context, t memory.Task) (bool, error) {
+	if t.Agent == "" {
+		return false, nil
+	}
+	a, err := s.store.Agent(ctx, t.Project, t.Agent)
+	if err != nil || a.Status != state.AgentQueued {
+		return false, nil
+	}
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	if s.queueStarting(a.Ref()) {
+		return false, fmt.Errorf("%s is starting already", a.Ref())
+	}
+	if err := s.store.RemoveAgent(ctx, a.Project, a.Name); err != nil {
+		return false, err
+	}
+	s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": "unqueued", "branch": a.Branch}, "")
+	s.refreshAgents(ctx)
+	return true, nil
 }
 
 // HTTP

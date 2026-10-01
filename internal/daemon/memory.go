@@ -369,8 +369,20 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			if err != nil {
 				return err
 			}
-			out, err := m.UpdateTask(ctx, who.project, id, memory.TaskPatch{Status: req.Status, Goal: req.Goal,
-				Detail: req.Detail, Agent: req.Agent, ParentID: req.ParentID, Route: req.Route})
+			patch := memory.TaskPatch{Status: req.Status, Goal: req.Goal,
+				Detail: req.Detail, Agent: req.Agent, ParentID: req.ParentID, Route: req.Route}
+			// A queued task closed before it started leaves the queue: nothing
+			// should start for work that's over.
+			if req.Status != nil && memory.TaskClosed(*req.Status) && was.Open() {
+				unqueued, err := s.unqueueAgentForTask(ctx, was)
+				if err != nil {
+					return err
+				}
+				if unqueued {
+					patch.Agent = ptr("")
+				}
+			}
+			out, err := m.UpdateTask(ctx, who.project, id, patch)
 			if err != nil {
 				return err
 			}
@@ -491,7 +503,7 @@ func apiTask(t memory.Task) api.Task {
 	return api.Task{
 		ID: t.ID, Project: t.Project, Agent: t.Agent, ParentID: t.ParentID, Status: t.Status,
 		Goal: t.Goal, Detail: t.Detail, Route: t.Route, LeadQueuedAt: t.LeadQueuedAt, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
-		ClosedAt: t.ClosedAt, DependsOn: t.DependsOn, Blocks: t.Blocks,
+		ClosedAt: t.ClosedAt, PullURL: t.PullURL, PullNumber: t.PullNumber, DependsOn: t.DependsOn, Blocks: t.Blocks,
 	}
 }
 

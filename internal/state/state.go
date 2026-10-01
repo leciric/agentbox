@@ -754,6 +754,12 @@ var migrations = []string{
 	`DELETE FROM settings WHERE key IN ('default_cpu', 'default_cpu_allowance', 'default_memory', 'default_memory_seeded',
 		'never_freeze_cpu', 'keep_free_cpu', 'shared_budget', 'shared_budget_memory', 'shared_budget_swap', 'shared_budget_cpu', 'gpu_for_agents')`,
 
+	// A task done by its agent's pull request merging remembers which one,
+	// so the Done list can say it was implemented and link to it. Empty on a
+	// task closed by hand, and on any task that isn't done.
+	`ALTER TABLE tasks ADD COLUMN pull_url TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE tasks ADD COLUMN pull_number INTEGER NOT NULL DEFAULT 0`,
+
 	// Where a task of the Tasks tab goes when it starts: '' follows the
 	// installation's setting (task_target), 'agent' and 'lead' are the task's
 	// own choice. lead_queued_at is when a lead-bound task joined its

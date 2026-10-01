@@ -2,7 +2,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { taskActions, taskFromText, taskLane, taskLanes, taskTarget, taskText, type TasksApi } from './tasks.ts';
+import {
+  taskActions,
+  taskFromText,
+  taskLane,
+  taskLanes,
+  taskListCounts,
+  taskOutcome,
+  taskTarget,
+  taskText,
+  type TasksApi,
+} from './tasks.ts';
 
 const task = (id: string, extra: Partial<T.Task> = {}): T.Task => ({
   id,
@@ -70,6 +80,50 @@ test('the queue is in the order it starts, the backlog newest first', () => {
     lanes.done.map((t) => t.id),
     ['t6'],
   );
+});
+
+test('the Open list is the queue, in progress and the backlog; Done is the rest, latest closed first', () => {
+  const agents = new Map([
+    ['a1', { state: 'queued', queuePosition: 1, createdAt: '2026-10-01T00:00:01Z' }],
+    ['a2', { state: 'running', createdAt: '2026-10-01T00:00:00Z' }],
+  ]);
+  const lanes = taskLanes(
+    [
+      task('t1', { agent: 'a1' }),
+      task('t2', { agent: 'a2' }),
+      task('t3'),
+      task('t4', { status: 'done', closedAt: '2026-10-01T10:00:00Z' }),
+      task('t5', { status: 'abandoned', closedAt: '2026-10-01T12:00:00Z' }),
+      task('t6', { status: 'done', agent: 'a2', closedAt: '2026-10-01T11:00:00Z' }),
+    ],
+    agents,
+  );
+  assert.deepEqual(taskListCounts(lanes), { open: 3, done: 3 });
+  assert.deepEqual(
+    lanes.done.map((t) => t.id),
+    ['t5', 't6', 't4'],
+  );
+});
+
+test('a done task says how it ended: by hand, implemented by a pull request, or abandoned', () => {
+  assert.deepEqual(taskOutcome(task('t1', { status: 'done' })), { kind: 'done' });
+  assert.deepEqual(taskOutcome(task('t1', { status: 'done', pullUrl: 'https://github.com/o/r/pull/9', pullNumber: 9 })), {
+    kind: 'implemented',
+    url: 'https://github.com/o/r/pull/9',
+    number: 9,
+  });
+  assert.deepEqual(taskOutcome(task('t1', { status: 'abandoned' })), { kind: 'abandoned' });
+});
+
+test('any open task can be marked done, and a done one reopens to the backlog', async () => {
+  const { calls, actions } = recorder();
+  await actions.markDone(task('t1', { agent: 'a1' }));
+  await actions.reopen(task('t2', { status: 'done', agent: 'a2' }));
+  assert.deepEqual(calls, [
+    ['updateTask', 'p', 't1', { status: 'done' }],
+    ['updateTask', 'p', 't2', { status: 'open', agent: '' }],
+  ]);
+  assert.equal(taskLane({ status: 'open', agent: undefined }, undefined), 'backlog');
 });
 
 test("a task's text is its goal on the first line and its brief after", () => {

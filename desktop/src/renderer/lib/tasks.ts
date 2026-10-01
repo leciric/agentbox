@@ -1,12 +1,13 @@
 // The project's tasks, as the Tasks tab works them: a list only the user
-// writes, each task in the backlog (the default) or in the queue. Starting or
-// queueing a task sends it where it goes (POST …/tasks/{id}/start): a new
-// agent, the way it always did, or the project's lead, which may split it
-// across several agents. A task queued for an agent is a queued agent made for
-// it, so the queue's order is the agents' queue positions; one queued for the
-// lead waits behind the agents queued before it, and holds no slot. Sending a
-// task back to the backlog takes it out of the queue either way. Kept apart
-// from ProjectTasksPanel so the rules are tested without rendering it.
+// writes, each open task in the backlog (the default) or in the queue, and
+// the rest in a list of their own once they're done. Starting or queueing a
+// task sends it where it goes (POST …/tasks/{id}/start): a new agent, the way
+// it always did, or the project's lead, which may split it across several
+// agents. A task queued for an agent is a queued agent made for it, so the
+// queue's own order is the agents' queue positions; one queued for the lead
+// waits behind the agents queued before it, and holds no slot. Sending a task
+// back to the backlog takes it out of the queue either way. Kept apart from
+// ProjectTasksPanel so the rules are tested without rendering it.
 import type * as T from '../../shared/api';
 
 export type TaskLane = 'backlog' | 'queue' | 'running' | 'done';
@@ -45,8 +46,9 @@ export interface TaskLanes {
 }
 
 // taskLanes sorts a project's tasks into lanes: the queue in the order it
-// will start, the backlog newest first, so what was just written is on top.
-// A task queued for the lead sits behind the agents queued before it.
+// will start, the backlog newest first, so what was just written is on top,
+// and what's done by when it was, latest first. A task queued for the lead
+// sits behind the agents queued before it.
 export function taskLanes(tasks: T.Task[], agents: Map<string, Pick<T.Agent, 'state' | 'queuePosition' | 'createdAt'>>): TaskLanes {
   const lanes: TaskLanes = { queue: [], running: [], backlog: [], done: [] };
   for (const task of tasks) lanes[taskLane(task, task.agent ? agents.get(task.agent) : undefined)].push(task);
@@ -60,7 +62,27 @@ export function taskLanes(tasks: T.Task[], agents: Map<string, Pick<T.Agent, 'st
   };
   lanes.queue.sort((a, b) => position(a) - position(b));
   lanes.backlog.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  lanes.done.sort((a, b) => (b.closedAt ?? b.updatedAt).localeCompare(a.closedAt ?? a.updatedAt));
   return lanes;
+}
+
+// The tab shows one of two lists: what's still to do — the queue, what's in
+// progress and the backlog — or what's done.
+export type TaskList = 'open' | 'done';
+
+export function taskListCounts(lanes: TaskLanes): Record<TaskList, number> {
+  return { open: lanes.queue.length + lanes.running.length + lanes.backlog.length, done: lanes.done.length };
+}
+
+// TaskOutcome is how a task in the Done list ended: marked done by hand,
+// implemented by its agent's pull request merging (the daemon closes it then,
+// internal/daemon/taskdone.go), or abandoned.
+export type TaskOutcome = { kind: 'done' } | { kind: 'implemented'; url: string; number: number } | { kind: 'abandoned' };
+
+export function taskOutcome(task: Pick<T.Task, 'status' | 'pullUrl' | 'pullNumber'>): TaskOutcome {
+  if (task.status === 'abandoned') return { kind: 'abandoned' };
+  if (task.pullUrl) return { kind: 'implemented', url: task.pullUrl, number: task.pullNumber ?? 0 };
+  return { kind: 'done' };
 }
 
 // taskFromText is a task out of one box: the first line is its goal, what it
@@ -98,7 +120,12 @@ export function taskActions(api: TasksApi, project: string) {
     // Deleting a queued task takes its agent out of the queue too; the
     // daemon does that, so it's one call either way.
     remove: (task: T.Task) => api.deleteTask(project, task.id),
+    // Any open task can be marked done; a queued one leaves the queue with
+    // it, which the daemon does, so it's one call whatever the lane.
     markDone: (task: T.Task) => api.updateTask(project, task.id, { status: 'done' }),
+    // Reopening puts a done task back in the backlog, let go of whichever
+    // agent had it.
+    reopen: (task: T.Task) => api.updateTask(project, task.id, { status: 'open', agent: '' }),
     // Starting a task with the queue off sends it now: its agent is made, or
     // the lead is sent it.
     start: async (task: T.Task, agent: Pick<T.Agent, 'state'> | undefined) => {

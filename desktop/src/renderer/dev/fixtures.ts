@@ -1313,12 +1313,18 @@ function queuedAgentFixture(name: string, position: number): T.QueuedAgent {
 // queued, one running, one unassigned, one done.
 function queueTasks(running: string[], queued: string[]): T.Task[] {
   const now = new Date().toISOString();
+  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
   const task = (id: string, goal: string, status: string, agentName?: string): T.Task => ({ id, project: PROJECT, agent: agentName, status, goal, createdAt: now, updatedAt: now });
   return [
     task('t1', 'Ship the release notes', 'active', running[0]),
     ...queued.map((name, i) => task(`t${i + 2}`, queueTaskGoals[name] ?? name, 'open', name)),
     task('t5', 'Audit third-party licenses', 'open'),
     { ...task('t6', 'Bump the base image', 'done'), closedAt: now },
+    // The Done list's three endings: implemented by a merged pull request,
+    // done by hand, and abandoned.
+    { ...task('t7', 'Split the Tasks tab into Open and Done', 'done'), closedAt: ago(40), pullUrl: 'https://github.com/leciric/agentbox/pull/155', pullNumber: 155 },
+    { ...task('t8', 'Retry a failed image build from Setup', 'done'), closedAt: ago(60 * 26), pullUrl: 'https://github.com/leciric/agentbox/pull/149', pullNumber: 149 },
+    { ...task('t9', 'Try Vulkan transcription on every GPU', 'abandoned'), closedAt: ago(60 * 50) },
   ];
 }
 

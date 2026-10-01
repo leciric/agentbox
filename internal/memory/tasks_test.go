@@ -129,6 +129,42 @@ func TestUpdateTaskClosesAndReopens(t *testing.T) {
 	}
 }
 
+// A task implemented by a pull request keeps which one, and only while it is
+// done: reopening it, or closing it any other way, drops the claim.
+func TestUpdateTaskKeepsThePullRequestWhileDone(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+
+	task := addTask(t, s, "pawly", "Build the API")
+	pull := &memory.TaskPull{URL: "https://github.com/acme/pawly/pull/42", Number: 42}
+	done, err := s.UpdateTask(ctx, "pawly", task.ID, memory.TaskPatch{Status: ptr(memory.TaskDone), Pull: pull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.PullURL != pull.URL || done.PullNumber != 42 {
+		t.Fatalf("implemented task = %q #%d, want %q #42", done.PullURL, done.PullNumber, pull.URL)
+	}
+	if read, _ := s.Task(ctx, "pawly", task.ID); read.PullURL != pull.URL || read.PullNumber != 42 {
+		t.Fatalf("read back = %q #%d, want %q #42", read.PullURL, read.PullNumber, pull.URL)
+	}
+
+	reopened, err := s.UpdateTask(ctx, "pawly", task.ID, memory.TaskPatch{Status: ptr(memory.TaskOpen)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.PullURL != "" || reopened.PullNumber != 0 {
+		t.Errorf("a reopened task still claims %q #%d", reopened.PullURL, reopened.PullNumber)
+	}
+
+	abandoned, err := s.UpdateTask(ctx, "pawly", task.ID, memory.TaskPatch{Status: ptr(memory.TaskAbandoned), Pull: pull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if abandoned.PullURL != "" {
+		t.Errorf("an abandoned task claims %q", abandoned.PullURL)
+	}
+}
+
 func TestLinkTasksBothWays(t *testing.T) {
 	ctx := context.Background()
 	s := open(t)
