@@ -35,6 +35,9 @@ type machine interface {
 	// setCPUs and setMemory resize the running VM, within live.
 	setCPUs(ctx context.Context, n int) error
 	setMemory(ctx context.Context, bytes int64) error
+	// setDisk grows the pool disk to bytes while the VM runs, when live
+	// says it can (MaxDisk).
+	setDisk(ctx context.Context, bytes int64) error
 	// granted is the memory the guest has now, or 0 when it won't say.
 	granted(ctx context.Context) int64
 	// resident is what the VM holds of the host's memory, for the memory

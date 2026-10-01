@@ -525,3 +525,26 @@ func TestIncusWaitready(t *testing.T) {
 		t.Errorf("failed with incusd ready: %v, %s", err, out)
 	}
 }
+
+// The pool disk grows to a bigger Config.Disk, sparsely, and never shrinks.
+func TestGrowSparse(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "pool.raw")
+	if err := makeSparse(file, 20*GiB); err != nil {
+		t.Fatal(err)
+	}
+	if err := growSparse(file, 30*GiB); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(file); fi.Size() != 30*GiB {
+		t.Errorf("grown to %d", fi.Size())
+	}
+	if err := growSparse(file, 25*GiB); err != nil {
+		t.Fatal(err)
+	}
+	if size := PoolSize(Layout{Root: filepath.Dir(file), Name: "none"}); size != 0 {
+		t.Errorf("a layout with no pool disk: %d", size)
+	}
+	if fi, _ := os.Stat(file); fi.Size() != 30*GiB {
+		t.Errorf("shrunk to %d", fi.Size())
+	}
+}

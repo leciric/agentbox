@@ -58,6 +58,11 @@ func MakeDisks(ctx context.Context, c Config, l Layout, log io.Writer) error {
 	if err := makeSparse(l.PoolDisk(), c.Disk); err != nil {
 		return fmt.Errorf("making the pool disk: %w", err)
 	}
+	// A Config given a bigger disk while the VM was off: the guest grows its
+	// pool to it once it's up (GrowPoolScript).
+	if err := growSparse(l.PoolDisk(), c.Disk); err != nil {
+		return fmt.Errorf("growing the pool disk: %w", err)
+	}
 	pub, err := ensureKey(ctx, l)
 	if err != nil {
 		return err
@@ -279,6 +284,48 @@ func makeSparse(file string, size int64) error {
 		return err
 	}
 	return os.Rename(part, file)
+}
+
+// growSparse grows file to size, sparsely, when it's smaller; it never
+// shrinks one.
+func growSparse(file string, size int64) error {
+	fi, err := os.Stat(file)
+	if err != nil {
+		return err
+	}
+	if fi.Size() >= size {
+		return nil
+	}
+	return os.Truncate(file, size)
+}
+
+// PoolSize is the pool disk's size, or 0 when there's none.
+func PoolSize(l Layout) int64 {
+	if fi, err := os.Stat(l.PoolDisk()); err == nil {
+		return fi.Size()
+	}
+	return 0
+}
+
+// GrowPoolScript grows the VM's btrfs pool to fill its disk, in the VM, after
+// the disk grew: at once while it runs, or at its next start. It mounts the
+// pool a second time, which btrfs allows, so it works whether Incus has it
+// mounted yet or not, and does nothing on a disk without a pool on it yet
+// (the first boot) or one the pool fills already. A disk grown while the VM
+// runs reaches the guest's kernel a moment later, so it waits for that.
+func GrowPoolScript(size int64) string {
+	return fmt.Sprintf(`set -e
+d=/dev/disk/by-id/virtio-%s
+[ -e "$d" ] || exit 0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	[ "$(sudo -n blockdev --getsize64 "$d")" -ge %d ] && break
+	sleep 0.5
+done
+sudo -n blkid -t TYPE=btrfs "$d" >/dev/null || exit 0
+m=$(mktemp -d)
+trap 'sudo -n umount "$m" 2>/dev/null; rmdir "$m"' EXIT
+sudo -n mount -t btrfs "$d" "$m"
+sudo -n btrfs filesystem resize max "$m" >/dev/null`, PoolDiskSerial, size)
 }
 
 // ensureKey makes the key the front end logs into the VM with, unless it's
