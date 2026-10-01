@@ -1647,6 +1647,7 @@ func TestCancelWithMessageWaiting(t *testing.T) {
 	store := openStore(t)
 	var prompts []string
 	var mu sync.Mutex
+	prompted := make(chan struct{})
 	f := newSteeringTool(func(f *fakeTool, _, text string) acp.PromptResponse {
 		mu.Lock()
 		first := len(prompts) == 0
@@ -1655,6 +1656,7 @@ func TestCancelWithMessageWaiting(t *testing.T) {
 		if !first {
 			return acp.PromptResponse{StopReason: "end_turn"}
 		}
+		close(prompted)
 		<-f.cancels
 		return acp.PromptResponse{StopReason: "cancelled"}
 	})
@@ -1663,7 +1665,13 @@ func TestCancelWithMessageWaiting(t *testing.T) {
 	if _, err := m.Send(testAgent, "Start"); err != nil {
 		t.Fatal(err)
 	}
-	waitThread(t, m, testAgent, "the turn to start", func(th api.ChatThread) bool { return th.Session.State == api.ChatRunning })
+	// The tool has the prompt before the message steers it: a running session
+	// says nothing about whether its prompt has reached the tool yet.
+	select {
+	case <-prompted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the tool never got the first prompt")
+	}
 	if _, err := m.Send(testAgent, "and also this"); err != nil {
 		t.Fatal(err)
 	}
