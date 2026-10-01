@@ -3,6 +3,25 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.11.0](https://github.com/leciric/agentbox/compare/v0.10.0...v0.11.0) (2026-10-01)
+
+
+### Added
+
+* an agent queue with a running limit per project, and a lead that rechecks its agents ([#138](https://github.com/leciric/agentbox/issues/138)) ([fee4611](https://github.com/leciric/agentbox/commit/fee4611485d7149a6c95550cdcec69f1f2a60218))
+* chat from your phone from anywhere, through a Cloudflare Tunnel ([#137](https://github.com/leciric/agentbox/issues/137)) ([3e8d8ab](https://github.com/leciric/agentbox/commit/3e8d8abb534b417a53090713cc694de8bd76c95c))
+* nightly builds, and a Stable/Nightly update channel in Settings ([#136](https://github.com/leciric/agentbox/issues/136)) ([23a6c50](https://github.com/leciric/agentbox/commit/23a6c50a90306ff2577ac40320bbfac96e8a5458))
+
+
+### Fixed
+
+* AgentBox no longer hangs when Incus dies as the Linux VM starts ([#139](https://github.com/leciric/agentbox/issues/139)) ([e062346](https://github.com/leciric/agentbox/commit/e06234699a9c3dc4470e6aeebe1884eaf289b635))
+* logging in to Claude Code works when AgentBox runs in its Linux VM, and a pasted code is submitted ([#142](https://github.com/leciric/agentbox/issues/142)) ([a50d027](https://github.com/leciric/agentbox/commit/a50d02722c8aeb72bcf7e097ca4d4497a70a3db4))
+* messages in a chat no longer disappear when a turn ends or the chat is read again ([#144](https://github.com/leciric/agentbox/issues/144)) ([7034fa1](https://github.com/leciric/agentbox/commit/7034fa1f43f90ef9afe362037b72939076b6559d))
+* recordings, and other large media, are no longer saved corrupted and play as black ([#134](https://github.com/leciric/agentbox/issues/134)) ([53c6ddd](https://github.com/leciric/agentbox/commit/53c6ddd6e5a5ed6c53c8195acdc181331baa8cec))
+* restarting AgentBox no longer leaves several daemons running and the app without its socket ([#141](https://github.com/leciric/agentbox/issues/141)) ([b73f49a](https://github.com/leciric/agentbox/commit/b73f49aa4674b059baca33dbaf9120f9538ee07f))
+* the desktop app no longer shows "write EPIPE" error dialogs when the VM stops or starts ([#132](https://github.com/leciric/agentbox/issues/132)) ([0b5aee8](https://github.com/leciric/agentbox/commit/0b5aee805fd3047b680f45b06a2c2089f7499f32))
+
 ## [0.10.0](https://github.com/leciric/agentbox/compare/v0.9.1...v0.10.0) (2026-09-29)
 
 
