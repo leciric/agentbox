@@ -718,12 +718,18 @@ type Power struct {
 	MemoryCap     int64  `json:"memoryCap"`
 	CPUs          int    `json:"cpus"`
 	Error         string `json:"error,omitempty"` // why it can't be used, and what to run
+	// PausedForDisk says the supervisor paused it because the host's disk
+	// that holds its disk images is nearly full (api.VMStatus.PausedForDisk),
+	// and HostFree is what that disk has free.
+	PausedForDisk bool  `json:"pausedForDisk,omitempty"`
+	HostFree      int64 `json:"hostFree,omitempty"`
 }
 
 // powerFrom is a Cloud Hypervisor VM's Power. A VM vm init hasn't finished
 // making is off, with why.
 func powerFrom(st api.VMStatus) Power {
-	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs, Error: st.Problem}
+	p := Power{State: st.State, MemoryUsed: st.Memory.Used, MemoryGranted: st.Memory.Granted, MemoryCap: st.Memory.Cap, CPUs: st.CPUs, Error: st.Problem,
+		PausedForDisk: st.PausedForDisk, HostFree: st.Disk.HostFree}
 	if st.State == api.VMMissing {
 		p.State = api.VMOff
 		if p.Error == "" {

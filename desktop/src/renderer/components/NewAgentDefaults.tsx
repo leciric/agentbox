@@ -573,6 +573,70 @@ export function NeverFreezeCPU() {
   );
 }
 
+// DiskFloor is the disk guard's floor: the free space AgentBox keeps on every
+// disk it writes to (internal/agent/diskguard.go), the larger of a size and a
+// share of the disk. At it, new agents are refused and the agents writing the
+// most are paused until there's room; the top bar says when that's near.
+export function DiskFloor() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['settings'], next);
+      void queryClient.invalidateQueries({ queryKey: ['disk'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const min = settings.data?.diskFloorMin ?? 10 * 1024 ** 3;
+  const percent = settings.data?.diskFloorPercent ?? 5;
+  const disabled = save.isPending || settings.isPending;
+  return (
+    <SettingRow
+      label="Keep free on every disk"
+      description="AgentBox never fills your disk: it keeps this much free on every disk it writes to."
+      details="That's the storage pool its agents' machines live on, the worktrees, its own data, and in its VM your disk that holds the VM's disk images, which grow as the VM writes. Nearing it, the top bar warns. At it, new agents, forks, image builds and saved bases are refused, queued agents wait, and the agents writing the most are paused, then resumed once there's room again. Nothing is ever stopped or deleted."
+    >
+      <div className="grid max-w-md grid-cols-2 gap-3">
+        <ResourceField
+          id="disk-floor-min"
+          label="At least"
+          placeholder="10GiB"
+          hint="Default 10GiB, 2GiB at the least, and never more than a quarter of a small disk."
+          value={min % 1024 ** 3 === 0 ? `${min / 1024 ** 3}GiB` : humanBytes(min).replace(' ', '')}
+          disabled={disabled}
+          onCommit={(value) => {
+            if (value.trim() === '') return save.mutate({ diskFloorMin: 0 });
+            const bytes = parseBytes(value);
+            if (bytes === undefined) {
+              toast.error('A size like 10GiB');
+              return;
+            }
+            save.mutate({ diskFloorMin: bytes });
+          }}
+        />
+        <ResourceField
+          id="disk-floor-percent"
+          label="Or this share of the disk, if more"
+          placeholder="5%"
+          hint="Default 5%."
+          value={`${percent}%`}
+          disabled={disabled}
+          onCommit={(value) => {
+            if (value.trim() === '') return save.mutate({ diskFloorPercent: -1 });
+            const n = Number(value.replace('%', '').trim());
+            if (!Number.isFinite(n) || n < 0) {
+              toast.error('A percentage like 5%');
+              return;
+            }
+            save.mutate({ diskFloorPercent: n });
+          }}
+        />
+      </div>
+    </SettingRow>
+  );
+}
+
 // useEnableSharedBudget turns the shared budget on in one click: its cgroup
 // first, through pkexec, when it isn't set up yet, then the switch. Running
 // agents stay where they are until their next start, and the toast says so.

@@ -20,6 +20,10 @@ const (
 	// HomeEnv is the host user's home directory, when the VM shares it at the
 	// same path. It isn't the VM user's home: that is the VM's own.
 	HomeEnv = "AGENTBOX_HOST_HOME"
+	// VMDisksEnv is the host's directory that holds the VM's disk images,
+	// which grow into the host's disk as the VM writes (they're sparse): the
+	// VM's disk guard watches what's free there, through the shared home.
+	VMDisksEnv = "AGENTBOX_VM_DISKS"
 
 	// Windows is OS's answer inside WSL2 (package hostwsl, D94).
 	Windows = "windows"
@@ -102,6 +106,15 @@ func Home() string {
 		return ""
 	}
 	return os.Getenv(HomeEnv)
+}
+
+// VMDisks is VMDisksEnv's directory, or "" when this isn't a VM or the
+// front end didn't say.
+func VMDisks() string {
+	if !InVM() {
+		return ""
+	}
+	return os.Getenv(VMDisksEnv)
 }
 
 // Name is how a brief or an error names the user's computer: "Windows", "a

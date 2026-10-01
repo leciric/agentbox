@@ -294,6 +294,7 @@ export const api = {
 
   usage: () => call<T.Usage>('GET', '/v1/usage?interval=500ms'),
   diskUsage: () => call<T.DiskUsage>('GET', '/v1/usage/disk'),
+  diskGuard: () => call<T.DiskGuard>('GET', '/v1/disk'),
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
   cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),
   auth: () => call<T.AuthStatus>('GET', '/v1/auth'),

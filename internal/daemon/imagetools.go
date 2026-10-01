@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/image"
 )
@@ -108,6 +109,10 @@ func (s *Server) updateBaseTools(ctx context.Context) {
 // you start succeeds or the daemon starts again.
 func (s *Server) startToolsUpdate(plan image.Plan) {
 	if plan.Action != image.NeedsTools || s.jobs == nil {
+		return
+	}
+	if s.disk != nil && s.diskStatus().Level == agent.DiskFull {
+		// It copies the base image: Setup asks again once there's room.
 		return
 	}
 	s.mu.Lock()

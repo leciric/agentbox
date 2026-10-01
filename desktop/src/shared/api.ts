@@ -127,6 +127,8 @@ export interface Settings {
   defaultClaudeCompactWindow: number;
   neverFreezeCPU: boolean;
   keepFreeCPU: number;
+  diskFloorMin: number;
+  diskFloorPercent: number;
   gpuAvailable: boolean;
   gpuKind: string;
   gpuForAgents: boolean;
@@ -194,6 +196,8 @@ export interface UpdateSettingsRequest {
   sharedBudgetMemory?: string;
   sharedBudgetSwap?: string;
   sharedBudgetCPU?: number;
+  diskFloorMin?: number;
+  diskFloorPercent?: number;
 }
 
 export interface Limits {
@@ -465,6 +469,23 @@ export interface AgentDisk {
   machine?: number;
   worktree?: number;
   measuredAt: string;
+}
+
+export interface DiskGuard {
+  level: string;
+  disks: DiskGuardDisk[];
+  paused: string[];
+  since: string;
+  message: string;
+}
+
+export interface DiskGuardDisk {
+  label: string;
+  path?: string;
+  free: number;
+  total: number;
+  floor: number;
+  level: string;
 }
 
 export interface MemoryUsageAgent {
@@ -1753,6 +1774,7 @@ export interface VMStatus {
   disk: VMDisk;
   limits?: VMLimits;
   live?: VMLimits;
+  pausedForDisk?: boolean;
 }
 
 export interface VMMemory {
@@ -1766,6 +1788,7 @@ export interface VMMemory {
 export interface VMDisk {
   size: number;
   used: number;
+  hostFree?: number;
 }
 
 export interface VMLimits {
@@ -1827,6 +1850,10 @@ export const EventPulls = "pulls";
 export const EventTheme = "theme";
 export const EventUpdate = "update";
 export const EventBudget = "budget";
+export const EventDisk = "disk";
+export const DiskOK = "ok";
+export const DiskLow = "low";
+export const DiskFull = "full";
 export const EventLAN = "lan";
 export const SetupOK = "ok";
 export const SetupMissing = "missing";

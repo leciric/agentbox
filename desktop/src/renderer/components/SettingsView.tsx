@@ -55,6 +55,7 @@ import {
   LeadRecheck,
   MediaRetention,
   NeverFreezeCPU,
+  DiskFloor,
   NewAgentCPUShare,
   NewAgentEffort,
   NewAgentResources,
@@ -1156,6 +1157,13 @@ function InstalledSettings({
               keywords: "cpu cores keep free host starve cap limits",
               modified: changed((s) => s.neverFreezeCPU),
               render: () => <NeverFreezeCPU />,
+            },
+            {
+              id: "disk-floor",
+              label: "Keep free on every disk",
+              keywords: "disk space full floor free storage pool guard pause",
+              modified: changed((s) => s.diskFloorMin !== 10 * 1024 ** 3 || s.diskFloorPercent !== 5),
+              render: () => <DiskFloor />,
             },
             ...(s?.sharedBudget && !s.sharedBudget.unsupported
               ? [

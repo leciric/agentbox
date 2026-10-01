@@ -811,6 +811,12 @@ func (c *Client) Usage(ctx context.Context, interval time.Duration) (Usage, erro
 	return out, c.do(ctx, http.MethodGet, "/v1/usage?interval="+url.QueryEscape(interval.String()), nil, &out)
 }
 
+// DiskGuard is what the daemon's disk guard last found.
+func (c *Client) DiskGuard(ctx context.Context) (DiskGuard, error) {
+	var out DiskGuard
+	return out, c.do(ctx, http.MethodGet, "/v1/disk", nil, &out)
+}
+
 func (c *Client) DiskUsage(ctx context.Context) (DiskUsage, error) {
 	var out DiskUsage
 	return out, c.do(ctx, http.MethodGet, "/v1/usage/disk", nil, &out)

@@ -164,6 +164,7 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	// here and overridden by the tests that are about it.
 	srv.prWatch.every = 0 // tests drive the pull request watch themselves
 	srv.incus.every = 0   // and the one on Incus (incuswatch.go)
+	srv.disk.every = 0    // and the disk guard (diskguard.go)
 	srv.askAside = func(context.Context, state.Agent, string, string) (string, string, error) {
 		return "", "", errors.New("this test starts no AI tool")
 	}
