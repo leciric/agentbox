@@ -101,6 +101,9 @@ export function compactionThread(): T.ChatThread {
         compaction: { state: 'failed', error: `the agentbox chat didn't summarise itself: ${WIDE.longErrorString}` },
       }),
       item(3, { kind: 'user', turn: 'c7', text: 'Ship the Mac build without the Apple secrets.', result: done(1) }),
+      // A settled turn keeps what it said in view, folding only its work.
+      item(3, { kind: 'assistant', turn: 'c7', text: 'Creating agent-13 for the Mac build, signed ad hoc.' }),
+      item(2, { kind: 'tool', turn: 'c7', tool: { callId: 'create', title: 'create_agent', kind: 'other', status: 'completed' } }),
       item(1, { kind: 'assistant', turn: 'c7', text: 'agent-13 is on it; I will tell you when its PR is up.' }),
       item(0, { kind: 'compaction', turn: 'c7', compaction: { state: 'running', waiting: 1 } }),
       item(0, { kind: 'aside', turn: 'c7', text: 'And make sure the release notes mention the ad hoc signing.', delivery: 'held' }),
