@@ -44,7 +44,9 @@ func TestConnectorEndToEnd(t *testing.T) {
 	if err := os.MkdirAll(capture, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := startTestDaemon(t, root, connectorsIncus, testConfig{env: map[string]string{"CAPTURE": capture}})
+	// With the preview proxy on, the browser comes back to it, the address
+	// the host's browser reaches wherever the daemon runs.
+	d := startTestDaemon(t, root, connectorsIncus, testConfig{env: map[string]string{"CAPTURE": capture}, previewAddr: "127.0.0.1:0"})
 	ctx := context.Background()
 	a := addTestAgent(t, d)
 	if err := d.srv.serveAgentAPI(a.Instance); err != nil {
@@ -104,8 +106,8 @@ func TestConnectorEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Connector.Status != api.ConnectorConnecting || !strings.HasPrefix(res.RedirectURI, "http://127.0.0.1:") ||
-		!strings.HasPrefix(res.AuthorizationURL, fake.URL+"/authorize?") {
+	if res.Connector.Status != api.ConnectorConnecting || res.RedirectURI != d.srv.connectorCallback() ||
+		!strings.HasSuffix(res.RedirectURI, connectors.CallbackPath) || !strings.HasPrefix(res.AuthorizationURL, fake.URL+"/authorize?") {
 		t.Errorf("connect = %+v", res)
 	}
 	if code, page, err := connectorstest.SignIn(res.AuthorizationURL); err != nil || code != http.StatusOK || !strings.Contains(page, "signed in to notion") {

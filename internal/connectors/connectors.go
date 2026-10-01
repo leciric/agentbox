@@ -3,12 +3,33 @@
 // without a token ever reaching one.
 //
 // The daemon holds the sign-in: it finds out how a server wants to be signed
-// in to (oauth.go), runs the browser sign-in with a listener on 127.0.0.1
-// (flow.go), keeps the tokens sealed in state.db and refreshes them before
+// in to (oauth.go), runs the browser sign-in, which comes back to the host's
+// 127.0.0.1 (flow.go), keeps the tokens sealed in state.db and refreshes them before
 // they expire (this file). Inside the agent, `agentbox connector mcp <name>`
 // is a stdio MCP server that relays every message to the daemon over the
 // agent's own socket (relay.go); the daemon attaches the token and speaks
-// streamable HTTP to the server (proxy.go). docs/connectors.md has all of it.
+// streamable HTTP to the server (proxy.go).
+//
+//	AI tool ─stdin/stdout─ agentbox connector mcp notion ─agent socket, no token─
+//	  daemon ─POST + Authorization: Bearer …─ https://mcp.notion.com/mcp
+//
+// The relay passes Content-Type, Accept, Mcp-Session-Id, Mcp-Protocol-Version
+// and Last-Event-ID through, and back Content-Type, Mcp-Session-Id and
+// Cache-Control; nothing else crosses either way, cookies included. A
+// connector that can't be used answers 409 with why, which the stdio relay
+// turns into a JSON-RPC error for the request.
+//
+// Tokens are refreshed when a request finds them within refreshAhead of
+// expiring, and by a sweep every few minutes for those within sweepAhead, so a
+// refresh almost never lands in the middle of a tool call. A request answered
+// 401 is refreshed and retried once.
+//
+// What the real servers did, checked on 29 September 2026 (live_test.go):
+// Notion answers 401 with resource_metadata, supports S256, allows public
+// clients and accepts dynamic registration from a third-party client. Figma's
+// metadata advertises a registration endpoint that answers 403 to every
+// client it hasn't approved, so Figma is a secret connector, with a personal
+// access token in X-Figma-Token.
 package connectors
 
 import (
@@ -63,13 +84,21 @@ type Service struct {
 	// removed set): the daemon publishes it and rewrites agents' MCP
 	// configuration when the set they get changed.
 	OnChange func(c state.Connector, removed bool)
-	// CallbackHost is where the sign-in's listener binds: 127.0.0.1 unless a
-	// test says otherwise.
+	// Callback is the address the browser comes back to after a sign-in,
+	// on the daemon's preview proxy, which hands it to ServeCallback; ""
+	// while there is none. Nil, or "", has each sign-in listen on a port of
+	// its own instead (flow.go).
+	Callback func() string
+	// CallbackHost is where a sign-in's own listener binds: 127.0.0.1 unless
+	// a test says otherwise.
 	CallbackHost string
 
 	mu      sync.Mutex
 	pending map[key]*signIn
 	locks   map[key]*sync.Mutex
+
+	upstreamOnce sync.Once
+	relayClient  *http.Client
 }
 
 type key struct{ project, agent, name string }
@@ -93,6 +122,9 @@ func (s *Service) Set(ctx context.Context, project, agent, name string, req api.
 			auth = api.ConnectorSecret
 		}
 	}
+	l := s.lock(key{project, agent, name})
+	l.Lock()
+	defer l.Unlock()
 	c := state.Connector{Project: project, Agent: agent, Name: name, Enabled: true}
 	existing, err := s.State.Connector(ctx, project, agent, name)
 	switch {
@@ -162,8 +194,12 @@ func forget(c state.Connector, registration bool) state.Connector {
 	return c
 }
 
-// Remove forgets a connector, sign-in and all.
+// Remove forgets a connector, sign-in and all. It waits for a refresh under
+// way, which then finds the connector gone rather than writing it back.
 func (s *Service) Remove(ctx context.Context, project, agent, name string) error {
+	l := s.lock(key{project, agent, name})
+	l.Lock()
+	defer l.Unlock()
 	c, err := s.State.Connector(ctx, project, agent, name)
 	if err != nil {
 		return err
@@ -179,6 +215,9 @@ func (s *Service) Remove(ctx context.Context, project, agent, name string) error
 // Disconnect forgets a connector's tokens and keeps the connector, and its
 // client registration, to connect again.
 func (s *Service) Disconnect(ctx context.Context, project, agent, name string) (state.Connector, error) {
+	l := s.lock(key{project, agent, name})
+	l.Lock()
+	defer l.Unlock()
 	c, err := s.State.Connector(ctx, project, agent, name)
 	if err != nil {
 		return state.Connector{}, err
@@ -186,7 +225,7 @@ func (s *Service) Disconnect(ctx context.Context, project, agent, name string) (
 	s.cancelSignIn(keyOf(c))
 	c = forget(c, false)
 	c.UpdatedAt = time.Now()
-	if err := s.State.SetConnector(ctx, c); err != nil {
+	if err := s.State.UpdateConnector(ctx, c); err != nil {
 		return state.Connector{}, err
 	}
 	s.changed(c, false)
@@ -307,7 +346,9 @@ func (s *Service) Header(ctx context.Context, c state.Connector, forAgent string
 // lock is the one lock per connector that a refresh holds, so two requests
 // that both find the token about to expire refresh it once — which matters
 // with a server that rotates refresh tokens, where the second refresh would
-// spend a token the first already used.
+// spend a token the first already used. Everything else that reads a
+// connector, changes it and writes it back holds it too, so a refresh can't
+// undo a removal, a sign-out or a new URL made while it was out.
 func (s *Service) lock(k key) *sync.Mutex {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -353,7 +394,7 @@ func (s *Service) fresh(ctx context.Context, c state.Connector, ahead time.Durat
 		if !force && time.Until(c.ExpiresAt) > 0 {
 			return c, nil // no way to refresh it, and it still works for now
 		}
-		return state.Connector{}, s.fail(ctx, c, "its sign-in expired and the server gave no way to renew it: connect it again")
+		return state.Connector{}, s.failLocked(ctx, c, "its sign-in expired and the server gave no way to renew it: connect it again")
 	}
 	refresh, err := s.Secrets.Open(c.RefreshToken)
 	if err != nil {
@@ -365,7 +406,7 @@ func (s *Service) fresh(ctx context.Context, c state.Connector, ahead time.Durat
 	}
 	t, err := s.OAuth.Refresh(ctx, c.TokenEndpoint, client, refresh, c.Resource)
 	if errors.Is(err, ErrGrant) {
-		return state.Connector{}, s.fail(ctx, c, "the server no longer accepts its sign-in: connect it again ("+err.Error()+")")
+		return state.Connector{}, s.failLocked(ctx, c, "the server no longer accepts its sign-in: connect it again ("+err.Error()+")")
 	}
 	if err != nil {
 		// A server that is down now may be up at the next request: the token
@@ -384,8 +425,20 @@ func (s *Service) fresh(ctx context.Context, c state.Connector, ahead time.Durat
 
 // fail marks a connector as needing the user, and says so.
 func (s *Service) fail(ctx context.Context, c state.Connector, why string) error {
+	l := s.lock(keyOf(c))
+	l.Lock()
+	defer l.Unlock()
+	c, err := s.State.Connector(ctx, c.Project, c.Agent, c.Name)
+	if err != nil {
+		return err
+	}
+	return s.failLocked(ctx, c, why)
+}
+
+// failLocked is fail with the connector's lock already held, and c just read.
+func (s *Service) failLocked(ctx context.Context, c state.Connector, why string) error {
 	c.Error, c.UpdatedAt = why, time.Now()
-	if err := s.State.SetConnector(ctx, c); err != nil {
+	if err := s.State.UpdateConnector(ctx, c); err != nil {
 		return err
 	}
 	s.changed(c, false)
@@ -393,7 +446,8 @@ func (s *Service) fail(ctx context.Context, c state.Connector, why string) error
 }
 
 // store seals and keeps new tokens. A refresh answered without a refresh token
-// keeps the old one: the server didn't rotate it.
+// keeps the old one: the server didn't rotate it. The caller holds the
+// connector's lock, and c is what it read under it.
 func (s *Service) store(ctx context.Context, c state.Connector, t Token, signedIn bool) (state.Connector, error) {
 	access, err := s.Secrets.Seal(t.Access)
 	if err != nil {
@@ -415,7 +469,7 @@ func (s *Service) store(ctx context.Context, c state.Connector, t Token, signedI
 		c.ConnectedAt = now
 	}
 	c.UpdatedAt = now
-	return c, s.State.SetConnector(ctx, c)
+	return c, s.State.UpdateConnector(ctx, c)
 }
 
 // client is a connector's registered client, secret opened.

@@ -60,7 +60,10 @@ const connectorColumns = `project, agent, name, url, auth, secret, header, schem
 	access_token, refresh_token, expires_at, scope, error, connected_at, updated_at`
 
 // SetConnector stores a connector whole, replacing whatever was there under
-// (project, agent, name). Callers read, change and write it back.
+// (project, agent, name). Callers read, change and write it back. Only adding
+// or changing a connector by hand uses it: everything else updates one that
+// is already there (UpdateConnector), so it can't bring back a connector
+// removed meanwhile.
 func (s *Store) SetConnector(ctx context.Context, c Connector) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT OR REPLACE INTO connectors (`+connectorColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -68,6 +71,28 @@ func (s *Store) SetConnector(ctx context.Context, c Connector) error {
 		c.Issuer, c.TokenEndpoint, c.Resource, c.ClientID, c.ClientSecret, c.TokenAuth, c.RedirectURI,
 		c.AccessToken, c.RefreshToken, unixOrZero(c.ExpiresAt), c.Granted, c.Error, unixOrZero(c.ConnectedAt), c.UpdatedAt.Unix())
 	return err
+}
+
+// UpdateConnector stores a connector whole, like SetConnector, but only if it
+// is still there: a sign-in or a refresh that ends after the connector, its
+// agent or its project was removed finds it gone (ErrNotFound) rather than
+// writing it, tokens and all, back.
+func (s *Store) UpdateConnector(ctx context.Context, c Connector) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE connectors SET url = ?, auth = ?, secret = ?, header = ?, scheme = ?, enabled = ?,
+		issuer = ?, token_endpoint = ?, resource = ?, client_id = ?, client_secret = ?, token_auth = ?, redirect_uri = ?,
+		access_token = ?, refresh_token = ?, expires_at = ?, scope = ?, error = ?, connected_at = ?, updated_at = ?
+		WHERE project = ? AND agent = ? AND name = ?`,
+		c.URL, c.Auth, c.Secret, c.Header, c.Scheme, c.Enabled,
+		c.Issuer, c.TokenEndpoint, c.Resource, c.ClientID, c.ClientSecret, c.TokenAuth, c.RedirectURI,
+		c.AccessToken, c.RefreshToken, unixOrZero(c.ExpiresAt), c.Granted, c.Error, unixOrZero(c.ConnectedAt), c.UpdatedAt.Unix(),
+		c.Project, c.Agent, c.Name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("connector %s: %w", c.Name, ErrNotFound)
+	}
+	return nil
 }
 
 // Connector reads one connector. An agent is "" for a project connector.

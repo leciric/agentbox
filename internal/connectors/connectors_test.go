@@ -2,6 +2,7 @@ package connectors
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,7 +29,7 @@ func newService(t *testing.T) *Service {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	s := &Service{State: st, Secrets: secrets.Store{State: st, KeyPath: filepath.Join(dir, "secrets.key")}}
+	s := &Service{State: st, Secrets: secrets.Store{State: st, KeyPath: filepath.Join(dir, "secrets.key")}, OAuth: OAuth{Loopback: true}}
 	t.Cleanup(s.Close)
 	return s
 }
@@ -410,7 +411,7 @@ func TestDiscoveryChecksTheMetadataIsForTheServer(t *testing.T) {
 	mux.HandleFunc("/meta", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, `{"resource":"https://elsewhere.test/mcp","authorization_servers":["`+srv.URL+`"]}`)
 	})
-	_, err := OAuth{}.Discover(context.Background(), srv.URL+"/mcp")
+	_, err := OAuth{Loopback: true}.Discover(context.Background(), srv.URL+"/mcp")
 	if err == nil || !strings.Contains(err.Error(), "is for https://elsewhere.test/mcp") {
 		t.Errorf("Discover() = %v", err)
 	}
@@ -426,14 +427,14 @@ func TestDiscoveryFallbacks(t *testing.T) {
 	defer srv.Close()
 	mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
 	mux.HandleFunc("/open", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "{}") })
-	d, err := OAuth{}.Discover(context.Background(), srv.URL+"/mcp")
+	d, err := OAuth{Loopback: true}.Discover(context.Background(), srv.URL+"/mcp")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if d.Server.AuthorizationEndpoint != srv.URL+"/authorize" || d.Server.RegistrationEndpoint != srv.URL+"/register" || d.Resource != srv.URL+"/mcp" {
 		t.Errorf("legacy discovery = %+v", d)
 	}
-	if _, err := (OAuth{}).Discover(context.Background(), srv.URL+"/open"); !errors.Is(err, ErrNoAuth) {
+	if _, err := (OAuth{Loopback: true}).Discover(context.Background(), srv.URL+"/open"); !errors.Is(err, ErrNoAuth) {
 		t.Errorf("a server that needs no sign-in: %v", err)
 	}
 }
@@ -454,5 +455,123 @@ func TestAuthParams(t *testing.T) {
 	got := authParams([]string{`Bearer resource_metadata="https://mcp.figma.com/.well-known/oauth-protected-resource",scope="mcp:connect",authorization_uri="https://api.figma.com/x"`})
 	if got["resource_metadata"] != "https://mcp.figma.com/.well-known/oauth-protected-resource" || got["scope"] != "mcp:connect" {
 		t.Errorf("authParams() = %v", got)
+	}
+}
+
+// TestNothingComesBackFromARefresh removes, signs out and removes the project
+// of a connector while a refresh of its token is out at the server: once the
+// refresh comes back, what was done stays done, rather than the refresh
+// writing the connector back, tokens and all.
+func TestNothingComesBackFromARefresh(t *testing.T) {
+	t.Parallel()
+	fake := connectorstest.New()
+	defer fake.Close()
+	s := newService(t)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		what string
+		do   func() error
+		gone bool
+	}{
+		{"removed", func() error { return s.Remove(ctx, "pawly", "", "notion") }, true},
+		{"signed out", func() error { _, err := s.Disconnect(ctx, "pawly", "", "notion"); return err }, false},
+		{"project removed", func() error { return s.State.RemoveProjectConnectors(ctx, "pawly") }, true},
+	} {
+		c := connected(t, s, fake)
+		fake.Lock() // holds the token endpoint
+		refreshed := make(chan error, 1)
+		go func() { _, _, err := s.Header(ctx, c, "", true); refreshed <- err }()
+		// Wait for the refresh to hold the connector's lock.
+		l := s.lock(keyOf(c))
+		for l.TryLock() {
+			l.Unlock()
+			time.Sleep(time.Millisecond)
+		}
+		done := make(chan error, 1)
+		go func() { done <- tc.do() }()
+		time.Sleep(20 * time.Millisecond)
+		fake.Unlock()
+		<-refreshed
+		if err := <-done; err != nil {
+			t.Fatalf("%s: %v", tc.what, err)
+		}
+		after, err := s.State.Connector(ctx, "pawly", "", "notion")
+		switch {
+		case tc.gone && err == nil:
+			t.Errorf("%s during a refresh: the connector came back", tc.what)
+		case !tc.gone && (err != nil || len(after.AccessToken) > 0 || len(after.RefreshToken) > 0):
+			t.Errorf("%s during a refresh: %v, tokens kept: %v", tc.what, err, len(after.AccessToken) > 0)
+		}
+	}
+}
+
+// TestARequestSentJustBeforeEOFIsAnswered closes the relay's stdin straight
+// after a request, as `echo … | agentbox connector mcp` does: the answer
+// still comes.
+func TestARequestSentJustBeforeEOFIsAnswered(t *testing.T) {
+	t.Parallel()
+	fake := connectorstest.New()
+	defer fake.Close()
+	s := newService(t)
+	c := connected(t, s, fake)
+	var out bytes.Buffer
+	in := strings.NewReader(initializeMsg + "\n" + initializedMsg + "\n" + listMsg + "\n")
+	if err := relayFor(t, s, c).Serve(context.Background(), in, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"id":2`) || !strings.Contains(out.String(), `"tools"`) {
+		t.Errorf("stdout = %s, want tools/list's answer", out.String())
+	}
+}
+
+// TestAnotherServerGetsNoOldTokens connects a connector whose server now
+// names another issuer: the old tokens are dropped when the sign-in starts,
+// so an abandoned one can't leave them to be sent to the new server.
+func TestAnotherServerGetsNoOldTokens(t *testing.T) {
+	t.Parallel()
+	fake := connectorstest.New()
+	defer fake.Close()
+	s := newService(t)
+	c := connected(t, s, fake)
+	ctx := context.Background()
+	c.Issuer = "https://old.example"
+	if err := s.State.UpdateConnector(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Connect(ctx, "pawly", "", "notion"); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.State.Connector(ctx, "pawly", "", "notion")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.AccessToken) > 0 || len(after.RefreshToken) > 0 || after.Issuer != fake.URL {
+		t.Errorf("after connecting to a new issuer: issuer %s, tokens kept %v/%v", after.Issuer, len(after.AccessToken) > 0, len(after.RefreshToken) > 0)
+	}
+}
+
+// TestSignInThroughTheDaemonsCallback has the browser come back to Callback,
+// as it does through the preview proxy, and checks that only a sign-in's own
+// state is taken there.
+func TestSignInThroughTheDaemonsCallback(t *testing.T) {
+	t.Parallel()
+	fake := connectorstest.New()
+	defer fake.Close()
+	s := newService(t)
+	daemon := httptest.NewServer(http.HandlerFunc(s.ServeCallback))
+	defer daemon.Close()
+	s.Callback = func() string { return daemon.URL + CallbackPath }
+
+	resp, err := http.Get(daemon.URL + CallbackPath + "?state=nobodys&code=x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("a callback for no sign-in answered %d", resp.StatusCode)
+	}
+	c := connected(t, s, fake)
+	if c.RedirectURI != daemon.URL+CallbackPath {
+		t.Errorf("redirect URI = %s, want the daemon's callback", c.RedirectURI)
 	}
 }

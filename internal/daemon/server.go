@@ -51,6 +51,10 @@ type Config struct {
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string
+	// ConnectorsLoopback lets connectors reach servers on this machine's
+	// loopback, where only tests' fake MCP servers listen
+	// (connectors.OAuth.Loopback).
+	ConnectorsLoopback bool
 	// GitHubAPI is the GitHub API root; empty is github.Client's own, which
 	// AGENTBOX_GITHUB_API can move.
 	GitHubAPI string

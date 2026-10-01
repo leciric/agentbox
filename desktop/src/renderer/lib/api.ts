@@ -1,7 +1,6 @@
 // Typed calls to the daemon's HTTP API, sent through the main process.
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
-import type { AnswerConnectorRequest } from './connectors.ts';
 import { errorMessage } from './utils.ts';
 import { ensureVMRunning } from './vm.ts';
 
@@ -188,7 +187,7 @@ export const api = {
   removeSecret: (target: string, name: string) => call<void>('DELETE', `${secretsBase(target)}/${encodeURIComponent(name)}`),
 
   // Connectors: remote MCP servers the agents use, signed in on the host. No
-  // answer carries a token (docs/connectors.md).
+  // answer carries a token (internal/connectors).
   connectors: (target: string) => call<T.Connector[]>('GET', connectorsBase(target)),
   setConnector: (target: string, name: string, req: T.SetConnectorRequest) => call<T.Connector>('PUT', connectorPath(target, name), req),
   removeConnector: (target: string, name: string) => call<void>('DELETE', connectorPath(target, name)),
@@ -214,10 +213,6 @@ export const api = {
   // An agent's credential request: the value goes to the daemon, which puts it
   // into the agent, and the agent is told only what happened (D95).
   answerCredential: (name: string, id: string, req: T.AnswerCredentialRequest) =>
-    call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/credential`, req),
-  // A request_connector is answered on the credential route too, with the
-  // connector it now has. Expected, not settled: see lib/connectors.ts.
-  answerConnector: (name: string, id: string, req: AnswerConnectorRequest) =>
     call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/credential`, req),
   retire: (project: string, req: T.RetireRequest) => call<T.RetireResult>('POST', `/v1/projects/${encodeURIComponent(project)}/retire`, req),
   projectMedia: (project: string, agent = '', kind = '') => {

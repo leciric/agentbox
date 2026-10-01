@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
@@ -86,10 +87,7 @@ func (s *Service) Proxy(w http.ResponseWriter, r *http.Request, c state.Connecto
 		}
 		if resp.StatusCode == http.StatusUnauthorized && c.Auth == api.ConnectorOAuth {
 			_ = resp.Body.Close()
-			fresh, err := s.State.Connector(r.Context(), c.Project, c.Agent, c.Name)
-			if err == nil {
-				err = s.fail(r.Context(), fresh, "the server refused its sign-in even after renewing it: connect it again")
-			}
+			err := s.fail(r.Context(), c, "the server refused its sign-in even after renewing it: connect it again")
 			RelayError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -125,17 +123,31 @@ func copyResponse(w http.ResponseWriter, resp *http.Response) {
 	}
 }
 
+// upstream is the relay's client: a redirect is handed back rather than
+// followed, since following one to plain http on the same host would carry the
+// token along, and an MCP server has no reason to redirect its endpoint. It
+// dials with OAuth.Dialer, so a name that resolves to this machine doesn't
+// take an agent's requests to it.
 func (s *Service) upstream() *http.Client {
 	if s.Upstream != nil {
 		return s.Upstream
 	}
-	return noRedirects
+	s.upstreamOnce.Do(func() {
+		s.relayClient = &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			Transport: &http.Transport{
+				Proxy:                 http.ProxyFromEnvironment,
+				DialContext:           s.OAuth.Dialer().DialContext,
+				ForceAttemptHTTP2:     true,
+				MaxIdleConns:          100,
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ExpectContinueTimeout: time.Second,
+			},
+		}
+	})
+	return s.relayClient
 }
-
-// noRedirects is the relay's client: a redirect is handed back rather than
-// followed, since following one to plain http on the same host would carry the
-// token along, and an MCP server has no reason to redirect its endpoint.
-var noRedirects = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
 // RelayError is the daemon's own refusal, as the API's usual error: the relay
 // inside the agent tells it from the server's answer by X-Agentbox-Relay, and

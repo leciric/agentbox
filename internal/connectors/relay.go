@@ -45,12 +45,15 @@ type message struct {
 
 func (m message) isRequest() bool { return m.Method != "" && len(m.ID) > 0 && string(m.ID) != "null" }
 
-// Serve relays until stdin ends, then ends the session.
+// Serve relays until stdin ends, then ends the session: once every request
+// already sent has its answer, since a client may send its last request and
+// close stdin straight after. Only the GET stream is cut short then.
 func (r *Relay) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	r.w = out
-	ctx, cancel := context.WithCancel(ctx)
-	var wg sync.WaitGroup
+	streamCtx, cancel := context.WithCancel(ctx)
+	var requests, wg sync.WaitGroup
 	defer func() {
+		requests.Wait()
 		cancel()
 		wg.Wait()
 		r.end()
@@ -65,9 +68,9 @@ func (r *Relay) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 			} else if m.isRequest() && m.Method != "initialize" {
 				// Requests run side by side: a slow tool call mustn't hold up
 				// a cancellation, or a quick one behind it.
-				wg.Add(1)
+				requests.Add(1)
 				go func(line []byte, m message) {
-					defer wg.Done()
+					defer requests.Done()
 					r.post(ctx, line, m)
 				}(line, m)
 			} else {
@@ -76,7 +79,7 @@ func (r *Relay) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 				r.post(ctx, line, m)
 			}
 			if m.Method == "notifications/initialized" {
-				r.startStream(ctx, &wg)
+				r.startStream(streamCtx, &wg)
 			}
 		}
 		if err != nil {

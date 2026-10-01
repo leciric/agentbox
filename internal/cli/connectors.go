@@ -19,7 +19,7 @@ import (
 
 // newConnectorCmd gives agents remote MCP servers — Notion, Linear, Figma… —
 // signed in to once, here. The daemon keeps the sign-in and relays each
-// agent's requests, so no token ever reaches an agent (docs/connectors.md).
+// agent's requests, so no token ever reaches an agent (internal/connectors).
 func newConnectorCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "connector",

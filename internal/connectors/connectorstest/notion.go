@@ -101,9 +101,12 @@ func (s *Server) RevokeAll() {
 
 // SignIn is the user's browser: it opens the authorization URL, which this
 // fake approves at once, and follows the redirect back to the client's
-// callback. It answers with the callback page's status and text.
+// callback. It answers with the callback page's status and text. It keeps
+// no connection open: a sign-in's own listener is closed once it is over, and
+// the next may listen on the same port.
 func SignIn(authorizationURL string) (int, string, error) {
-	resp, err := http.Get(authorizationURL)
+	browser := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	resp, err := browser.Get(authorizationURL)
 	if err != nil {
 		return 0, "", err
 	}

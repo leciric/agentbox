@@ -75,10 +75,11 @@ test('names are lowercase letters, digits, - and _', () => {
   assert.ok(!validConnectorName(''));
 });
 
-test('a URL must be https, or http on this machine', () => {
+test('a URL must be https, to a server elsewhere', () => {
   assert.ok(validConnectorURL('https://mcp.notion.com/mcp'));
-  assert.ok(validConnectorURL('http://127.0.0.1:8080/mcp'));
-  assert.ok(validConnectorURL('http://localhost/mcp'));
+  assert.ok(!validConnectorURL('http://127.0.0.1:8080/mcp'));
+  assert.ok(!validConnectorURL('https://localhost/mcp'));
+  assert.ok(!validConnectorURL('https://169.254.169.254/'));
   assert.ok(!validConnectorURL('http://example.com/mcp'));
   assert.ok(!validConnectorURL('mcp.notion.com'));
 });
@@ -106,12 +107,22 @@ test('connectorRequest reads a request for a preset by name alone', () => {
   const req = connectorRequest(question({ connector: 'Notion' }));
   assert.equal(req?.name, 'notion');
   assert.equal(req?.url, 'https://mcp.notion.com/mcp');
+  assert.equal(req?.host, 'mcp.notion.com');
   assert.equal(req?.preset?.id, 'notion');
 });
 
-test('connectorRequest takes the name from secretName too, and a custom URL', () => {
-  const req = connectorRequest(question({ secretName: 'acme', url: 'https://mcp.acme.io/mcp' }));
-  assert.deepEqual(req, { name: 'acme', url: 'https://mcp.acme.io/mcp', preset: undefined });
+test('connectorRequest takes a custom URL', () => {
+  const req = connectorRequest(question({ connector: 'acme', url: 'https://mcp.acme.io/mcp' }));
+  assert.deepEqual(req, { name: 'acme', url: 'https://mcp.acme.io/mcp', host: 'mcp.acme.io', preset: undefined });
+});
+
+test("connectorRequest doesn't dress another server up as a preset", () => {
+  const req = connectorRequest(question({ connector: 'notion', url: 'https://notion.evil.example/mcp' }));
+  assert.equal(req?.preset, undefined);
+  assert.equal(req?.name, 'notion');
+  assert.equal(req?.host, 'notion.evil.example');
+  assert.equal(connectorRequest(question({ connector: 'figma', url: 'https://figma.evil.example/mcp' }))?.preset, undefined);
+  assert.equal(connectorRequest(question({ connector: 'notion', url: 'https://mcp.notion.com/mcp/' }))?.preset?.id, 'notion');
 });
 
 test('connectorRequest makes a name from the URL when none is given', () => {

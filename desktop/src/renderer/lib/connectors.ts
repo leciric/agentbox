@@ -1,7 +1,6 @@
 // What the Connectors tab and the request_connector card know about
 // connectors that the daemon doesn't tell them: the catalog of servers the app
-// offers, how a connector's state reads, and the shape of a request.
-// docs/connectors.md is the reference for the API itself.
+// offers, how a connector's state reads, and how a request reads.
 import * as T from '../../shared/api.ts';
 import { timeUntil } from './utils.ts';
 
@@ -69,14 +68,18 @@ export function connectorName(url: string): string {
   return name.replace(/[^a-z0-9_-]/g, '-').replace(/^-+/, '');
 }
 
+// validConnectorURL is what the daemon takes: https, to a server elsewhere.
 export const validConnectorURL = (url: string) => {
   try {
     const u = new URL(url);
-    return u.protocol === 'https:' || (u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname));
+    return u.protocol === 'https:' && !onThisMachine(u.hostname);
   } catch {
     return false;
   }
 };
+
+const onThisMachine = (host: string) =>
+  host === 'localhost' || host.endsWith('.localhost') || /^127\.|^0\.0\.0\.0$|^169\.254\./.test(host) || host === '[::1]';
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'default';
 
@@ -107,43 +110,43 @@ export function tokenLine(c: T.Connector, now = Date.now()): string | undefined 
 // ── request_connector ─────────────────────────────────────────────────────
 //
 // An agent asks for a connector the way it asks for a credential: a question
-// of its own kind, which the user answers on a card. The tool is being built
-// at the same time as this card, so the shape below is the one expected, and
-// every field the card reads goes through connectorRequest, and the answer
-// through api.answerConnector: those two are what to change if it lands
-// differently.
+// of kind T.QuestionConnector, with the connector's name and, when it isn't
+// one the app knows, the server's URL. It is answered on the credential route
+// (T.AnswerCredentialRequest's connector, or refuse).
 
-export const RequestConnector = 'connector';
-
-// ConnectorRequestFields are what a connector request is expected to add to
-// T.Question: the connector's name, and its URL when it isn't one the app
-// knows. secretName is read too, in case the name travels there.
-export interface ConnectorRequestFields {
-  connector?: string;
-  url?: string;
-}
+export const RequestConnector = T.QuestionConnector;
 
 export interface ConnectorRequest {
   name: string;
   url: string;
+  // host is the server's, which the card shows as prominently as the name:
+  // an agent chooses both, and what is signed in to is the URL.
+  host: string;
+  // preset is the server the app knows, only when the request is for that
+  // very server: a request named "notion" for another URL is not Notion.
   preset?: ConnectorPreset;
 }
 
+const sameServer = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+
 export function connectorRequest(q: T.Question): ConnectorRequest | undefined {
   if (q.kind !== RequestConnector) return undefined;
-  const extra = q as T.Question & ConnectorRequestFields;
-  const asked = (extra.connector ?? q.secretName ?? '').trim().toLowerCase();
-  const preset = presetFor(asked) ?? (extra.url ? presetFor(extra.url) : undefined);
-  const url = extra.url?.trim() || preset?.url || '';
+  const asked = (q.connector ?? '').trim().toLowerCase();
+  const given = q.url?.trim() ?? '';
+  const named = presetFor(asked);
+  let preset: ConnectorPreset | undefined;
+  if (given) preset = connectorPresets.find((p) => sameServer(p.url, given));
+  else preset = named;
+  const url = given || preset?.url || '';
   const name = asked || preset?.name || connectorName(url);
   if (!name) return undefined;
-  return { name, url, preset };
+  return { name, url, host: hostOf(url), preset };
 }
 
-// AnswerConnectorRequest is the body expected for answering one: the
-// connector it now has, or a refusal with why.
-export interface AnswerConnectorRequest {
-  connector?: string;
-  refuse?: boolean;
-  reason?: string;
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return '';
+  }
 }

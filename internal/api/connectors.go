@@ -6,7 +6,7 @@ import "time"
 // project's agents use as tools, signed in once by the user and held by the
 // daemon. Like the secrets API, **no response here ever carries a token**: the
 // daemon attaches it to each request it relays to the server, and neither the
-// app nor the agent ever sees it. docs/connectors.md is the reference.
+// app nor the agent ever sees it. Package connectors has how it works.
 
 // How a connector signs in to its server.
 const (

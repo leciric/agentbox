@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api } from '../lib/api';
-import { type AnswerConnectorRequest, type ConnectorRequest, connectorRequest, RequestConnector } from '../lib/connectors';
+import { type ConnectorRequest, connectorRequest, RequestConnector } from '../lib/connectors';
 import { errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -15,9 +15,9 @@ import { Input } from './ui/input';
 //
 // Answering it adds the connector to the project, the way a requested secret
 // is saved as the project's, signs in when it signs in with the browser, and
-// tells the agent which connector it has. Whatever the card reads of the
-// request goes through connectorRequest (lib/connectors.ts), since the tool
-// was built alongside it.
+// tells the agent which connector it has. The agent chooses the name and the
+// URL, so the server's host is shown as plainly as the name, and a preset's
+// label only when the URL is that preset's own (connectorRequest).
 export function ConnectorRequestCard({ question }: { question: T.Question }) {
   const req = connectorRequest(question);
   const waiting = question.status === 'pending' || question.status === 'escalated';
@@ -29,7 +29,12 @@ export function ConnectorRequestCard({ question }: { question: T.Question }) {
           Needs the connector <code className="font-mono text-[11.5px]">{req?.preset?.label ?? req?.name ?? '?'}</code>
         </span>
       </p>
-      {req?.url && <p className="truncate font-mono text-[11px] text-subtle" title={req.url}>{req.url}</p>}
+      {req?.host && (
+        <p className="min-w-0 text-[12px] text-secondary [overflow-wrap:anywhere]" title={req.url} data-connector-host>
+          at <span className="font-mono font-semibold text-primary">{req.host}</span>
+          {!req.preset && <span className="text-faint"> · a server the agent named, not one AgentBox knows</span>}
+        </p>
+      )}
       <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-tertiary [overflow-wrap:anywhere]">{question.question}</p>
       {question.status === 'cancelled' && (
         <p className="break-words text-[11px] text-faint" data-connector-cancelled>
@@ -74,7 +79,7 @@ function ConnectorAnswer({ question, req }: { question: T.Question; req: Connect
   const [signingIn, setSigningIn] = useState<string | undefined>();
 
   const answer = useMutation({
-    mutationFn: (body: AnswerConnectorRequest) => api.answerConnector(project, question.id, body),
+    mutationFn: (body: Pick<T.AnswerCredentialRequest, 'connector' | 'refuse' | 'reason'>) => api.answerCredential(project, question.id, body),
     onSuccess: (answered) =>
       queryClient.setQueryData<T.Question[]>(['questions', project], (list) => list?.map((q) => (q.id === answered.id ? answered : q))),
   });

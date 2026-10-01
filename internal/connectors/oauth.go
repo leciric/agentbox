@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -90,20 +91,76 @@ type OAuth struct {
 	ClientName string
 	// Insecure allows plain http to hosts other than loopback. Only tests set it.
 	Insecure bool
+	// Loopback allows servers on this machine's loopback, over plain http
+	// too: only tests' fake servers are there. Otherwise a connector could
+	// point an agent's relay at the daemon's own machine (CheckURL, and
+	// Dialer for names that resolve to it).
+	Loopback bool
 }
 
+// http is the client every OAuth request goes through. It follows no
+// redirect of a POST — a token or registration request would be sent again,
+// secrets and all, wherever it pointed — and a GET's only to a URL CheckURL
+// takes, and never from https to http.
 func (o OAuth) http() *http.Client {
+	c := http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         o.Dialer().DialContext,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}}
 	if o.HTTP != nil {
-		return o.HTTP
+		c = *o.HTTP
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	c.CheckRedirect = o.checkRedirect
+	return &c
+}
+
+func (o OAuth) checkRedirect(req *http.Request, via []*http.Request) error {
+	from := via[len(via)-1].URL
+	switch {
+	case via[0].Method != http.MethodGet:
+		return fmt.Errorf("%s redirected a %s to %s, which AgentBox doesn't follow", from.Host, via[0].Method, req.URL.Host)
+	case len(via) >= 5:
+		return errors.New("stopped after 5 redirects")
+	case from.Scheme == "https" && req.URL.Scheme != "https":
+		return fmt.Errorf("%s redirected to plain http", from.Host)
+	}
+	return o.CheckURL(req.URL.String())
+}
+
+// Dialer is what every connection to a connector's servers is made with. It
+// refuses this machine's own addresses — loopback, and the link-local ones a
+// cloud's metadata service answers on — unless Loopback allows them, whatever
+// name resolved to them.
+func (o OAuth) Dialer() *net.Dialer {
+	d := &net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}
+	if o.Loopback {
+		return d
+	}
+	d.Control = func(_, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return err
+		}
+		if ip := net.ParseIP(host); ip != nil && ownAddress(ip) {
+			return fmt.Errorf("%s is this machine's own address, which a connector can't reach", host)
+		}
+		return nil
+	}
+	return d
+}
+
+func ownAddress(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }
 
 // maxMetadata bounds what is read from any OAuth or metadata response.
 const maxMetadata = 1 << 20
 
-// CheckURL refuses anything but https, and plain http to this machine: a token
-// goes wherever these URLs say, so none of them may be sniffable.
+// CheckURL refuses anything but https, and anything on this machine: a token
+// goes wherever these URLs say, so none of them may be sniffable, and an
+// agent's relay goes there too, so none may be the daemon's own machine.
+// Loopback (tests) allows this machine, over plain http too.
 func CheckURL(raw string) error { return OAuth{}.CheckURL(raw) }
 
 func (o OAuth) CheckURL(raw string) error {
@@ -116,6 +173,8 @@ func (o OAuth) CheckURL(raw string) error {
 		return fmt.Errorf("%q has no host: use a full URL, like https://mcp.notion.com/mcp", raw)
 	case u.User != nil:
 		return fmt.Errorf("%q has a user in it: put credentials in a secret instead", raw)
+	case isLoopback(u.Hostname()) && !o.Loopback:
+		return fmt.Errorf("%q is on this machine: a connector is a server elsewhere, like https://mcp.notion.com/mcp", raw)
 	case u.Scheme == "https":
 		return nil
 	case u.Scheme == "http" && (o.Insecure || isLoopback(u.Hostname())):
@@ -124,12 +183,27 @@ func (o OAuth) CheckURL(raw string) error {
 	return fmt.Errorf("%q isn't https: a connector's tokens only travel encrypted", raw)
 }
 
+// Redact is a connector's URL as the log has it: without its query or
+// fragment, where a server may take a key.
+func Redact(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "(not a URL)"
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		u.RawQuery, u.Fragment, u.RawFragment = "", "", ""
+		return u.String() + "?…"
+	}
+	return u.String()
+}
+
 func isLoopback(host string) bool {
-	if host == "localhost" {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
 		return true
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return ip != nil && ownAddress(ip)
 }
 
 // Discover finds how a server wants to be signed in to. It asks the server
@@ -189,13 +263,15 @@ func (o OAuth) Discover(ctx context.Context, server string) (Discovery, error) {
 	if err := o.CheckURL(issuer); err != nil {
 		return Discovery{}, fmt.Errorf("the authorization server: %w", err)
 	}
-	meta, err := o.serverMetadata(ctx, issuer, !found)
+	meta, legacy, err := o.serverMetadata(ctx, issuer, !found)
 	if err != nil {
 		return Discovery{}, err
 	}
-	meta.Issuer = cmp.Or(meta.Issuer, issuer)
-	if len(meta.CodeChallengeMethodsSupported) > 0 && !slices.Contains(meta.CodeChallengeMethodsSupported, "S256") {
-		return Discovery{}, fmt.Errorf("%s doesn't support PKCE with S256, which the MCP spec requires", issuer)
+	// The MCP spec has a client refuse a server that doesn't say it does
+	// PKCE with S256. Only a server with no metadata at all, signed in to at
+	// the 2025-03-26 spec's default endpoints, can't say.
+	if !legacy && !slices.Contains(meta.CodeChallengeMethodsSupported, "S256") {
+		return Discovery{}, fmt.Errorf("%s doesn't say it supports PKCE with S256, which the MCP spec requires", issuer)
 	}
 	for _, u := range []string{meta.AuthorizationEndpoint, meta.TokenEndpoint} {
 		if err := o.CheckURL(u); err != nil {
@@ -267,12 +343,13 @@ func wellKnown(raw, name string) []string {
 }
 
 // serverMetadata reads an authorization server's metadata: RFC 8414 first,
-// then OpenID Connect discovery. legacy allows a server with neither, with
-// the default endpoints the 2025-03-26 spec gave one.
-func (o OAuth) serverMetadata(ctx context.Context, issuer string, legacy bool) (ServerMetadata, error) {
+// then OpenID Connect discovery. allowLegacy allows a server with neither,
+// with the default endpoints the 2025-03-26 spec gave one, and says so with
+// legacy.
+func (o OAuth) serverMetadata(ctx context.Context, issuer string, allowLegacy bool) (meta ServerMetadata, legacy bool, err error) {
 	u, err := url.Parse(issuer)
 	if err != nil {
-		return ServerMetadata{}, err
+		return ServerMetadata{}, false, err
 	}
 	root := u.Scheme + "://" + u.Host
 	path := strings.TrimRight(u.EscapedPath(), "/")
@@ -280,28 +357,32 @@ func (o OAuth) serverMetadata(ctx context.Context, issuer string, legacy bool) (
 	if path != "" {
 		candidates = append(candidates, root+path+"/.well-known/openid-configuration")
 	}
-	var meta ServerMetadata
 	for _, c := range candidates {
 		ok, err := o.getJSON(ctx, c, &meta)
 		if err != nil {
-			return ServerMetadata{}, fmt.Errorf("the authorization server's metadata at %s: %w", c, err)
+			return ServerMetadata{}, false, fmt.Errorf("the authorization server's metadata at %s: %w", c, err)
 		}
 		if ok {
-			if meta.AuthorizationEndpoint == "" || meta.TokenEndpoint == "" {
-				return ServerMetadata{}, fmt.Errorf("%s's metadata has no authorization or token endpoint", issuer)
+			// RFC 8414 §3.3: metadata that names another issuer than the
+			// one it was fetched for isn't that server's, and is ignored.
+			if strings.TrimSuffix(meta.Issuer, "/") != strings.TrimSuffix(issuer, "/") {
+				return ServerMetadata{}, false, fmt.Errorf("the metadata at %s is for the issuer %q, not %s", c, meta.Issuer, issuer)
 			}
-			return meta, nil
+			if meta.AuthorizationEndpoint == "" || meta.TokenEndpoint == "" {
+				return ServerMetadata{}, false, fmt.Errorf("%s's metadata has no authorization or token endpoint", issuer)
+			}
+			return meta, false, nil
 		}
 	}
-	if !legacy {
-		return ServerMetadata{}, fmt.Errorf("%s publishes no authorization server metadata", issuer)
+	if !allowLegacy {
+		return ServerMetadata{}, false, fmt.Errorf("%s publishes no authorization server metadata", issuer)
 	}
 	return ServerMetadata{
 		Issuer:                root,
 		AuthorizationEndpoint: root + "/authorize",
 		TokenEndpoint:         root + "/token",
 		RegistrationEndpoint:  root + "/register",
-	}, nil
+	}, true, nil
 }
 
 // getJSON reads a metadata document. A 404 (or other 4xx) is "not here",

@@ -14,7 +14,7 @@ import (
 // Figma servers, as far as a sign-in can go without a person: Notion's
 // authorization page must take the request (it redirects to its sign-in, not
 // back with an error), and Figma must refuse to register AgentBox, which is
-// what docs/connectors.md says it does. It reaches the internet and registers
+// what the package doc says it does. It reaches the internet and registers
 // a client with Notion, so it only runs when asked:
 //
 //	AGENTBOX_LIVE_CONNECTORS=1 go test ./internal/connectors -run Live -v

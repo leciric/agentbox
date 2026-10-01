@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 )
 
 // The connectors routes: remote MCP servers the daemon signs in to and relays
-// to from inside agents (docs/connectors.md). Like the secrets routes, reading
+// to from inside agents (internal/connectors). Like the secrets routes, reading
 // gives what a connector is and where it stands, never a token.
 
 // newConnectors is the daemon's one connectors service. Every change is
@@ -23,9 +24,28 @@ func (s *Server) newConnectors() *connectors.Service {
 	return &connectors.Service{
 		State:    s.store,
 		Secrets:  s.secrets(),
-		OAuth:    connectors.OAuth{ClientName: "AgentBox"},
+		OAuth:    connectors.OAuth{ClientName: "AgentBox", Loopback: s.cfg.ConnectorsLoopback},
 		OnChange: s.connectorChanged,
+		Callback: s.connectorCallback,
 	}
+}
+
+// connectorCallback is where a connector's sign-in sends the browser back
+// to: the preview proxy, whose port the host's browser reaches wherever the
+// daemon runs (connectors/flow.go), or "" while it isn't listening on
+// loopback.
+func (s *Server) connectorCallback() string {
+	s.mu.Lock()
+	addr := s.previewAddr
+	s.mu.Unlock()
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip == nil || (!ip.IsLoopback() && !ip.IsUnspecified()) {
+		return ""
+	}
+	return "http://127.0.0.1:" + port + connectors.CallbackPath
 }
 
 // connectorRoutes are the same five routes for a project's connectors and
@@ -122,7 +142,7 @@ func (s *Server) setConnector(w http.ResponseWriter, r *http.Request, of func(*h
 	if err != nil {
 		return err
 	}
-	s.logf("connector %s set for %s (%s)", c.Name, scopeRef(project, agent), c.URL)
+	s.logf("connector %s set for %s (%s)", c.Name, scopeRef(project, agent), connectors.Redact(c.URL))
 	info, err := s.connectorInfo(r.Context(), c)
 	if err != nil {
 		return err

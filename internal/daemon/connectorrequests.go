@@ -94,7 +94,7 @@ func (s *Server) requestConnectorFor(ctx context.Context, a state.Agent, req api
 	}, "")
 	s.events.publish(api.EventQuestion, toAPIQuestion(q))
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
-	s.logf("%s asks the user to connect %s (%s): %s", a.Ref(), q.Connector, q.ConnectorURL, q.Text)
+	s.logf("%s asks the user to connect %s (%s): %s", a.Ref(), q.Connector, connectors.Redact(q.ConnectorURL), q.Text)
 	s.tellLead(ctx, a.Project, connectorNotice(q), false)
 
 	select {
