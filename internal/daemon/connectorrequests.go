@@ -18,7 +18,7 @@ import (
 // a question of its own kind, that waits, is listed and shows in the agent's
 // thread, but goes straight to the user, whom only the app can answer. The
 // user adds and connects it from the request's card, or anywhere else — the
-// Connectors tab, `agentbox connector connect` — and the request is answered
+// Settings → Connectors, `agentbox connector connect` — and the request is answered
 // once the connector reaches the agent and can be used; or they decline it,
 // on the credential route. Nothing secret passes through it either way: the
 // user signs in on the server's own page, and the tokens stay with the daemon.

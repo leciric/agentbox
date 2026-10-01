@@ -46,7 +46,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
     onMutate: () => setLines([]),
     onSuccess: async (_, { cpus, memory }) => {
       setEdited(false);
-      toast(`AgentBox's VM has ${cpus} CPUs and ${memory} GiB of memory`, { description: 'Start the agents you need again from their Overview tabs.' });
+      toast(`AgentBox's VM has ${cpus} CPUs and ${memory} GiB of memory`, { description: 'Start the agents you need again from their pages.' });
       // The rest refetches when the app reconnects to the restarted daemon.
       await queryClient.invalidateQueries({ queryKey: ['host-setup'] });
     },
@@ -242,7 +242,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
       setEdited(false);
       toast(`AgentBox's VM has ${cpus} CPUs, a memory cap of ${memory} GiB${disk ? ` and a ${disk} GiB disk` : ''}`, {
         description: restart
-          ? 'Start the agents you need again from their Overview tabs.'
+          ? 'Start the agents you need again from their pages.'
           : on
             ? 'Every agent kept running.'
             : 'It has them from when it next starts.',

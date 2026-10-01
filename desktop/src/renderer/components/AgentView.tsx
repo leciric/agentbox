@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUpToLine,
+  Box,
   Camera,
   CircleX,
   Copy,
@@ -11,7 +12,6 @@ import {
   Hash,
   Images,
   KeyRound,
-  LayoutDashboard,
   ListTodo,
   LoaderCircle,
   MessageSquare,
@@ -21,6 +21,7 @@ import {
   Pencil,
   Play,
   Plug,
+  SlidersHorizontal,
   Smartphone,
   Square,
   SquareTerminal,
@@ -31,6 +32,7 @@ import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
+import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
 import { cn, errorMessage } from '../lib/utils';
 import { AndroidTab } from './AndroidTab';
@@ -41,6 +43,7 @@ import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { MediaTab } from './MediaTab';
 import { OverviewTab } from './OverviewTab';
 import { SecretsTab } from './SecretsTab';
+import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SnapshotsTab } from './SnapshotsTab';
 import { AIIcon, aiLabel, LiveAgentAvatar, StateBadge } from './state';
 import { TerminalTab } from './TerminalTab';
@@ -50,7 +53,15 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/me
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 
-export type AgentTab = 'chat' | 'terminal' | 'browser' | 'android' | 'media' | 'overview' | 'secrets' | 'connectors' | 'snapshots';
+// An agent's Settings tab: what it says about the agent's machine, code and AI
+// tool (OverviewTab), and the secrets and connectors only it gets.
+const agentSettingsSections: SettingsSection<AgentSection>[] = [
+  { id: 'machine', title: 'Machine', icon: Box },
+  { id: 'code', title: 'Code', icon: GitBranch },
+  { id: 'ai', title: 'AI tool', icon: SquareTerminal },
+  { id: 'secrets', title: 'Secrets', icon: KeyRound },
+  { id: 'connectors', title: 'Connectors', icon: Plug },
+];
 
 export function AgentView({
   agentRef,
@@ -59,8 +70,8 @@ export function AgentView({
   onSelect,
 }: {
   agentRef: string;
-  tab?: AgentTab; // unset opens the agent's first tab
-  onTab: (tab: AgentTab) => void;
+  tab?: AgentPlaceName; // a tab or a section of Settings (lib/tabs.ts); unset opens the agent's first tab
+  onTab: (tab: AgentPlaceName) => void;
   onSelect: (view: View) => void;
 }) {
   const queryClient = useQueryClient();
@@ -110,7 +121,8 @@ export function AgentView({
   const error = action.error ?? rename.error;
   // An agent you use through the chat opens on it; one you use from the terminal has no Chat tab.
   const chatty = usesChat(agent);
-  const active: AgentTab = !tab || (tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : tab;
+  const place = agentPlace(tab);
+  const active: AgentTab = !place.tab || (place.tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : place.tab;
 
   return (
     <div className="flex h-full flex-col">
@@ -239,17 +251,9 @@ export function AgentView({
               Media
               {mediaCount > 0 && <span className="rounded-full bg-brand-500/20 px-1.5 text-[10px] tabular-nums text-brand-200">{mediaCount}</span>}
             </TabsTrigger>
-            <TabsTrigger value="overview">
-              <LayoutDashboard />
-              Overview
-            </TabsTrigger>
-            <TabsTrigger value="secrets">
-              <KeyRound />
-              Secrets
-            </TabsTrigger>
-            <TabsTrigger value="connectors">
-              <Plug />
-              Connectors
+            <TabsTrigger value="settings">
+              <SlidersHorizontal />
+              Settings
             </TabsTrigger>
             <TabsTrigger value="snapshots">
               <Camera />
@@ -282,14 +286,12 @@ export function AgentView({
           <TabsContent value="media" className="flex flex-col">
             <MediaTab agent={agent} />
           </TabsContent>
-          <TabsContent value="overview">
-            <OverviewTab agent={agent} />
-          </TabsContent>
-          <TabsContent value="secrets" className="flex flex-col">
-            <SecretsTab target={agent.ref} />
-          </TabsContent>
-          <TabsContent value="connectors" className="flex flex-col">
-            <ConnectorsTab target={agent.ref} />
+          <TabsContent value="settings" className="flex flex-col">
+            <SettingsSections label={`${agent.title || agent.name}'s settings`} sections={agentSettingsSections} value={place.section} onValueChange={onTab}>
+              {(place.section === 'machine' || place.section === 'code' || place.section === 'ai') && <OverviewTab agent={agent} section={place.section} />}
+              {place.section === 'secrets' && <SecretsTab target={agent.ref} />}
+              {place.section === 'connectors' && <ConnectorsTab target={agent.ref} />}
+            </SettingsSections>
           </TabsContent>
           <TabsContent value="snapshots">
             <SnapshotsTab agent={agent} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />

@@ -240,21 +240,21 @@
   },
   {
     "id": "tokens-project-dark",
-    "description": "A project's Tokens tab: headline with average TPS, two agents each with their own average TPS by model, and spend over time — dark",
+    "description": "A project's Settings → Tokens: headline with average TPS, two agents each with their own average TPS by model, and spend over time — dark",
     "query": "tokens=1&theme=dark",
     "width": 980,
     "height": 1400
   },
   {
     "id": "tokens-project-account-dark",
-    "description": "A project on the non-default \"work\" Claude account: its Tokens tab's limits card shows work's readings, not the default account's — dark",
+    "description": "A project on the non-default \"work\" Claude account: its Settings → Tokens limits card shows work's readings, not the default account's — dark",
     "query": "tokens=1&account=work&theme=dark",
     "width": 980,
     "height": 900
   },
   {
     "id": "tokens-agent-dark",
-    "description": "agent-99's own \"What it spent\" card on its Overview tab, with average TPS by model and by turn — dark",
+    "description": "agent-99's own \"What it spent\" card on its Settings → AI tool, with average TPS by model and by turn — dark",
     "query": "tokens=agent&theme=dark",
     "width": 640,
     "height": 820
@@ -691,5 +691,33 @@
     "query": "theme=light",
     "width": 1280,
     "height": 1100
+  },
+  {
+    "id": "page-project-settings-dark",
+    "description": "A project's page at Settings: the tabs Chat, Tasks, Pull requests, Media and Settings, and Settings' sections in a column beside Repository — dark",
+    "query": "page=settings&theme=dark",
+    "width": 1280,
+    "height": 820
+  },
+  {
+    "id": "page-project-tokens-dark",
+    "description": "An old link to a project's Tokens tab lands on Settings → Tokens — dark",
+    "query": "page=tokens&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "page-project-secrets-narrow-dark",
+    "description": "A project's Settings on a narrow page: its sections become a row of chips above the open one, Secrets — dark",
+    "query": "page=secrets&theme=dark",
+    "width": 760,
+    "height": 820
+  },
+  {
+    "id": "page-agent-settings-dark",
+    "description": "An old link to agent-99's Overview lands on its Settings: Machine, Code, AI tool, Secrets and Connectors beside the open section — dark",
+    "query": "open=agent-99&page=overview&theme=dark",
+    "width": 1280,
+    "height": 820
   }
 ]

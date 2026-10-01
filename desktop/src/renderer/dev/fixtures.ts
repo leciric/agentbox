@@ -622,7 +622,7 @@ function agentTokens(agent: string, title: string, turns: number, maxContext: nu
 }
 
 // agent99Tokens is agent-99's line of the ledger alone, for its info card's
-// average TPS and spend so far (?open=agent-99, the agent's own Overview tab).
+// average TPS and spend so far (?open=agent-99, its Settings → AI tool).
 export function agent99Tokens(): T.TokenReport {
   const agent = agentTokens('agent-99', 'PR agent', 42, 3_540_000, 90_000, agent99Models);
   return { until: new Date().toISOString(), ...sumModels([agent]), agents: [agent], buckets: [], bucketSeconds: 3600 };
@@ -648,7 +648,7 @@ function tokenBuckets(n: number, step: number): T.TokenBucket[] {
 }
 
 // projectTokenReport is the project's whole ledger (?tokens=1, the project's
-// Tokens tab): two agents on different models, each with its own average
+// Settings → Tokens): two agents on different models, each with its own average
 // TPS, and buckets across a five-hour window for the chart.
 export function projectTokenReport(): T.TokenReport {
   const agents = [agentTokens('agent-99', 'PR agent', 42, 3_540_000, 90_000, agent99Models), agentTokens('agent-04', 'Fix the agent rail overflowing on wide content', 18, 1_012_000, 40 * 60_000, agent04Models)];

@@ -1,15 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, ListTodo, MessagesSquare, NotebookPen, Plug, Plus, SlidersHorizontal, Trash, Users } from 'lucide-react';
+import { Brain, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, ListTodo, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { projectPlace, type ProjectPlaceName, type ProjectSection } from '../lib/tabs';
 import { countFeature, projectTabFeatures } from '../lib/usageStats';
 import { errorMessage, timeAgo } from '../lib/utils';
 import { ChatHeaderControls } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
-import { FleetPanel } from './FleetPanel';
 import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
 import { ProjectBasePanel } from './ProjectBasePanel';
 import { ProjectMediaPanel } from './ProjectMediaPanel';
@@ -18,6 +18,7 @@ import { ProjectSettings } from './ProjectSettings';
 import { ProjectTasksPanel } from './ProjectTasksPanel';
 import { PullRequestsPanel } from './PullRequestsPanel';
 import { SecretsTab } from './SecretsTab';
+import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
 import { Card, Row } from './ui/card';
@@ -91,30 +92,54 @@ function ProjectNotes({ project, className }: { project: string; className?: str
 }
 
 // A project opens on its chat: the conversation that directs its agents. What
-// the page showed before is the Overview tab.
-type ProjectTab = 'chat' | 'agents' | 'tasks' | 'pulls' | 'media' | 'memory' | 'tokens' | 'secrets' | 'connectors' | 'overview';
-type OverviewSection = 'repository' | 'settings' | 'brief';
+// the page showed before is the Settings tab, beside what used to be tabs of
+// their own: memory, tokens, secrets and connectors. `where` is a tab or a
+// Settings section, by name (lib/tabs.ts).
+const projectSettingsSections: SettingsSection<ProjectSection>[] = [
+  { id: 'repository', title: 'Repository', icon: FolderGit2 },
+  { id: 'general', title: 'General', icon: SlidersHorizontal },
+  { id: 'brief', title: 'Notes and brief', icon: FileText },
+  { id: 'memory', title: 'Memory', icon: Brain },
+  { id: 'tokens', title: 'Tokens', icon: Coins },
+  { id: 'secrets', title: 'Secrets', icon: KeyRound },
+  { id: 'connectors', title: 'Connectors', icon: Plug },
+];
 
-export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSelect: (view: View) => void; onNewAgent: () => void }) {
+export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name: string; tab?: ProjectPlaceName; onSelect: (view: View) => void; onNewAgent: () => void }) {
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  const [section, setSection] = useState<OverviewSection>('repository');
+  const [where, setWhere] = useState<string>(opensAt ?? 'chat');
+  const { tab, section } = projectPlace(where);
   const [showBrief, setShowBrief] = useState(false);
-  const brief = useQuery({ queryKey: ['brief', name], queryFn: () => api.brief(name), enabled: section === 'brief' && showBrief });
+  const brief = useQuery({ queryKey: ['brief', name], queryFn: () => api.brief(name), enabled: tab === 'settings' && section === 'brief' && showBrief });
   const [removing, setRemoving] = useState(false);
-  const [tab, setTab] = useState<ProjectTab>('chat');
-  useEffect(() => countFeature(projectTabFeatures[tab]), [tab, name]);
+  const [freeing, setFreeing] = useState(false);
+  useEffect(() => countFeature(projectTabFeatures[tab === 'settings' ? section : tab]), [tab, section, name]);
   const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), enabled: tab === 'chat' });
   const project = projects.data?.find((p) => p.name === name);
   const mine = agents.data?.filter((a) => a.project === name) ?? [];
+  // Stopping frees the memory an idle agent holds and keeps its disk, so it
+  // comes back in seconds. Nothing is lost: the work is on its branch.
+  const retire = useMutation({
+    mutationFn: () => api.retire(name, { how: 'stop' }),
+    onSuccess: async (result) => {
+      const freed = result.retired.length;
+      toast(freed === 0 ? 'Nothing to free' : `Stopped ${freed} finished agent${freed === 1 ? '' : 's'}`, {
+        description: freed === 0 ? 'No agent of this project is both finished and holding a machine.' : 'Their work stays on their branches. Start them again any time.',
+      });
+      await queryClient.invalidateQueries({ queryKey: ['fleet', name] });
+      await queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+    onError: (err) => toast.error(String(err)),
+  });
 
   if (!project) {
     return <div className="p-6 text-sm text-subtle">{projects.isPending ? 'Loading…' : `There's no project named ${name}.`}</div>;
   }
 
   return (
-    <Tabs value={tab} onValueChange={(value) => setTab(value as ProjectTab)} className="flex h-full min-h-0 flex-col">
+    <Tabs value={tab} onValueChange={setWhere} className="flex h-full min-h-0 flex-col">
       <div className="w-full shrink-0 px-4 pb-3 pt-4 md:px-8 md:pb-4 md:pt-5">
         <div className="flex flex-wrap items-center gap-3">
           <span className="flex size-9 items-center justify-center rounded-xl border border-line-strong bg-surface text-tertiary">
@@ -139,6 +164,9 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
                 <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)}>
                   Open the repository folder
                 </MenuItem>
+                <MenuItem icon={Moon} disabled={mine.length === 0 || retire.isPending} onSelect={() => setFreeing(true)}>
+                  Free finished agents' machines
+                </MenuItem>
                 <MenuItem icon={Trash} destructive disabled={mine.length > 0} hint={mine.length > 0 ? 'has agents' : undefined} onSelect={() => setRemoving(true)}>
                   Remove project
                 </MenuItem>
@@ -155,11 +183,6 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
               <MessagesSquare />
               Chat
             </TabsTrigger>
-            <TabsTrigger value="agents">
-              <Users />
-              Agents
-              {mine.length > 0 && <span className="tabular-nums text-subtle">{mine.length}</span>}
-            </TabsTrigger>
             <TabsTrigger value="tasks">
               <ListTodo />
               Tasks
@@ -172,25 +195,9 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
               <Image />
               Media
             </TabsTrigger>
-            <TabsTrigger value="memory">
-              <Brain />
-              Memory
-            </TabsTrigger>
-            <TabsTrigger value="tokens">
-              <Coins />
-              Tokens
-            </TabsTrigger>
-            <TabsTrigger value="secrets">
-              <KeyRound />
-              Secrets
-            </TabsTrigger>
-            <TabsTrigger value="connectors">
-              <Plug />
-              Connectors
-            </TabsTrigger>
-            <TabsTrigger value="overview">
+            <TabsTrigger value="settings">
               <SlidersHorizontal />
-              Overview
+              Settings
             </TabsTrigger>
           </TabsList>
           {tab === 'chat' && leadChat.data && (
@@ -207,22 +214,13 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
         </div>
       </TabsContent>
 
-      <TabsContent value="agents" className="overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <FleetPanel project={name} onSelect={onSelect} />
-        </div>
-      </TabsContent>
-
       <TabsContent value="tasks" className="overflow-y-auto">
-        <ProjectTasksPanel project={name} onSelect={onSelect} onOpenChat={() => setTab('chat')} />
+        <ProjectTasksPanel project={name} onSelect={onSelect} onOpenChat={() => setWhere('chat')} />
       </TabsContent>
 
       <TabsContent value="pulls" className="overflow-y-auto">
         <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <PullRequestsPanel project={name} onSelect={onSelect} onOpenAccount={() => {
-            setTab('overview');
-            setSection('settings');
-          }} />
+          <PullRequestsPanel project={name} onSelect={onSelect} onOpenAccount={() => setWhere('general')} />
         </div>
       </TabsContent>
 
@@ -232,44 +230,11 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
         </div>
       </TabsContent>
 
-      <TabsContent value="memory" className="overflow-y-auto">
-        <ProjectMemoryPanel project={name} onOpenMedia={() => setTab('media')} />
-      </TabsContent>
-
-      <TabsContent value="tokens" className="overflow-y-auto">
-        <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-          <TokensPanel project={name} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
-        </div>
-      </TabsContent>
-
-      <TabsContent value="secrets" className="flex flex-col">
-        <SecretsTab target={name} />
-      </TabsContent>
-
-      <TabsContent value="connectors" className="flex flex-col">
-        <ConnectorsTab target={name} />
-      </TabsContent>
-
-      <TabsContent value="overview" className="overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-4 py-6 md:px-8 md:py-7">
-          <Tabs value={section} onValueChange={(value) => setSection(value as OverviewSection)}>
-            <TabsList className="mb-4">
-              <TabsTrigger value="repository">
-                <FolderGit2 />
-                Repository
-              </TabsTrigger>
-              <TabsTrigger value="settings">
-                <SlidersHorizontal />
-                Settings
-              </TabsTrigger>
-              <TabsTrigger value="brief">
-                <FileText />
-                Brief
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="repository">
-              <div className="grid gap-6">
+      <TabsContent value="settings" className="flex flex-col">
+        <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
+          <SettingsSections label={`${name}'s settings`} sections={projectSettingsSections} value={section} onValueChange={setWhere}>
+            {section === 'repository' && (
+              <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6 md:px-8 md:py-7">
                 <Card title="Repository" icon={FolderGit2}>
                   <Row label="Folder" mono>
                     <span className="truncate" title={project.root}>
@@ -285,33 +250,43 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
                 </Card>
                 <ProjectBasePanel project={project} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
               </div>
-            </TabsContent>
-
-            <TabsContent value="settings">
-              <ProjectSettings project={project} />
-            </TabsContent>
-
-            <TabsContent value="brief">
-              <ProjectNotes project={name} />
-              <Card
-                className="mt-4"
-                title="Agent brief"
-                icon={FileText}
-                description="What every agent is told about its machine, its branch and this project's notes. Agents set the project up themselves, the way a new developer would."
-                action={
-                  <Button variant="ghost" size="sm" onClick={() => setShowBrief((v) => !v)}>
-                    {showBrief ? 'Hide' : 'Show'}
-                  </Button>
-                }
-              >
-                {showBrief && (
-                  <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">
-                    {brief.data ?? 'Loading…'}
-                  </pre>
-                )}
-              </Card>
-            </TabsContent>
-          </Tabs>
+            )}
+            {section === 'general' && (
+              <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
+                <ProjectSettings project={project} />
+              </div>
+            )}
+            {section === 'brief' && (
+              <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-8 md:py-7">
+                <ProjectNotes project={name} />
+                <Card
+                  className="mt-4"
+                  title="Agent brief"
+                  icon={FileText}
+                  description="What every agent is told about its machine, its branch and this project's notes. Agents set the project up themselves, the way a new developer would."
+                  action={
+                    <Button variant="ghost" size="sm" onClick={() => setShowBrief((v) => !v)}>
+                      {showBrief ? 'Hide' : 'Show'}
+                    </Button>
+                  }
+                >
+                  {showBrief && (
+                    <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">
+                      {brief.data ?? 'Loading…'}
+                    </pre>
+                  )}
+                </Card>
+              </div>
+            )}
+            {section === 'memory' && <ProjectMemoryPanel project={name} onOpenMedia={() => setWhere('media')} />}
+            {section === 'tokens' && (
+              <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-7">
+                <TokensPanel project={name} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
+              </div>
+            )}
+            {section === 'secrets' && <SecretsTab target={name} />}
+            {section === 'connectors' && <ConnectorsTab target={name} />}
+          </SettingsSections>
         </div>
       </TabsContent>
 
@@ -326,6 +301,16 @@ export function ProjectView({ name, onSelect, onNewAgent }: { name: string; onSe
           await api.removeProject(name);
           await queryClient.invalidateQueries({ queryKey: ['projects'] });
           onSelect({ kind: 'home' });
+        }}
+      />
+      <ConfirmDialog
+        open={freeing}
+        onOpenChange={setFreeing}
+        title="Free the finished agents' machines?"
+        description="Their machines are shut down, which frees the memory they hold. Nothing is lost: each agent's work stays on its branch, its worktree stays on disk, and starting it again takes seconds. Agents that are still working, or have uncommitted changes, are left alone."
+        confirmLabel="Free them"
+        onConfirm={async () => {
+          await retire.mutateAsync();
         }}
       />
     </Tabs>

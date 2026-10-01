@@ -205,7 +205,7 @@ function CredentialAnswer({ question }: { question: T.Question }) {
 }
 
 // SecretForm is the value, under the name the agent asked for. It is stored as
-// the project's Secrets tab stores it, so every agent of the project gets it.
+// the project's Settings → Secrets stores it, so every agent of the project gets it.
 function SecretForm({ question, busy, onGive }: { question: T.Question; busy: boolean; onGive: (value: string) => void }) {
   const [value, setValue] = useState('');
   return (

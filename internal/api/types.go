@@ -177,7 +177,7 @@ type SectionProjects struct {
 
 // Notes are a project's notes for its agents: what everyone working on it
 // should know, folded into every agent's brief. The user writes them on the
-// project's Overview tab, and the project's lead adds what it learns.
+// project's Settings tab, under Notes and brief, and the lead adds what it learns.
 type Notes struct {
 	Text string `json:"text"` // markdown; empty when the project has no notes
 	// UpdatedAt is when the notes were last written, absent when there are none.

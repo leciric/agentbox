@@ -9,8 +9,8 @@ server. **No token is ever written into an agent's machine**, and an agent never
 
 ## Adding one
 
-In the app, open a project's **Connectors** tab and pick Notion, Linear, Sentry or Figma, or give
-the address of any other server. Connecting opens your browser at the server's sign-in page; once
+In the app, open a project's **Settings** tab, then **Connectors**, and pick Notion, Linear, Sentry
+or Figma, or give the address of any other server. Connecting opens your browser at the server's sign-in page; once
 you approve AgentBox there, the browser comes back to `http://127.0.0.1:7777/connectors/callback`
 and the connector shows as connected. That address is on your own machine, and it reaches AgentBox
 wherever AgentBox runs, its VM included, the same way agents' previews do.
@@ -50,7 +50,7 @@ When the chat creates an agent it can give it only some of the project's connect
 ## When an agent asks for one
 
 An agent that needs a service it has no tools for can ask you for it. The request shows as a card in
-the chat and at the top of the Connectors tab, with the server's address: **check that address**,
+the chat and at the top of the project's Settings → Connectors, with the server's address: **check that address**,
 since the agent chose it. A preset's name, like Notion, only shows when the address is that
 service's own. Adding and signing in from the card gives the agent the connector; you can refuse it
 instead.

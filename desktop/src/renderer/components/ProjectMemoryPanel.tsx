@@ -40,7 +40,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/me
 import { Select, SelectOption } from './ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
-// ProjectMemoryPanel is the Memory tab: what a project knows, kept by AgentBox
+// ProjectMemoryPanel is the Memory section of a project's Settings tab: what a project knows, kept by AgentBox
 // rather than by any one agent's conversation (docs/implementation/project-memory.md,
 // D72). The project's chat already reads and writes all of this through its
 // own MCP tools; this is the same store, for a human looking at it directly.

@@ -25,9 +25,9 @@ import { Field, Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { Tip } from './ui/tooltip';
 
-// The Connectors tab: remote MCP servers — Notion, Linear, Figma… — that a
+// Connectors, a section of a project's or an agent's Settings tab: remote MCP servers — Notion, Linear, Figma… — that a
 // project's agents, or one agent, get as tools. A target is "pawly" or
-// "pawly/agent-01", as on the Secrets tab.
+// "pawly/agent-01", as under Secrets.
 //
 // The user signs in here, in their own browser, and the daemon keeps the
 // tokens: no page can read one, so what a row shows is the connector's state
@@ -56,7 +56,7 @@ export function ConnectorsTab({ target }: { target: string }) {
           <Card
             title={`From the project (${inherited.length})`}
             icon={Lock}
-            description="Every agent of this project gets these. Connect or change them on the project's Connectors tab."
+            description="Every agent of this project gets these. Connect or change them in the project's Settings, under Connectors."
           >
             <ul className="grid gap-2" aria-label="Project connectors">
               {inherited.map((c) => (
@@ -558,7 +558,7 @@ function hostOf(url: string): string {
   }
 }
 
-// whereItIs says which agents get the connector, the way the Secrets tab says
+// whereItIs says which agents get the connector, the way Secrets says
 // which hold a secret.
 function whereItIs(c: T.Connector): string {
   const agents = c.agents ?? [];

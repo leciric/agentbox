@@ -15,7 +15,7 @@ import { Skeleton, skeletonWidths } from './ui/skeleton';
 import { Tip } from './ui/tooltip';
 
 // AgentRail is a project's agents, kept visible beside whatever you're looking
-// at: the lead's chat, an agent's own view, or the Agents tab behind it.
+// at: the lead's chat, an agent's own view, or the project's page behind it.
 //
 // One row per agent: its name, its status and when it last reported, its pull
 // request, its branch and how busy its machine is. Clicking it opens the agent.
@@ -37,9 +37,8 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   // Pull requests come from the fleet, which already carries one per agent,
   // matched against the repository list the daemon keeps (D54). ['agents'] is
   // every project's agents and would have to read GitHub per project to say
-  // the same thing. Sharing the Agents tab's key means one request when both
-  // are open, and this slower poll when only the rail is: what moves in
-  // between arrives as an event.
+  // the same thing. It polls slowly: what moves in between arrives as an
+  // event.
   const fleet = useQuery({
     queryKey: ['fleet', project],
     queryFn: () => api.fleet(project as string),
