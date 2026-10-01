@@ -256,6 +256,7 @@ func NewRootCmd() *cobra.Command {
 		newClaudeAccountCmd(a),
 		newGitHubAccountCmd(a),
 		newSecretsCmd(a),
+		newConnectorCmd(a),
 		newImageCmd(a),
 		newBaseCmd(a),
 		newCreateCmd(a),

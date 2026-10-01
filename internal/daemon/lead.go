@@ -21,6 +21,9 @@ type agentFrom func(*http.Request) (state.Agent, error)
 // request, so reading its empty conversation makes nothing on disk.
 func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 	project := r.PathValue("project")
+	if project == state.HomeProject {
+		return s.manager(nil).Home(), nil
+	}
 	a, err := s.manager(nil).Lead(r.Context(), project)
 	if err == nil {
 		return a, nil
@@ -42,6 +45,11 @@ func (s *Server) leadFromPath(r *http.Request) (state.Agent, error) {
 // reads what is on that branch now.
 func (s *Server) ensureLeadFromPath(r *http.Request) (state.Agent, error) {
 	m := s.manager(s.cfg.Log)
+	if r.PathValue("project") == state.HomeProject {
+		// The Home chat has no project to roll its session into, nor a
+		// worktree to move: it is readied, and nothing more.
+		return m.EnsureHome(r.Context())
+	}
 	a, err := m.EnsureLead(r.Context(), r.PathValue("project"))
 	if err != nil {
 		return state.Agent{}, err
@@ -87,6 +95,13 @@ func (s *Server) resetProjectChat(w http.ResponseWriter, r *http.Request) error 
 	s.chat.Stop(agent.LeadRef(project), "the project chat was reset")
 	s.chat.Forget(agent.LeadRef(project))
 	s.settleLeadCache(project, true)
+	if project == state.HomeProject {
+		if err := s.manager(s.cfg.Log).DestroyHome(r.Context()); err != nil {
+			return err
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return nil
+	}
 	if err := s.manager(s.cfg.Log).DestroyLead(r.Context(), project); err != nil {
 		return err
 	}

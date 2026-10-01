@@ -196,6 +196,7 @@ func TestPrepareChatModelOnlyClaudeCodeHasAModel(t *testing.T) {
 	t.Parallel()
 	for _, ai := range []string{"codex", "opencode"} {
 		m := &Manager{
+			Store: openTestStore(t),
 			Paths: paths.Paths{Data: t.TempDir()},
 			Incus: fakeIncus(t, "exit 0"),
 			User:  image.User{Name: "dev", UID: 1000, GID: 1000},
@@ -231,6 +232,7 @@ fi
 exit 0
 `
 	m := &Manager{
+		Store: openTestStore(t),
 		Paths: paths.Paths{Data: t.TempDir()},
 		Incus: fakeIncus(t, script),
 		User:  image.User{Name: "dev", UID: 1000, GID: 1000},
@@ -431,4 +433,16 @@ func TestWithClaudeEnvMergesTheOutputCaps(t *testing.T) {
 	if raw, _ := json.Marshal(policy); !strings.Contains(string(raw), `"MAX_MCP_OUTPUT_TOKENS":"15000"`) {
 		t.Errorf("the env didn't survive the lead's rewrite: %s", raw)
 	}
+}
+
+// openTestStore is an empty state database: what a Manager reads an agent's
+// connectors from when it writes Codex's or OpenCode's MCP servers.
+func openTestStore(t *testing.T) *state.Store {
+	t.Helper()
+	store, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
 }

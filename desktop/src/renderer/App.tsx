@@ -5,6 +5,7 @@ import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
 import { AgentView, type AgentTab } from "./components/AgentView";
 import { ErrorReports } from "./components/ErrorReports";
+import { HomeChatPanel } from "./components/HomeChatPanel";
 import { HomeView } from "./components/HomeView";
 import { JobsView } from "./components/JobsView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
@@ -28,6 +29,7 @@ import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
 
 export type View =
   | { kind: "home" }
+  | { kind: "homeChat" }
   | { kind: "jobs" }
   | { kind: "settings" }
   | { kind: "project"; project: string }
@@ -235,6 +237,7 @@ export function App() {
                     onNewAgent={() => setNewAgentProject("")}
                   />
                 )}
+                {view.kind === "homeChat" && <HomeChatPanel />}
                 {view.kind === "jobs" && <JobsView />}
                 {view.kind === "settings" && (
                   <SettingsView onHome={() => select({ kind: "home" })} />

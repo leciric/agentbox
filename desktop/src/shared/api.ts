@@ -202,6 +202,7 @@ export interface CreateAgentRequest {
   finishNotice?: string;
   queue?: boolean;
   taskId?: string;
+  connectors?: string[];
 }
 
 export interface ForkRequest {
@@ -807,6 +808,57 @@ export interface SetSecretRequest {
   value: string;
 }
 
+export interface Connector {
+  name: string;
+  scope: string;
+  project: string;
+  agent?: string;
+  url: string;
+  auth: string;
+  secret?: string;
+  header?: string;
+  scheme?: string;
+  enabled: boolean;
+  status: string;
+  error?: string;
+  issuer?: string;
+  scopes?: string;
+  expiresAt?: string;
+  connectedAt?: string;
+  updatedAt: string;
+  agents: string[];
+  removed?: boolean;
+}
+
+export interface SetConnectorRequest {
+  url: string;
+  auth?: string;
+  secret?: string;
+  header?: string;
+  scheme?: string;
+  enabled?: boolean;
+}
+
+export interface ConnectResult {
+  authorizationUrl: string;
+  redirectUri: string;
+  expiresAt: string;
+  connector: Connector;
+}
+
+export interface SelfConnector {
+  name: string;
+  url: string;
+  status: string;
+  error?: string;
+}
+
+export interface ConnectorRequest {
+  name: string;
+  url?: string;
+  reason: string;
+}
+
 export interface PullRequest {
   number: number;
   title: string;
@@ -941,6 +993,8 @@ export interface Question {
   ref: string;
   kind?: string;
   secretName?: string;
+  connector?: string;
+  url?: string;
   question: string;
   context?: string;
   status: string;
@@ -973,6 +1027,7 @@ export interface CredentialRequest {
 export interface AnswerCredentialRequest {
   githubAccount?: string;
   value?: string;
+  connector?: string;
   refuse?: boolean;
   reason?: string;
 }
@@ -1781,6 +1836,7 @@ export const SetupUpdating = "updating";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
 export const LeadName = "lead";
+export const HomeProject = "_home";
 export const AgentModelAuto = "auto";
 export const ConsolidationModelCheap = "cheap";
 export const ConsolidationModelChat = "";
@@ -1794,6 +1850,15 @@ export const AgentAsked = "asked";
 export const AgentAnswered = "answered";
 export const CredentialGitHub = "github";
 export const CredentialSecret = "secret";
+export const ConnectorOAuth = "oauth";
+export const ConnectorSecret = "secret";
+export const ConnectorNone = "none";
+export const ConnectorConnected = "connected";
+export const ConnectorDisconnected = "disconnected";
+export const ConnectorConnecting = "connecting";
+export const ConnectorError = "error";
+export const EventConnector = "connector";
+export const QuestionConnector = "connector";
 export const GitHubNoAccount = "noAccount";
 export const GitHubNoAccess = "noAccess";
 export const GitHubBadToken = "badToken";

@@ -113,6 +113,7 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 	// Asking the user for a credential it lacks, which the user answers in the
 	// app: the agent is told what happened, and never the value (D95).
 	handle("POST /v1/self/credential", s.requestCredential(instance))
+	handle("POST /v1/self/connector", s.requestConnector(instance))
 	handle("GET /v1/self/browser", s.browser("status", self))
 	for _, action := range []string{"start", "stop", "open"} {
 		handle("POST /v1/self/browser/"+action, s.browser(action, self))
@@ -136,6 +137,12 @@ func (s *Server) inAgentRoutes(instance string) http.Handler {
 		if route.inAgent {
 			handle(route.method+" /v1/self/memory"+route.path, s.memoryHandler(route.action, s.agentMemoryScope(instance)))
 		}
+	}
+	// Its connectors: what it is given, and the relay to each, which adds
+	// the credentials the agent never holds (connectors.go).
+	handle("GET /v1/self/connectors", s.selfConnectors(instance))
+	for _, method := range []string{"POST", "GET", "DELETE"} {
+		mux.HandleFunc(method+" /v1/self/connectors/{name}/mcp", s.selfConnectorMCP(instance))
 	}
 	// Nothing else: an agent must not reach projects, other agents or the daemon itself.
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {

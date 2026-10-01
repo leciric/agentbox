@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, ListChecks, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 import type { ComponentType, DragEvent, KeyboardEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
+import * as A from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
@@ -283,6 +284,7 @@ export function Sidebar({
         <NavItem icon={House} active={view.kind === 'home'} onClick={() => onSelect({ kind: 'home' })}>
           Home
         </NavItem>
+        <HomeChatItem active={view.kind === 'homeChat'} onClick={() => onSelect({ kind: 'homeChat' })} />
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label="Projects">
@@ -598,12 +600,30 @@ function RenameSection({ section, onSave, onClose }: { section: T.Section | unde
   );
 }
 
+// HomeChatItem opens the Home chat, the user's main chat across projects, and
+// shows a dot while it works or waits for an answer, like a project's.
+function HomeChatItem({ active, onClick }: { active: boolean; onClick: () => void }) {
+  const chat = useQuery({ queryKey: ['projectChat', A.HomeProject], queryFn: () => api.projectChat(A.HomeProject) });
+  const state = chat.data?.chat;
+  const tone: StatusTone = state === 'waiting' ? 'urgent' : state === 'running' ? 'live' : 'muted';
+  return (
+    <NavItem icon={MessagesSquare} active={active} onClick={onClick}>
+      Main chat
+      {tone !== 'muted' && (
+        <Tip label={toneLabel[tone]}>
+          <span className={cn('ml-auto size-1.5 rounded-full', toneDot[tone])} data-home-chat={state} />
+        </Tip>
+      )}
+    </NavItem>
+  );
+}
+
 function NavItem({ icon: Icon, active, onClick, children }: { icon: ComponentType<{ className?: string }>; active?: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary',
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary',
         active && 'bg-surface-raised text-title',
       )}
     >

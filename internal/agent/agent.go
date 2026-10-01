@@ -301,6 +301,10 @@ type CreateOptions struct {
 	// state.FinishNoticesOff, or "" to leave it unsaid. It only matters when
 	// the project's own FinishNotices is state.FinishNoticesLead.
 	FinishNotice string
+	// Connectors limits which of the project's connectors the agent is
+	// given, by name: nil for every one, empty for none. Each must be one
+	// of the project's.
+	Connectors []string
 	// Task is what the agent is about to be asked to do. It is not stored and
 	// not sent — the daemon sends it as the agent's first message — it only
 	// seeds the "What the project knows" section of the brief, so an agent
@@ -324,6 +328,9 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	}
 	// Before a machine is copied: a choice that could never apply says so now.
 	if err := m.ChatChoices(ctx, opts.AI, opts.Model, opts.Effort); err != nil {
+		return state.Agent{}, err
+	}
+	if err := m.CheckConnectorLimit(ctx, project, opts.Connectors); err != nil {
 		return state.Agent{}, err
 	}
 	if err := validateName(opts.Name); err != nil {
@@ -429,6 +436,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		baseCommit:    commit,
 		copyEnv:       opts.CopyEnv,
 		finishNotice:  opts.FinishNotice,
+		connectors:    opts.Connectors,
 		task:          opts.Task,
 		queued:        queued,
 	})
@@ -505,6 +513,7 @@ type plan struct {
 	tree          string // optional snapshot commit whose files are applied on top
 	copyEnv       bool
 	finishNotice  string       // this agent's own choice; see CreateOptions.FinishNotice
+	connectors    []string     // see CreateOptions.Connectors
 	task          string       // what it is about to be asked to do; see CreateOptions.Task
 	queued        *state.Agent // the queued agent this makes, when it isn't a new one
 }
@@ -546,6 +555,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		GitHubAccount: pl.githubAccount,
 		Interface:     pl.iface,
 		FinishNotice:  pl.finishNotice,
+		Connectors:    pl.connectors,
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
@@ -1001,20 +1011,23 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	// project's memory. In Claude Code the desktop server is its desktop
 	// subagent's rather than the agent's own
 	// (D83).
-	servers := agentMCPServers(home)
+	// And one for each of the connectors it is given (connectors.go).
+	connectorNames, err := m.connectorNames(ctx, a)
+	if err != nil {
+		return err
+	}
+	servers := agentMCPServers(home, connectorNames)
 	// Claude Code gets every server but the desktop one, which is declared in
 	// the desktop subagent's definition instead, so that screenshots land in
 	// the subagent's context rather than the agent's (subagents.go, D83).
-	claudeServers := map[string]any{}
+	claudeServers := claudeMCPServers(servers)
 	var desktopDefinition string
 	for _, s := range servers {
 		if s.name == "desktop" {
 			if desktopDefinition, err = desktopAgent(s); err != nil {
 				return err
 			}
-			continue
 		}
-		claudeServers[s.name] = map[string]any{"type": "stdio", "command": s.command, "args": s.args}
 	}
 	exploreDefinition, err := exploreAgent()
 	if err != nil {
@@ -1177,10 +1190,13 @@ func codexConfigFor(worktree string, servers []mcpServer, compactWindow int64) s
 
 // agentMCPServers is the MCP servers every AI tool is given, written into
 // Claude Code's ~/.claude.json, Codex's ~/.codex/config.toml and OpenCode's
-// ~/.config/opencode/opencode.json — at creation, and again whenever
-// PrepareChatModel rewrites Codex's or OpenCode's configuration.
-func agentMCPServers(home string) []mcpServer {
-	return []mcpServer{
+// ~/.config/opencode/opencode.json — at creation, again whenever
+// PrepareChatModel rewrites Codex's or OpenCode's configuration, and whenever
+// the agent's connectors change (SyncConnectors). connectors are the names of
+// the enabled connectors it is given, each a relay to the daemon, which holds
+// its sign-in: `agentbox connector mcp <name>` (internal/connectors).
+func agentMCPServers(home string, connectors []string) []mcpServer {
+	servers := []mcpServer{
 		// Playwright's page snapshots go outside the worktree, so they don't
 		// end up on the agent's branch. --image-responses omit keeps a
 		// screenshot out of the agent's own context the way the desktop tools
@@ -1198,6 +1214,22 @@ func agentMCPServers(home string) []mcpServer {
 		// has to outlast (D95).
 		{"memory", AgentBinaryPath, []string{"memory", "mcp"}, true},
 	}
+	for _, name := range connectors {
+		servers = append(servers, mcpServer{name, AgentBinaryPath, []string{"connector", "mcp", name}, false})
+	}
+	return servers
+}
+
+// claudeMCPServers is Claude Code's mcpServers: every server but the desktop
+// one, which its desktop subagent declares instead (D83).
+func claudeMCPServers(servers []mcpServer) map[string]any {
+	out := map[string]any{}
+	for _, s := range servers {
+		if s.name != "desktop" {
+			out[s.name] = map[string]any{"type": "stdio", "command": s.command, "args": s.args}
+		}
+	}
+	return out
 }
 
 // waitingToolTimeout is how long a tool that waits on a person may take: a

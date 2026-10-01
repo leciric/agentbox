@@ -210,11 +210,12 @@ export const isWork = (it: T.ChatItem) => it.kind === 'tool' || it.kind === 'tho
 const isNote = (it: T.ChatItem) => it.kind === 'notice' || it.kind === 'error' || it.kind === 'compaction';
 const isAside = (it: T.ChatItem) => it.kind === 'aside';
 
-// isCredentialRequest is the agent calling request_credential (D95), under
-// whatever name its tool gives an MCP call: mcp__memory__request_credential
-// in Claude Code, memory.request_credential or the like elsewhere.
+// isCredentialRequest is the agent calling request_credential (D95), or
+// request_connector, under whatever name its tool gives an MCP call:
+// mcp__memory__request_credential in Claude Code, memory.request_credential
+// or the like elsewhere. Both wait on a card.
 export const isCredentialRequest = (it: T.ChatItem) =>
-  it.kind === 'tool' && /request_credential/.test(`${it.tool?.name ?? ''} ${it.tool?.title ?? ''}`);
+  it.kind === 'tool' && /request_(credential|connector)/.test(`${it.tool?.name ?? ''} ${it.tool?.title ?? ''}`);
 
 // What the timeline leaves out, whatever its kind: the prose AgentBox writes a
 // project's chat when one of its agents finishes or asks. That is addressed to

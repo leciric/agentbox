@@ -14,6 +14,12 @@ import (
 // "<project>/lead", and the bare project name mean the same conversation.
 const LeadName = "lead"
 
+// HomeProject is the key the Home chat — the user's main chat, across every
+// project — is kept under, in place of a project's name: its chat is at
+// /v1/projects/_home/chat and its ref is "_home/lead". No project can be
+// called this (state.HomeProject).
+const HomeProject = "_home"
+
 // AgentModelAuto is the Project.AgentModel that asks a project's chat to
 // choose a model for each agent it creates, from how hard the task is, rather
 // than every agent of the project taking the same one. It is not a model name:
@@ -286,6 +292,16 @@ type AddProjectRequest struct {
 	// another repository is refused.
 	Create      bool `json:"create,omitempty"`
 	CommitFiles bool `json:"commitFiles,omitempty"`
+}
+
+// HomeAddProjectRequest is the Home chat adding a project: a folder on this
+// machine (Path), or a repository cloned from URL first, into Path when it's
+// given and ~/src/<name> when it isn't. Name defaults to the folder's, or the
+// repository's.
+type HomeAddProjectRequest struct {
+	Path string `json:"path,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // Settings belong to this installation rather than to one project.
@@ -589,6 +605,10 @@ type CreateAgentRequest struct {
 	// it then works on rather than a task of its own. Task defaults to that
 	// task's goal and detail, and Title to its goal.
 	TaskID string `json:"taskId,omitempty"`
+	// Connectors limits which of the project's connectors the agent is
+	// given, by name; absent gives it every one, and an empty list none. An
+	// agent's own connectors, added to it later, aren't limited by it.
+	Connectors *[]string `json:"connectors,omitempty"`
 }
 
 // QueueStatus is the agent queue: how many agents each project may run at
@@ -1192,10 +1212,16 @@ type Question struct {
 	Project string `json:"project"`
 	Agent   string `json:"agent"`
 	Ref     string `json:"ref"`
-	// Kind is empty for a decision, or github or secret for a credential.
+	// Kind is empty for a decision, github or secret for a credential, or
+	// QuestionConnector for a connector request.
 	Kind string `json:"kind,omitempty"`
 	// SecretName is the variable a secret request's value goes into.
 	SecretName string `json:"secretName,omitempty"`
+	// Connector is the connector a connector request (Kind
+	// QuestionConnector) asks for, and ConnectorURL its server: the
+	// project's connector's, or the one the agent gave for a new one.
+	Connector    string `json:"connector,omitempty"`
+	ConnectorURL string `json:"url,omitempty"`
 	// Question is what is asked; on a credential request, the agent's reason.
 	Question string `json:"question"`
 	Context  string `json:"context,omitempty"` // what the agent was doing
@@ -1238,9 +1264,19 @@ type CredentialRequest struct {
 // the app: a GitHub account (already stored — a new one is saved first, with
 // the same route as agentbox auth github), a secret's value, or a refusal.
 // Exactly one of them.
+//
+// A connector request (QuestionConnector) is answered on the same route with
+// Connector, the connector's name, once the user has added and connected it
+// (the Connectors routes), or with a refusal. Answering turns the connector on
+// if it was off and gives it to the agent if its create_agent limit left it
+// out; a connector that can't be used yet is refused, and the request keeps
+// waiting. The request is also answered on its own when the connector the
+// agent asked for becomes usable — a sign-in finishing — so answering one
+// already answered that way succeeds with it as it is.
 type AnswerCredentialRequest struct {
 	GitHubAccount string `json:"githubAccount,omitempty"`
 	Value         string `json:"value,omitempty"`
+	Connector     string `json:"connector,omitempty"`
 	Refuse        bool   `json:"refuse,omitempty"`
 	Reason        string `json:"reason,omitempty"` // why it was refused, for the agent
 }

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, LoaderCircle, MessageSquarePlus, Play } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
-import { api, isProjectChat } from '../../lib/api';
+import { api, isHomeChat, isProjectChat } from '../../lib/api';
 import { chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
 import { cn, errorMessage } from '../../lib/utils';
 import { useReadAloud } from '../../lib/voice/useReadAloud';
@@ -161,7 +161,7 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
           )}
           {/* What the project's agents are waiting on you for, at the end of
               the project's chat where you are: cards, not messages the lead reads. */}
-          {isProjectChat(agent.ref) && !thread.isPending && <ProjectCredentialCards project={agent.ref.split('/')[0]} />}
+          {isProjectChat(agent.ref) && !isHomeChat(agent.ref) && !thread.isPending && <ProjectCredentialCards project={agent.ref.split('/')[0]} />}
         </div>
       </div>
 
@@ -224,7 +224,9 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
         onOpenChange={setClearing}
         title="Start a new chat?"
         description={
-          isProjectChat(agent.ref)
+          isHomeChat(agent.ref)
+            ? `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. Your projects are untouched.`
+            : isProjectChat(agent.ref)
             ? `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. The agents of ${agent.project} and their work are untouched.`
             : `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. What ${agent.title || agent.name} changed in its worktree stays.`
         }
@@ -237,6 +239,7 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
 
 function Hero({ agent }: { agent: T.Agent }) {
   if (!isProjectChat(agent.ref)) return <AgentHero agent={agent} />;
+  if (isHomeChat(agent.ref)) return <HomeHero agent={agent} />;
   return (
     <div className="flex min-h-[42vh] animate-slide-up flex-col items-center justify-center pt-6 text-center" data-chat-hero>
       <div className="relative mb-5">
@@ -249,6 +252,23 @@ function Hero({ agent }: { agent: T.Agent }) {
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
         This chat reads {agent.project} on <span className="font-mono text-[12.5px] text-muted">{agent.baseRef || 'its branch'}</span>. It doesn't run or
         change anything itself: the work happens in agents, each on its own machine.
+      </p>
+    </div>
+  );
+}
+
+function HomeHero({ agent }: { agent: T.Agent }) {
+  return (
+    <div className="flex min-h-[42vh] animate-slide-up flex-col items-center justify-center pt-6 text-center" data-chat-hero>
+      <div className="relative mb-5">
+        <div className="brand-gradient absolute inset-0 rounded-2xl opacity-25 blur-xl" />
+        <div className="relative flex size-12 items-center justify-center rounded-2xl border border-line-strong bg-overlay">
+          <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
+        </div>
+      </div>
+      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">What are we working on?</h2>
+      <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
+        This chat sees every project: ask how they're doing, start work in one, or add a new one from a folder or a git URL.
       </p>
     </div>
   );

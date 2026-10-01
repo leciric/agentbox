@@ -336,6 +336,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
 // it has one, and the project's chat for the lead. scoped leaves the project
 // out, on a page that is already about one.
 function agentName(a: T.AgentTokens, scoped: boolean): { name: string; sub: string } {
+  if (a.project === A.HomeProject) return { name: 'Main chat', sub: a.ref };
   if (a.agent === A.LeadName) return { name: scoped ? 'Project chat' : `${a.project} chat`, sub: a.ref };
   return { name: a.title || a.agent, sub: scoped ? a.agent : a.ref };
 }

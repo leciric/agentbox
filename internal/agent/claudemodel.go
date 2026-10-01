@@ -256,14 +256,22 @@ func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model str
 // so there is nothing a merge would need to preserve.
 func (m *Manager) prepareAgentCodexSettings(ctx context.Context, a state.Agent, compactWindow int64) error {
 	home := "/home/" + m.User.Name
-	config := codexConfigFor(a.Worktree, agentMCPServers(home), compactWindow)
+	connectors, err := m.connectorNames(ctx, a)
+	if err != nil {
+		return err
+	}
+	config := codexConfigFor(a.Worktree, agentMCPServers(home, connectors), compactWindow)
 	return m.Incus.WriteFile(ctx, a.Instance, home+"/.codex/config.toml", []byte(config), m.User.UID, m.User.GID, 0o600)
 }
 
 // prepareAgentOpenCodeSettings does the same for OpenCode's opencode.json.
 func (m *Manager) prepareAgentOpenCodeSettings(ctx context.Context, a state.Agent) error {
 	home := "/home/" + m.User.Name
-	config, err := openCodeConfig(agentMCPServers(home), a.Autonomous)
+	connectors, err := m.connectorNames(ctx, a)
+	if err != nil {
+		return err
+	}
+	config, err := openCodeConfig(agentMCPServers(home, connectors), a.Autonomous)
 	if err != nil {
 		return err
 	}

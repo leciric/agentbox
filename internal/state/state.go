@@ -4,6 +4,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -701,6 +702,50 @@ var migrations = []string{
 	// keeping a guess at which were the user's.
 	`DELETE FROM task_dependencies`,
 	`DELETE FROM tasks`,
+
+	// Connectors: remote MCP servers a project's agents use, at project
+	// scope (agent '') or for one agent, like secrets. access_token,
+	// refresh_token and client_secret are ciphertext, sealed by package
+	// secrets under the same key: this file never holds a plaintext token.
+	// The OAuth columns are filled in by a sign-in and emptied by
+	// disconnecting; a 'secret' connector names one of the project's
+	// secrets instead, and holds nothing of its own.
+	`CREATE TABLE connectors (
+		project        TEXT NOT NULL,
+		agent          TEXT NOT NULL DEFAULT '',
+		name           TEXT NOT NULL,
+		url            TEXT NOT NULL,
+		auth           TEXT NOT NULL DEFAULT 'oauth',
+		secret         TEXT NOT NULL DEFAULT '',
+		header         TEXT NOT NULL DEFAULT '',
+		scheme         TEXT NOT NULL DEFAULT '',
+		enabled        INTEGER NOT NULL DEFAULT 1,
+		issuer         TEXT NOT NULL DEFAULT '',
+		token_endpoint TEXT NOT NULL DEFAULT '',
+		resource       TEXT NOT NULL DEFAULT '',
+		client_id      TEXT NOT NULL DEFAULT '',
+		client_secret  BLOB,
+		token_auth     TEXT NOT NULL DEFAULT '',
+		redirect_uri   TEXT NOT NULL DEFAULT '',
+		access_token   BLOB,
+		refresh_token  BLOB,
+		expires_at     INTEGER NOT NULL DEFAULT 0,
+		scope          TEXT NOT NULL DEFAULT '',
+		error          TEXT NOT NULL DEFAULT '',
+		connected_at   INTEGER NOT NULL DEFAULT 0,
+		updated_at     INTEGER NOT NULL,
+		PRIMARY KEY (project, agent, name)
+	)`,
+	// Which of its project's connectors an agent is given: NULL for every
+	// one, or a JSON array of their names (create_agent's connectors). Its
+	// own connectors aren't limited by it.
+	`ALTER TABLE agents ADD COLUMN connectors TEXT`,
+	// A connector request (request_connector) is a question of kind
+	// 'connector': the connector it asks for, and where its server is when
+	// the project has none of that name yet.
+	`ALTER TABLE questions ADD COLUMN connector TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE questions ADD COLUMN connector_url TEXT NOT NULL DEFAULT ''`,
+
 	// Agents run in AgentBox's VM, whose size is what they share and which
 	// has no GPU, so the settings that capped each agent's machine, kept them
 	// under a shared budget, kept the host's cores free of them and passed the
@@ -1175,8 +1220,12 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 	if err := s.renumberProjects(ctx); err != nil {
 		return err
 	}
-	// Its secrets go with it: nothing left can read them, and a project added
-	// again at the same path shouldn't inherit the old one's keys.
+	// Its secrets and connectors go with it: nothing left can read them, and
+	// a project added again at the same path shouldn't inherit the old one's
+	// keys or sign-ins.
+	if err := s.RemoveProjectConnectors(ctx, name); err != nil {
+		return err
+	}
 	return s.RemoveProjectSecrets(ctx, name)
 }
 
@@ -1652,6 +1701,16 @@ type Agent struct {
 	// reused: what tells this agent apart from a different one that later
 	// gets its name, for a row that outlives it on purpose (token_usage).
 	ID string
+	// Connectors limits which of its project's connectors the agent is
+	// given, by name: nil for every one, empty for none. Its own connectors
+	// are always its.
+	Connectors []string
+}
+
+// GetsConnector reports whether a project connector of that name reaches the
+// agent, as far as its limit goes.
+func (a Agent) GetsConnector(name string) bool {
+	return a.Connectors == nil || slices.Contains(a.Connectors, name)
 }
 
 // IsLead reports whether the agent is a project's lead, which runs on the host
@@ -1673,9 +1732,20 @@ const (
 // LeadName is the reserved name of a project's lead agent.
 const LeadName = "lead"
 
+// HomeProject is the key the Home chat is kept under: the user's main chat,
+// across every project and tied to none. It drives a lead like a project's
+// (HomeProject/LeadName), so its conversation, session and token rows sit in
+// the same tables, but it has no projects row and no agents row. A project
+// name can't start with an underscore (naming.Validate), so no project ever
+// shares it.
+const HomeProject = "_home"
+
+// IsHome reports whether the agent is the Home chat's lead.
+func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == RoleLead }
+
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -1687,9 +1757,13 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.ID == "" {
 		a.ID = NewAgentID()
 	}
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID)
+	connectors, err := connectorLimit(a.Connectors)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -1878,6 +1952,9 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM agent_queue WHERE project = ? AND name = ?`, project, name); err != nil {
 		return err
 	}
+	if err := s.RemoveAgentConnectors(ctx, project, name); err != nil {
+		return err
+	}
 	if err := s.removeAgentEvents(ctx, project, name); err != nil {
 		return err
 	}
@@ -1898,9 +1975,16 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 	for rows.Next() {
 		var a Agent
 		var created, pausedAt int64
+		var connectors sql.NullString
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
-			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &pausedAt); err != nil {
+			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors, &pausedAt); err != nil {
 			return nil, err
+		}
+		if connectors.Valid {
+			a.Connectors = []string{}
+			if err := json.Unmarshal([]byte(connectors.String), &a.Connectors); err != nil {
+				return nil, fmt.Errorf("agent %s's connectors: %w", a.Ref(), err)
+			}
 		}
 		a.CreatedAt = time.Unix(created, 0)
 		if pausedAt != 0 {

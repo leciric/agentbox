@@ -84,6 +84,12 @@ func (s *Server) addProject(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
+	return s.addProjectFrom(w, r, req)
+}
+
+// addProjectFrom is addProject for a request already read: the Home chat's
+// add_project ends here too, once it has cloned a URL (homeAddProject).
+func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.AddProjectRequest) error {
 	if req.Create {
 		return s.createProject(w, r, req)
 	}
@@ -1026,6 +1032,11 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 	if _, err := s.manager(nil).CheckLogin(req.AI, p, req.ClaudeAccount); err != nil {
 		return err
 	}
+	if req.Connectors != nil {
+		if err := s.manager(nil).CheckConnectorLimit(r.Context(), p.Name, *req.Connectors); err != nil {
+			return err
+		}
+	}
 	// A task of the plan the agent is for: its words are the agent's task
 	// unless the request brings its own.
 	if req.TaskID != "" {
@@ -1056,6 +1067,10 @@ func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api
 // queued names one, the queued agent of that name, which the queue is
 // starting (queue.go).
 func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued string) func(context.Context, io.Writer) (any, error) {
+	var connectors []string
+	if req.Connectors != nil {
+		connectors = append([]string{}, *req.Connectors...)
+	}
 	// Absent means autonomous: that is what the command line, the app's dialog
 	// and a project's chat have all always sent, so an omitted field keeps
 	// doing what every caller already asked for.
@@ -1090,6 +1105,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			Clean:   req.Clean,
 
 			FinishNotice: req.FinishNotice,
+			Connectors:   connectors,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
 		})

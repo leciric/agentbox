@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/connectors"
 )
 
 // The preview proxy makes http://<port>.<agent>.<project>.localhost:7777 reach
@@ -58,6 +59,12 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	host := r.Host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
+	}
+	// A connector's sign-in comes back to the proxy's own address rather
+	// than an agent's (connectors/flow.go).
+	if r.URL.Path == connectors.CallbackPath && (net.ParseIP(host) != nil || strings.EqualFold(host, "localhost")) {
+		s.connectors.ServeCallback(w, r)
+		return
 	}
 	name, ok := strings.CutSuffix(strings.ToLower(host), ".localhost")
 	labels := strings.Split(name, ".")
