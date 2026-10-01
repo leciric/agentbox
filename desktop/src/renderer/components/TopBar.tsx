@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDownUp, ChevronRight, Cpu, Gauge, HardDrive, Menu as MenuIcon, MemoryStick, Square, TriangleAlert } from 'lucide-react';
+import { ChevronRight, Cpu, Gauge, Menu as MenuIcon, Square, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
@@ -9,7 +9,7 @@ import { limitTone, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
 import { useVMPower } from '../lib/vm';
-import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo, timeUntil } from '../lib/utils';
+import { cn, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { DiskGuardPill } from './DiskGuardPill';
 import { ResourceControls } from './ResourceControls';
@@ -96,14 +96,7 @@ export function TopBar({
         <DiskGuardPill onSelect={onSelect} />
         <ResourceControls agents={agents.data ?? []} />
         <UsageMeter view={view} agents={agents.data ?? []} />
-        {host && (
-          <>
-            <CPUMeter host={host} onSelect={onSelect} />
-            <MemoryMeter host={host} onSelect={onSelect} />
-            <DiskIOMeter host={host} />
-            {host.poolTotal > 0 && <StoragePoolMeter host={host} />}
-          </>
-        )}
+        {host && <CPUMeter host={host} onSelect={onSelect} />}
         {/* In VM mode, the daemon of a VM that's off or paused can't answer:
             the VM's own pill says why, and this one would only repeat it as
             "Offline". */}
@@ -141,136 +134,6 @@ function MeterBar({ percent, className }: { percent: number; className?: string 
   );
 }
 
-// DiskIOMeter is the host's disk IO, read and write together, and the one
-// meter that says the host is stalling: while io full or memory full (PSI)
-// is past stallPressure it turns rose and shows on every width, since that is
-// when the desktop freezes and the user needs to know why.
-function DiskIOMeter({ host }: { host: T.HostUsage }) {
-  const p = host.pressure;
-  const stalling = p?.stalling ?? false;
-  const text = shortRate(host.diskRead + host.diskWrite);
-  return (
-    <Tip
-      label={
-        <div className="grid gap-0.5 text-left">
-          <span>
-            Disk: {humanRate(host.diskRead)} read, {humanRate(host.diskWrite)} write
-          </span>
-          {p && (
-            <>
-              <span className={cn(p.ioFull > stallPressure && 'text-rose-300')}>
-                Stalled on disk {p.ioFull.toFixed(0)}% of the last 10 s (some tasks: {p.ioSome.toFixed(0)}%)
-              </span>
-              <span className={cn(p.memoryFull > stallPressure && 'text-rose-300')}>
-                Stalled on memory {p.memoryFull.toFixed(0)}% of the last 10 s (some tasks: {p.memorySome.toFixed(0)}%)
-              </span>
-              {stalling && <span className="font-medium">The host is stalling: past {stallPressure}%, the desktop freezes.</span>}
-            </>
-          )}
-        </div>
-      }
-    >
-      <span
-        className={cn(
-          'items-center gap-2 rounded-full border py-1 pl-2 pr-2.5',
-          stalling ? 'flex border-rose-400/40 bg-rose-400/10' : 'hidden border-line bg-surface-faint lg:flex',
-        )}
-        aria-label={`Host disk IO: ${humanRate(host.diskRead)} read, ${humanRate(host.diskWrite)} write${stalling ? ', the host is stalling' : ''}`}
-        data-stalling={stalling || undefined}
-      >
-        {stalling ? <TriangleAlert className="size-3.5 text-rose-300" /> : <ArrowDownUp className="size-3.5 text-subtle" />}
-        <span className={cn('font-mono text-[11px] tabular-nums', stalling ? 'text-rose-200' : 'text-tertiary')}>{text}</span>
-        {stalling && <span className="text-[11px] font-medium text-rose-200">Stalling</span>}
-      </span>
-    </Tip>
-  );
-}
-
-// StoragePoolMeter is the "Storage pool" indicator: what Meter would show,
-// but clicking it opens a popover breaking the total down by what's using it.
-// The breakdown is only computed while the popover is open — disk usage is
-// cheap to poll as a total (Usage.PoolSpace, a single Incus query already
-// fetched for the meter itself) but not to break down, since that walks every
-// worktree and media directory on the host and queries Incus once per machine
-// and saved base.
-function StoragePoolMeter({ host }: { host: T.HostUsage }) {
-  const diskUsage = useQuery({ queryKey: ['diskUsage'], queryFn: api.diskUsage, enabled: false });
-  const percent = Math.max(0, Math.min(1, host.poolUsed / host.poolTotal)) * 100;
-  const text = humanBytes(host.poolUsed);
-  const detail = `of ${humanBytes(host.poolTotal)}`;
-  return (
-    <Popover onOpenChange={(open) => open && diskUsage.refetch()}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
-          aria-label={`Storage pool: ${text} ${detail}`}
-        >
-          <HardDrive className="size-3.5 text-subtle" />
-          <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
-          <MeterBar percent={percent} />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80">
-        <DiskUsageBreakdown poolUsed={host.poolUsed} poolTotal={host.poolTotal} query={diskUsage} />
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function DiskUsageBreakdown({
-  poolUsed,
-  poolTotal,
-  query,
-}: {
-  poolUsed: number;
-  poolTotal: number;
-  query: ReturnType<typeof useQuery<T.DiskUsage>>;
-}) {
-  return (
-    <div className="grid gap-2.5">
-      <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium text-primary">Storage pool</span>
-        <span className="font-mono text-[11px] tabular-nums text-tertiary">
-          {humanBytes(poolUsed)} of {humanBytes(poolTotal)}
-        </span>
-      </div>
-      {query.isPending ? (
-        <span className="py-1 text-[12px] text-muted">Measuring what's on disk…</span>
-      ) : query.isError ? (
-        <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
-      ) : (
-        <>
-          <div className="grid max-h-72 gap-3 overflow-y-auto pr-1">
-            {query.data.categories.map((cat) => (
-              <div key={cat.label} className="grid gap-1">
-                <div className="flex items-center justify-between text-[12px] text-secondary">
-                  <span className="font-medium">{cat.label}</span>
-                  <span className="font-mono tabular-nums text-tertiary">{humanBytes(cat.bytes)}</span>
-                </div>
-                {cat.items && cat.items.length > 0 && (
-                  <div className="grid gap-0.5 border-l border-line pl-2.5">
-                    {cat.items.map((item) => (
-                      <div key={item.label} className="flex items-center justify-between gap-3 text-[11.5px] text-muted">
-                        <span className="min-w-0 truncate">{item.label}</span>
-                        <span className="shrink-0 font-mono tabular-nums text-faint">{humanBytes(item.bytes)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center justify-between border-t border-line pt-2 text-[12px] font-medium text-primary">
-            <span>Total</span>
-            <span className="font-mono tabular-nums">{humanBytes(query.data.total)}</span>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 // CPUMeter is the "Host CPU" indicator: what Meter would show, but clicking
 // it opens a popover breaking the total down by agent, the same way
 // StoragePoolMeter does for disk. Each agent's own CPU% is only sampled
@@ -290,7 +153,7 @@ function CPUMeter({ host, onSelect }: { host: T.HostUsage; onSelect: (view: View
           aria-label={`Host CPU: ${text} ${detail}`}
         >
           <Cpu className="size-3.5 text-subtle" />
-          <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
+          <span className="w-8 whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
           <MeterBar percent={percent} />
         </button>
       </PopoverTrigger>
@@ -352,93 +215,6 @@ function CPUUsageBreakdown({
   );
 }
 
-// MemoryMeter is the "Host memory" indicator, the same shape as CPUMeter: a
-// popover breaking the total down by agent, each with the RAM and swap its
-// own cgroup holds — a paused agent's row says so, since pausing doesn't
-// free either.
-function MemoryMeter({ host, onSelect }: { host: T.HostUsage; onSelect: (view: View) => void }) {
-  const memoryUsage = useQuery({ queryKey: ['memoryUsage'], queryFn: api.memoryUsage, enabled: false });
-  const percent = Math.max(0, Math.min(1, host.memUsed / host.memTotal)) * 100;
-  const text = humanBytes(host.memUsed);
-  const detail = `of ${humanBytes(host.memTotal)}`;
-  return (
-    <Popover onOpenChange={(open) => open && memoryUsage.refetch()}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
-          aria-label={`Host memory: ${text} ${detail}`}
-        >
-          <MemoryStick className="size-3.5 text-subtle" />
-          <span className="font-mono text-[11px] tabular-nums text-tertiary">{text}</span>
-          <MeterBar percent={percent} />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80">
-        <MemoryUsageBreakdown host={host} query={memoryUsage} onSelect={onSelect} />
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function MemoryUsageBreakdown({
-  host,
-  query,
-  onSelect,
-}: {
-  host: T.HostUsage;
-  query: ReturnType<typeof useQuery<T.MemoryUsage>>;
-  onSelect: (view: View) => void;
-}) {
-  return (
-    <div className="grid gap-2.5">
-      <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium text-primary">Host memory</span>
-        <span className="font-mono text-[11px] tabular-nums text-tertiary">
-          {humanBytes(host.memUsed)} of {humanBytes(host.memTotal)}
-        </span>
-      </div>
-      {query.isPending ? (
-        <span className="py-1 text-[12px] text-muted">Measuring memory use…</span>
-      ) : query.isError ? (
-        <span className="py-1 text-[12px] text-rose-300">{query.error instanceof Error ? query.error.message : String(query.error)}</span>
-      ) : (
-        <>
-          <div className="grid min-w-0 max-h-72 gap-2 overflow-y-auto pr-1">
-            {query.data.agents.map((a) => (
-              <AgentUsageRow
-                key={a.ref}
-                agentRef={a.ref}
-                title={a.title}
-                state={a.state}
-                onSelect={onSelect}
-                value={humanBytes(a.memory + a.swap)}
-                detail={[
-                  `${humanBytes(a.memory)} RAM`,
-                  a.swap > 0 ? `${humanBytes(a.swap)} swap` : null,
-                  a.limit > 0 ? `of ${humanBytes(a.limit)} limit` : null,
-                ]
-                  .filter(Boolean)
-                  .join(', ')}
-                note={a.state === 'paused' && a.memory + a.swap > 0 ? 'Paused, but still holds this memory — Stop to free it.' : undefined}
-              />
-            ))}
-            <div className="flex items-center justify-between gap-3 border-t border-line pt-1.5 text-[11.5px] text-muted">
-              <span>Host itself</span>
-              <span className="font-mono tabular-nums text-faint">{humanBytes(query.data.otherUsed)}</span>
-            </div>
-          </div>
-          {query.data.zram && query.data.swapUsed > 0 && (
-            <div className="border-t border-line pt-2 text-[11px] text-muted">
-              Swap is zram: {humanBytes(query.data.swapUsed)} of swap really costs {humanBytes(query.data.zram.realBytes)} of RAM, compressed.
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
 // AgentUsageRow is one agent in the CPU or memory popover: a link to the
 // agent, its usage, and a Stop button — Pause isn't enough for either meter,
 // since a paused agent still holds its memory, and stopping is what frees it.
@@ -466,7 +242,6 @@ function AgentUsageRow({
       await queryClient.invalidateQueries({ queryKey: ['agents'] });
       await queryClient.invalidateQueries({ queryKey: ['usage'] });
       await queryClient.invalidateQueries({ queryKey: ['cpuUsage'] });
-      await queryClient.invalidateQueries({ queryKey: ['memoryUsage'] });
     },
     onError: (err) => toast.error(String(err)),
   });
@@ -549,7 +324,7 @@ function UsageMeter({ view, agents }: { view: View; agents: T.Agent[] }) {
         data-claude-account={account.account}
       >
         <Gauge className="size-3.5 text-subtle" />
-        <span className="font-mono text-[11px] tabular-nums text-tertiary">{now === null ? '5h —' : `${left} · ${Math.round(percent)}%`}</span>
+        <span className="w-20 whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary">{now === null ? '5h —' : `${left} · ${Math.round(percent)}%`}</span>
         <span className="h-1 w-8 overflow-hidden rounded-full bg-surface-strong">
           <span
             className={cn('block h-full rounded-full', tone === 'high' ? 'bg-rose-400' : tone === 'warn' ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400')}

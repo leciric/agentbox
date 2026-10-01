@@ -71,23 +71,23 @@ Your home directory is shared with the VM at the same path.`,
 	return root
 }
 
-// newCHVCmd is `agentbox vm` on Linux, where the VM is Cloud Hypervisor's and
-// optional: a machine runs AgentBox either itself (agentbox host setup) or in
-// the VM, as `vm init` chose.
+// newCHVCmd is `agentbox vm` on Linux, where AgentBox runs in Cloud
+// Hypervisor's VM: vm init makes it, and vm migrate moves a host-mode
+// installation from before into it.
 func newCHVCmd(version string) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "agentbox vm",
 		Short: "Run AgentBox in a Linux VM on this machine, and manage that VM",
-		Long: `AgentBox runs in a VM of its own, made with Cloud Hypervisor (agentbox vm init, which
-needs no password), or on this machine itself (agentbox host setup, which installs
-Incus). The VM is the recommended way: the daemon, Incus and every agent are in
-there, with the CPUs and memory you give it rather than all of this machine's, and
-every agentbox command other than these runs there too. Your home directory is
-shared with the VM at the same path. The VM starts with a little memory, takes more
-as its agents need it, up to a cap, and gives it back; stopping it gives back all of
-it. agentbox vm resize changes its CPUs and cap, while it runs.
+		Long: `On Linux AgentBox runs in a VM of its own, made with Cloud Hypervisor by agentbox vm
+init, which needs no password: the daemon, Incus and every agent are in there, with
+the CPUs and memory you give it rather than all of this machine's, and every agentbox
+command other than these runs there too. Your home directory is shared with the VM at
+the same path. The VM starts with a little memory, takes more as its agents need it,
+up to a cap, and gives it back; stopping it gives back all of it. agentbox vm resize
+changes its CPUs and cap, while it runs.
 
-A machine that already runs AgentBox itself moves into the VM with agentbox vm migrate.`,
+A machine that runs AgentBox itself, set up before AgentBox ran in a VM on Linux,
+keeps working as it is until agentbox vm migrate moves it into the VM.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Version:       version,
@@ -674,22 +674,34 @@ func vzStatus(cmd *cobra.Command, asJSON bool) error {
 }
 
 // linuxStatus is `agentbox vm status` on Linux: an api.VMStatus, which says
-// ModeHost when this machine runs AgentBox itself.
+// ModeHost when this machine runs AgentBox itself (a host-mode installation,
+// Front), and VMMissing before vm init made the VM every other machine runs
+// AgentBox in.
 func linuxStatus(cmd *cobra.Command, asJSON bool) error {
 	vm, err := New()
-	st := hostModeStatus()
+	var st api.VMStatus
 	switch {
 	case err == nil && vm.CHV != nil:
 		st = chvStatus(cmd.Context(), vm.CHV.Config, vm.CHV.Layout, vm.Paths)
 	case err != nil && !errors.Is(err, ErrNotCreated):
 		return err
+	case HostInstall(vm.Paths):
+		st = hostModeStatus()
+	default:
+		st = missingStatus(vm.Name)
 	}
 	if asJSON {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(st)
 	}
-	if vm == nil || vm.CHV == nil {
-		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "This machine runs AgentBox itself, not in a VM: agentbox vm init switches it to one.")
+	switch st.Mode {
+	case api.ModeHost:
+		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "This machine runs AgentBox itself, from before AgentBox ran in a VM on Linux: agentbox vm migrate moves it into one.")
 		return nil
+	case api.ModeVM:
+		if st.State == api.VMMissing {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "AgentBox's VM isn't made yet: agentbox vm init makes it.")
+			return nil
+		}
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), describe(st))
 	return nil
@@ -756,7 +768,7 @@ func newPowerCmd() *cobra.Command {
 			vm, err := New()
 			var p Power
 			switch {
-			case !useLima() && errors.Is(err, ErrNotCreated):
+			case !useLima() && errors.Is(err, ErrNotCreated) && HostInstall(vm.Paths):
 				if asJSON {
 					_, _ = fmt.Fprintln(cmd.OutOrStdout(), `{"mode":"host"}`)
 				} else {

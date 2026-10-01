@@ -1,26 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ListTodo, LoaderCircle, Play, Plus } from 'lucide-react';
-import { useState } from 'react';
+import { ArrowDown, ArrowUp, Check, ListTodo, LoaderCircle, Pencil, Play, Plus, Trash2 } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
-import { errorMessage, humanBytes, timeAgo } from '../lib/utils';
-import { taskOpenStatuses, taskStatusLabel, taskStatusVariant } from './ProjectMemoryPanel';
-import { Badge } from './ui/badge';
+import { taskActions, taskLane, taskLanes, taskText } from '../lib/tasks';
+import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
 import { Button } from './ui/button';
 import { EmptyState, Notice, Panel } from './ui/card';
 import { Textarea } from './ui/input';
-import { Switch } from './ui/switch';
 
-// ProjectTasksPanel is a project's plan, worked from the queue: what's still
-// to do, and one switch per task to send it to a slot — the same queue create
-// (POST /v1/agents with queue: true, taskId) and remove (DELETE
-// /v1/queue/…) NewAgentDialog and the rail's context menu already use. It
-// doesn't replace the Memory tab's own Tasks section, which is the whole plan
-// as a tree with subtasks and blockers (ProjectMemoryPanel.tsx); this is the
-// flat, queue-focused view: what's open, who's on it or queued for it, and a
-// quick way to write the next one.
+// ProjectTasksPanel is the project's task list, which only the user writes:
+// nothing in AgentBox adds a task on its own, and neither the project's chat
+// nor an agent can change one. Each task sits in the Backlog, where a new one
+// goes, or in the Queue, which hands it to the agent queue as a queued agent
+// (lib/tasks.ts); queued tasks can be moved up and down or sent back. With the
+// agent queue off there is no Queue: a backlog task's Start makes its agent
+// at once.
 export function ProjectTasksPanel({ project, onSelect }: { project: string; onSelect: (view: View) => void }) {
   const queryClient = useQueryClient();
   const tasksQuery = useQuery({ queryKey: ['memoryTasks', project], queryFn: () => api.memoryTasks(project) });
@@ -33,72 +30,61 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
   const [showDone, setShowDone] = useState(false);
   const [prompt, setPrompt] = useState('');
 
-  // The installation's own switch (Settings → Agents → Agent queue). Off,
-  // there's no queue to show or add to: the strip disappears, and a task's
-  // toggle starts an agent right away instead of offering to queue it.
+  // The installation's own switch (Settings → Agents → Agent queue).
   const queueOn = settings.data?.agentQueue ?? false;
-  const tasks = tasksQuery.data ?? [];
   const slots = queueQuery.data?.projects.find((p) => p.project === project);
   const agentsByName = new Map((agentsQuery.data ?? []).filter((a) => a.project === project).map((a) => [a.name, a] as const));
+  const lanes = taskLanes(tasksQuery.data ?? [], agentsByName);
+  const total = tasksQuery.data?.length ?? 0;
+  const actions = taskActions(api, project);
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['memoryTasks', project] });
     await queryClient.invalidateQueries({ queryKey: ['queue', project] });
+    await queryClient.invalidateQueries({ queryKey: ['agents'] });
   };
-
+  // Every action here is one call and a refresh, and fails the same way.
+  const act = useMutation({
+    mutationFn: (run: () => Promise<unknown>) => run(),
+    onSettled: refresh,
+    onError: (err) => toast.error(errorMessage(err)),
+  });
   const addTask = useMutation({
-    mutationFn: () => {
-      // The first line is what a task list is scanned by; anything after it
-      // is the brief behind it, same as Memory's Add task dialog does with
-      // separate fields, folded into one box here since this is meant to be
-      // quick.
-      const lines = prompt.split('\n');
-      const goal = lines[0].trim();
-      const detail = lines.slice(1).join('\n').trim();
-      return api.addTask(project, { goal, detail: detail || undefined } satisfies T.AddTaskRequest);
-    },
+    mutationFn: () => actions.add(prompt),
     onSuccess: async () => {
       setPrompt('');
       await refresh();
     },
-    onError: (err) => toast.error(errorMessage(err)),
   });
 
-  const queueTask = useMutation({
-    mutationFn: (task: T.Task) => api.createAgent({ project, taskId: task.id, queue: true, ai: 'claude' }),
-    onSuccess: async () => {
-      await refresh();
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  const unqueueTask = useMutation({
-    mutationFn: (agentName: string) => api.removeQueued(project, agentName),
-    onSuccess: async () => {
-      await refresh();
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  // Agent queue off: a task starts an agent right away, taskId and all, just
-  // without the queue flag — the same create NewAgentDialog sends unqueued.
-  const startTask = useMutation({
-    mutationFn: (task: T.Task) => api.createAgent({ project, taskId: task.id, ai: 'claude' }),
-    onSuccess: async () => {
-      await refresh();
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  const visible = tasks.filter((t) => showDone || taskOpenStatuses.has(t.status));
-  const doneCount = tasks.length - tasks.filter((t) => taskOpenStatuses.has(t.status)).length;
+  const row = (task: T.Task, index?: number) => {
+    const agent = task.agent ? agentsByName.get(task.agent) : undefined;
+    return (
+      <TaskRow
+        key={task.id}
+        task={task}
+        agent={agent}
+        queueOn={queueOn}
+        busy={act.isPending}
+        queueIndex={index}
+        queueLength={lanes.queue.length}
+        onLane={(lane) => act.mutate(() => actions.setLane(task, agent, lane))}
+        onMove={(position) => agent && act.mutate(() => actions.move(agent.name, position))}
+        onStart={() => act.mutate(() => actions.start(task, agent))}
+        onEdit={(text) => act.mutateAsync(() => actions.edit(task, text))}
+        onDelete={() => act.mutate(() => actions.remove(task))}
+        onDone={() => act.mutate(() => actions.markDone(task))}
+        onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })}
+      />
+    );
+  };
 
   return (
     <div className="mx-auto grid max-w-4xl gap-5 px-4 py-6 md:px-8 md:py-7">
       {queueOn ? (
         <SlotsStrip slots={slots} loading={queueQuery.isPending} />
       ) : (
-        settings.data && <p className="px-1 text-[12px] text-subtle">Agent queue is off: a task starts an agent right away. Turn it on in Settings to queue them instead.</p>
+        settings.data && <p className="px-1 text-[12px] text-subtle">Agent queue is off: a task's Start makes its agent right away. Turn the queue on in Settings to queue tasks instead.</p>
       )}
 
       <form
@@ -119,49 +105,62 @@ export function ProjectTasksPanel({ project, onSelect }: { project: string; onSe
           {addTask.error && <Notice className="mr-auto">{errorMessage(addTask.error)}</Notice>}
           <Button type="submit" variant="primary" size="sm" disabled={!prompt.split('\n')[0].trim() || addTask.isPending}>
             {addTask.isPending ? <LoaderCircle className="animate-spin" /> : <Plus />}
-            Add task
+            Add to backlog
           </Button>
         </div>
       </form>
 
-      <div className="flex items-center gap-2">
-        <span className="text-[11.5px] text-subtle">
-          {tasks.length === 0 ? 'Nothing planned yet' : `${visible.length} of ${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
-        </span>
-        {doneCount > 0 && (
-          <button type="button" className="ml-auto text-[12px] text-subtle underline-offset-2 hover:text-tertiary hover:underline" onClick={() => setShowDone((v) => !v)}>
-            {showDone ? 'Hide done' : `Show done (${doneCount})`}
-          </button>
-        )}
-      </div>
-
       {tasksQuery.error && <Notice>{errorMessage(tasksQuery.error)}</Notice>}
-      {!tasksQuery.isPending && tasks.length === 0 && (
+      {!tasksQuery.isPending && total === 0 && (
         <Panel className="rounded-2xl">
-          <EmptyState icon={ListTodo} title="No plan yet">
-            Write the next thing to do above, or let the project's chat add tasks as it hands work to agents.
+          <EmptyState icon={ListTodo} title="No tasks yet">
+            This list is yours: write the next thing to do above. Nothing adds tasks here on its own.
           </EmptyState>
         </Panel>
       )}
 
-      <div className="grid gap-2">
-        {visible.map((task) => (
-          <QueueTaskRow
-            key={task.id}
-            task={task}
-            agent={task.agent ? agentsByName.get(task.agent) : undefined}
-            queueOn={queueOn}
-            onQueue={() => queueTask.mutate(task)}
-            onUnqueue={(agentName) => unqueueTask.mutate(agentName)}
-            onStart={() => startTask.mutate(task)}
-            onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })}
-            queuing={queueTask.isPending}
-            unqueuing={unqueueTask.isPending}
-            starting={startTask.isPending}
-          />
-        ))}
-      </div>
+      {queueOn && (lanes.queue.length > 0 || total > 0) && (
+        <Lane title="Queue" count={lanes.queue.length} hint="Starts in this order as slots free up.">
+          {lanes.queue.length === 0 ? <p className="px-1 text-[12px] text-faint">Nothing queued. Move a backlog task to the queue to hand it to an agent.</p> : lanes.queue.map((t, i) => row(t, i))}
+        </Lane>
+      )}
+      {!queueOn && lanes.queue.length > 0 && (
+        <Lane title="Queue" count={lanes.queue.length} hint="Left from when the agent queue was on: these start at once.">
+          {lanes.queue.map((t, i) => row(t, i))}
+        </Lane>
+      )}
+      {lanes.running.length > 0 && (
+        <Lane title="In progress" count={lanes.running.length}>
+          {lanes.running.map((t) => row(t))}
+        </Lane>
+      )}
+      {lanes.backlog.length > 0 && (
+        <Lane title="Backlog" count={lanes.backlog.length}>
+          {lanes.backlog.map((t) => row(t))}
+        </Lane>
+      )}
+      {lanes.done.length > 0 && (
+        <div className="grid gap-2">
+          <button type="button" className="justify-self-start px-1 text-[12px] text-subtle underline-offset-2 hover:text-tertiary hover:underline" onClick={() => setShowDone((v) => !v)}>
+            {showDone ? 'Hide done' : `Show done (${lanes.done.length})`}
+          </button>
+          {showDone && lanes.done.map((t) => row(t))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function Lane({ title, count, hint, children }: { title: string; count: number; hint?: string; children: ReactNode }) {
+  return (
+    <section className="grid gap-2" data-task-lane={title.toLowerCase()}>
+      <div className="flex items-baseline gap-2 px-1">
+        <h3 className="text-[12.5px] font-semibold text-secondary">{title}</h3>
+        <span className="text-[11.5px] text-faint">{count}</span>
+        {hint && <span className="ml-auto text-[11.5px] text-subtle">{hint}</span>}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -189,76 +188,153 @@ function SlotsStrip({ slots, loading }: { slots: T.ProjectSlots | undefined; loa
   );
 }
 
-function QueueTaskRow({
+// LaneChoice is a task's Backlog | Queue switch: two buttons, the current one
+// pressed.
+function LaneChoice({ lane, disabled, onChange, goal }: { lane: 'backlog' | 'queue'; disabled: boolean; onChange: (lane: 'backlog' | 'queue') => void; goal: string }) {
+  return (
+    <div role="radiogroup" aria-label={`Where “${goal}” waits`} className="inline-flex rounded-lg border border-line bg-surface-faint p-0.5">
+      {(['backlog', 'queue'] as const).map((option) => (
+        <button
+          key={option}
+          type="button"
+          role="radio"
+          aria-checked={lane === option}
+          disabled={disabled}
+          onClick={() => lane !== option && onChange(option)}
+          className={cn(
+            'rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors disabled:opacity-50',
+            lane === option ? 'bg-surface-strong text-primary shadow-sm' : 'text-subtle hover:text-secondary',
+          )}
+        >
+          {option === 'backlog' ? 'Backlog' : 'Queue'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TaskRow({
   task,
   agent,
   queueOn,
-  onQueue,
-  onUnqueue,
+  busy,
+  queueIndex,
+  queueLength,
+  onLane,
+  onMove,
   onStart,
+  onEdit,
+  onDelete,
+  onDone,
   onOpenAgent,
-  queuing,
-  unqueuing,
-  starting,
 }: {
   task: T.Task;
   agent: T.Agent | undefined;
   queueOn: boolean;
-  onQueue: () => void;
-  onUnqueue: (agentName: string) => void;
+  busy: boolean;
+  queueIndex?: number;
+  queueLength: number;
+  onLane: (lane: 'backlog' | 'queue') => void;
+  onMove: (position: number) => void;
   onStart: () => void;
+  onEdit: (text: string) => Promise<unknown>;
+  onDelete: () => void;
+  onDone: () => void;
   onOpenAgent: (ref: string) => void;
-  queuing: boolean;
-  unqueuing: boolean;
-  starting: boolean;
 }) {
-  // Queued agents that exist — made before Agent queue was turned off, say —
-  // still show their place in line either way; only the toggle that would
-  // make a new one changes with the setting.
-  const queued = agent?.state === 'queued';
-  const running = !!task.agent && !!agent && !queued;
-  const assigned = !!task.agent;
+  const lane = taskLane(task, agent);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  if (editing !== null) {
+    return (
+      <form
+        className="panel grid gap-2 rounded-2xl px-4 py-3"
+        data-task={task.id}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (!editing.split('\n')[0].trim()) return;
+          await onEdit(editing).then(
+            () => setEditing(null),
+            () => {},
+          );
+        }}
+      >
+        <Textarea aria-label={`Edit “${task.goal}”`} className="min-h-20" value={editing} onChange={(event) => setEditing(event.target.value)} autoFocus />
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
+            Cancel
+          </Button>
+          <Button type="submit" size="sm" variant="primary" disabled={busy || !editing.split('\n')[0].trim()}>
+            Save
+          </Button>
+        </div>
+      </form>
+    );
+  }
 
   return (
-    <div className="panel flex flex-wrap items-start gap-3 rounded-2xl px-4 py-3" data-queue-task={task.id} data-task-status={task.status}>
-      <Badge variant={taskStatusVariant[task.status] ?? 'default'}>{taskStatusLabel[task.status] ?? task.status}</Badge>
+    <div className="panel flex flex-wrap items-start gap-3 rounded-2xl px-4 py-3" data-task={task.id} data-task-status={task.status}>
+      {lane === 'queue' && <span className="mt-0.5 w-6 shrink-0 text-center text-[12.5px] font-semibold text-subtle tabular-nums">#{agent?.queuePosition ?? (queueIndex ?? 0) + 1}</span>}
       <div className="min-w-0 flex-1">
-        <p className="text-[13.5px] font-medium text-primary">{task.goal}</p>
-        {task.detail && <p className="mt-1 truncate text-[12px] text-subtle">{task.detail}</p>}
-        <p className="mt-1 text-[11px] text-faint">{timeAgo(task.createdAt)}</p>
+        <p className={cn('text-[13.5px] font-medium text-primary', lane === 'done' && 'text-subtle line-through')}>{task.goal}</p>
+        {task.detail && <p className="mt-1 line-clamp-2 whitespace-pre-line text-[12px] text-subtle">{task.detail}</p>}
+        <p className="mt-1 text-[11px] text-faint">
+          {timeAgo(task.createdAt)}
+          {lane === 'running' && agent && (
+            <>
+              {' · '}
+              <button type="button" className="text-tertiary underline-offset-2 hover:text-primary hover:underline" onClick={() => onOpenAgent(`${task.project}/${agent.name}`)}>
+                {agent.title || agent.name}
+              </button>
+            </>
+          )}
+        </p>
       </div>
-      <div className="flex shrink-0 items-center gap-2.5">
-        {running && (
-          <button type="button" className="text-[12.5px] text-tertiary underline-offset-2 hover:text-primary hover:underline" onClick={() => onOpenAgent(`${task.project}/${task.agent}`)}>
-            {agent.title || agent.name}
-          </button>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {lane === 'queue' && queueIndex !== undefined && (
+          <>
+            <Button size="icon-sm" variant="ghost" aria-label={`Move “${task.goal}” up`} disabled={busy || queueIndex === 0} onClick={() => onMove(queueIndex)}>
+              <ArrowUp />
+            </Button>
+            <Button size="icon-sm" variant="ghost" aria-label={`Move “${task.goal}” down`} disabled={busy || queueIndex >= queueLength - 1} onClick={() => onMove(queueIndex + 2)}>
+              <ArrowDown />
+            </Button>
+          </>
         )}
-        {queued && <span className="text-[12.5px] text-subtle">Queued #{agent.queuePosition ?? '?'}</span>}
-        {queued && !queueOn && (
-          <button
-            type="button"
-            className="text-[11.5px] text-subtle underline-offset-2 hover:text-rose-300 hover:underline"
-            disabled={unqueuing}
-            onClick={() => task.agent && onUnqueue(task.agent)}
-          >
-            Remove
-          </button>
+        {(lane === 'backlog' || lane === 'queue') && queueOn && <LaneChoice lane={lane} goal={task.goal} disabled={busy} onChange={onLane} />}
+        {lane === 'queue' && !queueOn && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onLane('backlog')}>
+            Back to backlog
+          </Button>
         )}
-        {queueOn && (
-          <Switch
-            aria-label={assigned ? `Unqueue ${task.goal}` : `Queue ${task.goal}`}
-            checked={assigned}
-            disabled={running || queuing || unqueuing}
-            onCheckedChange={(on) => {
-              if (on) onQueue();
-              else if (task.agent) onUnqueue(task.agent);
-            }}
-          />
-        )}
-        {!queueOn && !assigned && (
-          <Button size="sm" variant="ghost" disabled={starting} onClick={onStart}>
-            {starting ? <LoaderCircle className="animate-spin" /> : <Play />}
+        {lane === 'backlog' && !queueOn && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onStart}>
+            <Play />
             Start
+          </Button>
+        )}
+        {lane === 'running' && (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onDone}>
+            <Check />
+            Done
+          </Button>
+        )}
+        <Button size="icon-sm" variant="ghost" aria-label={`Edit “${task.goal}”`} disabled={busy} onClick={() => setEditing(taskText(task))}>
+          <Pencil />
+        </Button>
+        {confirmDelete ? (
+          <>
+            <Button size="sm" variant="danger" disabled={busy} onClick={onDelete}>
+              Delete
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+              Keep
+            </Button>
+          </>
+        ) : (
+          <Button size="icon-sm" variant="ghost" aria-label={`Delete “${task.goal}”`} disabled={busy} onClick={() => setConfirmDelete(true)}>
+            <Trash2 />
           </Button>
         )}
       </div>

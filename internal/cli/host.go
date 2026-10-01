@@ -19,6 +19,11 @@ func newHostCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "host",
 		Short: "Set up this machine for AgentBox, and check what's missing",
+		// AgentBox's own VM runs these, and so does a Linux machine that ran
+		// AgentBox itself before it ran in the VM on Linux too, until it moves
+		// (internal/hostvm's Front). Nobody else is offered them: on a Linux
+		// host, agentbox vm init sets AgentBox up.
+		Hidden: true,
 	}
 	cmd.AddCommand(newHostSetupCmd(), newHostBudgetCmd(), newHostCheckCmd(a))
 	return cmd

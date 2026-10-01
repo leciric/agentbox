@@ -123,6 +123,39 @@ func TestPagesWalkBackThroughTheWholeConversation(t *testing.T) {
 	}
 }
 
+// Reading a chat again from the oldest item the app holds gives it everything
+// since, however many messages arrived meanwhile: the latest page of the same
+// size would push the oldest it shows out, and they'd vanish from its screen.
+func TestRereadKeepsEverythingFromTheOldestItemHeld(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	all := longConversation(25)
+	storeConversation(t, store, testAgent, all)
+	m := &Manager{Store: store}
+
+	// The app held the chat from u19 on, and turns landed since it last read it.
+	got, err := m.Reread(testAgent, "u19", 6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := ids(all[19*6:]); !slices.Equal(ids(got.Items), want) || !got.Older {
+		t.Errorf("Reread(from u19, 6) = %v, older %v; want %v, older", ids(got.Items), got.Older, want)
+	}
+	// From an item inside a turn, it starts at the turn.
+	if got, _ := m.Reread(testAgent, "u19-t2", 6); got.Items[0].ID != "u19" {
+		t.Errorf("Reread(from u19-t2) starts at %s, want its turn, u19", got.Items[0].ID)
+	}
+	// A from within the latest page changes nothing.
+	latest, _ := m.Page(testAgent, "", 6)
+	if got, _ := m.Reread(testAgent, "u24", 6); !slices.Equal(ids(got.Items), ids(latest.Items)) {
+		t.Errorf("Reread(from u24, 6) = %v, want the latest page %v", ids(got.Items), ids(latest.Items))
+	}
+	// A from the conversation doesn't have — it was cleared — is the latest page.
+	if got, _ := m.Reread(testAgent, "nowhere", 6); !slices.Equal(ids(got.Items), ids(latest.Items)) {
+		t.Errorf("Reread(from an unknown item) = %v, want the latest page %v", ids(got.Items), ids(latest.Items))
+	}
+}
+
 // A page never splits a turn, however much work the turn did, and what the
 // app doesn't show doesn't count towards it.
 func TestAPageHoldsWholeTurnsOfShownMessages(t *testing.T) {

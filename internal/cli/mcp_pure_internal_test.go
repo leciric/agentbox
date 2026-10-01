@@ -97,20 +97,6 @@ func TestDescribeTasksAndHelpers(t *testing.T) {
 	if got := taskName("t9", nil); got != "t9" {
 		t.Errorf("taskName(unknown) = %q", got)
 	}
-
-	if got := taskOwner(api.Task{}); got != "whichever agent picks it up" {
-		t.Errorf("taskOwner(unassigned) = %q", got)
-	}
-	if got := taskOwner(api.Task{Agent: "agent-03"}); got != "agent-03" {
-		t.Errorf("taskOwner(assigned) = %q", got)
-	}
-
-	if !openTask("active") || !openTask("blocked") || !openTask("open") {
-		t.Error("openTask says a working status isn't open")
-	}
-	if openTask(api.TaskDone) || openTask(api.TaskAbandoned) {
-		t.Error("openTask says a finished status is still open")
-	}
 }
 
 func TestDescribeSearchAndWorkingMemory(t *testing.T) {

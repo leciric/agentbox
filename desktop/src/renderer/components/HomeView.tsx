@@ -7,7 +7,6 @@ import { api } from '../lib/api';
 import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
-import { VMSuggestion } from './RunInVM';
 import { JobStatusBadge } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -74,8 +73,6 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
             </span>
           </button>
         )}
-
-        <VMSuggestion ready={setup.data?.ready} onOpen={() => onSelect({ kind: 'settings' })} className="mt-6" />
 
         {pressure?.stalling && usage.data && <StallBanner usage={usage.data} agents={all} onSelect={onSelect} className="mt-6" />}
 

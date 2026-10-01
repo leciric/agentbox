@@ -135,8 +135,8 @@ erDiagram
 - **memory_duplicates** — near-duplicate candidates the mechanical consolidation pass finds
   (migration 30).
 - **consolidation_passes** — a log of each consolidation run and what it did (migration 32).
-- **tasks** / **task_dependencies** — the project's task graph and its blocking edges
-  (migrations 35, 36).
+- **tasks** / **task_dependencies** — the user's task list for the project, and its blocking edges
+  (migrations 35, 36). Only the user writes it.
 
 ## Search
 
@@ -155,11 +155,8 @@ The daemon writes events at its own chokepoints, not something an agent has to r
 generic entry point, called after things like:
 
 - an agent finishing (`captureAgentFinished()`) — diff stats, PR link, its report's summary;
-- a task being created, changing status, or getting blocked (`captureTaskCreated/Status/
-  Blocked()`);
-- an agent being created against a task (`captureAgentTask()`, which also links or creates the
-  task and later closes it via `closeAgentTask()`, mapping a report's status — done/failed/
-  partial/blocked — onto the task's).
+- the user creating a task, changing its status, or blocking it (`captureTaskCreated/Status/
+  Blocked()`).
 
 `captureArtifact()` records a reference whenever something citable is produced.
 
@@ -189,9 +186,9 @@ token budget:
 
 1. Load working memory, and a search query — either given, or derived from the project's goal and
    current task.
-2. Gather bounded sections: up to 10 open tasks, 8 open issues, 8 high-importance project/decision
+2. Gather bounded sections: 8 open issues, 8 high-importance project/decision
    memories, 5 search hits per kind, 5 newest reports, 5 newest artifacts.
-3. If the budget's exceeded, drop sections by priority — working memory, tasks, the project's
+3. If the budget's exceeded, drop sections by priority — working memory, the project's
    story and open issues are never dropped.
 4. Mark whatever memories were actually used as referenced, resetting their decay timer.
 
@@ -201,17 +198,24 @@ it, since its task is narrower. This is the slice that lands in an agent's brief
 
 ## Tasks
 
+A project's tasks are a list only the user manages, in the app's Tasks tab: they create, edit and
+delete them, and each sits in the **Backlog** (the default) or in the **Queue**. With the agent
+queue on, queueing a task hands it to the queue as a queued agent; queued tasks can be reordered or
+sent back to the backlog. With it off, a task's **Start** makes its agent at once. Nothing else
+writes a task: not an agent's creation or finish, not the lead, not consolidation. The lead reads
+the list in `project_state`, and an agent reads its own with `my_task`; neither can change it, and
+it isn't part of an agent's brief.
+
 A task's status (`tasks.go`) is one of `open`, `active`, `blocked`, `done` or `abandoned` — the
 first three count as open, the last two as closed, and `closed_at` is set the moment a task enters
-either. Creating an agent against an open task moves it into `blocked`/`active`/`open` as work
-starts; finishing closes it, mapped from the agent's own report status.
+either.
 
 ## Who can call what
 
 - **Agent-facing** (`agentbox-memory` MCP server, `internal/cli/memory.go`): `search_memory`,
-  `my_task`, `update_my_task`, `report`, `record_artifact` — an agent's view is scoped to its own
-  task.
+  `my_task`, `report`, `record_artifact` — an agent's view is scoped to its own task, and it reads
+  the user's task list without changing it.
 - **Lead-facing** (`agentbox` MCP server, `internal/cli/mcp.go`): `search_memory`, `remember`,
-  `resolve_memory`, `update_working_memory`, `project_state`, `add_task`, `link_tasks`,
-  `set_task_status` — the lead can write memory directly and shape the task graph; see
+  `resolve_memory`, `update_working_memory`, `project_state` — the lead can write memory directly,
+  and reads the user's task list without changing it; see
   [The lead and its MCP tools](lead.md).

@@ -61,6 +61,15 @@ D92; on Linux,
 `AGENTBOX_FRONT_END=vm AGENTBOX_VM_TYPE=qemu` runs the front end against a QEMU VM, to test it
 without a Mac.
 
+On Linux too, AgentBox runs in a VM of its own, made with Cloud Hypervisor (`agentbox vm init`,
+`internal/hostvm/chv`), and the Linux `agentbox` is that VM's front end: every command but
+`agentbox vm …` runs in it, and says to run `vm init` until it's made. Host mode — Incus on the
+machine itself, `agentbox host setup` — is no longer offered. It stays as the VM's internals, for a
+machine set up that way by an earlier release (its own `state.db`, no VM), which keeps working until
+`agentbox vm migrate` moves it and is prompted to once per update (`MovePrompt` in
+`desktop/src/renderer/components/RunInVM.tsx`), for root, inside agents, and with
+`AGENTBOX_FRONT_END=host` (CI) — `hostvm.Front` decides.
+
 ## Conventions
 
 - **Migrations are appended, never edited.** `migrations` in

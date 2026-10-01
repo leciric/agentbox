@@ -39,3 +39,32 @@ test("a Mac's VM comes first", () => {
   const vm = { lima: '/opt/homebrew/bin/limactl', name: 'agentbox', exists: false, problem: "AgentBox's Linux VM isn't set up" };
   assert.deepEqual(setupCard({ state: 'connecting' }, { ...windowsBeforeSetup, vm, wsl: null }), { kind: 'vm', vm });
 });
+
+const linux = { mode: 'vm' as const, kvm: true, cores: 16, memory: 32 * 1024 ** 3, defaultCpus: 8, defaultMemoryCap: 24 * 1024 ** 3 };
+const linuxBeforeSetup: HostSetupStatus = {
+  pkexec: '/usr/bin/pkexec',
+  user: 'leandro',
+  running: false,
+  resizing: false,
+  vm: null,
+  wsl: null,
+  linux,
+  chv: { mode: 'vm', driver: 'cloud-hypervisor', name: 'agentbox', state: 'missing', since: '0001-01-01T00:00:00Z', problem: "AgentBox's Linux VM isn't set up: run agentbox vm init", memory: { min: 0, cap: 0, granted: 0, used: 0 }, disk: { size: 0, used: 0 } } as unknown as HostSetupStatus['chv'],
+};
+
+test('a Linux machine before vm init gets the VM to set up, and nothing else to choose', () => {
+  for (const connection of [{ state: 'connecting' }, { state: 'disconnected', error: "AgentBox's Linux VM isn't set up" }] as ConnectionState[]) {
+    assert.deepEqual(setupCard(connection, linuxBeforeSetup), { kind: 'linux', linux }, connection.state);
+  }
+  // Without /dev/kvm it is the same card, which says what's missing.
+  const nokvm = { ...linux, kvm: false };
+  assert.deepEqual(setupCard({ state: 'connecting' }, { ...linuxBeforeSetup, linux: nokvm }), { kind: 'linux', linux: nokvm });
+});
+
+test("no Linux card once the VM is made, or on a machine that runs AgentBox itself", () => {
+  assert.equal(setupCard({ state: 'connected' }, linuxBeforeSetup), null);
+  // A VM that's made but off is started by the app, not set up again.
+  assert.equal(setupCard({ state: 'disconnected', error: 'x' }, { ...linuxBeforeSetup, chv: { ...linuxBeforeSetup.chv!, state: 'off' } }), null);
+  // A host-mode installation's daemon is its own: the move is offered once it answers.
+  assert.equal(setupCard({ state: 'disconnected', error: 'x' }, { ...linuxBeforeSetup, linux: { ...linux, mode: 'host' }, chv: null }), null);
+});

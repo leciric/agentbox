@@ -27,15 +27,32 @@ export const pageSize = 20;
 // isMessage is what counts towards a page, the same as isMessage in package chat.
 export const isMessage = (it: T.ChatItem) => (it.kind === 'user' || it.kind === 'aside' || it.kind === 'assistant') && !it.parent && !it.hidden;
 
-// fetchThread reads a chat's latest page. When the chat has already been read
-// further back, it asks for as many messages as it holds, so reading it again
-// — after a missed event — doesn't drop what you scrolled up to.
+// fetchThread reads a chat's latest page. When the chat is already held, it
+// asks for everything from the oldest item it holds, so reading it again —
+// after a missed event, a reconnect, or opening the chat again — never drops
+// a message already on screen: one that arrived meanwhile doesn't push the
+// oldest out of a page of the same size.
 export async function fetchThread(queryClient: QueryClient, ref: string): Promise<T.ChatThread> {
   const held = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
   const limit = Math.max(pageSize, held?.items.filter(isMessage).length ?? 0);
-  const thread = await api.chat(ref, { limit });
+  const thread = await api.chat(ref, { limit, from: held?.items[0]?.id });
   const next = advance(thread, recent.get(ref) ?? []);
-  return next === 'gap' ? thread : next;
+  const now = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
+  return keepHeld(next === 'gap' ? thread : next, now);
+}
+
+// keepHeld puts back in front of a thread just read the older items the chat
+// held before it, which reading it again mustn't take away: a page loaded
+// while it was being read, or anything a daemon that pages without from left
+// out. Only items before the read's first one, and only when the chat held
+// that one too: a chat cleared meanwhile shares nothing with it, and is
+// replaced whole.
+export function keepHeld(thread: T.ChatThread, held: T.ChatThread | undefined): T.ChatThread {
+  const first = thread.items[0];
+  if (!held || !first || !thread.older) return thread;
+  const k = held.items.findIndex((it) => it.id === first.id);
+  if (k <= 0) return thread;
+  return { ...thread, items: [...held.items.slice(0, k), ...thread.items], older: held.older };
 }
 
 // loadOlder reads the page before the oldest item a chat holds, and puts it in
@@ -247,7 +264,7 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
     const body = turn.items.filter((it) => !isSilent(it) && (it.kind === 'assistant' || it.kind === 'subagent' || isWork(it) || isNote(it) || isAside(it)));
     const final = body.findLast((it) => it.kind === 'assistant');
     const settled = !!user?.result;
-    const hidden = settled ? body.filter((it) => it !== final && !isNote(it) && !isAside(it)).length : 0;
+    const hidden = settled ? body.filter(folds).length : 0;
     const open = hidden === 0 || openTurns.has(turn.id);
 
     if (user && !isSilent(user)) rows.push({ type: 'user', key: user.id, item: user });
@@ -260,7 +277,7 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
       group = [];
     };
     for (const it of body) {
-      if (!open && it !== final && !isNote(it) && !isAside(it)) continue;
+      if (!open && folds(it)) continue;
       if (isWork(it)) {
         group.push(it);
         // A credential request the agent is still blocked on gets its card
@@ -303,6 +320,11 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
   }
   return rows;
 }
+
+// folds says what a settled turn puts behind its "Worked for …": the work —
+// tool calls, thoughts, subagents — never what was said. A message you read
+// while the turn ran stays where it was when the turn ends.
+const folds = (it: T.ChatItem) => it.kind !== 'assistant' && !isNote(it) && !isAside(it);
 
 function foldLabel(user: T.ChatItem): string {
   const result = user.result!;

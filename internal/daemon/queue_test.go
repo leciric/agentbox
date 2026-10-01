@@ -350,10 +350,14 @@ func TestQueuedCreateStartsWhenASlotIsFree(t *testing.T) {
 	if _, err := os.Stat(made.Worktree); err != nil {
 		t.Errorf("its worktree: %v", err)
 	}
-	waitFor(t, "the task to be started", func() bool {
-		got, err := d.srv.memory().Task(ctx, "hello-stack", task.ID)
-		return err == nil && got.Status == memory.TaskActive && got.Agent == forTask.Name
-	})
+	// The task stays the user's: it's linked to its agent and otherwise left
+	// as it was, and the agent made with a task of its own wrote none.
+	if got, err := d.srv.memory().Task(ctx, "hello-stack", task.ID); err != nil || got.Status != memory.TaskOpen || got.Agent != forTask.Name {
+		t.Errorf("the task once its agent started = %+v, %v; want it open and %s's", got, err, forTask.Name)
+	}
+	if tasks, err := d.srv.memory().Tasks(ctx, "hello-stack", memory.TaskFilter{}); err != nil || len(tasks) != 1 {
+		t.Errorf("the task list after two creates = %d tasks, %v; want only the user's one", len(tasks), err)
+	}
 	if q, _ := d.srv.store.Queue(ctx, ""); len(q) != 0 {
 		t.Errorf("still queued: %v", q)
 	}

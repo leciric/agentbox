@@ -34,6 +34,10 @@ func clearEnv(t *testing.T) paths.Paths {
 		}
 	}
 	dir := shortTempDir(t)
+	// The tests may run in an agent, whose agentbox is never a front end.
+	old := inAgentSocket
+	inAgentSocket = filepath.Join(dir, "no-agent.sock")
+	t.Cleanup(func() { inAgentSocket = old })
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	p, err := paths.Default()
@@ -69,14 +73,31 @@ func TestFrontAndHandles(t *testing.T) {
 		t.Skip("Cloud Hypervisor's VM is Linux's")
 	}
 	p := clearEnv(t)
-	if Front() {
-		t.Error("a Linux machine with no VM is a front end")
+	// A Linux machine runs AgentBox in the VM, made or not: every command is
+	// the front end's, which says to run vm init until it's made.
+	if !Front() || !Handles([]string{"ls"}) || !Handles([]string{"vm", "init"}) {
+		t.Error("a Linux machine with no VM yet isn't the VM's front end")
 	}
-	if !Handles([]string{"vm", "init"}) || !Handles([]string{"vm", "status", "--json"}) {
-		t.Error("agentbox vm isn't the front end's on a machine with no VM yet")
+	if useLima() {
+		t.Error("a Linux machine's VM is Lima's")
+	}
+
+	// A host-mode installation from before keeps running AgentBox itself
+	// until it moves: only agentbox vm, which moves it, is the front end's.
+	if err := os.MkdirAll(p.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.StateDB(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !HostInstall(p) || Front() {
+		t.Error("a host-mode installation is a front end")
+	}
+	if !Handles([]string{"vm", "migrate"}) || !Handles([]string{"vm", "status", "--json"}) {
+		t.Error("agentbox vm isn't the front end's on a host-mode installation")
 	}
 	if Handles([]string{"ls"}) || Handles(nil) {
-		t.Error("a Linux machine with no VM forwards its commands")
+		t.Error("a host-mode installation forwards its commands")
 	}
 
 	c := DefaultConfig(chv.DefaultName, "alice", 1000, 1000, "/home/alice", 8, 32*chv.GiB)
@@ -120,11 +141,27 @@ func TestFrontAndHandles(t *testing.T) {
 	if !Front() || !useLima() {
 		t.Error("AGENTBOX_FRONT_END=vm isn't Lima's front end any more")
 	}
-	// Another VM's name has no Config.
+	// AGENTBOX_FRONT_END=host runs AgentBox itself, as CI does.
+	t.Setenv("AGENTBOX_FRONT_END", "host")
+	if Front() || Handles([]string{"ls"}) {
+		t.Error("AGENTBOX_FRONT_END=host is a front end")
+	}
+	// Another VM's name has no Config: the host-mode installation is its.
 	t.Setenv("AGENTBOX_FRONT_END", "")
 	t.Setenv("AGENTBOX_VM", "other")
 	if Front() {
-		t.Error("a VM that wasn't made makes this a front end")
+		t.Error("a VM that wasn't made makes a host-mode installation a front end")
+	}
+	// Nor is an agent's machine, where agentbox talks to its daemon.
+	_ = os.Remove(p.StateDB())
+	if !Front() {
+		t.Fatal("a machine with neither is not a front end")
+	}
+	if err := os.WriteFile(inAgentSocket, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if Front() {
+		t.Error("an agent's machine is a front end")
 	}
 }
 
@@ -210,13 +247,25 @@ func TestHostModeInUse(t *testing.T) {
 	}
 }
 
-// `agentbox vm status --json` on a Linux machine with no VM says it runs
+// makeHostInstall makes p a host-mode installation from before AgentBox ran in a
+// VM on Linux: one with a state.db of its own.
+func makeHostInstall(t *testing.T, p paths.Paths) {
+	t.Helper()
+	if err := os.MkdirAll(p.Data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.StateDB(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// `agentbox vm status --json` on a host-mode installation says it runs
 // AgentBox itself, as an api.VMStatus.
 func TestStatusJSONInHostMode(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Cloud Hypervisor's VM is Linux's")
 	}
-	clearEnv(t)
+	makeHostInstall(t, clearEnv(t))
 	var out bytes.Buffer
 	cmd := newVMCmd("dev")
 	cmd.SetArgs([]string{"status", "--json"})
@@ -234,6 +283,45 @@ func TestStatusJSONInHostMode(t *testing.T) {
 	var raw map[string]any
 	_ = json.Unmarshal(out.Bytes(), &raw)
 	if raw["mode"] != "host" || raw["state"] != "off" {
+		t.Errorf("got %s", out.String())
+	}
+}
+
+// On any other Linux machine, before vm init, it's VM mode with the VM yet to
+// make, which is what the app's Setup offers to make; and vm power says it's
+// off.
+func TestStatusJSONBeforeVMInit(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Cloud Hypervisor's VM is Linux's")
+	}
+	clearEnv(t)
+	var out bytes.Buffer
+	cmd := newVMCmd("dev")
+	cmd.SetArgs([]string{"status", "--json"})
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var st api.VMStatus
+	if err := json.Unmarshal(out.Bytes(), &st); err != nil {
+		t.Fatalf("%v: %s", err, out.String())
+	}
+	if st.Mode != api.ModeVM || st.State != api.VMMissing || st.Driver != api.VMDriverCloudHypervisor || !strings.Contains(st.Problem, "agentbox vm init") {
+		t.Errorf("got %+v", st)
+	}
+
+	out.Reset()
+	cmd = newVMCmd("dev")
+	cmd.SetArgs([]string{"power", "--json"})
+	cmd.SetOut(&out)
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	var p Power
+	if err := json.Unmarshal(out.Bytes(), &p); err != nil {
+		t.Fatalf("%v: %s", err, out.String())
+	}
+	if p.State != api.VMOff || !strings.Contains(p.Error, "agentbox vm init") {
 		t.Errorf("got %s", out.String())
 	}
 }
@@ -519,7 +607,7 @@ func TestPowerInHostMode(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Cloud Hypervisor's VM is Linux's")
 	}
-	clearEnv(t)
+	makeHostInstall(t, clearEnv(t))
 	var out bytes.Buffer
 	cmd := newVMCmd("dev")
 	cmd.SetArgs([]string{"power", "--json"})

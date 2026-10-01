@@ -450,6 +450,32 @@ func (s *Server) releaseQueuedTasks(ctx context.Context, a state.Agent) {
 	}
 }
 
+// deleteTask takes one of the user's tasks off their list. A task that's
+// queued takes its queued agent out of the queue with it: the user deleted the
+// work, so nothing should start for it. An agent already running on it keeps
+// running; only the row goes.
+func (s *Server) deleteTask(ctx context.Context, project, id string) error {
+	t, err := s.memory().Task(ctx, project, id)
+	if err != nil {
+		return err
+	}
+	if t.Agent != "" {
+		if a, err := s.store.Agent(ctx, project, t.Agent); err == nil && a.Status == state.AgentQueued {
+			s.queueMu.Lock()
+			defer s.queueMu.Unlock()
+			if s.queueStarting(a.Ref()) {
+				return fmt.Errorf("%s is starting already", a.Ref())
+			}
+			if err := s.store.RemoveAgent(ctx, a.Project, a.Name); err != nil {
+				return err
+			}
+			s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": "unqueued", "branch": a.Branch}, "")
+			defer s.refreshAgents(ctx)
+		}
+	}
+	return s.memory().DeleteTask(ctx, project, id)
+}
+
 // HTTP
 
 func (s *Server) getQueue(w http.ResponseWriter, r *http.Request) error {

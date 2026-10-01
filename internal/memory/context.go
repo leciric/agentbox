@@ -76,12 +76,11 @@ const (
 // build a context for as one with fifty; the budget then decides how much of
 // what they returned survives.
 const (
-	contextTasks      = 10 // open tasks: the plan, not the project's whole history of work
-	contextIssues     = 8  // open issues: what is in the way, not every bug ever filed
-	contextKnowledge  = 8  // high-importance project and decision memories
-	contextSearchHits = 5  // per kind, for the query
-	contextReports    = 5  // the newest reports, the way project_state shows them
-	contextArtifacts  = 5  // the newest artifacts
+	contextIssues     = 8 // open issues: what is in the way, not every bug ever filed
+	contextKnowledge  = 8 // high-importance project and decision memories
+	contextSearchHits = 5 // per kind, for the query
+	contextReports    = 5 // the newest reports, the way project_state shows them
+	contextArtifacts  = 5 // the newest artifacts
 )
 
 // HighImportance is the importance a memory needs before it is worth putting
@@ -94,7 +93,6 @@ const HighImportance = 4
 // backwards — the order it gives things up in.
 const (
 	SectionWorking   = "working"   // what the project is doing right now
-	SectionTasks     = "tasks"     // the plan: open and blocked tasks, and their edges
 	SectionStory     = "story"     // the newest narrative of the project's chat
 	SectionOpen      = "open"      // the open issues
 	SectionKnowledge = "knowledge" // what the project knows about the query
@@ -114,17 +112,16 @@ const (
 // "always fits" — when they overflow the budget on their own the rendered text
 // is cut, and Stats.Truncated says so.
 var sectionOrder = []string{
-	SectionWorking, SectionTasks, SectionStory, SectionOpen,
+	SectionWorking, SectionStory, SectionOpen,
 	SectionKnowledge, SectionEvents, SectionReports, SectionArtifacts,
 }
 
 // keptSections is how many of that order are never given up: what the project
-// is doing, the plan it is doing it under, the story of its chat, and what is
-// in the way. D77 made it four rather than three — the task graph is project
-// state, and the architecture puts state ahead of retrieved knowledge, not
-// after it. All four are bounded queries, so the floor a build can't drop
-// below is a fixed size rather than a growing one.
-const keptSections = 4
+// is doing, the story of its chat, and what is in the way. All three are
+// bounded queries, so the floor a build can't drop below is a fixed size
+// rather than a growing one. The user's task list isn't among them, or in a
+// build at all: it is the user's own, and an agent reads it with my_task.
+const keptSections = 3
 
 // ContextRequest asks for a bounded context.
 type ContextRequest struct {
@@ -336,17 +333,6 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 	// What it is doing now, which everything else is read against.
 	lines, rows := workingLines(working)
 	add(SectionWorking, "What this project is doing", "", lines, rows)
-
-	// The plan: what is open, what is being worked on, and what is waiting on
-	// what (D77). It sits directly under working memory because it is the
-	// same question answered in a shape that has edges in it — "what is
-	// blocked on what" is the thing prose can't say — and above everything
-	// retrieved, because a context is read to decide what to do next.
-	tasks, err := s.Tasks(ctx, req.Project, TaskFilter{OpenOnly: true, Limit: contextTasks})
-	if err != nil {
-		return nil, err
-	}
-	add(SectionTasks, "The plan", "", taskLines(tasks), len(tasks))
 
 	// The newest narrative of the project's chat: the one memory that is a
 	// story rather than a fact, superseded by each compaction so there is
@@ -581,46 +567,6 @@ func workingLines(w WorkingMemory) (string, int) {
 	add("In the way", strings.Join(w.Blockers, "; "))
 	add("Notes", w.Notes)
 	return strings.Join(lines, "\n"), len(lines)
-}
-
-// taskLines renders the plan as a list a model can act on: what it is, who is
-// on it, and what it is waiting on, by id. The ids are in it because the next
-// thing a reader does with a task is name it — to report on it, to link it,
-// to close it — and a plan whose rows can't be named is a plan nobody can
-// change.
-func taskLines(tasks []Task) string {
-	goals := make(map[string]string, len(tasks))
-	for _, t := range tasks {
-		goals[t.ID] = t.Goal
-	}
-	var lines []string
-	for _, t := range tasks {
-		line := "- **" + t.Goal + "** (" + t.Status
-		if t.Agent != "" {
-			line += ", " + t.Agent
-		}
-		line += ", " + t.ID + ")"
-		if len(t.DependsOn) > 0 {
-			line += " — waiting on " + strings.Join(taskNames(t.DependsOn, goals), "; ")
-		}
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// taskNames is what a blocking edge points at, by goal when that task is in
-// the same slice and by id when it isn't: a closed task still blocks nothing,
-// but a task left out by the bound is still worth naming.
-func taskNames(ids []string, goals map[string]string) []string {
-	out := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if goal := goals[id]; goal != "" {
-			out = append(out, excerpt(goal, MaxTitleLen)+" ("+id+")")
-			continue
-		}
-		out = append(out, id)
-	}
-	return out
 }
 
 func memoryLines(items []Memory) string {

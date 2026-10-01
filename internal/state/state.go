@@ -694,6 +694,13 @@ var migrations = []string{
 		PRIMARY KEY (project, agent)
 	)`,
 	`CREATE INDEX agent_memory_peaks_by_project ON agent_memory_peaks (project, updated_at)`,
+	// The project's tasks became a list only the user manages: nothing
+	// writes one on its own any more. Until now an agent's creation, the
+	// lead's add_task and the user's Tasks tab all wrote the same rows, with
+	// nothing on them to say which did, so the list is cleared rather than
+	// keeping a guess at which were the user's.
+	`DELETE FROM task_dependencies`,
+	`DELETE FROM tasks`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

@@ -5,9 +5,11 @@
 // setting it up is `agentbox vm init`, which makes the VM and runs host setup
 // inside it (internal/hostvm). It needs no password.
 //
-// On Linux the user chooses: host setup, or a VM of AgentBox's own, made with
-// Cloud Hypervisor by `agentbox vm init` with no password, the way a Mac's is
-// made with Lima (vmmode.ts). Once it's in a VM, setting up means the VM.
+// On Linux AgentBox runs in a VM of its own too, made with Cloud Hypervisor by
+// `agentbox vm init` with no password, the way a Mac's is made with Lima
+// (vmmode.ts), and setting up means the VM. Host setup as root is left for a
+// machine set up to run agents itself before that, until it moves into the VM
+// (`agentbox vm migrate`), and for what runs it inside the VM.
 //
 // On Windows there is no host to set up either: AgentBox runs in a WSL distro
 // of its own, and setting it up is `agentbox.exe wsl init`, which makes the
@@ -44,7 +46,7 @@ export interface HostSetupStatus {
   resizing: boolean; // `agentbox vm resize` is running
   vm: VMStatus | null; // AgentBox's VM, on a Mac; null elsewhere
   wsl: WSLStatus | null; // AgentBox's WSL distro, on Windows; null elsewhere
-  linux: LinuxSetup | null; // the choice of mode, on Linux; null elsewhere
+  linux: LinuxSetup | null; // where AgentBox runs, on Linux; null elsewhere
   // AgentBox's Cloud Hypervisor VM, on Linux in VM mode (`agentbox vm status
   // --json`): its size, and what it can be resized to. null elsewhere.
   chv: T.VMStatus | null;
@@ -53,7 +55,9 @@ export interface HostSetupStatus {
 // LinuxSetup is which way a Linux machine runs AgentBox, and whether it could
 // run it in a VM instead.
 export interface LinuxSetup {
-  mode: "host" | "vm"; // on the machine itself, or in AgentBox's VM
+  // In AgentBox's VM, made or not yet, or on the machine itself: a host-mode
+  // installation from before AgentBox ran in a VM on Linux, until it moves.
+  mode: "host" | "vm";
   kvm: boolean; // /dev/kvm is there for this user, which the VM needs
   cores: number; // the machine's, the most CPUs the VM can have
   memory: number; // bytes, the machine's, the highest memory cap the VM can have

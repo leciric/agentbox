@@ -247,12 +247,35 @@ func (m *Manager) Page(a state.Agent, before string, limit int) (api.ChatThread,
 	}
 	defer c.mu.Unlock()
 	c.flush(false)
-	start, end := pageOf(c.items, before, limit)
+	return c.page(pageOf(c.items, before, limit)), nil
+}
+
+// Reread returns the end of an agent's conversation from the item called from,
+// and at least limit messages: what the app reads again when it may have
+// missed events, so that nothing it already shows goes from it. A from the
+// conversation doesn't have — it was cleared, or never stored — is ignored,
+// and what comes back is the latest limit messages.
+func (m *Manager) Reread(a state.Agent, from string, limit int) (api.ChatThread, error) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return api.ChatThread{}, err
+	}
+	defer c.mu.Unlock()
+	c.flush(false)
+	start, end := pageOf(c.items, "", limit)
+	if i := slices.IndexFunc(c.items, func(it *api.ChatItem) bool { return it.ID == from }); i >= 0 && i < start {
+		start = turnStart(c.items, i)
+	}
+	return c.page(start, end), nil
+}
+
+// page is items[start:end] as a thread. The conversation is locked.
+func (c *conversation) page(start, end int) api.ChatThread {
 	items := make([]api.ChatItem, 0, end-start)
 	for _, it := range c.items[start:end] {
 		items = append(items, clone(*it))
 	}
-	return api.ChatThread{Agent: a.Ref(), Seq: c.seq, Session: clone(c.session), Items: items, Older: start > 0}, nil
+	return api.ChatThread{Agent: c.agent.Ref(), Seq: c.seq, Session: clone(c.session), Items: items, Older: start > 0}
 }
 
 // pageOf is where Page's page lies in items: items[start:end].
@@ -274,10 +297,16 @@ func pageOf(items []*api.ChatItem, before string, limit int) (start, end int) {
 			n++
 		}
 	}
-	for start > 0 && items[start].Kind != "user" {
-		start--
+	return turnStart(items, start), end
+}
+
+// turnStart is where the turn that items[i] belongs to begins: the user
+// message at or before it.
+func turnStart(items []*api.ChatItem, i int) int {
+	for i > 0 && items[i].Kind != "user" {
+		i--
 	}
-	return start, end
+	return i
 }
 
 // isMessage says whether an item counts towards a page's limit (Page): a
