@@ -30,6 +30,9 @@ import (
 type pendingCreate struct {
 	project  string
 	reserved int64
+	// wake is a stopped agent's machine starting (wake.go), not a create:
+	// it has no "creating" row to stand in for.
+	wake bool
 }
 
 // admission is what admitting works from: the memory agents share, what
@@ -48,6 +51,9 @@ type admission struct {
 	slots map[string]int
 	// queued are the queued agents, by ref.
 	queued map[string]state.QueuedAgent
+	// waking are the stopped agents waiting for memory to start their
+	// machines, with a message held for them (wake.go), by ref.
+	waking map[string]bool
 }
 
 // message is why ref waits, in one line, or "" when it starts.
@@ -63,7 +69,11 @@ func (a admission) message(ref string) string {
 			need, project = w.Need, w.Project
 		}
 	}
-	return agent.WaitMessage(v, a.capacity, need, a.holders, a.slots[project])
+	msg := agent.WaitMessage(v, a.capacity, need, a.holders, a.slots[project])
+	if a.waking[ref] {
+		return wakeMessage(msg)
+	}
+	return msg
 }
 
 // shapes gives each project's learned baseline and burst, looking each one
@@ -114,13 +124,16 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 		instances: map[string]string{},
 		slots:     map[string]int{},
 		queued:    map[string]state.QueuedAgent{},
+		waking:    map[string]bool{},
 	}
 	s.mu.Lock()
 	pending := make([]pendingCreate, 0, len(s.pendingCreates))
 	pendingIn := map[string]bool{}
 	for _, p := range s.pendingCreates {
 		pending = append(pending, p)
-		pendingIn[p.project] = true
+		if !p.wake {
+			pendingIn[p.project] = true
+		}
 	}
 	s.mu.Unlock()
 	for _, st := range statuses {
@@ -172,6 +185,16 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 		out.queued[q.Ref()] = q
 		out.waiting = append(out.waiting, agent.Waiter{Ref: q.Ref(), Project: q.Project, Need: shape.Baseline, Since: q.QueuedAt})
 	}
+	// Behind the queue: a stopped agent waits the way a queued one does,
+	// from when it was first told something.
+	waking, err := s.wakingWaiters(res)
+	if err != nil {
+		return admission{}, err
+	}
+	for _, w := range waking {
+		out.waking[w.Ref] = true
+	}
+	out.waiting = append(out.waiting, waking...)
 	if extra != nil {
 		out.waiting = append(out.waiting, *extra)
 	}
@@ -252,6 +275,11 @@ func (s *Server) admitCreate(ctx context.Context, req api.CreateAgentRequest) (d
 func (s *Server) setWaiting(plan admission) bool {
 	waiting := map[string]string{}
 	for ref := range plan.queued {
+		if msg := plan.message(ref); msg != "" {
+			waiting[ref] = msg
+		}
+	}
+	for ref := range plan.waking {
 		if msg := plan.message(ref); msg != "" {
 			waiting[ref] = msg
 		}

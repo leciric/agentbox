@@ -76,8 +76,8 @@ type Server struct {
 	pulls        *pullsCache   // what GitHub said about each repository, served stale
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
 	// prTell sends an agent a message from the pull request watch, waking it
-	// first, and reports whether it had to: wakeAndTell, or a test's recorder.
-	prTell func(ctx context.Context, a state.Agent, text string) (woke bool, err error)
+	// first, and says what that took: tellAgent, or a test's recorder.
+	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
 	prLead  func(ctx context.Context, project, notice string, act bool)
@@ -189,6 +189,11 @@ type Server struct {
 	pendingSeq     int
 	waitReasons    map[string]string
 	setMemoryHigh  func(instance string, high int64) error
+	// Stopped agents told something (wake.go): waking, under mu, are those
+	// whose machines wait for memory, with messages held for them, by ref;
+	// wakeMu makes one start of a stopped machine for a message at a time.
+	waking map[string]*wakingAgent
+	wakeMu sync.Mutex
 	// The lead recheck (leadrecheck.go), under mu: when each project's lead
 	// was last rechecked, and what it was told then, so the same state isn't
 	// sent twice.
@@ -239,6 +244,8 @@ func New(cfg Config) (*Server, error) {
 		queueEvery:       queueInterval,
 		startingQueued:   map[string]bool{},
 		pendingCreates:   map[int]pendingCreate{},
+		waitReasons:      map[string]string{},
+		waking:           map[string]*wakingAgent{},
 		setMemoryHigh:    agent.SetMemoryHigh,
 		recheckedAt:      map[string]time.Time{},
 		recheckedWhat:    map[string]string{},
@@ -261,7 +268,7 @@ func New(cfg Config) (*Server, error) {
 	s.burst = newBurstPool()
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
-	s.prTell, s.prLead = s.wakeAndTell, s.tellLead
+	s.prTell, s.prLead = s.prTellAgent, s.tellLead
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,

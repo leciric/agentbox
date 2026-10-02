@@ -472,8 +472,13 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				if it.Kind == "aside" {
+				switch {
+				case it.Waiting != "":
+					return fmt.Sprintf("%s is stopped, and %s. The message waits in its chat and is delivered when it starts; nothing to do meanwhile.", in.Agent, it.Waiting), nil
+				case it.Kind == "aside":
 					return fmt.Sprintf("Told %s, mid-work; it decides when to act on it.", in.Agent), nil
+				case it.Woke != "":
+					return fmt.Sprintf("%s was %s, so AgentBox %s its machine first. Told it; it is working on it.", in.Agent, map[string]string{"started": "stopped", "resumed": "paused"}[it.Woke], it.Woke), nil
 				}
 				return fmt.Sprintf("Told %s; it is working on it.", in.Agent), nil
 			},

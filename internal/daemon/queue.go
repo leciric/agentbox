@@ -242,7 +242,8 @@ func (s *Server) admitQueued(ctx context.Context) {
 	// they've started, which is the next look at the queue.
 	queueOn, _ := s.store.Flag(ctx, state.SettingAgentQueue)
 	s.admitLeadTasks(ctx, queue, queueOn)
-	if len(queue) == 0 {
+	waking := s.anyWaking(ctx)
+	if len(queue) == 0 && !waking {
 		return
 	}
 	if s.diskStatus().Level == agent.DiskFull {
@@ -257,7 +258,7 @@ func (s *Server) admitQueued(ctx context.Context) {
 	}
 	started := 0
 	for _, w := range plan.waiting {
-		if !plan.verdicts[w.Ref].Start {
+		if !plan.verdicts[w.Ref].Start || plan.waking[w.Ref] {
 			continue
 		}
 		if err := s.queueStart(ctx, plan.queued[w.Ref]); err != nil {
@@ -266,6 +267,7 @@ func (s *Server) admitQueued(ctx context.Context) {
 		}
 		started++
 	}
+	started += s.admitWaking(plan)
 	// What the rest are told counts the agents that just started.
 	if started > 0 {
 		if again, err := s.planAdmission(ctx, nil); err == nil {

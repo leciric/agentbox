@@ -44,8 +44,8 @@ func (c *Client) CreateProjectAgent(ctx context.Context, req CreateAgentRequest)
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents"), req, &out)
 }
 
-func (c *Client) TellAgent(ctx context.Context, agent, message string) (ChatItem, error) {
-	var out ChatItem
+func (c *Client) TellAgent(ctx context.Context, agent, message string) (TellResult, error) {
+	var out TellResult
 	path := c.leadPath("/agents/" + url.PathEscape(agent) + "/chat/messages")
 	return out, c.do(ctx, http.MethodPost, path, ChatMessageRequest{Text: message}, &out)
 }
