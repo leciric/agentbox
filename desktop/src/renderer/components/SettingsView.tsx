@@ -48,6 +48,7 @@ import { WhatsNewDialog } from "./WhatsNewDialog";
 import {
   AgentQueue,
   AutoStopIdle,
+  DockerPruneOnStop,
   CompactWindow,
   DefaultContextWindow,
   DefaultModel,
@@ -1098,7 +1099,7 @@ function InstalledSettings({
         },
         {
           id: "lifecycle",
-          title: "Idle and removed agents",
+          title: "Idle, stopped and removed agents",
           entries: [
             {
               id: "auto-stop",
@@ -1106,6 +1107,13 @@ function InstalledSettings({
               keywords: "idle stop timeout inactive suspend sleep",
               modified: changed((s) => s.autoStopIdle),
               render: () => <AutoStopIdle />,
+            },
+            {
+              id: "docker-prune",
+              label: "Free Docker space when an agent stops",
+              keywords: "docker prune images build cache disk space stop clean",
+              modified: changed((s) => !s.dockerPruneOnStop),
+              render: () => <DockerPruneOnStop />,
             },
             {
               id: "media-retention",

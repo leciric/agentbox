@@ -413,6 +413,11 @@ type Settings struct {
 	// recording. Off unless it was turned on. Stopping keeps the worktree and
 	// branch, like stopping by hand.
 	AutoStopIdle bool `json:"autoStopIdle"`
+	// DockerPruneOnStop says whether stopping an agent — by hand, retired,
+	// idle or every agent at once — first frees its Docker space: its build
+	// cache and every image no container uses, never its volumes. On unless
+	// it was turned off.
+	DockerPruneOnStop bool `json:"dockerPruneOnStop"`
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
@@ -474,6 +479,9 @@ type UpdateSettingsRequest struct {
 	MediaRetention *string `json:"mediaRetention,omitempty"`
 	// AutoStopIdle turns "auto-stop idle agents" on or off.
 	AutoStopIdle *bool `json:"autoStopIdle,omitempty"`
+	// DockerPruneOnStop turns freeing an agent's Docker space on stop on or
+	// off.
+	DockerPruneOnStop *bool `json:"dockerPruneOnStop,omitempty"`
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
@@ -1389,6 +1397,11 @@ const (
 	// "auto-stop idle agents" found it idle for as long as the setting allows.
 	// Summary is what to show for it, like "Stopped after 2h idle".
 	AgentIdleStopped = "idle_stopped"
+	// AgentDockerPruned is the daemon freeing an agent's Docker space as it
+	// stopped it (Settings.DockerPruneOnStop). Summary says how much, like
+	// "Freed 24.0 GiB of Docker images and build cache". Only recorded when
+	// it freed something.
+	AgentDockerPruned = "docker_pruned"
 	// AgentPRBroken is the pull request watch finding the agent's pull
 	// request newly broken: Summary says how, PR is the pull request.
 	AgentPRBroken = "pr_broken"

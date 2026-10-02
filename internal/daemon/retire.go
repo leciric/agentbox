@@ -148,7 +148,7 @@ func (s *Server) retireOne(ctx context.Context, m *agent.Manager, a state.Agent,
 		err = m.Pause(ctx, a)
 	case api.RetireStop:
 		s.chat.Stop(a.Ref(), "the agent was retired")
-		err = m.Stop(ctx, a)
+		err = s.stopAgent(ctx, m, a)
 	case api.RetireDestroy:
 		// Force discards the worktree, which the caller has already agreed to;
 		// DeleteBranch and DeleteMedia stay false, so unmerged work and its

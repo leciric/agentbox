@@ -78,6 +78,8 @@ type testConfig struct {
 	// queue, when set, is given the daemon before it runs, so its queue loop
 	// never sees the real hooks (queue_test.go).
 	queue func(*Server)
+	// dockerPruneTimeout, when set, is the daemon's own (dockerprune.go).
+	dockerPruneTimeout time.Duration
 	// releasesURL is Config.ReleasesURL; empty is a port nothing listens on.
 	releasesURL string
 	// loginCallbackUnreachable is the daemon's: a browser that can't reach
@@ -173,6 +175,9 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 		tc.queue(srv)
 	}
 	srv.loginCallbackUnreachable = tc.loginCallbackUnreachable
+	if tc.dockerPruneTimeout > 0 {
+		srv.dockerPruneTimeout = tc.dockerPruneTimeout
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx) }()

@@ -171,6 +171,11 @@ const (
 	// installation that has never touched it keeps exactly the behaviour it
 	// had before this setting existed.
 	SettingAutoStopIdle = "auto_stop_idle"
+	// SettingDockerPruneOnStop says whether stopping an agent first frees its
+	// Docker space: its build cache and every image no container uses, never
+	// its volumes (agent.Manager.PruneDocker). On until somebody turns it off
+	// (FlagOn).
+	SettingDockerPruneOnStop = "docker_prune_on_stop"
 	// SettingIdleTime is how long SettingAutoStopIdle waits, as a count of
 	// seconds. Empty means DefaultIdleTime.
 	SettingIdleTime = "idle_time"

@@ -56,8 +56,9 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   const [showFinished, setShowFinished] = useShowFinished();
 
   // The events arrive newest first, so the first one seen is each agent's last.
+  // Freeing its Docker space on stop is the daemon's doing, not a report.
   const lastReport = new Map<string, string>();
-  for (const ev of events.data ?? []) if (!lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
+  for (const ev of events.data ?? []) if (ev.kind !== 'docker_pruned' && !lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
 
   if (!project) return null;
   const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
