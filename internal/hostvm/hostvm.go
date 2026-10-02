@@ -132,13 +132,34 @@ func HostInstall(p paths.Paths) bool {
 // an agent.
 var inAgentMarker = api.InAgentMarker
 
-// inAgent reports whether this is an agent's machine: provision.sh's marker,
-// not api.InAgentSocket, which a boot race can hide for a while after the
-// machine starts (replugHiddenSocket), wrongly making this look like a front
-// end with no VM of its own.
+// inAgentSocket is api.InAgentSocket; a variable for tests.
+var inAgentSocket = api.InAgentSocket
+
+// inAgentHostname is os.Hostname; a variable for tests.
+var inAgentHostname = os.Hostname
+
+// inAgentHostnamePrefix is agent.InstanceName's "ab-" prefix, kept here as a
+// literal instead of importing internal/agent: Incus names every agent's
+// container ab-<project>-<agent> and sets that as its hostname by default, so
+// it's there even on an agent whose image predates inAgentMarker.
+const inAgentHostnamePrefix = "ab-"
+
+// inAgent reports whether this is an agent's machine. provision.sh's marker
+// is the normal way to tell, but an agent made before the marker existed has
+// none until its image is rebuilt, and api.InAgentSocket can be missing for a
+// while right after boot (replugHiddenSocket's race): fall back to the
+// container's own hostname, so an older or just-booted agent is never
+// mistaken for a front end with no VM of its own and told to run `agentbox vm
+// init`.
 func inAgent() bool {
-	_, err := os.Stat(inAgentMarker)
-	return err == nil
+	if _, err := os.Stat(inAgentMarker); err == nil {
+		return true
+	}
+	if _, err := os.Stat(inAgentSocket); err == nil {
+		return true
+	}
+	host, err := inAgentHostname()
+	return err == nil && strings.HasPrefix(host, inAgentHostnamePrefix)
 }
 
 // Handles reports whether a command line (os.Args[1:]) is the front end's to

@@ -8,8 +8,11 @@ import (
 )
 
 func TestBrowserNeedsAnAgentOutsideAgents(t *testing.T) {
-	// Not in an agent — even when the tests run inside one.
+	// Not in an agent — even when the tests run inside one, whose own
+	// hostname (insideAgent's fallback) starts with "ab-".
 	t.Setenv("AGENTBOX_IN_AGENT_SOCKET", filepath.Join(t.TempDir(), "none.sock"))
+	t.Setenv("AGENTBOX_IN_AGENT_MARKER", filepath.Join(t.TempDir(), "no-marker"))
+	t.Setenv("AGENTBOX_IN_AGENT_HOSTNAME", "front-end-host")
 	for _, args := range [][]string{{"browser", "status"}, {"browser", "start"}, {"browser", "open", "http://localhost:3000"}} {
 		cmd := NewRootCmd()
 		cmd.SetArgs(args)
@@ -28,6 +31,7 @@ func TestBrowserNeedsAnAgentOutsideAgents(t *testing.T) {
 // than asking for an agent to name.
 func TestBrowserMissingSocketInsideAgent(t *testing.T) {
 	t.Setenv("AGENTBOX_IN_AGENT_SOCKET", filepath.Join(t.TempDir(), "none.sock"))
+	t.Setenv("AGENTBOX_IN_AGENT_HOSTNAME", "front-end-host")
 	marker := filepath.Join(t.TempDir(), "agentbox-image")
 	if err := os.WriteFile(marker, nil, 0o600); err != nil {
 		t.Fatal(err)
@@ -41,6 +45,27 @@ func TestBrowserMissingSocketInsideAgent(t *testing.T) {
 		err := cmd.Execute()
 		if err == nil || !strings.Contains(err.Error(), "the in-agent API socket") || !strings.Contains(err.Error(), "is missing") {
 			t.Errorf("agentbox %s inside an agent with a hidden socket: got %v, want it to name the missing socket", strings.Join(args, " "), err)
+		}
+	}
+}
+
+// TestBrowserMissingSocketInsideAnOlderAgent covers an agent whose image
+// predates the marker (api.InAgentMarker): with no marker and the socket
+// hidden, insideAgent must fall back to the container's own hostname
+// (ab-<project>-<agent>, Incus's default), not say this looks like a
+// non-agent machine.
+func TestBrowserMissingSocketInsideAnOlderAgent(t *testing.T) {
+	t.Setenv("AGENTBOX_IN_AGENT_SOCKET", filepath.Join(t.TempDir(), "none.sock"))
+	t.Setenv("AGENTBOX_IN_AGENT_MARKER", filepath.Join(t.TempDir(), "no-marker"))
+	t.Setenv("AGENTBOX_IN_AGENT_HOSTNAME", "ab-hello-stack-agent-01")
+	for _, args := range [][]string{{"browser", "status"}, {"browser", "start"}, {"browser", "open", "http://localhost:3000"}} {
+		cmd := NewRootCmd()
+		cmd.SetArgs(args)
+		cmd.SetOut(new(strings.Builder))
+		cmd.SetErr(new(strings.Builder))
+		err := cmd.Execute()
+		if err == nil || !strings.Contains(err.Error(), "the in-agent API socket") || !strings.Contains(err.Error(), "is missing") {
+			t.Errorf("agentbox %s inside an older agent with a hidden socket: got %v, want it to name the missing socket", strings.Join(args, " "), err)
 		}
 	}
 }
