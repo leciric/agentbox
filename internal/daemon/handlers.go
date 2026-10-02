@@ -1256,10 +1256,9 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		switch action {
 		case "start":
-			if err = s.serveAgentAPI(a.Instance); err == nil {
-				_, err = m.Start(ctx, a)
-			}
+			err = s.startMachine(ctx, m, a)
 		case "stop":
+			s.dropWaking(a, "the agent was stopped")
 			s.chat.Stop(a.Ref(), "the agent was stopped")
 			err = s.stopAgent(ctx, m, a)
 		case "pause":
@@ -1271,6 +1270,12 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		if err != nil {
 			return err
+		}
+		switch action {
+		case "start", "resume":
+			// Whatever was held for it until there was memory to start it
+			// (wake.go) can go now.
+			s.releaseWaking(a)
 		}
 		s.refreshAgents(ctx)
 		info, err := s.describe(ctx, a)

@@ -383,6 +383,8 @@ func deliveryNote(delivery string) string {
 	switch delivery {
 	case api.ChatAsideDeferred:
 		return "  (waiting for this turn to end)"
+	case api.ChatAsideWaking:
+		return "  (waiting for memory to start its machine)"
 	case api.ChatAsideLost:
 		return "  (never reached the AI tool)"
 	}

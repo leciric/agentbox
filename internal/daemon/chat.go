@@ -110,10 +110,11 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		if err := readJSON(r, &req); err != nil {
 			return err
 		}
-		item, err := s.chat.Send(a, req.Text, req.Images...)
+		t, err := s.tellAgent(r.Context(), a, req.Text, req.Images...)
 		if err != nil {
 			return err
 		}
+		item := t.item
 		if a.IsLead() {
 			s.countFeature(agentFeature(a.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode))
 		} else {

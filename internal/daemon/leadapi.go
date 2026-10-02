@@ -281,11 +281,11 @@ func (s *Server) leadTellAgent(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.leadAsked(a)
-	item, err := s.chat.Send(a, req.Text)
+	t, err := s.tellAgent(r.Context(), a, req.Text)
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusAccepted, item)
+	return writeJSON(w, http.StatusAccepted, api.TellResult{ChatItem: t.item, Woke: t.woke, Waiting: t.waiting})
 }
 
 func (s *Server) leadAgentDiff(w http.ResponseWriter, r *http.Request) error {

@@ -48,7 +48,8 @@ func (w *waiters) remove(id string) {
 	delete(w.by, id)
 }
 
-func (w *waiters) resolve(q state.Question) {
+// resolve hands q to whoever waits on it, and reports whether anybody did.
+func (w *waiters) resolve(q state.Question) bool {
 	w.mu.Lock()
 	ch := w.by[q.ID]
 	delete(w.by, q.ID)
@@ -56,6 +57,7 @@ func (w *waiters) resolve(q state.Question) {
 	if ch != nil {
 		ch <- q
 	}
+	return ch != nil
 }
 
 // ask is the in-agent route: an agent asks its project's chat something and
@@ -152,7 +154,9 @@ func (s *Server) answerQuestion(ctx context.Context, id, answer, by string) (sta
 	s.captureEvent(ctx, q.Project, q.Agent, "question_answered", map[string]any{
 		"question": q.Text, "answer": q.Answer, "answeredBy": q.AnsweredBy,
 	}, "")
-	s.waiting.resolve(q)
+	if !s.waiting.resolve(q) && !q.Credential() {
+		s.tellAnswer(ctx, q)
+	}
 	s.events.publish(api.EventQuestion, toAPIQuestion(q))
 	s.record(ctx, questionEvent(q, s.titleOf(ctx, q.Project, q.Agent), api.AgentAnswered, q.AnsweredAt))
 	return q, nil
@@ -451,4 +455,24 @@ func (s *Server) agentFinished(a state.Agent, result api.ChatTurnResult) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.runCtx), 30*time.Second)
 	defer cancel()
 	s.noticeAgentFinished(ctx, a, result)
+}
+
+// tellAnswer sends an answer nobody waits on to the agent that asked, as a
+// message: its `agentbox ask` ended without it, because the agent was
+// stopped while it waited, or the daemon restarted. A stopped agent is
+// started for it, as for any message (wake.go).
+func (s *Server) tellAnswer(ctx context.Context, q state.Question) {
+	a, err := s.store.Agent(ctx, q.Project, q.Agent)
+	if err != nil {
+		return // gone: nobody left to tell
+	}
+	from := "your project's chat"
+	if q.AnsweredBy == "user" {
+		from = "the user"
+	}
+	text := fmt.Sprintf("[AgentBox: you asked %q and stopped waiting before the answer came. The answer, from %s:]\n\n%s",
+		q.Text, from, q.Answer)
+	if _, err := s.tellAgent(context.WithoutCancel(ctx), a, text); err != nil {
+		s.logf("%s: telling it the answer to its question: %v", a.Ref(), err)
+	}
 }

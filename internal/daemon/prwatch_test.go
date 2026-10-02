@@ -139,7 +139,7 @@ type prWatchRecorder struct {
 	mu     sync.Mutex
 	agents []string // "agent-01: message"
 	leads  []leadNotice
-	woke   bool // what the fake wake reports
+	woke   string // what the fake wake reports: told.woke
 	fail   error
 }
 
@@ -150,14 +150,14 @@ type leadNotice struct {
 
 func recordPRWatch(d testDaemon) *prWatchRecorder {
 	rec := &prWatchRecorder{}
-	d.srv.prTell = func(_ context.Context, a state.Agent, text string) (bool, error) {
+	d.srv.prTell = func(_ context.Context, a state.Agent, text string) (told, error) {
 		rec.mu.Lock()
 		defer rec.mu.Unlock()
 		if rec.fail != nil {
-			return false, rec.fail
+			return told{}, rec.fail
 		}
 		rec.agents = append(rec.agents, a.Name+": "+text)
-		return rec.woke, nil
+		return told{woke: rec.woke}, nil
 	}
 	d.srv.prLead = func(_ context.Context, _ string, notice string, act bool) {
 		rec.mu.Lock()
@@ -331,7 +331,7 @@ func TestPRWatchWakesTheAgentOrFallsBackToTheLead(t *testing.T) {
 	_, agents := pullsProject(t, d, "agent-01")
 	head := commitOn(t, agents["agent-01"], "reminders.txt")
 
-	rec.woke = true
+	rec.woke = "started"
 	gh.set(9, head, "OPEN", "CONFLICTING", "", "")
 	pollNow(d)
 	_, leads := rec.take()

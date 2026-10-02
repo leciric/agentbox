@@ -131,6 +131,7 @@ const (
 	ChatAsideDeferred = "deferred" // it couldn't join that turn: it goes in as its own, after
 	ChatAsideLost     = "lost"     // the session ended before it could be delivered
 	ChatAsideHeld     = "held"     // sent while the chat compacted: it starts the fresh session's first turn
+	ChatAsideWaking   = "waking"   // sent to a stopped agent that waits for memory: it starts the turn once its machine does
 )
 
 // ChatCompaction is a compaction's card (D73). While it runs, the chat is
@@ -208,6 +209,20 @@ type ChatTurnResult struct {
 	State      string    `json:"state"`                // completed, cancelled or failed
 	StopReason string    `json:"stopReason,omitempty"` // the AI tool's reason, like end_turn or max_tokens
 	EndedAt    time.Time `json:"endedAt"`
+}
+
+// TellResult is what became of a message the lead sent one of its agents:
+// the item it became in the agent's chat, and what the agent's machine
+// needed first.
+type TellResult struct {
+	ChatItem
+	// Woke is "started" or "resumed" when the agent's machine wasn't
+	// running and had to be, before its chat could take the message.
+	Woke string `json:"woke,omitempty"`
+	// Waiting is why the agent's stopped machine waits to start: the VM
+	// hasn't the memory for it now. The message is held in its chat and
+	// delivered once it starts.
+	Waiting string `json:"waiting,omitempty"`
 }
 
 type ChatMessageRequest struct {

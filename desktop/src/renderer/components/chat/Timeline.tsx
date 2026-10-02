@@ -166,6 +166,7 @@ const deliveries: Record<string, { label: string; className: string }> = {
   deferred: { label: 'Waiting for this turn to end', className: 'text-amber-300/70' },
   lost: { label: "Never reached the tool", className: 'text-rose-300/80' },
   held: { label: 'Waiting for the compaction to finish', className: 'text-amber-300/70' },
+  waking: { label: 'Waiting for memory to start its machine', className: 'text-amber-300/70' },
 };
 
 // CompactionCard is the chat saving its conversation to the project's memory

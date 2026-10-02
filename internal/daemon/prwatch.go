@@ -439,7 +439,7 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title, Kind: api.AgentPRBroken,
 		Summary: fmt.Sprintf("PR #%d %s", pr.Number, what), PR: watchedToAPI(pr), At: s.prWatch.now(),
 	})
-	woke, err := s.prTell(ctx, a, prFixMessage(pr, problems))
+	t, err := s.prTell(ctx, a, prFixMessage(pr, problems))
 	if err != nil {
 		s.logf("pull request watch: telling %s: %v", a.Ref(), err)
 		s.prLead(ctx, p.Name, fmt.Sprintf(
@@ -448,8 +448,13 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 		return
 	}
 	started := ""
-	if woke {
+	switch {
+	case t.waiting != "":
+		started = fmt.Sprintf(", which it reads once its machine starts: it was stopped, and %s", t.waiting)
+	case t.woke == "started":
 		started = ", starting its machine, which was stopped"
+	case t.woke == "resumed":
+		started = ", resuming its machine, which was paused"
 	}
 	s.prLead(ctx, p.Name, fmt.Sprintf(
 		"AgentBox's pull request watch: %s's PR #%d (%s) %s. AgentBox told %s to fix it%s. Nothing to do unless it can't.",
@@ -533,40 +538,4 @@ func watchedToAPI(pr github.WatchedPR) *api.PullRequest {
 		UpdatedAt: &updated, BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch, HeadSHA: pr.HeadSHA,
 		Conflict: pr.Mergeable == "conflicting", Review: pr.Review, Watched: true,
 	}
-}
-
-// wakeAndTell sends an agent a message from the watch, starting its machine
-// first when it was stopped, or resuming it when paused. It reports whether
-// it had to.
-func (s *Server) wakeAndTell(ctx context.Context, a state.Agent, text string) (bool, error) {
-	if a.Status != state.AgentReady {
-		return false, fmt.Errorf("%s is %s", a.Ref(), a.Status)
-	}
-	m := s.manager(s.cfg.Log)
-	inst, err := s.cfg.Incus.Instance(ctx, a.Instance)
-	if err != nil {
-		return false, err
-	}
-	woke := false
-	switch inst.Status {
-	case "Running":
-	case "Frozen":
-		if err := m.Resume(ctx, a); err != nil {
-			return false, err
-		}
-		woke = true
-	default:
-		if err := s.serveAgentAPI(a.Instance); err != nil {
-			return false, err
-		}
-		if _, err := m.Start(ctx, a); err != nil {
-			return false, err
-		}
-		woke = true
-	}
-	if woke {
-		s.refreshAgents(ctx)
-	}
-	_, err = s.chat.Send(a, text)
-	return woke, err
 }
