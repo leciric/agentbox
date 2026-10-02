@@ -3,6 +3,52 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.11.0](https://github.com/leciric/agentbox/compare/v0.10.0...v0.11.0) (2026-10-02)
+
+
+### Added
+
+* a Main chat across every project, above the projects in the sidebar ([#153](https://github.com/leciric/agentbox/issues/153)) ([abd0759](https://github.com/leciric/agentbox/commit/abd07597488e3a3b1e00fda3895f780a768f4a3b))
+* a task in the Tasks tab can go to the project's lead, which can split it across several agents ([#156](https://github.com/leciric/agentbox/issues/156)) ([3a4afcc](https://github.com/leciric/agentbox/commit/3a4afcc537462c14cb4e843bb9f4c8c243504212))
+* AgentBox always runs in its VM on Linux, and installations from before are prompted to move ([#146](https://github.com/leciric/agentbox/issues/146)) ([370c47d](https://github.com/leciric/agentbox/commit/370c47d987ad592b91d2dde0affc58070be61587))
+* AgentBox never fills your disk: it keeps a floor of free space, refuses new agents and pauses the busiest writers at it ([#148](https://github.com/leciric/agentbox/issues/148)) ([41865b4](https://github.com/leciric/agentbox/commit/41865b424b2abddc42cf14b4c495e3140f1ed2f2))
+* agents share one Docker image cache, so a Docker Hub image is downloaded once ([#166](https://github.com/leciric/agentbox/issues/166)) ([7a88106](https://github.com/leciric/agentbox/commit/7a88106508a0a7bf538dca1a83e5b79efd754339))
+* an agent queue with a running limit per project, and a lead that rechecks its agents ([#138](https://github.com/leciric/agentbox/issues/138)) ([fee4611](https://github.com/leciric/agentbox/commit/fee4611485d7149a6c95550cdcec69f1f2a60218))
+* chat from your phone from anywhere, through a Cloudflare Tunnel ([#137](https://github.com/leciric/agentbox/issues/137)) ([3e8d8ab](https://github.com/leciric/agentbox/commit/3e8d8abb534b417a53090713cc694de8bd76c95c))
+* connectors give agents remote MCP servers like Notion, signed in once on the host ([#133](https://github.com/leciric/agentbox/issues/133)) ([519584b](https://github.com/leciric/agentbox/commit/519584b92ea47e0e435cac5f7e767ca9b805cec3))
+* make AgentBox's VM disk bigger from Settings or agentbox vm resize --disk, without a restart on Linux ([#161](https://github.com/leciric/agentbox/issues/161)) ([b58db1e](https://github.com/leciric/agentbox/commit/b58db1e4fafed88add9a34f718c5daa1f50a9788))
+* nightly builds, and a Stable/Nightly update channel in Settings ([#136](https://github.com/leciric/agentbox/issues/136)) ([23a6c50](https://github.com/leciric/agentbox/commit/23a6c50a90306ff2577ac40320bbfac96e8a5458))
+* report a problem from the app or agentbox report, and opt-in error reports ([#149](https://github.com/leciric/agentbox/issues/149)) ([c0465df](https://github.com/leciric/agentbox/commit/c0465df510dbab04d0c1915d60e1c21a052171a5))
+* stopping an agent first frees its Docker space, its build cache and the images no container uses ([#165](https://github.com/leciric/agentbox/issues/165)) ([7a25c6c](https://github.com/leciric/agentbox/commit/7a25c6c8bd11cf92c5007bce5599da3316a40d68))
+* swap for AgentBox's VM, a swapfile on its disk you turn on in Settings or with agentbox vm swap ([#162](https://github.com/leciric/agentbox/issues/162)) ([edcf220](https://github.com/leciric/agentbox/commit/edcf220b479459ae37d7a26059308d8ad0531606))
+* Tasks tab splits into Open and Done lists, and a task is marked done when its agent's pull request merges ([#155](https://github.com/leciric/agentbox/issues/155)) ([96d80c8](https://github.com/leciric/agentbox/commit/96d80c815f7a4083ae7d764f0f5017431b9e007c))
+* the top bar shows what AgentBox's VM really takes of your disk, of the most it can hold, with a breakdown ([#160](https://github.com/leciric/agentbox/issues/160)) ([3e3a1bf](https://github.com/leciric/agentbox/commit/3e3a1bf37b31d693bdc1e9f31775a0570732eadc))
+
+
+### Fixed
+
+* "Open with your default app" and "Show in folder" work on media again now that AgentBox runs in a VM ([#158](https://github.com/leciric/agentbox/issues/158)) ([a835726](https://github.com/leciric/agentbox/commit/a8357262b5bd7d9c1dc82232db95aa784f9dbd3d))
+* a project's Tokens tab shows the limits of the Claude account the project uses, not the default account's ([#159](https://github.com/leciric/agentbox/issues/159)) ([27e1264](https://github.com/leciric/agentbox/commit/27e1264da145f3260f739b3d3404b16c6824cc69))
+* AgentBox no longer hangs when Incus dies as the Linux VM starts ([#139](https://github.com/leciric/agentbox/issues/139)) ([e062346](https://github.com/leciric/agentbox/commit/e06234699a9c3dc4470e6aeebe1884eaf289b635))
+* agents test and record with the real mouse instead of Playwright, and carry a third less instructions on every step ([#157](https://github.com/leciric/agentbox/issues/157)) ([aeaffaf](https://github.com/leciric/agentbox/commit/aeaffafa131a69f7368582d8e94f912dff223fb5))
+* an agent started from stopped keeps its in-agent API socket ([#167](https://github.com/leciric/agentbox/issues/167)) ([1c36c28](https://github.com/leciric/agentbox/commit/1c36c28f8620848f2af466642dd9d36c107ebe75))
+* logging in to Claude Code works when AgentBox runs in its Linux VM, and a pasted code is submitted ([#142](https://github.com/leciric/agentbox/issues/142)) ([a50d027](https://github.com/leciric/agentbox/commit/a50d02722c8aeb72bcf7e097ca4d4497a70a3db4))
+* messages in a chat no longer disappear when a turn ends or the chat is read again ([#144](https://github.com/leciric/agentbox/issues/144)) ([7034fa1](https://github.com/leciric/agentbox/commit/7034fa1f43f90ef9afe362037b72939076b6559d))
+* recordings in Media play again on Linux, with GPU voice transcription (Vulkan) now an opt-in setting ([#150](https://github.com/leciric/agentbox/issues/150)) ([d42a8e2](https://github.com/leciric/agentbox/commit/d42a8e278d8a9353eec090205f780b258402a2bf))
+* recordings, and other large media, are no longer saved corrupted and play as black ([#134](https://github.com/leciric/agentbox/issues/134)) ([53c6ddd](https://github.com/leciric/agentbox/commit/53c6ddd6e5a5ed6c53c8195acdc181331baa8cec))
+* restarting AgentBox no longer leaves several daemons running and the app without its socket ([#141](https://github.com/leciric/agentbox/issues/141)) ([b73f49a](https://github.com/leciric/agentbox/commit/b73f49aa4674b059baca33dbaf9120f9538ee07f))
+* Settings shows the VM's disk size field again after an upgrade ([#168](https://github.com/leciric/agentbox/issues/168)) ([7512544](https://github.com/leciric/agentbox/commit/7512544457a50762d248937f5f9fd7b2a19064a2))
+* the desktop app no longer shows "write EPIPE" error dialogs when the VM stops or starts ([#132](https://github.com/leciric/agentbox/issues/132)) ([0b5aee8](https://github.com/leciric/agentbox/commit/0b5aee805fd3047b680f45b06a2c2089f7499f32))
+* the Tasks tab is a list only you manage, with a Backlog and a Queue ([#145](https://github.com/leciric/agentbox/issues/145)) ([b8080a2](https://github.com/leciric/agentbox/commit/b8080a2b79d9e90f059aa334b20a5a3047b53fd3))
+* the top bar's disk meter shows what AgentBox's VM takes again after an upgrade, and reads like the CPU meter ([#163](https://github.com/leciric/agentbox/issues/163)) ([d9aba1d](https://github.com/leciric/agentbox/commit/d9aba1d137d9c3c2fe37dc97a041d27603c5ba54))
+* the top bar's resource controls show only the VM's memory ([#147](https://github.com/leciric/agentbox/issues/147)) ([ac2e2a2](https://github.com/leciric/agentbox/commit/ac2e2a2963b68c98532207447858cabef5d012ff))
+
+
+### Changed
+
+* a project's page has five tabs, with Memory, Tokens, Secrets and Connectors in its Settings ([#164](https://github.com/leciric/agentbox/issues/164)) ([636c5de](https://github.com/leciric/agentbox/commit/636c5deab74cdd0a0e21e230345c4a8720e7a8cc))
+* remove per-agent resource limits, the shared agent budget, "Never freeze my CPU" and "GPU for agents", now that agents always run in AgentBox's VM ([#154](https://github.com/leciric/agentbox/issues/154)) ([8778ad3](https://github.com/leciric/agentbox/commit/8778ad3f5614c1a2eec0c1e9d93a151efc462679))
+
 ## [0.10.0](https://github.com/leciric/agentbox/compare/v0.9.1...v0.10.0) (2026-09-29)
 
 
