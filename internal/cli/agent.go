@@ -410,7 +410,7 @@ func notRunning(ag api.Agent) error {
 
 // newActionCmd builds start, stop, pause and resume.
 func newActionCmd(a *app, action, short, done string) *cobra.Command {
-	var all bool
+	var all, now bool
 	cmd := &cobra.Command{
 		Use:   action + " <project/agent>",
 		Short: short,
@@ -428,6 +428,15 @@ func newActionCmd(a *app, action, short, done string) *cobra.Command {
 			if all {
 				return stopAll(cmd, c)
 			}
+			if now {
+				if ag, err := c.Agent(cmd.Context(), args[0]); err == nil && ag.State == "queued" {
+					if err := c.StartQueued(cmd.Context(), args[0]); err != nil {
+						return err
+					}
+					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Starting "+ag.Ref+" now; it's left the queue")
+					return nil
+				}
+			}
 			ag, err := c.AgentAction(cmd.Context(), args[0], action)
 			if err != nil {
 				return err
@@ -443,6 +452,9 @@ func newActionCmd(a *app, action, short, done string) *cobra.Command {
 	if action == "stop" {
 		cmd.Use = "stop <project/agent> | --all"
 		cmd.Flags().BoolVar(&all, "all", false, "stop every running or paused agent of every project")
+	}
+	if action == "start" {
+		cmd.Flags().BoolVar(&now, "now", false, "start a queued agent now, even if the VM's memory or its project's slots say it should wait")
 	}
 	return cmd
 }

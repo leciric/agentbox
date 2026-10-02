@@ -94,9 +94,14 @@ export function AgentContextMenu({
     onSuccess: () => void invalidate(),
     onError: (err) => toast.error(errorMessage(err)),
   });
+  const startNow = useMutation({
+    mutationFn: () => api.startQueued(agent.project, agent.name),
+    onSuccess: () => void invalidate(),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
 
   // A queued agent has no machine yet: none of the usual actions apply, and
-  // its own menu is only the two ways out of the queue.
+  // its own menu is only the ways out of the queue.
   if (queued) {
     return (
       <ContextMenu>
@@ -111,6 +116,9 @@ export function AgentContextMenu({
           </TooltipPrimitive.Portal>
         </TooltipPrimitive.Root>
         <ContextMenuContent>
+          <ContextMenuItem icon={Play} onSelect={() => startNow.mutate()}>
+            Start now
+          </ContextMenuItem>
           <ContextMenuItem icon={ArrowUpToLine} disabled={agent.queuePosition === 1} onSelect={() => moveToFront.mutate()}>
             Move to front
           </ContextMenuItem>

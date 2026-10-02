@@ -176,6 +176,10 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	// Nor does a test write a cgroup.
 	srv.slotBudget = func(context.Context) (int64, error) { return 1 << 50, nil }
 	srv.setMemoryHigh = func(string, int64) error { return nil }
+	// Admit's sanity bound (admission.go) reads this machine's real spare
+	// memory too, which has nothing to do with a test's small, made-up VM: a
+	// test about the bound sets its own.
+	srv.memAvailable = func() int64 { return 0 }
 	if tc.queue != nil {
 		tc.queue(srv)
 	}
