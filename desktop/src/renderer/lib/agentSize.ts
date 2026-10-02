@@ -1,7 +1,8 @@
-// An agent's size: what it reserves of the VM's memory while it runs, which
-// the daemon's admission across projects waits for before starting it
-// (internal/agent/admission.go, which has the final say). A reservation, not a
-// cap: an agent may use more while the VM has memory to spare.
+// An agent's size: what it reserves of the VM's memory in its heavy phases
+// (tests, builds, the browser, a recording), which wait for room in the VM's
+// burst pool (internal/agent/admission.go, which has the final say). A
+// reservation, not a cap: an agent may use more while the VM has memory to
+// spare.
 
 export interface AgentSize {
   value: string; // "" is auto
@@ -16,11 +17,11 @@ export function agentSizes(leadDecides = false): AgentSize[] {
     {
       value: '',
       label: 'Auto',
-      tip: leadDecides ? 'The chat picks a size for each agent it creates.' : "Normal: reserves what this project's agents have needed at most.",
+      tip: leadDecides ? 'The chat picks a size for each agent it creates.' : "Normal: reserves what this project's tests and builds have needed.",
     },
     { value: 'light', label: 'Light', tip: 'Reserves ~2 GB: reading, reviews and small edits.' },
-    { value: 'normal', label: 'Normal', tip: "Reserves what this project's agents have needed at most." },
-    { value: 'heavy', label: 'Heavy', tip: 'Reserves ~8 GB: recordings, Android, big builds.' },
+    { value: 'normal', label: 'Normal', tip: "Reserves what this project's tests and builds have needed." },
+    { value: 'heavy', label: 'Heavy', tip: 'Reserves ~8 GB while it runs tests or records: recordings, Android, big builds.' },
   ];
 }
 

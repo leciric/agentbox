@@ -47,77 +47,82 @@ func (q *queueTest) waiting(t *testing.T, ref string) string {
 	return ""
 }
 
-// Two projects share the VM's memory: a heavy agent that doesn't fit waits,
-// says why in numbers, and a light one from the other project starts into
-// what is free meanwhile, whatever the queue switch says.
+// Two projects share the VM's memory: an agent of the project with the big
+// baseline doesn't fit, waits, says why in numbers, and one of the other
+// project, with a small baseline, starts into what is free meanwhile,
+// whatever the queue switch says.
 func TestAdmissionAcrossProjects(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	// 16 GiB, less the 2 GiB the VM keeps: 14 to share.
-	q := newQueueTest(t, 16*gib, map[string]int64{"p": 4 * gib, "r": 4 * gib},
-		runningInstances(agent.InstanceName("p", "a1"), agent.InstanceName("r", "b1")))
+	// 32 GiB, less the 4 the VM keeps and the 7 left for bursts: 21 to share.
+	q := newQueueTest(t, 32*gib, map[string]int64{"p": 8 * gib, "r": 2 * gib},
+		runningInstances(agent.InstanceName("p", "a1"), agent.InstanceName("p", "a2"), agent.InstanceName("r", "b1")))
 	q.queueOff(t)
 	q.addProject(t, "p")
 	q.addProject(t, "r")
 	q.addRunning(t, "p", "a1")
+	q.addRunning(t, "p", "a2")
 	q.addRunning(t, "r", "b1")
 	now := time.Now()
 	q.enqueueSized(t, "p", "big", agent.SizeHeavy, now.Add(-time.Minute))
 	q.enqueueSized(t, "r", "small", agent.SizeLight, now)
 	q.srv.admitQueued(ctx)
 	if got := q.startedSoFar(); !sameList(got, "r/small") {
-		t.Fatalf("started %v, want only the light agent: the heavy one needs 8 of the 6 GiB free", got)
+		t.Fatalf("started %v, want only r's agent: p's needs 8 of the 3 GiB free", got)
 	}
-	want := "queued: 3 agents in 2 projects reserve 10 of 14 GB; starts when ~8 GB is free"
+	want := "queued: 4 agents in 2 projects reserve 20 of 21 GB; starts when ~8 GB is free"
 	if got := q.waiting(t, "p/big"); got != want {
-		t.Errorf("the heavy agent waits because %q, want %q", got, want)
+		t.Errorf("p's agent waits because %q, want %q", got, want)
 	}
 	if ag, err := q.client.Agent(ctx, "p/big"); err != nil || ag.Waiting != want || ag.Size != agent.SizeHeavy {
 		t.Errorf("the agent = waiting %q, size %q, %v", ag.Waiting, ag.Size, err)
 	}
 }
 
-// A running agent counts as what it uses once that's more than it reserved.
+// A running agent counts as what it uses once that's more than its baseline,
+// less what it holds of the burst pool: a heavy phase under a lease doesn't
+// keep agents from starting.
 func TestAdmissionCountsWhatAnAgentGrewTo(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	q := newQueueTest(t, 16*gib, map[string]int64{"p": 4 * gib}, runningInstances(agent.InstanceName("p", "a1")))
+	q := newQueueTest(t, 32*gib, map[string]int64{"p": 2 * gib}, runningInstances(agent.InstanceName("p", "a1")))
 	q.queueOff(t)
 	q.addProject(t, "p")
 	q.addRunning(t, "p", "a1")
-	q.setUsage("p/a1", 13*gib)
+	q.setUsage("p/a1", 20*gib)
 	q.enqueueSized(t, "p", "q1", agent.SizeLight, time.Now())
 	q.srv.admitQueued(ctx)
 	if got := q.startedSoFar(); len(got) != 0 {
-		t.Fatalf("started %v with 13 of 14 GiB in use", got)
+		t.Fatalf("started %v with 20 of 21 GiB in use", got)
 	}
-	q.setUsage("p/a1", 3*gib)
+	q.srv.burst.leases["p/a1"] = &burstLease{project: "p", bytes: 16 * gib, keys: map[string]time.Time{"test": time.Now().Add(time.Hour)}}
 	q.srv.admitQueued(ctx)
 	if got := q.startedSoFar(); !sameList(got, "p/q1") {
-		t.Errorf("started %v once it shrank back, want p/q1", got)
+		t.Errorf("started %v once a1's growth was under a lease, want p/q1", got)
 	}
 }
 
-// Once the heavy agent at the front has waited StarveAfter, light ones
-// behind it no longer start ahead of it, though they'd fit.
+// Once the agent at the front has waited StarveAfter, smaller ones behind it
+// no longer start ahead of it, though they'd fit.
 func TestAdmissionDoesntStarveAHeavyAgent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	q := newQueueTest(t, 16*gib, map[string]int64{"p": 4 * gib, "r": 4 * gib},
-		runningInstances(agent.InstanceName("p", "a1"), agent.InstanceName("r", "b1")))
+	q := newQueueTest(t, 32*gib, map[string]int64{"p": 8 * gib, "r": 2 * gib},
+		runningInstances(agent.InstanceName("p", "a1"), agent.InstanceName("p", "a2"), agent.InstanceName("r", "b1")))
 	q.queueOff(t)
 	q.addProject(t, "p")
 	q.addProject(t, "r")
 	q.addRunning(t, "p", "a1")
+	q.addRunning(t, "p", "a2")
 	q.addRunning(t, "r", "b1")
-	q.enqueueSized(t, "p", "big", agent.SizeHeavy, time.Now().Add(-agent.StarveAfter-time.Minute))
-	q.enqueueSized(t, "r", "small", agent.SizeLight, time.Now())
+	q.enqueueSized(t, "p", "big", "", time.Now().Add(-agent.StarveAfter-time.Minute))
+	q.enqueueSized(t, "r", "small", "", time.Now())
 	q.srv.admitQueued(ctx)
 	if got := q.startedSoFar(); len(got) != 0 {
-		t.Fatalf("started %v ahead of the heavy agent that has waited long enough", got)
+		t.Fatalf("started %v ahead of the big agent that has waited long enough", got)
 	}
 	if got := q.waiting(t, "r/small"); !strings.Contains(got, "p/big has waited longest") {
-		t.Errorf("the light agent waits because %q, want behind p/big", got)
+		t.Errorf("the small agent waits because %q, want behind p/big", got)
 	}
 }
 
@@ -127,11 +132,14 @@ func TestACreateThatDoesntFitQueues(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), recordingIncus, testConfig{instances: runningAgent01, queue: func(s *Server) {
 		s.queueEvery = 0
-		s.slotBudget = func(context.Context) (int64, error) { return 16 * gib, nil }
+		s.slotBudget = func(context.Context) (int64, error) { return 32 * gib, nil }
 		s.projectPeak = func(context.Context, string) (int64, bool, error) { return 4 * gib, true, nil }
+		s.projectShape = func(context.Context, string) (agent.Shape, error) {
+			return agent.Shape{Baseline: 4 * gib, Burst: 2 * gib}, nil
+		}
 		s.queueStart = func(context.Context, state.QueuedAgent) error { return nil }
-		// Another project's create, still making its machine, holds 12 GiB.
-		s.pendingCreates[-1] = pendingCreate{project: "elsewhere", reserved: 12 * gib}
+		// Another project's create, still making its machine, holds 18 GiB.
+		s.pendingCreates[-1] = pendingCreate{project: "elsewhere", reserved: 18 * gib}
 	}})
 	ctx := context.Background()
 	repo := d.fixtureRepo(t, "hello-stack")
@@ -150,18 +158,22 @@ func TestACreateThatDoesntFitQueues(t *testing.T) {
 	if err := json.Unmarshal(job.Result, &ag); err != nil {
 		t.Fatal(err)
 	}
-	want := "queued: 1 agent in 1 project reserve 12 of 14 GB; starts when ~4 GB is free"
+	want := "queued: 1 agent in 1 project reserve 18 of 21 GB; starts when ~4 GB is free"
 	if ag.State != state.AgentQueued || ag.Waiting != want {
 		t.Errorf("the agent = %s, waiting %q; want queued, %q", ag.State, ag.Waiting, want)
 	}
 
-	// A light one fits beside it, and starts now.
-	job, err = d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none", Size: agent.SizeLight})
+	// Once the other create needs less, the next fits behind the queued one,
+	// and starts now.
+	d.srv.mu.Lock()
+	d.srv.pendingCreates[-1] = pendingCreate{project: "elsewhere", reserved: 2 * gib}
+	d.srv.mu.Unlock()
+	job, err = d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if job.Kind != "create" {
-		t.Errorf("a light create that fits started a %q job", job.Kind)
+		t.Errorf("a create that fits started a %q job", job.Kind)
 	}
 	pending := func() int {
 		d.srv.mu.Lock()
@@ -169,14 +181,14 @@ func TestACreateThatDoesntFitQueues(t *testing.T) {
 		return len(d.srv.pendingCreates)
 	}
 	if n := pending(); n != 2 {
-		t.Errorf("%d creates hold memory while the light one's job runs, want 2", n)
+		t.Errorf("%d creates hold memory while the second one's job runs, want 2", n)
 	}
 	// Its machine never comes up here: cancelled, its job gives its memory back.
 	if _, err := d.client.CancelJob(ctx, job.ID); err != nil {
 		t.Fatal(err)
 	}
 	doneJob(t, d, job.ID)
-	waitFor(t, "the light create's memory back", func() bool { return pending() == 1 })
+	waitFor(t, "the second create's memory back", func() bool { return pending() == 1 })
 }
 
 // The project's size for its chat's agents is kept, checked, and wins over

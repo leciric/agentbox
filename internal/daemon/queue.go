@@ -69,6 +69,7 @@ func (s *Server) runQueue(ctx context.Context) {
 		// Whatever the switches say: what agents use is what admission
 		// counts them for, and what memory.high is set from.
 		s.sampleUsage(ctx)
+		s.expireBursts(ctx)
 		s.tightenMemory(ctx)
 		s.admitQueued(ctx)
 		if recheckOn {
@@ -104,7 +105,7 @@ const usageSample = time.Second
 // sampleUsage measures what every agent uses now, keeps it for the slot page
 // and the recheck, and records each running agent's peaks.
 func (s *Server) sampleUsage(ctx context.Context) {
-	agents, err := s.manager(nil).SampleUsage(ctx, time.Now(), usageSample)
+	agents, err := s.manager(nil).SampleUsage(ctx, time.Now(), usageSample, func(ref string) bool { return s.burst.leaseOf(ref) > 0 })
 	if err != nil {
 		s.logf("agent queue: sampling usage: %v", err)
 	}

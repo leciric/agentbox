@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestCheckSizeAndReservation(t *testing.T) {
+func TestCheckSize(t *testing.T) {
 	t.Parallel()
 	for in, want := range map[string]string{"": "", "auto": "", "light": "light", "normal": "normal", "heavy": "heavy"} {
 		if got, err := CheckSize(in); err != nil || got != want {
@@ -17,11 +17,79 @@ func TestCheckSizeAndReservation(t *testing.T) {
 	if _, err := CheckSize("huge"); err == nil {
 		t.Error("an unknown size was accepted")
 	}
-	peak := 5 * gib
-	for size, want := range map[string]int64{"": peak, "normal": peak, "light": 2 * gib, "heavy": 8 * gib} {
-		if got := Reservation(size, peak); got != want {
-			t.Errorf("Reservation(%q) = %d, want %d", size, got, want)
+}
+
+func TestBurst(t *testing.T) {
+	t.Parallel()
+	shape := Shape{Baseline: 600 << 20, Burst: 3 * gib}
+	for size, want := range map[string]int64{"": 3 * gib, "normal": 3 * gib, "light": 2*gib - 600<<20, "heavy": 8*gib - 600<<20} {
+		if got := Burst(size, shape); got != want {
+			t.Errorf("Burst(%q) = %d, want %d", size, got, want)
 		}
+	}
+	// A project whose heavy phases were seen taking more than 8 GB keeps that.
+	if got := Burst(SizeHeavy, Shape{Baseline: gib, Burst: 10 * gib}); got != 10*gib {
+		t.Errorf("heavy burst = %d, want the learned 10 GiB", got)
+	}
+	// Light never goes below the floor, however big the baseline.
+	if got := Burst(SizeLight, Shape{Baseline: 3 * gib, Burst: gib}); got != minBurst {
+		t.Errorf("light burst = %d, want %d", got, minBurst)
+	}
+	if got := learnedShape(0, 0); got != (Shape{Baseline: defaultBaseline, Burst: defaultBurst}) {
+		t.Errorf("an unknown project's shape = %+v", got)
+	}
+	if got := learnedShape(600<<20, 100<<20); got.Burst != minBurst {
+		t.Errorf("a tiny learned burst = %d, want the floor", got.Burst)
+	}
+	if PoolFloor(16*gib) != 4*gib || PoolFloor(2*gib) != gib || PoolFloor(gib/2) != gib/2 {
+		t.Error("PoolFloor isn't a quarter, at least 1 GiB, at most everything")
+	}
+}
+
+func TestHolderCountsBaselineOnly(t *testing.T) {
+	t.Parallel()
+	// Bursting under a lease: admission counts its baseline, the pool all of it.
+	h := Holder{Reserved: gib, Lease: 3 * gib, Using: 3 * gib}
+	if h.Counts() != gib || h.Holds() != 4*gib {
+		t.Errorf("leased: counts %d, holds %d", h.Counts(), h.Holds())
+	}
+	// Grown past its baseline with no lease: counts what it uses.
+	h = Holder{Reserved: gib, Using: 3 * gib}
+	if h.Counts() != 3*gib || h.Holds() != 3*gib {
+		t.Errorf("grown: counts %d, holds %d", h.Counts(), h.Holds())
+	}
+}
+
+func TestBurstPool(t *testing.T) {
+	t.Parallel()
+	holders := []Holder{{Ref: "a", Reserved: 2 * gib}, {Ref: "b", Reserved: 2 * gib}}
+	if !BurstFits(8*gib, holders, 3*gib) {
+		t.Error("a burst that fits wasn't given")
+	}
+	// Bigger than what's free, but nobody else bursts: it runs alone.
+	if !BurstFits(8*gib, holders, 6*gib) {
+		t.Error("a lone big burst was refused")
+	}
+	holders[1].Lease = 3 * gib
+	if BurstFits(8*gib, holders, 2*gib) {
+		t.Error("a burst that doesn't fit beside another's lease was given")
+	}
+	free, leased, agents := BurstFree(8*gib, holders)
+	if free != gib || leased != 3*gib || agents != 1 {
+		t.Errorf("BurstFree = %d, %d, %d", free, leased, agents)
+	}
+}
+
+func TestBurstEnv(t *testing.T) {
+	t.Parallel()
+	if got := BurstEnv(3*gib, 16)["GOFLAGS"]; got != "-p=4" {
+		t.Errorf("3 GiB on 16 cores: GOFLAGS = %q, want -p=4", got)
+	}
+	if got := BurstEnv(8*gib, 2)["VITEST_MAX_THREADS"]; got != "2" {
+		t.Errorf("8 GiB on 2 cores: %q, want the core count", got)
+	}
+	if got := BurstEnv(256<<20, 8)["CARGO_BUILD_JOBS"]; got != "1" {
+		t.Errorf("a small lease: %q, want 1", got)
 	}
 }
 
@@ -121,6 +189,16 @@ func TestMemoryHighs(t *testing.T) {
 	// Far past the cap, the furthest over is held at its floor.
 	if got := MemoryHighs(14*gib, holders)["fat"]; got != 4*gib+HighHeadroom(4*gib) {
 		t.Errorf("with the VM over its cap, the fattest agent's memory.high = %d, want its floor", got)
+	}
+	// A lease is held like a reservation: a bursting agent isn't tightened
+	// below its baseline and lease.
+	leased := []Holder{{Ref: "burst", Reserved: gib, Lease: 3 * gib, Using: 4 * gib}, {Ref: "fat", Reserved: gib, Using: 6 * gib}}
+	highs = MemoryHighs(10*gib, leased)
+	if highs["burst"] < 4*gib+HighHeadroom(4*gib) {
+		t.Errorf("the leased agent's memory.high = %d, below its lease", highs["burst"])
+	}
+	if highs["fat"] >= 6*gib {
+		t.Errorf("the agent over its baseline with no lease isn't tightened: %d", highs["fat"])
 	}
 }
 

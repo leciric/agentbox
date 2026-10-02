@@ -169,6 +169,10 @@ type Server struct {
 	queueStart     func(ctx context.Context, q state.QueuedAgent) error
 	slotBudget     func(ctx context.Context) (int64, error)
 	projectPeak    func(ctx context.Context, project string) (int64, bool, error)
+	// projectShape is the manager's ProjectShape, or a test's: admission's
+	// baselines and the burst pool's bursts (burst.go).
+	projectShape func(ctx context.Context, project string) (agent.Shape, error)
+	burst        *burstPool
 	// usageNow is what each agent used when last sampled, by ref, under mu.
 	usageNow map[string]agent.AgentUsage
 	// Admission (admission.go), under mu: the creates admitted straight to
@@ -245,6 +249,10 @@ func New(cfg Config) (*Server, error) {
 	s.projectPeak = func(ctx context.Context, project string) (int64, bool, error) {
 		return s.manager(nil).ProjectPeak(ctx, project)
 	}
+	s.projectShape = func(ctx context.Context, project string) (agent.Shape, error) {
+		return s.manager(nil).ProjectShape(ctx, project)
+	}
+	s.burst = newBurstPool()
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.wakeAndTell, s.tellLead

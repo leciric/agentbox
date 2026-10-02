@@ -35,6 +35,9 @@ type pendingCreate struct {
 // admission is what admitting works from: the memory agents share, what
 // holds it, and who waits, in order, with what each would be told.
 type admission struct {
+	// total is the memory agents share; capacity what admission fills with
+	// baselines, total less the burst pool's floor (agent.PoolFloor).
+	total    int64
 	capacity int64
 	holders  []agent.Holder
 	// instances are the holders' machines, by ref, for memory.high.
@@ -63,24 +66,28 @@ func (a admission) message(ref string) string {
 	return agent.WaitMessage(v, a.capacity, need, a.holders, a.slots[project])
 }
 
-// reservations gives an agent's reservation from its size and its project's
-// peak, looking each project's peak up once.
-type reservations struct {
-	s     *Server
-	ctx   context.Context
-	peaks map[string]int64
+// shapes gives each project's learned baseline and burst, looking each one
+// up once.
+type shapes struct {
+	s      *Server
+	ctx    context.Context
+	shapes map[string]agent.Shape
 }
 
-func (r *reservations) of(project, size string) (int64, error) {
-	peak, ok := r.peaks[project]
+func newShapes(s *Server, ctx context.Context) *shapes {
+	return &shapes{s: s, ctx: ctx, shapes: map[string]agent.Shape{}}
+}
+
+func (r *shapes) of(project string) (agent.Shape, error) {
+	shape, ok := r.shapes[project]
 	if !ok {
 		var err error
-		if peak, _, err = r.s.projectPeak(r.ctx, project); err != nil {
-			return 0, err
+		if shape, err = r.s.projectShape(r.ctx, project); err != nil {
+			return agent.Shape{}, err
 		}
-		r.peaks[project] = peak
+		r.shapes[project] = shape
 	}
-	return agent.Reservation(size, peak), nil
+	return shape, nil
 }
 
 // planAdmission works out what holds memory and who would start now. extra is
@@ -99,9 +106,11 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 	if err != nil {
 		return admission{}, err
 	}
-	res := &reservations{s: s, ctx: ctx, peaks: map[string]int64{}}
+	res := newShapes(s, ctx)
+	total := max(status.Budget-status.Reserve, 0)
 	out := admission{
-		capacity:  max(status.Budget-status.Reserve, 0),
+		total:     total,
+		capacity:  total - agent.PoolFloor(total),
 		instances: map[string]string{},
 		slots:     map[string]int{},
 		queued:    map[string]state.QueuedAgent{},
@@ -127,11 +136,11 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 		case !starting && !holdsSlot(st.State):
 			continue
 		}
-		reserved, err := res.of(st.Project, st.Size)
+		shape, err := res.of(st.Project)
 		if err != nil {
 			return admission{}, err
 		}
-		h := agent.Holder{Ref: st.Ref(), Project: st.Project, Reserved: reserved}
+		h := agent.Holder{Ref: st.Ref(), Project: st.Project, Reserved: shape.Baseline, Lease: s.burst.leaseOf(st.Ref())}
 		if u, ok := s.lastUsage(st.Ref()); ok {
 			h.Using = u.Memory
 		}
@@ -152,20 +161,16 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 			free[p.Project] = p.Slots - p.Running
 		}
 	}
-	sizes := map[string]string{}
-	for _, st := range statuses {
-		sizes[st.Ref()] = st.Size
-	}
 	for _, q := range joinOrder(queue) {
 		if s.queueStarting(q.Ref()) {
 			continue
 		}
-		need, err := res.of(q.Project, sizes[q.Ref()])
+		shape, err := res.of(q.Project)
 		if err != nil {
 			return admission{}, err
 		}
 		out.queued[q.Ref()] = q
-		out.waiting = append(out.waiting, agent.Waiter{Ref: q.Ref(), Project: q.Project, Need: need, Since: q.QueuedAt})
+		out.waiting = append(out.waiting, agent.Waiter{Ref: q.Ref(), Project: q.Project, Need: shape.Baseline, Since: q.QueuedAt})
 	}
 	if extra != nil {
 		out.waiting = append(out.waiting, *extra)
@@ -213,10 +218,11 @@ func joinOrder(queue []state.QueuedAgent) []state.QueuedAgent {
 // called, which the create's job does when it ends; when it may not, it
 // says why, and the create joins the queue instead.
 func (s *Server) admitCreate(ctx context.Context, req api.CreateAgentRequest) (done func(), wait string, err error) {
-	reserved, err := (&reservations{s: s, ctx: ctx, peaks: map[string]int64{}}).of(req.Project, req.Size)
+	shape, err := newShapes(s, ctx).of(req.Project)
 	if err != nil {
 		return nil, "", err
 	}
+	reserved := shape.Baseline
 	s.queueMu.Lock()
 	defer s.queueMu.Unlock()
 	const ref = "(new)"
@@ -275,7 +281,7 @@ func (s *Server) tightenMemory(ctx context.Context) {
 		s.logf("memory.high: %v", err)
 		return
 	}
-	for ref, high := range agent.MemoryHighs(plan.capacity, plan.holders) {
+	for ref, high := range agent.MemoryHighs(plan.total, plan.holders) {
 		instance, ok := plan.instances[ref]
 		if !ok {
 			continue // a create still making its machine

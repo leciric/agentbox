@@ -932,11 +932,11 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 }
 
 // sizeParam is create_agent's size: what the agent reserves of the VM's
-// memory, and so what it waits for before it starts.
-var sizeParam = choiceOf("what the agent reserves of the VM's memory, which every project's agents share; an agent that "+
-	"doesn't fit waits in the queue until it does. \"light\" reserves ~2 GB: reading, reviewing, small edits. "+
-	"\"normal\" reserves what this project's agents usually reach. \"heavy\" reserves ~8 GB: a recording, a big build, "+
-	"Android or Docker. It isn't a cap: an agent may use more while the VM has room. Left out or \"auto\" is normal.",
+// memory in its heavy phases (agent.Burst).
+var sizeParam = choiceOf("what the agent reserves of the VM's memory, which every project's agents share, in its heavy "+
+	"phases: tests, builds, the browser, a recording. Those wait while the VM has no room for them. \"light\" reserves "+
+	"~2 GB: reading, reviewing, small edits. \"normal\" reserves what this project's agents were seen to need. "+
+	"\"heavy\" reserves ~8 GB: a recording, a big build, Android or Docker. It isn't a cap. Left out or \"auto\" is normal.",
 	"auto", "light", "normal", "heavy")
 
 // queuedLine is what create_agent says about an agent that was queued

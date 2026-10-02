@@ -767,13 +767,18 @@ var migrations = []string{
 	`ALTER TABLE tasks ADD COLUMN route TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tasks ADD COLUMN lead_queued_at INTEGER NOT NULL DEFAULT 0`,
 
-	// An agent's size: what the daemon reserves of the VM's memory for it
-	// while it runs (agent.Reservation). '' and 'auto' are the project's
-	// learned peak, as 'normal' is.
+	// An agent's size: how much its heavy phases may take from the VM's
+	// burst pool (agent.Burst). '' and 'auto' are the project's learned
+	// burst, as 'normal' is.
 	`ALTER TABLE agents ADD COLUMN size TEXT NOT NULL DEFAULT ''`,
 	// The size of the agents a project's chat creates: '' lets the chat
 	// choose for each.
 	`ALTER TABLE projects ADD COLUMN agent_size TEXT NOT NULL DEFAULT ''`,
+	// The most an agent was seen using outside a heavy phase (its baseline:
+	// writing code) and during one (holding a burst lease), learned apart
+	// so admission counts the first and the burst pool the difference.
+	`ALTER TABLE agent_memory_peaks ADD COLUMN base_peak INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE agent_memory_peaks ADD COLUMN burst_peak INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

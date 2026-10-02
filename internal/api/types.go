@@ -572,8 +572,9 @@ type Agent struct {
 	// project's slots, or the VM's memory, which every project's agents
 	// share. Absent for any other agent.
 	Waiting string `json:"waiting,omitempty"`
-	// Size is what the agent reserves of the VM's memory while it runs:
-	// "light", "normal" or "heavy", or "" for its project's learned peak.
+	// Size is how much of the VM's burst pool the agent takes in its heavy
+	// phases (tests, builds, the browser, a recording): "light", "normal" or
+	// "heavy", or "" for its project's learned burst (agent.Burst).
 	Size      string    `json:"size,omitempty"`
 	IP        string    `json:"ip"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -652,12 +653,15 @@ type CreateAgentRequest struct {
 	// job the request starts ends as soon as the agent is queued, with the
 	// agent in state "queued".
 	Queue *bool `json:"queue,omitempty"`
-	// Size is what the agent reserves of the VM's memory while it runs, and
-	// so what it waits for before it starts: "light" (~2 GB), "heavy" (~8
-	// GB, a recording, say), "normal" (its project's learned peak), or
+	// Size is what the agent reserves of the VM's memory in its heavy
+	// phases, tests, builds, the browser or a recording, which take it from
+	// the VM's burst pool and wait when that has none: "light" (~2 GB in
+	// all), "heavy" (~8 GB), "normal" (its project's learned burst), or
 	// "auto", like absent, which is normal unless the project chose a size
-	// for the agents its chat creates (Project.AgentSize). It isn't a cap:
-	// an agent may use more while the VM has memory to spare. Whatever Queue
+	// for the agents its chat creates (Project.AgentSize). Whether it starts
+	// at all waits on its project's learned baseline, what an agent writing
+	// code uses. Neither is a cap: an agent may use more while the VM has
+	// memory to spare. Whatever Queue
 	// says, an agent that doesn't fit in the VM's memory waits in the queue.
 	Size string `json:"size,omitempty"`
 	// TaskID is the task in the project's plan the agent is made for, which
@@ -1672,6 +1676,32 @@ type AgentChange struct {
 	QueuePosition int `json:"queuePosition,omitempty"`
 	// Waiting is why a queued agent hasn't started (Agent.Waiting).
 	Waiting string `json:"waiting,omitempty"`
+}
+
+// BurstRequest asks, from inside an agent, for a lease on the VM's burst
+// pool for a heavy phase: a test run, a build, the browser, a recording. An
+// agent holds one lease however many of its phases run at once; Key names
+// the phase, and asking again with a key it holds renews it.
+type BurstRequest struct {
+	Key string `json:"key"`
+	// TTLSeconds is how long the phase may hold the lease without renewing
+	// or releasing it, the backstop for one that crashed: 15 minutes when 0.
+	TTLSeconds int `json:"ttlSeconds,omitempty"`
+	// WaitSeconds is how long to wait for the pool, at most 600; 0 waits
+	// that long.
+	WaitSeconds int `json:"waitSeconds,omitempty"`
+}
+
+// BurstLease is the answer to a BurstRequest or its release.
+type BurstLease struct {
+	Granted bool `json:"granted"`
+	// Bytes is the agent's burst, what the lease holds of the pool.
+	Bytes int64 `json:"bytes,omitempty"`
+	// Why the wait ran out, in one line, when it isn't granted.
+	Why string `json:"why,omitempty"`
+	// Env is what the agent's commands run with while it holds a lease: its
+	// test runners' parallelism held to the lease. Empty once it holds none.
+	Env map[string]string `json:"env,omitempty"`
 }
 
 // Self is what the in-agent API reports about the agent calling it.

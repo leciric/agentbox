@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -14,10 +15,14 @@ import (
 // that doesn't fit waits in its project's queue, whatever the create asked
 // for, and starts when it does.
 //
-// Each agent has a size, which sets what it reserves of the VM's memory while
-// it runs (Reservation). A running agent counts as the larger of what it
-// reserved and what it uses now, so one that grew past its size counts what
-// it grew to. Nothing running is ever paused or stopped to make room.
+// What an agent holds has two parts. Its baseline is what it uses writing
+// code, the most of the time: admission counts only that. Its burst is what a
+// heavy phase adds on top (a test run, a build, the browser, a recording),
+// which it takes from the VM's burst pool as a lease (BurstPool) for as long
+// as the phase lasts. Both are learned per project (Shape); the agent's size
+// sets its burst. A running agent counts as the larger of its baseline and
+// what it uses beyond its lease, so one that grew counts what it grew to.
+// Nothing running is ever paused or stopped to make room.
 //
 // Waiting agents are looked at in the order they joined. One that doesn't fit
 // lets smaller ones behind it start into what's free, but only for so long
@@ -32,10 +37,10 @@ const (
 	SizeHeavy  = "heavy"
 )
 
-// What the fixed sizes reserve.
+// What the fixed sizes reach in a heavy phase, baseline and burst together.
 const (
-	LightReservation = int64(2) << 30
-	HeavyReservation = int64(8) << 30
+	LightTotal = int64(2) << 30
+	HeavyTotal = int64(8) << 30
 )
 
 // CheckSize checks an agent's size and gives it as it is stored: "" for auto,
@@ -50,18 +55,48 @@ func CheckSize(size string) (string, error) {
 	return "", fmt.Errorf("unknown size %q: use auto, light, normal or heavy", size)
 }
 
-// Reservation is what an agent of that size reserves of the VM's memory:
-// about 2 GB light, about 8 GB heavy, and its project's learned peak (peak,
-// ProjectPeak) normal or auto.
-func Reservation(size string, peak int64) int64 {
+// Shape is what a project's agents use: their baseline, writing code, and
+// their burst, what a heavy phase adds to it.
+type Shape struct {
+	Baseline, Burst int64
+}
+
+// What a project nothing is known about is taken to use, until its agents
+// are seen: together, the 4 GiB its peak was taken to be.
+const (
+	defaultBaseline = int64(1) << 30
+	defaultBurst    = int64(3) << 30
+	minBurst        = int64(512) << 20
+)
+
+// learnedShape fills in what wasn't learned yet with the defaults.
+func learnedShape(baseline, burst int64) Shape {
+	if baseline <= 0 {
+		baseline = defaultBaseline
+	}
+	if burst <= 0 {
+		burst = defaultBurst
+	}
+	return Shape{Baseline: baseline, Burst: max(burst, minBurst)}
+}
+
+// Burst is what an agent of that size takes from the burst pool in a heavy
+// phase: enough for about 2 GB in all light, about 8 GB heavy (more if the
+// project's heavy phases were seen taking more), and the project's learned
+// burst normal or auto.
+func Burst(size string, shape Shape) int64 {
 	switch size {
 	case SizeLight:
-		return LightReservation
+		return max(LightTotal-shape.Baseline, minBurst)
 	case SizeHeavy:
-		return HeavyReservation
+		return max(HeavyTotal-shape.Baseline, shape.Burst)
 	}
-	return max(peak, 1)
+	return max(shape.Burst, minBurst)
 }
+
+// PoolFloor is what admission leaves of capacity for heavy phases: a quarter,
+// and at least 1 GiB. Baselines fill the rest.
+func PoolFloor(capacity int64) int64 { return min(max(capacity/4, int64(1)<<30), capacity) }
 
 // StarveAfter is how long an agent at the front of the wait may be passed by
 // smaller ones that fit before it, before nothing passes it any more.
@@ -71,18 +106,22 @@ const StarveAfter = 10 * time.Minute
 // made.
 type Holder struct {
 	Ref, Project string
-	Reserved     int64 // what its size reserves
+	Reserved     int64 // its baseline
+	Lease        int64 // what it holds of the burst pool now, if anything
 	Using        int64 // what it was last seen using; 0 when not yet sampled
 }
 
-// Counts is what the agent counts for: what it reserved, or more once it
-// grew past that.
-func (h Holder) Counts() int64 { return max(h.Reserved, h.Using) }
+// Counts is what the agent counts for in admission: its baseline, or more
+// once it grew past that beyond what its lease covers.
+func (h Holder) Counts() int64 { return max(h.Reserved, h.Using-h.Lease) }
+
+// Holds is what the agent holds of the VM's memory, lease and all.
+func (h Holder) Holds() int64 { return max(h.Reserved+h.Lease, h.Using) }
 
 // Waiter is an agent that wants to start.
 type Waiter struct {
 	Ref, Project string
-	Need         int64     // its reservation
+	Need         int64     // its baseline
 	Since        time.Time // when it joined the wait
 	// AnySlot lets it start whatever its project's slots say: a create that
 	// didn't ask to queue. Memory still has to fit.
@@ -142,7 +181,7 @@ func Admit(capacity int64, holders []Holder, waiting []Waiter, free map[string]i
 	return out
 }
 
-// Used is what holders count for, together.
+// Used is what holders count for in admission, together.
 func Used(holders []Holder) int64 {
 	var used int64
 	for _, h := range holders {
@@ -184,29 +223,37 @@ func GB(n int64) string {
 
 // memory.high
 //
-// A size is a reservation, not a cap: an agent may use more while the VM has
-// memory nobody reserved, and nothing is ever OOM-killed for going over its
-// size (no memory.max). Only as the VM nears its capacity does the daemon set
-// memory.high on the agents that went over, furthest over first, down toward
-// their reservation and some headroom: the kernel then reclaims from and slows
-// that agent alone, rather than the whole VM running short.
+// Neither a baseline nor a burst is a cap: an agent may use more while the VM
+// has memory nobody holds, and nothing is ever OOM-killed for going over (no
+// memory.max). Only as the VM nears its capacity does the daemon set
+// memory.high on the agents that went over what they hold, furthest over
+// first, down toward their baseline and lease and some headroom: the kernel
+// then reclaims from and slows that agent alone, rather than the whole VM
+// running short.
 
-// HighHeadroom is what memory.high leaves above an agent's reservation when
-// it is tightened: a quarter of it, and at least 512 MiB.
-func HighHeadroom(reserved int64) int64 { return max(reserved/4, int64(512)<<20) }
+// HighHeadroom is what memory.high leaves above what an agent holds when it is
+// tightened: a quarter of it, and at least 512 MiB.
+func HighHeadroom(held int64) int64 { return max(held/4, int64(512)<<20) }
 
-// highSlack is how much of capacity must be free, beyond what agents reserve
-// or use, for every agent to be left unlimited: a tenth, and at least 1 GiB.
+// highSlack is how much of capacity must be free, beyond what agents hold or
+// use, for every agent to be left unlimited: a tenth, and at least 1 GiB.
 func highSlack(capacity int64) int64 { return max(capacity/10, int64(1)<<30) }
+
+// held is what memory.high is tightened toward: baseline and lease.
+func (h Holder) held() int64 { return h.Reserved + h.Lease }
 
 // MemoryHighs works out each holder's memory.high, by Ref: 0 for none
 // ("max"). While at least highSlack of capacity is free, nobody gets one.
 // Short of that, every agent may still grow into an even share of what is
-// free, and the shortfall is taken from those furthest over their
-// reservation first, never below reservation plus HighHeadroom.
+// free, and the shortfall is taken from those furthest over what they hold
+// first, never below that plus HighHeadroom.
 func MemoryHighs(capacity int64, holders []Holder) map[string]int64 {
 	out := make(map[string]int64, len(holders))
-	free := capacity - Used(holders)
+	var used int64
+	for _, h := range holders {
+		used += h.Holds()
+	}
+	free := capacity - used
 	slack := highSlack(capacity)
 	if free >= slack || len(holders) == 0 {
 		for _, h := range holders {
@@ -216,18 +263,18 @@ func MemoryHighs(capacity int64, holders []Holder) map[string]int64 {
 	}
 	share := max(free, 0) / int64(len(holders))
 	for _, h := range holders {
-		out[h.Ref] = max(h.Counts()+share, h.Reserved+HighHeadroom(h.Reserved))
+		out[h.Ref] = max(h.Holds()+share, h.held()+HighHeadroom(h.held()))
 	}
 	short := slack - free
 	over := append([]Holder(nil), holders...)
 	sort.SliceStable(over, func(i, j int) bool {
-		return over[i].Using-over[i].Reserved > over[j].Using-over[j].Reserved
+		return over[i].Using-over[i].held() > over[j].Using-over[j].held()
 	})
 	for _, h := range over {
 		if short <= 0 {
 			break
 		}
-		floor := h.Reserved + HighHeadroom(h.Reserved)
+		floor := h.held() + HighHeadroom(h.held())
 		give := min(short, h.Using-floor)
 		if give <= 0 {
 			continue
@@ -236,4 +283,57 @@ func MemoryHighs(capacity int64, holders []Holder) map[string]int64 {
 		short -= give
 	}
 	return out
+}
+
+// The burst pool
+//
+// A heavy phase takes its agent's burst from the pool as a lease, and waits
+// for one when the pool has none to give (internal/daemon/burst.go). The pool
+// is whatever of capacity no agent holds: admission leaves at least PoolFloor
+// of it, and a lease is given when its burst fits in what is free now, or
+// when no other agent holds one, so a burst bigger than the pool still runs,
+// alone.
+
+// BurstFits says whether a lease of burst may be given now, among holders
+// (the asking agent's own Lease 0).
+func BurstFits(capacity int64, holders []Holder, burst int64) bool {
+	var used int64
+	leased := false
+	for _, h := range holders {
+		used += h.Holds()
+		leased = leased || h.Lease > 0
+	}
+	return !leased || used+burst <= capacity
+}
+
+// BurstFree is what the pool has free now, for saying why a lease waits.
+func BurstFree(capacity int64, holders []Holder) (free, leased int64, agents int) {
+	var used int64
+	for _, h := range holders {
+		used += h.Holds()
+		if h.Lease > 0 {
+			leased += h.Lease
+			agents++
+		}
+	}
+	return max(capacity-used, 0), leased, agents
+}
+
+// workerMemory is what one test worker is given room for under a lease.
+const workerMemory = int64(768) << 20
+
+// BurstEnv is the environment a heavy phase runs with: its test runners'
+// parallelism held to what its lease has room for (a worker per 768 MiB, no
+// more than cpus), so go test, vitest and cargo don't start a worker per core
+// on a lease sized for a few.
+func BurstEnv(lease int64, cpus int) map[string]string {
+	n := int(max(lease/workerMemory, 1))
+	n = max(min(n, cpus), 1)
+	v := strconv.Itoa(n)
+	return map[string]string{
+		"GOFLAGS":            "-p=" + v,
+		"VITEST_MAX_THREADS": v,
+		"VITEST_MAX_FORKS":   v,
+		"CARGO_BUILD_JOBS":   v,
+	}
 }

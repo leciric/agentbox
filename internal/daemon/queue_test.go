@@ -52,6 +52,10 @@ func newQueueTest(t *testing.T, budget int64, peaks map[string]int64, instances 
 		}
 		s.slotBudget = func(context.Context) (int64, error) { return budget, nil }
 		s.projectPeak = func(_ context.Context, project string) (int64, bool, error) { return peaks[project], true, nil }
+		// Admission counts baselines: a project's is its peak here.
+		s.projectShape = func(_ context.Context, project string) (agent.Shape, error) {
+			return agent.Shape{Baseline: peaks[project], Burst: 2 * gib}, nil
+		}
 		s.queueStart = func(_ context.Context, a state.QueuedAgent) error {
 			q.mu.Lock()
 			q.started = append(q.started, a.Ref())
@@ -61,6 +65,14 @@ func newQueueTest(t *testing.T, budget int64, peaks map[string]int64, instances 
 		}
 	}})
 	return q
+}
+
+// baselines makes every project's agents count as baseline in admission,
+// whatever their peaks give their slots.
+func (q *queueTest) baselines(baseline int64) {
+	q.srv.projectShape = func(context.Context, string) (agent.Shape, error) {
+		return agent.Shape{Baseline: baseline, Burst: 2 * gib}, nil
+	}
 }
 
 func (q *queueTest) addProject(t *testing.T, name string) {
@@ -120,6 +132,7 @@ func TestAdmitQueuedStartsIntoFreeSlots(t *testing.T) {
 		agent.InstanceName("organic", "o1"),
 	}
 	q := newQueueTest(t, 18*gib, map[string]int64{"organic": 6 * gib, "agentbox": 2 * gib}, runningInstances(instances...))
+	q.baselines(gib) // slots hold these up, not memory
 	q.addProject(t, "agentbox")
 	q.addProject(t, "organic")
 	for _, n := range []string{"a1", "a2", "a3", "a4"} {
@@ -376,6 +389,7 @@ func TestQueueOffQueuesNothing(t *testing.T) {
 	// One slot, and memory for all three: off, the slot no longer holds
 	// anybody up (admission_test.go has memory doing it either way).
 	q := newQueueTest(t, 16*gib, map[string]int64{"p": 4 * gib}, runningInstances(agent.InstanceName("p", "a1")))
+	q.baselines(gib)
 	q.addProject(t, "p")
 	if err := q.srv.store.SetProjectSlots(ctx, "p", 1); err != nil {
 		t.Fatal(err)
