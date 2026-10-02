@@ -2216,6 +2216,14 @@ func applyTool(t *api.ChatTool, u acp.SessionUpdate) {
 	if u.Status != "" {
 		t.Status = u.Status
 	}
+	if u.Returned() && (t.Status == "pending" || t.Status == "in_progress") {
+		// An Agent call, whose subagent has a card that says how it went.
+		// Left pending, a background one read as a tool still running for as
+		// long as the turn did — to the app, and to the stall watch, which
+		// counts a running tool's CPU as progress — and every one was marked
+		// stopped when its turn ended.
+		t.Status = "completed"
+	}
 	if name := cmp(u.Meta.ClaudeCode.ToolName, u.Name); name != "" {
 		t.Name = name
 	}

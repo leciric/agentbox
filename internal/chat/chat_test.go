@@ -63,6 +63,9 @@ type fakeTool struct {
 	// promptErr fails every turn with it, the way an adapter passes the
 	// provider's own refusal back.
 	promptErr *acp.Error
+	// turnErr fails every turn with it once the turn has run, the way an
+	// adapter ends one that went wrong partway.
+	turnErr *acp.Error
 	// during, when set, runs as the tool gets a request and before it
 	// answers: the moment for a test to do something while a session is
 	// being set up.
@@ -129,7 +132,7 @@ func (f *fakeTool) launch(_ context.Context, _ state.Agent, status func(string))
 func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any, error)) {
 	f.mu.Lock()
 	f.calls = append(f.calls, call{method, params})
-	turn, promptErr, during := f.turn, f.promptErr, f.during
+	turn, promptErr, turnErr, during := f.turn, f.promptErr, f.turnErr, f.during
 	f.mu.Unlock()
 	if during != nil {
 		var req struct {
@@ -200,7 +203,14 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		}
 		var req acp.PromptRequest
 		_ = json.Unmarshal(params, &req)
-		go func() { reply(turn(f, req.SessionID, req.Prompt[0].Text), nil) }()
+		go func() {
+			res := turn(f, req.SessionID, req.Prompt[0].Text)
+			if turnErr != nil {
+				reply(nil, turnErr)
+				return
+			}
+			reply(res, nil)
+		}()
 	case acp.MethodSessionSteer:
 		if !f.steering {
 			reply(nil, &acp.Error{Code: acp.CodeMethodNotFound, Message: method})
