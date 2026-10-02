@@ -1322,6 +1322,7 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request) error {
 			return nil, err
 		}
 		s.countFeature(api.FeatureAgentRestore)
+		m.EnsureImageCache(ctx, a)
 		m.EnsureBrowser(ctx, a)
 		s.refreshAgents(ctx)
 		return s.describe(ctx, a)

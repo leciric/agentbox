@@ -54,6 +54,7 @@ import {
   LeadRecheck,
   MediaRetention,
   DiskFloor,
+  DockerImageCache,
   NewAgentEffort,
   OpenCodeInImage,
   ResumeAfterLimit,
@@ -1122,7 +1123,7 @@ function InstalledSettings({
       id: "resources",
       title: "Resources",
       description:
-        "What agents may take from this machine: the free space AgentBox keeps on your disks, and the size of its VM.",
+        "What agents may take from this machine: the free space AgentBox keeps on your disks, the Docker images they share, and the size of its VM.",
       scope: "installation",
       groups: [
         {
@@ -1135,6 +1136,13 @@ function InstalledSettings({
               keywords: "disk space full floor free storage pool guard pause",
               modified: changed((s) => s.diskFloorMin !== 10 * 1024 ** 3 || s.diskFloorPercent !== 5),
               render: () => <DiskFloor />,
+            },
+            {
+              id: "docker-image-cache",
+              label: "Share Docker images between agents",
+              keywords: "docker image cache registry mirror pull hub layers disk space shared",
+              modified: changed((s) => !s.imageCache || s.imageCacheMaxBytes !== s.defaultImageCacheMaxBytes),
+              render: () => <DockerImageCache />,
             },
           ],
         },

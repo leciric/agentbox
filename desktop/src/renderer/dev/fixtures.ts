@@ -1027,6 +1027,10 @@ let defaultsSettings = {
   taskTarget: 'agent',
   leadRecheck: false,
   leadRecheckMinutes: 20,
+  imageCache: true,
+  imageCacheMaxBytes: 20 * 1024 ** 3,
+  defaultImageCacheMaxBytes: 20 * 1024 ** 3,
+  imageCacheBytes: 7.4 * 1024 ** 3,
 } as T.Settings;
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
@@ -1041,6 +1045,9 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
   if (req.autoStopIdle !== undefined) next.autoStopIdle = req.autoStopIdle;
   if (req.idleTimeSeconds !== undefined) next.idleTimeSeconds = req.idleTimeSeconds;
+  if (req.imageCache !== undefined) next.imageCache = req.imageCache;
+  if (req.imageCacheMaxBytes !== undefined) next.imageCacheMaxBytes = req.imageCacheMaxBytes || next.defaultImageCacheMaxBytes;
+  if (req.clearImageCache) next.imageCacheBytes = 0;
   // The channel changes what the update check offers (seedNightly).
   if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.

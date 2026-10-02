@@ -8,6 +8,7 @@ import { formatTokens } from '../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes, parseBytes } from '../lib/utils';
 import { JobProgress } from './JobProgress';
+import { Button } from './ui/button';
 import { ModelByName } from './ModelByName';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Field, Input } from './ui/input';
@@ -470,6 +471,79 @@ export function DiskFloor() {
             save.mutate({ diskFloorPercent: n });
           }}
         />
+      </div>
+    </SettingRow>
+  );
+}
+
+// DockerImageCache is the image cache every agent's Docker shares
+// (internal/imagecache): Docker Hub's images are downloaded and stored once in
+// AgentBox's VM rather than once per agent. Turning it off points agents back
+// at Docker Hub alone; the cap and the disk floor bound what it holds.
+export function DockerImageCache() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const on = settings.data?.imageCache ?? true;
+  const max = settings.data?.imageCacheMaxBytes ?? 20 * 1024 ** 3;
+  const held = settings.data?.imageCacheBytes ?? 0;
+  const disabled = save.isPending || settings.data === undefined;
+  return (
+    <SettingRow
+      label="Share Docker images between agents"
+      description="Agents' Docker pulls Docker Hub's images through one cache in AgentBox's VM, so each image is downloaded and stored once."
+      details={
+        <>
+          Images from other registries, like ghcr.io and quay.io, are pulled by each agent directly. When the cache can't
+          answer, Docker pulls from Docker Hub itself, so nothing breaks with it down or off. It reaches running agents at
+          once and the others as they start; the images read longest ago go first when it's full, and it never takes a
+          disk below what AgentBox keeps free.
+        </>
+      }
+      control={
+        <Switch
+          data-image-cache
+          aria-label="Share Docker images between agents"
+          disabled={disabled}
+          checked={on}
+          onCheckedChange={(imageCache) => save.mutate({ imageCache })}
+        />
+      }
+    >
+      <div className="grid max-w-md grid-cols-2 items-end gap-3">
+        <ResourceField
+          id="image-cache-max"
+          label="Hold at most"
+          placeholder="20GiB"
+          hint="Default 20GiB, 1GiB at the least."
+          value={max % 1024 ** 3 === 0 ? `${max / 1024 ** 3}GiB` : humanBytes(max).replace(' ', '')}
+          disabled={disabled}
+          onCommit={(value) => {
+            if (value.trim() === '') return save.mutate({ imageCacheMaxBytes: 0 });
+            const bytes = parseBytes(value);
+            if (bytes === undefined) {
+              toast.error('A size like 20GiB');
+              return;
+            }
+            save.mutate({ imageCacheMaxBytes: bytes });
+          }}
+        />
+        <div className="grid gap-1.5 pb-0.5">
+          <span data-image-cache-size className="text-[12px] text-subtle">
+            Holds {humanBytes(held)}
+          </span>
+          <Button
+            size="sm"
+            disabled={disabled || held === 0}
+            onClick={() => save.mutate({ clearImageCache: true })}
+          >
+            Empty it
+          </Button>
+        </div>
       </div>
     </SettingRow>
   );

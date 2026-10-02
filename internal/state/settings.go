@@ -189,7 +189,36 @@ const (
 	// user turns it on.
 	SettingLeadRecheck        = "lead_recheck"
 	SettingLeadRecheckMinutes = "lead_recheck_minutes"
+	// SettingImageCache says whether agents' Docker pulls Docker Hub's images
+	// through the daemon's shared cache. On until somebody turns it off
+	// (FlagOn).
+	SettingImageCache = "image_cache"
+	// SettingImageCacheMax is the most the shared image cache may hold, in
+	// bytes. Empty means DefaultImageCacheMax.
+	SettingImageCacheMax = "image_cache_max"
 )
+
+// DefaultImageCacheMax is the shared image cache's cap when nobody chose: a
+// handful of development stacks' images, a fraction of what agents pulling
+// their own copies used to take.
+const DefaultImageCacheMax int64 = 20 << 30
+
+// ImageCache reads the shared image cache's settings: whether it's on, and
+// its cap in bytes.
+func (s *Store) ImageCache(ctx context.Context) (on bool, maxBytes int64, err error) {
+	if on, err = s.FlagOn(ctx, SettingImageCache); err != nil {
+		return false, 0, err
+	}
+	maxBytes = DefaultImageCacheMax
+	raw, err := s.Setting(ctx, SettingImageCacheMax)
+	if err != nil {
+		return false, 0, err
+	}
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n > 0 {
+		maxBytes = n
+	}
+	return on, maxBytes, nil
+}
 
 // DefaultLeadRecheck is how often the lead is rechecked when nobody chose.
 const DefaultLeadRecheck = 20 * time.Minute

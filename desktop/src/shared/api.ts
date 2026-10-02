@@ -127,6 +127,10 @@ export interface Settings {
   taskTarget: string;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
+  imageCache: boolean;
+  imageCacheMaxBytes: number;
+  defaultImageCacheMaxBytes: number;
+  imageCacheBytes: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -152,6 +156,9 @@ export interface UpdateSettingsRequest {
   leadRecheckMinutes?: number;
   diskFloorMin?: number;
   diskFloorPercent?: number;
+  imageCache?: boolean;
+  imageCacheMaxBytes?: number;
+  clearImageCache?: boolean;
 }
 
 export interface Agent {

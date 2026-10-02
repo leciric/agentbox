@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"agentbox/internal/agent"
@@ -25,6 +26,7 @@ import (
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
+	"agentbox/internal/imagecache"
 	"agentbox/internal/incus"
 	"agentbox/internal/memory"
 	"agentbox/internal/omarchy"
@@ -61,13 +63,17 @@ type Config struct {
 }
 
 type Server struct {
-	cfg     Config
-	store   *state.Store
-	events  *broker
-	jobs    *jobs
-	chat    *chat.Manager // the agents' conversations in the app's Chat tab
-	pulls   *pullsCache   // what GitHub said about each repository, served stale
-	prWatch *prWatcher    // the agents' pull requests being watched (prwatch.go)
+	cfg Config
+	// imageCache is the image cache agents' Docker shares (imagecache.go),
+	// and imageCacheUp whether its socket is being served.
+	imageCache   *imagecache.Cache
+	imageCacheUp atomic.Bool
+	store        *state.Store
+	events       *broker
+	jobs         *jobs
+	chat         *chat.Manager // the agents' conversations in the app's Chat tab
+	pulls        *pullsCache   // what GitHub said about each repository, served stale
+	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
 	// prTell sends an agent a message from the pull request watch, waking it
 	// first, and reports whether it had to: wakeAndTell, or a test's recorder.
 	prTell func(ctx context.Context, a state.Agent, text string) (woke bool, err error)
@@ -250,6 +256,7 @@ func New(cfg Config) (*Server, error) {
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
 	s.disk = s.newDiskWatch()
+	s.imageCache = s.newImageCache()
 	return s, nil
 }
 
@@ -296,6 +303,7 @@ func (s *Server) Run(ctx context.Context) error {
 
 	s.reconcile(ctx)
 	s.servePreview(ctx)
+	s.serveImageCache(ctx)
 	s.applyLAN(ctx)
 	defer s.closeLAN()
 	s.watchTheme(ctx)
@@ -446,19 +454,20 @@ func (s *Server) reconcile(ctx context.Context) {
 
 func (s *Server) manager(log io.Writer) *agent.Manager {
 	return &agent.Manager{
-		Store:          s.store,
-		Incus:          s.cfg.Incus,
-		Paths:          s.cfg.Paths,
-		Creds:          credentials.Store{Dir: s.cfg.Paths.Credentials()},
-		Secrets:        s.secrets(),
-		User:           s.cfg.User,
-		Log:            log,
-		AgentSocket:    s.agentSocketPath,
-		Binary:         s.cfg.Binary,
-		BrowserSocket:  s.browserSocketPath,
-		AndroidSDK:     findAndroidSDK,
-		LeadSocketPath: s.leadSocketPath,
-		DesktopTheme:   s.desktopTheme,
+		Store:            s.store,
+		Incus:            s.cfg.Incus,
+		Paths:            s.cfg.Paths,
+		Creds:            credentials.Store{Dir: s.cfg.Paths.Credentials()},
+		Secrets:          s.secrets(),
+		User:             s.cfg.User,
+		Log:              log,
+		AgentSocket:      s.agentSocketPath,
+		Binary:           s.cfg.Binary,
+		BrowserSocket:    s.browserSocketPath,
+		AndroidSDK:       findAndroidSDK,
+		LeadSocketPath:   s.leadSocketPath,
+		DesktopTheme:     s.desktopTheme,
+		ImageCacheSocket: s.imageCacheSocket,
 	}
 }
 

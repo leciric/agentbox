@@ -433,6 +433,18 @@ type Settings struct {
 	// state — so it can retire finished agents and free their slots.
 	LeadRecheck        bool `json:"leadRecheck"`
 	LeadRecheckMinutes int  `json:"leadRecheckMinutes"`
+	// ImageCache is "shared image cache": while on, every agent's Docker
+	// pulls Docker Hub's images through one cache in AgentBox's VM, so an
+	// image is downloaded and stored once. On unless it was turned off.
+	// Images from other registries (ghcr.io, quay.io…) are pulled directly.
+	ImageCache bool `json:"imageCache"`
+	// ImageCacheMaxBytes is the most the cache may hold, the images read
+	// longest ago going first; DefaultImageCacheMaxBytes when nobody chose.
+	// It also never takes the disk below the disk floor.
+	ImageCacheMaxBytes        int64 `json:"imageCacheMaxBytes"`
+	DefaultImageCacheMaxBytes int64 `json:"defaultImageCacheMaxBytes"`
+	// ImageCacheBytes is how much the cache holds now.
+	ImageCacheBytes int64 `json:"imageCacheBytes"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -490,6 +502,14 @@ type UpdateSettingsRequest struct {
 	// one going back to the default.
 	DiskFloorMin     *int64   `json:"diskFloorMin,omitempty"`
 	DiskFloorPercent *float64 `json:"diskFloorPercent,omitempty"`
+	// ImageCache turns the shared image cache on or off, for running agents
+	// at once and for the others as they start.
+	ImageCache *bool `json:"imageCache,omitempty"`
+	// ImageCacheMaxBytes sets its cap, 0 going back to the default; at least
+	// 1 GiB otherwise.
+	ImageCacheMaxBytes *int64 `json:"imageCacheMaxBytes,omitempty"`
+	// ClearImageCache empties it.
+	ClearImageCache bool `json:"clearImageCache,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
