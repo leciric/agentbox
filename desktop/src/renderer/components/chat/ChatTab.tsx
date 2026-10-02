@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
 import { chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
+import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage } from '../../lib/utils';
 import { useReadAloud } from '../../lib/voice/useReadAloud';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -206,6 +207,7 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
 // need a second header under theirs.
 export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
   const queryClient = useQueryClient();
+  const projectName = useProjectName(agent.project);
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
   const items = thread.data?.items ?? [];
   const [clearing, setClearing] = useState(false);
@@ -227,7 +229,7 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
           isHomeChat(agent.ref)
             ? `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. Your projects are untouched.`
             : isProjectChat(agent.ref)
-            ? `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. The agents of ${agent.project} and their work are untouched.`
+            ? `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. The agents of ${projectName} and their work are untouched.`
             : `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. What ${agent.title || agent.name} changed in its worktree stays.`
         }
         confirmLabel="New chat"
@@ -238,6 +240,7 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
 }
 
 function Hero({ agent }: { agent: T.Agent }) {
+  const projectName = useProjectName(agent.project);
   if (!isProjectChat(agent.ref)) return <AgentHero agent={agent} />;
   if (isHomeChat(agent.ref)) return <HomeHero agent={agent} />;
   return (
@@ -248,9 +251,9 @@ function Hero({ agent }: { agent: T.Agent }) {
           <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
         </div>
       </div>
-      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">What should we build in {agent.project}?</h2>
+      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">What should we build in {projectName}?</h2>
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
-        This chat reads {agent.project} on <span className="font-mono text-[12.5px] text-muted">{agent.baseRef || 'its branch'}</span>. It doesn't run or
+        This chat reads {projectName} on <span className="font-mono text-[12.5px] text-muted">{agent.baseRef || 'its branch'}</span>. It doesn't run or
         change anything itself: the work happens in agents, each on its own machine.
       </p>
     </div>
@@ -275,6 +278,7 @@ function HomeHero({ agent }: { agent: T.Agent }) {
 }
 
 function AgentHero({ agent }: { agent: T.Agent }) {
+  const projectName = useProjectName(agent.project);
   return (
     <div className="flex min-h-[42vh] animate-slide-up flex-col items-center justify-center pt-6 text-center" data-chat-hero>
       <div className="relative mb-5">
@@ -283,7 +287,7 @@ function AgentHero({ agent }: { agent: T.Agent }) {
           <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
         </div>
       </div>
-      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">What should we build in {agent.project}?</h2>
+      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">What should we build in {projectName}?</h2>
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
         {aiLabel(agent.ai)} works on its own machine, on the branch <span className="font-mono text-[12.5px] text-muted">{agent.branch}</span>.
       </p>

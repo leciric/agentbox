@@ -913,7 +913,7 @@ func TestAddProjectCreatesARepository(t *testing.T) {
 
 	fresh := filepath.Join(parent, "My App")
 	p, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: fresh, Create: true})
-	if err != nil || p.Name != "my-app" || p.Root != fresh || p.Branch != "main" {
+	if err != nil || p.Name != "my-app" || p.DisplayName != "My App" || p.Root != fresh || p.Branch != "main" {
 		t.Fatalf("AddProject(create) = %+v, %v", p, err)
 	}
 	if got := testutil.Git(t, fresh, "log", "--format=%s"); got != "Initial commit" {
@@ -922,7 +922,7 @@ func TestAddProjectCreatesARepository(t *testing.T) {
 
 	// Taken names are refused before the folder is made.
 	taken := filepath.Join(parent, "taken")
-	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: taken, Name: "my-app", Create: true}); err == nil || !strings.Contains(err.Error(), "already a project called my-app") {
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: taken, Name: "my-app", Create: true}); err == nil || !strings.Contains(err.Error(), "already a project called My App") {
 		t.Errorf("AddProject(taken name) = %v", err)
 	}
 	if _, err := os.Stat(taken); err == nil {

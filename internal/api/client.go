@@ -132,8 +132,11 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 
 // AgentPath is the API path of an agent, from its "<project>/<agent>" ref.
 func AgentPath(ref string) (string, error) {
-	project, name, ok := strings.Cut(ref, "/")
-	if !ok || project == "" || name == "" || strings.Contains(name, "/") {
+	// At the last "/": an agent's name never has one, and what a project is
+	// called, which a ref may name it by, can.
+	i := strings.LastIndex(ref, "/")
+	project, name := ref[:max(i, 0)], ref[i+1:]
+	if i < 0 || project == "" || name == "" {
 		return "", fmt.Errorf("invalid agent %q: use <project>/<agent>, like pawly/agent-01", ref)
 	}
 	return "/v1/agents/" + url.PathEscape(project) + "/" + url.PathEscape(name), nil
@@ -228,6 +231,12 @@ func (c *Client) RemoveSection(ctx context.Context, id string) error {
 func (c *Client) SetProjectLayout(ctx context.Context, layout ProjectLayout) ([]Project, error) {
 	var out []Project
 	return out, c.do(ctx, http.MethodPut, "/v1/projects/layout", layout, &out)
+}
+
+// RenameProject changes what a project is called; its slug stays.
+func (c *Client) RenameProject(ctx context.Context, project, name string) (Project, error) {
+	var out Project
+	return out, c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(project), UpdateProjectRequest{DisplayName: &name}, &out)
 }
 
 // SetAutonomy sets how much a project's chat does on its own.

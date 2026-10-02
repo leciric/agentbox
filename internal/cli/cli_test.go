@@ -371,11 +371,34 @@ func TestAddDerivesNameFromDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustContain(t, out, "Added project my-app-v2")
+	mustContain(t, out, "Added project My_App.v2")
+	mustContain(t, out, "my-app-v2 (in refs like my-app-v2/agent-01")
 
-	if _, err := run(t, "", "add", "--name", "Bad Name", testutil.FixtureRepo(t, "hello-stack")); err == nil {
-		t.Error("add --name 'Bad Name' succeeded")
+	// Any name will do, and either it or the id names the project after.
+	out, err = run(t, "", "add", "--name", "Organic Web App", testutil.FixtureRepo(t, "hello-stack"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	mustContain(t, out, "Added project Organic Web App")
+	if _, err := run(t, "", "add", "--name", "organic WEB app", testutil.FixtureRepo(t, "hello-stack")); err == nil {
+		t.Error("a second project called organic web app was added")
+	}
+	out, err = run(t, "", "project", "model", "organic web app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Organic Web App: ")
+	out, err = run(t, "", "project", "rename", "organic-web-app", "Orgânico")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Renamed organic-web-app to Orgânico")
+	out, err = run(t, "", "projects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Orgânico")
+	mustContain(t, out, "organic-web-app")
 }
 
 func TestDaemonNotRunning(t *testing.T) {
@@ -639,7 +662,8 @@ func TestMediaDeleteCmd(t *testing.T) {
 		{"both", "not both", []string{"media", "delete", "hello-stack", "--all", "some-id"}},
 		{"kind without all", "--kind narrows --all", []string{"media", "delete", "hello-stack", "some-id", "--kind", "log"}},
 		{"two agents", "--agent says agent-02", []string{"media", "delete", "hello-stack/agent-01", "--all", "--agent", "agent-02"}},
-		{"not a project", "is neither a project nor an agent", []string{"media", "delete", "Not A Project", "--all"}},
+		{"not a project", `project "Not A Project": not found`, []string{"media", "delete", "Not A Project", "--all"}},
+		{"empty", "is neither a project nor an agent", []string{"media", "delete", " ", "--all"}},
 	} {
 		if _, err := run(t, "", c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: got %v, want an error about %q", c.name, err, c.want)

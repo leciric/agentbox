@@ -495,10 +495,39 @@ func (s *Server) logf(format string, args ...any) {
 	_, _ = fmt.Fprintf(s.cfg.Log, time.Now().Format(time.DateTime)+" "+format+"\n", args...)
 }
 
+// projectBySlug lets every request name a project by what it is called as
+// well as by its slug, the one the handlers all work with: a {project} in its
+// path, or a ?project= in its query, that is a project's display name is
+// turned into that project's slug before the handler reads it. Anything that
+// names no project is left as it is, for the handler to refuse or, for a
+// project that has gone, to go on reading by (the token ledger's rows outlive
+// their project).
+func (s *Server) projectBySlug(r *http.Request) {
+	slug := func(ref string) string {
+		if ref == "" || ref == state.HomeProject {
+			return ref
+		}
+		if p, err := s.store.Project(r.Context(), ref); err == nil {
+			return p.Name
+		}
+		return ref
+	}
+	if ref := r.PathValue("project"); ref != "" {
+		r.SetPathValue("project", slug(ref))
+	}
+	if q := r.URL.Query(); q.Has("project") {
+		if ref := q.Get("project"); slug(ref) != ref {
+			q.Set("project", slug(ref))
+			r.URL.RawQuery = q.Encode()
+		}
+	}
+}
+
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	h := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			s.projectBySlug(r)
 			if err := fn(w, r); err != nil {
 				writeError(w, err)
 			}

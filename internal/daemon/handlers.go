@@ -21,13 +21,9 @@ import (
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
-	"agentbox/internal/naming"
 	"agentbox/internal/notes"
 	"agentbox/internal/state"
 )
-
-// maxProjectName keeps ab-<project>-<agent> within Incus' 63-character limit.
-const maxProjectName = 30
 
 func (s *Server) version(w http.ResponseWriter, _ *http.Request) error {
 	groups, _ := os.Getgroups()
@@ -44,7 +40,7 @@ func (s *Server) shutdown(w http.ResponseWriter, _ *http.Request) error {
 // Projects
 
 func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
-	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
+	info := api.Project{PRWatch: p.PRWatch, PRWatching: s.prWatchOn(ctx, p), Name: p.Name, DisplayName: p.DisplayName, Root: p.Root, EnvFiles: []string{}, Android: android.IsProject(p.Root),
 		ClaudeAccount: p.ClaudeAccount, ClaudeAccounts: nonNil(p.ClaudeAccounts), GitHubAccount: p.GitHubAccount, Autonomy: p.Autonomy,
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
@@ -104,23 +100,24 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	if !repo.HasCommits() {
 		return fmt.Errorf("%s has no commits yet: agents branch from a commit", repo.Root)
 	}
-	name := req.Name
+	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		name = naming.Slug(filepath.Base(repo.Root))
-	}
-	if err := naming.Validate("project", name, maxProjectName); err != nil {
-		return fmt.Errorf("%w (choose one with --name)", err)
+		name = filepath.Base(repo.Root)
 	}
 	if diskErr != nil {
 		// Checked before copying, so a name that's taken doesn't leave a copy behind.
-		if _, err := s.store.Project(r.Context(), name); err == nil {
-			return fmt.Errorf("there's already a project called %s (choose another name)", name)
+		if err := s.projectNameFree(r.Context(), name); err != nil {
+			return err
 		}
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return err
 		}
-		copied, err := gitrepo.Clone(repo, filepath.Join(home, "src", name))
+		slug, err := s.store.ProjectSlug(r.Context(), name)
+		if err != nil {
+			return err
+		}
+		copied, err := gitrepo.Clone(repo, filepath.Join(home, "src", slug))
 		if err != nil {
 			return fmt.Errorf("copying %s into WSL: %w", repo.Root, err)
 		}
@@ -133,7 +130,7 @@ func (s *Server) addProjectFrom(w http.ResponseWriter, r *http.Request, req api.
 	if err := s.checkGitHubAccount(githubAccount); err != nil {
 		return err
 	}
-	p, err := s.registerProject(r.Context(), state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
+	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
 	if err != nil {
 		return err
 	}
@@ -160,15 +157,12 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 	if hostos.WSL() && windowsDrive.MatchString(path) {
 		return fmt.Errorf("%s is on a Windows drive, where git is slow from WSL: make the repository on WSL's own disk instead, like ~/src/%s", path, filepath.Base(path))
 	}
-	name := req.Name
+	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		name = naming.Slug(filepath.Base(path))
+		name = filepath.Base(path)
 	}
-	if err := naming.Validate("project", name, maxProjectName); err != nil {
-		return fmt.Errorf("%w (choose another name)", err)
-	}
-	if _, err := s.store.Project(r.Context(), name); err == nil {
-		return fmt.Errorf("there's already a project called %s (choose another name)", name)
+	if err := s.projectNameFree(r.Context(), name); err != nil {
+		return err
 	}
 	claudeAccount, githubAccount := strings.TrimSpace(req.ClaudeAccount), strings.TrimSpace(req.GitHubAccount)
 	if err := s.checkClaudeAccount(claudeAccount); err != nil {
@@ -181,7 +175,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 	if err != nil {
 		return err
 	}
-	p, err := s.registerProject(r.Context(), state.Project{Name: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
+	p, err := s.registerProject(r.Context(), state.Project{DisplayName: name, Root: repo.Root, ClaudeAccount: claudeAccount, GitHubAccount: githubAccount, CreatedAt: time.Now()})
 	if err != nil {
 		if created {
 			_ = os.RemoveAll(repo.Root)
@@ -189,6 +183,12 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, req api.A
 		return err
 	}
 	return writeJSON(w, http.StatusCreated, s.projectInfo(r.Context(), p))
+}
+
+// projectNameFree refuses a new project's name that another project already
+// answers to, before anything is copied, cloned or made for it.
+func (s *Server) projectNameFree(ctx context.Context, name string) error {
+	return s.store.ProjectNameFree(ctx, name, "")
 }
 
 // registerProject stores a project whose repository is ready, and answers
@@ -206,10 +206,17 @@ func (s *Server) registerProject(ctx context.Context, p state.Project) (state.Pr
 		return p, err
 	}
 	s.countFeature(api.FeatureProjectAdd)
-	// Read it back, so the answer carries what the store filled in.
-	if stored, err := s.store.Project(ctx, p.Name); err == nil {
-		p = stored
+	// Read it back, so the answer carries what the store filled in, the slug
+	// made from its name among them.
+	ref := p.Name
+	if ref == "" {
+		ref = p.DisplayName
 	}
+	stored, err := s.store.Project(ctx, ref)
+	if err != nil {
+		return p, err
+	}
+	p = stored
 	// Its chat's socket, so the project can be talked to straight away.
 	if err := s.serveLeadAPI(p.Name); err != nil {
 		s.logf("lead API socket for %s: %v", p.Name, err)
@@ -246,6 +253,17 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			s.logf("reconfiguring the %s chat: %v", p.Name, err)
 		}
 	}
+	// Renaming changes only what the project is called: its slug, and with
+	// it every container, folder, branch and socket, stays as it is.
+	if req.DisplayName != nil {
+		display := strings.TrimSpace(*req.DisplayName)
+		if err := s.store.SetProjectDisplayName(r.Context(), p.Name, display); err != nil {
+			return err
+		}
+		p.DisplayName = display
+		rewriteBrief()
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+	}
 	if req.Autonomy != nil {
 		autonomy := strings.TrimSpace(*req.Autonomy)
 		if err := s.store.SetProjectAutonomy(r.Context(), p.Name, autonomy); err != nil {
@@ -272,7 +290,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		if repo, err := gitrepo.Open(p.Root); err == nil {
 			if branch := repo.BranchInTheWay(prefix); branch != "" {
-				return fmt.Errorf("%s already has a branch %s, so no branch can start with %s", p.Name, branch, prefix)
+				return fmt.Errorf("%s already has a branch %s, so no branch can start with %s", p.DisplayName, branch, prefix)
 			}
 		}
 		if err := s.store.SetProjectBranchPrefix(r.Context(), p.Name, prefix); err != nil {
@@ -557,19 +575,20 @@ func (s *Server) brief(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	text, err := brief.Render(brief.Data{
-		Project:  p.Name,
-		Agent:    name,
-		Worktree: s.cfg.Paths.Worktree(p.Name, name),
-		Branch:   a.Branch,
-		BaseRef:  repo.CurrentBranch(),
-		EnvFiles: envFiles,
-		Secrets:  secretNames,
-		Android:  android.IsProject(p.Root),
-		VM:       hostos.InVM(),
-		Host:     hostos.Name(),
-		Notes:    projectNotes,
-		Nesting:  p.Nesting,
-		AgentPRs: p.AgentPRs,
+		Project:     p.Name,
+		ProjectName: p.DisplayName,
+		Agent:       name,
+		Worktree:    s.cfg.Paths.Worktree(p.Name, name),
+		Branch:      a.Branch,
+		BaseRef:     repo.CurrentBranch(),
+		EnvFiles:    envFiles,
+		Secrets:     secretNames,
+		Android:     android.IsProject(p.Root),
+		VM:          hostos.InVM(),
+		Host:        hostos.Name(),
+		Notes:       projectNotes,
+		Nesting:     p.Nesting,
+		AgentPRs:    p.AgentPRs,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,
@@ -1010,6 +1029,7 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	if err != nil {
 		return api.Job{}, err
 	}
+	req.Project = p.Name // it may have been named by what it is called
 	if req.AI == "" {
 		req.AI = "claude"
 	}

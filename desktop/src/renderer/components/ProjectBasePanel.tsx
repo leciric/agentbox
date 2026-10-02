@@ -14,6 +14,7 @@ import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useProjectName } from '../lib/useProjectName';
 import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { JobProgress } from './JobProgress';
@@ -254,6 +255,7 @@ function RefreshDialog({
   onCreated: (ref: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const projectName = useProjectName(project);
   const [task, setTask] = useState(refreshTask);
   const [title, setTitle] = useState('');
   const [job, setJob] = useState<T.Job | null>(null);
@@ -306,7 +308,7 @@ function RefreshDialog({
     <Dialog open={open} onOpenChange={reset}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{base ? 'Refresh the project base' : `Set ${project} up in an agent`}</DialogTitle>
+          <DialogTitle>{base ? 'Refresh the project base' : `Set ${projectName} up in an agent`}</DialogTitle>
           <DialogDescription>
             {base
               ? 'An agent started from the base as it is now, to bring it up to date. You save its machine when you are happy with it.'
@@ -358,7 +360,7 @@ function RefreshDialog({
                 </>
               ) : (
                 <>
-                  {project} has no base yet, so this agent starts from the plain base image, like every other agent of the project does today.
+                  {projectName} has no base yet, so this agent starts from the plain base image, like every other agent of the project does today.
                 </>
               )}
             </Notice>
@@ -417,6 +419,7 @@ function SaveDialog({
   agents: T.Agent[];
   onSaved: () => void;
 }) {
+  const projectName = useProjectName(project);
   // The newest agent is the one a refresh just made, which is what this dialog
   // is usually opened for.
   const newest: T.Agent | undefined = [...agents].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
@@ -464,7 +467,7 @@ function SaveDialog({
         {job ? (
           <>
             <JobProgress jobId={job.id} onDone={finished} />
-            {done?.status === 'succeeded' && <Notice tone="info">New agents of {project} are now copied from this machine.</Notice>}
+            {done?.status === 'succeeded' && <Notice tone="info">New agents of {projectName} are now copied from this machine.</Notice>}
             <DialogFooter>
               <Button onClick={() => reset(false)}>{done ? 'Close' : 'Keep running in background'}</Button>
             </DialogFooter>
@@ -480,7 +483,7 @@ function SaveDialog({
             <Field
               label="Save from"
               htmlFor="base-save-agent"
-              hint={chosen ? "Its machine becomes the base; its worktree doesn't." : `${project} has no agent yet: make one, set the project up in it, then save from it.`}
+              hint={chosen ? "Its machine becomes the base; its worktree doesn't." : `${projectName} has no agent yet: make one, set the project up in it, then save from it.`}
             >
               <Select id="base-save-agent" value={chosen?.name ?? ''} onChange={setAgent}>
                 {agents.map((a) => (
@@ -498,7 +501,7 @@ function SaveDialog({
               </Notice>
             ) : (
               <Notice tone="info">
-                {project} has no base yet, so this replaces nothing. From now on its new agents are copied from this machine instead of the plain image.
+                {projectName} has no base yet, so this replaces nothing. From now on its new agents are copied from this machine instead of the plain image.
               </Notice>
             )}
             {source && (

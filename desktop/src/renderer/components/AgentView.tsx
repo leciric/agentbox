@@ -32,6 +32,7 @@ import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
+import { useProjectName } from '../lib/useProjectName';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
 import { cn, errorMessage } from '../lib/utils';
@@ -315,6 +316,7 @@ export function AgentView({
 // two ways out of it (AgentContextMenu offers the same two from the rail).
 function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect: (view: View) => void }) {
   const queryClient = useQueryClient();
+  const projectName = useProjectName(agent.project);
   const queue = useQuery({ queryKey: ['queue', agent.project], queryFn: () => api.queue(agent.project) });
   const entry = queue.data?.queued.find((q) => q.name === agent.name);
 
@@ -351,7 +353,7 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
         </span>
         <div className="grid max-w-md gap-1.5">
           <p className="text-[14px] font-medium text-primary">
-            Queued #{agent.queuePosition ?? entry?.position ?? '?'} — starts when one of {agent.project}'s slots is free
+            Queued #{agent.queuePosition ?? entry?.position ?? '?'} — starts when one of {projectName}'s slots is free
           </p>
           {entry?.task && <p className="text-[13px] leading-relaxed text-subtle">{entry.task}</p>}
         </div>
@@ -366,7 +368,7 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
           </Button>
           <Button variant="ghost" size="sm" onClick={() => onSelect({ kind: 'project', project: agent.project })}>
             <FolderGit2 />
-            Back to {agent.project}
+            Back to {projectName}
           </Button>
         </div>
       </div>

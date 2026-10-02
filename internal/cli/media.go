@@ -21,9 +21,20 @@ import (
 
 var (
 	refPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$`)
-	// projectPattern is a bare project name, which media list also accepts.
-	projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	// agentPattern is an agent's name, the part of a ref after its last "/".
+	agentPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 )
+
+// projectOrAgent reads what media list and delete are given: an agent
+// (<project>/<agent>), or a whole project. A project may be named by its id or
+// by what it is called, which can be anything, a "/" included, so only the
+// part after the last "/" is taken for an agent, and only when it is one.
+func projectOrAgent(arg string) (project, agent string, ok bool) {
+	if i := strings.LastIndex(arg, "/"); i > 0 && agentPattern.MatchString(arg[i+1:]) {
+		return arg[:i], arg[i+1:], true
+	}
+	return arg, "", strings.TrimSpace(arg) != ""
+}
 
 // splitRef takes an agent off the front of args when there are more than the
 // command's own n arguments: the host names the agent first, an agent leaves it out.
@@ -120,13 +131,14 @@ nothing: it lists its own.`,
 			// An agent (pawly/agent-01), or a whole project (pawly).
 			ref, project := "", ""
 			if len(args) == 1 {
+				named, agent, ok := projectOrAgent(args[0])
 				switch {
-				case refPattern.MatchString(args[0]):
-					ref = args[0]
-				case projectPattern.MatchString(args[0]):
-					project = args[0]
-				default:
+				case !ok:
 					return fmt.Errorf("%q is neither a project nor an agent: use <project> or <project>/<agent>", args[0])
+				case agent != "":
+					ref = args[0]
+				default:
+					project = named
 				}
 			}
 			whole := project != ""
@@ -488,15 +500,13 @@ It asks first; --yes answers for you, for scripts.`,
   agentbox media delete pawly/agent-01 --all --yes`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			project := args[0]
-			if refPattern.MatchString(project) {
-				var named string
-				project, named, _ = strings.Cut(project, "/")
+			project, named, ok := projectOrAgent(args[0])
+			if ok && named != "" {
 				if agent != "" && agent != named {
 					return fmt.Errorf("%s names agent %s, but --agent says %s", args[0], named, agent)
 				}
 				agent = named
-			} else if !projectPattern.MatchString(project) {
+			} else if !ok {
 				return fmt.Errorf("%q is neither a project nor an agent: use <project> or <project>/<agent>", args[0])
 			}
 			ids := args[1:]

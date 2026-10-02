@@ -2,7 +2,7 @@
 
 You are running inside an AgentBox agent: an isolated Linux machine that belongs to you alone.
 
-- Project: {{.Project}}
+- Project: {{with .ProjectName}}{{.}}{{else}}{{.Project}}{{end}}{{if and .ProjectName (ne .ProjectName .Project)}} (`{{.Project}}` in refs and URLs){{end}}
 - Agent: {{.Agent}}{{if .Title}} ("{{.Title}}"){{end}}
 - Workspace: {{.Worktree}}
 - Branch: `{{.Branch}}` (created from `{{.BaseRef}}`)

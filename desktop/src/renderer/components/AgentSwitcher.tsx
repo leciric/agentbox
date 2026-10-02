@@ -4,6 +4,7 @@ import { ChevronsUpDown, MessagesSquare, Plus, Users } from 'lucide-react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useProjectName } from '../lib/useProjectName';
 import { cn, humanBytes, humanRate, shortRate } from '../lib/utils';
 import { AIIcon, aiLabel, StatusDot } from './state';
 import { Menu, MenuContent, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
@@ -21,6 +22,7 @@ const itemClass = (active: boolean) =>
 // way back to it from anywhere.
 export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
+  const projectName = useProjectName(project ?? '');
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: project !== null });
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage, enabled: project !== null });
 
@@ -33,7 +35,7 @@ export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSe
       <MenuTrigger asChild>
         <button
           className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised hover:text-primary"
-          aria-label={`Switch chat or agent in ${project}`}
+          aria-label={`Switch chat or agent in ${projectName}`}
         >
           <Users className="size-3.5" />
           {/* No count before the agents are in: 0 would say there are none. */}
@@ -42,7 +44,7 @@ export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSe
         </button>
       </MenuTrigger>
       <MenuContent className="w-72 p-1.5" align="start">
-        <MenuLabel>{project}</MenuLabel>
+        <MenuLabel>{projectName}</MenuLabel>
         <MenuPrimitive.Item className={itemClass(onLead)} onSelect={() => onSelect({ kind: 'project', project })}>
           <MessagesSquare className="size-4 shrink-0 text-brand-300" />
           <span className="min-w-0 flex-1 truncate">Project chat</span>

@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useProjectName } from '../lib/useProjectName';
+import { projectLabel } from '../lib/projectName';
 import { projectPlace, type ProjectPlaceName, type ProjectSection } from '../lib/tabs';
 import { countFeature, projectTabFeatures } from '../lib/usageStats';
 import { errorMessage, timeAgo } from '../lib/utils';
@@ -33,6 +35,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
   const queryClient = useQueryClient();
   // The lead writes here too, and so does anyone editing the file by hand:
   // poll while the tab is open, and keep what the user is typing either way.
+  const projectName = useProjectName(project);
   const notes = useQuery({ queryKey: ['notes', project], queryFn: () => api.notes(project), refetchInterval: 5000 });
   const saved = notes.data?.text ?? '';
   const [draft, setDraft] = useState<string | null>(null);
@@ -44,7 +47,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
       setDraft(null);
       queryClient.setQueryData(['notes', project], updated);
       await queryClient.invalidateQueries({ queryKey: ['brief', project] });
-      toast(updated.text ? `Saved ${project}'s notes` : `Cleared ${project}'s notes`);
+      toast(updated.text ? `Saved ${projectName}'s notes` : `Cleared ${projectName}'s notes`);
     },
   });
 
@@ -146,7 +149,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             <FolderGit2 className="size-4" />
           </span>
           <div className="min-w-0">
-            <h1 className="truncate text-[15px] font-semibold tracking-tight text-title">{project.name}</h1>
+            <h1 className="truncate text-[15px] font-semibold tracking-tight text-title">{projectLabel(project)}</h1>
             <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
           </div>
           <div className="ml-auto flex gap-2">

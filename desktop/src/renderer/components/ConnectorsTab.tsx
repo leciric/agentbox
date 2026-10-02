@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api } from '../lib/api';
+import { projectLabel } from '../lib/projectName';
 import {
   type ConnectorPreset,
   connectorName,
@@ -35,6 +36,7 @@ import { Tip } from './ui/tooltip';
 
 export function ConnectorsTab({ target }: { target: string }) {
   const queryClient = useQueryClient();
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const forAgent = target.includes('/');
   const connectors = useQuery({ queryKey: ['connectors', target], queryFn: () => api.connectors(target) });
   const [removing, setRemoving] = useState<T.Connector | null>(null);
@@ -104,7 +106,7 @@ export function ConnectorsTab({ target }: { target: string }) {
         onOpenChange={(open) => !open && setRemoving(null)}
         title={`Remove ${removing?.name}?`}
         description={`AgentBox forgets its sign-in and takes its tools away from ${
-          removing?.scope === 'project' ? `every agent of ${removing?.project}` : removing?.agent
+          removing?.scope === 'project' ? `every agent of ${projectLabel(removing?.project ?? '', projects.data)}` : removing?.agent
         }. A session already running keeps them until it next starts.`}
         confirmLabel="Remove"
         destructive

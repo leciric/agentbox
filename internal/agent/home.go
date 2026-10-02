@@ -89,7 +89,7 @@ func (m *Manager) configureHome(ctx context.Context, a state.Agent) error {
 	}
 	d := brief.HomeData{Dir: a.Worktree, VM: hostos.InVM(), Host: hostos.Name()}
 	for _, p := range projects {
-		d.Projects = append(d.Projects, brief.HomeProject{Name: p.Name, Root: p.Root})
+		d.Projects = append(d.Projects, brief.HomeProject{Name: p.DisplayName, Root: p.Root})
 	}
 	text, err := brief.RenderHome(d)
 	if err != nil {

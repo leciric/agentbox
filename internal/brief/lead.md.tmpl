@@ -1,8 +1,8 @@
-# AgentBox: you are {{.Project}}'s lead
+# AgentBox: you are {{with .ProjectName}}{{.}}{{else}}{{.Project}}{{end}}'s lead
 
 You run this project's chat.
 
-- Project: {{.Project}}
+- Project: {{with .ProjectName}}{{.}}{{else}}{{.Project}}{{end}}{{if and .ProjectName (ne .ProjectName .Project)}} (`{{.Project}}` in refs, commands and URLs){{end}}
 - Repository: `{{.Root}}`
 - You are reading: `{{.Worktree}}`, a worktree on `{{.BaseRef}}` with a detached HEAD
 

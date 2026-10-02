@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { projectLabel } from '../lib/projectName';
 import { errorMessage, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Badge } from './ui/badge';
@@ -22,6 +23,7 @@ import { Tip } from './ui/tooltip';
 
 export function SecretsTab({ target }: { target: string }) {
   const queryClient = useQueryClient();
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const forAgent = target.includes('/');
   const secrets = useQuery({ queryKey: ['secrets', target], queryFn: () => api.secrets(target) });
   const [deleting, setDeleting] = useState<T.Secret | null>(null);
@@ -82,7 +84,7 @@ export function SecretsTab({ target }: { target: string }) {
         title={`Remove ${deleting?.name}?`}
         description={
           deleting?.scope === 'project'
-            ? `AgentBox forgets the value and takes the variable out of every agent of ${deleting?.project}. A process already running in one keeps the value it read when it started.`
+            ? `AgentBox forgets the value and takes the variable out of every agent of ${projectLabel(deleting?.project ?? '', projects.data)}. A process already running in one keeps the value it read when it started.`
             : `AgentBox forgets the value and takes the variable out of ${deleting?.agent}. A process already running there keeps the value it read when it started.`
         }
         confirmLabel="Remove"

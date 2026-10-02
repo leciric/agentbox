@@ -7,6 +7,7 @@ import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
 import { openLatestRelease } from '../lib/releaseLink';
@@ -201,7 +202,7 @@ export function Sidebar({
             onKeyDown={moveKeys((delta) => apply(moveProject(lists, project.name, delta), project.name))}
             aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
           >
-            <span className="truncate">{project.name}</span>
+            <span className="truncate">{projectLabel(project)}</span>
             {tone && (
               <Tip label={toneLabel[tone]}>
                 <span className={cn('size-1.5 shrink-0 rounded-full', toneDot[tone])} aria-label={toneLabel[tone]} />
@@ -213,9 +214,9 @@ export function Sidebar({
               <Skeleton className="ml-auto h-3.5 w-5 rounded-full" />
             )}
           </button>
-          <Tip label={`New agent in ${project.name}`}>
+          <Tip label={`New agent in ${projectLabel(project)}`}>
             <button
-              aria-label={`New agent in ${project.name}`}
+              aria-label={`New agent in ${projectLabel(project)}`}
               className="ml-1 rounded-md p-1 text-subtle opacity-0 transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100"
               onClick={() => onNewAgent(project.name)}
             >

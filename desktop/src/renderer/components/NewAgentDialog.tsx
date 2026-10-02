@@ -3,6 +3,7 @@ import { ChevronRight, LoaderCircle, MessageSquare, SquareTerminal } from 'lucid
 import { useCallback, useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { projectLabel } from '../lib/projectName';
 import { branchSlug, branchSlugPattern, maxBranchSlugLen } from '../lib/branch';
 import { formatTokens } from '../lib/chat';
 import { choiceName } from '../lib/modelChoices';
@@ -291,7 +292,7 @@ export function NewAgentDialog({
               <Select id="agent-project" value={form.project} onChange={(value) => set('project', value)}>
                 {projects.data?.map((p) => (
                   <SelectOption key={p.name} value={p.name}>
-                    {p.name}
+                    {projectLabel(p)}
                   </SelectOption>
                 ))}
               </Select>

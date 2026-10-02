@@ -95,6 +95,7 @@ func TestProjects(t *testing.T) {
 	p.Consolidation = state.DefaultConsolidation           // filled in by AddProject
 	p.ConsolidationModel = state.DefaultConsolidationModel // filled in by AddProject
 	p.BranchPrefix = state.DefaultBranchPrefix             // filled in by AddProject
+	p.DisplayName = "pawly"                                // filled in by AddProject
 	if !reflect.DeepEqual(got, p) {
 		t.Errorf("Project() = %+v, want %+v", got, p)
 	}

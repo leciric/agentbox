@@ -48,8 +48,11 @@ added as it is; one with files in it and no commits is only committed with
 				return err
 			}
 			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "Added project %s\n\n", p.Name)
+			_, _ = fmt.Fprintf(out, "Added project %s\n\n", p.Called())
 			w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+			if p.Name != p.Called() {
+				_, _ = fmt.Fprintf(w, "  id\t%s (in refs like %s/agent-01; either name works in commands)\n", p.Name, p.Name)
+			}
 			_, _ = fmt.Fprintf(w, "  root\t%s\n", p.Root)
 			_, _ = fmt.Fprintf(w, "  branch\t%s (new agents start here)\n", p.Branch)
 			_, _ = fmt.Fprintf(w, "  env files\t%s\n", describeEnvFiles(p.EnvFiles))
@@ -61,7 +64,7 @@ added as it is; one with files in it and no commits is only committed with
 			return w.Flush()
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "project name (default: derived from the directory name)")
+	cmd.Flags().StringVar(&name, "name", "", `what the project is called, anything you like, such as "Organic Web App" (default: the directory's name)`)
 	cmd.Flags().StringVar(&claudeAccount, "claude-account", "", "Claude Code account its agents use (default: this machine's default account)")
 	cmd.Flags().StringVar(&githubAccount, "github-account", "", "GitHub account its agents use (default: this machine's default account)")
 	cmd.Flags().BoolVar(&create, "new", false, "make <path> a new repository, on main with an initial commit, and add that")
@@ -94,8 +97,35 @@ func newProjectCmd(a *app) *cobra.Command {
 		Short: "Settings of one project",
 		Long:  `Settings that belong to one project, rather than to this installation.`,
 	}
-	cmd.AddCommand(newProjectModelCmd(a), newProjectBranchPrefixCmd(a))
+	cmd.AddCommand(newProjectModelCmd(a), newProjectBranchPrefixCmd(a), newProjectRenameCmd(a))
 	return cmd
+}
+
+// newProjectRenameCmd changes what a project is called. Its id, the slug in
+// its refs, containers, folders and branches, stays as it is.
+func newProjectRenameCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rename <project> <name>",
+		Short: "Change what a project is called",
+		Long: `Change what a project is called: any name, if no other project has it.
+
+Only the name changes. The project's id, which its agents' refs, machines,
+folders and branches are named with, stays as it is.`,
+		Example: `  agentbox project rename organic-web-app "Organic Web App"`,
+		Args:    cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			p, err := c.RenameProject(cmd.Context(), args[0], args[1])
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Renamed %s to %s\n", p.Name, p.Called())
+			return nil
+		},
+	}
 }
 
 // newProjectModelCmd shows or sets the model this project's agents are created
@@ -127,8 +157,8 @@ for the next one.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentModelWords(p.AgentModel))
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentModelWords(p.AgentModel))
 						return nil
 					}
 				}
@@ -146,7 +176,7 @@ for the next one.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentModelWords(p.AgentModel))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentModelWords(p.AgentModel))
 			return nil
 		},
 	}
@@ -193,8 +223,8 @@ exist keep the branch they were made on.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, branchPrefixWords(p.BranchPrefix))
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), branchPrefixWords(p.BranchPrefix))
 						return nil
 					}
 				}
@@ -204,7 +234,7 @@ exist keep the branch they were made on.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, branchPrefixWords(p.BranchPrefix))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), branchPrefixWords(p.BranchPrefix))
 			return nil
 		},
 	}
@@ -237,9 +267,9 @@ func newProjectsCmd(a *app) *cobra.Command {
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
-			_, _ = fmt.Fprintln(w, "PROJECT\tCLAUDE ACCOUNT\tGITHUB ACCOUNT\tROOT")
+			_, _ = fmt.Fprintln(w, "PROJECT\tID\tCLAUDE ACCOUNT\tGITHUB ACCOUNT\tROOT")
 			for _, p := range projects {
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, orDash(p.ClaudeAccount), orDash(p.GitHubAccount), p.Root)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", p.Called(), p.Name, orDash(p.ClaudeAccount), orDash(p.GitHubAccount), p.Root)
 			}
 			return w.Flush()
 		},
@@ -294,8 +324,8 @@ blocked until it gets an answer, so its question always wakes the chat.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, finishNoticeWords(p.FinishNotices))
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), finishNoticeWords(p.FinishNotices))
 						return nil
 					}
 				}
@@ -305,7 +335,7 @@ blocked until it gets an answer, so its question always wakes the chat.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, finishNoticeWords(p.FinishNotices))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), finishNoticeWords(p.FinishNotices))
 			return nil
 		},
 	}
@@ -333,8 +363,8 @@ isolation, and needs the base image built with agentbox image build --incus.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, nestingWords(p.Nesting))
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), nestingWords(p.Nesting))
 						return nil
 					}
 				}
@@ -348,7 +378,7 @@ isolation, and needs the base image built with agentbox image build --incus.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, nestingWords(p.Nesting))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), nestingWords(p.Nesting))
 			return nil
 		},
 	}
@@ -384,8 +414,8 @@ branch. Off by default: a push publishes, with your GitHub token.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentPRsWords(p.AgentPRs))
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentPRsWords(p.AgentPRs))
 						return nil
 					}
 				}
@@ -399,7 +429,7 @@ branch. Off by default: a push publishes, with your GitHub token.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, agentPRsWords(p.AgentPRs))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), agentPRsWords(p.AgentPRs))
 			return nil
 		},
 	}
@@ -462,7 +492,7 @@ The default is 80.`,
 				return err
 			}
 			show := func(p api.Project) {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, rolloverWords(p.RolloverThreshold))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), rolloverWords(p.RolloverThreshold))
 			}
 			if len(args) == 1 {
 				projects, err := c.Projects(cmd.Context())
@@ -470,7 +500,7 @@ The default is 80.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
+					if p.Is(args[0]) {
 						show(p)
 						return nil
 					}
@@ -527,7 +557,7 @@ The default is 4,000 tokens, and a worker agent gets a quarter of it.`,
 			}
 			show := func(p api.Project) {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %d tokens a context, %d for one agent\n",
-					p.Name, p.ContextBudget, p.ContextBudget/4)
+					p.Called(), p.ContextBudget, p.ContextBudget/4)
 			}
 			if len(args) == 1 {
 				projects, err := c.Projects(cmd.Context())
@@ -535,7 +565,7 @@ The default is 4,000 tokens, and a worker agent gets a quarter of it.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
+					if p.Is(args[0]) {
 						show(p)
 						return nil
 					}
@@ -597,7 +627,7 @@ The default is 200.`,
 				return err
 			}
 			show := func(p api.Project) {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, consolidationWords(p.Consolidation))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), consolidationWords(p.Consolidation))
 			}
 			if len(args) == 1 {
 				projects, err := c.Projects(cmd.Context())
@@ -605,7 +635,7 @@ The default is 200.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
+					if p.Is(args[0]) {
 						show(p)
 						state, err := c.ProjectMemory(p.Name).Consolidation(cmd.Context())
 						if err == nil {
@@ -675,7 +705,7 @@ The default is cheap.`,
 				return err
 			}
 			show := func(p api.Project) {
-				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, consolidationModelWords(p.ConsolidationModel))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), consolidationModelWords(p.ConsolidationModel))
 			}
 			if len(args) == 1 {
 				projects, err := c.Projects(cmd.Context())
@@ -683,7 +713,7 @@ The default is cheap.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
+					if p.Is(args[0]) {
 						show(p)
 						return nil
 					}

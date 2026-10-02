@@ -10,7 +10,6 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
-	"agentbox/internal/naming"
 	"agentbox/internal/state"
 )
 
@@ -25,6 +24,7 @@ func (s *Server) homeRoutes() http.Handler {
 	mux := http.NewServeMux()
 	h := func(pattern string, fn func(http.ResponseWriter, *http.Request) error) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			s.projectBySlug(r)
 			if err := fn(w, r); err != nil {
 				writeError(w, err)
 			}
@@ -102,14 +102,12 @@ func (s *Server) homeAddProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		return s.addProjectFrom(w, r, add)
 	}
+	add.Name = strings.TrimSpace(add.Name)
 	if add.Name == "" {
-		add.Name = naming.Slug(strings.TrimSuffix(path.Base(strings.TrimRight(req.URL, "/")), ".git"))
+		add.Name = strings.TrimSuffix(path.Base(strings.TrimRight(req.URL, "/")), ".git")
 	}
-	if err := naming.Validate("project", add.Name, maxProjectName); err != nil {
+	if err := s.projectNameFree(r.Context(), add.Name); err != nil {
 		return err
-	}
-	if _, err := s.store.Project(r.Context(), add.Name); err == nil {
-		return errors.New("there's already a project called " + add.Name + " (choose another name)")
 	}
 	add.Path = req.Path
 	if add.Path == "" {
@@ -117,7 +115,11 @@ func (s *Server) homeAddProject(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
-		add.Path = filepath.Join(home, "src", add.Name)
+		slug, err := s.store.ProjectSlug(r.Context(), add.Name)
+		if err != nil {
+			return err
+		}
+		add.Path = filepath.Join(home, "src", slug)
 	}
 	if err := s.manager(s.cfg.Log).CloneForHome(r.Context(), req.URL, add.Path); err != nil {
 		return err

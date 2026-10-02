@@ -264,8 +264,14 @@ func InstanceName(project, agent string) string { return "ab-" + project + "-" +
 
 // ParseRef splits "<project>/<agent>".
 func ParseRef(ref string) (project, agent string, err error) {
-	project, agent, ok := strings.Cut(ref, "/")
-	if !ok || project == "" || agent == "" || strings.Contains(agent, "/") {
+	// At the last "/": an agent's name never has one, and what a project is
+	// called, which a ref may name it by, can.
+	i := strings.LastIndex(ref, "/")
+	if i < 0 {
+		return "", "", fmt.Errorf("invalid agent %q: use <project>/<agent>, like pawly/agent-01", ref)
+	}
+	project, agent = ref[:i], ref[i+1:]
+	if project == "" || agent == "" {
 		return "", "", fmt.Errorf("invalid agent %q: use <project>/<agent>, like pawly/agent-01", ref)
 	}
 	return project, agent, nil
@@ -1310,22 +1316,23 @@ func (m *Manager) brief(ctx context.Context, a state.Agent, ip string, envFiles 
 		return "", err
 	}
 	return brief.Render(brief.Data{
-		Project:  a.Project,
-		Agent:    a.Name,
-		Title:    a.Title,
-		Worktree: a.Worktree,
-		Branch:   a.Branch,
-		BaseRef:  a.BaseRef,
-		IP:       ip,
-		EnvFiles: envFiles,
-		Secrets:  secretNames,
-		Android:  android.IsProject(a.Worktree),
-		GitHub:   m.Creds.HasGitHubLogin(),
-		VM:       hostos.InVM(),
-		Host:     hostos.Name(),
-		Notes:    projectNotes,
-		Nesting:  p.Nesting,
-		AgentPRs: p.AgentPRs,
+		Project:     a.Project,
+		ProjectName: p.DisplayName,
+		Agent:       a.Name,
+		Title:       a.Title,
+		Worktree:    a.Worktree,
+		Branch:      a.Branch,
+		BaseRef:     a.BaseRef,
+		IP:          ip,
+		EnvFiles:    envFiles,
+		Secrets:     secretNames,
+		Android:     android.IsProject(a.Worktree),
+		GitHub:      m.Creds.HasGitHubLogin(),
+		VM:          hostos.InVM(),
+		Host:        hostos.Name(),
+		Notes:       projectNotes,
+		Nesting:     p.Nesting,
+		AgentPRs:    p.AgentPRs,
 
 		Knowledge:     knowledge,
 		CompactWindow: compactWindow,

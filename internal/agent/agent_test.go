@@ -91,7 +91,12 @@ func TestParseRef(t *testing.T) {
 	if err != nil || project != "pawly" || name != "agent-01" {
 		t.Errorf("ParseRef(pawly/agent-01) = %q, %q, %v", project, name, err)
 	}
-	for _, bad := range []string{"pawly", "/agent-01", "pawly/", "a/b/c"} {
+	// A project may be called something with a slash in it; the agent is
+	// after the last one.
+	if project, name, err := agent.ParseRef("Web/App/agent-01"); err != nil || project != "Web/App" || name != "agent-01" {
+		t.Errorf("ParseRef(Web/App/agent-01) = %q, %q, %v", project, name, err)
+	}
+	for _, bad := range []string{"pawly", "/agent-01", "pawly/"} {
 		if _, _, err := agent.ParseRef(bad); err == nil {
 			t.Errorf("ParseRef(%q) succeeded", bad)
 		}

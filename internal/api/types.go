@@ -38,11 +38,18 @@ const (
 )
 
 type Project struct {
-	Name     string   `json:"name"`
-	Root     string   `json:"root"`
-	Branch   string   `json:"branch"` // checked out in the main checkout; new agents start here
-	EnvFiles []string `json:"envFiles"`
-	Android  bool     `json:"android"` // it builds an Android app, so its agents can use emulators
+	// Name is the project's slug: the identifier in its API paths, refs
+	// ("<name>/<agent>"), containers and folders, made from DisplayName when
+	// the project was added and never changed afterwards. Requests also take
+	// DisplayName wherever they take Name.
+	Name string `json:"name"`
+	// DisplayName is what the user calls the project, free-form, and what
+	// is shown wherever they see it; UpdateProjectRequest renames it.
+	DisplayName string   `json:"displayName"`
+	Root        string   `json:"root"`
+	Branch      string   `json:"branch"` // checked out in the main checkout; new agents start here
+	EnvFiles    []string `json:"envFiles"`
+	Android     bool     `json:"android"` // it builds an Android app, so its agents can use emulators
 	// ClaudeAccount is the Claude Code account this project's new agents use;
 	// empty means the machine's default account.
 	ClaudeAccount string `json:"claudeAccount"`
@@ -215,6 +222,10 @@ type NoteChange struct {
 
 // UpdateProjectRequest changes what's set; a nil field stays as it is.
 type UpdateProjectRequest struct {
+	// DisplayName renames the project: what it is called changes, its slug
+	// (Project.Name) never does. Anything but empty, if no other project
+	// answers to it in any case.
+	DisplayName   *string `json:"displayName,omitempty"`
 	ClaudeAccount *string `json:"claudeAccount,omitempty"` // "" goes back to the machine's default
 	// ClaudeAccounts replaces the accounts the project's agents may use; an
 	// empty list allows every account. It must include the project's own
@@ -273,6 +284,9 @@ type UpdateProjectRequest struct {
 
 type AddProjectRequest struct {
 	Path string `json:"path"`
+	// Name is what the project is called, anything but empty if no other
+	// project answers to it in any case; empty uses the folder's name. Its
+	// slug is made from it (Project.Name).
 	Name string `json:"name,omitempty"`
 	// ClaudeAccount and GitHubAccount are the project's accounts, chosen when
 	// it is added rather than afterwards. Empty means the machine's default,
