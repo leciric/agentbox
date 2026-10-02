@@ -1220,7 +1220,7 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 			}
 		case "stop":
 			s.chat.Stop(a.Ref(), "the agent was stopped")
-			err = m.Stop(ctx, a)
+			err = s.stopAgent(ctx, m, a)
 		case "pause":
 			err = m.Pause(ctx, a)
 		case "resume":
