@@ -346,6 +346,56 @@ func TestStatusFromAnOlderSupervisor(t *testing.T) {
 	}
 }
 
+// TestStatusFromASupervisorBeforeDiskResize is a supervisor started before
+// #161, which never learned to send minDisk/maxDisk: its limits (for CPUs and
+// memory, which it already had) and its live (CPU and memory hotplug, which
+// it already had too) both lack them. The front end must fill them in
+// itself, from the disk images and the VM's configured size, so Settings'
+// disk field shows and offers growing it (on the next restart, since an old
+// supervisor can't grow it live).
+func TestStatusFromASupervisorBeforeDiskResize(t *testing.T) {
+	p := shortPaths(t)
+	l := NewLayout(p, "agentbox")
+	c := Config{Name: "agentbox", CPUs: 2, MemoryMin: 4 * GiB, MemoryCap: 8 * GiB, Disk: 20 * GiB}
+	if err := c.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(l.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, disk := range []string{l.RootDisk(), l.PoolDisk()} {
+		f, err := os.Create(disk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Truncate(GiB)
+		_ = f.Close()
+	}
+	if err := os.MkdirAll(filepath.Dir(p.VMSocket()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", p.VMSocket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"mode":"vm","state":"running","cpus":2,"disk":{"size":2147483648,"used":5000},` +
+		`"limits":{"minCpus":1,"maxCpus":8,"minMemory":4294967296,"maxMemory":17179869184},` +
+		`"live":{"minCpus":2,"maxCpus":2,"minMemory":8589934592,"maxMemory":8589934592}}`
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, body)
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	st := Status(t.Context(), c, l, p)
+	if st.Limits == nil || st.Limits.MinDisk != c.Disk || st.Limits.MaxDisk != api.VMMaxDisk {
+		t.Errorf("limits = %+v, want minDisk %d and maxDisk %d", st.Limits, c.Disk, api.VMMaxDisk)
+	}
+	if st.Live == nil || st.Live.MaxDisk != 0 {
+		t.Errorf("live = %+v, want maxDisk 0: an old supervisor can't grow the disk live", st.Live)
+	}
+}
+
 // shortPaths is testPaths in a directory the VM's socket fits under: a unix
 // socket's path can't be longer than 104 bytes on macOS, whose TMPDIR
 // (/var/folders/…) with a test's name and data/run/vm.sock is longer than

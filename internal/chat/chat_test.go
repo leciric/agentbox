@@ -422,6 +422,26 @@ func waitThread(t *testing.T, m *Manager, a state.Agent, what string, cond func(
 	}
 }
 
+// waitClaudeWindow waits for RememberClaudeModelWindow's background write
+// (chat.go's usage_update) to have given model the window size in the store.
+func waitClaudeWindow(t *testing.T, store *state.Store, ctx context.Context, model string, size int64) state.ClaudeWindows {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		w, err := store.ClaudeWindows(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w.Seen[model] == size {
+			return w
+		}
+		if time.Now().After(deadline) {
+			return w
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // turnsEnded waits for n turns to have ended.
 func turnsEnded(n int) func(api.ChatThread) bool {
 	return func(th api.ChatThread) bool {
@@ -2074,7 +2094,11 @@ func TestTheContextWindowRestartsTheAdapterAndResumesTheSession(t *testing.T) {
 		t.Errorf("resumed %d times, want the restart to resume the session", len(resumed))
 	}
 	// And what the session reported is remembered as Sonnet's window.
-	w, _ := store.ClaudeWindows(ctx)
+	// RememberClaudeModelWindow (chat.go's usage_update) writes it from its
+	// own background goroutine, which turnsEnded(2) doesn't wait for: the
+	// chat is still live, so m.Wait() would wait for it too, not just this
+	// one write.
+	w := waitClaudeWindow(t, store, ctx, "sonnet", 1_000_000)
 	if w.Seen["sonnet"] != 1_000_000 {
 		t.Errorf("remembered %v", w.Seen)
 	}
