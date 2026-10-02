@@ -373,8 +373,13 @@ func memoryTask(project, goal string) memory.Task {
 func TestQueueOffQueuesNothing(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	q := newQueueTest(t, 4*gib, map[string]int64{"p": 4 * gib}, runningInstances(agent.InstanceName("p", "a1")))
+	// One slot, and memory for all three: off, the slot no longer holds
+	// anybody up (admission_test.go has memory doing it either way).
+	q := newQueueTest(t, 16*gib, map[string]int64{"p": 4 * gib}, runningInstances(agent.InstanceName("p", "a1")))
 	q.addProject(t, "p")
+	if err := q.srv.store.SetProjectSlots(ctx, "p", 1); err != nil {
+		t.Fatal(err)
+	}
 	q.addRunning(t, "p", "a1")
 	q.enqueue(t, "p", "q1")
 	q.enqueue(t, "p", "q2")

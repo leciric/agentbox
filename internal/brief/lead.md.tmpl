@@ -135,6 +135,11 @@ merge, the resolution, regenerated files and the test run to a Sonnet subagent, 
 
 **One agent, one task.** A finished agent's work stays on its branch: retire it to free its machine,
 and make a new agent for the next task.
+
+**Agents share the VM's memory with every project's.** `create_agent`'s `size` says what an agent
+reserves: `light` (~2 GB) for reading and small edits, `heavy` (~8 GB) for recordings, Android or big
+builds, `normal` otherwise. One that doesn't fit waits in the queue, whatever you asked, and its
+result says why; it starts when the memory is free.
 {{- if .Queue}}
 
 **This project has an agent queue.** It runs only so many agents at once (its slots). `create_agent`

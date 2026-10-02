@@ -347,6 +347,7 @@ export function buildFixtures(): FixtureData {
       prWatching: true,
       slots: 0,
       alwaysQueue: false,
+      agentSize: '',
       createdAt: new Date().toISOString(),
     },
     {
@@ -375,6 +376,7 @@ export function buildFixtures(): FixtureData {
       prWatching: true,
       slots: 0,
       alwaysQueue: false,
+      agentSize: '',
       createdAt: new Date().toISOString(),
     },
   ];
@@ -1360,6 +1362,7 @@ function organicProject(): T.Project {
     prWatching: true,
     slots: 0,
     alwaysQueue: false,
+    agentSize: '',
     createdAt: new Date().toISOString(),
   };
 }
@@ -1396,6 +1399,7 @@ function queueStatus(enabled: boolean, abSlots: number, abRunning: number, queue
     reserve: queueReserve,
     projects: [queueSlots(PROJECT, abSlots, agentboxPeakBytes, abRunning, queued.length, abAgents), queueSlots('organic', orgSlots, organicPeakBytes, orgRunning, 0, orgAgents)],
     queued,
+    reserved: 0,
   };
 }
 
@@ -1416,6 +1420,8 @@ function queuedAgentFixture(name: string, position: number): T.QueuedAgent {
     taskId: `t-${name}`,
     position,
     queuedAt: new Date(Date.now() - position * 5_000).toISOString(),
+    reserved: agentboxPeakBytes,
+    waiting: 'queued: 6 agents in 2 projects reserve 15 of 18 GB; starts when ~4 GB is free',
   };
 }
 

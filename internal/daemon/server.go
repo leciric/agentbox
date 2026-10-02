@@ -171,6 +171,14 @@ type Server struct {
 	projectPeak    func(ctx context.Context, project string) (int64, bool, error)
 	// usageNow is what each agent used when last sampled, by ref, under mu.
 	usageNow map[string]agent.AgentUsage
+	// Admission (admission.go), under mu: the creates admitted straight to
+	// their machines whose jobs haven't ended, by a number of their own, and
+	// why each queued agent waits, by ref. setMemoryHigh is
+	// agent.SetMemoryHigh, or a test's.
+	pendingCreates map[int]pendingCreate
+	pendingSeq     int
+	waitReasons    map[string]string
+	setMemoryHigh  func(instance string, high int64) error
 	// The lead recheck (leadrecheck.go), under mu: when each project's lead
 	// was last rechecked, and what it was told then, so the same state isn't
 	// sent twice.
@@ -220,6 +228,8 @@ func New(cfg Config) (*Server, error) {
 		queueKick:        make(chan struct{}, 1),
 		queueEvery:       queueInterval,
 		startingQueued:   map[string]bool{},
+		pendingCreates:   map[int]pendingCreate{},
+		setMemoryHigh:    agent.SetMemoryHigh,
 		recheckedAt:      map[string]time.Time{},
 		recheckedWhat:    map[string]string{},
 		stalls:           map[string]*stallTrack{},

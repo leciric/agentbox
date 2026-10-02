@@ -49,7 +49,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, Slots: p.Slots, AlwaysQueue: p.AlwaysQueue, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, Slots: p.Slots, AlwaysQueue: p.AlwaysQueue, AgentSize: p.AgentSize, CreatedAt: p.CreatedAt}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -456,6 +456,17 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 		p.AlwaysQueue = *req.AlwaysQueue
+		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
+	}
+	if req.AgentSize != nil {
+		size, err := agent.CheckSize(strings.TrimSpace(*req.AgentSize))
+		if err != nil {
+			return err
+		}
+		if err := s.store.SetProjectAgentSize(r.Context(), p.Name, size); err != nil {
+			return err
+		}
+		p.AgentSize = size
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
 	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
@@ -868,6 +879,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 
 		State:         st.State,
 		QueuePosition: st.QueuePosition,
+		Size:          a.Size,
 		IP:            st.IP,
 		CreatedAt:     a.CreatedAt,
 	}
@@ -1055,12 +1067,22 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 			return api.Job{}, err
 		}
 	}
+	// The size the user chose for the agents the chat creates wins over the
+	// chat's own; left to the chat, its choice stands, and auto is normal.
+	if byLead && p.AgentSize != "" {
+		req.Size = p.AgentSize
+	}
+	size, err := agent.CheckSize(req.Size)
+	if err != nil {
+		return api.Job{}, err
+	}
+	req.Size = size
 	queue := p.AlwaysQueue
 	if req.Queue != nil {
 		queue = *req.Queue
 	}
-	// With the agent queue off, nothing queues: every create makes its agent
-	// now, as it always has.
+	// With the agent queue off, nothing queues for a slot: every create that
+	// fits makes its agent now, as it always has.
 	if on, err := s.store.Flag(ctx, state.SettingAgentQueue); err != nil || !on {
 		queue = false
 	}
@@ -1071,7 +1093,25 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 	if err := s.diskRefusal("creating an agent"); err != nil {
 		return api.Job{}, err
 	}
-	return s.launchJob("create", req.Project, s.createJob(req, byLead, ""))
+	// Whatever it asked, an agent the VM has no memory for waits for it in
+	// the queue (admission.go).
+	done, wait, err := s.admitCreate(ctx, req)
+	if err != nil {
+		return api.Job{}, err
+	}
+	if done == nil {
+		s.logf("agent queue: %s waits for memory: %s", req.Project, wait)
+		return s.enqueueAgent(ctx, req, byLead)
+	}
+	create := s.createJob(req, byLead, "")
+	j, err := s.launchJob("create", req.Project, func(ctx context.Context, log io.Writer) (any, error) {
+		defer done()
+		return create(ctx, log)
+	})
+	if err != nil {
+		done()
+	}
+	return j, err
 }
 
 // createJob is the job that makes an agent from req: a new one, or, when
@@ -1117,6 +1157,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 
 			FinishNotice: req.FinishNotice,
 			Connectors:   connectors,
+			Size:         req.Size,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
 		})

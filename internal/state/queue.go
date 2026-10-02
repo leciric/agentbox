@@ -56,8 +56,8 @@ func (s *Store) Enqueue(ctx context.Context, a Agent, request []byte) error {
 		return err
 	}
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors)
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors, a.Size)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
@@ -287,6 +287,12 @@ func (s *Store) SetProjectSlots(ctx context.Context, name string, slots int) err
 // create says otherwise.
 func (s *Store) SetProjectAlwaysQueue(ctx context.Context, name string, on bool) error {
 	return s.updateProject(ctx, name, `always_queue = ?`, on)
+}
+
+// SetProjectAgentSize sets the size of the agents a project's chat creates:
+// "" lets the chat choose for each.
+func (s *Store) SetProjectAgentSize(ctx context.Context, name, size string) error {
+	return s.updateProject(ctx, name, `agent_size = ?`, size)
 }
 
 func (s *Store) updateProject(ctx context.Context, name, set string, value any) error {

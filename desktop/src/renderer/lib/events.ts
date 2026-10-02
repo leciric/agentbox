@@ -144,7 +144,7 @@ export function connectEvents(queryClient: QueryClient): void {
         if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
           queryClient.setQueryData<T.Agent[]>(
             ['agents'],
-            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', queuePosition: change.queuePosition } : a)),
+            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', queuePosition: change.queuePosition, waiting: change.waiting } : a)),
           );
         } else {
           void queryClient.invalidateQueries({ queryKey: ['agents'] });

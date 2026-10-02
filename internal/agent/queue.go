@@ -37,6 +37,10 @@ func (m *Manager) Enqueue(ctx context.Context, project string, opts CreateOption
 	if err != nil {
 		return state.Agent{}, err
 	}
+	size, err := CheckSize(opts.Size)
+	if err != nil {
+		return state.Agent{}, err
+	}
 	p, repo, err := m.project(ctx, project)
 	if err != nil {
 		return state.Agent{}, err
@@ -75,6 +79,7 @@ func (m *Manager) Enqueue(ctx context.Context, project string, opts CreateOption
 		GitHubAccount: ghAccount,
 		Interface:     iface,
 		FinishNotice:  opts.FinishNotice,
+		Size:          size,
 	}
 	if err := m.Store.Enqueue(ctx, a, request); err != nil {
 		return state.Agent{}, err

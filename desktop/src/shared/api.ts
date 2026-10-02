@@ -11,6 +11,7 @@ export interface Project {
   githubAccount: string;
   autonomy: string;
   agentModel: string;
+  agentSize: string;
   branchPrefix: string;
   finishNotices: string;
   rolloverThreshold: number;
@@ -47,6 +48,7 @@ export interface UpdateProjectRequest {
   moveGitHubAgents?: boolean;
   autonomy?: string;
   agentModel?: string;
+  agentSize?: string;
   branchPrefix?: string;
   finishNotices?: string;
   rolloverThreshold?: number;
@@ -183,6 +185,8 @@ export interface Agent {
   stalledSince?: string;
   state: string;
   queuePosition?: number;
+  waiting?: string;
+  size?: string;
   ip: string;
   createdAt: string;
 }
@@ -212,6 +216,7 @@ export interface CreateAgentRequest {
   catchUp?: boolean;
   finishNotice?: string;
   queue?: boolean;
+  size?: string;
   taskId?: string;
   connectors?: string[];
 }
@@ -309,6 +314,7 @@ export interface QueueStatus {
   enabled: boolean;
   budget: number;
   reserve: number;
+  reserved: number;
   projects: ProjectSlots[];
   queued: QueuedAgent[];
 }
@@ -334,6 +340,8 @@ export interface QueuedAgent {
   taskId?: string;
   position: number;
   queuedAt: string;
+  waiting?: string;
+  reserved: number;
 }
 
 export interface MoveQueuedRequest {
@@ -517,6 +525,7 @@ export interface AgentChange {
   ip?: string;
   removed?: boolean;
   queuePosition?: number;
+  waiting?: string;
 }
 
 export interface Theme {
@@ -953,6 +962,8 @@ export interface FleetAgent {
   stalledSince?: string;
   state: string;
   queuePosition?: number;
+  waiting?: string;
+  size?: string;
   ip: string;
   createdAt: string;
   changes: AgentChanges;

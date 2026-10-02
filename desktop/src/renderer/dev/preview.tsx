@@ -313,7 +313,7 @@ if (chvSize) seedLinuxVM(queryClient, chvSize);
 // connectors.
 if (page) {
   queryClient.setQueryData(['claudeLimits'], []);
-  queryClient.setQueryData(['queue', PROJECT], { enabled: true, budget: 0, reserve: 0, projects: [], queued: [] } satisfies T.QueueStatus);
+  queryClient.setQueryData(['queue', PROJECT], { enabled: true, budget: 0, reserve: 0, projects: [], queued: [], reserved: 0 } satisfies T.QueueStatus);
   for (const target of [PROJECT, `${PROJECT}/${openAgent ?? 'agent-99'}`]) {
     queryClient.setQueryData(['secrets', target], []);
     queryClient.setQueryData(['connectors', target], []);

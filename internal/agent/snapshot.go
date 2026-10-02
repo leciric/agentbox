@@ -243,6 +243,7 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 		autonomous:    src.Autonomous,
 		claudeAccount: account,
 		iface:         src.Interface,
+		size:          src.Size,
 		source:        src.Instance + "/" + name,
 		baseRef:       baseRef,
 		baseCommit:    head,

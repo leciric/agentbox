@@ -53,7 +53,7 @@ func (s *Server) publishAgentChanges(statuses []agent.Status) {
 	defer s.mu.Unlock()
 	seen := map[string]bool{}
 	for _, st := range statuses {
-		change := api.AgentChange{Ref: st.Ref(), State: st.State, IP: st.IP, QueuePosition: st.QueuePosition}
+		change := api.AgentChange{Ref: st.Ref(), State: st.State, IP: st.IP, QueuePosition: st.QueuePosition, Waiting: s.waitReasons[st.Ref()]}
 		seen[change.Ref] = true
 		if s.lastStates[change.Ref] != change {
 			s.lastStates[change.Ref] = change
