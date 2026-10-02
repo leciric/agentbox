@@ -3,6 +3,14 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.12.0](https://github.com/leciric/agentbox/compare/v0.11.0...v0.12.0) (2026-10-02)
+
+
+### Added
+
+* agents from every project share the VM's memory: a create that doesn't fit waits, and tests and builds take a share of it when they run ([#171](https://github.com/leciric/agentbox/issues/171)) ([f5290c6](https://github.com/leciric/agentbox/commit/f5290c63768967600e90d78dfe08763ed9a4345a))
+* agents share one package cache, so dependencies and browsers are downloaded once ([#169](https://github.com/leciric/agentbox/issues/169)) ([d6b8821](https://github.com/leciric/agentbox/commit/d6b8821702db7f577f7a1f789bab18493f0ea0a3))
+
 ## [0.11.0](https://github.com/leciric/agentbox/compare/v0.10.0...v0.11.0) (2026-10-02)
 
 
