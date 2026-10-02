@@ -767,3 +767,27 @@ func TestRenderHome(t *testing.T) {
 		})
 	}
 }
+
+// A project called something other than its slug is called that in both
+// briefs, which still give the slug for refs and URLs.
+func TestRenderProjectName(t *testing.T) {
+	lead, err := brief.RenderLead(brief.LeadData{Project: "organic-web-app", ProjectName: "Organic Web App", Root: "/src/o", Worktree: "/w", BaseRef: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(lead, "# AgentBox: you are Organic Web App's lead") || !strings.Contains(lead, "- Project: Organic Web App (`organic-web-app` in refs, commands and URLs)") {
+		t.Errorf("lead brief starts:\n%s", lead[:300])
+	}
+	agent, err := brief.Render(brief.Data{Project: "organic-web-app", ProjectName: "Organic Web App", Agent: "agent-1", Worktree: "/w", Branch: "b", BaseRef: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(agent, "- Project: Organic Web App (`organic-web-app` in refs and URLs)") {
+		t.Error("the agent's brief doesn't name the project")
+	}
+	// One whose name is its slug reads as it always did.
+	same, err := brief.Render(brief.Data{Project: "pawly", ProjectName: "pawly", Agent: "agent-1", Worktree: "/w", Branch: "b", BaseRef: "main"})
+	if err != nil || !strings.Contains(same, "- Project: pawly\n") {
+		t.Errorf("same name: %v", err)
+	}
+}

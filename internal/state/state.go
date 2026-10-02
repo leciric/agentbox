@@ -13,10 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/unicode/norm"
 	_ "modernc.org/sqlite"
 
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/memory"
+	"agentbox/internal/naming"
 )
 
 var (
@@ -779,6 +781,13 @@ var migrations = []string{
 	// so admission counts the first and the burst pool the difference.
 	`ALTER TABLE agent_memory_peaks ADD COLUMN base_peak INTEGER NOT NULL DEFAULT 0`,
 	`ALTER TABLE agent_memory_peaks ADD COLUMN burst_peak INTEGER NOT NULL DEFAULT 0`,
+
+	// A project's name is free-form: what the user typed, shown everywhere.
+	// The name column stays its slug, the identifier everything else is keyed
+	// by (containers, folders, branches, sockets, URLs), so a project made
+	// before this keeps the name it had as both.
+	`ALTER TABLE projects ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
+	`UPDATE projects SET display_name = name WHERE display_name = ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -859,9 +868,16 @@ func (s *Store) migrate(ctx context.Context) error {
 }
 
 type Project struct {
-	Name      string
-	Root      string
-	CreatedAt time.Time
+	// Name is the project's slug, the identifier it is known by inside
+	// AgentBox: its rows, containers, folders, sockets and URLs. It never
+	// changes once the project is added (naming.ProjectSlug).
+	Name string
+	// DisplayName is what the user calls the project, free-form and shown
+	// everywhere they see it; renaming a project changes only this. Empty
+	// in a Project being added means the same as Name.
+	DisplayName string
+	Root        string
+	CreatedAt   time.Time
 	// ClaudeAccount is the Claude Code account this project's new agents use;
 	// empty means the machine's default account.
 	ClaudeAccount string
@@ -1114,7 +1130,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, slots, always_queue, agent_size`
+const projectColumns = `name, display_name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, slots, always_queue, agent_size`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -1129,21 +1145,39 @@ var projectSelect = "p." + strings.ReplaceAll(projectColumns, ", ", ", p.")
 
 // projectOrder is the order the sidebar draws: the sections, in theirs, then
 // the projects in no section. Within a list, a project placed by hand comes
-// before one nobody has placed, which falls back to its name — so an
+// before one nobody has placed, which falls back to what it is called — so an
 // installation that has organised nothing is alphabetical, exactly as it was
 // before there was an order at all.
 const projectOrder = `ORDER BY CASE WHEN p.section = '' THEN 1 ELSE 0 END, s.position,
-	CASE WHEN p.position = 0 THEN 1 ELSE 0 END, p.position, p.name`
+	CASE WHEN p.position = 0 THEN 1 ELSE 0 END, p.position, lower(p.display_name), p.name`
 
+// AddProject stores a new project. Its DisplayName is what it is called and
+// must be free (ProjectNameFree); a Name left empty is made from it
+// (ProjectSlug), and one given — a project made before display names, or a
+// test's — is both when DisplayName is empty.
 func (s *Store) AddProject(ctx context.Context, p Project) error {
+	p.DisplayName = strings.TrimSpace(p.DisplayName)
+	if p.DisplayName == "" {
+		p.DisplayName = p.Name
+	}
+	if p.DisplayName == "" {
+		return errors.New("a project needs a name")
+	}
 	existing, err := s.projectWhere(ctx, "root = ?", p.Root)
 	switch {
 	case err == nil:
-		return fmt.Errorf("%s is already project %q: %w", p.Root, existing.Name, ErrExists)
+		return fmt.Errorf("%s is already project %q: %w", p.Root, existing.DisplayName, ErrExists)
 	case !errors.Is(err, ErrNotFound):
 		return err
 	}
-	if _, err := s.projectWhere(ctx, "name = ?", p.Name); err == nil {
+	if err := s.ProjectNameFree(ctx, p.DisplayName, ""); err != nil {
+		return err
+	}
+	if p.Name == "" {
+		if p.Name, err = s.ProjectSlug(ctx, p.DisplayName); err != nil {
+			return err
+		}
+	} else if _, err := s.projectWhere(ctx, "name = ?", p.Name); err == nil {
 		return fmt.Errorf("project %q: %w", p.Name, ErrExists)
 	} else if !errors.Is(err, ErrNotFound) {
 		return err
@@ -1184,19 +1218,112 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.Name, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.Name, p.DisplayName, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
 		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff, p.Slots, p.AlwaysQueue, p.AgentSize)
 	return err
 }
 
+// Project finds a project by either of its names: its slug, exactly, or what
+// it is called, in any case. The two can't point at different projects:
+// ProjectNameFree and ProjectSlug keep every slug and display name apart,
+// case-insensitively, from every other project's.
 func (s *Store) Project(ctx context.Context, name string) (Project, error) {
 	p, err := s.projectWhere(ctx, "name = ?", name)
+	if errors.Is(err, ErrNotFound) {
+		if slug, ok, ferr := s.projectCalled(ctx, strings.TrimSpace(name), ""); ferr != nil {
+			return Project{}, ferr
+		} else if ok {
+			p, err = s.projectWhere(ctx, "name = ?", slug)
+		}
+	}
 	if errors.Is(err, ErrNotFound) {
 		return Project{}, fmt.Errorf("project %q: %w", name, ErrNotFound)
 	}
 	return p, err
+}
+
+// sameName compares two project names the way the user would: ignoring case,
+// and the different ways Unicode can spell one accented letter.
+func sameName(a, b string) bool {
+	return strings.EqualFold(norm.NFC.String(a), norm.NFC.String(b))
+}
+
+// projectCalled finds the slug of the project, other than except, that name
+// is the slug or the display name of, in any case.
+func (s *Store) projectCalled(ctx context.Context, name, except string) (string, bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name, display_name FROM projects WHERE name != ?`, except)
+	if err != nil {
+		return "", false, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var slug, display string
+		if err := rows.Scan(&slug, &display); err != nil {
+			return "", false, err
+		}
+		if sameName(name, display) || sameName(name, slug) {
+			return slug, true, nil
+		}
+	}
+	return "", false, rows.Err()
+}
+
+// ProjectNameFree reports, as an error wrapping ErrExists, a display name
+// another project than except (a slug, or "") already answers to, as its
+// own name or its slug, in any case; or one that is the Home chat's.
+func (s *Store) ProjectNameFree(ctx context.Context, display, except string) error {
+	if sameName(display, HomeProject) {
+		return fmt.Errorf("%s is the Home chat's name (choose another name): %w", display, ErrExists)
+	}
+	slug, ok, err := s.projectCalled(ctx, display, except)
+	if err != nil {
+		return err
+	}
+	if ok {
+		other, err := s.projectWhere(ctx, "name = ?", slug)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("there's already a project called %s (choose another name): %w", other.DisplayName, ErrExists)
+	}
+	return nil
+}
+
+// ProjectSlug is the slug a new project with that display name gets: one no
+// project has as its slug or its display name (naming.ProjectSlug).
+func (s *Store) ProjectSlug(ctx context.Context, display string) (string, error) {
+	var lookErr error
+	slug := naming.ProjectSlug(display, func(slug string) bool {
+		if lookErr != nil {
+			return false
+		}
+		_, ok, err := s.projectCalled(ctx, slug, "")
+		lookErr = err
+		return ok
+	})
+	return slug, lookErr
+}
+
+// SetProjectDisplayName renames a project: only what it is called changes,
+// never its slug, so nothing on disk or in Incus moves.
+func (s *Store) SetProjectDisplayName(ctx context.Context, name, display string) error {
+	display = strings.TrimSpace(display)
+	if display == "" {
+		return errors.New("a project needs a name")
+	}
+	if err := s.ProjectNameFree(ctx, display, name); err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE projects SET display_name = ? WHERE name = ?`, display, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("project %q: %w", name, ErrNotFound)
+	}
+	return nil
 }
 
 // Projects lists every project in the order the sidebar shows them (D79).
@@ -1212,7 +1339,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		var p Project
 		var created int64
 		var allowed string
-		if err := rows.Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
+		if err := rows.Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Slots, &p.AlwaysQueue, &p.AgentSize, &p.Section, &p.Position); err != nil {
 			return nil, err
@@ -1662,7 +1789,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	var created int64
 	var allowed string
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
-		Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
+		Scan(&p.Name, &p.DisplayName, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
 			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Slots, &p.AlwaysQueue, &p.AgentSize, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
@@ -1768,9 +1895,9 @@ const LeadName = "lead"
 // HomeProject is the key the Home chat is kept under: the user's main chat,
 // across every project and tied to none. It drives a lead like a project's
 // (HomeProject/LeadName), so its conversation, session and token rows sit in
-// the same tables, but it has no projects row and no agents row. A project
-// name can't start with an underscore (naming.Validate), so no project ever
-// shares it.
+// the same tables, but it has no projects row and no agents row. A project's
+// slug can't start with an underscore (naming.ProjectSlug), and no project
+// may be called it (ProjectNameFree), so no project ever shares it.
 const HomeProject = "_home"
 
 // IsHome reports whether the agent is the Home chat's lead.

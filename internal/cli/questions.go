@@ -124,8 +124,8 @@ either way Stop ends what it is doing.`,
 					return err
 				}
 				for _, p := range projects {
-					if p.Name == args[0] {
-						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, autonomyWords(p.Autonomy))
+					if p.Is(args[0]) {
+						_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), autonomyWords(p.Autonomy))
 						return nil
 					}
 				}
@@ -135,7 +135,7 @@ either way Stop ends what it is doing.`,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Name, autonomyWords(p.Autonomy))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", p.Called(), autonomyWords(p.Autonomy))
 			return nil
 		},
 	}

@@ -4,6 +4,7 @@ import { Fragment, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api, type TokenQuery } from '../lib/api';
+import { projectLabel } from '../lib/projectName';
 import { humanTokens, limitTone, share, tps, usd, windowNow } from '../lib/tokens';
 import { projectLimits } from '../lib/usageMeter';
 import { cn, errorMessage, timeAgo, timeUntil } from '../lib/utils';
@@ -154,6 +155,7 @@ function ClaudeLimits({ project }: { project?: string }) {
 // --- Headline -----------------------------------------------------------------
 
 function Headline({ report }: { report: T.TokenReport }) {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const fullest = report.agents.reduce<T.AgentTokens | undefined>((best, a) => (!best || a.maxContext > best.maxContext ? a : best), undefined);
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -164,7 +166,7 @@ function Headline({ report }: { report: T.TokenReport }) {
       <Stat
         label="Peak context"
         value={fullest ? humanTokens(fullest.maxContext) : '—'}
-        hint={fullest ? `Carried by every call of ${agentName(fullest, false).name}'s busiest turn` : undefined}
+        hint={fullest ? `Carried by every call of ${agentName(fullest, false, projects.data).name}'s busiest turn` : undefined}
       />
     </div>
   );
@@ -343,14 +345,15 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
 // agentName is what an agent is called in the ledger's tables: its title while
 // it has one, and the project's chat for the lead. scoped leaves the project
 // out, on a page that is already about one.
-function agentName(a: T.AgentTokens, scoped: boolean): { name: string; sub: string } {
+function agentName(a: T.AgentTokens, scoped: boolean, projects?: readonly T.Project[]): { name: string; sub: string } {
   if (a.project === A.HomeProject) return { name: 'Main chat', sub: a.ref };
-  if (a.agent === A.LeadName) return { name: scoped ? 'Project chat' : `${a.project} chat`, sub: a.ref };
+  if (a.agent === A.LeadName) return { name: scoped ? 'Project chat' : `${projectLabel(a.project, projects)} chat`, sub: a.ref };
   return { name: a.title || a.agent, sub: scoped ? a.agent : a.ref };
 }
 
 function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; scoped: boolean; onOpenAgent?: (ref: string) => void }) {
   const [open, setOpen] = useState<string | null>(null);
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const top = Math.max(1, ...report.agents.map((a) => a.total));
   const since = report.since;
 
@@ -372,7 +375,7 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
           </thead>
           <tbody>
             {report.agents.map((a) => {
-              const { name, sub } = agentName(a, scoped);
+              const { name, sub } = agentName(a, scoped, projects.data);
               const expanded = open === a.ref;
               const canOpen = a.exists && a.agent !== A.LeadName && onOpenAgent;
               return (

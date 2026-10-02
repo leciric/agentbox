@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useProjectName } from '../lib/useProjectName';
 import { avatarMood, chatLabel, isAsking, rank, settled, type Mood } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate, timeAgo } from '../lib/utils';
@@ -32,6 +33,7 @@ import { Tip } from './ui/tooltip';
 export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
   const enabled = project !== null;
+  const projectName = useProjectName(project ?? '');
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled });
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage, enabled });
   // Pull requests come from the fleet, which already carries one per agent,
@@ -142,9 +144,9 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
       <div className="flex h-12 shrink-0 items-center gap-2 px-3">
         <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">Agents</span>
         {mine.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{mine.length}</span>}
-        <Tip label={`New agent in ${project}`}>
+        <Tip label={`New agent in ${projectName}`}>
           <button
-            aria-label={`New agent in ${project}`}
+            aria-label={`New agent in ${projectName}`}
             className="ml-auto rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary"
             onClick={() => onNewAgent(project)}
           >
@@ -213,7 +215,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
 
         {agents.data && mine.length === 0 && (
           <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
-            <p className="text-[12.5px] leading-relaxed text-subtle">No agents yet in {project}.</p>
+            <p className="text-[12.5px] leading-relaxed text-subtle">No agents yet in {projectName}.</p>
             <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={() => onNewAgent(project)}>
               <Plus className="size-3.5" />
               New agent

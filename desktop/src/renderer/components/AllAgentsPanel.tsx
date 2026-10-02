@@ -3,6 +3,8 @@ import { ChevronRight, FolderGit2, Plus } from 'lucide-react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useProjectName } from '../lib/useProjectName';
+import { projectLabel } from '../lib/projectName';
 import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate } from '../lib/utils';
@@ -94,7 +96,7 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
                 className="text-muted underline decoration-line-heavy underline-offset-2 transition hover:text-secondary"
                 onClick={() => onSelect({ kind: 'project', project: project.name })}
               >
-                {project.name}
+                {projectLabel(project)}
               </button>
             </span>
           ))}
@@ -142,6 +144,7 @@ function AgentFleetRow({
   onOpen: (view: View) => void;
 }) {
   const status = chatLabel(agent);
+  const projectName = useProjectName(agent.project);
   // A machine that's stopped or paused holds nothing live: draw it quieter so
   // it doesn't compete with the agents actually doing something.
   const quiet = agent.state === 'stopped' || agent.state === 'paused';
@@ -171,9 +174,9 @@ function AgentFleetRow({
         )}
       />
       <LiveAgentAvatar agent={agent} />
-      <span className="hidden w-24 shrink-0 items-center gap-1.5 truncate text-[12px] text-subtle sm:flex md:w-32 lg:w-40" title={agent.project}>
+      <span className="hidden w-24 shrink-0 items-center gap-1.5 truncate text-[12px] text-subtle sm:flex md:w-32 lg:w-40" title={projectName}>
         <FolderGit2 className="size-3.5 shrink-0 text-faint" />
-        <span className="truncate">{agent.project}</span>
+        <span className="truncate">{projectName}</span>
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
@@ -182,7 +185,7 @@ function AgentFleetRow({
         </span>
         <span className="flex items-center gap-1.5 truncate text-[11px] text-faint sm:hidden">
           <FolderGit2 className="size-3 shrink-0" />
-          {agent.project}
+          {projectName}
         </span>
       </span>
       <span className="flex w-[124px] shrink-0 items-center gap-1.5 text-[11.5px]">

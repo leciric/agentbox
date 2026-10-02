@@ -3,6 +3,7 @@ import { Image, Layers } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useProjectName } from '../lib/useProjectName';
 import { describeAll, searchMedia } from '../lib/media';
 import { humanBytes } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -15,6 +16,7 @@ import { EmptyState } from './ui/card';
 // be filtered down to one agent or one kind, and searched.
 export function ProjectMediaPanel({ project }: { project: string }) {
   const queryClient = useQueryClient();
+  const projectName = useProjectName(project);
   const media = useQuery({ queryKey: ['projectMedia', project], queryFn: () => api.projectMedia(project), refetchInterval: 10_000 });
   const [agent, setAgent] = useState('');
   const [kind, setKind] = useState('');
@@ -58,7 +60,7 @@ export function ProjectMediaPanel({ project }: { project: string }) {
     return (
       <div className="panel rounded-2xl">
         <EmptyState icon={Image} title="Nothing shown yet">
-          Screenshots, recordings, reports, logs and notes from every agent of {project} collect here.
+          Screenshots, recordings, reports, logs and notes from every agent of {projectName} collect here.
         </EmptyState>
       </div>
     );

@@ -323,6 +323,7 @@ export function buildFixtures(): FixtureData {
   const projects: T.Project[] = [
     {
       name: PROJECT,
+      displayName: PROJECT,
       root: WIDE.longPath,
       branch: 'main',
       envFiles: [],
@@ -352,6 +353,7 @@ export function buildFixtures(): FixtureData {
     },
     {
       name: 'a-project-with-a-name-so-long-it-should-never-be-allowed-to-widen-the-sidebar',
+      displayName: 'A project with a name so long, and in Ünïcode, it should never be allowed to widen the sidebar',
       root: '/home/user/projects/other',
       branch: 'main',
       envFiles: [],
@@ -1345,6 +1347,7 @@ const agentboxPeakBytes = 2 * queueGiB;
 function organicProject(): T.Project {
   return {
     name: 'organic',
+    displayName: 'Organic Web App',
     root: '/home/user/projects/organic',
     branch: 'main',
     envFiles: [],

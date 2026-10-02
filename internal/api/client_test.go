@@ -284,7 +284,8 @@ func TestAgentPathValidatesTheRef(t *testing.T) {
 		{"", "", true},          // empty
 		{"pawly/", "", true},    // empty agent
 		{"/agent-01", "", true}, // empty project
-		{"pawly/a/b", "", true}, // agent has a slash in it
+		// A project called something with a slash in it: the agent is after the last.
+		{"Web/App/agent-01", "/v1/agents/Web%2FApp/agent-01", false},
 	}
 	for _, tt := range tests {
 		got, err := AgentPath(tt.ref)

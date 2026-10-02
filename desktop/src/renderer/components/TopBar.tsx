@@ -3,6 +3,7 @@ import { ChevronRight, Cpu, Gauge, HardDrive, Menu as MenuIcon, Square, Triangle
 import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { projectLabel } from '../lib/projectName';
 import { useConnection } from '../lib/events';
 import type * as T from '../../shared/api';
 import { limitTone, windowNow } from '../lib/tokens';
@@ -29,6 +30,7 @@ export function TopBar({
 }) {
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
   const connection = useConnection();
   const vm = useVMPower().data;
@@ -49,12 +51,12 @@ export function TopBar({
       crumbs.push({ label: 'Settings' });
       break;
     case 'project':
-      crumbs.push({ label: view.project });
+      crumbs.push({ label: projectLabel(view.project, projects.data) });
       break;
     case 'agent': {
       const [project, name] = view.ref.split('/');
       const agent = agents.data?.find((a) => a.ref === view.ref);
-      crumbs.push({ label: project, view: { kind: 'project', project } }, { label: agent?.title || name, mono: !agent?.title });
+      crumbs.push({ label: projectLabel(project, projects.data), view: { kind: 'project', project } }, { label: agent?.title || name, mono: !agent?.title });
     }
   }
 

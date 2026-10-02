@@ -1,4 +1,5 @@
 import type * as T from '../../shared/api';
+import { projectLabel } from './projectName.ts';
 
 // MeterPick is what the top bar's usage meter shows: the AI tool, and the
 // account whose limits it spends, with the reading AgentBox has for it.
@@ -35,7 +36,7 @@ export function pickMeter({ limits, project, agent }: { limits: T.ClaudeLimit[];
     if (agent.ai !== 'claude') return { tool: agent.ai, whose };
     return byAccount(agent.claudeAccount, whose);
   }
-  if (project) return byAccount(project.claudeAccount, `${project.name}'s account`);
+  if (project) return byAccount(project.claudeAccount, `${projectLabel(project)}'s account`);
   return byAccount('', '');
 }
 

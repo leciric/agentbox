@@ -21,7 +21,7 @@ func TestHomeProjectIsReserved(t *testing.T) {
 	}
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	_, err := d.client.AddProject(context.Background(), api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack"), Name: state.HomeProject})
-	if err == nil || !strings.Contains(err.Error(), "invalid project name") {
+	if err == nil || !strings.Contains(err.Error(), "the Home chat's name") {
 		t.Errorf("AddProject(%q) = %v, want it refused", state.HomeProject, err)
 	}
 }

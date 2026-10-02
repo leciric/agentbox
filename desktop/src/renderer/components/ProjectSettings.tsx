@@ -6,6 +6,7 @@ import type * as T from '../../shared/api';
 import { AgentModelAuto } from '../../shared/api';
 import { agentSizes } from '../lib/agentSize';
 import { api } from '../lib/api';
+import { projectLabel } from '../lib/projectName';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes } from '../lib/utils';
 import { ModelByName } from './ModelByName';
@@ -31,11 +32,25 @@ import { Switch } from './ui/switch';
 // request watch) says what Settings currently makes of it, so "the default"
 // is never a promise you have to go elsewhere to read.
 export function projectSettingGroups(project: T.Project): SettingGroup[] {
+  const name = projectLabel(project);
   return [
+    {
+      id: 'name',
+      title: 'Project',
+      entries: [
+        {
+          id: 'name',
+          label: 'Name',
+          keywords: 'project name rename title display',
+          // Keyed on the saved name, so a save (or another client's) starts the draft over.
+          render: () => <ProjectNameField key={name} project={project} />,
+        },
+      ],
+    },
     {
       id: 'agents',
       title: 'New agents',
-      description: `What ${project.name} gives the agents it creates. Agents it already has keep what they were made with.`,
+      description: `What ${name} gives the agents it creates. Agents it already has keep what they were made with.`,
       entries: [
         {
           id: 'model',
@@ -65,7 +80,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     {
       id: 'queue',
       title: 'Agent queue',
-      description: `How many of ${project.name}'s agents may run at once, and what a new one does when there's no room.`,
+      description: `How many of ${name}'s agents may run at once, and what a new one does when there's no room.`,
       entries: [
         {
           id: 'slots',
@@ -149,7 +164,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     {
       id: 'chat',
       title: 'Project chat',
-      description: `How much the ${project.name} chat does on its own.`,
+      description: `How much the ${name} chat does on its own.`,
       entries: [
         {
           id: 'autonomy',
@@ -188,7 +203,7 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
 export function projectSection(project: T.Project): SettingSection {
   return {
     id: `project:${project.name}`,
-    title: project.name,
+    title: projectLabel(project),
     description: 'What this project gives its agents, and how much its chat does on its own. Every other project keeps its own.',
     scope: 'project',
     groups: projectSettingGroups(project),
@@ -354,12 +369,12 @@ function AgentModelPicker({ project }: { project: T.Project }) {
 // describeAgentModel says what was just chosen, in the words the setting means.
 function describeAgentModel(project: T.Project): string {
   if (project.agentModel === AgentModelAuto) {
-    return `The ${project.name} chat picks a model for each agent it creates`;
+    return `The ${projectLabel(project)} chat picks a model for each agent it creates`;
   }
   if (project.agentModel === '') {
-    return `New agents of ${project.name} use the model chosen in Settings`;
+    return `New agents of ${projectLabel(project)} use the model chosen in Settings`;
   }
-  return `New agents of ${project.name} start on ${project.agentModel}`;
+  return `New agents of ${projectLabel(project)} start on ${project.agentModel}`;
 }
 
 // queueOffNote is the one-line pointer shown under a queue control once the
@@ -541,7 +556,8 @@ function AgentSizePicker({ project }: { project: T.Project }) {
     mutationFn: (agentSize: string) => api.updateProject(project.name, { agentSize }),
     onSuccess: async (updated) => {
       const size = projectSizes.find((s) => s.value === updated.agentSize);
-      toast(updated.agentSize ? `${updated.name}'s chat creates ${size?.label.toLowerCase()} agents` : `${updated.name}'s chat picks each agent's size`);
+      const label = projectLabel(updated);
+      toast(updated.agentSize ? `${label}'s chat creates ${size?.label.toLowerCase()} agents` : `${label}'s chat picks each agent's size`);
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -581,7 +597,7 @@ function BranchPrefixField({ project }: { project: T.Project }) {
   const save = useMutation({
     mutationFn: (branchPrefix: string) => api.updateProject(project.name, { branchPrefix }),
     onSuccess: async (updated) => {
-      toast(`New agents of ${updated.name} branch as ${updated.branchPrefix}<their work>`);
+      toast(`New agents of ${projectLabel(updated)} branch as ${updated.branchPrefix}<their work>`);
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
@@ -635,6 +651,74 @@ function BranchPrefixField({ project }: { project: T.Project }) {
                 Save
               </Button>
               <Button variant="ghost" size="sm" disabled={save.isPending} onClick={() => (setDraft(project.branchPrefix), save.reset())}>
+                Cancel
+              </Button>
+            </>
+          )}
+        </div>
+        {save.error && <SettingNote tone="error">{errorMessage(save.error)}</SettingNote>}
+      </form>
+    </SettingRow>
+  );
+}
+
+// ProjectNameField renames the project: only what it's called changes. Its id
+// (the slug in its agents' branches, machines and URLs) stays what it was made
+// with, so nothing on disk moves.
+function ProjectNameField({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState(projectLabel(project));
+  const save = useMutation({
+    mutationFn: (displayName: string) => api.updateProject(project.name, { displayName }),
+    onSuccess: async (updated) => {
+      toast(`Renamed to ${projectLabel(updated)}`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+  const changed = draft.trim() !== projectLabel(project);
+
+  return (
+    <SettingRow
+      label="Name"
+      htmlFor="project-name"
+      description={
+        <>
+          Anything you like. Its id, <code className="break-all font-mono text-tertiary">{project.name}</code>, stays as it is in branches and machines.
+        </>
+      }
+    >
+      <form
+        className="grid gap-1.5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (changed && draft.trim() !== '') save.mutate(draft.trim());
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && changed && !save.isPending) {
+            setDraft(projectLabel(project));
+            save.reset();
+          }
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            id="project-name"
+            data-project-name
+            className="min-w-0 flex-1 sm:max-w-sm"
+            value={draft}
+            disabled={save.isPending}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              save.reset();
+            }}
+          />
+          {changed && (
+            <>
+              <Button type="submit" variant="primary" size="sm" disabled={save.isPending || draft.trim() === ''}>
+                {save.isPending && <LoaderCircle className="animate-spin" />}
+                Save
+              </Button>
+              <Button variant="ghost" size="sm" disabled={save.isPending} onClick={() => (setDraft(projectLabel(project)), save.reset())}>
                 Cancel
               </Button>
             </>

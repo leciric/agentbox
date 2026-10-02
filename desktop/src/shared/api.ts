@@ -2,6 +2,7 @@
 
 export interface Project {
   name: string;
+  displayName: string;
   root: string;
   branch: string;
   envFiles: string[];
@@ -41,6 +42,7 @@ export interface AddProjectRequest {
 }
 
 export interface UpdateProjectRequest {
+  displayName?: string;
   claudeAccount?: string;
   claudeAccounts?: string[];
   githubAccount?: string;

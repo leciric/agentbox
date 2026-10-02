@@ -325,6 +325,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		VM:                   hostos.InVM(),
 		Host:                 hostos.Name(),
 		Project:              a.Project,
+		ProjectName:          p.DisplayName,
 		Root:                 root,
 		Worktree:             a.Worktree,
 		BaseRef:              a.BaseRef,

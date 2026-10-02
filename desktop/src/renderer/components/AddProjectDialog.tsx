@@ -53,7 +53,6 @@ export function AddProjectDialog({
   // the daemon adds a copy of it in the WSL distro's ~/src rather than the
   // folder itself, which git would be slow in there (D91).
   const onWindowsDrive = !creating && !remote && windowsDrive.test(path.trim());
-  const copyName = name.trim() || path.trim().replace(/\/+$/, '').split('/').pop() || '<name>';
   const add = useMutation({
     // commitFiles is the user's answer to the daemon's saying the new
     // repository's folder already has files in it.
@@ -204,14 +203,14 @@ export function AddProjectDialog({
           )}
           {onWindowsDrive && (
             <Notice tone="info">
-              This folder is on a Windows drive, where git is slow from WSL. AgentBox copies it into its WSL distro, to{' '}
-              <Code>~/src/{copyName}</Code>, and adds the copy. Only what's committed is copied; the copy keeps its{' '}
+              This folder is on a Windows drive, where git is slow from WSL. AgentBox copies it into its WSL distro, under{' '}
+              <Code>~/src</Code>, and adds the copy. Only what's committed is copied; the copy keeps its{' '}
               <Code>origin</Code>, and the Windows folder becomes its <Code>windows</Code> remote.
             </Notice>
           )}
           {!creating && (
-            <Field label="Name" htmlFor="project-name" hint="Optional. Defaults to the folder name.">
-              <Input id="project-name" placeholder="my-app" value={name} onChange={(event) => setName(event.target.value)} />
+            <Field label="Name" htmlFor="project-name" hint="Optional: anything you like, shown wherever the project is. Defaults to the folder's name.">
+              <Input id="project-name" placeholder="My App" value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
           )}
           {claudeAccounts.length > 1 && (

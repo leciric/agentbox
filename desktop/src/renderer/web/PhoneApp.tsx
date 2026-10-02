@@ -15,6 +15,7 @@ import { ProjectChatPanel } from '../components/ProjectChatPanel';
 import { AIIcon, LiveAgentAvatar } from '../components/state';
 import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
 import { api } from '../lib/api';
+import { projectLabel } from '../lib/projectName';
 import { useConnection } from '../lib/events';
 import { cn, errorMessage } from '../lib/utils';
 import { PlainHTTPNote } from './PhonePair';
@@ -119,7 +120,7 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
           const own = (agents.data ?? []).filter((a) => a.project === p.name).sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
           return (
             <section key={p.name} className="grid gap-1" data-phone-project={p.name}>
-              <h2 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{p.name}</h2>
+              <h2 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{projectLabel(p)}</h2>
               <ChatRow
                 icon={
                   <div className="flex size-9 items-center justify-center rounded-full bg-surface-raised">
@@ -214,9 +215,9 @@ function ProjectChatScreen({ project, onBack }: { project: string; onBack: () =>
   const chat = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project) });
   return (
     <>
-      <ScreenHeader title="Project chat" subtitle={`${project}${chat.data ? ` · ${leadLabel(chat.data.chat).text}` : ''}`} onBack={onBack} />
+      <ScreenHeader title="Project chat" subtitle={`${projectLabel(project, projects.data)}${chat.data ? ` · ${leadLabel(chat.data.chat).text}` : ''}`} onBack={onBack} />
       <div className="flex min-h-0 flex-1 flex-col">
-        {p ? <ProjectChatPanel project={p} /> : <Missing loading={projects.isPending} what={`the project ${project}`} />}
+        {p ? <ProjectChatPanel project={p} /> : <Missing loading={projects.isPending} what={`the project ${projectLabel(project, projects.data)}`} />}
       </div>
     </>
   );

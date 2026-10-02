@@ -305,8 +305,8 @@ func projectPlacesTx(ctx context.Context, tx *sql.Tx) ([]projectPlace, error) {
 
 // projectPlaceOrder is the order within one list, which is also the order the
 // whole table is read in when something is being renumbered: placed projects
-// first, in their order, then the ones nobody has placed, by name.
-const projectPlaceOrder = `ORDER BY section, CASE WHEN position = 0 THEN 1 ELSE 0 END, position, name`
+// first, in their order, then the ones nobody has placed, by what they are called.
+const projectPlaceOrder = `ORDER BY section, CASE WHEN position = 0 THEN 1 ELSE 0 END, position, lower(display_name), name`
 
 func sectionsTx(ctx context.Context, tx *sql.Tx) ([]Section, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT `+sectionColumns+` FROM project_sections `+sectionOrder)

@@ -26,14 +26,16 @@ var (
 )
 
 type Data struct {
-	Project  string
-	Agent    string
-	Title    string // optional
-	Worktree string
-	Branch   string
-	BaseRef  string
-	IP       string // empty in previews, before the agent has an address
-	EnvFiles []string
+	Project string // the project's slug, as refs and URLs write it
+	// ProjectName is what the user calls the project; empty is Project.
+	ProjectName string
+	Agent       string
+	Title       string // optional
+	Worktree    string
+	Branch      string
+	BaseRef     string
+	IP          string // empty in previews, before the agent has an address
+	EnvFiles    []string
 	// Secrets are the names of the secrets this agent has as environment
 	// variables (agentbox secrets). Values never come near the brief.
 	Secrets []string
@@ -99,10 +101,12 @@ func Render(d Data) (string, error) {
 // LeadData describes a project's lead: the chat that directs the project's
 // agents from the host, without a machine or a shell of its own.
 type LeadData struct {
-	Project  string
-	Root     string // the project's main checkout
-	Worktree string // the lead's detached worktree
-	BaseRef  string // the branch it stands on
+	Project string // the project's slug, as refs and URLs write it
+	// ProjectName is what the user calls the project; empty is Project.
+	ProjectName string
+	Root        string // the project's main checkout
+	Worktree    string // the lead's detached worktree
+	BaseRef     string // the branch it stands on
 	// CanSpawn is true once the lead has the tools to create and follow this
 	// project's agents itself.
 	CanSpawn bool

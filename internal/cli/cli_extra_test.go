@@ -487,7 +487,7 @@ func TestMediaListAndOtherSubcommands(t *testing.T) {
 	}
 	mustContain(t, out, "No media yet")
 
-	if _, err := run(t, "", "media", "list", "Not A Project"); err == nil || !strings.Contains(err.Error(), "neither a project nor an agent") {
+	if _, err := run(t, "", "media", "list", "Not A Project"); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Errorf("media list on a bad ref: got %v", err)
 	}
 
