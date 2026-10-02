@@ -994,6 +994,16 @@ func (c *Client) RemoveQueued(ctx context.Context, ref string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/queue/"+url.PathEscape(project)+"/"+url.PathEscape(name), nil, nil)
 }
 
+// StartQueued starts a queued agent now, whatever the VM's memory and the
+// project's slots say.
+func (c *Client) StartQueued(ctx context.Context, ref string) error {
+	project, name, ok := strings.Cut(ref, "/")
+	if !ok {
+		return fmt.Errorf("%q isn't project/agent", ref)
+	}
+	return c.do(ctx, http.MethodPost, "/v1/queue/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/start", nil, nil)
+}
+
 // ReportDraft is the report the user would send, redacted, with the client's
 // own sections (none from the command line) after the daemon's.
 func (c *Client) ReportDraft(ctx context.Context, req ReportDraftRequest) (ReportDraft, error) {

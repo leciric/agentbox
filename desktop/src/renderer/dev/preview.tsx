@@ -337,6 +337,7 @@ if (meters) {
 
 const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
 if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
+if (queue) startNowBridge();
 if (queue === 'tasks') tasksBridge();
 if (page) pageBridge();
 if (power) seedPower(queryClient, power);
@@ -736,6 +737,39 @@ function GitHubPreview() {
       <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />
     </div>
   );
+}
+
+// startNowBridge answers a queued agent's "Start now": it leaves the queue
+// and starts initializing, the rest moving up a place. The agents and the
+// queue are read back from the cache, so the refresh after it shows that.
+function startNowBridge(): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
+  bridge.request = async (method, path, body) => {
+    if (method === 'GET' && path.startsWith('/v1/queue')) return answer(queryClient.getQueryData(['queue', PROJECT]));
+    if (method === 'GET' && path === '/v1/agents') return answer(queryClient.getQueryData(['agents']));
+    const start = method === 'POST' ? /^\/v1\/queue\/([^/]+)\/([^/]+)\/start$/.exec(path) : null;
+    if (start) {
+      const ref = `${decodeURIComponent(start[1])}/${decodeURIComponent(start[2])}`;
+      const status = queryClient.getQueryData<T.QueueStatus>(['queue', PROJECT]);
+      if (status) {
+        const queued = status.queued.filter((q) => q.ref !== ref).map((q, i) => ({ ...q, position: i + 1 }));
+        queryClient.setQueryData(['queue', PROJECT], { ...status, queued });
+      }
+      const agents = queryClient.getQueryData<T.Agent[]>(['agents']) ?? [];
+      let position = 0;
+      const next = agents.map((a) => {
+        if (a.ref === ref) return { ...a, state: 'initializing', queuePosition: undefined, waiting: undefined };
+        if (a.state === 'queued' && a.project === PROJECT) return { ...a, queuePosition: ++position };
+        return a;
+      });
+      queryClient.setQueryData(['agents'], next);
+      return { status: 204, body: '', contentType: 'application/json' };
+    }
+    return inner(method, path, body);
+  };
 }
 
 // tasksBridge answers the Tasks tab from what seedQueue put in the cache, so

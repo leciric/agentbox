@@ -207,6 +207,8 @@ export const api = {
   moveQueued: (project: string, agent: string, position: number) =>
     call<T.QueueStatus>('POST', `/v1/queue/${encodeURIComponent(project)}/${encodeURIComponent(agent)}/move`, { position } satisfies T.MoveQueuedRequest),
   removeQueued: (project: string, agent: string) => call<void>('DELETE', `/v1/queue/${encodeURIComponent(project)}/${encodeURIComponent(agent)}`),
+  // Starts a queued agent whatever the VM's memory and its project's slots say.
+  startQueued: (project: string, agent: string) => call<void>('POST', `/v1/queue/${encodeURIComponent(project)}/${encodeURIComponent(agent)}/start`),
 
   // What a project's agents reported, newest first, which the rail reads for
   // when each last did; and the questions they asked, which the avatars and

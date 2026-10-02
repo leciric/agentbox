@@ -314,7 +314,7 @@ export function AgentView({
 // QueuedAgentPlaceholder is what a queued agent opens on: no machine exists
 // yet, so there's no chat, terminal or browser to show — only its place in
 // line and its task, read from the project's queue (GET /v1/queue), and the
-// two ways out of it (AgentContextMenu offers the same two from the rail).
+// ways out of it (AgentContextMenu offers the same from the rail).
 function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect: (view: View) => void }) {
   const queryClient = useQueryClient();
   const projectName = useProjectName(agent.project);
@@ -328,6 +328,13 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
   };
   const moveToFront = useMutation({
     mutationFn: () => api.moveQueued(agent.project, agent.name, 1),
+    onSuccess: () => void invalidate(),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  // Starts it whatever admission says: the way past a wait the user can see
+  // is wrong, the VM having the memory free.
+  const startNow = useMutation({
+    mutationFn: () => api.startQueued(agent.project, agent.name),
     onSuccess: () => void invalidate(),
     onError: (err) => toast.error(errorMessage(err)),
   });
@@ -359,6 +366,10 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
           {entry?.task && <p className="text-[13px] leading-relaxed text-subtle">{entry.task}</p>}
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" disabled={startNow.isPending} onClick={() => startNow.mutate()}>
+            <Play />
+            Start now
+          </Button>
           <Button variant="ghost" size="sm" disabled={moveToFront.isPending || agent.queuePosition === 1} onClick={() => moveToFront.mutate()}>
             <ArrowUpToLine />
             Move to front
