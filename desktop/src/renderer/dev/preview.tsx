@@ -99,6 +99,8 @@
 //                           or clicks Free resources for its confirmation.
 //                           Free resources runs start to finish against the
 //                           dev bridge (fixtures.ts)
+//   ?newagent=1             the New agent dialog, open on the project, for its
+//                           Size picker and the rest of its form
 //   &free=progress|done|partial|error
 //                           Free resources' dialog part-way through stopping
 //                           the agents, with what it freed, with one agent
@@ -175,6 +177,7 @@ import { AgentAvatar, aiLabel } from '../components/state';
 import type { Mood } from '../lib/agentStatus';
 import { Sidebar } from '../components/Sidebar';
 import { FreeResourcesDialog, type FreeRun } from '../components/ResourceControls';
+import { NewAgentDialog } from '../components/NewAgentDialog';
 import { TopBar } from '../components/TopBar';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
@@ -212,6 +215,7 @@ const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' ag
 const meters = params.get('meters'); // "cpu" | "disk" | "disk-unmeasured" | "pool" | null
 const power = params.get('power');
 const free = params.get('free');
+const newAgent = params.get('newagent') === '1';
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
@@ -503,6 +507,7 @@ function Preview() {
   if (github) return <GitHubPreview />;
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
+  if (newAgent) return <NewAgentDialog project={PROJECT} onClose={() => {}} onCreated={() => {}} />;
 
   if (power) {
     return (

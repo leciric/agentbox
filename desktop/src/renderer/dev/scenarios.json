@@ -733,5 +733,12 @@
     "query": "open=agent-99&page=overview&theme=dark",
     "width": 1280,
     "height": 820
+  },
+  {
+    "id": "new-agent-dark",
+    "description": "The New agent dialog, with its Size picker under the Queue switch \u2014 dark",
+    "query": "newagent=1&theme=dark",
+    "width": 1100,
+    "height": 900
   }
 ]
