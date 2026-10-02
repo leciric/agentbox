@@ -317,6 +317,12 @@ func Status(ctx context.Context, c Config, l Layout, p paths.Paths) api.VMStatus
 	}
 	if st, err := vmStatus(ctx, p); err == nil {
 		st.Disk = diskStatus(l)
+		if st.Limits != nil && st.Limits.MinDisk == 0 {
+			// A supervisor from before #161 never learned to say its disk's
+			// limits: fill them in the same way offStatus does.
+			st.Limits.MinDisk = max(st.Disk.Pool.Size, c.Disk)
+			st.Limits.MaxDisk = max(api.VMMaxDisk, st.Limits.MinDisk)
+		}
 		return st
 	}
 	st := offStatus(c, l)
