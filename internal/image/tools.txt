@@ -37,7 +37,7 @@
 -        claude@2.1.280                                    claude --version
 -        gh@2.101.0                                        gh --version
 -        npm:@playwright/mcp@0.0.79                        playwright-mcp --version && playwright-mcp --help | grep -q -- --cdp-endpoint
--        npm:@agentclientprotocol/claude-agent-acp@0.81.0  command -v claude-agent-acp
+-        npm:@agentclientprotocol/claude-agent-acp@0.85.1  command -v claude-agent-acp
 codex    codex@0.155.0                                     codex --version
 codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
 opencode npm:opencode-ai@1.18.31                           opencode --version && opencode acp --help | grep -q ACP
