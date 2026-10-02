@@ -149,6 +149,10 @@ func (s *Server) checkDisk(ctx context.Context) {
 		s.diskTellLead(ctx, project, ref+" was resumed: the disk it was paused for has room again.")
 	}
 	status := w.guard.Status()
+	if status.Level != agent.DiskOK {
+		// The package caches give back what they hold beyond the floor.
+		s.kickPackageCache()
+	}
 	changed := step.Changed || step.Pause != nil || len(step.Resume) > 0
 	w.statusMu.Lock()
 	prev := w.status

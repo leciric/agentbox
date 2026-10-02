@@ -1042,6 +1042,10 @@ let defaultsSettings = {
   imageCacheMaxBytes: 20 * 1024 ** 3,
   defaultImageCacheMaxBytes: 20 * 1024 ** 3,
   imageCacheBytes: 7.4 * 1024 ** 3,
+  packageCache: true,
+  packageCacheMaxBytes: 20 * 1024 ** 3,
+  defaultPackageCacheMaxBytes: 20 * 1024 ** 3,
+  packageCacheBytes: 3.1 * 1024 ** 3,
 } as T.Settings;
 
 function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: string; contentType: string } {
@@ -1059,6 +1063,9 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.imageCache !== undefined) next.imageCache = req.imageCache;
   if (req.imageCacheMaxBytes !== undefined) next.imageCacheMaxBytes = req.imageCacheMaxBytes || next.defaultImageCacheMaxBytes;
   if (req.clearImageCache) next.imageCacheBytes = 0;
+  if (req.packageCache !== undefined) next.packageCache = req.packageCache;
+  if (req.packageCacheMaxBytes !== undefined) next.packageCacheMaxBytes = req.packageCacheMaxBytes || next.defaultPackageCacheMaxBytes;
+  if (req.clearPackageCache) next.packageCacheBytes = 0;
   // The channel changes what the update check offers (seedNightly).
   if (req.updateChannel !== undefined && devState.update) devState.update = nightlyStatus(devState.update.current, req.updateChannel);
   // The rest are stored as they are sent, the way the daemon stores them.

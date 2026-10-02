@@ -57,6 +57,29 @@ what it holds and empties it; so does `agentbox docker-cache [on|off] [--max 30G
 - If the cache can't answer (the daemon is restarting, or Docker Hub is unreachable from it), Docker
   pulls from Docker Hub itself, as it does whenever a mirror fails.
 
+## Package caches agents share
+
+Agents' package managers download into caches that AgentBox keeps in its VM and every agent shares,
+so a new agent installs from what earlier ones fetched instead of downloading it all again: pnpm's
+store, npm's cache and `npx`, Yarn 2+ (Berry), Go's module and build caches, pip, uv, Corepack's
+package managers and Playwright's browsers. They outlive the agents, are on by default, hold at
+most 20 GiB together (what was used longest ago goes first) and never fill the disk past its floor.
+Settings → Resources → "Share package caches between agents" turns them off, changes their size,
+shows what they hold and empties them; so does `agentbox package-cache [on|off] [--max 30GiB] [--clear]`.
+
+- They're mounted at `/var/cache/agentbox/packages` in every agent, and the agent's environment
+  points the tools there (`npm_config_cache`, `pnpm_config_store_dir`, `GOMODCACHE`, `GOCACHE`,
+  `PIP_CACHE_DIR`, `UV_CACHE_DIR`, `COREPACK_HOME`, `PLAYWRIGHT_BROWSERS_PATH`). pnpm 10 and older
+  read `~/.config/pnpm/rc`, Yarn Berry `~/.yarnrc.yml`; a value you set there yourself is kept.
+  Agents that already exist get them when they next start.
+- Only downloads go there. Logins, tokens, `.env` files and npm's logs stay in each agent. Every
+  agent of every project reads them, though, so a private package one project installs is in the
+  cache for the others too.
+- Yarn 1 keeps a cache per agent, as it can't share one between agents installing at the same time.
+- A project's `node_modules` is copied from pnpm's store rather than hard-linked, as the two are on
+  different disks: still much faster than downloading.
+- Turned off, agents go back to caches of their own when their shells next start.
+
 ## Personalising it
 
 `agentbox-base/ready` still has the placeholder `agent` user in it when it's built.

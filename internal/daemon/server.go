@@ -31,6 +31,7 @@ import (
 	"agentbox/internal/memory"
 	"agentbox/internal/omarchy"
 	"agentbox/internal/paths"
+	"agentbox/internal/pkgcache"
 	"agentbox/internal/remote"
 	"agentbox/internal/secrets"
 	"agentbox/internal/state"
@@ -109,6 +110,11 @@ type Server struct {
 	dockerPruneTimeout time.Duration
 
 	waiting *waiters // agents waiting for an answer to a question
+
+	// packageCache is the package managers' caches agents share
+	// (pkgcache.go), and packageCacheKick asks for a trim now.
+	packageCache     *pkgcache.Cache
+	packageCacheKick chan struct{}
 
 	// connectors are the remote MCP servers agents use, signed in to here
 	// (connectors.go, internal/connectors).
@@ -260,6 +266,8 @@ func New(cfg Config) (*Server, error) {
 	s.incus = s.newIncusWatch()
 	s.disk = s.newDiskWatch()
 	s.imageCache = s.newImageCache()
+	s.packageCache = s.newPackageCache()
+	s.packageCacheKick = make(chan struct{}, 1)
 	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
 }
@@ -336,6 +344,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchIncus(ctx) })
 	loops.Go(func() { s.dropOldLimits(ctx) })
 	loops.Go(func() { s.watchDisk(ctx) })
+	loops.Go(func() { s.watchPackageCache(ctx) })
 	loops.Go(func() { s.refreshConnectors(ctx) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
@@ -472,6 +481,7 @@ func (s *Server) manager(log io.Writer) *agent.Manager {
 		LeadSocketPath:   s.leadSocketPath,
 		DesktopTheme:     s.desktopTheme,
 		ImageCacheSocket: s.imageCacheSocket,
+		PackageCacheDir:  s.packageCacheDir,
 	}
 }
 

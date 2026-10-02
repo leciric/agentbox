@@ -117,6 +117,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.PackageCache != nil || req.PackageCacheMaxBytes != nil || req.ClearPackageCache {
+		if err := s.setPackageCache(r.Context(), req.PackageCache, req.PackageCacheMaxBytes, req.ClearPackageCache); err != nil {
+			return err
+		}
+	}
 	if req.IdleTimeSeconds != nil {
 		if *req.IdleTimeSeconds < 60 {
 			return fmt.Errorf("idle time is at least 60 seconds; %d isn't", *req.IdleTimeSeconds)
@@ -398,6 +403,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	packageCache, packageCacheMax, err := s.store.PackageCache(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
@@ -441,6 +450,11 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		ImageCacheMaxBytes:        imageCacheMax,
 		DefaultImageCacheMaxBytes: state.DefaultImageCacheMax,
 		ImageCacheBytes:           s.imageCache.Size(),
+
+		PackageCache:                packageCache,
+		PackageCacheMaxBytes:        packageCacheMax,
+		DefaultPackageCacheMaxBytes: state.DefaultPackageCacheMax,
+		PackageCacheBytes:           s.packageCache.Size(),
 	}, nil
 }
 

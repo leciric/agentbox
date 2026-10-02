@@ -476,6 +476,32 @@ export function DiskFloor() {
   );
 }
 
+// CacheHolds is what a shared cache holds and the button that empties it,
+// laid out like the "Hold at most" field beside it: the size where its label
+// is, the button level with its box.
+function CacheHolds({
+  held,
+  disabled,
+  onEmpty,
+  ...data
+}: {
+  held: number;
+  disabled: boolean;
+  onEmpty: () => void;
+  [data: `data-${string}`]: boolean;
+}) {
+  return (
+    <div className="grid content-start gap-1.5">
+      <span className="text-[13px] font-medium text-tertiary" {...data}>
+        Holds {humanBytes(held)}
+      </span>
+      <Button className="h-9" disabled={disabled || held === 0} onClick={onEmpty}>
+        Empty it
+      </Button>
+    </div>
+  );
+}
+
 // DockerImageCache is the image cache every agent's Docker shares
 // (internal/imagecache): Docker Hub's images are downloaded and stored once in
 // AgentBox's VM rather than once per agent. Turning it off points agents back
@@ -514,7 +540,7 @@ export function DockerImageCache() {
         />
       }
     >
-      <div className="grid max-w-md grid-cols-2 items-end gap-3">
+      <div className="grid max-w-md grid-cols-2 gap-3">
         <ResourceField
           id="image-cache-max"
           label="Hold at most"
@@ -532,18 +558,69 @@ export function DockerImageCache() {
             save.mutate({ imageCacheMaxBytes: bytes });
           }}
         />
-        <div className="grid gap-1.5 pb-0.5">
-          <span data-image-cache-size className="text-[12px] text-subtle">
-            Holds {humanBytes(held)}
-          </span>
-          <Button
-            size="sm"
-            disabled={disabled || held === 0}
-            onClick={() => save.mutate({ clearImageCache: true })}
-          >
-            Empty it
-          </Button>
-        </div>
+        <CacheHolds held={held} disabled={disabled} onEmpty={() => save.mutate({ clearImageCache: true })} data-image-cache-size />
+      </div>
+    </SettingRow>
+  );
+}
+
+// SharedPackageCaches are the package managers' caches every agent shares
+// (internal/pkgcache): pnpm's store, npm's, Go's, pip's and uv's caches,
+// Corepack and Playwright's browsers live in AgentBox's VM and outlive the
+// agents, so a dependency is downloaded once. The cap and the disk floor bound
+// what they hold.
+export function SharedPackageCaches() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const on = settings.data?.packageCache ?? true;
+  const max = settings.data?.packageCacheMaxBytes ?? 20 * 1024 ** 3;
+  const held = settings.data?.packageCacheBytes ?? 0;
+  const disabled = save.isPending || settings.data === undefined;
+  return (
+    <SettingRow
+      label="Share package caches between agents"
+      description="pnpm, npm, Yarn, Go, pip, uv and Playwright's browsers download into caches in AgentBox's VM that every agent shares, so a new agent installs from what earlier ones fetched."
+      details={
+        <>
+          Only downloads go there: logins, tokens and .env files stay in each agent. Yarn 1 keeps a cache per agent, as
+          it can't share one safely. It reaches running agents at once and the others as they start; what was used
+          longest ago goes first when it's full, and it never takes a disk below what AgentBox keeps free.
+        </>
+      }
+      control={
+        <Switch
+          data-package-cache
+          aria-label="Share package caches between agents"
+          disabled={disabled}
+          checked={on}
+          onCheckedChange={(packageCache) => save.mutate({ packageCache })}
+        />
+      }
+    >
+      <div className="grid max-w-md grid-cols-2 gap-3">
+        <ResourceField
+          id="package-cache-max"
+          label="Hold at most"
+          placeholder="20GiB"
+          hint="Default 20GiB, 1GiB at the least."
+          value={max % 1024 ** 3 === 0 ? `${max / 1024 ** 3}GiB` : humanBytes(max).replace(' ', '')}
+          disabled={disabled}
+          onCommit={(value) => {
+            if (value.trim() === '') return save.mutate({ packageCacheMaxBytes: 0 });
+            const bytes = parseBytes(value);
+            if (bytes === undefined) {
+              toast.error('A size like 20GiB');
+              return;
+            }
+            save.mutate({ packageCacheMaxBytes: bytes });
+          }}
+        />
+        <CacheHolds held={held} disabled={disabled} onEmpty={() => save.mutate({ clearPackageCache: true })} data-package-cache-size />
       </div>
     </SettingRow>
   );

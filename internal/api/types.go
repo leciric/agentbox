@@ -450,6 +450,18 @@ type Settings struct {
 	DefaultImageCacheMaxBytes int64 `json:"defaultImageCacheMaxBytes"`
 	// ImageCacheBytes is how much the cache holds now.
 	ImageCacheBytes int64 `json:"imageCacheBytes"`
+	// PackageCache is "shared package caches": while on, every agent's pnpm,
+	// npm, Yarn, Go, pip, uv, Corepack and Playwright download into one
+	// directory in AgentBox's VM, so a dependency or a browser is downloaded
+	// once. On unless it was turned off.
+	PackageCache bool `json:"packageCache"`
+	// PackageCacheMaxBytes is the most the caches may hold together, what
+	// was used longest ago going first; DefaultPackageCacheMaxBytes when
+	// nobody chose. They also never keep the disk below the disk floor.
+	PackageCacheMaxBytes        int64 `json:"packageCacheMaxBytes"`
+	DefaultPackageCacheMaxBytes int64 `json:"defaultPackageCacheMaxBytes"`
+	// PackageCacheBytes is how much they held when last measured.
+	PackageCacheBytes int64 `json:"packageCacheBytes"`
 }
 
 // UpdateSettingsRequest changes what's set; a nil field stays as it is.
@@ -518,6 +530,14 @@ type UpdateSettingsRequest struct {
 	ImageCacheMaxBytes *int64 `json:"imageCacheMaxBytes,omitempty"`
 	// ClearImageCache empties it.
 	ClearImageCache bool `json:"clearImageCache,omitempty"`
+	// PackageCache turns the shared package caches on or off, for running
+	// agents at once and for the others as they start.
+	PackageCache *bool `json:"packageCache,omitempty"`
+	// PackageCacheMaxBytes sets their cap, 0 going back to the default; at
+	// least 1 GiB otherwise.
+	PackageCacheMaxBytes *int64 `json:"packageCacheMaxBytes,omitempty"`
+	// ClearPackageCache empties them.
+	ClearPackageCache bool `json:"clearPackageCache,omitempty"`
 }
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
