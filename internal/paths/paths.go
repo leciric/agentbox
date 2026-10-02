@@ -62,6 +62,14 @@ func (p Paths) VM() string { return filepath.Join(p.Data, "vm") }
 // (api.VMStatus), while it runs.
 func (p Paths) VMSocket() string { return filepath.Join(p.Data, "run", "vm.sock") }
 
+// ImageCache is where the image cache agents' Docker shares keeps what it
+// downloaded (internal/imagecache), on the disk the daemon's state is on.
+func (p Paths) ImageCache() string { return filepath.Join(p.Data, "image-cache") }
+
+// ImageCacheSocket is where the daemon serves the image cache; each agent
+// reaches it through a proxy device (agent.ImageCachePort).
+func (p Paths) ImageCacheSocket() string { return filepath.Join(p.Data, "run", "image-cache.sock") }
+
 // AgentSockets is the directory of in-agent API sockets, one per agent.
 func (p Paths) AgentSockets() string { return filepath.Join(p.Data, "run", "agents") }
 

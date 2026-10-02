@@ -106,6 +106,7 @@ func (m *Manager) Recreate(ctx context.Context, a state.Agent, opts RecreateOpti
 		return fail("state", err)
 	}
 	a.Status = state.AgentReady
+	m.EnsureImageCache(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	m.EnsureNesting(ctx, a, p)
 	if opts.Stopped {

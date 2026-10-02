@@ -41,6 +41,22 @@ Run inside the container before it's snapshotted:
 - a placeholder user, `agent` (UID/GID 1000), in the `sudo` and `docker` groups;
 - a check at the end that every pinned tool actually reports the version it was asked to install.
 
+## Docker images agents share
+
+Agents that run Docker pull Docker Hub's images through one cache that AgentBox's daemon keeps in
+its VM, so an image several agents use is downloaded and stored once. It's on by default, holds at
+most 20 GiB (the least recently used images go first) and never fills the disk past its floor.
+Settings → Resources → "Share Docker images between agents" turns it off, changes its size, shows
+what it holds and empties it; so does `agentbox docker-cache [on|off] [--max 30GiB] [--clear]`.
+
+- Each agent's `/etc/docker/daemon.json` lists the cache in `registry-mirrors`, at
+  `http://127.0.0.1:47500` inside the agent; `docker info | grep -A2 Mirrors` shows it. Agents that
+  already exist get it when they next start: no rebuild needed.
+- Only Docker Hub goes through it. Images from `ghcr.io`, `quay.io` and other registries are pulled
+  from them directly by every agent, because Docker's mirror setting only covers Docker Hub.
+- If the cache can't answer (the daemon is restarting, or Docker Hub is unreachable from it), Docker
+  pulls from Docker Hub itself, as it does whenever a mirror fails.
+
 ## Personalising it
 
 `agentbox-base/ready` still has the placeholder `agent` user in it when it's built.

@@ -733,3 +733,23 @@ func TestAutoStop(t *testing.T) {
 		t.Error("an idle time of 5s was taken")
 	}
 }
+
+func TestDockerCache(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	out, err := run(t, "", "docker-cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "shared Docker image cache: on")
+	mustContain(t, out, "holds 0 B of at most 20.0 GiB")
+	out, err = run(t, "", "docker-cache", "off", "--max", "40GiB", "--clear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "off: agents pull from Docker Hub directly")
+	mustContain(t, out, "at most 40.0 GiB")
+	if _, err := run(t, "", "docker-cache", "--max", "10MiB"); err == nil {
+		t.Error("a 10MiB cap was taken")
+	}
+}

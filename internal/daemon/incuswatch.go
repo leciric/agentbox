@@ -267,7 +267,12 @@ func (s *Server) plugAgentSockets(ctx context.Context) bool {
 				mu.Lock()
 				ok = false
 				mu.Unlock()
+				return
 			}
+			// Booted, its Docker can be pointed at the shared image cache:
+			// agents made before the cache existed get it here, with no
+			// rebuild, the first time a daemon that has it starts.
+			m.EnsureImageCache(ctx, a)
 		})
 	}
 	wg.Wait()

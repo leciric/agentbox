@@ -242,6 +242,9 @@ type Manager struct {
 	// in — the host's Omarchy theme, when AgentBox is following one. Unset is
 	// BrandDesktopTheme, which is what the command-line tool gets.
 	DesktopTheme func() DesktopTheme
+	// ImageCacheSocket, when set, returns the daemon's shared image cache
+	// socket, or "" while the cache is off (imagecache.go).
+	ImageCacheSocket func(ctx context.Context) string
 
 	// ghReleases, when set, is where the lead's GitHub CLI is downloaded from
 	// instead of GitHub's releases (hostgh.go). Tests point it at a server.
@@ -643,6 +646,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		return fail("state", err)
 	}
 	a.Status = state.AgentReady
+	m.EnsureImageCache(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	m.EnsureNesting(ctx, a, pl.project)
 	return a, nil
@@ -1739,6 +1743,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	if err := m.ensureSession(ctx, a); err != nil {
 		return inst, err
 	}
+	m.EnsureImageCache(ctx, a)
 	m.EnsureBrowser(ctx, a)
 	return inst, nil
 }
