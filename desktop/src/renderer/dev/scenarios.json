@@ -740,5 +740,19 @@
     "query": "newagent=1&theme=dark",
     "width": 1100,
     "height": 900
+  },
+  {
+    "id": "tabs-layout-dark",
+    "description": "Prototype horizontal-tabs layout: the icon rail, a tab per live thread across agentbox, organic and the home chat in every status (working, needing input, done, failed, queued, stopped), overflowing into a scrollable strip, above the chat and the Diff panel \u2014 dark",
+    "query": "layout=tabs&theme=dark",
+    "width": 1400,
+    "height": 900
+  },
+  {
+    "id": "tabs-layout-light",
+    "description": "The same \u2014 light",
+    "query": "layout=tabs&theme=light",
+    "width": 1400,
+    "height": 900
   }
 ]

@@ -52,7 +52,7 @@ Pushing failed: origin is git@github.com:leciric/agentbox-hub.git, SSH host key 
 
 const agent12Stuck = `I don't have a request_credential tool: the memory server here lists search_memory, report, my_task and update_my_task only, so I can't ask for a GitHub account the way the brief says. The branch is committed and unchanged; it still needs a push from an account that can reach leciric/agentbox-hub, and the pull request after it.`;
 
-function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
+export function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
   return {
     project: PROJECT,
     name: overrides.ref.split('/')[1],
@@ -1344,7 +1344,7 @@ const queueReserve = 2.25 * queueGiB;
 const organicPeakBytes = 6 * queueGiB;
 const agentboxPeakBytes = 2 * queueGiB;
 
-function organicProject(): T.Project {
+export function organicProject(): T.Project {
   return {
     name: 'organic',
     displayName: 'Organic Web App',

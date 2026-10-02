@@ -149,6 +149,14 @@
 //                           open at a tab or a section of its Settings tab
 //                           (?page=tokens, ?page=general…); with ?open=agent-99,
 //                           that agent's page (?page=secrets, ?page=machine…)
+//   ?layout=tabs            a prototype layout (TabsLayoutPreview.tsx): the icon
+//                           rail, the sidebar collapsed into a History drawer
+//                           (toggled from the rail, or ⌘⇧H), and a row of
+//                           horizontal tabs — the lead chat, the home chat and
+//                           agents across two projects, in every status — above
+//                           the chat and a resizable Preview/Browser/Diff/Media
+//                           panel. The default (no ?layout) scenario stays
+//                           today's layout, to compare the two.
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
@@ -191,6 +199,7 @@ import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
+import { seedTabsLayout, TabsLayoutPreview } from './TabsLayoutPreview';
 
 installDevBridge();
 
@@ -223,6 +232,7 @@ const settingsPage = params.get('settings'); // a section of Settings, or a proj
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
 const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'organic-alone' | 'organic-busy' | 'off' | null
+const layout = params.get('layout'); // 'tabs' | null
 // Whose Settings ?queue=settings and the organic ones show.
 const queueSettingsProject = queue?.startsWith('organic-') ? 'organic' : PROJECT;
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
@@ -312,6 +322,7 @@ if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
+if (layout === 'tabs') seedTabsLayout(queryClient, fixtures);
 // ?page= shows whole pages, and their sections ask for what no other
 // scenario seeds: no limits read yet, an empty queue, and no secrets or
 // connectors.
@@ -504,6 +515,7 @@ function PagePreview({ at }: { at: string }) {
 }
 
 function Preview() {
+  if (layout === 'tabs') return <TabsLayoutPreview />;
   if (github) return <GitHubPreview />;
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
