@@ -270,6 +270,8 @@ func NewRootCmd() *cobra.Command {
 		newDesktopCmd(a),
 		newMemoryCmd(a),
 		newAskCmd(a),
+		newHeavyCmd(a),
+		newHeavyHookCmd(),
 		newQuestionsCmd(a),
 		newAnswerCmd(a),
 		newAutonomyCmd(a),

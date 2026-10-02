@@ -1697,7 +1697,8 @@ type BurstLease struct {
 	Granted bool `json:"granted"`
 	// Bytes is the agent's burst, what the lease holds of the pool.
 	Bytes int64 `json:"bytes,omitempty"`
-	// Why the wait ran out, in one line, when it isn't granted.
+	// Why is why it wasn't granted, a clause like "it needs 3 GB of the VM's
+	// memory; 2 other agents' tests and builds hold 9 GB and 1 GB is free".
 	Why string `json:"why,omitempty"`
 	// Env is what the agent's commands run with while it holds a lease: its
 	// test runners' parallelism held to the lease. Empty once it holds none.

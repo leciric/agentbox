@@ -185,18 +185,18 @@ func withLease(holders []agent.Holder, ref, project string, bytes int64) []agent
 	return append(holders, agent.Holder{Ref: ref, Project: project, Lease: bytes})
 }
 
-// burstWhy says in one line why a lease of bytes waited, from what the pool
-// holds now.
-func (s *Server) burstWhy(ctx context.Context, bytes int64, waited time.Duration) string {
+// burstWhy says why a lease of bytes isn't given, from what the pool holds
+// now: a clause the caller words its line around.
+func (s *Server) burstWhy(ctx context.Context, bytes int64) string {
 	s.queueMu.Lock()
 	plan, err := s.planAdmission(ctx, nil)
 	s.queueMu.Unlock()
 	if err != nil {
-		return fmt.Sprintf("waited %s for %s GB of burst memory", waited.Round(time.Second), agent.GB(bytes))
+		return fmt.Sprintf("it needs %s GB of the VM's memory", agent.GB(bytes))
 	}
 	free, leased, agents := agent.BurstFree(plan.total, plan.holders)
-	return fmt.Sprintf("waited %s for %s GB of burst memory: %d %s hold %s GB of it and %s GB is free; try again later",
-		waited.Round(time.Second), agent.GB(bytes), agents, plural(agents, "agent", "agents"), agent.GB(leased), agent.GB(free))
+	return fmt.Sprintf("it needs %s GB of the VM's memory; %d other %s tests and builds hold %s GB and %s GB is free",
+		agent.GB(bytes), agents, plural(agents, "agent's", "agents'"), agent.GB(leased), agent.GB(free))
 }
 
 // burstEnv is the environment ref's commands run with while it holds bytes.
@@ -256,7 +256,6 @@ func (s *Server) leaseBurst(ctx context.Context, a state.Agent, key string, ttl,
 	s.burst.waiting = append(s.burst.waiting, waiter)
 	s.burst.mu.Unlock()
 	s.grantBursts(ctx)
-	start := time.Now()
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	select {
@@ -268,7 +267,7 @@ func (s *Server) leaseBurst(ctx context.Context, a state.Agent, key string, ttl,
 		if ctx.Err() != nil {
 			return api.BurstLease{}, ctx.Err()
 		}
-		return api.BurstLease{Why: s.burstWhy(ctx, bytes, time.Since(start))}, nil
+		return api.BurstLease{Why: s.burstWhy(ctx, bytes)}, nil
 	}
 	held := s.burst.leaseOf(ref)
 	return api.BurstLease{Granted: true, Bytes: held, Env: burstEnv(held)}, nil

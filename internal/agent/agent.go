@@ -1109,6 +1109,12 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 				func(b []byte) ([]byte, error) { return withClaudeCompactWindow(b, window) },
 				func(b []byte) ([]byte, error) { return withClaudeEnv(b, subagentLimits) },
 				func(b []byte) ([]byte, error) { return withClaudeEnv(b, outputCaps) },
+				// Heavy phases take a lease from the VM's burst pool by
+				// themselves (heavyhooks.go).
+				withHeavyHooks,
+				func(b []byte) ([]byte, error) {
+					return withClaudeEnv(b, map[string]string{"BASH_ENV": "/home/" + m.User.Name + "/" + HeavyEnvFile})
+				},
 			)
 		}); err != nil {
 			return err
