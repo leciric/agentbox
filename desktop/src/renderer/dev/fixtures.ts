@@ -1470,7 +1470,7 @@ export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'de
   }
 
   const running = (project: string, i: number, title: string) => agent({ ref: `${project}/agent-${i}`, project, title, chat: 'running', state: 'running' });
-  const queuedAgentState = (name: string, position: number) => agent({ ref: `${PROJECT}/${name}`, project: PROJECT, title: queueTaskGoals[name] ?? name, state: 'queued', queuePosition: position, chat: undefined });
+  const queuedAgentState = (name: string, position: number) => agent({ ref: `${PROJECT}/${name}`, project: PROJECT, title: queueTaskGoals[name] ?? name, state: 'queued', queuePosition: position, waiting: queuedAgentFixture(name, position).waiting, chat: undefined });
 
   if (mode === 'alone') {
     const agents = [running('organic', 1, 'Rebuild the checkout flow'), running('organic', 2, 'Speed up the search index')];
