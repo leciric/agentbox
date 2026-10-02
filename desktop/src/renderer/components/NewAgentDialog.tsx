@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, LoaderCircle, MessageSquare, SquareTerminal } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
+import { agentSizes } from '../lib/agentSize';
 import { api } from '../lib/api';
 import { projectLabel } from '../lib/projectName';
 import { branchSlug, branchSlugPattern, maxBranchSlugLen } from '../lib/branch';
@@ -47,6 +48,8 @@ interface Form {
   // project's own alwaysQueue until you touch the switch yourself.
   queue: boolean;
   queueTouched: boolean;
+  // What it reserves of the VM's memory (lib/agentSize.ts); "" is auto.
+  size: string;
 }
 
 const emptyForm: Form = {
@@ -68,7 +71,10 @@ const emptyForm: Form = {
   notify: '',
   queue: false,
   queueTouched: false,
+  size: '',
 };
+
+const sizes = agentSizes();
 
 const tools = [
   { ai: 'claude', label: 'Claude Code', hint: 'Anthropic' },
@@ -163,6 +169,7 @@ export function NewAgentDialog({
         // Off outright while the installation's Agent queue is off, whatever
         // the switch (disabled, so untouched) still carries from before.
         queue: queueEnabled && form.queue,
+        size: form.size || undefined,
       }),
     onSuccess: setJob,
   });
@@ -306,6 +313,16 @@ export function NewAgentDialog({
               disabled={!queueEnabled}
               onChange={(value) => setForm((f) => ({ ...f, queue: value, queueTouched: true }))}
             />
+
+            <Field label="Size" htmlFor="agent-size" hint="What it reserves of the VM's memory: it waits in the queue until that much is free. Not a cap.">
+              <Select id="agent-size" value={form.size} onChange={(value) => set('size', value)}>
+                {sizes.map((size) => (
+                  <SelectOption key={size.value} value={size.value}>
+                    {size.label} <span className="text-subtle">· {size.tip}</span>
+                  </SelectOption>
+                ))}
+              </Select>
+            </Field>
 
             <div className="grid gap-1.5">
               <Label>AI tool</Label>

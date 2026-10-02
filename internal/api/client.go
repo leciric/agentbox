@@ -156,6 +156,20 @@ func (c *Client) Fleet(ctx context.Context, project string) (Fleet, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/fleet", nil, &out)
 }
 
+// AcquireBurst asks, inside an agent, for a lease on the VM's burst pool,
+// waiting for one (BurstRequest).
+func (c *Client) AcquireBurst(ctx context.Context, req BurstRequest) (BurstLease, error) {
+	var out BurstLease
+	return out, c.do(ctx, http.MethodPost, "/v1/self/burst", req, &out)
+}
+
+// ReleaseBurst gives a heavy phase's key back, and the lease with it once the
+// agent holds no other.
+func (c *Client) ReleaseBurst(ctx context.Context, key string) (BurstLease, error) {
+	var out BurstLease
+	return out, c.do(ctx, http.MethodDelete, "/v1/self/burst/"+url.PathEscape(key), nil, &out)
+}
+
 // Ask puts a question to the project's chat and waits for the answer. Only an
 // agent may call it, on the in-agent socket.
 func (c *Client) Ask(ctx context.Context, question, about string) (Question, error) {

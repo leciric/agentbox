@@ -56,19 +56,21 @@ func (s *Server) kickQueue() {
 	}
 }
 
-// runQueue is the queue's loop: it starts queued agents into free slots when
-// kicked and on a timer, and on the timer samples what running agents use and
-// rechecks the leads that are due (leadrecheck.go). With both "agent queue"
-// and "lead rechecks agents" off, the timer does nothing at all.
+// runQueue is the queue's loop: it starts queued agents into free slots and
+// free memory when kicked and on a timer, and on the timer samples what
+// running agents use, sets their memory.high from it (admission.go) and
+// rechecks the leads that are due (leadrecheck.go).
 func (s *Server) runQueue(ctx context.Context) {
 	if s.queueEvery <= 0 {
 		return // a test drives admitQueued itself
 	}
 	tick := func() {
-		queueOn, recheckOn := s.queueFeatures(ctx)
-		if queueOn || recheckOn {
-			s.sampleUsage(ctx)
-		}
+		_, recheckOn := s.queueFeatures(ctx)
+		// Whatever the switches say: what agents use is what admission
+		// counts them for, and what memory.high is set from.
+		s.sampleUsage(ctx)
+		s.expireBursts(ctx)
+		s.tightenMemory(ctx)
 		s.admitQueued(ctx)
 		if recheckOn {
 			s.recheckLeads(ctx, time.Now())
@@ -103,7 +105,7 @@ const usageSample = time.Second
 // sampleUsage measures what every agent uses now, keeps it for the slot page
 // and the recheck, and records each running agent's peaks.
 func (s *Server) sampleUsage(ctx context.Context) {
-	agents, err := s.manager(nil).SampleUsage(ctx, time.Now(), usageSample)
+	agents, err := s.manager(nil).SampleUsage(ctx, time.Now(), usageSample, func(ref string) bool { return s.burst.leaseOf(ref) > 0 })
 	if err != nil {
 		s.logf("agent queue: sampling usage: %v", err)
 	}
@@ -223,9 +225,10 @@ func (s *Server) slotAgents(ctx context.Context, project string, statuses []agen
 	return out
 }
 
-// admitQueued starts as many queued agents as there are free slots, each
-// project's in its queue's order, and hands the lead the tasks queued for it
-// that have reached the front (taskroute.go).
+// admitQueued starts the queued agents that have a free slot and fit in the
+// VM's free memory, in the order they joined across every project, each
+// project's in its queue's order (admission.go), and hands the lead the tasks
+// queued for it that have reached the front (taskroute.go).
 func (s *Server) admitQueued(ctx context.Context) {
 	s.queueMu.Lock()
 	defer s.queueMu.Unlock()
@@ -247,32 +250,29 @@ func (s *Server) admitQueued(ctx context.Context) {
 		// has some again.
 		return
 	}
-	status, err := s.slotStatus(ctx)
+	plan, err := s.planAdmission(ctx, nil)
 	if err != nil {
 		s.logf("agent queue: %v", err)
 		return
 	}
-	free := map[string]int{}
-	for _, p := range status.Projects {
-		free[p.Project] = p.Slots - p.Running
-		if !status.Enabled {
-			// The queue is off: nothing waits, whatever the slots say.
-			free[p.Project] = len(queue)
-		}
-	}
 	started := 0
-	for _, q := range queue {
-		if s.queueStarting(q.Ref()) || free[q.Project] <= 0 {
+	for _, w := range plan.waiting {
+		if !plan.verdicts[w.Ref].Start {
 			continue
 		}
-		if err := s.queueStart(ctx, q); err != nil {
-			s.logf("agent queue: starting %s: %v", q.Ref(), err)
+		if err := s.queueStart(ctx, plan.queued[w.Ref]); err != nil {
+			s.logf("agent queue: starting %s: %v", w.Ref, err)
 			continue
 		}
-		free[q.Project]--
 		started++
 	}
+	// What the rest are told counts the agents that just started.
 	if started > 0 {
+		if again, err := s.planAdmission(ctx, nil); err == nil {
+			plan = again
+		}
+	}
+	if changed := s.setWaiting(plan); started > 0 || changed {
 		s.refreshAgents(ctx)
 	}
 }
@@ -363,6 +363,7 @@ func (s *Server) enqueueAgent(ctx context.Context, req api.CreateAgentRequest, b
 		ClaudeAccount: req.ClaudeAccount,
 		GitHubAccount: req.GitHubAccount,
 		FinishNotice:  req.FinishNotice,
+		Size:          req.Size,
 		Task:          strings.TrimSpace(req.Task),
 	}, request)
 	if err != nil {
@@ -372,6 +373,12 @@ func (s *Server) enqueueAgent(ctx context.Context, req api.CreateAgentRequest, b
 		s.assignTask(ctx, a.Project, req.TaskID, a.Name)
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "agent_queued", map[string]any{"title": a.Title, "task": strings.TrimSpace(req.Task), "branch": a.Branch}, "")
+	// Why it waits, for the answer below and the sidebar.
+	s.queueMu.Lock()
+	if plan, err := s.planAdmission(ctx, nil); err == nil {
+		s.setWaiting(plan)
+	}
+	s.queueMu.Unlock()
 	s.refreshAgents(ctx)
 	info, err := s.describe(ctx, a)
 	if err != nil {
@@ -500,7 +507,7 @@ func (s *Server) unqueueAgentForTask(ctx context.Context, t memory.Task) (bool, 
 // HTTP
 
 func (s *Server) getQueue(w http.ResponseWriter, r *http.Request) error {
-	status, err := s.slotStatus(r.Context())
+	status, err := s.queueStatus(r.Context())
 	if err != nil {
 		return err
 	}
@@ -517,6 +524,31 @@ func (s *Server) getQueue(w http.ResponseWriter, r *http.Request) error {
 		status.Queued = append([]api.QueuedAgent{}, queued...)
 	}
 	return writeJSON(w, http.StatusOK, status)
+}
+
+// queueStatus is slotStatus with what admission makes of it: the memory
+// agents hold, and why each queued agent waits.
+func (s *Server) queueStatus(ctx context.Context) (api.QueueStatus, error) {
+	s.queueMu.Lock()
+	plan, err := s.planAdmission(ctx, nil)
+	s.queueMu.Unlock()
+	if err != nil {
+		return api.QueueStatus{}, err
+	}
+	status, err := s.slotStatus(ctx)
+	if err != nil {
+		return api.QueueStatus{}, err
+	}
+	status.Reserved = agent.Used(plan.holders)
+	need := map[string]int64{}
+	for _, w := range plan.waiting {
+		need[w.Ref] = w.Need
+	}
+	for i, q := range status.Queued {
+		status.Queued[i].Waiting = plan.message(q.Ref)
+		status.Queued[i].Reserved = need[q.Ref]
+	}
+	return status, nil
 }
 
 // queuedFromPath is the queued agent a queue route names.

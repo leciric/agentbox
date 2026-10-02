@@ -175,8 +175,20 @@ type Server struct {
 	queueStart     func(ctx context.Context, q state.QueuedAgent) error
 	slotBudget     func(ctx context.Context) (int64, error)
 	projectPeak    func(ctx context.Context, project string) (int64, bool, error)
+	// projectShape is the manager's ProjectShape, or a test's: admission's
+	// baselines and the burst pool's bursts (burst.go).
+	projectShape func(ctx context.Context, project string) (agent.Shape, error)
+	burst        *burstPool
 	// usageNow is what each agent used when last sampled, by ref, under mu.
 	usageNow map[string]agent.AgentUsage
+	// Admission (admission.go), under mu: the creates admitted straight to
+	// their machines whose jobs haven't ended, by a number of their own, and
+	// why each queued agent waits, by ref. setMemoryHigh is
+	// agent.SetMemoryHigh, or a test's.
+	pendingCreates map[int]pendingCreate
+	pendingSeq     int
+	waitReasons    map[string]string
+	setMemoryHigh  func(instance string, high int64) error
 	// The lead recheck (leadrecheck.go), under mu: when each project's lead
 	// was last rechecked, and what it was told then, so the same state isn't
 	// sent twice.
@@ -226,6 +238,8 @@ func New(cfg Config) (*Server, error) {
 		queueKick:        make(chan struct{}, 1),
 		queueEvery:       queueInterval,
 		startingQueued:   map[string]bool{},
+		pendingCreates:   map[int]pendingCreate{},
+		setMemoryHigh:    agent.SetMemoryHigh,
 		recheckedAt:      map[string]time.Time{},
 		recheckedWhat:    map[string]string{},
 		stalls:           map[string]*stallTrack{},
@@ -241,6 +255,10 @@ func New(cfg Config) (*Server, error) {
 	s.projectPeak = func(ctx context.Context, project string) (int64, bool, error) {
 		return s.manager(nil).ProjectPeak(ctx, project)
 	}
+	s.projectShape = func(ctx context.Context, project string) (agent.Shape, error) {
+		return s.manager(nil).ProjectShape(ctx, project)
+	}
+	s.burst = newBurstPool()
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.wakeAndTell, s.tellLead

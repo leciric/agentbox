@@ -16,7 +16,9 @@ import (
 // run a prune.
 func (s *Server) stopAgent(ctx context.Context, m *agent.Manager, a state.Agent) error {
 	s.pruneDocker(ctx, m, a)
-	return m.Stop(ctx, a)
+	err := m.Stop(ctx, a)
+	s.dropBursts(ctx, a.Ref())
+	return err
 }
 
 // pruneDocker frees the Docker space of an agent about to stop

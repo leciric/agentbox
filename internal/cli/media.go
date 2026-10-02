@@ -265,8 +265,18 @@ neither the cursor nor the overlay sees it.`,
 			if err != nil {
 				return err
 			}
+			if ref == "" {
+				// Inside an agent, a recording is a heavy phase (heavy.go):
+				// it holds a lease until it stops, or a little after its limit.
+				if err := leaseRecording(cmd, c, limit); err != nil {
+					return err
+				}
+			}
 			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Input: input, Name: name, LimitSeconds: int(limit.Seconds())})
 			if err != nil {
+				if ref == "" {
+					_, _ = c.ReleaseBurst(cmd.Context(), recordingKey)
+				}
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Recording %q%s. Run agentbox media record stop when you're done (it stops by itself after %s)\n",
@@ -278,6 +288,24 @@ neither the cursor nor the overlay sees it.`,
 	cmd.Flags().StringVar(&input, "input", "playwright", "playwright, or desktop to show the mouse cursor and the keys pressed")
 	cmd.Flags().DurationVar(&limit, "limit", 10*time.Minute, "stop by itself after this long (at most 1h)")
 	return cmd
+}
+
+// recordingKey is the lease key a recording holds.
+const recordingKey = "recording"
+
+// leaseRecording takes the recording's lease from the VM's burst pool,
+// waiting for one, and says why once if it has to.
+func leaseRecording(cmd *cobra.Command, c burstClient, limit time.Duration) error {
+	ttl := int((limit + time.Minute).Seconds())
+	lease, err := c.AcquireBurst(cmd.Context(), api.BurstRequest{Key: recordingKey, TTLSeconds: ttl, WaitSeconds: 2})
+	if err == nil && !lease.Granted {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Waiting for memory to record: %s\n", lease.Why)
+		lease, err = c.AcquireBurst(cmd.Context(), api.BurstRequest{Key: recordingKey, TTLSeconds: ttl})
+	}
+	if err == nil && !lease.Granted {
+		return fmt.Errorf("no memory to record after 10 minutes: %s. Try again later", lease.Why)
+	}
+	return nil // a daemon that can't lease doesn't keep the recording from starting
 }
 
 // recordInput names the mode in a sentence, and says nothing for the default.
@@ -300,6 +328,9 @@ func newRecordStopCmd(a *app) *cobra.Command {
 				return err
 			}
 			item, err := c.StopRecording(cmd.Context(), ref)
+			if ref == "" {
+				_, _ = c.ReleaseBurst(cmd.Context(), recordingKey)
+			}
 			if err != nil {
 				return err
 			}

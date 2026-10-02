@@ -372,6 +372,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"(you're told in one line when it starts). Use it for work that can wait, so agents don't all compete for " +
 					"memory at once. Left out, the project's own setting decides, which is to start now unless the user " +
 					"chose to always queue."},
+				"size": sizeParam,
 				"notify": choiceOf("what a genuine finish does to your chat: \"chat\" to be told and woken when this agent finishes, "+
 					"\"off\" to only have the finish recorded — for a small, mechanical job you don't need to react to. This only "+
 					"matters when this project's finish notices are set to \"lead\"; otherwise the project's own setting decides for "+
@@ -392,6 +393,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					ClaudeAccount                 string `json:"claude_account"`
 					Research                      bool
 					Queue                         *bool
+					Size                          string
 					// Pointers: an agent given no model is not the same as one
 					// asked for the empty model, and only the first falls back
 					// to what new agents start on.
@@ -437,6 +439,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					ClaudeAccount: in.ClaudeAccount,
 					FinishNotice:  notify,
 					Queue:         in.Queue,
+					Size:          in.Size,
 					Connectors:    in.Connectors,
 				})
 				if err != nil {
@@ -445,8 +448,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if job.Kind == "queue" {
 					var ag api.Agent
 					_ = json.Unmarshal(job.Result, &ag)
-					return fmt.Sprintf("Queued %q as %s, #%d in this project's queue; it starts on the task by itself when a slot is free.",
-						in.Title, ag.Name, ag.QueuePosition), nil
+					return queuedLine(in.Title, "this project's", ag), nil
 				}
 				return fmt.Sprintf("Creating %q%s; it starts on the task by itself. Job %s.",
 					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, in.ClaudeAccount)+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
@@ -929,6 +931,25 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	}
 }
 
+// sizeParam is create_agent's size: what the agent reserves of the VM's
+// memory in its heavy phases (agent.Burst).
+var sizeParam = choiceOf("what the agent reserves of the VM's memory, which every project's agents share, in its heavy "+
+	"phases: tests, builds, the browser, a recording. Those wait while the VM has no room for them. \"light\" reserves "+
+	"~2 GB: reading, reviewing, small edits. \"normal\" reserves what this project's agents were seen to need. "+
+	"\"heavy\" reserves ~8 GB: a recording, a big build, Android or Docker. It isn't a cap. Left out or \"auto\" is normal.",
+	"auto", "light", "normal", "heavy")
+
+// queuedLine is what create_agent says about an agent that was queued
+// rather than started: where it is in line, and why it waits.
+func queuedLine(title, queue string, ag api.Agent) string {
+	why := ag.Waiting
+	if why == "" {
+		why = "queued: it starts when it fits"
+	}
+	return fmt.Sprintf("Queued %q as %s, #%d in %s queue (%s). It starts on the task by itself, and you're told in one line when it does.",
+		title, ag.Name, ag.QueuePosition, queue, why)
+}
+
 func describeFleet(fleet api.Fleet) string {
 	if len(fleet.Agents) == 0 && len(fleet.Creating) == 0 {
 		return "This project has no agents yet. Create one with create_agent."
@@ -943,7 +964,11 @@ func describeFleet(fleet api.Fleet) string {
 			fmt.Fprintf(&b, " — %s", f.Title)
 		}
 		if f.State == "queued" {
-			fmt.Fprintf(&b, "\n  queued #%d: no machine until one of the project's slots is free, branch: %s\n", f.QueuePosition, dash(f.Branch))
+			why := f.Waiting
+			if why == "" {
+				why = "queued: no machine until it fits"
+			}
+			fmt.Fprintf(&b, "\n  #%d %s, branch: %s\n", f.QueuePosition, why, dash(f.Branch))
 			continue
 		}
 		fmt.Fprintf(&b, "\n  branch: %s, machine: %s", dash(f.Branch), f.State)

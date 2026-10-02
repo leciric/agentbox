@@ -171,6 +171,11 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	srv.askAside = func(context.Context, state.Agent, string, string) (string, string, error) {
 		return "", "", errors.New("this test starts no AI tool")
 	}
+	// Admission (admission.go) works from this machine's memory, which would
+	// queue a test's creates on a small one: a test about it says otherwise.
+	// Nor does a test write a cgroup.
+	srv.slotBudget = func(context.Context) (int64, error) { return 1 << 50, nil }
+	srv.setMemoryHigh = func(string, int64) error { return nil }
 	if tc.queue != nil {
 		tc.queue(srv)
 	}

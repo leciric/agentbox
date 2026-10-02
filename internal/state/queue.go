@@ -56,8 +56,8 @@ func (s *Store) Enqueue(ctx context.Context, a Agent, request []byte) error {
 		return err
 	}
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors)
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors, a.Size)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
@@ -274,6 +274,56 @@ func (s *Store) TypicalMemoryPeak(ctx context.Context, project string) (int64, e
 	return peaks[len(peaks)/2], nil
 }
 
+// RecordPhasePeak keeps the most an agent was seen using in one phase: its
+// baseline when burst is false, a heavy phase (a burst lease) when true.
+func (s *Store) RecordPhasePeak(ctx context.Context, project, agent string, memory int64, burst bool, at time.Time) error {
+	if memory <= 0 {
+		return nil
+	}
+	column := "base_peak"
+	if burst {
+		column = "burst_peak"
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_memory_peaks (project, agent, peak, cpu_peak, updated_at, `+column+`) VALUES (?, ?, 0, 0, ?, ?)
+		ON CONFLICT (project, agent) DO UPDATE SET `+column+` = MAX(`+column+`, excluded.`+column+`)`,
+		project, agent, at.Unix(), memory)
+	return err
+}
+
+// MemoryShape is what a project's latest agents use, learned apart: the
+// median baseline (writing code), and the median burst, what a heavy phase
+// took beyond its agent's baseline. Either is 0 when none was seen.
+func (s *Store) MemoryShape(ctx context.Context, project string) (baseline, burst int64, err error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT base_peak, burst_peak FROM agent_memory_peaks WHERE project = ? AND base_peak > 0 ORDER BY updated_at DESC LIMIT ?`, project, memoryPeakSample)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	var bases, bursts []int64
+	for rows.Next() {
+		var base, peak int64
+		if err := rows.Scan(&base, &peak); err != nil {
+			return 0, 0, err
+		}
+		bases = append(bases, base)
+		if peak > base {
+			bursts = append(bursts, peak-base)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	return median(bases), median(bursts), nil
+}
+
+func median(values []int64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	return values[len(values)/2]
+}
+
 // SetProjectSlots pins how many of a project's agents run at once; 0 goes
 // back to auto.
 func (s *Store) SetProjectSlots(ctx context.Context, name string, slots int) error {
@@ -287,6 +337,12 @@ func (s *Store) SetProjectSlots(ctx context.Context, name string, slots int) err
 // create says otherwise.
 func (s *Store) SetProjectAlwaysQueue(ctx context.Context, name string, on bool) error {
 	return s.updateProject(ctx, name, `always_queue = ?`, on)
+}
+
+// SetProjectAgentSize sets the size of the agents a project's chat creates:
+// "" lets the chat choose for each.
+func (s *Store) SetProjectAgentSize(ctx context.Context, name, size string) error {
+	return s.updateProject(ctx, name, `agent_size = ?`, size)
 }
 
 func (s *Store) updateProject(ctx context.Context, name, set string, value any) error {

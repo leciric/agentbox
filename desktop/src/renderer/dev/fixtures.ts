@@ -348,6 +348,7 @@ export function buildFixtures(): FixtureData {
       prWatching: true,
       slots: 0,
       alwaysQueue: false,
+      agentSize: '',
       createdAt: new Date().toISOString(),
     },
     {
@@ -377,6 +378,7 @@ export function buildFixtures(): FixtureData {
       prWatching: true,
       slots: 0,
       alwaysQueue: false,
+      agentSize: '',
       createdAt: new Date().toISOString(),
     },
   ];
@@ -1370,6 +1372,7 @@ function organicProject(): T.Project {
     prWatching: true,
     slots: 0,
     alwaysQueue: false,
+    agentSize: '',
     createdAt: new Date().toISOString(),
   };
 }
@@ -1406,6 +1409,7 @@ function queueStatus(enabled: boolean, abSlots: number, abRunning: number, queue
     reserve: queueReserve,
     projects: [queueSlots(PROJECT, abSlots, agentboxPeakBytes, abRunning, queued.length, abAgents), queueSlots('organic', orgSlots, organicPeakBytes, orgRunning, 0, orgAgents)],
     queued,
+    reserved: 0,
   };
 }
 
@@ -1426,6 +1430,8 @@ function queuedAgentFixture(name: string, position: number): T.QueuedAgent {
     taskId: `t-${name}`,
     position,
     queuedAt: new Date(Date.now() - position * 5_000).toISOString(),
+    reserved: agentboxPeakBytes,
+    waiting: 'queued: 6 agents in 2 projects reserve 15 of 18 GB; starts when ~4 GB is free',
   };
 }
 
@@ -1474,7 +1480,7 @@ export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'de
   }
 
   const running = (project: string, i: number, title: string) => agent({ ref: `${project}/agent-${i}`, project, title, chat: 'running', state: 'running' });
-  const queuedAgentState = (name: string, position: number) => agent({ ref: `${PROJECT}/${name}`, project: PROJECT, title: queueTaskGoals[name] ?? name, state: 'queued', queuePosition: position, chat: undefined });
+  const queuedAgentState = (name: string, position: number) => agent({ ref: `${PROJECT}/${name}`, project: PROJECT, title: queueTaskGoals[name] ?? name, state: 'queued', queuePosition: position, waiting: queuedAgentFixture(name, position).waiting, chat: undefined });
 
   if (mode === 'alone') {
     const agents = [running('organic', 1, 'Rebuild the checkout flow'), running('organic', 2, 'Speed up the search index')];
