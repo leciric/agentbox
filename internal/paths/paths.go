@@ -70,6 +70,12 @@ func (p Paths) ImageCache() string { return filepath.Join(p.Data, "image-cache")
 // reaches it through a proxy device (agent.ImageCachePort).
 func (p Paths) ImageCacheSocket() string { return filepath.Join(p.Data, "run", "image-cache.sock") }
 
+// PackageCache is where the package managers' caches every agent shares are
+// kept (internal/pkgcache), on the disk the daemon's state is on: in the VM,
+// its own disk, which is far faster than a shared folder for the many small
+// files of a pnpm store or a Go build cache.
+func (p Paths) PackageCache() string { return filepath.Join(p.Data, "package-cache") }
+
 // AgentSockets is the directory of in-agent API sockets, one per agent.
 func (p Paths) AgentSockets() string { return filepath.Join(p.Data, "run", "agents") }
 

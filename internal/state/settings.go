@@ -201,7 +201,35 @@ const (
 	// SettingImageCacheMax is the most the shared image cache may hold, in
 	// bytes. Empty means DefaultImageCacheMax.
 	SettingImageCacheMax = "image_cache_max"
+	// SettingPackageCache says whether agents' package managers (pnpm, npm,
+	// Go, pip, Playwright…) share their caches. On until somebody turns it off
+	// (FlagOn).
+	SettingPackageCache = "package_cache"
+	// SettingPackageCacheMax is the most the shared package caches may hold,
+	// in bytes. Empty means DefaultPackageCacheMax.
+	SettingPackageCacheMax = "package_cache_max"
 )
+
+// DefaultPackageCacheMax is the shared package caches' cap when nobody chose:
+// a few projects' dependencies, Go modules and Playwright browsers.
+const DefaultPackageCacheMax int64 = 20 << 30
+
+// PackageCache reads the shared package caches' settings: whether they're
+// on, and their cap in bytes.
+func (s *Store) PackageCache(ctx context.Context) (on bool, maxBytes int64, err error) {
+	if on, err = s.FlagOn(ctx, SettingPackageCache); err != nil {
+		return false, 0, err
+	}
+	maxBytes = DefaultPackageCacheMax
+	raw, err := s.Setting(ctx, SettingPackageCacheMax)
+	if err != nil {
+		return false, 0, err
+	}
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n > 0 {
+		maxBytes = n
+	}
+	return on, maxBytes, nil
+}
 
 // DefaultImageCacheMax is the shared image cache's cap when nobody chose: a
 // handful of development stacks' images, a fraction of what agents pulling

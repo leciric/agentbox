@@ -245,6 +245,9 @@ type Manager struct {
 	// ImageCacheSocket, when set, returns the daemon's shared image cache
 	// socket, or "" while the cache is off (imagecache.go).
 	ImageCacheSocket func(ctx context.Context) string
+	// PackageCacheDir, when set, returns the directory of the package caches
+	// agents share, or "" while they're off (pkgcache.go).
+	PackageCacheDir func(ctx context.Context) string
 
 	// ghReleases, when set, is where the lead's GitHub CLI is downloaded from
 	// instead of GitHub's releases (hostgh.go). Tests point it at a server.
@@ -752,6 +755,8 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	if err := m.configure(ctx, a, inst.IPv4(), envFiles, task); err != nil {
 		return "configure", err
 	}
+	// Before the session, so the AI tool's first install finds the caches.
+	m.EnsurePackageCache(ctx, a)
 	m.logf("Starting the tmux session")
 	if err := m.ensureSession(ctx, a); err != nil {
 		return "session", err
@@ -1342,6 +1347,7 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	// Every agent of a project uses the same Compose project name, so a fork or
 	// a project base finds the containers and volumes it was copied with.
 	env := "# Written by AgentBox.\nexport COMPOSE_PROJECT_NAME=" + shellQuote(a.Project) + "\n"
+	env += m.packageCacheEnv()
 	// The GitHub token, when the agent has an account, so gh and the API work in it.
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
 	if err != nil {
@@ -1746,6 +1752,9 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	if err := m.writeAgentEnv(ctx, a); err != nil {
 		return inst, err
 	}
+	// The shared package caches, mounted before anything inside installs: an
+	// agent made before they existed gets them here.
+	m.EnsurePackageCache(ctx, a)
 	// Same for .gitconfig: an account change while it was down couldn't write
 	// the credential helper in either.
 	if err := m.writeGitConfig(ctx, a); err != nil {

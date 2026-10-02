@@ -273,6 +273,8 @@ func (s *Server) plugAgentSockets(ctx context.Context) bool {
 			// agents made before the cache existed get it here, with no
 			// rebuild, the first time a daemon that has it starts.
 			m.EnsureImageCache(ctx, a)
+			// And the same for the shared package caches.
+			m.EnsurePackageCache(ctx, a)
 		})
 	}
 	wg.Wait()

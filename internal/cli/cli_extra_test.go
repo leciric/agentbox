@@ -753,3 +753,23 @@ func TestDockerCache(t *testing.T) {
 		t.Error("a 10MiB cap was taken")
 	}
 }
+
+func TestPackageCache(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	out, err := run(t, "", "package-cache")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "shared package caches: on")
+	mustContain(t, out, "of at most 20.0 GiB")
+	out, err = run(t, "", "package-cache", "off", "--max", "40GiB", "--clear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "off: each agent downloads into caches of its own")
+	mustContain(t, out, "holds 0 B of at most 40.0 GiB")
+	if _, err := run(t, "", "package-cache", "--max", "10MiB"); err == nil {
+		t.Error("a 10MiB cap was taken")
+	}
+}

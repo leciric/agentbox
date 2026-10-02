@@ -132,6 +132,10 @@ export interface Settings {
   imageCacheMaxBytes: number;
   defaultImageCacheMaxBytes: number;
   imageCacheBytes: number;
+  packageCache: boolean;
+  packageCacheMaxBytes: number;
+  defaultPackageCacheMaxBytes: number;
+  packageCacheBytes: number;
 }
 
 export interface UpdateSettingsRequest {
@@ -161,6 +165,9 @@ export interface UpdateSettingsRequest {
   imageCache?: boolean;
   imageCacheMaxBytes?: number;
   clearImageCache?: boolean;
+  packageCache?: boolean;
+  packageCacheMaxBytes?: number;
+  clearPackageCache?: boolean;
 }
 
 export interface Agent {

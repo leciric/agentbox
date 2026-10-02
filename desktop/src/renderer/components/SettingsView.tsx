@@ -56,6 +56,7 @@ import {
   MediaRetention,
   DiskFloor,
   DockerImageCache,
+  SharedPackageCaches,
   NewAgentEffort,
   OpenCodeInImage,
   ResumeAfterLimit,
@@ -1131,7 +1132,7 @@ function InstalledSettings({
       id: "resources",
       title: "Resources",
       description:
-        "What agents may take from this machine: the free space AgentBox keeps on your disks, the Docker images they share, and the size of its VM.",
+        "What agents may take from this machine: the free space AgentBox keeps on your disks, the Docker images and package caches they share, and the size of its VM.",
       scope: "installation",
       groups: [
         {
@@ -1151,6 +1152,13 @@ function InstalledSettings({
               keywords: "docker image cache registry mirror pull hub layers disk space shared",
               modified: changed((s) => !s.imageCache || s.imageCacheMaxBytes !== s.defaultImageCacheMaxBytes),
               render: () => <DockerImageCache />,
+            },
+            {
+              id: "package-caches",
+              label: "Share package caches between agents",
+              keywords: "package cache pnpm npm yarn go modules pip uv playwright browsers corepack dependencies install disk space shared",
+              modified: changed((s) => !s.packageCache || s.packageCacheMaxBytes !== s.defaultPackageCacheMaxBytes),
+              render: () => <SharedPackageCaches />,
             },
           ],
         },
