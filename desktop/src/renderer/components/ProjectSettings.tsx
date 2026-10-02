@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { AgentModelAuto } from '../../shared/api';
+import { agentSizes } from '../lib/agentSize';
 import { api } from '../lib/api';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes } from '../lib/utils';
@@ -42,6 +43,13 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           keywords: 'agents model claude opus sonnet haiku fable auto lead picks per task',
           modified: project.agentModel !== '',
           render: () => <AgentModelPicker project={project} />,
+        },
+        {
+          id: 'size',
+          label: 'Size',
+          keywords: 'agents size memory reserve light normal heavy auto lead picks queue',
+          modified: project.agentSize !== '',
+          render: () => <AgentSizePicker project={project} />,
         },
         {
           id: 'branch-prefix',
@@ -522,6 +530,44 @@ function AlwaysQueueToggle({ project }: { project: T.Project }) {
     </SettingRow>
   );
 }
+
+// AgentSizePicker chooses the size of the agents this project's chat creates:
+// what each reserves of the VM's memory, which decides whether it starts now
+// or waits in the queue. Auto leaves it to the chat, agent by agent; a size
+// here wins over the chat's.
+function AgentSizePicker({ project }: { project: T.Project }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (agentSize: string) => api.updateProject(project.name, { agentSize }),
+    onSuccess: async (updated) => {
+      const size = projectSizes.find((s) => s.value === updated.agentSize);
+      toast(updated.agentSize ? `${updated.name}'s chat creates ${size?.label.toLowerCase()} agents` : `${updated.name}'s chat picks each agent's size`);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const picked = projectSizes.find((s) => s.value === project.agentSize) ?? projectSizes[0];
+
+  return (
+    <SettingRow
+      label="Size"
+      htmlFor="project-agent-size"
+      description={picked.tip}
+      details="What an agent reserves of the VM's memory, shared with every project's agents: one that doesn't fit waits in the queue. Not a cap: an agent may use more while there's memory to spare. What you pick in New agent wins over this."
+      control={
+        <Select id="project-agent-size" data-project-agent-size value={project.agentSize} disabled={save.isPending} onChange={(value) => save.mutate(value)}>
+          {projectSizes.map((size) => (
+            <SelectOption key={size.value} value={size.value}>
+              {size.label} <span className="text-subtle">· {size.tip}</span>
+            </SelectOption>
+          ))}
+        </Select>
+      }
+    />
+  );
+}
+
+const projectSizes = agentSizes(true);
 
 // BranchPrefixField sets what this project's new agents' branches start with,
 // before the slug named after its work: agentbox/ unless you change it, which in a

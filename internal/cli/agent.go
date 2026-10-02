@@ -202,6 +202,7 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.ClaudeAccount, "claude-account", "", "a stored Claude Code account for this agent (default: the project's, then this machine's default)")
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
 	f.BoolVar(&queue, "queue", false, "queue it: it gets its name, branch and task now, and its machine when one of the project's slots is free (agentbox queue); --queue=false makes it now even in a project that always queues (default: the project's setting)")
+	f.StringVar(&req.Size, "size", "", "how much of the VM's memory it reserves in its heavy phases (tests, builds, the browser, a recording), which wait for it: auto (the default, the project's), light (~2 GB), normal (what the project's agents were seen to need) or heavy (~8 GB, like a recording). A reservation, not a cap")
 	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
@@ -226,7 +227,11 @@ func finishAgentJob(cmd *cobra.Command, c *api.Client, j api.Job, start time.Tim
 func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	out := cmd.OutOrStdout()
 	if ag.State == "queued" {
-		_, _ = fmt.Fprintf(out, "\nAgent %s queued, #%d in line: it starts when one of %s's slots is free (agentbox queue %s)\n", ag.Ref, ag.QueuePosition, ag.Project, ag.Project)
+		why := ag.Waiting
+		if why == "" {
+			why = fmt.Sprintf("queued: it starts when one of %s's slots is free", ag.Project)
+		}
+		_, _ = fmt.Fprintf(out, "\nAgent %s %s (#%d in line, agentbox queue %s)\n", ag.Ref, why, ag.QueuePosition, ag.Project)
 		_, _ = fmt.Fprintf(out, "  branch  %s (made when it starts)\n", ag.Branch)
 		return
 	}

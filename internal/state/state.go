@@ -766,6 +766,19 @@ var migrations = []string{
 	// project's queue, and 0 when it isn't waiting there.
 	`ALTER TABLE tasks ADD COLUMN route TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE tasks ADD COLUMN lead_queued_at INTEGER NOT NULL DEFAULT 0`,
+
+	// An agent's size: how much its heavy phases may take from the VM's
+	// burst pool (agent.Burst). '' and 'auto' are the project's learned
+	// burst, as 'normal' is.
+	`ALTER TABLE agents ADD COLUMN size TEXT NOT NULL DEFAULT ''`,
+	// The size of the agents a project's chat creates: '' lets the chat
+	// choose for each.
+	`ALTER TABLE projects ADD COLUMN agent_size TEXT NOT NULL DEFAULT ''`,
+	// The most an agent was seen using outside a heavy phase (its baseline:
+	// writing code) and during one (holding a burst lease), learned apart
+	// so admission counts the first and the burst pool the difference.
+	`ALTER TABLE agent_memory_peaks ADD COLUMN base_peak INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE agent_memory_peaks ADD COLUMN burst_peak INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -941,6 +954,9 @@ type Project struct {
 	// AlwaysQueue queues this project's new agents unless a create says
 	// otherwise, rather than only the ones a create asks to queue.
 	AlwaysQueue bool
+	// AgentSize is the size of the agents the project's chat creates
+	// (agent.Reservation): "" lets the chat choose for each.
+	AgentSize string
 }
 
 // A project's PRWatch.
@@ -1098,7 +1114,7 @@ func (p Project) DirectAgentModel() string {
 // LeadPicksModel reports whether this project's chat chooses each agent's model.
 func (p Project) LeadPicksModel() bool { return p.AgentModel == AgentModelAuto }
 
-const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, slots, always_queue`
+const projectColumns = `name, root, created_at, claude_account, autonomy, github_account, media_retention_days, finish_notices, agent_model, rollover_threshold, context_budget, consolidation, consolidation_model, claude_accounts, branch_prefix, nesting, agent_prs, pr_watch, base_sync_off, slots, always_queue, agent_size`
 
 // projectPlacement is where the project sits in the sidebar (D79), read
 // beside the columns above rather than with them: it is written by the
@@ -1168,10 +1184,10 @@ func (s *Store) AddProject(ctx context.Context, p Project) error {
 		p.BranchPrefix = DefaultBranchPrefix
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO projects (`+projectColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Root, p.CreatedAt.Unix(), p.ClaudeAccount, p.Autonomy, p.GitHubAccount, p.MediaRetentionDays,
 		p.FinishNotices, p.AgentModel, p.RolloverThreshold, p.ContextBudget, p.Consolidation, p.ConsolidationModel,
-		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff, p.Slots, p.AlwaysQueue)
+		strings.Join(p.ClaudeAccounts, ","), p.BranchPrefix, p.Nesting, p.AgentPRs, p.PRWatch, p.BaseSyncOff, p.Slots, p.AlwaysQueue, p.AgentSize)
 	return err
 }
 
@@ -1198,7 +1214,7 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 		var allowed string
 		if err := rows.Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Slots, &p.AlwaysQueue, &p.Section, &p.Position); err != nil {
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Slots, &p.AlwaysQueue, &p.AgentSize, &p.Section, &p.Position); err != nil {
 			return nil, err
 		}
 		p.CreatedAt = time.Unix(created, 0)
@@ -1648,7 +1664,7 @@ func (s *Store) projectWhere(ctx context.Context, where string, arg any) (Projec
 	err := s.db.QueryRowContext(ctx, `SELECT `+projectColumns+`, `+projectPlacement+` FROM projects WHERE `+where, arg).
 		Scan(&p.Name, &p.Root, &created, &p.ClaudeAccount, &p.Autonomy, &p.GitHubAccount, &p.MediaRetentionDays,
 			&p.FinishNotices, &p.AgentModel, &p.RolloverThreshold, &p.ContextBudget, &p.Consolidation,
-			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Slots, &p.AlwaysQueue, &p.Section, &p.Position)
+			&p.ConsolidationModel, &allowed, &p.BranchPrefix, &p.Nesting, &p.AgentPRs, &p.PRWatch, &p.BaseSyncOff, &p.Slots, &p.AlwaysQueue, &p.AgentSize, &p.Section, &p.Position)
 	p.ClaudeAccounts = splitAccounts(allowed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, ErrNotFound
@@ -1718,6 +1734,10 @@ type Agent struct {
 	// given, by name: nil for every one, empty for none. Its own connectors
 	// are always its.
 	Connectors []string
+	// Size is how much of the VM's memory the agent reserves while it runs:
+	// "light", "normal" or "heavy", or "" for the project's learned peak, as
+	// "normal" is (agent.Reservation).
+	Size string
 }
 
 // GetsConnector reports whether a project connector of that name reaches the
@@ -1758,7 +1778,7 @@ func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == Role
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, size`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -1775,8 +1795,8 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors)
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors, a.Size)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -1990,7 +2010,7 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		var created, pausedAt int64
 		var connectors sql.NullString
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
-			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors, &pausedAt); err != nil {
+			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors, &a.Size, &pausedAt); err != nil {
 			return nil, err
 		}
 		if connectors.Valid {

@@ -31,6 +31,7 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
+import { waitingLine } from '../lib/agentSize';
 import { api, type AgentAction } from '../lib/api';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
@@ -351,7 +352,7 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
         </span>
         <div className="grid max-w-md gap-1.5">
           <p className="text-[14px] font-medium text-primary">
-            Queued #{agent.queuePosition ?? entry?.position ?? '?'} — starts when one of {agent.project}'s slots is free
+            Queued #{agent.queuePosition ?? entry?.position ?? '?'} — {waitingLine(agent.waiting ?? entry?.waiting) || `starts when one of ${agent.project}'s slots is free`}
           </p>
           {entry?.task && <p className="text-[13px] leading-relaxed text-subtle">{entry.task}</p>}
         </div>

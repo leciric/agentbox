@@ -119,3 +119,41 @@ func TestTypicalMemoryPeak(t *testing.T) {
 		t.Errorf("another project's peak = %d", peak)
 	}
 }
+
+func TestMemoryShape(t *testing.T) {
+	ctx := context.Background()
+	s := openStore(t)
+	if base, burst, err := s.MemoryShape(ctx, "p"); err != nil || base != 0 || burst != 0 {
+		t.Fatalf("nothing seen: %d, %d, %v", base, burst, err)
+	}
+	at := time.Now()
+	const mib = int64(1) << 20
+	// Three agents: their baselines while writing code, and what they peaked
+	// at in their heavy phases (one never had one).
+	for _, r := range []struct {
+		agent       string
+		base, burst int64
+	}{{"a", 600, 3000}, {"b", 500, 0}, {"c", 700, 2700}} {
+		if err := s.RecordPhasePeak(ctx, "p", r.agent, r.base*mib, false, at); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.RecordPhasePeak(ctx, "p", r.agent, r.burst*mib, true, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A lower reading doesn't lower a peak; another project's don't count.
+	if err := s.RecordPhasePeak(ctx, "p", "a", 100*mib, false, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordPhasePeak(ctx, "q", "z", 9000*mib, false, at); err != nil {
+		t.Fatal(err)
+	}
+	base, burst, err := s.MemoryShape(ctx, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Baselines 500, 600, 700: 600. Bursts over baseline 2400 and 2000.
+	if base != 600*mib || burst < 2000*mib || burst > 2400*mib {
+		t.Errorf("shape = %d MiB baseline, %d MiB burst", base/mib, burst/mib)
+	}
+}

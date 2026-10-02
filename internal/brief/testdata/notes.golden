@@ -33,6 +33,7 @@ AgentBox does not set the project up for you. Work it out like a new developer: 
 
 - While you iterate, test only what you changed. Run the full suite once, before you finish; leave to CI what this machine can't run (tests needing a VM or a device), and say so.
 - **Show a user-facing change working in the real app on your desktop, and end with a recording** (see Media). Build it and launch it unpacked (for Electron, `electron .`) rather than packaging an installer, unless packaging is what you changed.
+- Tests, builds and recordings share the VM's memory with other agents' and may wait for room. Run anything else that needs a lot of memory (an emulator, a load test) as `agentbox heavy -- <command>`.
 
 ## When something is missing
 

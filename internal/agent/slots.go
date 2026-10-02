@@ -169,11 +169,23 @@ func (m *Manager) ProjectPeak(ctx context.Context, project string) (peak int64, 
 	return defaultSlotPeak, false, nil
 }
 
+// ProjectShape is what one of a project's agents is expected to use, its
+// baseline and its burst (MemoryShape), with the defaults for what wasn't
+// seen yet.
+func (m *Manager) ProjectShape(ctx context.Context, project string) (Shape, error) {
+	baseline, burst, err := m.Store.MemoryShape(ctx, project)
+	if err != nil {
+		return Shape{}, err
+	}
+	return learnedShape(baseline, burst), nil
+}
+
 // SampleUsage measures every agent's CPU and memory over interval (Usage,
 // so memory without the file cache the kernel can drop) and keeps the most
-// each running agent was seen at: what ProjectPeak learns from. It returns
-// the readings.
-func (m *Manager) SampleUsage(ctx context.Context, now time.Time, interval time.Duration) ([]AgentUsage, error) {
+// each running agent was seen at: what ProjectPeak learns from, and, apart
+// for its baseline and its heavy phases (bursting says which an agent is in),
+// what ProjectShape does. It returns the readings.
+func (m *Manager) SampleUsage(ctx context.Context, now time.Time, interval time.Duration, bursting func(ref string) bool) ([]AgentUsage, error) {
 	_, agents, err := m.Usage(ctx, interval)
 	if err != nil {
 		return nil, err
@@ -183,6 +195,9 @@ func (m *Manager) SampleUsage(ctx context.Context, now time.Time, interval time.
 			continue
 		}
 		if err := m.Store.RecordUsagePeak(ctx, a.Project, a.Name, a.Memory, a.CPU, now); err != nil {
+			return agents, err
+		}
+		if err := m.Store.RecordPhasePeak(ctx, a.Project, a.Name, a.Memory, bursting != nil && bursting(a.Ref()), now); err != nil {
 			return agents, err
 		}
 	}

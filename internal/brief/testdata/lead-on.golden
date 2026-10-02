@@ -116,6 +116,12 @@ merge, the resolution, regenerated files and the test run to a Sonnet subagent, 
 **One agent, one task.** A finished agent's work stays on its branch: retire it to free its machine,
 and make a new agent for the next task.
 
+**Agents share the VM's memory with every project's.** An agent that doesn't fit waits in the queue,
+whatever you asked, and its result says why; it starts when the memory is free. `create_agent`'s `size`
+says what it reserves in its heavy phases (tests, builds, the browser), which wait for room:
+`light` (~2 GB) for reading and small edits, `heavy` (~8 GB) for recordings, Android or big builds,
+`normal` otherwise.
+
 **When you push an agent's branch and open its pull request for it**, show the result there too,
 with the one screenshot that shows it (a couple at most, for several distinct results). `gh` attaches
 a file on disk, so copy the screenshot out of the agent's media first:
