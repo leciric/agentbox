@@ -155,6 +155,16 @@ export function buildFixtures(): FixtureData {
   ];
 
   const events: T.AgentEvent[] = [
+    // Stopped for the night, freeing its Docker space on the way (Overview's State row).
+    {
+      id: 'e0',
+      project: PROJECT,
+      agent: 'agent-93',
+      ref: `${PROJECT}/agent-93`,
+      kind: 'docker_pruned',
+      summary: 'Freed 22.6 GiB of Docker images and build cache',
+      at: new Date(Date.now() - 8 * 3600_000).toISOString(),
+    },
     { id: 'e1', project: PROJECT, agent: 'agent-97', ref: `${PROJECT}/agent-97`, kind: 'created', at: new Date(Date.now() - 90_000).toISOString() },
     {
       id: 'e2',
@@ -1022,6 +1032,7 @@ let defaultsSettings = {
   diskFloorMin: 10 * 1024 ** 3,
   diskFloorPercent: 5,
   autoStopIdle: false,
+  dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
   agentQueue: false,
   taskTarget: 'agent',
@@ -1059,6 +1070,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'usageStats',
     'errorReports',
     'prWatch',
+    'dockerPruneOnStop',
     'mediaRetention',
     'agentQueue',
     'taskTarget',

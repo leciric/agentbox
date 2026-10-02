@@ -19,6 +19,7 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
   const diff = useQuery({ queryKey: ['diff', agent.ref], queryFn: () => api.diffStat(agent.ref), refetchInterval: 10_000 });
   const events = useQuery({ queryKey: ['agentEvents', agent.project], queryFn: () => api.agentEvents(agent.project) });
   const idleStop = events.data?.find((ev) => ev.ref === agent.ref && ev.kind === 'idle_stopped');
+  const dockerPruned = events.data?.find((ev) => ev.ref === agent.ref && ev.kind === 'docker_pruned');
   const mine = usage.data?.agents.find((a) => a.ref === agent.ref);
   const cpu = mine?.cpu ?? 0;
   const cores = usage.data?.host.cores ?? 0;
@@ -34,6 +35,11 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
               <Row label="State">
                 <StateBadge state={agent.state} />
                 {agent.state === 'stopped' && idleStop && <span className="text-tertiary ml-2 text-sm">{idleStop.summary}</span>}
+                {agent.state === 'stopped' && dockerPruned && (
+                  <span data-docker-pruned className="text-tertiary ml-2 text-sm">
+                    {dockerPruned.summary}
+                  </span>
+                )}
               </Row>
               <Row label="IP address" mono>
                 {agent.ip || '—'}

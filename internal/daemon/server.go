@@ -104,6 +104,9 @@ type Server struct {
 	// idleAfter schedules a lead's cache card: time.AfterFunc when nil, a test's
 	// clock otherwise.
 	idleAfter func(d time.Duration, f func()) interface{ Stop() bool }
+	// dockerPruneTimeout bounds freeing an agent's Docker space as it stops
+	// (dockerprune.go): agent.DockerPruneTimeout, or a test's shorter one.
+	dockerPruneTimeout time.Duration
 
 	waiting *waiters // agents waiting for an answer to a question
 
@@ -257,6 +260,7 @@ func New(cfg Config) (*Server, error) {
 	s.incus = s.newIncusWatch()
 	s.disk = s.newDiskWatch()
 	s.imageCache = s.newImageCache()
+	s.dockerPruneTimeout = agent.DockerPruneTimeout
 	return s, nil
 }
 

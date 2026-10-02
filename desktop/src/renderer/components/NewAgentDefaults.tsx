@@ -616,6 +616,38 @@ export function AutoStopIdle() {
   );
 }
 
+// DockerPruneOnStop frees an agent's Docker space as it stops, however it's
+// stopped (internal/daemon/dockerprune.go): its build cache and every image no
+// container uses. Never its volumes, which hold the project's databases. On by
+// default: a few stopped agents can otherwise hold tens of gigabytes of images
+// nobody will run again.
+export function DockerPruneOnStop() {
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (dockerPruneOnStop: boolean) => api.updateSettings({ dockerPruneOnStop }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label="Free Docker space when an agent stops"
+      description="Removes its Docker build cache and the images no container uses. Its volumes, and the databases in them, stay."
+      details="Whether you stop it, retire it, or it's stopped for being idle. It takes at most two minutes, and an agent whose Docker isn't running is stopped as it is. Images are pulled or built again the next time they're needed."
+      control={
+        <Switch
+          data-docker-prune-on-stop
+          aria-label="Free Docker space when an agent stops"
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.dockerPruneOnStop ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
 // AgentQueue turns the per-project running limit on for the installation:
 // off, every agent starts right away, the way AgentBox always worked; on, a
 // project's own slots (its Overview settings) and New agent's Queue switch

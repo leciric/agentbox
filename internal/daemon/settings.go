@@ -130,6 +130,11 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.DockerPruneOnStop != nil {
+		if err := s.store.SetFlag(r.Context(), state.SettingDockerPruneOnStop, *req.DockerPruneOnStop); err != nil {
+			return err
+		}
+	}
 	if req.AgentQueue != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingAgentQueue, *req.AgentQueue); err != nil {
 			return err
@@ -373,6 +378,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	dockerPrune, err := s.store.FlagOn(r.Context(), state.SettingDockerPruneOnStop)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	agentQueue, err := s.store.Flag(r.Context(), state.SettingAgentQueue)
 	if err != nil {
 		return api.Settings{}, err
@@ -420,6 +429,8 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		AutoStopIdle:    autoStopIdle,
 		IdleTimeSeconds: int(idleTime / time.Second),
+
+		DockerPruneOnStop: dockerPrune,
 
 		AgentQueue:         agentQueue,
 		TaskTarget:         taskTarget,

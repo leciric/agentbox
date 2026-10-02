@@ -157,7 +157,7 @@ func (s *Server) autoStopIdleSince(ctx context.Context, m *agent.Manager, st age
 // an api.AgentEvent the app can show in the agent's own view.
 func (s *Server) stopIdleAgent(ctx context.Context, m *agent.Manager, a state.Agent, idleTime time.Duration) error {
 	s.chat.Stop(a.Ref(), "the agent went idle")
-	if err := m.Stop(ctx, a); err != nil {
+	if err := s.stopAgent(ctx, m, a); err != nil {
 		return err
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": "auto_stop_idle", "branch": a.Branch}, "")

@@ -122,6 +122,7 @@ export interface Settings {
   diskFloorMin: number;
   diskFloorPercent: number;
   autoStopIdle: boolean;
+  dockerPruneOnStop: boolean;
   idleTimeSeconds: number;
   agentQueue: boolean;
   taskTarget: string;
@@ -149,6 +150,7 @@ export interface UpdateSettingsRequest {
   prWatch?: boolean;
   mediaRetention?: string;
   autoStopIdle?: boolean;
+  dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
   agentQueue?: boolean;
   taskTarget?: string;
