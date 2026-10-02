@@ -18,7 +18,9 @@ export function Label({ className, ...props }: LabelHTMLAttributes<HTMLLabelElem
 
 export function Field({ label, htmlFor, hint, children }: { label: string; htmlFor?: string; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="grid gap-1.5">
+    // content-start: beside a taller field, the label and the control stay
+    // at the top rather than spread over the row's height.
+    <div className="grid content-start gap-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
       {hint && <p className="text-xs text-subtle">{hint}</p>}

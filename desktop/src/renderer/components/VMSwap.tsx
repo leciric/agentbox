@@ -102,7 +102,7 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
 
       {running && on && (
         <form
-          className="flex flex-wrap items-end gap-3"
+          className="grid gap-3"
           onSubmit={(event) => {
             event.preventDefault();
             if (sizeOk && changed && !busy) apply.mutate(gibs);
@@ -113,30 +113,32 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
             htmlFor="vm-swap-size"
             hint={sizeOk || form === '' ? undefined : <span className="text-rose-300">{`At least ${minGiB} GiB.`}</span>}
           >
-            <div className="relative w-36">
-              <HardDrive className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
-              <Input
-                id="vm-swap-size"
-                type="number"
-                inputMode="decimal"
-                min={minGiB}
-                // Steps count from min: 1 would make 8 invalid, and the form
-                // wouldn't submit.
-                step={minGiB}
-                className="h-8 pl-8 font-mono text-[12.5px]"
-                disabled={busy}
-                value={form}
-                onChange={(e) => {
-                  setEdited(true);
-                  setForm(e.target.value);
-                }}
-              />
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative w-36">
+                <HardDrive className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
+                <Input
+                  id="vm-swap-size"
+                  type="number"
+                  inputMode="decimal"
+                  min={minGiB}
+                  // Steps count from min: 1 would make 8 invalid, and the form
+                  // wouldn't submit.
+                  step={minGiB}
+                  className="h-8 pl-8 font-mono text-[12.5px]"
+                  disabled={busy}
+                  value={form}
+                  onChange={(e) => {
+                    setEdited(true);
+                    setForm(e.target.value);
+                  }}
+                />
+              </div>
+              <Button type="submit" variant="primary" size="sm" disabled={busy || !changed || !sizeOk} data-vm-swap-apply>
+                {busy && <LoaderCircle className="animate-spin" />}
+                {busy ? 'Making it…' : size > 0 ? 'Resize the swapfile' : 'Make the swapfile'}
+              </Button>
             </div>
           </Field>
-          <Button type="submit" variant="primary" size="sm" className="mb-px" disabled={busy || !changed || !sizeOk} data-vm-swap-apply>
-            {busy && <LoaderCircle className="animate-spin" />}
-            {busy ? 'Making it…' : size > 0 ? 'Resize the swapfile' : 'Make the swapfile'}
-          </Button>
         </form>
       )}
 

@@ -476,6 +476,32 @@ export function DiskFloor() {
   );
 }
 
+// CacheHolds is what a shared cache holds and the button that empties it,
+// laid out like the "Hold at most" field beside it: the size where its label
+// is, the button level with its box.
+function CacheHolds({
+  held,
+  disabled,
+  onEmpty,
+  ...data
+}: {
+  held: number;
+  disabled: boolean;
+  onEmpty: () => void;
+  [data: `data-${string}`]: boolean;
+}) {
+  return (
+    <div className="grid content-start gap-1.5">
+      <span className="text-[13px] font-medium text-tertiary" {...data}>
+        Holds {humanBytes(held)}
+      </span>
+      <Button className="h-9" disabled={disabled || held === 0} onClick={onEmpty}>
+        Empty it
+      </Button>
+    </div>
+  );
+}
+
 // DockerImageCache is the image cache every agent's Docker shares
 // (internal/imagecache): Docker Hub's images are downloaded and stored once in
 // AgentBox's VM rather than once per agent. Turning it off points agents back
@@ -514,7 +540,7 @@ export function DockerImageCache() {
         />
       }
     >
-      <div className="grid max-w-md grid-cols-2 items-end gap-3">
+      <div className="grid max-w-md grid-cols-2 gap-3">
         <ResourceField
           id="image-cache-max"
           label="Hold at most"
@@ -532,18 +558,7 @@ export function DockerImageCache() {
             save.mutate({ imageCacheMaxBytes: bytes });
           }}
         />
-        <div className="grid gap-1.5 pb-0.5">
-          <span data-image-cache-size className="text-[12px] text-subtle">
-            Holds {humanBytes(held)}
-          </span>
-          <Button
-            size="sm"
-            disabled={disabled || held === 0}
-            onClick={() => save.mutate({ clearImageCache: true })}
-          >
-            Empty it
-          </Button>
-        </div>
+        <CacheHolds held={held} disabled={disabled} onEmpty={() => save.mutate({ clearImageCache: true })} data-image-cache-size />
       </div>
     </SettingRow>
   );
@@ -587,7 +602,7 @@ export function SharedPackageCaches() {
         />
       }
     >
-      <div className="grid max-w-md grid-cols-2 items-end gap-3">
+      <div className="grid max-w-md grid-cols-2 gap-3">
         <ResourceField
           id="package-cache-max"
           label="Hold at most"
@@ -605,18 +620,7 @@ export function SharedPackageCaches() {
             save.mutate({ packageCacheMaxBytes: bytes });
           }}
         />
-        <div className="grid gap-1.5 pb-0.5">
-          <span data-package-cache-size className="text-[12px] text-subtle">
-            Holds {humanBytes(held)}
-          </span>
-          <Button
-            size="sm"
-            disabled={disabled || held === 0}
-            onClick={() => save.mutate({ clearPackageCache: true })}
-          >
-            Empty it
-          </Button>
-        </div>
+        <CacheHolds held={held} disabled={disabled} onEmpty={() => save.mutate({ clearPackageCache: true })} data-package-cache-size />
       </div>
     </SettingRow>
   );
