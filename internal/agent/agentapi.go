@@ -4,10 +4,16 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
+
+// recheckTimeout bounds goRecheckAgentAPI's wait for a freshly started
+// agent's boot: longer than replugHiddenSocket's own 120s systemctl wait, so
+// that timeout is what gives up first.
+const recheckTimeout = 3 * time.Minute
 
 // The in-agent API: an Incus proxy device exposes, inside the agent, a host
 // socket that belongs to that agent alone. The daemon knows who is calling by
@@ -90,6 +96,27 @@ func (m *Manager) replugHiddenSocket(ctx context.Context, a state.Agent, boot bo
 		return err
 	}
 	return m.addAgentAPIDevice(ctx, a)
+}
+
+// goRecheckAgentAPI waits, once an agent Start just booted has finished
+// coming up, and plugs its in-agent API socket in again if its systemd
+// mounted a tmpfs over /run after EnsureAgentAPI's immediate check found the
+// socket there (replugHiddenSocket's race). Start doesn't wait for this
+// itself: a cold boot can take a while, and the caller only needs the
+// instance back.
+func (m *Manager) goRecheckAgentAPI(ctx context.Context, a state.Agent) {
+	run := func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), recheckTimeout)
+		defer cancel()
+		if err := m.RestoreAgentAPISocket(ctx, a); err != nil {
+			m.logf("in-agent API socket for %s: %v", a.Ref(), err)
+		}
+	}
+	if m.RecheckAgentAPI != nil {
+		m.RecheckAgentAPI(run)
+		return
+	}
+	go run()
 }
 
 // pushBinary replaces the agent's agentbox binary with the daemon's. `incus

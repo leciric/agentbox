@@ -167,6 +167,26 @@ func newDaemonUninstallCmd() *cobra.Command {
 	}
 }
 
+// inAgentMarker is api.InAgentMarker, unless AGENTBOX_IN_AGENT_MARKER says
+// otherwise: a seam so tests can point insideAgent at a marker they control.
+func inAgentMarker() string {
+	if s := os.Getenv("AGENTBOX_IN_AGENT_MARKER"); s != "" {
+		return s
+	}
+	return api.InAgentMarker
+}
+
+// insideAgent reports whether this process runs on an agent's own machine,
+// from the marker provision.sh writes into every agent, rather than from its
+// in-agent API socket (api.InAgentSocket), which a boot race can leave
+// missing for a while after the machine starts (internal/agent/agentapi.go's
+// replugHiddenSocket): a command that falls back to that socket's absence
+// alone would, during that race, wrongly say it isn't inside an agent at all.
+func insideAgent() bool {
+	_, err := os.Stat(inAgentMarker())
+	return err == nil
+}
+
 // inAgentSocket is api.InAgentSocket, unless AGENTBOX_IN_AGENT_SOCKET says
 // otherwise: a seam so tests can point whoami at a path they control instead
 // of the real in-agent socket, which may or may not exist on the machine

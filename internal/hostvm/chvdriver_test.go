@@ -36,9 +36,9 @@ func clearEnv(t *testing.T) paths.Paths {
 	}
 	dir := shortTempDir(t)
 	// The tests may run in an agent, whose agentbox is never a front end.
-	old := inAgentSocket
-	inAgentSocket = filepath.Join(dir, "no-agent.sock")
-	t.Cleanup(func() { inAgentSocket = old })
+	old := inAgentMarker
+	inAgentMarker = filepath.Join(dir, "no-agent-marker")
+	t.Cleanup(func() { inAgentMarker = old })
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	p, err := paths.Default()
@@ -158,7 +158,7 @@ func TestFrontAndHandles(t *testing.T) {
 	if !Front() {
 		t.Fatal("a machine with neither is not a front end")
 	}
-	if err := os.WriteFile(inAgentSocket, nil, 0o600); err != nil {
+	if err := os.WriteFile(inAgentMarker, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if Front() {

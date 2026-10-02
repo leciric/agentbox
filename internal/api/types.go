@@ -2010,6 +2010,11 @@ type AndroidInstallResult struct {
 // InAgentSocket is where the in-agent API socket appears inside every agent.
 const InAgentSocket = "/run/agentbox.sock"
 
+// InAgentMarker is a file provision.sh writes into the agent base image, so
+// code can tell it's running on an agent's machine without relying on
+// InAgentSocket, which a boot race can hide for a while (replugHiddenSocket).
+const InAgentMarker = "/etc/agentbox-image"
+
 // The hub: accounts, and the environments that connect to it. A hub serves
 // these, not the daemon, so they are defined in agentbox/hubapi, which the hub
 // imports too. They are aliased here because the CLI, the desktop app and the

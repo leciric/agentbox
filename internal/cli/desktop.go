@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -9,7 +10,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"agentbox/internal/api"
 	"agentbox/internal/desktop"
 	"agentbox/internal/mcp"
 )
@@ -38,7 +38,11 @@ func newDesktopMCPCmd(_ *app) *cobra.Command {
 			// The display is the agent's own, on this machine. On the host
 			// there is no :99 to drive and no agent this would mean, so it
 			// says so here rather than failing tool by tool.
-			if _, err := os.Stat(api.InAgentSocket); err != nil {
+			socket := inAgentSocket()
+			if _, err := os.Stat(socket); err != nil {
+				if insideAgent() {
+					return fmt.Errorf("the in-agent API socket %s is missing", socket)
+				}
 				return errors.New("agentbox desktop mcp runs inside an agent, on that agent's own display; " +
 					"from here, watch an agent's display in AgentBox's Desktop tab")
 			}

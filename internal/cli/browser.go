@@ -33,10 +33,14 @@ func (a *app) scopedClient(cmd *cobra.Command, ref string) (*api.Client, error) 
 	if ref != "" {
 		return a.client(cmd)
 	}
-	if _, err := os.Stat(api.InAgentSocket); err != nil {
+	socket := inAgentSocket()
+	if _, err := os.Stat(socket); err != nil {
+		if insideAgent() {
+			return nil, fmt.Errorf("the in-agent API socket %s is missing", socket)
+		}
 		return nil, errors.New("name an agent, like pawly/agent-01 (inside an agent, the agent is the one running the command)")
 	}
-	return api.NewClient(api.InAgentSocket), nil
+	return api.NewClient(socket), nil
 }
 
 func printBrowser(cmd *cobra.Command, status api.BrowserStatus) error {

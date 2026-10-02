@@ -128,13 +128,16 @@ func HostInstall(p paths.Paths) bool {
 	return err == nil
 }
 
-// inAgentSocket is api.InAgentSocket; a variable for tests, which may run in
+// inAgentMarker is api.InAgentMarker; a variable for tests, which may run in
 // an agent.
-var inAgentSocket = api.InAgentSocket
+var inAgentMarker = api.InAgentMarker
 
-// inAgent reports whether this is an agent's machine.
+// inAgent reports whether this is an agent's machine: provision.sh's marker,
+// not api.InAgentSocket, which a boot race can hide for a while after the
+// machine starts (replugHiddenSocket), wrongly making this look like a front
+// end with no VM of its own.
 func inAgent() bool {
-	_, err := os.Stat(inAgentSocket)
+	_, err := os.Stat(inAgentMarker)
 	return err == nil
 }
 

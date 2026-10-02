@@ -32,6 +32,7 @@ var Changes = []Change{
 	{"2026.09.25.2", "the DejaVu fonts the agent dock's key captions are drawn in"},
 	{"2026.09.26.1", "Incus, for images built with it, so projects can turn nesting on"},
 	{"2026.09.27.1", "Mesa's DRI, VA-API and Vulkan drivers, and vainfo, for GPU for agents"},
+	{"2026.10.02.1", "/etc/agentbox-image, a marker that tells the agentbox binary it's on an agent's machine"},
 }
 
 // OlderVersion reports whether image version a comes before b. Versions are

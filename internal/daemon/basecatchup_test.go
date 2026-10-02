@@ -62,8 +62,8 @@ exit 0
 	if b.ImageFrom != "2026.09.21.1" || b.ImageTo != image.Version {
 		t.Errorf("image %q → %q", b.ImageFrom, b.ImageTo)
 	}
-	if len(b.Changes) == 0 || !strings.Contains(b.Changes[len(b.Changes)-1].What, "Mesa") {
-		t.Errorf("changes = %+v, want Mesa among them", b.Changes)
+	if len(b.Changes) == 0 || !strings.Contains(b.Changes[len(b.Changes)-1].What, "agentbox-image") {
+		t.Errorf("changes = %+v, want the agent image marker among them", b.Changes)
 	}
 	if len(b.Tools) != 1 || b.Tools[0].Name != "claude" || b.Tools[0].From != "0.0.1" || b.Tools[0].To == "" {
 		t.Errorf("tools = %+v, want claude alone moving on", b.Tools)

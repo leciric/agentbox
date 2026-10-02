@@ -37,6 +37,12 @@ step() { printf '\n==> %s\n' "$*"; }
 skip() { printf '\n==> Skipping %s (%s)\n' "$1" "$2"; }
 as_user() { runuser -l "$USER_NAME" -c "$*"; }
 
+# api.InAgentMarker: how agentbox tells it's running on an agent's own machine
+# without asking its in-agent API socket, which a boot race can hide for a
+# while after the machine comes up (replugHiddenSocket).
+step "Agent image marker"
+echo "$USER_NAME" >/etc/agentbox-image
+
 # debian_from_mirror points the sources file it's given at the mirror, for
 # Debian's own archive only: the security archive isn't on every mirror, and is
 # small. The mirror has to be a web address and nothing else, since it goes
