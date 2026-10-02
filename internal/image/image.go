@@ -90,7 +90,7 @@ func CheckHost(u User) error {
 // (ToolsVersion) moves them on in place, without a rebuild. Bumping it means
 // saying what changed in Changes, which is what a project base saved before it
 // is shown.
-const Version = "2026.09.27.1"
+const Version = "2026.10.02.1"
 
 // CodexMissing is what Setup and agent creation say about an image built
 // without Codex. Both use the same words, because the fix is the same one.

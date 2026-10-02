@@ -73,7 +73,8 @@ func TestBehindImage(t *testing.T) {
 			t.Fatalf("behind = %+v", b)
 		}
 		// Only what came after it: Incus was already in 2026.09.26.1.
-		if len(b.Changes) != 1 || b.Changes[0].Version != "2026.09.27.1" || !strings.Contains(b.Changes[0].What, "Mesa") {
+		if len(b.Changes) != 2 || b.Changes[0].Version != "2026.09.27.1" || !strings.Contains(b.Changes[0].What, "Mesa") ||
+			b.Changes[1].Version != "2026.10.02.1" || !strings.Contains(b.Changes[1].What, "agentbox-image") {
 			t.Errorf("changes = %+v", b.Changes)
 		}
 		if len(b.Install)+len(b.Remove) > 0 {

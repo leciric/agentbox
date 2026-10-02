@@ -249,6 +249,12 @@ type Manager struct {
 	// ghReleases, when set, is where the lead's GitHub CLI is downloaded from
 	// instead of GitHub's releases (hostgh.go). Tests point it at a server.
 	ghReleases string
+
+	// RecheckAgentAPI runs Start's background recheck of a freshly booted
+	// agent's in-agent API socket (goRecheckAgentAPI); nil, the default, runs
+	// it in its own goroutine. Tests replace it to run inline, so they don't
+	// race the assertions that follow against the goroutine.
+	RecheckAgentAPI func(func())
 }
 
 func InstanceName(project, agent string) string { return "ab-" + project + "-" + agent }
@@ -1691,6 +1697,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	if err != nil {
 		return inst, err
 	}
+	var booted bool
 	switch inst.Status {
 	case "Running":
 	case "Frozen":
@@ -1706,6 +1713,7 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		if err := m.Incus.Start(ctx, a.Instance); err != nil {
 			return inst, err
 		}
+		booted = true
 	}
 	if inst.Status != "Running" {
 		if err := m.Store.SetPausedAt(ctx, a.Project, a.Name, time.Time{}); err != nil {
@@ -1717,6 +1725,15 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	}
 	if err := m.EnsureAgentAPI(ctx, a); err != nil {
 		return inst, err
+	}
+	if booted {
+		// EnsureAgentAPI just checked the socket without waiting for the
+		// boot (replugHiddenSocket's boot=false): right after Incus.Start,
+		// systemd's /run tmpfs may not have mounted yet, so the check can
+		// find the socket there and miss the tmpfs that hides it moments
+		// later. Catch that once booted, without making the caller wait for
+		// a boot that can take a while.
+		m.goRecheckAgentAPI(ctx, a)
 	}
 	// Before the tmux session, so its shells and the AI tool start with
 	// whatever the agent's secrets are now, not what they were when it stopped.

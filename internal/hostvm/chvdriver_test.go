@@ -36,9 +36,13 @@ func clearEnv(t *testing.T) paths.Paths {
 	}
 	dir := shortTempDir(t)
 	// The tests may run in an agent, whose agentbox is never a front end.
-	old := inAgentSocket
-	inAgentSocket = filepath.Join(dir, "no-agent.sock")
-	t.Cleanup(func() { inAgentSocket = old })
+	oldMarker, oldSocket, oldHostname := inAgentMarker, inAgentSocket, inAgentHostname
+	inAgentMarker = filepath.Join(dir, "no-agent-marker")
+	inAgentSocket = filepath.Join(dir, "no-agent-socket")
+	inAgentHostname = func() (string, error) { return "test-host", nil }
+	t.Cleanup(func() {
+		inAgentMarker, inAgentSocket, inAgentHostname = oldMarker, oldSocket, oldHostname
+	})
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, "data"))
 	p, err := paths.Default()
@@ -158,11 +162,37 @@ func TestFrontAndHandles(t *testing.T) {
 	if !Front() {
 		t.Fatal("a machine with neither is not a front end")
 	}
-	if err := os.WriteFile(inAgentSocket, nil, 0o600); err != nil {
+	if err := os.WriteFile(inAgentMarker, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if Front() {
 		t.Error("an agent's machine is a front end")
+	}
+}
+
+// TestFrontWithoutTheMarker covers an agent whose image predates
+// inAgentMarker: it has neither the marker nor, right after boot, its
+// socket, so Front must fall back to the container's own hostname rather
+// than treating the agent as a front end with no VM of its own.
+func TestFrontWithoutTheMarker(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Cloud Hypervisor's VM is Linux's")
+	}
+	p := clearEnv(t)
+	_ = os.Remove(p.StateDB())
+	if !Front() {
+		t.Fatal("a machine with no marker, socket or agent hostname is not a front end")
+	}
+	inAgentHostname = func() (string, error) { return "ab-hello-stack-agent-01", nil }
+	if Front() {
+		t.Error("an agent's hostname alone should be enough to tell Front it isn't a front end")
+	}
+	inAgentHostname = func() (string, error) { return "test-host", nil }
+	if err := os.WriteFile(inAgentSocket, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if Front() {
+		t.Error("an agent's socket alone should be enough to tell Front it isn't a front end")
 	}
 }
 

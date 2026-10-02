@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -165,6 +166,50 @@ func newDaemonUninstallCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// inAgentMarker is api.InAgentMarker, unless AGENTBOX_IN_AGENT_MARKER says
+// otherwise: a seam so tests can point insideAgent at a marker they control.
+func inAgentMarker() string {
+	if s := os.Getenv("AGENTBOX_IN_AGENT_MARKER"); s != "" {
+		return s
+	}
+	return api.InAgentMarker
+}
+
+// insideAgentHostnamePrefix is agent.InstanceName's "ab-" prefix, kept here
+// as a literal instead of importing internal/agent: Incus names every
+// agent's container ab-<project>-<agent> and sets that as its hostname by
+// default, so it's there even on an agent whose image predates the marker.
+const insideAgentHostnamePrefix = "ab-"
+
+// insideAgentHostname is os.Hostname, unless AGENTBOX_IN_AGENT_HOSTNAME says
+// otherwise: a seam so tests, which may themselves run on an agent whose own
+// hostname starts with "ab-", can simulate a front end's instead.
+func insideAgentHostname() (string, error) {
+	if s := os.Getenv("AGENTBOX_IN_AGENT_HOSTNAME"); s != "" {
+		return s, nil
+	}
+	return os.Hostname()
+}
+
+// insideAgent reports whether this process runs on an agent's own machine.
+// The marker provision.sh writes into every agent is the normal way to tell,
+// but an agent made before the marker existed has none until its image is
+// rebuilt, and its in-agent API socket (api.InAgentSocket) can be missing
+// for a while right after boot (internal/agent/agentapi.go's
+// replugHiddenSocket): fall back to the socket, then to the container's own
+// hostname, so an older or just-booted agent is never mistaken for a
+// non-agent machine.
+func insideAgent() bool {
+	if _, err := os.Stat(inAgentMarker()); err == nil {
+		return true
+	}
+	if _, err := os.Stat(inAgentSocket()); err == nil {
+		return true
+	}
+	host, err := insideAgentHostname()
+	return err == nil && strings.HasPrefix(host, insideAgentHostnamePrefix)
 }
 
 // inAgentSocket is api.InAgentSocket, unless AGENTBOX_IN_AGENT_SOCKET says
