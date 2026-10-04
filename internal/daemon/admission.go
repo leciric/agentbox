@@ -39,7 +39,8 @@ type pendingCreate struct {
 // holds it, and who waits, in order, with what each would be told.
 type admission struct {
 	// total is the memory agents share; capacity what admission fills with
-	// baselines, total less the burst pool's floor (agent.PoolFloor).
+	// baselines, total less the burst pool's floor, except for whatever of
+	// the floor nobody actually leases (agent.Capacity).
 	total    int64
 	capacity int64
 	holders  []agent.Holder
@@ -120,7 +121,6 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 	total := max(status.Budget-status.Reserve, 0)
 	out := admission{
 		total:     total,
-		capacity:  total - agent.PoolFloor(total),
 		instances: map[string]string{},
 		slots:     map[string]int{},
 		queued:    map[string]state.QueuedAgent{},
@@ -163,6 +163,7 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 	for i, p := range pending {
 		out.holders = append(out.holders, agent.Holder{Ref: fmt.Sprintf("(creating %d)", i), Project: p.project, Reserved: p.reserved})
 	}
+	out.capacity = agent.Capacity(total, out.holders)
 
 	var free map[string]int
 	if status.Enabled {
@@ -198,7 +199,7 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 	if extra != nil {
 		out.waiting = append(out.waiting, *extra)
 	}
-	out.verdicts = agent.Admit(out.capacity, out.holders, out.waiting, free, time.Now())
+	out.verdicts = agent.Admit(out.capacity, out.holders, out.waiting, free, time.Now(), s.memAvailable())
 	return out, nil
 }
 

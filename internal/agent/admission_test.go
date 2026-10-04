@@ -101,7 +101,7 @@ func TestAdmit(t *testing.T) {
 		{Ref: "r/b", Project: "r", Reserved: 4 * gib, Using: 6 * gib}, // grew: counts 6
 	}
 	verdicts := func(capacity int64, holders []Holder, waiting []Waiter, free map[string]int) map[string]Verdict {
-		return Admit(capacity, holders, waiting, free, now)
+		return Admit(capacity, holders, waiting, free, now, 0)
 	}
 
 	t.Run("across projects, by memory", func(t *testing.T) {
@@ -146,6 +146,58 @@ func TestAdmit(t *testing.T) {
 			t.Errorf("verdicts = %+v", got)
 		}
 	})
+}
+
+// Reproduces the live bug: an unleased heavy phase (a build with no
+// `agentbox heavy`) grows past its baseline while another agent's burst
+// stays within the pool under a lease, yet the pool's floor — held back
+// for leases nobody takes — was charged again on top of the unleased
+// growth, queuing an agent the VM plainly has the room for.
+func TestAdmitUnleasedHeavyPhaseDoubleCounts(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	total := 16 * gib
+	holders := []Holder{
+		{Ref: "organic/77", Project: "organic", Reserved: 2 * gib, Using: 2 * gib},                 // idle, at its baseline
+		{Ref: "organic/78", Project: "organic", Reserved: 2 * gib, Lease: 4 * gib, Using: 6 * gib}, // a browser test, using its whole lease
+		{Ref: "t3code/01", Project: "t3code", Reserved: gib, Using: 11 * gib},                      // an AppImage build with no `agentbox heavy`
+	}
+	waiting := []Waiter{{Ref: "t3code/new", Project: "t3code", Need: gib, Since: now}}
+
+	// Before the fix: capacity is total less the floor, however little of it
+	// is actually leased out.
+	capacityOld := total - PoolFloor(total)
+	if got := Admit(capacityOld, holders, waiting, nil, now, 0)["t3code/new"]; got.Start {
+		t.Fatal("started on the old capacity; the scenario should already be tight, or it proves nothing")
+	}
+
+	// After the fix: the unleased build's growth past its baseline already
+	// draws from the floor meant for leases, so Capacity gives the unused
+	// rest of it back.
+	capacity := Capacity(total, holders)
+	if got := Admit(capacity, holders, waiting, nil, now, 0)["t3code/new"]; !got.Start {
+		t.Errorf("verdict = %+v, capacity = %d; want it to start, the VM has the room", got, capacity)
+	}
+}
+
+// Admit's sanity bound: whatever the bookkeeping says, a waiter starts when
+// the VM's real spare memory comfortably covers it, and still waits when it
+// doesn't quite.
+func TestAdmitComfortableMargin(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	holders := []Holder{{Ref: "p/a", Project: "p", Reserved: 4 * gib, Using: 4 * gib}}
+	waiting := []Waiter{{Ref: "p/new", Project: "p", Need: 2 * gib, Since: now}}
+
+	if got := Admit(4*gib, holders, waiting, nil, now, 0)["p/new"]; got.Start {
+		t.Fatal("started with no capacity and no real memory to fall back on")
+	}
+	if got := Admit(4*gib, holders, waiting, nil, now, 2*gib+ComfortableMargin)["p/new"]; !got.Start {
+		t.Errorf("verdict = %+v, want it to start: the VM has comfortably more free than it needs", got)
+	}
+	if got := Admit(4*gib, holders, waiting, nil, now, 2*gib+ComfortableMargin-1)["p/new"]; got.Start {
+		t.Error("started a hair under the comfortable margin")
+	}
 }
 
 func TestWaitMessage(t *testing.T) {

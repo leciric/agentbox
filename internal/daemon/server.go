@@ -178,6 +178,10 @@ type Server struct {
 	// projectShape is the manager's ProjectShape, or a test's: admission's
 	// baselines and the burst pool's bursts (burst.go).
 	projectShape func(ctx context.Context, project string) (agent.Shape, error)
+	// memAvailable is agent.MemAvailable, or a test's: Admit's sanity bound,
+	// the VM's real spare memory regardless of what admission's bookkeeping
+	// adds up to.
+	memAvailable func() int64
 	burst        *burstPool
 	// usageNow is what each agent used when last sampled, by ref, under mu.
 	usageNow map[string]agent.AgentUsage
@@ -265,6 +269,7 @@ func New(cfg Config) (*Server, error) {
 	s.projectShape = func(ctx context.Context, project string) (agent.Shape, error) {
 		return s.manager(nil).ProjectShape(ctx, project)
 	}
+	s.memAvailable = agent.MemAvailable
 	s.burst = newBurstPool()
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
@@ -625,6 +630,7 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/queue", s.getQueue)
 	h("POST /v1/queue/{project}/{agent}/move", s.moveQueued)
+	h("POST /v1/queue/{project}/{agent}/start", s.startQueuedNow)
 	h("DELETE /v1/queue/{project}/{agent}", s.removeQueued)
 	h("GET /v1/agents", s.listAgents)
 	h("POST /v1/agents", s.createAgent)

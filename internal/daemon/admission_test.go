@@ -191,6 +191,81 @@ func TestACreateThatDoesntFitQueues(t *testing.T) {
 	waitFor(t, "the second create's memory back", func() bool { return pending() == 1 })
 }
 
+// Reproduces the live bug: an unleased heavy phase (a build with no
+// `agentbox heavy`) grows past its baseline while another agent's burst
+// stays within the pool under a lease, yet the pool's floor — held back
+// for leases nobody takes — was charged again on top of the unleased
+// growth, queuing an agent the VM plainly has the room for.
+func TestAdmissionDoesntDoubleCountAnUnleasedHeavyPhase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := newQueueTest(t, 16*gib, map[string]int64{"organic": 2 * gib, "t3code": gib},
+		runningInstances(agent.InstanceName("organic", "77"), agent.InstanceName("organic", "78"), agent.InstanceName("t3code", "01")))
+	q.queueOff(t)
+	q.addProject(t, "organic")
+	q.addProject(t, "t3code")
+	q.addRunning(t, "organic", "77")
+	q.addRunning(t, "organic", "78")
+	q.addRunning(t, "t3code", "01")
+	q.setUsage("organic/77", 2*gib) // idle, at its baseline
+	q.srv.burst.leases["organic/78"] = &burstLease{project: "organic", bytes: 7 * gib / 2, keys: map[string]time.Time{"test": time.Now().Add(time.Hour)}}
+	q.setUsage("organic/78", 6*gib)   // a browser test, using its whole lease
+	q.setUsage("t3code/01", 17*gib/2) // an AppImage build with no `agentbox heavy`
+	q.enqueue(t, "t3code", "new")
+	q.srv.admitQueued(ctx)
+	if got := q.startedSoFar(); !sameList(got, "t3code/new") {
+		t.Fatalf("started %v, want t3code/new: the VM has room once the floor isn't charged again for a lease nobody holds", got)
+	}
+}
+
+// Admit's sanity bound: a waiter starts regardless of the bookkeeping above
+// when the VM's real spare memory comfortably covers it.
+func TestAdmissionComfortableMargin(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := newQueueTest(t, 16*gib, map[string]int64{"p": 2 * gib}, runningInstances(agent.InstanceName("p", "a1")))
+	q.queueOff(t)
+	q.addProject(t, "p")
+	q.addRunning(t, "p", "a1")
+	q.setUsage("p/a1", 12*gib) // far over capacity by bookkeeping alone
+	q.enqueue(t, "p", "new")
+	q.srv.admitQueued(ctx)
+	if got := q.startedSoFar(); len(got) != 0 {
+		t.Fatalf("started %v with no real memory known free", got)
+	}
+	q.srv.memAvailable = func() int64 { return 2*gib + agent.ComfortableMargin }
+	q.srv.admitQueued(ctx)
+	if got := q.startedSoFar(); !sameList(got, "p/new") {
+		t.Errorf("started %v, want p/new: the VM comfortably has the memory, whatever the bookkeeping says", got)
+	}
+}
+
+// "Start now" starts a queued agent the VM has no room for by admission's
+// count, and only a queued one.
+func TestStartQueuedNow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	q := newQueueTest(t, 16*gib, map[string]int64{"p": 2 * gib}, runningInstances(agent.InstanceName("p", "a1")))
+	q.queueOff(t)
+	q.addProject(t, "p")
+	q.addRunning(t, "p", "a1")
+	q.setUsage("p/a1", 12*gib)
+	q.enqueue(t, "p", "new")
+	q.srv.admitQueued(ctx)
+	if got := q.startedSoFar(); len(got) != 0 {
+		t.Fatalf("started %v; the test wants it to wait", got)
+	}
+	if err := q.client.StartQueued(ctx, "p/new"); err != nil {
+		t.Fatal(err)
+	}
+	if got := q.startedSoFar(); !sameList(got, "p/new") {
+		t.Errorf("started %v, want p/new", got)
+	}
+	if err := q.client.StartQueued(ctx, "p/a1"); err == nil {
+		t.Error("started p/a1, which isn't queued")
+	}
+}
+
 // The project's size for its chat's agents is kept, checked, and wins over
 // the chat's own.
 func TestProjectAgentSize(t *testing.T) {

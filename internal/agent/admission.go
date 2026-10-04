@@ -98,6 +98,24 @@ func Burst(size string, shape Shape) int64 {
 // and at least 1 GiB. Baselines fill the rest.
 func PoolFloor(capacity int64) int64 { return min(max(capacity/4, int64(1)<<30), capacity) }
 
+// Capacity is what capacity is, to compare Used against: total less the
+// burst pool's floor, except for whatever of the floor nobody actually
+// leases. The floor is withheld, a quarter of total at most, to leave every
+// lease the pool might grant room beside the baselines Used already counts;
+// when what's actually leased falls short of it, the rest sits idle,
+// withheld for nobody. Meanwhile a heavy phase with no lease (a build, a
+// browser run started with no `agentbox heavy`) draws on no pool at all: its
+// Counts is already its full Using, charged against capacity on its own.
+// Shrinking capacity by the whole floor regardless charges that growth
+// against room reserved for leases it never took — the same memory, twice.
+func Capacity(total int64, holders []Holder) int64 {
+	var leased int64
+	for _, h := range holders {
+		leased += max(0, h.Lease)
+	}
+	return total - max(PoolFloor(total)-leased, 0)
+}
+
 // StarveAfter is how long an agent at the front of the wait may be passed by
 // smaller ones that fit before it, before nothing passes it any more.
 const StarveAfter = 10 * time.Minute
@@ -144,13 +162,22 @@ const (
 	WaitSlot   = "slot"   // its project's slots are full
 )
 
+// ComfortableMargin is how much of the VM's real MemAvailable must be left
+// beyond a waiter's need for Admit's sanity bound to override its own
+// bookkeeping: the same floor the VM is kept grown to ahead of use (the
+// host's CHV supervisor's memHeadroomMin), so admitting by this bound never
+// leaves the guest with less free than it would keep itself anyway.
+const ComfortableMargin = int64(2) << 30
+
 // Admit decides which waiters start now, given capacity, the memory agents
 // may share, what the holders count for, and each project's free slots (nil
 // when slots don't apply: the queue is off). waiting must be in the order
 // the waiters joined. An agent that fits starts; so does one that doesn't
-// when nothing at all holds memory, or it would never start. One waiting for
-// a slot isn't waiting for memory, so it holds nobody up.
-func Admit(capacity int64, holders []Holder, waiting []Waiter, free map[string]int, now time.Time) map[string]Verdict {
+// when nothing at all holds memory, or it would never start, or the VM's
+// real available memory comfortably fits it whatever the bookkeeping above
+// says (available 0 or less skips this: it couldn't be read). One waiting
+// for a slot isn't waiting for memory, so it holds nobody up.
+func Admit(capacity int64, holders []Holder, waiting []Waiter, free map[string]int, now time.Time, available int64) map[string]Verdict {
 	used := Used(holders)
 	out := make(map[string]Verdict, len(waiting))
 	var front *Waiter // the first waiter that didn't fit
@@ -165,8 +192,10 @@ func Admit(capacity int64, holders []Holder, waiting []Waiter, free map[string]i
 			out[w.Ref] = Verdict{Why: WaitBehind, Behind: front.Ref}
 			continue
 		}
-		if used == 0 || used+w.Need <= capacity {
+		comfortable := available > 0 && available-w.Need >= ComfortableMargin
+		if used == 0 || used+w.Need <= capacity || comfortable {
 			used += w.Need
+			available -= w.Need
 			if !slotted {
 				free[w.Project]--
 			}

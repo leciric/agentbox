@@ -581,6 +581,38 @@ func (s *Server) moveQueued(w http.ResponseWriter, r *http.Request) error {
 	return s.getQueue(w, r)
 }
 
+// startQueuedNow starts a queued agent whatever admission says: the user's
+// way past bookkeeping that keeps it waiting while the VM has room. It still
+// counts as a holder once it starts, so the agents behind it wait for it.
+func (s *Server) startQueuedNow(w http.ResponseWriter, r *http.Request) error {
+	a, err := s.queuedFromPath(r)
+	if err != nil {
+		return err
+	}
+	s.queueMu.Lock()
+	defer s.queueMu.Unlock()
+	if s.queueStarting(a.Ref()) {
+		return fmt.Errorf("%s is starting already", a.Ref())
+	}
+	queue, err := s.store.Queue(r.Context(), a.Project)
+	if err != nil {
+		return err
+	}
+	for _, q := range queue {
+		if q.Name != a.Name {
+			continue
+		}
+		s.logf("agent queue: starting %s now, as asked", q.Ref())
+		if err := s.queueStart(r.Context(), q); err != nil {
+			return err
+		}
+		s.refreshAgents(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+		return nil
+	}
+	return fmt.Errorf("%s isn't queued", a.Ref())
+}
+
 func (s *Server) removeQueued(w http.ResponseWriter, r *http.Request) error {
 	a, err := s.queuedFromPath(r)
 	if err != nil {
