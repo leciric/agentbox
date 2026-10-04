@@ -308,6 +308,7 @@ func NewRootCmd() *cobra.Command {
 		newHostCmd(a),
 		newBrowserCmd(a),
 		newMediaCmd(a),
+		newMachinesCmd(a),
 		newAndroidCmd(a),
 		newWhoamiCmd(),
 		newVersionCmd(a),
