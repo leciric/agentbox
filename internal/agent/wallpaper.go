@@ -44,3 +44,7 @@ func (m *Manager) installWallpaper(ctx context.Context, a state.Agent) {
 		m.logf("The desktop wallpaper wasn't installed: %v", err)
 	}
 }
+
+// Wallpaper is the desktop's wallpaper, for a machine outside Incus that runs
+// the same desktop (`agentbox machines`), at the path browser.sh looks in.
+func Wallpaper() (png []byte, path string) { return wallpaper, wallpaperPath }

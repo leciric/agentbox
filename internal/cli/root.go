@@ -268,6 +268,7 @@ func NewRootCmd() *cobra.Command {
 		newRetireCmd(a),
 		newMCPCmd(a),
 		newDesktopCmd(a),
+		newMachinesCmd(),
 		newMemoryCmd(a),
 		newAskCmd(a),
 		newHeavyCmd(a),

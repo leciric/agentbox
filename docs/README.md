@@ -67,6 +67,8 @@ flowchart LR
   Claude accounts, and their five-hour and weekly limits.
 - [Connectors](connectors.md) — remote MCP servers (Notion, Linear…) that agents use, signed in
   to with OAuth on the host and relayed so no token reaches an agent; the API routes.
+- [Machines for Claude Code and Codex on your computer](machines.md) — `agentbox machines`: a
+  desktop machine per worktree, in Docker or Podman, for AI tools that run outside AgentBox.
 - [Project notes and the brief](notes-and-brief.md) — the per-project notes file, and the brief
   each AI tool is given about its machine.
 - [The base image](base-image.md) — what's provisioned into the image every agent's container
