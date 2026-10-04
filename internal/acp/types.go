@@ -331,6 +331,12 @@ type SessionUpdate struct {
 	Meta struct {
 		ClaudeCode struct {
 			ToolName string `json:"toolName"`
+			// ToolResponse is what the tool returned, as claude-agent-acp's
+			// PostToolUse hook reports it: in full to most clients, reduced
+			// to its status and isAsync markers to one that declares
+			// _meta.jetbrains.air, as AgentBox does. Kept raw because its
+			// shape is each tool's own (see Returned).
+			ToolResponse json.RawMessage `json:"toolResponse,omitempty"`
 		} `json:"claudeCode"`
 		// RateLimit rides on a usage_update when the provider's response
 		// carried the account's limits (claude-agent-acp only).
@@ -345,6 +351,23 @@ func (u SessionUpdate) Text() string {
 		return ""
 	}
 	return BlockText(block)
+}
+
+// Returned reports whether the update says the tool call has returned, from
+// the status of what it returned. An Agent tool call is never given a status
+// of its own once its subagent is a session of its own (subagent_spawned):
+// in the foreground it ends with a response whose status is "completed", and
+// in the background it answers at once with "async_launched" while its
+// subagent goes on. This is the only sign that either call is over.
+func (u SessionUpdate) Returned() bool {
+	var r struct {
+		Status  string `json:"status"`
+		IsAsync bool   `json:"isAsync"`
+	}
+	if len(u.Meta.ClaudeCode.ToolResponse) == 0 || json.Unmarshal(u.Meta.ClaudeCode.ToolResponse, &r) != nil {
+		return false
+	}
+	return r.IsAsync || r.Status == "async_launched" || r.Status == "completed"
 }
 
 // ToolContent returns a tool call's content, or nil when the update doesn't change it.
