@@ -62,6 +62,10 @@ Inside an agent, docker info | grep -A2 Mirrors shows the cache as
 			if err != nil {
 				return err
 			}
+			if req.ImageCacheMaxBytes != nil && *req.ImageCacheMaxBytes > settings.ImageCacheMaxBytes {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s is more than the image cache's disk can hold above the space AgentBox keeps free: capped at %s\n",
+					agent.HumanBytes(*req.ImageCacheMaxBytes), agent.HumanBytes(settings.ImageCacheMaxBytes))
+			}
 			state := "off: agents pull from Docker Hub directly"
 			if settings.ImageCache {
 				state = "on"

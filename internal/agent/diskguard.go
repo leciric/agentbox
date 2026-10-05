@@ -89,6 +89,8 @@ type DiskSpace struct {
 	Path  string
 	Free  int64
 	Total int64
+	// Advice is what frees this disk or gives it room, a sentence each.
+	Advice []string
 }
 
 // Disk levels, from fine to at the floor.

@@ -63,7 +63,8 @@ func (p Paths) VM() string { return filepath.Join(p.Data, "vm") }
 func (p Paths) VMSocket() string { return filepath.Join(p.Data, "run", "vm.sock") }
 
 // ImageCache is where the image cache agents' Docker shares keeps what it
-// downloaded (internal/imagecache), on the disk the daemon's state is on.
+// downloaded (internal/imagecache). In a VM it's a symlink to the agents'
+// disk (daemon.moveDataToPool), as are PackageCache and Tools.
 func (p Paths) ImageCache() string { return filepath.Join(p.Data, "image-cache") }
 
 // ImageCacheSocket is where the daemon serves the image cache; each agent
@@ -71,9 +72,9 @@ func (p Paths) ImageCache() string { return filepath.Join(p.Data, "image-cache")
 func (p Paths) ImageCacheSocket() string { return filepath.Join(p.Data, "run", "image-cache.sock") }
 
 // PackageCache is where the package managers' caches every agent shares are
-// kept (internal/pkgcache), on the disk the daemon's state is on: in the VM,
-// its own disk, which is far faster than a shared folder for the many small
-// files of a pnpm store or a Go build cache.
+// kept (internal/pkgcache): in the VM, on one of its own disks, which are far
+// faster than a shared folder for the many small files of a pnpm store or a
+// Go build cache.
 func (p Paths) PackageCache() string { return filepath.Join(p.Data, "package-cache") }
 
 // AgentSockets is the directory of in-agent API sockets, one per agent.

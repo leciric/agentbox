@@ -34,3 +34,14 @@ test('a VM paused for the host disk wins over a stale guard', () => {
   assert.equal(v?.label, 'Disk full: VM paused');
   assert.match(v!.body, /only 1\.5 GiB free/);
 });
+
+test('names the disk and says what frees it', () => {
+  const pool = { ...disk("The agents' disk, the shared caches", 12, 'low'), advice: 'Make it bigger with `agentbox vm resize --disk <size>`.' };
+  const v = diskGuardView(guard('low', [disk("The VM's system disk", 15, 'ok'), pool]), null);
+  assert.equal(v?.title, "The agents' disk is running low");
+  assert.match(v!.body, /^The agents' disk has 12\.0 GiB free/);
+  assert.equal(v?.advice, pool.advice);
+  const full = diskGuardView(guard('full', [{ ...pool, level: 'full' }]), null);
+  assert.equal(full?.title, "The agents' disk is at its floor: new agents are refused");
+  assert.doesNotMatch(full!.body, /delete files/);
+});

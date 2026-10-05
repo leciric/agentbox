@@ -74,6 +74,8 @@
 //                           shot, since state here comes from the URL alone
 //   ?meters=disk-unmeasured the disk meter in VM mode before its images are
 //                           measured: — / 120 GiB
+//   ?meters=disklow         the "Disk low" pill, for the VM's agents' disk near
+//                           its floor; click it for the popover and its advice
 //   ?nightly=1              a nightly build, on the nightly channel with a newer
 //                           nightly out: the sidebar's starry header and badge,
 //                           and with ?settings=general the Update channel row
@@ -343,6 +345,27 @@ if (meters) {
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
   if (meters === 'disk' || meters === 'disk-unmeasured') seedVMDisk(queryClient, meters === 'disk-unmeasured');
+  if (meters === 'disklow') {
+    queryClient.setQueryData(['disk'], {
+      level: 'low',
+      paused: [],
+      since: '',
+      message: '',
+      disks: [
+        {
+          label: "The agents' disk, the shared caches",
+          free: 14.2 * GiB,
+          total: 100 * GiB,
+          floor: 10 * GiB,
+          level: 'low',
+          advice:
+            "Make it bigger in Settings, AgentBox's Linux VM, VM size, or with `agentbox vm resize --disk <size>`. Destroy agents you're done with. `agentbox package-cache --clear` and `agentbox docker-cache --clear` empty the shared caches, which fill again as agents need them.",
+        },
+        { label: "The VM's system disk", path: '/home/lint.linux/.local/share/agentbox', free: 15.1 * GiB, total: 19.6 * GiB, floor: 1 * GiB, level: 'ok', advice: "It holds the VM's system and AgentBox's state, and can't be made bigger." },
+        { label: 'Worktrees, media', path: '/home/lint/.local/share/agentbox/worktrees', free: 420 * GiB, total: 931 * GiB, floor: 10 * GiB, level: 'ok' },
+      ],
+    } satisfies T.DiskGuard);
+  }
 }
 
 const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };

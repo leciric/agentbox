@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"agentbox/internal/agent"
@@ -25,14 +26,16 @@ func (s *Server) newPackageCache() *pkgcache.Cache {
 	c := &pkgcache.Cache{
 		Dir: s.cfg.Paths.PackageCache(),
 		Max: func() int64 {
-			on, maxBytes, err := s.store.PackageCache(context.Background())
+			ctx := context.Background()
+			on, chosen, err := s.store.PackageCache(ctx)
 			if err != nil || !on {
 				return 0
 			}
+			maxBytes, _ := s.cacheMax(ctx, s.cfg.Paths.PackageCache(), chosen, state.DefaultPackageCacheMax)
 			return maxBytes
 		},
 		Room: func() int64 {
-			free, total, _, ok := diskSpace(s.cfg.Paths.Data)
+			free, total, _, ok := diskSpace(existingParent(s.cfg.Paths.PackageCache()))
 			if !ok {
 				return 0
 			}
@@ -58,6 +61,11 @@ func (s *Server) packageCacheDir(ctx context.Context) string {
 	if err := s.packageCache.Prepare(); err != nil {
 		s.logf("package cache: %v", err)
 		return ""
+	}
+	// Where it really is: in a VM, a symlink to the agents' disk
+	// (moveDataToPool). Agents mounted the old directory get the new one.
+	if real, err := filepath.EvalSymlinks(s.packageCache.Dir); err == nil {
+		return real
 	}
 	return s.packageCache.Dir
 }

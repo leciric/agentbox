@@ -471,6 +471,7 @@ export interface DiskGuardDisk {
   total: number;
   floor: number;
   level: string;
+  advice?: string;
 }
 
 export interface MemoryUsageAgent {

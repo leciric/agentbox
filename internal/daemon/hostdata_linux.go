@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"golang.org/x/sys/unix"
 )
@@ -27,4 +28,14 @@ func diskSpace(dir string) (free, total int64, id string, ok bool) {
 	}
 	id = fmt.Sprintf("%x:%d:%d:%d", st.Type, st.Fsid.Val[0], st.Fsid.Val[1], st.Blocks)
 	return int64(st.Bavail) * st.Bsize, int64(st.Blocks) * st.Bsize, id, true
+}
+
+// isMountpoint reports whether dir is a mount's root: on another device than
+// its parent.
+func isMountpoint(dir string) bool {
+	var st, up unix.Stat_t
+	if unix.Stat(dir, &st) != nil || unix.Stat(filepath.Dir(dir), &up) != nil {
+		return false
+	}
+	return st.Dev != up.Dev
 }

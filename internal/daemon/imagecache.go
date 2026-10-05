@@ -18,21 +18,24 @@ import (
 // AgentBox's VM that every agent's Docker pulls through (internal/imagecache,
 // agent/imagecache.go). The daemon serves it on a unix socket for as long as
 // it runs, whether it's on or not; on or off is whether agents are pointed at
-// it. Its blobs are on the disk the daemon's state is on — the VM's own disk —
-// under a cap of SettingImageCacheMax, and never past the disk floor.
+// it. Its blobs are on the agents' disk in a VM (moveDataToPool), with the
+// daemon's state otherwise, under a cap of SettingImageCacheMax fitted to that
+// disk (fitCacheMax), and never past the disk floor.
 
 func (s *Server) newImageCache() *imagecache.Cache {
 	return &imagecache.Cache{
 		Dir: s.cfg.Paths.ImageCache(),
 		Max: func() int64 {
-			on, maxBytes, err := s.store.ImageCache(context.Background())
+			ctx := context.Background()
+			on, chosen, err := s.store.ImageCache(ctx)
 			if err != nil || !on {
 				return 0
 			}
+			maxBytes, _ := s.cacheMax(ctx, s.cfg.Paths.ImageCache(), chosen, state.DefaultImageCacheMax)
 			return maxBytes
 		},
 		Room: func() int64 {
-			free, total, _, ok := diskSpace(s.cfg.Paths.Data)
+			free, total, _, ok := diskSpace(existingParent(s.cfg.Paths.ImageCache()))
 			if !ok {
 				return 0
 			}
