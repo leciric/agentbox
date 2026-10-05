@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { t, useT } from '../lib/i18n';
 import { ChatTab } from './chat/ChatTab';
 
 // leadAgentFrom builds the Agent ChatTab expects out of a project's chat: the
@@ -11,7 +12,7 @@ export function leadAgentFrom(project: T.Project, info: T.ProjectChat): T.Agent 
     ref: info.ref,
     project: project.name,
     name: T.LeadName,
-    title: 'Project chat',
+    title: t('chat.project.agentTitle'),
     instance: '',
     ai: 'claude',
     autonomous: false,
@@ -43,11 +44,12 @@ export function leadAgentFrom(project: T.Project, info: T.ProjectChat): T.Agent 
 // chosen before the first message. A project whose chat is never opened
 // costs nothing: adding one makes no lead.
 export function ProjectChatPanel({ project }: { project: T.Project }) {
+  const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name) });
   const info = chat.data;
 
   if (!info) {
-    return <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? 'The chat is unavailable.' : 'Loading…'}</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>;
   }
 
   return <ChatTab agent={leadAgentFrom(project, info)} starting={false} onStart={() => {}} />;

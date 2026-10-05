@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Download, LoaderCircle, Play, Square, Trash2 } from 'lucide-react';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
+import { t, useT, type MessageKey } from '../lib/i18n';
 import type { SettingGroup } from '../lib/settingsSearch';
 import { errorMessage } from '../lib/utils';
 import { cachedSizes, clearCached } from '../lib/voice/cache';
@@ -20,40 +21,40 @@ import { Switch } from './ui/switch';
 export function pushToTalkGroup(s: VoiceSettings): SettingGroup {
   return {
     id: 'push-to-talk',
-    title: 'Push-to-talk',
-    description: 'Hold the microphone in a chat, or Ctrl+Space, and talk. Whisper transcribes it on this machine; nothing you say leaves it.',
+    title: t('defaults.voice.pttTitle'),
+    description: t('defaults.voice.pttDescription'),
     entries: [
       {
         id: 'voice-model',
-        label: 'Speech-to-text model',
-        keywords: 'whisper voice speech microphone mic dictation transcribe gpu webgpu cpu turbo small base',
+        label: t('defaults.voice.modelLabel'),
+        keywords: t('defaults.voice.modelKeywords'),
         modified: s.model !== defaultVoiceSettings.model,
         render: () => <ModelRow />,
       },
       {
         id: 'voice-after',
-        label: 'After you talk',
-        keywords: 'voice send edit dictation composer push to talk',
+        label: t('defaults.voice.afterLabel'),
+        keywords: t('defaults.voice.afterKeywords'),
         modified: s.after !== defaultVoiceSettings.after,
         render: () => <AfterRow />,
       },
       {
         id: 'voice-language',
-        label: 'Language you speak',
-        keywords: 'voice language portuguese português english auto detect',
+        label: t('defaults.voice.languageLabel'),
+        keywords: t('defaults.voice.languageKeywords'),
         modified: s.language !== defaultVoiceSettings.language,
         render: () => <LanguageRow />,
       },
       {
         id: 'voice-gpu',
-        label: 'Faster voice transcription (GPU, Vulkan)',
-        keywords: 'voice whisper gpu vulkan webgpu faster speed video white recordings restart',
+        label: t('defaults.voice.gpuLabel'),
+        keywords: t('defaults.voice.gpuKeywords'),
         render: () => <VulkanRow />,
       },
       {
         id: 'voice-downloads',
-        label: 'Downloaded models',
-        keywords: 'voice whisper download cache clear delete disk size',
+        label: t('defaults.voice.downloadsLabel'),
+        keywords: t('defaults.voice.downloadsKeywords'),
         render: () => <DownloadsRow />,
       },
     ],
@@ -61,6 +62,7 @@ export function pushToTalkGroup(s: VoiceSettings): SettingGroup {
 }
 
 function ModelRow() {
+  const t = useT();
   const settings = useVoiceSettings();
   const whisper = useWhisper();
   useEffect(() => probeWhisper(), []);
@@ -68,20 +70,20 @@ function ModelRow() {
   const auto = device ? pickModel(autoModel, device).label : undefined;
   return (
     <SettingRow
-      label="Speech-to-text model"
+      label={t('defaults.voice.modelLabel')}
       description={
         device === 'webgpu' ? (
-          <>Runs on the GPU with WebGPU{whisper.adapter ? ` (${whisper.adapter})` : ''}.</>
+          <>{whisper.adapter ? t('defaults.voice.gpuAdapter', { adapter: whisper.adapter }) : t('defaults.voice.gpu')}</>
         ) : device === 'wasm' ? (
-          <span className="text-amber-300">No WebGPU here, so Whisper runs on the CPU: slower, and Automatic picks a smaller model. {whisper.reason} On Linux, Faster voice transcription, below, reaches the GPU.</span>
+          <span className="text-amber-300">{t('defaults.voice.cpu', { reason: whisper.reason ?? '' })}</span>
         ) : (
-          'Looking for a GPU…'
+          t('defaults.voice.lookingForGpu')
         )
       }
-      details={pickModel(settings.model, device ?? 'webgpu').note}
+      details={t(pickModel(settings.model, device ?? 'webgpu').note)}
       control={
-        <Select aria-label="Speech-to-text model" value={settings.model} onChange={(model) => setVoiceSettings({ model })}>
-          <SelectOption value={autoModel}>Automatic{auto ? ` (${auto})` : ''}</SelectOption>
+        <Select aria-label={t('defaults.voice.modelLabel')} value={settings.model} onChange={(model) => setVoiceSettings({ model })}>
+          <SelectOption value={autoModel}>{auto ? t('defaults.voice.automaticModel', { model: auto }) : t('defaults.voice.automatic')}</SelectOption>
           {voiceModels.map((m) => (
             <SelectOption key={m.id} value={m.id}>
               {m.label}
@@ -97,6 +99,7 @@ function ModelRow() {
 // than localStorage, since it decides Chromium's switches before any page
 // loads (main/voicegpu.ts): it takes effect when AgentBox next starts.
 function VulkanRow() {
+  const t = useT();
   const queryClient = useQueryClient();
   const gpu = useQuery({ queryKey: ['voice-gpu'], queryFn: () => window.agentbox.voiceGPU() });
   const linux = gpu.data?.platform === 'linux';
@@ -111,34 +114,35 @@ function VulkanRow() {
   };
   return (
     <SettingRow
-      label="Faster voice transcription (GPU, Vulkan)"
+      label={t('defaults.voice.gpuLabel')}
       description={
         !gpu.data ? null : gpu.data.platform === 'web' ? (
-          'Set in the desktop app.'
+          t('defaults.voice.vulkanWeb')
         ) : !linux ? (
-          'Only needed on Linux: here WebGPU reaches the GPU on its own.'
+          t('defaults.voice.vulkanNotLinux')
         ) : pending ? (
-          <span className="text-amber-300">Takes effect when you restart AgentBox.</span>
+          <span className="text-amber-300">{t('defaults.voice.vulkanPending')}</span>
         ) : (
-          'Lets Whisper run on your GPU through Vulkan. On some GPUs it breaks video: recordings in Media stay white and don’t play. Applies when AgentBox restarts.'
+          t('defaults.voice.vulkanDescription')
         )
       }
-      details="Chromium only reaches a Linux GPU from WebGPU with Vulkan turned on, and that moves the whole app's drawing onto Vulkan too, not only Whisper. Without it, Whisper runs on the CPU: slower, and Automatic picks a smaller model."
-      control={<Switch aria-label="Faster voice transcription (GPU, Vulkan)" disabled={!linux} checked={gpu.data?.saved.vulkan ?? false} onCheckedChange={(checked) => void set(checked)} />}
+      details={t('defaults.voice.vulkanDetails')}
+      control={<Switch aria-label={t('defaults.voice.gpuLabel')} disabled={!linux} checked={gpu.data?.saved.vulkan ?? false} onCheckedChange={(checked) => void set(checked)} />}
     />
   );
 }
 
 function AfterRow() {
+  const t = useT();
   const settings = useVoiceSettings();
   return (
     <SettingRow
-      label="After you talk"
-      description="Whether what you said waits in the message box for you to check, or is sent as soon as it's transcribed."
+      label={t('defaults.voice.afterLabel')}
+      description={t('defaults.voice.afterDescription')}
       control={
-        <Select aria-label="After you talk" value={settings.after} onChange={(after) => setVoiceSettings({ after: after as 'send' | 'edit' })}>
-          <SelectOption value="edit">Let me edit it first</SelectOption>
-          <SelectOption value="send">Send it at once</SelectOption>
+        <Select aria-label={t('defaults.voice.afterLabel')} value={settings.after} onChange={(after) => setVoiceSettings({ after: after as 'send' | 'edit' })}>
+          <SelectOption value="edit">{t('defaults.voice.afterEdit')}</SelectOption>
+          <SelectOption value="send">{t('defaults.voice.afterSend')}</SelectOption>
         </Select>
       }
     />
@@ -146,14 +150,15 @@ function AfterRow() {
 }
 
 function LanguageRow() {
+  const t = useT();
   const settings = useVoiceSettings();
   return (
     <SettingRow
-      label="Language you speak"
-      description="Automatic tells Portuguese from English each time you talk."
+      label={t('defaults.voice.languageLabel')}
+      description={t('defaults.voice.languageDescription')}
       control={
-        <Select aria-label="Language you speak" value={settings.language} onChange={(language) => setVoiceSettings({ language: language as 'auto' | 'pt' | 'en' })}>
-          <SelectOption value="auto">Automatic</SelectOption>
+        <Select aria-label={t('defaults.voice.languageLabel')} value={settings.language} onChange={(language) => setVoiceSettings({ language: language as 'auto' | 'pt' | 'en' })}>
+          <SelectOption value="auto">{t('defaults.voice.automatic')}</SelectOption>
           <SelectOption value="pt">Português</SelectOption>
           <SelectOption value="en">English</SelectOption>
         </Select>
@@ -163,6 +168,7 @@ function LanguageRow() {
 }
 
 function DownloadsRow() {
+  const t = useT();
   const whisper = useWhisper();
   const queryClient = useQueryClient();
   // Refreshed whenever a model finishes loading, which is when it's cached.
@@ -178,7 +184,7 @@ function DownloadsRow() {
     }
   };
   return (
-    <SettingRow label="Downloaded models" description="Each model downloads from Hugging Face the first time it's used, and stays here for the next.">
+    <SettingRow label={t('defaults.voice.downloadsLabel')} description={t('defaults.voice.downloadsDescription')}>
       <div className="grid gap-1.5">
         {voiceModels.map((m) => {
           const have = sizes.data?.[m.id] ?? 0;
@@ -189,19 +195,21 @@ function DownloadsRow() {
               <span className="min-w-0 flex-1 truncate text-primary">{m.label}</span>
               <span className="shrink-0 tabular-nums text-subtle">
                 {loading
-                  ? `Downloading${percent !== undefined ? ` · ${percent}%` : '…'}`
+                  ? percent !== undefined
+                    ? t('defaults.voice.downloadingPercent', { percent })
+                    : t('defaults.voice.downloading')
                   : have > 0
-                    ? `${formatMB(have / 1e6)} downloaded`
-                    : `${formatMB(m.size[device])} to download`}
+                    ? t('defaults.voice.downloaded', { size: formatMB(have / 1e6) })
+                    : t('defaults.voice.toDownload', { size: formatMB(m.size[device]) })}
               </span>
               {loading ? (
                 <LoaderCircle className="size-4 shrink-0 animate-spin text-subtle" />
               ) : have > 0 ? (
-                <Button variant="ghost" size="icon-sm" aria-label={`Clear ${m.label}`} onClick={() => void clear(m.id)}>
+                <Button variant="ghost" size="icon-sm" aria-label={t('defaults.voice.clearModel', { model: m.label })} onClick={() => void clear(m.id)}>
                   <Trash2 />
                 </Button>
               ) : (
-                <Button variant="ghost" size="icon-sm" aria-label={`Download ${m.label}`} onClick={() => preloadWhisper(m.id)}>
+                <Button variant="ghost" size="icon-sm" aria-label={t('defaults.voice.downloadModel', { model: m.label })} onClick={() => preloadWhisper(m.id)}>
                   <Download />
                 </Button>
               )}
@@ -217,39 +225,35 @@ function DownloadsRow() {
 // and the voices it reads in. Kept apart from SettingsView so the Voice section
 // only lists it.
 export function useReadAloudGroup(): SettingGroup {
+  const t = useT();
   const s = useReadAloudSettings();
   return {
     id: 'read-aloud',
-    title: 'Read aloud',
-    description: 'The speaker in every chat reads the agent’s replies aloud as they come in, on this computer, with Kokoro.',
+    title: t('defaults.voice.readAloudTitle'),
+    description: t('defaults.voice.readAloudDescription'),
     entries: [
-      { id: 'read-aloud-on', label: 'Read replies aloud', keywords: 'speaker speech tts kokoro audio voice sound', modified: s.on, render: () => <ReadAloudOn /> },
-      { id: 'read-aloud-voice-en', label: 'English voice', keywords: 'kokoro voice language english', modified: s.voices.en !== 'af_heart', render: () => <ReadAloudVoice language="en" /> },
-      { id: 'read-aloud-voice-pt', label: 'Portuguese voice', keywords: 'kokoro voice language portuguese português brasil', modified: s.voices.pt !== 'pf_dora', render: () => <ReadAloudVoice language="pt" /> },
-      { id: 'read-aloud-speed', label: 'Speed', keywords: 'rate fast slow', modified: s.speed !== 1, render: () => <ReadAloudSpeed /> },
+      { id: 'read-aloud-on', label: t('defaults.voice.readAloudOn'), keywords: t('defaults.voice.readAloudKeywords'), modified: s.on, render: () => <ReadAloudOn /> },
+      { id: 'read-aloud-voice-en', label: t('defaults.voice.voiceEn'), keywords: t('defaults.voice.voiceEnKeywords'), modified: s.voices.en !== 'af_heart', render: () => <ReadAloudVoice language="en" /> },
+      { id: 'read-aloud-voice-pt', label: t('defaults.voice.voicePt'), keywords: t('defaults.voice.voicePtKeywords'), modified: s.voices.pt !== 'pf_dora', render: () => <ReadAloudVoice language="pt" /> },
+      { id: 'read-aloud-speed', label: t('defaults.voice.speed'), keywords: t('defaults.voice.speedKeywords'), modified: s.speed !== 1, render: () => <ReadAloudSpeed /> },
     ],
   };
 }
 
 function ReadAloudOn() {
+  const t = useT();
   const { on } = useReadAloudSettings();
   return (
     <SettingRow
-      label="Read replies aloud"
-      description="The same as the speaker at the top of a chat: what the agent says to you, never its thinking or its tools."
+      label={t('defaults.voice.readAloudOn')}
+      description={t('defaults.voice.readAloudOnDescription')}
       details={
         <>
-          <p>
-            Replies are read a sentence at a time as they stream in, with code blocks read as “the code is in the chat”. Stop and skip sit next to the speaker
-            while it reads, and cancelling a turn or leaving the chat stops it.
-          </p>
-          <p>
-            The voice is Kokoro-82M, run inside AgentBox: nothing you read leaves this computer. The first time, it downloads its weights from Hugging Face
-            (about 90 MB, or 330 MB when it can use your GPU) and eSpeak NG from jsDelivr (25 MB), and keeps them.
-          </p>
+          <p>{t('defaults.voice.readAloudDetails1')}</p>
+          <p>{t('defaults.voice.readAloudDetails2')}</p>
         </>
       }
-      control={<Switch aria-label="Read replies aloud" checked={on} onCheckedChange={(checked) => {
+      control={<Switch aria-label={t('defaults.voice.readAloudOn')} checked={on} onCheckedChange={(checked) => {
             if (checked) unlock();
             setReadAloud({ on: checked });
           }} />}
@@ -257,39 +261,41 @@ function ReadAloudOn() {
   );
 }
 
-const voiceRows: Record<VoiceLanguage, { label: string; description: string; sample: string }> = {
-  en: { label: 'English voice', description: 'Reads the replies written in English.', sample: 'Hello! I read the agent’s replies aloud.' },
+// The samples stay in the language the voice speaks, whatever the app's.
+const voiceRows: Record<VoiceLanguage, { label: MessageKey; description: MessageKey; sample: string }> = {
+  en: { label: 'defaults.voice.voiceEn', description: 'defaults.voice.voiceEnDescription', sample: 'Hello! I read the agent’s replies aloud.' },
   pt: {
-    label: 'Portuguese voice',
-    description: 'Reads the replies written in Portuguese, in Brazilian Portuguese.',
+    label: 'defaults.voice.voicePt',
+    description: 'defaults.voice.voicePtDescription',
     sample: 'Olá! Eu leio as respostas do agente em voz alta.',
   },
 };
 
 function ReadAloudVoice({ language }: { language: VoiceLanguage }) {
+  const t = useT();
   const { voices: chosen } = useReadAloudSettings();
   const reader = useReader();
   const row = voiceRows[language];
   return (
     <SettingRow
-      label={row.label}
-      description={row.description}
+      label={t(row.label)}
+      description={t(row.description)}
       control={
         <div className="flex w-full items-center gap-1.5">
-          <Select aria-label={row.label} value={chosen[language]} onChange={(v) => setReadAloud({ voices: { ...chosen, [language]: v } })} className="min-w-0 flex-1">
+          <Select aria-label={t(row.label)} value={chosen[language]} onChange={(v) => setReadAloud({ voices: { ...chosen, [language]: v } })} className="min-w-0 flex-1">
             {voices
               .filter((v) => v.language === language)
               .map((v) => (
                 <SelectOption key={v.id} value={v.id}>
-                  {v.label}
+                  {t(v.label)}
                 </SelectOption>
               ))}
           </Select>
           <Button
             variant="ghost"
             className="h-9 shrink-0 px-2.5"
-            aria-label={reader.status === 'idle' ? `Try the ${row.label.toLowerCase()}` : 'Stop'}
-            title={reader.error ? `The voice failed: ${reader.error}` : undefined}
+            aria-label={reader.status === 'idle' ? t('defaults.voice.tryVoice', { voice: t(row.label).toLowerCase() }) : t('common.stop')}
+            title={reader.error ? t('defaults.voice.voiceFailed', { error: reader.error }) : undefined}
             data-voice-try={reader.status}
             onClick={() => {
               stop();
@@ -306,16 +312,17 @@ function ReadAloudVoice({ language }: { language: VoiceLanguage }) {
 }
 
 function ReadAloudSpeed() {
+  const t = useT();
   const { speed } = useReadAloudSettings();
   return (
     <SettingRow
-      label="Speed"
-      description="How fast the voice reads."
+      label={t('defaults.voice.speed')}
+      description={t('defaults.voice.speedDescription')}
       control={
-        <Select aria-label="Speed" value={String(speed)} onChange={(v) => setReadAloud({ speed: Number(v) })}>
+        <Select aria-label={t('defaults.voice.speed')} value={String(speed)} onChange={(v) => setReadAloud({ speed: Number(v) })}>
           {speeds.map((v) => (
             <SelectOption key={v} value={String(v)}>
-              {v === 1 ? 'Normal' : `${v}×`}
+              {v === 1 ? t('defaults.voice.speedNormal') : `${v}×`}
             </SelectOption>
           ))}
         </Select>

@@ -2,19 +2,21 @@ import { X } from 'lucide-react';
 import { useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
+import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
 
 // ImageThumb is one picture of a message, as a thumbnail that opens it whole.
 // With onRemove it is one waiting in the composer, and can be taken off again.
 export function ImageThumb({ src, name, onRemove, className }: { src: string; name?: string; onRemove?: () => void; className?: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
-  const label = name || 'Image';
+  const label = name || t('chat.image.default');
   return (
     <div className={cn('group/thumb relative shrink-0', className)} data-chat-image>
       <button
         type="button"
-        aria-label={`View ${label}`}
+        aria-label={t('chat.image.view', { name: label })}
         onClick={() => setOpen(true)}
         className="block size-full overflow-hidden rounded-xl border border-line-strong bg-surface-raised transition hover:border-line-vivid"
       >
@@ -23,7 +25,7 @@ export function ImageThumb({ src, name, onRemove, className }: { src: string; na
       {onRemove && (
         <button
           type="button"
-          aria-label={`Remove ${label}`}
+          aria-label={t('chat.image.remove', { name: label })}
           onClick={onRemove}
           className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-overlay text-subtle opacity-90 shadow transition hover:text-primary group-hover/thumb:opacity-100"
         >

@@ -5,6 +5,7 @@ import '@fontsource-variable/inter';
 import './styles.css';
 import { StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { restoreLanguage } from './lib/i18n';
 import { restoreMode } from './lib/theme';
 import { currentWebTarget, followPhoneEvents, installWebBridge, lan } from './web/bridge';
 import { currentSession, NotPaired, pairFromURL } from './web/PhonePair';
@@ -14,6 +15,10 @@ installWebBridge();
 // Sign-in runs before there is an environment to ask about the theme, so the
 // page opens in whichever mode this browser last saw (lib/theme.ts).
 restoreMode();
+// The language it was last in, for the pages before there is a daemon to ask
+// (sign-in, pairing); the app and the phone's chats confirm it from the
+// settings (main.tsx, phone.tsx).
+restoreLanguage();
 
 const container = document.getElementById('root')!;
 let root: Root | undefined = createRoot(container);

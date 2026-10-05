@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { addFetchedLog, useJobLog } from '../lib/events';
 import { cn, duration } from '../lib/utils';
 import { JobStatusBadge } from './state';
@@ -22,6 +23,7 @@ export function JobProgress({
   logClassName?: string;
   header?: boolean;
 }) {
+  const t = useT();
   const job = useQuery({
     queryKey: ['job', jobId],
     queryFn: () => api.job(jobId),
@@ -60,14 +62,14 @@ export function JobProgress({
       {header && (
         <div className="flex items-center gap-2 text-sm">
           <JobStatusBadge status={job.data?.status ?? 'running'} />
-          <span className="text-tertiary">{job.data ? `${job.data.kind} ${job.data.target}` : `job ${jobId}`}</span>
+          <span className="text-tertiary">{job.data ? `${job.data.kind} ${job.data.target}` : t('shell.jobProgress.job', { id: jobId })}</span>
           <span className="ml-auto font-mono text-xs tabular-nums text-subtle">{job.data && duration(job.data.createdAt, job.data.finishedAt)}</span>
         </div>
       )}
       <div
         ref={log}
         className={cn('h-64 overflow-auto rounded-xl border border-line bg-well p-3.5 font-mono text-[11.5px] leading-relaxed text-subtle', logClassName)}
-        aria-label="Job log"
+        aria-label={t('shell.jobs.log')}
       >
         {lines.map((line = '', i) => (
           <div key={i} className={cn('whitespace-pre-wrap break-all', line.startsWith('==>') && 'text-secondary')}>

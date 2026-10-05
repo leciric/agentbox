@@ -143,14 +143,14 @@ async function hubCall<T>(hub: string, method: string, path: string, token?: str
 
 function savedHub(url: string): SavedHub {
   const hub = savedHubs().find((h) => h.url === url);
-  if (!hub) throw new Error(`not signed in to ${url}`);
+  if (!hub) throw new Error(t('web.main.notSignedIn', { url }));
   return hub;
 }
 
 ipcMain.handle('hubs:list', () => savedHubs().map(({ url, email }) => ({ url, email })));
 ipcMain.handle('hubs:login', async (_event, url: string, email: string, password: string) => {
   url = url.trim().replace(/\/+$/, '');
-  if (!/^https?:\/\/[^/]+$/.test(url)) throw new Error(`${url} isn't a hub address: use https://hub.example.com`);
+  if (!/^https?:\/\/[^/]+$/.test(url)) throw new Error(t('web.main.notAHub', { url }));
   const session = await hubCall<{ token: string; user: { email: string } }>(url, 'POST', '/v1/auth/login', undefined, {
     email,
     password,
@@ -241,7 +241,7 @@ const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-  if (!/^https?:\/\//.test(url)) throw new Error(`not a web address: ${url}`);
+  if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));

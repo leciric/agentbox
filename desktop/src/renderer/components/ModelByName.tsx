@@ -1,5 +1,6 @@
 import { CornerDownLeft } from 'lucide-react';
 import { useState } from 'react';
+import { useT } from '../lib/i18n';
 import { MenuLabel, MenuSeparator } from './ui/menu';
 
 // ModelByName names a model the menu above doesn't list.
@@ -18,6 +19,7 @@ import { MenuLabel, MenuSeparator } from './ui/menu';
 // tool's settings before the next session, and the adapter then advertises it
 // back — so from the second session on it is an ordinary entry on that menu.
 export function ModelByName({ onPick, disabled }: { onPick: (value: string) => void; disabled?: boolean }) {
+  const t = useT();
   const [value, setValue] = useState('');
   const model = value.trim();
   // "default" is the menu's own word for "no model of my own", not a model id.
@@ -31,12 +33,12 @@ export function ModelByName({ onPick, disabled }: { onPick: (value: string) => v
   return (
     <>
       <MenuSeparator />
-      <MenuLabel>Another model</MenuLabel>
+      <MenuLabel>{t('chat.modelByName.label')}</MenuLabel>
       <div className="px-1 pb-1">
         <div className="flex items-center gap-1.5 rounded-lg bg-surface px-2.5 py-1.5 focus-within:bg-surface-raised">
           <input
             data-model-by-name
-            aria-label="Name another model"
+            aria-label={t('chat.modelByName.name')}
             value={value}
             disabled={disabled}
             onChange={(e) => setValue(e.target.value)}
@@ -54,7 +56,7 @@ export function ModelByName({ onPick, disabled }: { onPick: (value: string) => v
           />
           <button
             type="button"
-            aria-label="Use this model"
+            aria-label={t('chat.modelByName.use')}
             disabled={!usable || disabled}
             onClick={submit}
             className="shrink-0 rounded-md p-0.5 text-subtle transition hover:text-secondary disabled:opacity-30 disabled:hover:text-subtle"
@@ -63,8 +65,7 @@ export function ModelByName({ onPick, disabled }: { onPick: (value: string) => v
           </button>
         </div>
         <p className="px-1 pt-1.5 text-[11px] leading-relaxed text-subtle">
-          A model id this account can run but Claude Code's menu doesn't offer. It takes effect when the chat next starts, and says so if the model
-          doesn't exist.
+          {t('chat.modelByName.hint')}
         </p>
       </div>
     </>

@@ -4,6 +4,7 @@
 // here, apart from the components, so they can be tested without a DOM.
 import type { VMPower, VMPowerState } from '../../preload';
 import type * as T from '../../shared/api';
+import { formatList, formatNumber, t } from '../../shared/i18n/index.ts';
 
 // FreeTarget is one agent Free resources would stop, and what it's up to:
 // working (mid-turn) and asking (waiting on you) lose what they were doing,
@@ -96,10 +97,10 @@ export function freed(result: T.StopAgentsResult | undefined, vmBefore: VMPower 
 // reads it: "3.2 cores", "1 core", "0.4 of a core".
 export function coresText(cpu: number): string {
   const cores = cpu / 100;
-  if (cores < 0.05) return 'no CPU';
-  if (cores < 0.95) return `${cores.toFixed(1)} of a core`;
+  if (cores < 0.05) return t('shell.free.noCpu');
+  if (cores < 0.95) return t('shell.free.partCore', { n: formatNumber(cores, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
   const rounded = Math.round(cores * 10) / 10;
-  return rounded === 1 ? '1 core' : `${rounded} cores`;
+  return t('shell.free.cores', { count: rounded });
 }
 
 // whoText is the confirmation's line about what's being cut off: "2 are
@@ -108,9 +109,9 @@ export function whoText(targets: FreeTarget[]): string | null {
   const working = targets.filter((t) => t.doing === 'working').length;
   const asking = targets.filter((t) => t.doing === 'asking').length;
   const parts = [];
-  if (working) parts.push(`${working} ${working === 1 ? 'is' : 'are'} working`);
-  if (asking) parts.push(`${asking} ${asking === 1 ? 'is' : 'are'} waiting on you`);
-  return parts.length ? parts.join(' and ') : null;
+  if (working) parts.push(t('shell.free.working', { count: working }));
+  if (asking) parts.push(t('shell.free.asking', { count: asking }));
+  return parts.length ? formatList(parts) : null;
 }
 
 // The agents the last Free resources stopped, kept so Start can bring them

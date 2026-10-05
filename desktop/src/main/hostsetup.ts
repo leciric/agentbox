@@ -38,6 +38,7 @@ import { agentboxBin } from "./cli";
 import { onWindows } from "./relay";
 import type * as T from "../shared/api";
 import { learnMode, linuxVM } from "./vmmode";
+import { t } from '../shared/i18n/index.ts';
 
 export interface HostSetupStatus {
   pkexec: string | null; // the pkexec on this machine, if it has one
@@ -249,7 +250,7 @@ export function vmStatus(): Promise<VMStatus | null> {
             problem: (
               stderr.trim() ||
               err?.message ||
-              "agentbox vm status failed"
+              t('web.main.vmStatusFailed')
             ).replace(/^error: /, ""),
           };
         }
@@ -324,7 +325,7 @@ export function wslStatus(): Promise<WSLStatus | null> {
             problem: (
               stderr.trim() ||
               err?.message ||
-              "agentbox wsl status failed"
+              t('web.main.wslStatusFailed')
             ).replace(/^error: /, ""),
           };
         }
@@ -366,7 +367,7 @@ export function runHostSetup(
   options: HostSetupOptions = {},
 ): Promise<void> {
   if (running)
-    return Promise.reject(new Error("host setup is already running"));
+    return Promise.reject(new Error(t('web.main.setupRunning')));
   const linuxVMInit = !onMac && !onWindows && (options.vm === true || linuxVM());
   running = (async () => {
     if (linuxVMInit && !linuxVM()) await options.before?.(onOutput);
@@ -386,7 +387,7 @@ function run(onOutput: (text: string) => void, linuxVMInit: boolean, options: Ho
     const args = ["init"];
     if (options.cpus) args.push("--cpus", String(options.cpus));
     if (options.memoryCap) args.push("--memory-cap", options.memoryCap);
-    return runVM(args, "setting up AgentBox's VM failed", onOutput).finally(learnMode);
+    return runVM(args, t('web.main.vmInitFailed'), onOutput).finally(learnMode);
   }
   return runAsRoot(["host", "setup"], onOutput);
 }
@@ -430,11 +431,11 @@ export function runVMMigration(
   removeOld = false,
 ): Promise<void> {
   if (running)
-    return Promise.reject(new Error("host setup is already running"));
+    return Promise.reject(new Error(t('web.main.setupRunning')));
   running = (
     removeOld
-      ? runVM(["migrate", "--remove-old", "--yes"], "removing the old machines failed", onOutput)
-      : runVM(["migrate"], "moving AgentBox into its VM failed", onOutput).finally(learnMode)
+      ? runVM(["migrate", "--remove-old", "--yes"], t('web.main.vmRemoveOldFailed'), onOutput)
+      : runVM(["migrate"], t('web.main.vmMigrateFailed'), onOutput).finally(learnMode)
   ).finally(() => {
     running = undefined;
     initing = undefined;
@@ -455,14 +456,14 @@ function runAsRoot(
   if (!pkexec) {
     return Promise.reject(
       new Error(
-        "this machine has no pkexec, so the app can't ask for your password: run the command below in a terminal",
+        t('web.main.noPkexec'),
       ),
     );
   }
   if (!binary) {
     return Promise.reject(
       new Error(
-        "this app has no agentbox binary to run: build it with go build -o bin/agentbox ./cmd/agentbox",
+        t('web.main.noBinaryToRun'),
       ),
     );
   }
@@ -481,7 +482,7 @@ function runAsRoot(
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
     child.on("error", (err) =>
-      reject(new Error(`couldn't run ${pkexec}: ${err.message}`)),
+      reject(new Error(t('web.main.couldntRun', { bin: pkexec, error: err.message }))),
     );
     child.on("close", (code) => {
       if (code === 0) return resolve();
@@ -510,7 +511,7 @@ function initWSL(onOutput: (text: string) => void): Promise<void> {
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
     child.on("error", (err) =>
-      reject(new Error(`couldn't run ${binary}: ${err.message}`)),
+      reject(new Error(t('web.main.couldntRun', { bin: binary, error: err.message }))),
     );
     child.on("close", (code) => {
       lastWSL = undefined;
@@ -518,7 +519,7 @@ function initWSL(onOutput: (text: string) => void): Promise<void> {
       const last = tail.trim().split("\n").filter(Boolean).at(-1) ?? "";
       reject(
         new Error(
-          `setting up AgentBox's WSL distro failed${last ? `: ${last.replace(/^error: /, "")}` : ""}`,
+          `${t('web.main.wslInitFailed')}${last ? `: ${last.replace(/^error: /, "")}` : ""}`,
         ),
       );
     });
@@ -530,7 +531,7 @@ function initWSL(onOutput: (text: string) => void): Promise<void> {
 // Lima downloads Debian, and host setup installs Incus inside. With driver
 // "vz" the VM is the experimental vz driver's, which needs no Lima.
 function initVM(onOutput: (text: string) => void, driver?: "vz"): Promise<void> {
-  return runVM(driver === "vz" ? ["init", "--driver", "vz"] : ["init"], "setting up AgentBox's VM failed", onOutput);
+  return runVM(driver === "vz" ? ["init", "--driver", "vz"] : ["init"], t('web.main.vmInitFailed'), onOutput);
 }
 
 let resizing: Promise<void> | undefined;
@@ -551,15 +552,15 @@ export function resizeVM(
   disk?: string,
 ): Promise<void> {
   if (onWindows)
-    return Promise.reject(new Error("AgentBox's WSL distro has no size to change"));
+    return Promise.reject(new Error(t('web.main.wslNoSize')));
   if (!onMac && !linuxVM())
-    return Promise.reject(new Error("AgentBox doesn't run in a VM on this machine"));
+    return Promise.reject(new Error(t('web.main.notInVM')));
   if (resizing)
-    return Promise.reject(new Error("AgentBox's VM is already being resized"));
+    return Promise.reject(new Error(t('web.main.vmResizing')));
   const args = onMac
     ? ["resize", "--cpus", String(cpus), "--memory", memory]
     : ["resize", "--cpus", String(cpus), "--memory-cap", memory, ...(disk ? ["--disk", disk] : []), ...(restart ? ["--restart"] : [])];
-  resizing = runVM(args, "resizing AgentBox's VM failed", onOutput).finally(() => {
+  resizing = runVM(args, t('web.main.vmResizeFailed'), onOutput).finally(() => {
     resizing = undefined;
     lastCHV = undefined;
   });
@@ -588,11 +589,11 @@ let swapping: Promise<void> | undefined;
 // a size that would leave the VM's disk under its disk floor, and a VM that
 // isn't running.
 export function swapVM(size: string | null, onOutput: (text: string) => void): Promise<void> {
-  if (onWindows) return Promise.reject(new Error("AgentBox's WSL distro has no swap to change"));
-  if (!onMac && !linuxVM()) return Promise.reject(new Error("AgentBox doesn't run in a VM on this machine"));
-  if (swapping) return Promise.reject(new Error("AgentBox's VM's swap is already changing"));
+  if (onWindows) return Promise.reject(new Error(t('web.main.wslNoSwap')));
+  if (!onMac && !linuxVM()) return Promise.reject(new Error(t('web.main.notInVM')));
+  if (swapping) return Promise.reject(new Error(t('web.main.vmSwapping')));
   const args = size === null ? ["swap", "off"] : ["swap", "on", "--size", size];
-  swapping = runVM(args, "changing AgentBox's VM's swap failed", onOutput).finally(() => {
+  swapping = runVM(args, t('web.main.vmSwapFailed'), onOutput).finally(() => {
     swapping = undefined;
     lastCHV = undefined;
   });
@@ -627,7 +628,7 @@ function runVM(
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
     child.on("error", (err) =>
-      reject(new Error(`couldn't run ${binary}: ${err.message}`)),
+      reject(new Error(t('web.main.couldntRun', { bin: binary, error: err.message }))),
     );
     child.on("close", (code) => {
       lastVM = undefined;
@@ -650,10 +651,10 @@ function failure(code: number | null, output: string): string {
   const last = output.trim().split("\n").filter(Boolean).at(-1) ?? "";
   switch (code) {
     case 126:
-      return `the password dialog was dismissed, or this desktop has no polkit agent to show it${last ? ` (${last})` : ""}`;
+      return `${t('web.main.pkexecDismissed')}${last ? ` (${last})` : ""}`;
     case 127:
-      return `pkexec couldn't run agentbox${last ? `: ${last}` : ""}`;
+      return `${t('web.main.pkexecCouldntRun')}${last ? `: ${last}` : ""}`;
     default:
-      return `host setup failed (exit ${code ?? "signal"})${last ? `: ${last}` : ""}`;
+      return `${t('web.main.hostSetupFailed', { code: code ?? t('web.main.exitSignal') })}${last ? `: ${last}` : ""}`;
   }
 }

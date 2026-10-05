@@ -1,12 +1,14 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import type { ComponentProps, HTMLAttributes } from 'react';
+import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 
 export const Dialog = DialogPrimitive.Root;
 export const DialogClose = DialogPrimitive.Close;
 
 export function DialogContent({ className, children, ...props }: ComponentProps<typeof DialogPrimitive.Content>) {
+  const t = useT();
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 animate-fade-in bg-scrim backdrop-blur-[3px]" />
@@ -21,7 +23,7 @@ export function DialogContent({ className, children, ...props }: ComponentProps<
         {children}
         <DialogPrimitive.Close
           className="absolute right-4 top-4 rounded-md p-1 text-subtle transition-colors hover:bg-surface-raised hover:text-primary"
-          aria-label="Close"
+          aria-label={t('common.close')}
         >
           <X className="size-4" />
         </DialogPrimitive.Close>

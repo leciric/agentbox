@@ -3,13 +3,15 @@
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import './styles.css';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { StrictMode } from 'react';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toaster } from 'sonner';
 import type * as T from '../shared/api';
 import { TooltipProvider } from './components/ui/tooltip';
+import { api } from './lib/api';
 import { connectEvents } from './lib/events';
+import { applyLanguage, useLanguage } from './lib/i18n';
 import { useHostTheme, useMode } from './lib/theme';
 import { PhoneApp } from './web/PhoneApp';
 
@@ -34,6 +36,13 @@ function Toasts() {
 function Themed({ phone }: { phone: T.LANPhone }) {
   // The theme is the computer's: the same colours on both.
   useHostTheme();
+  // And so is the language: the daemon's Settings.language, applied the way
+  // main.tsx's Root does, redrawing the chats the moment it changes.
+  useLanguage();
+  const language = useQuery({ queryKey: ['settings'], queryFn: api.settings }).data?.language;
+  useEffect(() => {
+    if (language) applyLanguage(language);
+  }, [language]);
   return <PhoneApp phone={phone} />;
 }
 

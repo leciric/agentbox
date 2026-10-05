@@ -5,6 +5,7 @@
 // what the daemon last said. A move produces a whole new layout, which is
 // what the API takes: one transaction, no move for the server to infer.
 import type * as T from '../../shared/api';
+import { t } from '../../shared/i18n/index.ts';
 
 // A list of the sidebar: one section's projects, or the projects in none,
 // which is the list with no section and always comes last.
@@ -151,8 +152,10 @@ export function place(lists: SidebarList[], name: string): string {
   const at = locate(lists, name);
   if (!at) return '';
   const [i, j] = at;
-  const where = lists[i].section ? `in ${lists[i].section!.name}` : 'in no section';
-  return `${name} is now ${j + 1} of ${lists[i].projects.length} ${where}`;
+  const section = lists[i].section;
+  return section
+    ? t('shell.sidebar.placeInSection', { name, n: j + 1, total: lists[i].projects.length, section: section.name })
+    : t('shell.sidebar.placeNoSection', { name, n: j + 1, total: lists[i].projects.length });
 }
 
 // flatten is the lists as the daemon will store and return them: the projects

@@ -1,4 +1,5 @@
 import type { Bridge } from '../../preload';
+import { t } from '../../shared/i18n/index.ts';
 
 // webStreams is the bridge's stream API over the browser's own WebSockets,
 // for a page outside the desktop app: the web app, and the page of
@@ -35,8 +36,8 @@ export function webStreams(url: (path: string) => string): { stream: Bridge['str
       ws.onmessage = (message) => {
         if (message.data instanceof ArrayBuffer) for (const fn of data) fn(id, new Uint8Array(message.data));
       };
-      ws.onerror = () => exit('the connection failed');
-      ws.onclose = (event) => exit(event.reason || (event.code === 1000 ? 'the session ended' : `the connection closed (${event.code})`));
+      ws.onerror = () => exit(t('web.stream.failed'));
+      ws.onclose = (event) => exit(event.reason || (event.code === 1000 ? t('web.stream.ended') : t('web.stream.closed', { code: event.code })));
       return Promise.resolve(id);
     },
     write: (id, payload) => {

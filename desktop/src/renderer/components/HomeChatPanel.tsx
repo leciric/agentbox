@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { t, useT } from '../lib/i18n';
 import { ChatHeaderControls, ChatTab } from './chat/ChatTab';
 
 // homeAgentFrom builds the Agent ChatTab expects out of the Home chat: a lead
@@ -11,7 +12,7 @@ export function homeAgentFrom(info: T.ProjectChat): T.Agent {
     ref: info.ref,
     project: T.HomeProject,
     name: T.LeadName,
-    title: 'Home',
+    title: t('chat.home.agentTitle'),
     instance: '',
     ai: 'claude',
     autonomous: false,
@@ -35,14 +36,15 @@ export function homeAgentFrom(info: T.ProjectChat): T.Agent {
 // project's own chat something, search any project's memory and add projects,
 // so it's there even before the first project is.
 export function HomeChatPanel() {
+  const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject) });
   const info = chat.data;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-3 px-4 pb-3 pt-5 md:px-8">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-title">Main chat</h1>
-          <p className="mt-0.5 text-[13px] text-muted">Your main chat, across every project.</p>
+          <h1 className="text-xl font-semibold tracking-tight text-title">{t('chat.home.title')}</h1>
+          <p className="mt-0.5 text-[13px] text-muted">{t('chat.home.subtitle')}</p>
         </div>
         {info && (
           <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -54,7 +56,7 @@ export function HomeChatPanel() {
         {info ? (
           <ChatTab agent={homeAgentFrom(info)} starting={false} onStart={() => {}} />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? 'The chat is unavailable.' : 'Loading…'}</div>
+          <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>
         )}
       </div>
     </div>

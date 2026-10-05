@@ -4,7 +4,9 @@
 // phone's own. A phone that comes without one, or whose pairing was revoked,
 // is told how to pair.
 import { Smartphone, TriangleAlert } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type * as T from '../../shared/api';
+import { useT } from '../lib/i18n';
 import { phoneName } from './phoneName.ts';
 
 // pairFromURL pairs with the secret in the page's address, if there's one, and
@@ -36,14 +38,17 @@ export async function currentSession(): Promise<T.LANSession | null> {
 }
 
 export function PlainHTTPNote({ className = '' }: { className?: string }) {
+  const t = useT();
   return (
     <p className={`text-[12px] leading-relaxed text-subtle ${className}`}>
-      This connection is plain HTTP on your local network, not encrypted: use it on a network you trust.
+      {t('web.pair.plainHTTP')}
     </p>
   );
 }
 
 export function NotPaired({ error }: { error?: string }) {
+  const t = useT();
+  const hl = (c: ReactNode) => <span className="text-primary">{c}</span>;
   return (
     <div className="flex min-h-dvh items-center justify-center px-6 py-10">
       <div className="grid w-full max-w-sm gap-5" data-phone-unpaired>
@@ -51,19 +56,16 @@ export function NotPaired({ error }: { error?: string }) {
           <Smartphone className="size-6" />
         </div>
         <div className="grid gap-2">
-          <h1 className="text-xl font-semibold tracking-tight text-title">Pair this phone with AgentBox</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-title">{t('web.pair.title')}</h1>
+          <p className="text-[14px] leading-relaxed text-muted">{t.rich('web.pair.steps', { hl })}</p>
           <p className="text-[14px] leading-relaxed text-muted">
-            On your computer, open AgentBox's <span className="text-primary">Settings</span>, then <span className="text-primary">Phone</span>, turn on{' '}
-            <span className="text-primary">Chat from your phone</span>, and scan the QR code with this phone's camera.
-          </p>
-          <p className="text-[14px] leading-relaxed text-muted">
-            Or, in a terminal there: <span className="font-mono text-[13px] text-primary">agentbox phone pair</span>
+            {t.rich('web.pair.terminal', { mono: (c) => <span className="font-mono text-[13px] text-primary">{c}</span> })}
           </p>
         </div>
         {error && (
           <div className="flex gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2.5 text-[13px] text-rose-200">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-            <span>Couldn't pair: {error}</span>
+            <span>{t('web.pair.failed', { error })}</span>
           </div>
         )}
         <PlainHTTPNote />

@@ -25,6 +25,7 @@ import { execFile } from 'node:child_process';
 import { ipcMain } from 'electron';
 import type { VMPower, VMPowerAction, VMPowerState } from '../preload';
 import type { VMDisk, VMHomeDisk } from '../shared/api';
+import { t } from '../shared/i18n/index.ts';
 import { agentboxBin } from './cli';
 import { linuxVM } from './vmmode';
 
@@ -72,7 +73,7 @@ export async function vmPower(): Promise<VMPower | null> {
 
 export async function actOnVM(action: VMPowerAction): Promise<VMPower> {
   if (process.env.AGENTBOX_FAKE_VM) return fake.act(action);
-  if (pending) throw new Error(`The VM is already ${transition[pending]}`);
+  if (pending) throw new Error(t('web.main.vmAlreadyChanging', { state: transition[pending] }));
   pending = action;
   try {
     await run(['vm', action]);
@@ -80,7 +81,7 @@ export async function actOnVM(action: VMPowerAction): Promise<VMPower> {
     pending = undefined;
   }
   const power = await vmPower();
-  if (!power) throw new Error('AgentBox is not in VM mode');
+  if (!power) throw new Error(t('web.main.notVMMode'));
   return power;
 }
 

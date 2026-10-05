@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
 import { chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
+import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage } from '../../lib/utils';
 import { useReadAloud } from '../../lib/voice/useReadAloud';
@@ -33,6 +34,7 @@ export function ChatTab({
   autoStart?: boolean;
   onOpenAgent?: (ref: string) => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
   const session = thread.data?.session;
@@ -152,7 +154,7 @@ export function ChatTab({
       >
         <div ref={content} className="mx-auto w-full max-w-4xl px-4 pt-6 md:px-6" style={{ paddingBottom: composerHeight + 28 }}>
           {thread.isPending ? (
-            <div className="grid gap-3 pt-2" aria-label="Loading the conversation">
+            <div className="grid gap-3 pt-2" aria-label={t('chat.tab.loading')}>
               <div className="skeleton ml-auto h-10 w-2/5 rounded-2xl" />
               <div className="skeleton h-4 w-3/4 rounded-md" />
               <div className="skeleton h-4 w-2/3 rounded-md" />
@@ -166,7 +168,7 @@ export function ChatTab({
               {thread.data.older && (
                 <div className="flex h-8 items-center justify-center gap-1.5 pb-4 text-[12px] text-subtle" data-chat-older>
                   {loadingOlder && <LoaderCircle className="size-3.5 animate-spin" />}
-                  {loadingOlder ? 'Loading earlier messages' : ''}
+                  {loadingOlder ? t('chat.tab.loadingOlder') : ''}
                 </div>
               )}
               <Timeline agent={agent} thread={thread.data} onOpenAgent={onOpenAgent} />
@@ -185,7 +187,7 @@ export function ChatTab({
           onClick={scrollToEnd}
         >
           <ArrowDown className="size-3.5" />
-          Scroll to end
+          {t('chat.tab.scrollToEnd')}
         </button>
       )}
 
@@ -199,12 +201,11 @@ export function ChatTab({
         <div className="absolute inset-0 z-30 flex animate-fade-in items-center justify-center bg-chat/75 backdrop-blur-[2px]">
           <div className="panel grid max-w-sm justify-items-center gap-3 rounded-2xl px-8 py-7 text-center">
             <p className="text-sm text-tertiary">
-              {agent.title || agent.name} is {agent.state}.{' '}
-              {agent.state === 'paused' ? 'Its processes are frozen until you resume it.' : `Start it to chat with ${aiLabel(agent.ai)}.`}
+              {t('chat.tab.stopped', { name: agent.title || agent.name, state: agent.state, tool: aiLabel(agent.ai) })}
             </p>
             <Button variant="primary" onClick={onStart} disabled={starting}>
               {starting ? <LoaderCircle className="animate-spin" /> : <Play />}
-              {agent.state === 'paused' ? 'Resume' : 'Start'} {agent.name}
+              {t('chat.tab.startAgent', { state: agent.state, name: agent.name })}
             </Button>
           </div>
         </div>
@@ -218,6 +219,7 @@ export function ChatTab({
 // ProjectView) fold it into their tab bar instead, so the chat itself doesn't
 // need a second header under theirs.
 export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projectName = useProjectName(agent.project);
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
@@ -227,24 +229,23 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
     <>
       <SessionStatus agent={agent} session={thread.data?.session} />
       <ReadAloudControls />
-      <Tip label="Start a new conversation">
+      <Tip label={t('chat.tab.newChatTip')}>
         <Button size="sm" variant="ghost" className="h-7 px-2 sm:px-2.5" disabled={items.length === 0} onClick={() => setClearing(true)}>
           <MessageSquarePlus />
-          <span className="hidden sm:inline">New chat</span>
+          <span className="hidden sm:inline">{t('chat.tab.newChat')}</span>
         </Button>
       </Tip>
       <ConfirmDialog
         open={clearing}
         onOpenChange={setClearing}
-        title="Start a new chat?"
-        description={
-          isHomeChat(agent.ref)
-            ? `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. Your projects are untouched.`
-            : isProjectChat(agent.ref)
-            ? `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. The agents of ${projectName} and their work are untouched.`
-            : `${aiLabel(agent.ai)} starts a new session that doesn't remember this conversation, which is removed. What ${agent.title || agent.name} changed in its worktree stays.`
-        }
-        confirmLabel="New chat"
+        title={t('chat.tab.newChatTitle')}
+        description={t('chat.tab.newChatDescription', {
+          scope: isHomeChat(agent.ref) ? 'home' : isProjectChat(agent.ref) ? 'project' : 'agent',
+          tool: aiLabel(agent.ai),
+          project: projectName,
+          name: agent.title || agent.name,
+        })}
+        confirmLabel={t('chat.tab.newChat')}
         onConfirm={() => api.clearChat(agent.ref)}
       />
     </>
@@ -252,6 +253,7 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
 }
 
 function Hero({ agent }: { agent: T.Agent }) {
+  const t = useT();
   const projectName = useProjectName(agent.project);
   if (!isProjectChat(agent.ref)) return <AgentHero agent={agent} />;
   if (isHomeChat(agent.ref)) return <HomeHero agent={agent} />;
@@ -263,16 +265,19 @@ function Hero({ agent }: { agent: T.Agent }) {
           <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
         </div>
       </div>
-      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">What should we build in {projectName}?</h2>
+      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">{t('chat.hero.title', { project: projectName })}</h2>
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
-        This chat reads {projectName} on <span className="font-mono text-[12.5px] text-muted">{agent.baseRef || 'its branch'}</span>. It doesn't run or
-        change anything itself: the work happens in agents, each on its own machine.
+        {t.rich('chat.hero.project', {
+          project: projectName,
+          branch: <span className="font-mono text-[12.5px] text-muted">{agent.baseRef || t('chat.hero.itsBranch')}</span>,
+        })}
       </p>
     </div>
   );
 }
 
 function HomeHero({ agent }: { agent: T.Agent }) {
+  const t = useT();
   return (
     <div className="flex min-h-[42vh] animate-slide-up flex-col items-center justify-center pt-6 text-center" data-chat-hero>
       <div className="relative mb-5">
@@ -281,15 +286,16 @@ function HomeHero({ agent }: { agent: T.Agent }) {
           <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
         </div>
       </div>
-      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">What are we working on?</h2>
+      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">{t('chat.hero.homeTitle')}</h2>
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
-        This chat sees every project: ask how they're doing, start work in one, or add a new one from a folder or a git URL.
+        {t('chat.hero.home')}
       </p>
     </div>
   );
 }
 
 function AgentHero({ agent }: { agent: T.Agent }) {
+  const t = useT();
   const projectName = useProjectName(agent.project);
   return (
     <div className="flex min-h-[42vh] animate-slide-up flex-col items-center justify-center pt-6 text-center" data-chat-hero>
@@ -299,32 +305,33 @@ function AgentHero({ agent }: { agent: T.Agent }) {
           <AIIcon ai={agent.ai} className="size-5 text-brand-300" />
         </div>
       </div>
-      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">What should we build in {projectName}?</h2>
+      <h2 className="text-balance text-2xl font-normal tracking-tight text-primary">{t('chat.hero.title', { project: projectName })}</h2>
       <p className="mt-2 max-w-md text-balance text-sm leading-relaxed text-subtle">
-        {aiLabel(agent.ai)} works on its own machine, on the branch <span className="font-mono text-[12.5px] text-muted">{agent.branch}</span>.
+        {t.rich('chat.hero.agent', { tool: aiLabel(agent.ai), branch: <span className="font-mono text-[12.5px] text-muted">{agent.branch}</span> })}
       </p>
     </div>
   );
 }
 
-const statusStyles: Record<string, { dot: string; label: (tool: string) => string }> = {
-  off: { dot: 'bg-faint', label: () => 'Not started' },
-  starting: { dot: 'bg-muted', label: (tool) => `Starting ${tool}` },
-  ready: { dot: 'bg-emerald-400', label: (tool) => `${tool} is ready` },
-  running: { dot: 'bg-sky-400 animate-pulse', label: () => 'Working' },
-  waiting: { dot: 'bg-amber-400 animate-pulse', label: () => 'Waiting for you' },
-  error: { dot: 'bg-rose-400', label: (tool) => `${tool} stopped` },
+const statusStyles: Record<string, { dot: string; label: MessageKey }> = {
+  off: { dot: 'bg-faint', label: 'chat.status.off' },
+  starting: { dot: 'bg-muted', label: 'chat.status.starting' },
+  ready: { dot: 'bg-emerald-400', label: 'chat.status.ready' },
+  running: { dot: 'bg-sky-400 animate-pulse', label: 'chat.status.running' },
+  waiting: { dot: 'bg-amber-400 animate-pulse', label: 'chat.status.waiting' },
+  error: { dot: 'bg-rose-400', label: 'chat.status.error' },
 };
 
 function SessionStatus({ agent, session }: { agent: T.Agent; session?: T.ChatSession }) {
+  const t = useT();
   const state = session?.state ?? 'off';
   const style = statusStyles[state] ?? statusStyles.off;
   const tool = aiLabel(agent.ai);
   return (
-    <Tip label={session?.error || session?.detail || session?.adapter || `${tool} through its ACP adapter`}>
+    <Tip label={session?.error || session?.detail || session?.adapter || t('chat.status.adapter', { tool })}>
       <span className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted" data-chat-state={state}>
         {state === 'starting' ? <LoaderCircle className="size-3 animate-spin text-muted" /> : <span className={cn('size-1.5 shrink-0 rounded-full', style.dot)} />}
-        <span className="hidden truncate sm:inline">{style.label(tool)}</span>
+        <span className="hidden truncate sm:inline">{t(style.label, { tool })}</span>
       </span>
     </Tip>
   );

@@ -3,8 +3,9 @@ import { Image, Layers } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
-import { describeAll, searchMedia } from '../lib/media';
+import { describeAll, kindInfo, searchMedia } from '../lib/media';
 import { humanBytes } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FilterChip, MediaCard, MediaSearch, MediaSelection, MediaViewer, NoMatch, toggled } from './MediaTab';
@@ -15,6 +16,7 @@ import { EmptyState } from './ui/card';
 // with the agent it came from and what that agent was for, and the stream can
 // be filtered down to one agent or one kind, and searched.
 export function ProjectMediaPanel({ project }: { project: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projectName = useProjectName(project);
   const media = useQuery({ queryKey: ['projectMedia', project], queryFn: () => api.projectMedia(project), refetchInterval: 10_000 });
@@ -53,14 +55,14 @@ export function ProjectMediaPanel({ project }: { project: string }) {
   // deleted with it, so it's still worth knowing it isn't findable anywhere else.
   const label = (item: T.MediaItem) => {
     const base = item.agentTitle ? `${item.agentName} · ${item.agentTitle}` : (item.agentName ?? '');
-    return item.agentGone ? `${base} (agent removed)` : base;
+    return item.agentGone ? t('project.media.agentRemoved', { label: base }) : base;
   };
 
   if (items.length === 0) {
     return (
       <div className="panel rounded-2xl">
-        <EmptyState icon={Image} title="Nothing shown yet">
-          Screenshots, recordings, reports, logs and notes from every agent of {projectName} collect here.
+        <EmptyState icon={Image} title={t('project.media.emptyTitle')}>
+          {t('project.media.emptyDescription', { project: projectName })}
         </EmptyState>
       </div>
     );
@@ -70,7 +72,7 @@ export function ProjectMediaPanel({ project }: { project: string }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2 px-1">
         <span className="text-[13px] text-muted">
-          {items.length} item{items.length === 1 ? '' : 's'}
+          {t('project.media.items', { count: items.length })}
           {total > 0 && <span className="text-subtle"> · {humanBytes(total)}</span>}
         </span>
         <MediaSearch value={query} onChange={setQuery} />
@@ -92,22 +94,22 @@ export function ProjectMediaPanel({ project }: { project: string }) {
       </div>
       <div className="flex flex-wrap items-center gap-1" data-media-filters>
         <FilterChip icon={Layers} active={!agent} count={items.length} onClick={() => setAgent('')}>
-          All agents
+          {t('project.media.allAgents')}
         </FilterChip>
         {[...agents].map(([name, { title, count, gone }]) => (
           <FilterChip key={name} active={agent === name} count={count} onClick={() => setAgent(agent === name ? '' : name)}>
             {title ? `${name} · ${title}` : name}
-            {gone && ' (removed)'}
+            {gone && ` ${t('project.media.removed')}`}
           </FilterChip>
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-1" data-media-kinds>
         <FilterChip active={!kind} count={items.length} onClick={() => setKind('')}>
-          Everything
+          {t('project.media.everything')}
         </FilterChip>
         {[...kinds].map(([name, count]) => (
           <FilterChip key={name} active={kind === name} count={count} onClick={() => setKind(kind === name ? '' : name)}>
-            {name}
+            {kindInfo(name).label}
           </FilterChip>
         ))}
       </div>
@@ -140,9 +142,9 @@ export function ProjectMediaPanel({ project }: { project: string }) {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Delete “${deleting?.name}”?`}
-        description={`It's removed from ${deleting?.agentName ?? 'the agent'}'s media for good.`}
-        confirmLabel="Delete"
+        title={t('project.media.deleteTitle', { name: deleting?.name ?? '' })}
+        description={deleting?.agentName ? t('project.media.deleteDescription', { agent: deleting.agentName }) : t('project.media.deleteDescriptionNone')}
+        confirmLabel={t('common.delete')}
         destructive
         onConfirm={async () => {
           await api.deleteMedia(deleting!.id);

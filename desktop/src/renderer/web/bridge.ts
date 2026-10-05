@@ -12,6 +12,7 @@
 // picker, opening local folders) isn't available either way.
 import type { ApiResponse, Bridge, CliStatus, ConnectionState, EnvironmentTarget, HostSetupStatus, HubAccount, HubEnvironment } from '../../preload';
 import * as T from '../../shared/api.ts';
+import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { webStreams } from './streams.ts';
 
 // lan says a daemon serves this page to a phone, not a hub.
@@ -78,7 +79,7 @@ function followEvents() {
     if (lan) {
       // EventSource retries by itself. A phone that was unpaired meanwhile
       // is sent back to pairing.
-      setConnection({ state: 'disconnected', error: "AgentBox on your computer isn't reachable" });
+      setConnection({ state: 'disconnected', error: t('web.phone.unreachable') });
       void fetch('/lan/session', { credentials: 'same-origin' })
         .then((res) => {
           if (res.status === 401) location.reload();
@@ -87,11 +88,11 @@ function followEvents() {
       return;
     }
     // EventSource retries by itself; say why when the hub can tell.
-    setConnection({ state: 'disconnected', error: `${target.environmentName ?? 'the environment'} isn't reachable` });
+    setConnection({ state: 'disconnected', error: target.environmentName ? t('web.bridge.envUnreachable', { name: target.environmentName }) : t('web.bridge.theEnvUnreachable') });
     void hubCall<HubEnvironment[]>('GET', '/v1/environments')
       .then((envs) => {
         const env = envs.find((e) => e.id === target.environmentId);
-        if (env && !env.online && source === es) setConnection({ state: 'disconnected', error: `${env.name} is offline` });
+        if (env && !env.online && source === es) setConnection({ state: 'disconnected', error: t('web.bridge.envOffline', { name: env.name }) });
       })
       .catch(() => {});
   };
@@ -119,7 +120,7 @@ const { stream, closeAll: closeStreams } = webStreams(
   (path) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${apiBase()}${path}`,
 );
 
-const unavailable = (what: string) => () => Promise.reject(new Error(`${what} works in the desktop app, on the machine itself`));
+const unavailable = (message: MessageKey) => () => Promise.reject(new Error(t(message)));
 
 export const webBridge: Bridge & { web: true; lan: boolean } = {
   web: true,
@@ -144,26 +145,26 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   cli: {
     status: () =>
       Promise.resolve<CliStatus>({ linkPath: '', linked: false, path: null, version: null, onPath: false, bundled: false, binary: null }),
-    install: unavailable('Installing the command-line tool'),
+    install: unavailable('web.bridge.installCli'),
   },
   hostSetup: {
     status: () => Promise.resolve<HostSetupStatus>({ pkexec: null, user: '', running: false, resizing: false, vm: null, wsl: null }),
-    run: unavailable('Setting the host up'),
+    run: unavailable('web.bridge.hostSetup'),
     onOutput: () => () => {},
   },
   vmMigrate: {
     status: () => Promise.resolve(null),
-    run: unavailable("Moving AgentBox into its VM"),
-    removeOld: unavailable("Removing AgentBox's old machines"),
+    run: unavailable('web.bridge.vmMigrate'),
+    removeOld: unavailable('web.bridge.vmRemoveOld'),
     onOutput: () => () => {},
   },
   vm: {
-    resize: unavailable("Resizing AgentBox's VM"),
-    swap: unavailable("Changing AgentBox's VM's swap"),
+    resize: unavailable('web.bridge.vmResize'),
+    swap: unavailable('web.bridge.vmSwap'),
     onSwapOutput: () => () => {},
     onOutput: () => () => {},
     power: () => Promise.resolve(null),
-    act: unavailable("Turning AgentBox's VM on and off"),
+    act: unavailable('web.bridge.vmPower'),
     disk: () => Promise.resolve(null),
   },
   hubs: {
@@ -205,12 +206,12 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     sections: () => Promise.resolve([]),
     windowError: () => {},
     onAppError: () => () => {},
-    openLogs: unavailable("Opening the app's logs"),
+    openLogs: unavailable('web.bridge.openLogs'),
   },
   pickDirectory: () => Promise.resolve(null),
   setLanguage: () => {},
-  openPath: unavailable('Opening a folder'),
-  showItem: unavailable('Showing a file'),
+  openPath: unavailable('web.bridge.openPath'),
+  showItem: unavailable('web.bridge.showItem'),
   openExternal: (url) => {
     window.open(url, '_blank', 'noopener');
     return Promise.resolve();

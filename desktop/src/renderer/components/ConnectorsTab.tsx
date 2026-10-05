@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api } from '../lib/api';
+import { formatDateTime, t as translate, useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import {
   type ConnectorPreset,
@@ -35,6 +36,7 @@ import { Tip } from './ui/tooltip';
 // and when its token runs out, never the token.
 
 export function ConnectorsTab({ target }: { target: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const forAgent = target.includes('/');
@@ -56,11 +58,11 @@ export function ConnectorsTab({ target }: { target: string }) {
 
         {inherited.length > 0 && (
           <Card
-            title={`From the project (${inherited.length})`}
+            title={t('project.connectors.fromProject', { count: inherited.length })}
             icon={Lock}
-            description="Every agent of this project gets these. Connect or change them in the project's Settings, under Connectors."
+            description={t('project.connectors.fromProjectDescription')}
           >
-            <ul className="grid gap-2" aria-label="Project connectors">
+            <ul className="grid gap-2" aria-label={t('project.connectors.projectAria')}>
               {inherited.map((c) => (
                 <ConnectorRow key={c.name} connector={c} />
               ))}
@@ -69,23 +71,21 @@ export function ConnectorsTab({ target }: { target: string }) {
         )}
 
         <Card
-          title={forAgent ? `This agent's own (${mine.length})` : `Project connectors (${mine.length})`}
+          title={forAgent ? t('project.connectors.agentOwn', { count: mine.length }) : t('project.connectors.projectOwn', { count: mine.length })}
           icon={Plug}
           description={
-            forAgent
-              ? "Only this agent gets these. One named like a project connector replaces the project's, for this agent alone."
-              : 'Every agent of this project gets these as tools, including the ones you make later.'
+            forAgent ? t('project.connectors.agentOwnDescription') : t('project.connectors.projectOwnDescription')
           }
         >
           {connectors.error && <Notice>{errorMessage(connectors.error)}</Notice>}
-          {connectors.isPending && <p className="py-3 text-sm text-subtle">Loading…</p>}
+          {connectors.isPending && <p className="py-3 text-sm text-subtle">{t('common.loading')}</p>}
           {!connectors.isPending && mine.length === 0 && (
             <p className="py-3 text-[13px] leading-relaxed text-subtle">
-              None yet. Pick one above. You sign in once, here; the agents reach it as <Code>mcp__notion__*</Code> tools and never hold the token.
+              {t.rich('project.connectors.none', { code: (c) => <Code>{c}</Code> })}
             </p>
           )}
           {connect.error && <Notice>{connect.error}</Notice>}
-          <ul className="grid gap-2" aria-label="Connectors">
+          <ul className="grid gap-2" aria-label={t('project.connectors.listAria')}>
             {mine.map((c) => (
               <ConnectorRow
                 key={c.name}
@@ -104,15 +104,17 @@ export function ConnectorsTab({ target }: { target: string }) {
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}
-        title={`Remove ${removing?.name}?`}
-        description={`AgentBox forgets its sign-in and takes its tools away from ${
-          removing?.scope === 'project' ? `every agent of ${projectLabel(removing?.project ?? '', projects.data)}` : removing?.agent
-        }. A session already running keeps them until it next starts.`}
-        confirmLabel="Remove"
+        title={t('project.connectors.removeTitle', { name: removing?.name ?? '' })}
+        description={
+          removing?.scope === 'project'
+            ? t('project.connectors.removeDescriptionProject', { project: projectLabel(removing.project ?? '', projects.data) })
+            : t('project.connectors.removeDescriptionAgent', { agent: removing?.agent ?? '' })
+        }
+        confirmLabel={t('common.remove')}
         destructive
         onConfirm={async () => {
           await api.removeConnector(target, removing!.name);
-          toast(`Removed ${removing!.name}`);
+          toast(t('project.connectors.removed', { name: removing!.name }));
           await refresh();
         }}
       />
@@ -154,8 +156,8 @@ function useConnect(target: string) {
   useEffect(() => {
     if (!settled) return;
     setWaiting(undefined);
-    if (settled.status === A.ConnectorConnected) toast.success(`${settled.name} connected`, { description: 'The agents have its tools from their next session.' });
-    else if (settled.error) toast.error(`${settled.name} didn't connect`, { description: settled.error });
+    if (settled.status === A.ConnectorConnected) toast.success(translate('project.connectors.connected', { name: settled.name }), { description: translate('project.connectors.connectedDetail') });
+    else if (settled.error) toast.error(translate('project.connectors.notConnected', { name: settled.name }), { description: settled.error });
   }, [settled]);
 
   const reopen = (name: string) => {
@@ -181,27 +183,27 @@ function Catalog({
   onAdded: () => Promise<unknown>;
   connect: (name: string) => Promise<void>;
 }) {
+  const t = useT();
   const [picked, setPicked] = useState<ConnectorPreset | 'custom' | null>(null);
   const added = (p: ConnectorPreset) => have.find((c) => c.url === p.url || c.name === p.name);
 
   return (
     <Card
-      title={forAgent ? 'Give this agent a connector' : 'Give the project a connector'}
+      title={forAgent ? t('project.connectors.giveAgent') : t('project.connectors.giveProject')}
       icon={Plus}
       description={
-        forAgent
-          ? 'A remote MCP server this agent, and no other, gets as tools.'
-          : 'A remote MCP server every agent of this project gets as tools, now and later.'
+        forAgent ? t('project.connectors.giveAgentDescription') : t('project.connectors.giveProjectDescription')
       }
     >
-      <div className="grid gap-2 py-1 sm:grid-cols-5" role="list" aria-label="Catalog">
+      <div className="grid gap-2 py-1 sm:grid-cols-5" role="list" aria-label={t('project.connectors.catalogAria')}>
         {connectorPresets.map((p) => {
           const existing = added(p);
           return (
             <Tile
               key={p.id}
+              id={p.label}
               label={p.label}
-              detail={existing ? `added as ${existing.name}` : p.blurb}
+              detail={existing ? t('project.connectors.addedAs', { name: existing.name }) : p.blurb}
               selected={picked !== 'custom' && picked?.id === p.id}
               disabled={!!existing}
               mark={<PresetMark preset={p} />}
@@ -210,8 +212,9 @@ function Catalog({
           );
         })}
         <Tile
-          label="Custom URL"
-          detail="Any streamable HTTP server"
+          id="Custom URL"
+          label={t('project.connectors.customUrl')}
+          detail={t('project.connectors.customDetail')}
           selected={picked === 'custom'}
           mark={<Globe className="size-4" />}
           onClick={() => setPicked(picked === 'custom' ? null : 'custom')}
@@ -227,7 +230,7 @@ function Catalog({
             setPicked(null);
             await onAdded();
             if (connector.auth === A.ConnectorOAuth) await connect(connector.name);
-            else toast(`${connector.name} added`, { description: connector.status === A.ConnectorConnected ? 'Its agents have its tools from their next session.' : undefined });
+            else toast(t('project.connectors.added', { name: connector.name }), { description: connector.status === A.ConnectorConnected ? t('project.connectors.addedDetail') : undefined });
           }}
         />
       )}
@@ -236,6 +239,7 @@ function Catalog({
 }
 
 function Tile({
+  id,
   label,
   detail,
   mark,
@@ -243,6 +247,7 @@ function Tile({
   disabled,
   onClick,
 }: {
+  id: string;
   label: string;
   detail: string;
   mark: ReactNode;
@@ -256,7 +261,7 @@ function Tile({
       role="listitem"
       disabled={disabled}
       aria-pressed={selected}
-      data-connector-preset={label}
+      data-connector-preset={id}
       onClick={onClick}
       className={cn(
         'flex min-w-0 flex-col items-start gap-1.5 rounded-xl border px-3 py-2.5 text-left transition',
@@ -296,6 +301,7 @@ function ConnectorForm({
   taken: string[];
   onDone: (connector: T.Connector) => Promise<void>;
 }) {
+  const t = useT();
   const [url, setUrl] = useState(preset?.url ?? '');
   const [name, setName] = useState(preset?.name ?? '');
   const [nameTouched, setNameTouched] = useState(!!preset);
@@ -340,9 +346,9 @@ function ConnectorForm({
       {preset?.secret && <Notice tone="info">{preset.secret.why}</Notice>}
       <div className="grid gap-4 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1.6fr)]">
         <Field
-          label="Name"
+          label={t('project.connectors.nameLabel')}
           htmlFor="connector-name"
-          hint={taken.includes(shownName) ? 'There is one of that name already.' : 'What its tools are called: lowercase letters, digits, - and _.'}
+          hint={taken.includes(shownName) ? t('project.connectors.nameTaken') : t('project.connectors.nameHint')}
         >
           <Input
             id="connector-name"
@@ -357,7 +363,7 @@ function ConnectorForm({
             }}
           />
         </Field>
-        <Field label="Server URL" htmlFor="connector-url" hint="Its streamable HTTP endpoint, usually ending in /mcp.">
+        <Field label={t('project.connectors.urlLabel')} htmlFor="connector-url" hint={t('project.connectors.urlHint')}>
           <Input
             id="connector-url"
             className="font-mono text-[13px]"
@@ -371,12 +377,12 @@ function ConnectorForm({
       </div>
 
       {!preset && (
-        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="How it signs in">
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('project.connectors.signInAria')}>
           {(
             [
-              [A.ConnectorOAuth, 'Sign in with the browser'],
-              [A.ConnectorSecret, 'A token in a header'],
-              [A.ConnectorNone, 'Nothing: a public server'],
+              [A.ConnectorOAuth, t('project.connectors.authOAuth')],
+              [A.ConnectorSecret, t('project.connectors.authSecret')],
+              [A.ConnectorNone, t('project.connectors.authNone')],
             ] as const
           ).map(([value, label]) => (
             <Button key={value} type="button" size="sm" variant={auth === value ? 'primary' : 'ghost'} role="radio" aria-checked={auth === value} onClick={() => setAuth(value)}>
@@ -388,19 +394,19 @@ function ConnectorForm({
 
       {auth === A.ConnectorSecret && (
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label={preset?.secret?.tokenLabel ?? 'Token'} htmlFor="connector-token" hint="Stored as a secret, encrypted. You can't read it back.">
+          <Field label={preset?.secret?.tokenLabel ?? t('project.connectors.tokenLabel')} htmlFor="connector-token" hint={t('project.connectors.tokenHint')}>
             <Input
               id="connector-token"
               type="password"
               className="font-mono text-[13px]"
-              placeholder="paste the token"
+              placeholder={t('project.connectors.tokenPlaceholder')}
               autoComplete="off"
               spellCheck={false}
               value={token}
               onChange={(event) => setToken(event.target.value)}
             />
           </Field>
-          <Field label="Kept as the secret" htmlFor="connector-secret">
+          <Field label={t('project.connectors.secretLabel')} htmlFor="connector-secret">
             <Input
               id="connector-secret"
               className="font-mono text-[13px]"
@@ -411,7 +417,7 @@ function ConnectorForm({
               onChange={(event) => setSecretName(event.target.value.toUpperCase())}
             />
           </Field>
-          <Field label="Sent in the header" htmlFor="connector-header" hint={header.trim().toLowerCase() === 'authorization' ? 'As “Bearer <token>”.' : undefined}>
+          <Field label={t('project.connectors.headerLabel')} htmlFor="connector-header" hint={header.trim().toLowerCase() === 'authorization' ? t('project.connectors.headerHint') : undefined}>
             <Input
               id="connector-header"
               className="font-mono text-[13px]"
@@ -429,16 +435,16 @@ function ConnectorForm({
         {preset?.secret ? (
           <Button type="button" variant="ghost" size="sm" onClick={() => void window.agentbox.openExternal(preset.secret!.tokenUrl)}>
             <ExternalLink />
-            How to make one
+            {t('project.connectors.howToMake')}
           </Button>
         ) : (
           <p className="text-xs leading-relaxed text-subtle">
-            {auth === A.ConnectorOAuth ? 'Your browser opens to sign in. AgentBox keeps the token on this machine; the agents never see it.' : ''}
+            {auth === A.ConnectorOAuth ? t('project.connectors.browserOpens') : ''}
           </p>
         )}
         <Button type="submit" variant="primary" className="ml-auto" disabled={!ready || save.isPending}>
           {save.isPending ? <LoaderCircle className="animate-spin" /> : <Plug />}
-          {auth === A.ConnectorOAuth ? 'Add and connect' : 'Add'}
+          {auth === A.ConnectorOAuth ? t('project.connectors.addAndConnect') : t('common.add')}
         </Button>
       </div>
     </form>
@@ -463,6 +469,7 @@ function ConnectorRow({
   onReopen?: () => void;
   onRemove?: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const now = useNow(30_000);
   const status = connectorStatus(c);
@@ -488,16 +495,16 @@ function ConnectorRow({
           {waiting && <LoaderCircle className="animate-spin" />}
           {status.label}
         </Badge>
-        {!c.enabled && <Badge>off</Badge>}
+        {!c.enabled && <Badge>{t('project.connectors.off')}</Badge>}
         <span className="min-w-0 truncate font-mono text-[11.5px] text-subtle" title={c.url}>
           {c.url}
         </span>
         {target && (
           <div className="ml-auto flex shrink-0 items-center gap-1">
-            <Tip label={c.enabled ? 'Given to agents' : 'Left out: it keeps its sign-in'}>
+            <Tip label={c.enabled ? t('project.connectors.given') : t('project.connectors.leftOut')}>
               <span className="flex items-center">
                 <Switch
-                  aria-label={`Give ${c.name} to agents`}
+                  aria-label={t('project.connectors.giveSwitch', { name: c.name })}
                   checked={c.enabled}
                   disabled={change.isPending}
                   onCheckedChange={(enabled) => change.mutate(() => api.setConnector(target, c.name, sameConnector(c, enabled)))}
@@ -507,24 +514,24 @@ function ConnectorRow({
             {oauth && waiting && onReopen && (
               <Button size="sm" variant="ghost" onClick={onReopen}>
                 <ExternalLink />
-                Open the sign-in again
+                {t('project.connectors.reopen')}
               </Button>
             )}
             {oauth && !waiting && c.status !== A.ConnectorConnected && (
               <Button size="sm" variant="primary" disabled={connecting} onClick={onConnect}>
                 {connecting ? <LoaderCircle className="animate-spin" /> : <Plug />}
-                {c.status === A.ConnectorError ? 'Connect again' : 'Connect'}
+                {c.status === A.ConnectorError ? t('project.connectors.connectAgain') : t('project.connectors.connect')}
               </Button>
             )}
             {oauth && (c.status === A.ConnectorConnected || waiting) && (
               <Button size="sm" variant="ghost" disabled={change.isPending} onClick={() => change.mutate(() => api.disconnectConnector(target, c.name))}>
                 <Unplug />
-                {waiting ? 'Cancel' : 'Disconnect'}
+                {waiting ? t('common.cancel') : t('project.connectors.disconnect')}
               </Button>
             )}
             {onRemove && (
-              <Tip label="Remove">
-                <Button variant="ghost" size="icon-sm" aria-label={`Remove ${c.name}`} onClick={onRemove}>
+              <Tip label={t('common.remove')}>
+                <Button variant="ghost" size="icon-sm" aria-label={t('project.connectors.removeAria', { name: c.name })} onClick={onRemove}>
                   <X />
                 </Button>
               </Tip>
@@ -534,9 +541,9 @@ function ConnectorRow({
       </div>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-[11.5px] text-subtle">
         {token && <span data-connector-token>{token}</span>}
-        {c.issuer && <span className="min-w-0 truncate">· signed in with {hostOf(c.issuer)}</span>}
-        {c.connectedAt && c.status === A.ConnectorConnected && <span title={new Date(c.connectedAt).toLocaleString()}>· since {timeAgo(c.connectedAt, now)}</span>}
-        {c.auth === A.ConnectorNone && <span>public server, no sign-in</span>}
+        {c.issuer && <span className="min-w-0 truncate">{t('project.connectors.signedInWith', { host: hostOf(c.issuer) })}</span>}
+        {c.connectedAt && c.status === A.ConnectorConnected && <span title={formatDateTime(c.connectedAt)}>{t('project.connectors.since', { when: timeAgo(c.connectedAt, now) })}</span>}
+        {c.auth === A.ConnectorNone && <span>{t('project.connectors.publicServer')}</span>}
         <span>{whereItIs(c)}</span>
       </div>
       {c.status === A.ConnectorError && c.error && <p className="break-words text-[11.5px] text-rose-300">{c.error}</p>}
@@ -564,8 +571,8 @@ function hostOf(url: string): string {
 // which hold a secret.
 function whereItIs(c: T.Connector): string {
   const agents = c.agents ?? [];
-  if (agents.length === 0) return '· in no agent yet';
-  if (c.scope === 'agent') return '· in this agent';
-  if (agents.length === 1) return `· in ${agents[0].split('/')[1]}`;
-  return `· in ${agents.length} agents`;
+  if (agents.length === 0) return translate('project.connectors.inNone');
+  if (c.scope === 'agent') return translate('project.connectors.inThisAgent');
+  if (agents.length === 1) return translate('project.connectors.inOne', { agent: agents[0].split('/')[1] });
+  return translate('project.connectors.inMany', { count: agents.length });
 }

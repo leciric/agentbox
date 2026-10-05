@@ -1,6 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import * as T from '../../shared/api.ts';
+import { formatNumber, t } from '../../shared/i18n/index.ts';
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
@@ -13,7 +14,7 @@ export function humanBytes(n: number): string {
     n /= 1024;
     i++;
   }
-  return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`;
+  return `${i === 0 ? formatNumber(n, { useGrouping: false }) : formatNumber(n, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false })} ${units[i]}`;
 }
 
 // bytesOf is a compact "used / size" for a meter, both in size's unit
@@ -29,9 +30,9 @@ export function bytesOf(used: number, size: number): string {
   }
   const num = (n: number) => {
     const v = n / scale;
-    if (v >= 10 || i === 0) return v.toFixed(0);
-    if (v > 0 && v < 0.1) return '<0.1';
-    return String(Number(v.toFixed(1)));
+    if (v >= 10 || i === 0) return formatNumber(Math.round(v), { useGrouping: false });
+    if (v > 0 && v < 0.1) return `<${formatNumber(0.1)}`;
+    return formatNumber(Number(v.toFixed(1)), { maximumFractionDigits: 1, useGrouping: false });
   };
   return `${used > 0 ? num(used) : '—'} / ${num(size)} ${units[i]}`;
 }
@@ -68,7 +69,7 @@ export function shortRate(n: number): string {
     n /= 1024;
     i++;
   }
-  return `${i > 0 && n < 10 ? n.toFixed(1) : Math.round(n)}${units[i]}/s`;
+  return `${i > 0 && n < 10 ? formatNumber(n, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false }) : formatNumber(Math.round(n), { useGrouping: false })}${units[i]}/s`;
 }
 
 // stallPressure is where a PSI "full" figure (the share of the last ten
@@ -79,23 +80,23 @@ export const stallPressure = 10;
 
 export function timeAgo(iso: string, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - new Date(iso).getTime()) / 1000));
-  if (s < 45) return 'just now';
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+  if (s < 45) return t('common.justNow');
+  if (s < 3600) return t('common.minutesAgo', { n: Math.max(1, Math.round(s / 60)) });
+  if (s < 86400) return t('common.hoursAgo', { n: Math.round(s / 3600) });
+  return t('common.daysAgo', { n: Math.round(s / 86400) });
 }
 
 // timeUntil is timeAgo's mirror, for a future date: when kept media expires.
 export function timeUntil(iso: string, now = Date.now()): string {
   const s = Math.max(0, Math.round((new Date(iso).getTime() - now) / 1000));
-  if (s < 3600) return `${Math.max(1, Math.round(s / 60))}m`;
-  if (s < 86400) return `${Math.round(s / 3600)}h`;
-  return `${Math.round(s / 86400)}d`;
+  if (s < 3600) return t('common.inMinutes', { n: Math.max(1, Math.round(s / 60)) });
+  if (s < 86400) return t('common.inHours', { n: Math.round(s / 3600) });
+  return t('common.inDays', { n: Math.round(s / 86400) });
 }
 
 export function duration(from: string, to?: string): string {
   const ms = (to ? new Date(to).getTime() : Date.now()) - new Date(from).getTime();
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 60_000) return `${formatNumber(ms / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1, useGrouping: false })}s`;
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
@@ -127,14 +128,14 @@ export function githubErrorSentence(err: T.GitHubError): string {
   const account = err.login ? `${err.account} (${err.login})` : err.account;
   switch (err.kind) {
     case T.GitHubNoAccess:
-      return `The account ${account} can't see ${err.repo}.`;
+      return t('shell.github.noAccess', { account, repo: err.repo });
     case T.GitHubBadToken:
-      return `GitHub refused the account ${account}: its token was revoked, or has expired.`;
+      return t('shell.github.badToken', { account });
     case T.GitHubNoAccount:
       return err.account
-        ? `This project's GitHub account "${err.account}" isn't stored any more.`
-        : `No GitHub account is stored, so ${err.repo || 'this repository'}'s pull requests can't be read.`;
+        ? t('shell.github.accountGone', { account: err.account })
+        : t('shell.github.noAccount', { repo: err.repo || t('shell.github.thisRepository') });
     default:
-      return `GitHub: ${err.message}`;
+      return t('shell.github.other', { message: err.message });
   }
 }

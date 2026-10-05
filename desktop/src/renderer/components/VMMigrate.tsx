@@ -3,6 +3,7 @@ import { ArrowRightLeft, CheckCircle2, LoaderCircle, Trash2 } from 'lucide-react
 import { type ReactNode, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { VMMigration } from '../../preload';
+import { useT } from '../lib/i18n';
 import { errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { appendOutput, CommandBox, SetupLog } from './SettingsView';
@@ -20,6 +21,7 @@ import { Notice, Panel } from './ui/card';
 // embedded is inside Settings' "Move to a VM" (RunInVM.tsx), which says why
 // already: it leaves out its own panel and title.
 export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration; kvm: boolean; embedded?: boolean }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [lines, setLines] = useState<string[]>([]);
   const [confirming, setConfirming] = useState<'move' | 'remove' | null>(null);
@@ -29,9 +31,7 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
     mutationFn: () => window.agentbox.vmMigrate.run(),
     onMutate: () => setLines([]),
     onSuccess: async () => {
-      toast('AgentBox runs in its VM now', {
-        description: 'Every project, chat and agent came along. Remove the old machines once you have checked them.',
-      });
+      toast(t('vm.migrate.toast'), { description: t('vm.migrate.toastDescription') });
       // Every page's data is the VM's daemon's now.
       await queryClient.invalidateQueries();
     },
@@ -40,7 +40,7 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
   const removeOld = useMutation({
     mutationFn: () => window.agentbox.vmMigrate.removeOld(),
     onMutate: () => setLines([]),
-    onSuccess: () => toast("AgentBox's old machines are gone", { description: 'Everything else in Incus stays as it was.' }),
+    onSuccess: () => toast(t('vm.migrate.removedToast'), { description: t('vm.migrate.removedToastDescription') }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['vm-migration'] }),
   });
   const busy = move.isPending || removeOld.isPending;
@@ -57,12 +57,11 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
         <div className="grid gap-2">
           <div className="flex items-center gap-2 text-[13px] font-medium text-primary">
             <CheckCircle2 className="size-4 text-emerald-400" />
-            Moved into AgentBox's VM, and checked there
+            {t('vm.migrate.moved')}
           </div>
           {migration.state === 'removed' && (
             <p className="text-[12px] leading-relaxed text-subtle" data-vm-migrate-removed>
-              Its old machines are gone from this machine's Incus. Everything else there stays as it was, and the state.db from before the move is
-              kept{migration.backup ? ` at ${migration.backup}` : ''}.
+              {t('vm.migrate.removedNote', { hasBackup: migration.backup ? 'yes' : 'no', backup: migration.backup ?? '' })}
             </p>
           )}
           {migration.found && migration.found.length > 0 && (
@@ -77,14 +76,12 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
           {migration.state === 'verified' && old.length > 0 && (
             <>
               <p className="text-[12px] leading-relaxed text-subtle">
-                The agents' old machines are still in this machine's Incus, stopped, as they were before the move. Once you've checked your agents in
-                the VM, remove them. Only AgentBox's own machines go: your other containers and VMs, the Incus network, its storage pool and Incus
-                itself stay.
+                {t('vm.migrate.checkNote')}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Button variant="secondary" size="sm" disabled={busy} onClick={() => setConfirming('remove')} data-vm-migrate-remove>
                   {removeOld.isPending ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
-                  Remove {old.length} old machine{old.length === 1 ? '' : 's'}
+                  {t('vm.migrate.removeOld', { count: old.length })}
                 </Button>
               </div>
             </>
@@ -93,39 +90,37 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
       ) : (
         <div className="grid gap-2">
           <div className={embedded && !started && !move.isPending ? 'hidden' : 'text-[13px] font-medium text-primary'}>
-            {move.isPending ? 'Moving into the VM…' : started ? 'A move into the VM is half-way' : 'Run AgentBox in a VM instead'}
+            {move.isPending ? t('vm.migrate.moving') : started ? t('vm.migrate.halfway') : t('vm.migrate.title')}
           </div>
           <p className="text-[12px] leading-relaxed text-subtle">
             {started
-              ? 'It stopped before it was done. Nothing of this machine was removed: carry on and it picks up where it was.'
-              : `${embedded ? '' : 'Moves the daemon, Incus and every agent into one Cloud Hypervisor VM, with your home folder shared into it. '}Everything comes along: ${projects} project${projects === 1 ? '' : 's'}, ${agents} agent${agents === 1 ? '' : 's'} with their branches, worktrees and uncommitted changes, titles, models and limits, and your settings, accounts, notes, memory, chats and media. Each agent gets a new machine, from the VM's base image.`}
+              ? t('vm.migrate.carryOnNote')
+              : `${embedded ? '' : t('vm.migrate.intro')}${t('vm.migrate.comesAlong', { projects, agents })}`}
           </p>
           <p className="text-[12px] leading-relaxed text-subtle">
-            What doesn't come along: anything installed inside an agent's old machine, and its home folder outside the worktree. Agents stop while
-            they move; the ones running now start again in the VM. It takes a few minutes, needs no password, and keeps this machine's copy until
-            you remove it.
+            {t('vm.migrate.notAlong')}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" size="sm" disabled={busy || !kvm} onClick={() => setConfirming('move')} data-vm-migrate-run>
               {move.isPending ? <LoaderCircle className="animate-spin" /> : <ArrowRightLeft />}
-              {started ? 'Carry on moving' : 'Move into a VM'}
+              {started ? t('vm.migrate.carryOn') : t('vm.migrate.move')}
             </Button>
             <span className="text-xs text-subtle">
               {move.isPending
-                ? 'Moving. Building the VM and its base image takes a few minutes.'
+                ? t('vm.migrate.busy')
                 : kvm
-                  ? 'No password needed'
-                  : 'This machine has no /dev/kvm you can use'}
+                  ? t('vm.migrate.noPassword')
+                  : t('vm.migrate.noKVM')}
             </span>
           </div>
         </div>
       )}
 
-      {(lines.length > 0 || busy) && <SetupLog lines={lines} label="Move log" />}
+      {(lines.length > 0 || busy) && <SetupLog lines={lines} label={t('vm.migrate.log')} />}
       {move.error && (
         <>
           <Notice>{errorMessage(move.error)}</Notice>
-          <p className="text-[12px] text-subtle">Nothing of this machine's was removed. Carry on from here, or in a terminal:</p>
+          <p className="text-[12px] text-subtle">{t('vm.migrate.failedNote')}</p>
           <CommandBox command="agentbox vm migrate" />
         </>
       )}
@@ -134,27 +129,20 @@ export function VMMigrate({ migration, kvm, embedded }: { migration: VMMigration
       <ConfirmDialog
         open={confirming === 'move'}
         onOpenChange={(open) => setConfirming(open ? 'move' : null)}
-        title="Move AgentBox into a VM?"
-        description={
-          <>
-            Every agent stops while it moves, with its terminal, dev servers and any turn in progress; their worktrees, branches and chats come along.
-            The app can't reach the daemon until the VM's is up. This machine's copy stays until you remove it.
-          </>
-        }
-        confirmLabel="Move into a VM"
+        title={t('vm.migrate.confirmMoveTitle')}
+        description={t('vm.migrate.confirmMove')}
+        confirmLabel={t('vm.migrate.move')}
         onConfirm={async () => move.mutate()}
       />
       <ConfirmDialog
         open={confirming === 'remove'}
         onOpenChange={(open) => setConfirming(open ? 'remove' : null)}
-        title="Remove AgentBox's old machines?"
-        description={
-          <>
-            These go from this machine's Incus, for good: <span className="font-mono text-primary">{old.join(', ')}</span>. Nothing else in Incus is
-            touched.
-          </>
-        }
-        confirmLabel="Remove them"
+        title={t('vm.migrate.confirmRemoveTitle')}
+        description={t.rich('vm.migrate.confirmRemove', {
+          machines: old.join(', '),
+          mono: (c) => <span className="font-mono text-primary">{c}</span>,
+        })}
+        confirmLabel={t('vm.migrate.removeThem')}
         destructive
         onConfirm={async () => removeOld.mutate()}
       />

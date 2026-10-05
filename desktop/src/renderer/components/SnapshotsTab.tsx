@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatDateTime, useT } from '../lib/i18n';
 import { errorMessage, shortCommit, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { JobProgress } from './JobProgress';
@@ -15,6 +16,7 @@ import { Switch } from './ui/switch';
 import { Tip } from './ui/tooltip';
 
 export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAgent: (ref: string) => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const snapshots = useQuery({ queryKey: ['snapshots', agent.ref], queryFn: () => api.snapshots(agent.ref) });
   const [name, setName] = useState('');
@@ -29,7 +31,7 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
     mutationFn: () => api.takeSnapshot(agent.ref, { name: name.trim() || undefined, consistent: consistent || undefined }),
     onSuccess: async (snapshot) => {
       setName('');
-      toast(`Snapshot “${snapshot.name}” taken`);
+      toast(t('agent.snapshots.taken', { name: snapshot.name }));
       await refresh();
     },
   });
@@ -37,7 +39,7 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
   return (
     <div className="h-full overflow-y-auto p-5">
       <div className="grid gap-4">
-        <Card title="Take a snapshot" icon={Camera} description="The whole machine and the worktree, including uncommitted and untracked files. Running processes aren't kept.">
+        <Card title={t('agent.snapshots.takeTitle')} icon={Camera} description={t('agent.snapshots.takeDescription')}>
           <form
             className="flex flex-wrap items-end gap-4"
             onSubmit={(event) => {
@@ -45,18 +47,18 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
               take.mutate();
             }}
           >
-            <Field label="Name" htmlFor="snapshot-name">
-              <Input id="snapshot-name" className="w-64 font-mono text-[13px]" placeholder="automatic (date and time)" value={name} onChange={(event) => setName(event.target.value)} />
+            <Field label={t('agent.snapshots.name')} htmlFor="snapshot-name">
+              <Input id="snapshot-name" className="w-64 font-mono text-[13px]" placeholder={t('agent.snapshots.namePlaceholder')} value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
             <div className="flex h-9 items-center gap-2.5">
               <Switch id="snapshot-consistent" checked={consistent} onCheckedChange={setConsistent} />
               <Label htmlFor="snapshot-consistent" className="font-normal">
-                Pause the agent while snapshotting
+                {t('agent.snapshots.consistent')}
               </Label>
             </div>
             <Button type="submit" variant="primary" className="ml-auto" disabled={take.isPending || agent.state === 'incomplete' || agent.state === 'initializing'}>
               {take.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
-              Take snapshot
+              {t('agent.snapshots.take')}
             </Button>
           </form>
           {take.error && <Notice className="mt-3">{errorMessage(take.error)}</Notice>}
@@ -64,10 +66,10 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
 
         {restoreJob && (
           <Card
-            title={`Restoring ${restoreJob.snapshot}`}
+            title={t('agent.snapshots.restoring', { name: restoreJob.snapshot })}
             icon={RotateCcw}
             action={
-              <Button variant="ghost" size="icon-sm" aria-label="Hide" onClick={() => setRestoreJob(null)}>
+              <Button variant="ghost" size="icon-sm" aria-label={t('agent.snapshots.hide')} onClick={() => setRestoreJob(null)}>
                 <X />
               </Button>
             }
@@ -76,10 +78,10 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
           </Card>
         )}
 
-        <Card title={`Snapshots (${snapshots.data?.length ?? 0})`}>
+        <Card title={t('agent.snapshots.title', { count: snapshots.data?.length ?? 0 })}>
           {snapshots.error && <Notice>{errorMessage(snapshots.error)}</Notice>}
-          {snapshots.data?.length === 0 && <p className="py-4 text-sm text-subtle">No snapshots yet.</p>}
-          <ol className="relative grid gap-2" aria-label="Snapshots">
+          {snapshots.data?.length === 0 && <p className="py-4 text-sm text-subtle">{t('agent.snapshots.empty')}</p>}
+          <ol className="relative grid gap-2" aria-label={t('agent.snapshots.listLabel')}>
             {snapshots.data?.map((snapshot, i) => (
               <li
                 key={snapshot.name}
@@ -91,7 +93,7 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
                 <div className="min-w-0">
                   <div className="font-mono text-[13px] text-primary">{snapshot.name}</div>
                   <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-subtle">
-                    <span title={new Date(snapshot.createdAt).toLocaleString()}>{timeAgo(snapshot.createdAt)}</span>
+                    <span title={formatDateTime(snapshot.createdAt)}>{timeAgo(snapshot.createdAt)}</span>
                     <span className="flex items-center gap-1 font-mono">
                       <GitCommitHorizontal className="size-3" />
                       {shortCommit(snapshot.head)}
@@ -101,14 +103,14 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
                 <div className="ml-auto flex items-center gap-1">
                   <Button size="sm" onClick={() => setRestoring(snapshot)}>
                     <RotateCcw />
-                    Restore
+                    {t('agent.snapshots.restore')}
                   </Button>
                   <Button size="sm" onClick={() => setForking(snapshot)}>
                     <GitFork />
-                    Fork
+                    {t('agent.snapshots.fork')}
                   </Button>
-                  <Tip label="Delete">
-                    <Button variant="ghost" size="icon-sm" aria-label={`Delete snapshot ${snapshot.name}`} onClick={() => setDeleting(snapshot)}>
+                  <Tip label={t('common.delete')}>
+                    <Button variant="ghost" size="icon-sm" aria-label={t('agent.snapshots.deleteLabel', { name: snapshot.name })} onClick={() => setDeleting(snapshot)}>
                       <X />
                     </Button>
                   </Tip>
@@ -122,14 +124,11 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
       <ConfirmDialog
         open={restoring !== null}
         onOpenChange={(open) => !open && setRestoring(null)}
-        title={`Restore ${agent.title || agent.name} to “${restoring?.name}”?`}
+        title={t('agent.snapshots.restoreTitle', { agent: agent.title || agent.name, name: restoring?.name ?? '' })}
         description={
-          <>
-            The machine restarts from the snapshot, and the branch and files go back to how they were. The current state is kept on{' '}
-            <Code>refs/agentbox/pre-restore/…</Code>, so later commits aren't lost.
-          </>
+          t.rich('agent.snapshots.restoreDescription', { code: (c) => <Code>{c}</Code> })
         }
-        confirmLabel="Restore"
+        confirmLabel={t('agent.snapshots.restore')}
         destructive
         onConfirm={async () => {
           const snapshot = restoring!.name;
@@ -140,9 +139,9 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Delete snapshot “${deleting?.name}”?`}
-        description="Deletes the machine snapshot and its worktree commit."
-        confirmLabel="Delete"
+        title={t('agent.snapshots.deleteTitle', { name: deleting?.name ?? '' })}
+        description={t('agent.snapshots.deleteDescription')}
+        confirmLabel={t('common.delete')}
         destructive
         onConfirm={async () => {
           await api.deleteSnapshot(agent.ref, deleting!.name);
@@ -153,8 +152,8 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
         agent={agent}
         from={
           forking && {
-            title: `Fork ${agent.name}@${forking.name}`,
-            description: "A new agent with a copy of the machine, a new branch at the snapshot's commit, and the snapshot's uncommitted and untracked files.",
+            title: t('agent.snapshots.forkTitle', { name: `${agent.name}@${forking.name}` }),
+            description: t('agent.snapshots.forkDescription'),
             request: { snapshot: forking.name },
           }
         }
@@ -178,6 +177,7 @@ export function ForkDialog({
   onClose: () => void;
   onOpenAgent?: (ref: string) => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [title, setTitle] = useState('');
@@ -213,11 +213,11 @@ export function ForkDialog({
                 const ref = (done.result as T.Agent).ref;
                 close();
                 if (onOpenAgent) onOpenAgent(ref);
-                else toast(`${ref} is ready`);
+                else toast(t('agent.snapshots.ready', { ref }));
               }}
             />
             <DialogFooter>
-              <Button onClick={close}>{failed ? 'Close' : 'Keep running in background'}</Button>
+              <Button onClick={close}>{failed ? t('common.close') : t('agent.snapshots.keepRunning')}</Button>
             </DialogFooter>
           </>
         ) : (
@@ -228,20 +228,20 @@ export function ForkDialog({
               fork.mutate();
             }}
           >
-            <Field label="Title" htmlFor="fork-title" hint={agent.title ? `Default: ${agent.title} (fork)` : 'Optional.'}>
+            <Field label={t('agent.snapshots.forkTitleField')} htmlFor="fork-title" hint={agent.title ? t('agent.snapshots.forkTitleDefault', { title: agent.title }) : t('agent.snapshots.optional')}>
               <Input id="fork-title" autoFocus value={title} onChange={(event) => setTitle(event.target.value)} />
             </Field>
-            <Field label="Name" htmlFor="fork-name" hint="Optional: the next free agent-NN.">
+            <Field label={t('agent.snapshots.name')} htmlFor="fork-name" hint={t('agent.snapshots.forkNameHint')}>
               <Input id="fork-name" className="font-mono text-[13px]" placeholder="agent-NN" value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
             {fork.error && <Notice>{errorMessage(fork.error)}</Notice>}
             <DialogFooter>
               <Button variant="ghost" onClick={close}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" variant="primary" disabled={fork.isPending}>
                 {fork.isPending ? <LoaderCircle className="animate-spin" /> : <GitFork />}
-                Fork
+                {t('agent.snapshots.fork')}
               </Button>
             </DialogFooter>
           </form>

@@ -15,6 +15,7 @@ import { ProjectChatPanel } from '../components/ProjectChatPanel';
 import { AIIcon, LiveAgentAvatar } from '../components/state';
 import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
 import { api } from '../lib/api';
+import { t, useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { useConnection } from '../lib/events';
 import { cn, errorMessage } from '../lib/utils';
@@ -61,13 +62,14 @@ const toneText: Record<StatusTone, string> = {
 };
 
 function leadLabel(chat: string | undefined): { text: string; tone: StatusTone } {
-  if (chat === T.ChatWaiting) return { text: 'Needs you', tone: 'urgent' };
-  if (chat === T.ChatRunning) return { text: 'Working', tone: 'live' };
-  if (chat === T.ChatError) return { text: 'Error', tone: 'error' };
-  return { text: chat === T.ChatOff || !chat ? 'Not started' : 'Idle', tone: 'muted' };
+  if (chat === T.ChatWaiting) return { text: t('web.phone.needsYou'), tone: 'urgent' };
+  if (chat === T.ChatRunning) return { text: t('web.phone.working'), tone: 'live' };
+  if (chat === T.ChatError) return { text: t('common.error'), tone: 'error' };
+  return { text: chat === T.ChatOff || !chat ? t('web.phone.notStarted') : t('web.phone.idle'), tone: 'muted' };
 }
 
 export function PhoneApp({ phone }: { phone: T.LANPhone }) {
+  const t = useT();
   const [route, go] = useRoute();
   const connection = useConnection();
   return (
@@ -75,7 +77,7 @@ export function PhoneApp({ phone }: { phone: T.LANPhone }) {
       {connection.state === 'disconnected' && (
         <div className="flex items-center gap-2 bg-amber-500/15 px-4 py-1.5 text-[12px] text-amber-200" data-phone-offline>
           <WifiOff className="size-3.5 shrink-0" />
-          <span className="truncate">{connection.error || "AgentBox on your computer isn't reachable"}</span>
+          <span className="truncate">{connection.error || t('web.phone.unreachable')}</span>
         </div>
       )}
       {route.kind === 'list' ? (
@@ -90,6 +92,7 @@ export function PhoneApp({ phone }: { phone: T.LANPhone }) {
 }
 
 function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route) => void }) {
+  const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const chats = useQueries({
@@ -108,12 +111,12 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
     <div className="min-h-0 flex-1 overflow-y-auto">
       <header className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-line bg-overlay/90 px-4 py-3 backdrop-blur">
         <MessagesSquare className="size-5 text-brand-300" />
-        <h1 className="text-[17px] font-semibold tracking-tight text-title">Chats</h1>
+        <h1 className="text-[17px] font-semibold tracking-tight text-title">{t('web.phone.chats')}</h1>
       </header>
       <div className="grid gap-6 px-3 py-4">
-        {projects.isPending && <p className="px-2 text-sm text-subtle">Loading…</p>}
+        {projects.isPending && <p className="px-2 text-sm text-subtle">{t('common.loading')}</p>}
         {projects.error && <p className="px-2 text-sm text-rose-300">{errorMessage(projects.error)}</p>}
-        {projects.data?.length === 0 && <p className="px-2 text-sm text-subtle">There are no projects yet: add one in AgentBox on your computer.</p>}
+        {projects.data?.length === 0 && <p className="px-2 text-sm text-subtle">{t('web.phone.noProjects')}</p>}
         {projects.data?.map((p, i) => {
           const lead = chats[i]?.data;
           const label = leadLabel(lead?.chat);
@@ -127,7 +130,7 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
                     <AIIcon ai="claude" className="size-4" />
                   </div>
                 }
-                title="Project chat"
+                title={t('web.phone.projectChat')}
                 status={label}
                 onClick={() => onOpen({ kind: 'project', project: p.name })}
               />
@@ -146,12 +149,12 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
         })}
         <footer className="grid gap-2 border-t border-line px-2 pt-4">
           <p className="text-[12px] text-subtle">
-            This phone is paired as <span className="text-secondary">{phone.name}</span>.
+            {t.rich('web.phone.pairedAs', { name: <span className="text-secondary">{phone.name}</span> })}
           </p>
           <PlainHTTPNote />
           <div>
             <button type="button" className="text-[12px] text-rose-300 underline-offset-2 hover:underline" disabled={unpair.isPending} onClick={() => unpair.mutate()}>
-              Unpair this phone
+              {t('web.phone.unpair')}
             </button>
           </div>
         </footer>
@@ -196,9 +199,10 @@ function ChatRow({
 }
 
 function ScreenHeader({ title, subtitle, onBack }: { title: string; subtitle?: string; onBack: () => void }) {
+  const t = useT();
   return (
     <header className="flex shrink-0 items-center gap-1 border-b border-line bg-overlay/90 px-1.5 py-1.5 backdrop-blur">
-      <button type="button" aria-label="Back to the chats" onClick={onBack} className="flex size-10 items-center justify-center rounded-full text-secondary active:bg-surface-raised">
+      <button type="button" aria-label={t('web.phone.back')} onClick={onBack} className="flex size-10 items-center justify-center rounded-full text-secondary active:bg-surface-raised">
         <ArrowLeft className="size-5" />
       </button>
       <div className="min-w-0 flex-1">
@@ -210,25 +214,27 @@ function ScreenHeader({ title, subtitle, onBack }: { title: string; subtitle?: s
 }
 
 function ProjectChatScreen({ project, onBack }: { project: string; onBack: () => void }) {
+  const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const p = projects.data?.find((x) => x.name === project);
   const chat = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project) });
   return (
     <>
-      <ScreenHeader title="Project chat" subtitle={`${projectLabel(project, projects.data)}${chat.data ? ` · ${leadLabel(chat.data.chat).text}` : ''}`} onBack={onBack} />
+      <ScreenHeader title={t('web.phone.projectChat')} subtitle={`${projectLabel(project, projects.data)}${chat.data ? ` · ${leadLabel(chat.data.chat).text}` : ''}`} onBack={onBack} />
       <div className="flex min-h-0 flex-1 flex-col">
-        {p ? <ProjectChatPanel project={p} /> : <Missing loading={projects.isPending} what={`the project ${projectLabel(project, projects.data)}`} />}
+        {p ? <ProjectChatPanel project={p} /> : <Missing loading={projects.isPending} message={t('web.phone.missingProject', { name: projectLabel(project, projects.data) })} />}
       </div>
     </>
   );
 }
 
 function AgentChatScreen({ agentRef, onBack }: { agentRef: string; onBack: () => void }) {
+  const t = useT();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const agent = agents.data?.find((a) => a.ref === agentRef);
   const start = useMutation({
     mutationFn: () => api.agentAction(agentRef, agent?.state === 'paused' ? 'resume' : 'start'),
-    onError: (err) => toast.error(`Couldn't start ${agentRef}`, { description: errorMessage(err) }),
+    onError: (err) => toast.error(t('web.phone.couldntStart', { agent: agentRef }), { description: errorMessage(err) }),
   });
   return (
     <>
@@ -237,13 +243,14 @@ function AgentChatScreen({ agentRef, onBack }: { agentRef: string; onBack: () =>
         {agent ? (
           <ChatTab agent={agent} starting={start.isPending} onStart={() => start.mutate()} />
         ) : (
-          <Missing loading={agents.isPending} what={agentRef} />
+          <Missing loading={agents.isPending} message={t('web.phone.missingAgent', { name: agentRef })} />
         )}
       </div>
     </>
   );
 }
 
-function Missing({ loading, what }: { loading: boolean; what: string }) {
-  return <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-subtle">{loading ? 'Loading…' : `There's no ${what} any more.`}</div>;
+function Missing({ loading, message }: { loading: boolean; message: string }) {
+  const t = useT();
+  return <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-subtle">{loading ? t('common.loading') : message}</div>;
 }

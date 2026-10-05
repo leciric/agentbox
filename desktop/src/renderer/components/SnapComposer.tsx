@@ -3,6 +3,7 @@ import { Bug, LoaderCircle, Send } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
+import { formatTime, useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
@@ -21,6 +22,7 @@ import { Switch } from './ui/switch';
 const leadTarget = '';
 
 export function SnapComposer({ project: current, onSent }: { project?: string; onSent: (project: string, agent: string) => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const snaps = useQuery({ queryKey: ['snaps'], queryFn: api.snaps });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
@@ -52,7 +54,7 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
   const send = useMutation({
     mutationFn: () => api.sendSnap(snap!.id, { project, agent: agent || undefined, note: note.trim() || undefined, accessibility: tree }),
     onSuccess: async () => {
-      toast(agent ? `Sent to ${agent}` : `Sent to ${projectLabel(project, projects.data)}'s chat`);
+      toast(agent ? t('chat.snap.sentToAgent', { agent }) : t('chat.snap.sentToChat', { project: projectLabel(project, projects.data) }));
       onSent(project, agent);
       await refresh();
     },
@@ -64,7 +66,6 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
   };
 
   const projectAgents = (agents.data ?? []).filter((a) => a.project === project && a.name !== 'lead');
-  const what = snap?.window ? 'Window' : 'Screen';
 
   return (
     <Dialog open={Boolean(snap)} onOpenChange={(open) => !open && void discard()}>
@@ -72,12 +73,16 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Bug className="size-4 text-brand-400" />
-            Send a SnapShot
+            {t('chat.snap.title')}
           </DialogTitle>
           <DialogDescription>
-            {what} captured {snap ? new Date(snap.takenAt).toLocaleTimeString() : ''}
-            {snap?.desktop ? ` on ${snap.desktop}` : ''}. It goes as a bug report with the picture attached.
-            {(snaps.data?.length ?? 0) > 1 && ` ${snaps.data!.length - 1} more waiting.`}
+            {t('chat.snap.description', {
+              kind: snap?.window ? 'window' : 'screen',
+              time: snap ? formatTime(snap.takenAt, { timeStyle: 'medium' }) : '',
+              hasDesktop: snap?.desktop ? 'yes' : 'no',
+              desktop: snap?.desktop ?? '',
+              more: Math.max(0, (snaps.data?.length ?? 0) - 1),
+            })}
           </DialogDescription>
         </DialogHeader>
 
@@ -86,16 +91,16 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
             <figure className="grid min-w-0 gap-2">
               <img
                 src={window.agentbox.chatImageUrl(`/v1/snaps/${snap.id}/image`)}
-                alt={snap.title || 'The SnapShot'}
+                alt={snap.title || t('chat.snap.alt')}
                 className="max-h-72 w-full rounded-xl border border-line-strong bg-sunken object-contain"
               />
               <figcaption className="min-w-0 truncate text-[12.5px] text-subtle">
-                {snap.app && <Code>{snap.app}</Code>} {snap.title || (snap.window ? 'Untitled window' : 'The whole screen')}
+                {snap.app && <Code>{snap.app}</Code>} {snap.title || (snap.window ? t('chat.snap.untitledWindow') : t('chat.snap.wholeScreen'))}
               </figcaption>
             </figure>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Project" htmlFor="snap-project">
+              <Field label={t('chat.snap.project')} htmlFor="snap-project">
                 <Select id="snap-project" value={project} onChange={(value) => {
                   setProject(value);
                   setAgent(leadTarget);
@@ -107,9 +112,9 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
                   ))}
                 </Select>
               </Field>
-              <Field label="Send to" htmlFor="snap-agent">
+              <Field label={t('chat.snap.sendTo')} htmlFor="snap-agent">
                 <Select id="snap-agent" value={agent} onChange={setAgent}>
-                  <SelectOption value={leadTarget}>The project's chat</SelectOption>
+                  <SelectOption value={leadTarget}>{t('chat.snap.projectChat')}</SelectOption>
                   {projectAgents.map((a) => (
                     <SelectOption key={a.ref} value={a.name}>
                       {a.name}
@@ -120,12 +125,12 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
               </Field>
             </div>
 
-            <Field label="What's wrong" htmlFor="snap-note">
+            <Field label={t('chat.snap.whatsWrong')} htmlFor="snap-note">
               <Textarea
                 id="snap-note"
                 rows={3}
                 autoFocus
-                placeholder="The Save button does nothing after I rename the project."
+                placeholder={t('chat.snap.notePlaceholder')}
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 onKeyDown={(event) => {
@@ -137,10 +142,10 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
             {snap.accessibility ? (
               <div className="grid gap-2">
                 <label className="flex items-center gap-3 text-[13px] text-secondary">
-                  <Switch checked={tree} onCheckedChange={setTree} aria-label="Include the accessibility tree" />
-                  Include the window's accessibility tree ({snap.accessibility.split('\n').length} lines)
+                  <Switch checked={tree} onCheckedChange={setTree} aria-label={t('chat.snap.includeTree')} />
+                  {t('chat.snap.includeTreeLines', { count: snap.accessibility.split('\n').length })}
                   <button type="button" className="ml-auto text-[12px] text-brand-400 hover:underline" onClick={() => setShowTree((v) => !v)}>
-                    {showTree ? 'Hide' : 'Show'}
+                    {showTree ? t('chat.snap.hide') : t('chat.snap.show')}
                   </button>
                 </label>
                 {showTree && (
@@ -150,7 +155,7 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
                 )}
               </div>
             ) : (
-              <p className="text-[12px] text-subtle">This window exposed no accessibility tree; the picture and its title go.</p>
+              <p className="text-[12px] text-subtle">{t('chat.snap.noTree')}</p>
             )}
 
             {send.error && <Notice>{errorMessage(send.error)}</Notice>}
@@ -159,11 +164,11 @@ export function SnapComposer({ project: current, onSent }: { project?: string; o
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => void discard()}>
-            Discard
+            {t('chat.snap.discard')}
           </Button>
           <Button variant="primary" disabled={!project || send.isPending} onClick={() => send.mutate()}>
             {send.isPending ? <LoaderCircle className="animate-spin" /> : <Send />}
-            Send
+            {t('chat.snap.send')}
           </Button>
         </DialogFooter>
       </DialogContent>

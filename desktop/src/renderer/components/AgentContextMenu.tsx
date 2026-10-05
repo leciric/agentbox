@@ -5,8 +5,9 @@ import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import type { View } from '../App';
-import { lifecycleActions, usesChat } from '../lib/agentActions';
+import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
+import { useT, type MessageKey } from '../lib/i18n';
 import { countFeature, type AppFeature } from '../lib/usageStats';
 import { errorMessage } from '../lib/utils';
 import { AgentInfoCard } from './AgentInfoCard';
@@ -41,6 +42,7 @@ export function AgentContextMenu({
   onSelect: (view: View) => void;
   children: ReactNode;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [destroying, setDestroying] = useState(false);
   const [showingInfo, setShowingInfo] = useState(false);
@@ -65,8 +67,8 @@ export function AgentContextMenu({
     onSuccess: async (result) => {
       const freed = result.retired.length;
       toast(
-        freed > 0 ? `Stopped ${agent.title || agent.name}` : `${agent.title || agent.name} wasn't free to stop`,
-        { description: freed > 0 ? "Its work stays on its branch. Start it again any time." : result.skipped[0]?.reason },
+        freed > 0 ? t('agent.menu.stopped', { name: agent.title || agent.name }) : t('agent.menu.notFree', { name: agent.title || agent.name }),
+        { description: freed > 0 ? t('agent.menu.stoppedNote') : result.skipped[0]?.reason },
       );
       await invalidate();
     },
@@ -81,7 +83,7 @@ export function AgentContextMenu({
 
   const actions = lifecycleActions(agent.state);
   const lifecycleIcon = { pause: Pause, resume: Play, start: Play, stop: Square };
-  const lifecycleLabel = { pause: 'Pause', resume: 'Resume', start: 'Start', stop: 'Stop' };
+  const lifecycleLabel: Record<LifecycleAction, MessageKey> = { pause: 'agent.action.pause', resume: 'agent.action.resume', start: 'common.start', stop: 'common.stop' };
 
   const queued = agent.state === 'queued';
   const moveToFront = useMutation({
@@ -117,13 +119,13 @@ export function AgentContextMenu({
         </TooltipPrimitive.Root>
         <ContextMenuContent>
           <ContextMenuItem icon={Play} onSelect={() => startNow.mutate()}>
-            Start now
+            {t('agent.queued.startNow')}
           </ContextMenuItem>
           <ContextMenuItem icon={ArrowUpToLine} disabled={agent.queuePosition === 1} onSelect={() => moveToFront.mutate()}>
-            Move to front
+            {t('agent.queued.moveToFront')}
           </ContextMenuItem>
           <ContextMenuItem icon={CircleX} destructive onSelect={() => removeFromQueue.mutate()}>
-            Remove from queue
+            {t('agent.queued.remove')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -146,37 +148,37 @@ export function AgentContextMenu({
         <ContextMenuContent>
           {usesChat(agent) && (
             <ContextMenuItem icon={MessageSquare} onSelect={counted(T.FeatureMenuOpenChat, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'chat' }))}>
-              Open chat
+              {t('agent.menu.openChat')}
             </ContextMenuItem>
           )}
           <ContextMenuItem icon={SquareTerminal} onSelect={counted(T.FeatureMenuOpenTerminal, () => onSelect({ kind: 'agent', ref: agent.ref, tab: 'terminal' }))}>
-            Open terminal
+            {t('agent.menu.openTerminal')}
           </ContextMenuItem>
           <ContextMenuItem icon={Info} onSelect={counted(T.FeatureMenuInfo, () => setShowingInfo(true))}>
-            Info
+            {t('agent.menu.info')}
           </ContextMenuItem>
           <ContextMenuSeparator />
           {actions.map((name) => (
             <ContextMenuItem key={name} icon={lifecycleIcon[name]} onSelect={counted(T.FeatureMenuLifecycle, () => action.mutate(name))}>
-              {lifecycleLabel[name]}
+              {t(lifecycleLabel[name])}
             </ContextMenuItem>
           ))}
           <ContextMenuItem icon={Moon} onSelect={counted(T.FeatureMenuRetire, () => retire.mutate())}>
-            Retire
+            {t('agent.menu.retire')}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             icon={GitBranch}
             onSelect={counted(T.FeatureMenuCopyBranch, () => {
               window.agentbox.copyText(agent.branch);
-              toast('Copied the branch name');
+              toast(t('agent.menu.copiedBranch'));
             })}
           >
-            Copy branch name
+            {t('agent.menu.copyBranch')}
           </ContextMenuItem>
           {pr && (
             <ContextMenuItem icon={GitPullRequest} onSelect={counted(T.FeatureMenuOpenPullRequest, () => void window.agentbox.openExternal(pr.url))}>
-              Open pull request #{pr.number}
+              {t('agent.menu.openPr', { number: pr.number })}
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
@@ -185,7 +187,7 @@ export function AgentContextMenu({
             destructive
             onSelect={counted(T.FeatureMenuDestroy, () => setDestroying(true))}
           >
-            Destroy agent…
+            {t('agent.view.destroy')}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -199,7 +201,7 @@ export function AgentContextMenu({
 
       <Dialog open={showingInfo} onOpenChange={setShowingInfo}>
         <DialogContent className="max-w-sm">
-          <DialogTitle className="sr-only">{agent.title || agent.name}, agent info</DialogTitle>
+          <DialogTitle className="sr-only">{t('agent.menu.infoTitle', { name: agent.title || agent.name })}</DialogTitle>
           <AgentInfoCard agent={agent} pr={pr} />
         </DialogContent>
       </Dialog>

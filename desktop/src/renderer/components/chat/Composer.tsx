@@ -25,10 +25,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEv
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
-import { contextHint, currentPlan, formatTokens, pendingPermissions, toolOf } from '../../lib/chat';
+import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { mentionAt, matchFiles, type MentionItem } from '../../lib/mentions';
 import { getDraft, setDraft } from '../../lib/drafts';
+import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
 import { imageFiles, imageTypes, maxImages, prepareImage, previewUrl, type PendingImage } from '../../lib/chatImages';
 import { ModelByName } from '../ModelByName';
@@ -46,6 +47,7 @@ import { voiceSettings } from '../../lib/voice/settings';
 const onPhone = (window.agentbox as { lan?: boolean } | undefined)?.lan === true;
 
 export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; thread?: T.ChatThread; disabled: boolean; onSent: () => void }) {
+  const t = useT();
   const [text, setText] = useState(() => getDraft(agent.ref));
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [highlighted, setHighlighted] = useState(0);
@@ -100,14 +102,14 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
   // Images go to the AI tool as ACP image blocks, which only an adapter that
   // said promptCapabilities.image takes. Before any adapter of this tool has
   // started there's nothing to go on, and attaching is allowed.
-  const noImages = disabled ? `Start ${agent.name} to chat` : session?.noImages ? `${tool} can't read images here: its ACP adapter doesn't take them` : undefined;
+  const noImages = disabled ? t('chat.composer.startToChat', { name: agent.name }) : session?.noImages ? t('chat.composer.noImages', { tool }) : undefined;
   const attach = async (files: File[]) => {
     if (noImages) {
       toast.error(noImages);
       return;
     }
     const room = maxImages - images.length;
-    if (files.length > room) toast.error(`A message takes at most ${maxImages} images.`);
+    if (files.length > room) toast.error(t('chat.composer.maxImages', { count: maxImages }));
     for (const file of files.slice(0, Math.max(0, room))) {
       try {
         const image = await prepareImage(file);
@@ -135,7 +137,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
     if (!dragsFiles(event)) return;
     event.preventDefault();
     const files = imageFiles(event.dataTransfer);
-    if (files.length === 0) toast.error('Only images can be attached.');
+    if (files.length === 0) toast.error(t('chat.composer.onlyImages'));
     else void attach(files);
   };
   // Cancelling the turn stops its reply being read aloud too.
@@ -259,14 +261,14 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
   };
 
   const placeholder = disabled
-    ? `Start ${agent.name} to chat`
+    ? t('chat.composer.startToChat', { name: agent.name })
     : held
-      ? 'Your message is waiting: choose above how to send it'
+      ? t('chat.composer.held')
       : requests.length > 0
-      ? 'Answer the request above to go on'
+      ? t('chat.composer.answerRequest')
       : busy
-        ? `${tool} is working. Write your next message…`
-        : 'Ask for changes, or send a follow-up';
+        ? t('chat.composer.busy', { tool })
+        : t('chat.composer.placeholder');
 
   return (
     <div className="relative" data-chat-composer>
@@ -311,7 +313,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
                 disabled={retry.isPending}
                 onClick={() => retry.mutate()}
               >
-                {retry.isPending ? 'Starting…' : 'Start again'}
+                {retry.isPending ? t('chat.composer.starting') : t('chat.composer.startAgain')}
               </button>
             )}
           </div>
@@ -322,7 +324,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
             <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-rose-300" />
             <p className="min-w-0 flex-1 break-words leading-relaxed text-rose-100/90">{session.error}</p>
             <button className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-rose-100 transition hover:bg-rose-400/15" disabled={retry.isPending} onClick={() => retry.mutate()}>
-              {retry.isPending ? 'Starting…' : 'Start again'}
+              {retry.isPending ? t('chat.composer.starting') : t('chat.composer.startAgain')}
             </button>
           </div>
         </Attached>
@@ -330,7 +332,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
         <Attached tone="neutral">
           <div className="flex items-center gap-2 text-[12.5px] text-muted">
             <LoaderCircle className="size-3.5 animate-spin" />
-            {session.detail || `Starting ${tool}`}
+            {session.detail || t('chat.composer.startingTool', { tool })}
           </div>
         </Attached>
       ) : null}
@@ -348,11 +350,11 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
       >
         {dragging && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[22px] text-[12.5px] font-medium text-primary">
-            <span className="rounded-full bg-overlay px-3 py-1.5 shadow">{noImages ?? 'Drop images to attach them'}</span>
+            <span className="rounded-full bg-overlay px-3 py-1.5 shadow">{noImages ?? t('chat.composer.drop')}</span>
           </div>
         )}
         {commands.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label="Commands">
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.commands')}>
             {commands.map((command, i) => (
               <button
                 key={command.name}
@@ -373,7 +375,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
           </div>
         )}
         {mentionItems.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label="Files">
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.files')}>
             {mentionItems.map((item, i) => (
               <button
                 key={item.label}
@@ -393,7 +395,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
           </div>
         )}
         {images.length > 0 && (
-          <div className="flex flex-wrap gap-2 px-4 pt-3.5" aria-label="Attached images">
+          <div className="flex flex-wrap gap-2 px-4 pt-3.5" aria-label={t('chat.composer.attached')}>
             {images.map((image) => (
               <ImageThumb
                 key={image.key}
@@ -412,7 +414,7 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
             value={text}
             disabled={disabled}
             placeholder={placeholder}
-            aria-label="Message"
+            aria-label={t('chat.composer.message')}
             onChange={(event) => {
               setText(event.target.value);
               syncCursor(event);
@@ -438,12 +440,12 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
               void attach(files);
             }}
           />
-          <Tip label={noImages ?? 'Attach images (or paste or drop them)'}>
+          <Tip label={noImages ?? t('chat.composer.attachTip')}>
             {/* A span, so the reason still shows on a disabled button. */}
             <span className="shrink-0">
               <button
                 type="button"
-                aria-label="Attach images"
+                aria-label={t('chat.composer.attach')}
                 disabled={!!noImages}
                 onClick={() => picker.current?.click()}
                 className="flex size-8 items-center justify-center rounded-full text-subtle transition hover:bg-surface-raised hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
@@ -459,9 +461,9 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
                 and isn't sent the models the button runs. */}
             {!onPhone && <VoiceButton disabled={disabled} onText={dictated} scope={area} />}
             {busy && (
-              <Tip label="Stop">
+              <Tip label={t('common.stop')}>
                 <button
-                  aria-label="Stop the turn"
+                  aria-label={t('chat.composer.stopTurn')}
                   disabled={stop.isPending}
                   onClick={() => stop.mutate()}
                   className="flex size-8 items-center justify-center rounded-full bg-rose-500/90 text-white shadow-[0_8px_20px_-8px_rgb(244_63_94/0.7)] transition hover:scale-105 hover:bg-rose-500 disabled:opacity-60"
@@ -470,9 +472,9 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
                 </button>
               </Tip>
             )}
-            <Tip label={busy ? `Send to ${tool} while it works` : 'Send'}>
+            <Tip label={busy ? t('chat.composer.sendWhileWorking', { tool }) : t('chat.composer.send')}>
               <button
-                aria-label="Send"
+                aria-label={t('chat.composer.send')}
                 disabled={!canSend}
                 onClick={submit}
                 className="flex size-8 items-center justify-center rounded-full bg-gradient-to-b from-brand-500 to-indigo-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_8px_20px_-8px_rgb(99_102_241/0.8)] transition hover:scale-105 hover:brightness-110 disabled:scale-100 disabled:opacity-30 disabled:shadow-none"
@@ -492,9 +494,9 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
 // whether you have to come back to it yourself. A reset time AgentBox wasn't
 // told isn't guessed at — "waiting" is the honest version of it.
 function limitMessage(session: T.ChatSession): string {
-  if (!session.resumeAt) return 'Usage limit reached. Send a message once it resets.';
-  if (!session.limitedUntil) return 'Usage limit reached, waiting for the limit to reset';
-  return `Usage limit reached, resumes at ${new Date(session.resumeAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  if (!session.resumeAt) return translate('chat.limit.reached');
+  if (!session.limitedUntil) return translate('chat.limit.waiting');
+  return translate('chat.limit.resumes', { time: formatTime(session.resumeAt, { hour: '2-digit', minute: '2-digit' }) });
 }
 
 const tones = {
@@ -508,31 +510,22 @@ function Attached({ tone, children }: { tone: keyof typeof tones; children: Reac
   return <div className={cn('relative mx-auto -mb-4 w-[calc(100%-2.5rem)] animate-slide-up rounded-t-2xl border border-b-0 px-3.5 pb-6 pt-2.5 backdrop-blur-xl', tones[tone])}>{children}</div>;
 }
 
-const actions: Record<string, string> = {
-  execute: 'run a command',
-  edit: 'edit a file',
-  delete: 'delete a file',
-  move: 'move a file',
-  read: 'read a file',
-  fetch: 'fetch a page',
-  search: 'search',
-};
-
 function optionLabel(option: T.ChatPermissionOption): string {
   switch (option.kind) {
     case 'allow_once':
-      return 'Allow';
+      return translate('chat.permission.allow');
     case 'reject_once':
-      return 'Deny';
+      return translate('chat.permission.deny');
     case 'reject_always':
-      return 'Always deny';
+      return translate('chat.permission.alwaysDeny');
   }
   // The tool's own words say what "always" covers, like "Yes, allow all edits during this session".
   const words = option.name.replace(/^yes,?\s*/i, '').replace(/^and\s+/i, '');
-  return words.length > 3 ? words.charAt(0).toUpperCase() + words.slice(1) : 'Always allow';
+  return words.length > 3 ? words.charAt(0).toUpperCase() + words.slice(1) : translate('chat.permission.alwaysAllow');
 }
 
 function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; thread: T.ChatThread; request: T.ChatItem; count: number }) {
+  const t = useT();
   const permission = request.permission!;
   const tool = toolOf(thread, permission.callId);
   const answer = useMutation({ mutationFn: (option: string) => api.answerChat(agent.ref, request.id, option), onError: (err) => toast.error(errorMessage(err)) });
@@ -545,9 +538,9 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
         <div className="flex items-center gap-2 text-[12px]">
           <ShieldAlert className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
-            {aiLabel(agent.ai)} asks to {actions[tool?.kind ?? ''] ?? 'use a tool'}
+            {t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
           </span>
-          {count > 1 && <span className="ml-auto text-[10.5px] tabular-nums text-amber-200/60">1 of {count}</span>}
+          {count > 1 && <span className="ml-auto text-[10.5px] tabular-nums text-amber-200/60">{t('chat.permission.oneOf', { count })}</span>}
         </div>
         <p className="mt-1 break-words text-[13px] text-primary">{permission.title}</p>
         {detail && !permission.title.includes(detail) && (
@@ -611,6 +604,7 @@ function CacheCard({
   onChosen: (message: { text: string; images: PendingImage[] } | null) => void;
   onFailed: (message: { text: string; images: PendingImage[] } | null) => void;
 }) {
+  const t = useT();
   const now = useNow(1000);
   const choose = useMutation({
     mutationFn: ({ compact, message }: { compact: boolean; message: { text: string; images: PendingImage[] } | null }) =>
@@ -629,7 +623,7 @@ function CacheCard({
   const idle = cache.idleSince ? now - Date.parse(cache.idleSince) : 0;
   const left = cache.expiresAt ? Date.parse(cache.expiresAt) - now : 0;
   const expired = left <= 0;
-  const tokens = `~${formatTokens(cache.contextUsed ?? 0)} tokens`;
+  const tokens = t('chat.cache.tokens', { n: formatTokens(cache.contextUsed ?? 0) });
   const compacting = choose.isPending && choose.variables?.compact;
   const waiting = held ?? (choose.isPending ? choose.variables?.message : null);
   return (
@@ -638,19 +632,16 @@ function CacheCard({
         <div className="flex items-center gap-2 text-[12px]">
           <Hourglass className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
-            {expired ? 'The prompt cache has expired' : `The prompt cache expires in ${formatSpan(left)}`}
+            {expired ? t('chat.cache.expired') : t('chat.cache.expires', { span: formatSpan(left) })}
           </span>
-          <span className="ml-auto shrink-0 tabular-nums text-[11px] text-amber-200/60">idle for {formatSpan(idle)}</span>
+          <span className="ml-auto shrink-0 tabular-nums text-[11px] text-amber-200/60">{t('chat.cache.idle', { span: formatSpan(idle) })}</span>
         </div>
         <p className="mt-1 break-words text-[12.5px] leading-relaxed text-amber-100/85">
-          {expired
-            ? `The next message re-sends ${tokens} of context uncached.`
-            : `After that, the next message re-sends ${tokens} of context uncached.`}{' '}
-          Compacting summarises the conversation into the project's memory and carries on in a fresh session.
+          {t('chat.cache.resend', { expired: expired ? 'yes' : 'no', tokens })}
         </p>
         {waiting && (
           <p className="mt-1.5 line-clamp-2 break-words rounded-lg bg-black/10 px-2.5 py-1.5 text-[12.5px] text-primary" data-chat-cache-held>
-            {waiting.text || `${waiting.images.length} ${waiting.images.length === 1 ? 'image' : 'images'}`}
+            {waiting.text || t('chat.cache.images', { count: waiting.images.length })}
           </p>
         )}
         <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
@@ -659,7 +650,7 @@ function CacheCard({
             onClick={() => pick(false)}
             className="h-7 rounded-lg border border-amber-200/20 px-2.5 text-[12.5px] text-amber-50 transition hover:bg-amber-200/10 disabled:opacity-50"
           >
-            Send anyway
+            {t('chat.cache.sendAnyway')}
           </button>
           <button
             disabled={choose.isPending}
@@ -667,7 +658,7 @@ function CacheCard({
             className="flex h-7 items-center gap-1.5 rounded-lg bg-amber-300 px-3 text-[12.5px] font-medium text-on-bright transition hover:bg-amber-200 disabled:opacity-60"
           >
             {compacting && <LoaderCircle className="size-3.5 animate-spin" />}
-            {compacting ? 'Compacting…' : 'Compact and send'}
+            {compacting ? t('chat.cache.compacting') : t('chat.cache.compactAndSend')}
           </button>
         </div>
       </div>
@@ -675,16 +666,17 @@ function CacheCard({
   );
 }
 
-// formatSpan is a duration as "4min 30s", "1h 5min" or "12s".
+// formatSpan is a duration as "4m 30s", "1h 5m" or "12s".
 function formatSpan(ms: number): string {
   const s = Math.max(0, Math.round(Math.abs(ms) / 1000));
-  if (s < 60) return `${s}s`;
+  if (s < 60) return translate('chat.duration.seconds', { s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}min ${s % 60}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}min`;
+  if (m < 60) return translate('chat.duration.minutes', { m, s: s % 60 });
+  return translate('chat.duration.hours', { h: Math.floor(m / 60), m: m % 60 });
 }
 
 function TasksBadge({ plan }: { plan: T.ChatPlanEntry[] }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const done = plan.filter((e) => e.status === 'completed').length;
   const finished = done === plan.length;
@@ -693,8 +685,8 @@ function TasksBadge({ plan }: { plan: T.ChatPlanEntry[] }) {
     <Attached tone="neutral">
       <button className="flex w-full items-center gap-2 text-left text-[12px]" aria-expanded={open} onClick={() => setOpen(!open)} data-chat-tasks>
         <ListTodo className="size-3.5 shrink-0 text-muted" />
-        <span className="shrink-0 text-subtle">Tasks</span>
-        <span className="min-w-0 flex-1 truncate font-medium text-secondary">{finished ? 'All done' : current?.content}</span>
+        <span className="shrink-0 text-subtle">{t('chat.tasks.label')}</span>
+        <span className="min-w-0 flex-1 truncate font-medium text-secondary">{finished ? t('chat.tasks.allDone') : current?.content}</span>
         <span className={cn('shrink-0 tabular-nums', finished ? 'text-emerald-400' : 'text-subtle')}>
           {done}/{plan.length}
         </span>
@@ -734,6 +726,7 @@ function modeIcon(option: T.ChatOption): LucideIcon {
 // only sends it when the model has more than one window to choose from, and
 // sends it whether or not a session is running.
 function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSession }) {
+  const t = useT();
   const set = useMutation({
     mutationFn: ({ id, value }: { id: string; value: string }) => api.setChatOption(agent.ref, id, value),
     onError: (err) => toast.error(errorMessage(err)),
@@ -759,10 +752,10 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   // rather than leaving a composer that looks like it has nothing to set.
   const loading = session?.state === 'starting' && !options.some((o) => o.category === 'thought_level' || o.category === 'mode');
   const loadingMark = loading && (
-    <Tip label={`Loading ${aiLabel(agent.ai)}'s settings`} side="top">
-      <span role="status" aria-label="Loading settings" className="flex h-7 items-center gap-1.5 px-1.5 text-[12px] text-subtle">
+    <Tip label={t('chat.options.loadingTip', { tool: aiLabel(agent.ai) })} side="top">
+      <span role="status" aria-label={t('chat.options.loading')} className="flex h-7 items-center gap-1.5 px-1.5 text-[12px] text-subtle">
         <LoaderCircle className="size-3.5 animate-spin" />
-        Settings
+        {t('common.settings')}
       </span>
     </Tip>
   );
@@ -813,14 +806,14 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
         />
       )}
       {contextWindow && <OptionMenu option={contextWindow} icon={<Gauge />} onPick={pick(contextWindow)} />}
-      {effort && <OptionMenu option={effort} icon={<Brain />} label={effort.value === 'default' ? 'Effort' : undefined} onPick={pick(effort)} />}
+      {effort && <OptionMenu option={effort} icon={<Brain />} label={effort.value === 'default' ? t('chat.options.effort') : undefined} onPick={pick(effort)} />}
       {mode && <OptionMenu option={mode} icon={(() => { const Icon = modeIcon(mode); return <Icon />; })()} onPick={pick(mode)} />}
       {loadingMark}
       {others.length > 0 && (
         <Menu>
           <MenuTrigger asChild>
             <button
-              aria-label="More settings"
+              aria-label={t('chat.options.more')}
               className="flex size-7 items-center justify-center rounded-lg text-subtle transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 data-[state=open]:bg-surface-raised"
             >
               <Ellipsis className="size-4" />
@@ -833,8 +826,8 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
                 <MenuLabel>{option.name}</MenuLabel>
                 {(option.type === 'boolean'
                   ? [
-                      { value: 'true', name: 'On' },
-                      { value: 'false', name: 'Off' },
+                      { value: 'true', name: t('common.on') },
+                      { value: 'false', name: t('common.off') },
                     ]
                   : option.choices
                 ).map((choice) => (
@@ -864,7 +857,7 @@ function ContextBadge({ hint }: { hint: string }) {
 // choice can use that authoritative number; every other choice falls back to
 // whatever Claude Code states in its own text, which is often nothing.
 function modelHint(choice: T.ChatOptionChoice, isCurrent: boolean, contextSize?: number): string | undefined {
-  if (isCurrent && contextSize) return formatTokens(contextSize).toUpperCase();
+  if (isCurrent && contextSize) return contextBadge(contextSize);
   return contextHint(choice);
 }
 
@@ -889,6 +882,7 @@ function OptionMenu({
   treatMissingAsUnavailable?: boolean;
   allowNaming?: boolean;
 }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const current = option.choices.find((c) => c.value === option.value);
   const isModel = option.category === 'model';
@@ -906,7 +900,7 @@ function OptionMenu({
     <Menu onOpenChange={(open) => !open && setQuery('')}>
       <MenuTrigger asChild>
         <button
-          aria-label={currentHint ? `${option.name}: ${current!.name}, ${currentHint} context` : option.name}
+          aria-label={currentHint ? t('chat.options.withContext', { option: option.name, choice: current!.name, size: currentHint }) : option.name}
           data-chat-option={option.id}
           title={option.description || option.name}
           className={cn(
@@ -929,11 +923,11 @@ function OptionMenu({
             <Search className="size-3.5 shrink-0 text-subtle" />
             <input
               autoFocus
-              aria-label={`Search ${option.name.toLowerCase()}`}
+              aria-label={t('chat.options.search', { name: option.name.toLowerCase() })}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
-              placeholder="Search"
+              placeholder={t('common.search')}
               className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
             />
           </div>
@@ -943,9 +937,9 @@ function OptionMenu({
             <span className="grid">
               <span className="flex items-center gap-1.5 text-amber-200">
                 {missing}
-                <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">Off the menu</span>
+                <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('chat.options.offMenu')}</span>
               </span>
-              <span className="text-[11px] text-subtle">Not on the menu this session was offered — either a model you named, or one this account has stopped offering.</span>
+              <span className="text-[11px] text-subtle">{t('chat.options.offMenuHint')}</span>
             </span>
           </MenuItem>
         )}
@@ -974,7 +968,7 @@ function OptionMenu({
             })}
           </div>
         ))}
-        {groups.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">Nothing matches "{query.trim()}".</div>}
+        {groups.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">{t('chat.options.noMatch', { query: query.trim() })}</div>}
         {allowNaming && isModel && <ModelByName onPick={onPick} />}
       </MenuContent>
     </Menu>
@@ -984,12 +978,14 @@ function OptionMenu({
 // RecommendedBadge marks the choice the tool itself recommends, so its name
 // doesn't have to carry "(recommended)" everywhere it appears.
 function RecommendedBadge() {
-  return <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">Recommended</span>;
+  const t = useT();
+  return <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('chat.options.recommended')}</span>;
 }
 
 // ContextMeter shows how full the context window is, once that starts to matter:
 // a sliver of a ring would only look like a spinner.
 function ContextMeter({ session }: { session?: T.ChatSession }) {
+  const t = useT();
   if (!session?.contextSize) return null;
   const used = session.contextUsed ?? 0;
   const fraction = Math.min(used / session.contextSize, 1);
@@ -997,8 +993,8 @@ function ContextMeter({ session }: { session?: T.ChatSession }) {
   const r = 7;
   const circumference = 2 * Math.PI * r;
   return (
-    <Tip label={`${formatTokens(used)} of ${formatTokens(session.contextSize)} tokens of context used`}>
-      <span className="flex size-7 items-center justify-center" aria-label="Context used" data-chat-context>
+    <Tip label={t('chat.context.used', { used: formatTokens(used), total: formatTokens(session.contextSize) })}>
+      <span className="flex size-7 items-center justify-center" aria-label={t('chat.context.label')} data-chat-context>
         <svg viewBox="0 0 18 18" className="size-[18px] -rotate-90">
           <circle cx="9" cy="9" r={r} fill="none" stroke="var(--ab-surface-strong)" strokeWidth="2" />
           <circle

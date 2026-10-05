@@ -7,6 +7,7 @@ import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { t as tNow, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
@@ -24,7 +25,7 @@ import { Tip } from './ui/tooltip';
 
 // A quieter version of the rail's vocabulary: what to call a project's most
 // urgent agent tone, and how to draw it as a single dot.
-const toneLabel: Record<StatusTone, string> = { urgent: 'Needs you', error: 'Needs attention', live: 'Working', muted: '' };
+const toneLabel: Record<StatusTone, MessageKey | null> = { urgent: 'shell.sidebar.needsYou', error: 'shell.sidebar.needsAttention', live: 'shell.sidebar.working', muted: null };
 const toneDot: Record<StatusTone, string> = {
   urgent: 'bg-amber-400 animate-pulse',
   error: 'bg-rose-400',
@@ -52,6 +53,7 @@ export function Sidebar({
   onAddProject: () => void;
   onNewAgent: (project: string) => void;
 }) {
+  const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const sections = useQuery({ queryKey: ['sections'], queryFn: api.sections });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -134,7 +136,7 @@ export function Sidebar({
     const next = moveSection(lists, section.id, delta);
     if (!next) return;
     const sections = next.filter((l) => l.section);
-    setAnnounced(`${section.name} is now section ${sections.findIndex((l) => l.section!.id === section.id) + 1} of ${sections.length}`);
+    setAnnounced(tNow('shell.sidebar.sectionPlace', { name: section.name, n: sections.findIndex((l) => l.section!.id === section.id) + 1, total: sections.length }));
     reorder.mutate(next);
   };
 
@@ -203,9 +205,9 @@ export function Sidebar({
             aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
           >
             <span className="truncate">{projectLabel(project)}</span>
-            {tone && (
-              <Tip label={toneLabel[tone]}>
-                <span className={cn('size-1.5 shrink-0 rounded-full', toneDot[tone])} aria-label={toneLabel[tone]} />
+            {tone && toneLabel[tone] && (
+              <Tip label={t(toneLabel[tone])}>
+                <span className={cn('size-1.5 shrink-0 rounded-full', toneDot[tone])} aria-label={t(toneLabel[tone])} />
               </Tip>
             )}
             {agents.data ? (
@@ -214,9 +216,9 @@ export function Sidebar({
               <Skeleton className="ml-auto h-3.5 w-5 rounded-full" />
             )}
           </button>
-          <Tip label={`New agent in ${projectLabel(project)}`}>
+          <Tip label={t('shell.sidebar.newAgentIn', { project: projectLabel(project) })}>
             <button
-              aria-label={`New agent in ${projectLabel(project)}`}
+              aria-label={t('shell.sidebar.newAgentIn', { project: projectLabel(project) })}
               className="ml-1 rounded-md p-1 text-subtle opacity-0 transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100"
               onClick={() => onNewAgent(project.name)}
             >
@@ -255,7 +257,7 @@ export function Sidebar({
           commitDrop();
         }}
       >
-        {empty && list.section && 'Drop a project here'}
+        {empty && list.section && t('shell.sidebar.dropHere')}
       </div>
     );
   };
@@ -263,15 +265,15 @@ export function Sidebar({
   return (
     <aside className="flex w-[272px] shrink-0 flex-col border-r border-line bg-rail backdrop-blur-xl">
       <div className={cn('flex h-14 shrink-0 items-center px-4', nightly && 'nightly-sky')} data-nightly={nightly || undefined}>
-        <button className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none" aria-label="AgentBox home" onClick={() => onSelect({ kind: 'home' })}>
+        <button className="flex items-center gap-2.5 rounded-lg focus-visible:outline-none" aria-label={t('shell.sidebar.home')} onClick={() => onSelect({ kind: 'home' })}>
           <Logo />
           <span className="text-[15px] font-semibold tracking-tight text-title">AgentBox</span>
         </button>
         {nightly && (
-          <Tip label={`A nightly build${info.data?.version ? `, ${info.data.version}` : ''}: what's coming in the next release, not a release`}>
+          <Tip label={t('shell.sidebar.nightlyTip', { version: info.data?.version ? `, ${info.data.version}` : '' })}>
             <span className="nightly-badge ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-medium">
               <MoonStar className="size-3" aria-hidden />
-              Nightly
+              {t('shell.sidebar.nightly')}
             </span>
           </Tip>
         )}
@@ -283,26 +285,26 @@ export function Sidebar({
 
       <div className="grid gap-0.5 px-2 pb-1">
         <NavItem icon={House} active={view.kind === 'home'} onClick={() => onSelect({ kind: 'home' })}>
-          Home
+          {t('shell.nav.home')}
         </NavItem>
         <HomeChatItem active={view.kind === 'homeChat'} onClick={() => onSelect({ kind: 'homeChat' })} />
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label="Projects">
+      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label={t('shell.sidebar.projects')}>
         <div className="flex items-center gap-1 px-2.5 pb-1.5">
-          <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">Projects</span>
-          <Tip label="New project">
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('shell.sidebar.projects')}</span>
+          <Tip label={t('shell.sidebar.newProject')}>
             <button
-              aria-label="New project"
+              aria-label={t('shell.sidebar.newProject')}
               className="ml-auto rounded-md p-1 text-subtle transition hover:bg-surface-strong hover:text-primary"
               onClick={onAddProject}
             >
               <Plus className="size-3.5" />
             </button>
           </Tip>
-          <Tip label="New section">
+          <Tip label={t('shell.sidebar.newSection')}>
             <button
-              aria-label="New section"
+              aria-label={t('shell.sidebar.newSection')}
               className="rounded-md p-1 text-subtle transition hover:bg-surface-strong hover:text-primary"
               onClick={() => setNaming('')}
             >
@@ -326,7 +328,7 @@ export function Sidebar({
         {projects.data?.length === 0 && (
           <button className="mx-2 mt-1 flex w-[calc(100%-1rem)] items-center gap-2 rounded-lg border border-dashed border-line-strong px-3 py-3 text-left text-[13px] text-subtle hover:border-line-heavy hover:text-tertiary" onClick={onAddProject}>
             <FolderPlus className="size-4" />
-            Add your first project
+            {t('shell.sidebar.addFirst')}
           </button>
         )}
 
@@ -385,21 +387,21 @@ export function Sidebar({
           // how AgentBox was installed decides how it's updated.
           <NavItem icon={CircleArrowUp} onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, update.data!.available!.url)}>
             <span className="text-emerald-300" data-update-available={update.data.available.version}>
-              {isUpgrade(update.data.available.version, update.data.current) ? 'Update available' : 'Latest stable'}
+              {isUpgrade(update.data.available.version, update.data.current) ? t('shell.sidebar.updateAvailable') : t('shell.sidebar.latestStable')}
             </span>
             <span className="ml-auto rounded-full bg-emerald-400/15 px-1.5 text-[10.5px] text-emerald-300">{update.data.available.version}</span>
           </NavItem>
         )}
         <NavItem icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>
-          Jobs
-          {running > 0 && <span className="ml-auto rounded-full bg-sky-400/15 px-1.5 text-[10.5px] text-sky-300">{running} running</span>}
+          {t('shell.nav.jobs')}
+          {running > 0 && <span className="ml-auto rounded-full bg-sky-400/15 px-1.5 text-[10.5px] text-sky-300">{t('shell.sidebar.running', { count: running })}</span>}
         </NavItem>
         <NavItem icon={FolderPlus} onClick={onAddProject}>
-          Add project
+          {t('shell.home.addProject')}
         </NavItem>
         <NavItem icon={Settings} active={view.kind === 'settings'} onClick={() => onSelect({ kind: 'settings' })}>
-          Settings
-          {setup.data && !setup.data.ready && <span className="ml-auto size-2 rounded-full bg-amber-400" aria-label="needs attention" />}
+          {t('common.settings')}
+          {setup.data && !setup.data.ready && <span className="ml-auto size-2 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
         </NavItem>
       </div>
 
@@ -416,9 +418,9 @@ export function Sidebar({
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Delete ${deleting?.name ?? 'the section'}?`}
+        title={deleting ? t('shell.sidebar.deleteTitle', { name: deleting.name }) : t('shell.sidebar.deleteTitleNone')}
         description={describeDelete(lists, deleting?.id)}
-        confirmLabel="Delete section"
+        confirmLabel={t('shell.sidebar.deleteSection')}
         destructive
         onConfirm={async () => {
           await api.removeSection(deleting!.id);
@@ -434,9 +436,7 @@ export function Sidebar({
 // worth being clear about: it takes the section and keeps every project.
 function describeDelete(lists: SidebarList[], id: string | undefined): string {
   const n = lists.find((l) => l.section?.id === id)?.projects.length ?? 0;
-  if (n === 0) return 'The section goes. It is empty, so no project is affected.';
-  const projects = n === 1 ? 'the project in it stays' : `all ${n} projects in it stay`;
-  return `The section goes; ${projects}, back in the list of projects in no section.`;
+  return tNow('shell.sidebar.deleteBody', { count: n });
 }
 
 function SectionHeader({
@@ -468,6 +468,7 @@ function SectionHeader({
   onDrop: () => void;
   moveKeys: (move: (delta: -1 | 1) => void) => (e: KeyboardEvent) => void;
 }) {
+  const t = useT();
   // A section takes a project dropped on its header, and swaps places with
   // another section dropped on it. Which of the two is being dragged decides
   // what the header is a target for.
@@ -519,7 +520,7 @@ function SectionHeader({
       <Menu>
         <MenuTrigger asChild>
           <button
-            aria-label={`Section ${section.name}`}
+            aria-label={t('shell.sidebar.sectionMenu', { name: section.name })}
             className="rounded-md p-1 text-subtle opacity-0 transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover/section:opacity-100"
           >
             <MoreHorizontal className="size-3.5" />
@@ -527,13 +528,13 @@ function SectionHeader({
         </MenuTrigger>
         <MenuContent>
           <MenuItem icon={Pencil} onSelect={onRename}>
-            Rename
+            {t('common.rename')}
           </MenuItem>
           <MenuItem icon={ChevronRight} onSelect={onToggle}>
-            {section.collapsed ? 'Expand' : 'Collapse'}
+            {section.collapsed ? t('shell.sidebar.expand') : t('shell.sidebar.collapse')}
           </MenuItem>
           <MenuItem icon={Trash2} destructive onSelect={onDelete}>
-            Delete section
+            {t('shell.sidebar.deleteSection')}
           </MenuItem>
         </MenuContent>
       </Menu>
@@ -545,12 +546,13 @@ function SectionHeader({
 // the section is made when you press Enter, so nothing empty is left behind by
 // changing your mind.
 function NameSection({ onSave, onCancel }: { onSave: (name: string) => void; onCancel: () => void }) {
+  const t = useT();
   return (
     <Input
       autoFocus
       maxLength={40}
-      aria-label="New section name"
-      placeholder="Section name"
+      aria-label={t('shell.sidebar.newSectionName')}
+      placeholder={t('shell.sidebar.sectionName')}
       className="mb-1 h-8 text-[12px]"
       onBlur={onCancel}
       onKeyDown={(e) => {
@@ -567,6 +569,7 @@ function NameSection({ onSave, onCancel }: { onSave: (name: string) => void; onC
 // RenameSection is the section's name in a dialog, which is where the app puts
 // anything it asks for a word.
 function RenameSection({ section, onSave, onClose }: { section: T.Section | undefined; onSave: (name: string) => void; onClose: () => void }) {
+  const t = useT();
   const [name, setName] = useState(section?.name ?? '');
   if (!section) return null;
   const save = () => {
@@ -578,9 +581,9 @@ function RenameSection({ section, onSave, onClose }: { section: T.Section | unde
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Rename {section.name}</DialogTitle>
+          <DialogTitle>{t('shell.sidebar.renameTitle', { name: section.name })}</DialogTitle>
         </DialogHeader>
-        <Field label="Section name" htmlFor="section-name">
+        <Field label={t('shell.sidebar.sectionName')} htmlFor="section-name">
           <Input
             id="section-name"
             autoFocus
@@ -592,9 +595,9 @@ function RenameSection({ section, onSave, onClose }: { section: T.Section | unde
         </Field>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
-          <Button onClick={save}>Rename</Button>
+          <Button onClick={save}>{t('common.rename')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -604,14 +607,15 @@ function RenameSection({ section, onSave, onClose }: { section: T.Section | unde
 // HomeChatItem opens the Home chat, the user's main chat across projects, and
 // shows a dot while it works or waits for an answer, like a project's.
 function HomeChatItem({ active, onClick }: { active: boolean; onClick: () => void }) {
+  const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', A.HomeProject], queryFn: () => api.projectChat(A.HomeProject) });
   const state = chat.data?.chat;
   const tone: StatusTone = state === 'waiting' ? 'urgent' : state === 'running' ? 'live' : 'muted';
   return (
     <NavItem icon={MessagesSquare} active={active} onClick={onClick}>
-      Main chat
+      {t('shell.nav.mainChat')}
       {tone !== 'muted' && (
-        <Tip label={toneLabel[tone]}>
+        <Tip label={t(toneLabel[tone]!)}>
           <span className={cn('ml-auto size-1.5 rounded-full', toneDot[tone])} data-home-chat={state} />
         </Tip>
       )}

@@ -3,6 +3,7 @@
 // Settings to show.
 import { useSyncExternalStore } from 'react';
 import type { VoiceDevice, VoiceLanguage } from './models';
+import { t } from '../../../shared/i18n/index.ts';
 import { voiceSettings } from './settings';
 import type { WorkerReply, WorkerRequest } from './whisper.worker';
 
@@ -71,7 +72,7 @@ function start(): Worker {
         break;
     }
   };
-  worker.onerror = (event) => update({ loading: undefined, error: event.message || 'The speech-to-text worker failed to start.' });
+  worker.onerror = (event) => update({ loading: undefined, error: event.message || t('chat.voice.workerStart') });
   send({ type: 'probe' });
   return worker;
 }
@@ -104,7 +105,7 @@ export function transcribe(audio: Float32Array, language: VoiceLanguage = voiceS
 export function forgetWhisper() {
   worker?.terminate();
   worker = undefined;
-  for (const p of pending.values()) p.reject(new Error('Speech-to-text was stopped.'));
+  for (const p of pending.values()) p.reject(new Error(t('chat.voice.stopped')));
   pending.clear();
   files = new Map();
   update({ loading: undefined, ready: undefined, error: undefined });

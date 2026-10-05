@@ -2,10 +2,12 @@
 // connectors that the daemon doesn't tell them: the catalog of servers the app
 // offers, how a connector's state reads, and how a request reads.
 import * as T from '../../shared/api.ts';
+import { t } from '../../shared/i18n/index.ts';
 import { timeUntil } from './utils.ts';
 
 // A preset is a server the app knows: its URL, what its tools are called, and
-// how it signs in. Checked on 29 September 2026.
+// how it signs in. Checked on 29 September 2026. blurb, tokenLabel and why are
+// getters, so they read in the language of the moment they're shown.
 export interface ConnectorPreset {
   id: string;
   label: string;
@@ -21,9 +23,9 @@ export interface ConnectorPreset {
 }
 
 export const connectorPresets: ConnectorPreset[] = [
-  { id: 'notion', label: 'Notion', name: 'notion', url: 'https://mcp.notion.com/mcp', auth: T.ConnectorOAuth, blurb: 'Pages, databases and comments' },
-  { id: 'linear', label: 'Linear', name: 'linear', url: 'https://mcp.linear.app/mcp', auth: T.ConnectorOAuth, blurb: 'Issues, projects and cycles' },
-  { id: 'sentry', label: 'Sentry', name: 'sentry', url: 'https://mcp.sentry.dev/mcp', auth: T.ConnectorOAuth, blurb: 'Errors, issues and releases' },
+  { id: 'notion', label: 'Notion', name: 'notion', url: 'https://mcp.notion.com/mcp', auth: T.ConnectorOAuth, get blurb() { return t('project.connectors.blurb.notion'); } },
+  { id: 'linear', label: 'Linear', name: 'linear', url: 'https://mcp.linear.app/mcp', auth: T.ConnectorOAuth, get blurb() { return t('project.connectors.blurb.linear'); } },
+  { id: 'sentry', label: 'Sentry', name: 'sentry', url: 'https://mcp.sentry.dev/mcp', auth: T.ConnectorOAuth, get blurb() { return t('project.connectors.blurb.sentry'); } },
   {
     id: 'figma',
     label: 'Figma',
@@ -37,11 +39,17 @@ export const connectorPresets: ConnectorPreset[] = [
       name: 'FIGMA_TOKEN',
       header: 'X-Figma-Token',
       scheme: '',
-      tokenLabel: 'Personal access token',
+      get tokenLabel() {
+        return t('project.connectors.figma.tokenLabel');
+      },
       tokenUrl: 'https://help.figma.com/hc/en-us/articles/8085703771159-Manage-personal-access-tokens',
-      why: "Figma only lets apps it has approved sign in, so it takes a personal access token instead. Make one in Figma's settings, under Security.",
+      get why() {
+        return t('project.connectors.figma.why');
+      },
     },
-    blurb: 'Files, frames and components',
+    get blurb() {
+      return t('project.connectors.blurb.figma');
+    },
   },
 ];
 
@@ -86,13 +94,13 @@ export type StatusTone = 'success' | 'warning' | 'danger' | 'default';
 export function connectorStatus(c: T.Connector): { label: string; tone: StatusTone } {
   switch (c.status) {
     case T.ConnectorConnected:
-      return { label: 'connected', tone: 'success' };
+      return { label: t('project.connectors.status.connected'), tone: 'success' };
     case T.ConnectorConnecting:
-      return { label: 'waiting for the browser', tone: 'warning' };
+      return { label: t('project.connectors.status.connecting'), tone: 'warning' };
     case T.ConnectorError:
-      return { label: 'needs connecting again', tone: 'danger' };
+      return { label: t('project.connectors.status.error'), tone: 'danger' };
     default:
-      return { label: 'not connected', tone: 'default' };
+      return { label: t('project.connectors.status.disconnected'), tone: 'default' };
   }
 }
 
@@ -100,11 +108,11 @@ export function connectorStatus(c: T.Connector): { label: string; tone: StatusTo
 // OAuth token before it runs out, so this is information, not a warning.
 export function tokenLine(c: T.Connector, now = Date.now()): string | undefined {
   if (c.status !== T.ConnectorConnected) return undefined;
-  if (c.auth === T.ConnectorSecret) return c.secret ? `token from $${c.secret}` : undefined;
+  if (c.auth === T.ConnectorSecret) return c.secret ? t('project.connectors.token.fromSecret', { secret: c.secret }) : undefined;
   if (c.auth !== T.ConnectorOAuth) return undefined;
-  if (!c.expiresAt) return "token doesn't expire";
-  if (Date.parse(c.expiresAt) <= now) return 'token expired · renewed on next use';
-  return `token expires in ${timeUntil(c.expiresAt, now)} · renewed automatically`;
+  if (!c.expiresAt) return t('project.connectors.token.noExpiry');
+  if (Date.parse(c.expiresAt) <= now) return t('project.connectors.token.expired');
+  return t('project.connectors.token.expires', { when: timeUntil(c.expiresAt, now) });
 }
 
 // ── request_connector ─────────────────────────────────────────────────────

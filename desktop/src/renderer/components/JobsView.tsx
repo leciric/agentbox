@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { ListChecks, LoaderCircle } from 'lucide-react';
 import { useState } from 'react';
 import { api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { cn, duration, errorMessage, timeAgo } from '../lib/utils';
 import { JobProgress } from './JobProgress';
 import { JobStatusBadge } from './state';
@@ -9,6 +10,7 @@ import { Button } from './ui/button';
 import { Card, EmptyState, Notice } from './ui/card';
 
 export function JobsView() {
+  const t = useT();
   const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs });
   const [selected, setSelected] = useState<string | null>(null);
   const current = jobs.data?.find((j) => j.id === selected);
@@ -16,16 +18,16 @@ export function JobsView() {
 
   if (jobs.data?.length === 0) {
     return (
-      <EmptyState icon={ListChecks} title="Nothing has run yet">
-        Creating agents, forking, restoring snapshots and building the base image run as jobs. Their progress and logs show up here.
+      <EmptyState icon={ListChecks} title={t('shell.jobs.emptyTitle')}>
+        {t('shell.jobs.emptyBody')}
       </EmptyState>
     );
   }
 
   return (
     <div className="grid h-full grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] gap-4 overflow-hidden p-6">
-      <Card title="Recent jobs" icon={ListChecks} className="flex min-h-0 flex-col" bodyClassName="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <div className="grid gap-1" aria-label="Jobs">
+      <Card title={t('shell.jobs.recent')} icon={ListChecks} className="flex min-h-0 flex-col" bodyClassName="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <div className="grid gap-1" aria-label={t('shell.jobs.label')}>
           {jobs.data?.map((job) => (
             <button
               key={job.id}
@@ -45,8 +47,8 @@ export function JobsView() {
         </div>
       </Card>
       <Card
-        title={current ? `${current.kind} ${current.target}` : 'Job log'}
-        description={current ? `job ${current.id} · ${duration(current.createdAt, current.finishedAt)}` : undefined}
+        title={current ? `${current.kind} ${current.target}` : t('shell.jobs.log')}
+        description={current ? t('shell.jobs.jobId', { id: current.id, duration: duration(current.createdAt, current.finishedAt) }) : undefined}
         className="flex min-h-0 flex-col"
         bodyClassName="min-h-0 flex-1 overflow-y-auto"
         action={
@@ -54,7 +56,7 @@ export function JobsView() {
           (current.status === 'running' ? (
             <Button size="sm" disabled={cancel.isPending} onClick={() => cancel.mutate(current.id)}>
               {cancel.isPending && <LoaderCircle className="animate-spin" />}
-              Cancel and roll back
+              {t('shell.jobs.cancelRollback')}
             </Button>
           ) : (
             <JobStatusBadge status={current.status} />
@@ -62,7 +64,7 @@ export function JobsView() {
         }
       >
         {cancel.error && <Notice className="mb-3">{errorMessage(cancel.error)}</Notice>}
-        {selected ? <JobProgress key={selected} jobId={selected} header={false} /> : <p className="text-sm text-subtle">Pick a job to see its log.</p>}
+        {selected ? <JobProgress key={selected} jobId={selected} header={false} /> : <p className="text-sm text-subtle">{t('shell.jobs.pick')}</p>}
       </Card>
     </div>
   );

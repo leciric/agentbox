@@ -21,6 +21,7 @@ import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
 import { api } from "./lib/api";
+import { t as tNow, useT } from "./lib/i18n";
 import { resetChatEvents } from "./lib/chat";
 import { onMedia, useConnection } from "./lib/events";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
@@ -38,6 +39,7 @@ export type View =
   | { kind: "agent"; ref: string; tab?: AgentPlaceName };
 
 export function App() {
+  const t = useT();
   const [view, setView] = useState<View>({ kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   const [addingProject, setAddingProject] = useState(false);
@@ -118,11 +120,14 @@ export function App() {
         if (item.removed || item.source !== "agent") return;
         const agent = agents.data?.find((a) => a.ref === item.agent);
         toast(
-          `${agent?.title || item.agent} saved a ${kindInfo(item.kind).one}`,
+          tNow("shell.app.savedMedia", {
+            agent: agent?.title || item.agent,
+            kind: kindInfo(item.kind).one,
+          }),
           {
             description: item.name,
             action: {
-              label: "View",
+              label: tNow("shell.app.view"),
               onClick: () =>
                 select({ kind: "agent", ref: item.agent, tab: "media" }),
             },
@@ -146,10 +151,10 @@ export function App() {
         (view.kind === "agent" && view.ref === a.ref)
       )
         continue;
-      toast(`${a.title || a.ref} is waiting for you`, {
-        description: `${aiLabel(a.ai)} asks for permission.`,
+      toast(tNow("shell.app.waitingForYou", { agent: a.title || a.ref }), {
+        description: tNow("shell.app.asksPermission", { ai: aiLabel(a.ai) }),
         action: {
-          label: "Open",
+          label: tNow("common.open"),
           onClick: () => select({ kind: "agent", ref: a.ref, tab: "chat" }),
         },
       });
@@ -224,8 +229,9 @@ export function App() {
               connection.state === "disconnected" && (
                 <div className="px-4 pt-4 md:px-6">
                   <Notice>
-                    The AgentBox daemon isn't reachable: {connection.error}.
-                    Retrying…
+                    {t("shell.app.daemonUnreachable", {
+                      error: connection.error ?? "",
+                    })}
                   </Notice>
                 </div>
               )

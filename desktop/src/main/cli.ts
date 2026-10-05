@@ -13,6 +13,7 @@ import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync,
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { app } from 'electron';
+import { t } from '../shared/i18n/index.ts';
 import { dataDir } from './paths';
 import { onWindows } from './relay';
 
@@ -130,14 +131,14 @@ export async function cliStatus(): Promise<CliStatus> {
 // earlier link, but never a file it didn't make.
 export async function installCli(): Promise<CliStatus> {
   const target = bundledBin() ? agentboxBin() : process.env.AGENTBOX_BIN;
-  if (!target) throw new Error('this app has no agentbox binary to install: build it with go build -o bin/agentbox ./cmd/agentbox');
+  if (!target) throw new Error(t('web.main.cliNoBinary'));
   if (onWindows) {
     await addToUserPath(dirname(target));
     return cliStatus();
   }
   mkdirSync(localBin, { recursive: true });
   if (isLink(linkPath)) unlinkSync(linkPath);
-  else if (existsSync(linkPath)) throw new Error(`${linkPath} already exists and isn't a link: remove it first`);
+  else if (existsSync(linkPath)) throw new Error(t('web.main.cliLinkExists', { path: linkPath }));
   symlinkSync(target, linkPath);
   return cliStatus();
 }
@@ -156,7 +157,7 @@ async function userPath(): Promise<string[]> {
 async function addToUserPath(dir: string): Promise<void> {
   const script = `$d = $env:AGENTBOX_BIN_DIR; $p = ${userPathScript}; if (-not (($p -split ';') -contains $d)) { [Environment]::SetEnvironmentVariable('Path', ((@($p.TrimEnd(';'), $d) | Where-Object { $_ }) -join ';'), 'User') }`;
   const done = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `${script}; 'ok'`], { AGENTBOX_BIN_DIR: dir });
-  if (done !== 'ok') throw new Error(`couldn't add ${dir} to your PATH`);
+  if (done !== 'ok') throw new Error(t('web.main.cliPathFailed', { dir }));
 }
 
 async function windowsCliStatus(): Promise<CliStatus> {

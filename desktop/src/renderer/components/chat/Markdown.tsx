@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ThemedToken } from 'shiki/core';
 import { highlight, languageOf } from '../../lib/highlight';
+import { useT } from '../../lib/i18n';
 import { useMode } from '../../lib/theme';
 import { cn } from '../../lib/utils';
 
@@ -46,6 +47,7 @@ const components: Components = {
 };
 
 function CodeBlock({ code, language }: { code: string; language?: string }) {
+  const t = useT();
   const lang = languageOf(language);
   // Shiki's colours are inline, so a block already on screen has to be
   // highlighted again when the window turns over: there is a palette per mode.
@@ -74,7 +76,7 @@ function CodeBlock({ code, language }: { code: string; language?: string }) {
       <div className="flex h-8 items-center justify-between border-b border-line-faint pl-3 pr-1 text-[11px] text-subtle">
         <span className="font-mono">{language || 'text'}</span>
         <button
-          aria-label="Copy the code"
+          aria-label={t('chat.markdown.copyCode')}
           className="flex size-6 items-center justify-center rounded-md text-subtle opacity-0 transition hover:bg-surface-raised hover:text-secondary focus-visible:opacity-100 group-hover/code:opacity-100"
           onClick={() => {
             window.agentbox.copyText(code);

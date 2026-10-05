@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatDateTime, t as tt, useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { errorMessage, timeAgo } from '../lib/utils';
 import { BrowserCookiesCard } from './BrowserCookies';
@@ -23,6 +24,7 @@ import { Tip } from './ui/tooltip';
 // which agents have it.
 
 export function SecretsTab({ target }: { target: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const forAgent = target.includes('/');
@@ -42,11 +44,11 @@ export function SecretsTab({ target }: { target: string }) {
 
         {inherited.length > 0 && (
           <Card
-            title={`From the project (${inherited.length})`}
+            title={t('agent.secrets.fromProject', { count: inherited.length })}
             icon={Lock}
-            description="Every agent of this project gets these. Change them in the project's Settings, under Secrets."
+            description={t('agent.secrets.fromProjectDescription')}
           >
-            <ul className="grid gap-2" aria-label="Project secrets">
+            <ul className="grid gap-2" aria-label={t('agent.secrets.projectList')}>
               {inherited.map((secret) => (
                 <SecretRow key={secret.name} secret={secret} />
               ))}
@@ -55,23 +57,22 @@ export function SecretsTab({ target }: { target: string }) {
         )}
 
         <Card
-          title={forAgent ? `This agent's own (${mine.length})` : `Project secrets (${mine.length})`}
+          title={forAgent ? t('agent.secrets.ownTitle', { count: mine.length }) : t('agent.secrets.projectTitle', { count: mine.length })}
           icon={KeyRound}
           description={
             forAgent
-              ? 'Only this agent gets these. A name its project also uses is overridden here, for this agent alone.'
-              : 'Every agent of this project gets these, including the ones you make later.'
+              ? t('agent.secrets.ownDescription')
+              : t('agent.secrets.projectDescription')
           }
         >
           {secrets.error && <Notice>{errorMessage(secrets.error)}</Notice>}
-          {secrets.isPending && <p className="py-3 text-sm text-subtle">Loading…</p>}
+          {secrets.isPending && <p className="py-3 text-sm text-subtle">{t('common.loading')}</p>}
           {!secrets.isPending && mine.length === 0 && (
             <p className="py-3 text-[13px] leading-relaxed text-subtle">
-              None yet. An agent reads a secret as <Code>$NAME</Code> in its shell and in its AI tool, which beats pasting a key into the chat — that would
-              store it as plain text in the conversation.
+              {t.rich('agent.secrets.none', { code: (c) => <Code>{c}</Code> })}
             </p>
           )}
-          <ul className="grid gap-2" aria-label="Secrets">
+          <ul className="grid gap-2" aria-label={t('agent.secrets.list')}>
             {mine.map((secret) => (
               <SecretRow key={secret.name} secret={secret} onDelete={() => setDeleting(secret)} />
             ))}
@@ -84,17 +85,17 @@ export function SecretsTab({ target }: { target: string }) {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Remove ${deleting?.name}?`}
+        title={t('agent.secrets.removeTitle', { name: deleting?.name ?? '' })}
         description={
           deleting?.scope === 'project'
-            ? `AgentBox forgets the value and takes the variable out of every agent of ${projectLabel(deleting?.project ?? '', projects.data)}. A process already running in one keeps the value it read when it started.`
-            : `AgentBox forgets the value and takes the variable out of ${deleting?.agent}. A process already running there keeps the value it read when it started.`
+            ? t('agent.secrets.removeProject', { project: projectLabel(deleting?.project ?? '', projects.data) })
+            : t('agent.secrets.removeAgent', { agent: deleting?.agent ?? '' })
         }
-        confirmLabel="Remove"
+        confirmLabel={t('common.remove')}
         destructive
         onConfirm={async () => {
           await api.removeSecret(target, deleting!.name);
-          toast(`Removed ${deleting!.name}`);
+          toast(t('agent.secrets.removed', { name: deleting!.name }));
           await refresh();
         }}
       />
@@ -106,6 +107,7 @@ export function SecretsTab({ target }: { target: string }) {
 // type it, and is cleared as soon as it is stored: there is nothing to come
 // back to, since no page can read a stored value.
 function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: boolean; onSaved: () => Promise<unknown> }) {
+  const t = useT();
   const [name, setName] = useState('');
   const [value, setValue] = useState('');
   const [visible, setVisible] = useState(false);
@@ -115,8 +117,8 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
       setName('');
       setValue('');
       setVisible(false);
-      toast(`${secret.name} stored`, {
-        description: secret.agents.length > 0 ? `Written into ${secret.agents.join(', ')}` : 'The agents you make next will get it.',
+      toast(t('agent.secrets.stored', { name: secret.name }), {
+        description: secret.agents.length > 0 ? t('agent.secrets.writtenInto', { agents: secret.agents.join(', ') }) : t('agent.secrets.nextAgents'),
       });
       await onSaved();
     },
@@ -125,12 +127,12 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
 
   return (
     <Card
-      title={forAgent ? 'Give this agent a secret' : 'Give the project a secret'}
+      title={forAgent ? t('agent.secrets.giveAgent') : t('agent.secrets.giveProject')}
       icon={Plus}
       description={
         forAgent
-          ? 'It becomes an environment variable in this agent, and in no other.'
-          : 'It becomes an environment variable in every agent of this project, now and later.'
+          ? t('agent.secrets.giveAgentDescription')
+          : t('agent.secrets.giveProjectDescription')
       }
     >
       <form
@@ -141,7 +143,7 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
         }}
       >
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-          <Field label="Name" htmlFor="secret-name" hint="An environment variable name, like OPENAI_API_KEY.">
+          <Field label={t('agent.secrets.name')} htmlFor="secret-name" hint={t('agent.secrets.nameHint')}>
             <Input
               id="secret-name"
               className="font-mono text-[13px]"
@@ -152,20 +154,20 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
               onChange={(event) => setName(event.target.value.toUpperCase())}
             />
           </Field>
-          <Field label="Value" htmlFor="secret-value" hint="Stored encrypted and written into the agents. You can't read it back here afterwards.">
+          <Field label={t('agent.secrets.value')} htmlFor="secret-value" hint={t('agent.secrets.valueHint')}>
             <div className="flex items-center gap-2">
               <Input
                 id="secret-value"
                 type={visible ? 'text' : 'password'}
                 className="font-mono text-[13px]"
-                placeholder="paste the key"
+                placeholder={t('agent.secrets.valuePlaceholder')}
                 autoComplete="off"
                 spellCheck={false}
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
               />
-              <Tip label={visible ? 'Hide' : 'Show while typing'}>
-                <Button type="button" variant="ghost" size="icon" aria-label={visible ? 'Hide the value' : 'Show the value'} onClick={() => setVisible((v) => !v)}>
+              <Tip label={visible ? t('agent.secrets.hide') : t('agent.secrets.showWhileTyping')}>
+                <Button type="button" variant="ghost" size="icon" aria-label={visible ? t('agent.secrets.hideValue') : t('agent.secrets.showValue')} onClick={() => setVisible((v) => !v)}>
                   {visible ? <EyeOff /> : <Eye />}
                 </Button>
               </Tip>
@@ -175,11 +177,11 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
         {save.error && <Notice>{errorMessage(save.error)}</Notice>}
         <div className="flex items-center gap-3">
           <p className="text-xs leading-relaxed text-subtle">
-            Agents are told which names they have and not to print, commit or echo a value.
+            {t('agent.secrets.note')}
           </p>
           <Button type="submit" variant="primary" className="ml-auto" disabled={!ready || save.isPending}>
             {save.isPending ? <LoaderCircle className="animate-spin" /> : <KeyRound />}
-            Store secret
+            {t('agent.secrets.store')}
           </Button>
         </div>
       </form>
@@ -190,6 +192,7 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
 // SecretRow is one secret: its name, its scope, when it was last set and where
 // it is. No value, and no control that would ask for one.
 function SecretRow({ secret, onDelete }: { secret: T.Secret; onDelete?: () => void }) {
+  const t = useT();
   return (
     <li
       data-secret={secret.name}
@@ -197,14 +200,14 @@ function SecretRow({ secret, onDelete }: { secret: T.Secret; onDelete?: () => vo
       className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-line-faint bg-surface-faint px-3 py-2.5 transition hover:border-line-strong"
     >
       <span className="font-mono text-[13px] text-primary">${secret.name}</span>
-      <Badge variant={secret.scope === 'project' ? 'info' : 'brand'}>{secret.scope === 'project' ? 'project' : 'this agent'}</Badge>
-      <span className="text-[11.5px] text-subtle" title={new Date(secret.updatedAt).toLocaleString()}>
-        updated {timeAgo(secret.updatedAt)}
+      <Badge variant={secret.scope === 'project' ? 'info' : 'brand'}>{secret.scope === 'project' ? t('agent.secrets.scopeProject') : t('agent.secrets.scopeAgent')}</Badge>
+      <span className="text-[11.5px] text-subtle" title={formatDateTime(secret.updatedAt)}>
+        {t('agent.secrets.updated', { when: timeAgo(secret.updatedAt) })}
       </span>
       <span className="text-[11.5px] text-subtle">{whereItIs(secret)}</span>
       {onDelete && (
-        <Tip label="Remove">
-          <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={`Remove ${secret.name}`} onClick={onDelete}>
+        <Tip label={t('common.remove')}>
+          <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={t('agent.secrets.removeLabel', { name: secret.name })} onClick={onDelete}>
             <X />
           </Button>
         </Tip>
@@ -217,8 +220,8 @@ function SecretRow({ secret, onDelete }: { secret: T.Secret; onDelete?: () => vo
 // agents is counted: the answer that matters is "all of them", and the list
 // would push the name off the row.
 function whereItIs(secret: T.Secret): string {
-  if (secret.agents.length === 0) return '· in no agent yet';
-  if (secret.scope === 'agent') return '· in this agent';
-  if (secret.agents.length === 1) return `· in ${secret.agents[0].split('/')[1]}`;
-  return `· in ${secret.agents.length} agents`;
+  if (secret.agents.length === 0) return tt('agent.secrets.inNone');
+  if (secret.scope === 'agent') return tt('agent.secrets.inThis');
+  if (secret.agents.length === 1) return tt('agent.secrets.inOne', { agent: secret.agents[0].split('/')[1] });
+  return tt('agent.secrets.inMany', { count: secret.agents.length });
 }

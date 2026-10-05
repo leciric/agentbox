@@ -4,8 +4,9 @@ import { useState } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
-import { avatarMood, chatLabel, isAsking, rank, settled, type Mood } from '../lib/agentStatus';
+import { avatarMood, chatLabel, isAsking, prChecksText, prState, rank, settled, usageTip, type Mood } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
@@ -31,6 +32,7 @@ import { Tip } from './ui/tooltip';
 // that aren't, and those are not what you open the rail to find. The section
 // opens by itself while the agent you're on is in it.
 export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
+  const t = useT();
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
   const enabled = project !== null;
   const projectName = useProjectName(project ?? '');
@@ -104,14 +106,14 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
 
   if (folded) {
     return (
-      <aside className="flex w-[56px] shrink-0 flex-col items-center gap-1 border-l border-line bg-rail py-2 backdrop-blur-xl" data-agent-rail="folded" aria-label={`${project}'s agents`}>
-        <Tip label="Show the agents">
-          <button aria-label="Show the agents" className="rounded-lg p-2 text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={() => setFolded(false)}>
+      <aside className="flex w-[56px] shrink-0 flex-col items-center gap-1 border-l border-line bg-rail py-2 backdrop-blur-xl" data-agent-rail="folded" aria-label={t('agent.rail.agentsOf', { project })}>
+        <Tip label={t('agent.rail.show')}>
+          <button aria-label={t('agent.rail.show')} className="rounded-lg p-2 text-subtle transition hover:bg-surface-strong hover:text-primary" onClick={() => setFolded(false)}>
             <PanelRight className="size-4" />
           </button>
         </Tip>
-        <Tip label="Project chat">
-          <button aria-label="Project chat" className="rounded-xl p-0.5 transition hover:bg-surface-strong" onClick={() => onSelect({ kind: 'project', project })}>
+        <Tip label={t('agent.rail.projectChat')}>
+          <button aria-label={t('agent.rail.projectChat')} className="rounded-xl p-0.5 transition hover:bg-surface-strong" onClick={() => onSelect({ kind: 'project', project })}>
             <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} className={cn(onLead && 'ring-1 ring-brand-400')} />
           </button>
         </Tip>
@@ -120,9 +122,9 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
         {finished.length > 0 && (
           <>
             <div className="my-1 w-7 border-t border-line-faint" />
-            <Tip label={finishedOpen ? 'Hide the finished agents' : `Show ${finished.length} finished`}>
+            <Tip label={finishedOpen ? t('agent.rail.hideFinished') : t('agent.rail.showFinished', { count: finished.length })}>
               <button
-                aria-label={finishedOpen ? 'Hide the finished agents' : `Show ${finished.length} finished`}
+                aria-label={finishedOpen ? t('agent.rail.hideFinished') : t('agent.rail.showFinished', { count: finished.length })}
                 aria-expanded={finishedOpen}
                 data-rail-finished={finishedOpen ? 'open' : 'closed'}
                 className="flex h-6 items-center gap-0.5 rounded-md px-1 text-[10.5px] tabular-nums text-subtle transition hover:bg-surface-strong hover:text-primary"
@@ -140,22 +142,22 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   }
 
   return (
-    <aside className="flex w-[268px] shrink-0 flex-col border-l border-line bg-rail backdrop-blur-xl xl:w-[312px]" data-agent-rail="open" aria-label={`${project}'s agents`}>
+    <aside className="flex w-[268px] shrink-0 flex-col border-l border-line bg-rail backdrop-blur-xl xl:w-[312px]" data-agent-rail="open" aria-label={t('agent.rail.agentsOf', { project })}>
       <div className="flex h-12 shrink-0 items-center gap-2 px-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">Agents</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('agent.rail.agents')}</span>
         {mine.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{mine.length}</span>}
-        <Tip label={`New agent in ${projectName}`}>
+        <Tip label={t('agent.rail.newAgentIn', { project: projectName })}>
           <button
-            aria-label={`New agent in ${projectName}`}
+            aria-label={t('agent.rail.newAgentIn', { project: projectName })}
             className="ml-auto rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary"
             onClick={() => onNewAgent(project)}
           >
             <Plus className="size-3.5" />
           </button>
         </Tip>
-        <Tip label="Hide the agents">
+        <Tip label={t('agent.rail.hide')}>
           <button
-            aria-label="Hide the agents"
+            aria-label={t('agent.rail.hide')}
             data-rail-fold
             className="rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary"
             onClick={() => setFolded(true)}
@@ -173,8 +175,8 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
           {onLead && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
           <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} />
           <span className="min-w-0 flex-1">
-            <span className={cn('block truncate text-[13px] font-medium', onLead ? 'text-title' : 'text-secondary')}>Project chat</span>
-            <span className="block truncate text-[11px] text-subtle">The lead's conversation</span>
+            <span className={cn('block truncate text-[13px] font-medium', onLead ? 'text-title' : 'text-secondary')}>{t('agent.rail.projectChat')}</span>
+            <span className="block truncate text-[11px] text-subtle">{t('agent.rail.leadConversation')}</span>
           </span>
         </button>
 
@@ -206,7 +208,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
               onClick={() => setShowFinished(!finishedOpen)}
             >
               <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', finishedOpen && 'rotate-90')} />
-              Finished
+              {t('agent.rail.finished')}
               <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{finished.length}</span>
             </button>
             {finishedOpen && finished.map(row)}
@@ -215,10 +217,10 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
 
         {agents.data && mine.length === 0 && (
           <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
-            <p className="text-[12.5px] leading-relaxed text-subtle">No agents yet in {projectName}.</p>
+            <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.rail.empty', { project: projectName })}</p>
             <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={() => onNewAgent(project)}>
               <Plus className="size-3.5" />
-              New agent
+              {t('agent.rail.newAgent')}
             </button>
           </div>
         )}
@@ -250,11 +252,12 @@ function AgentRow({
   onSelect: () => void;
   onOpen: (view: View) => void;
 }) {
+  const t = useT();
   // A question or a credential request waiting on you is said in words too,
   // not only by the avatar: the agent is usually mid-turn, blocked on it, so
   // its chat alone would call it working. Opening the agent shows a credential
   // request's card; a question comes back in the lead's reply.
-  const status: ReturnType<typeof chatLabel> = asking && agent.chat !== 'waiting' ? { text: 'Asks you something', tone: 'urgent' } : chatLabel(agent);
+  const status: ReturnType<typeof chatLabel> = asking && agent.chat !== 'waiting' ? { text: t('agent.rail.asks'), tone: 'urgent' } : chatLabel(agent);
   // The row is a button that opens the agent, with the pull request badge over
   // it: a link inside a button is neither valid HTML nor clickable on its own.
   return (
@@ -304,7 +307,7 @@ function AgentRow({
             {sample && agent.state === 'running' && (
               <span className="mt-1.5 hidden items-center gap-2 xl:flex">
                 <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
-                <span className="font-mono text-[10px] tabular-nums text-subtle" title={`CPU ${sample.cpu.toFixed(0)}% · memory ${humanBytes(sample.memory)} · disk ${humanRate(sample.diskRead)} read, ${humanRate(sample.diskWrite)} write`}>
+                <span className="font-mono text-[10px] tabular-nums text-subtle" title={usageTip(sample, humanBytes, humanRate)}>
                   {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)} · {shortRate(sample.diskRead + sample.diskWrite)}
                 </span>
               </span>
@@ -354,13 +357,18 @@ const checkTone: Record<string, string> = { passing: 'text-emerald-300', failing
 // whether its checks pass. Clicking it opens the pull request in the browser,
 // the way the Pull requests tab does. An agent without one shows nothing.
 function PullRequestBadge({ pr }: { pr: T.PullRequest }) {
-  const state = pr.draft ? 'draft' : pr.state;
+  const t = useT();
+  const state = prState(pr);
+  const parts = [`#${pr.number} ${state}`];
+  if (pr.checks) parts.push(t('agent.pr.checks', { checks: prChecksText(pr.checks) }));
+  if (pr.conflict) parts.push(t('agent.pr.conflictsBase'));
+  if (pr.review === 'changes_requested') parts.push(t('agent.pr.changesRequested'));
   return (
-    <Tip label={`#${pr.number} ${state}${pr.checks ? `, checks ${pr.checks}` : ''}${pr.conflict ? ', conflicts with its base' : ''}${pr.review === 'changes_requested' ? ', changes requested' : ''} — ${pr.title}`}>
+    <Tip label={`${parts.join(', ')} — ${pr.title}`}>
       <a
         href={pr.url}
         data-rail-pr={pr.number}
-        aria-label={`Pull request #${pr.number}, ${state}`}
+        aria-label={t('agent.pr.label', { number: pr.number, state })}
         onClick={(event) => {
           event.preventDefault();
           void window.agentbox.openExternal(pr.url);
@@ -375,7 +383,7 @@ function PullRequestBadge({ pr }: { pr: T.PullRequest }) {
         #{pr.number}
         {pr.checks && <span className={checkTone[pr.checks]}>{checkMark[pr.checks]}</span>}
         {pr.conflict && (
-          <span className="text-rose-300" data-rail-pr-conflict aria-label="conflicts">
+          <span className="text-rose-300" data-rail-pr-conflict aria-label={t('agent.pr.conflicts')}>
             ⚠
           </span>
         )}

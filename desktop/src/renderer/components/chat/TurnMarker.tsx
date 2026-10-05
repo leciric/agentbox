@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
+import { useT } from '../../lib/i18n';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ForkDialog } from '../SnapshotsTab';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
@@ -12,6 +13,7 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from '../ui/menu';
 // they were when it ended. Its menu rolls the agent back to there or forks a
 // new agent from it.
 export function TurnMarker({ agent, checkpoint, latest, onOpenAgent }: { agent: T.Agent; checkpoint: T.Checkpoint; latest: boolean; onOpenAgent?: (ref: string) => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [rollingBack, setRollingBack] = useState(false);
   const [forking, setForking] = useState(false);
@@ -22,37 +24,32 @@ export function TurnMarker({ agent, checkpoint, latest, onOpenAgent }: { agent: 
       <Menu>
         <MenuTrigger
           className="flex h-6 items-center gap-1 rounded-md px-1.5 text-[11.5px] tabular-nums text-faint transition hover:bg-surface-raised hover:text-tertiary data-[state=open]:bg-surface-raised data-[state=open]:text-tertiary"
-          aria-label={`Turn ${n}: roll back or fork`}
+          aria-label={t('chat.turn.menu', { n })}
           data-chat-turn-menu
         >
-          Turn {n}
+          {t('chat.turn.label', { n })}
           <Ellipsis className="size-3.5" />
         </MenuTrigger>
         <MenuContent>
-          <MenuItem icon={RotateCcw} disabled={latest} hint={latest ? 'Latest turn' : undefined} onSelect={() => setRollingBack(true)}>
-            Roll back here
+          <MenuItem icon={RotateCcw} disabled={latest} hint={latest ? t('chat.turn.latest') : undefined} onSelect={() => setRollingBack(true)}>
+            {t('chat.turn.rollBackHere')}
           </MenuItem>
           <MenuItem icon={GitFork} onSelect={() => setForking(true)}>
-            Fork from here
+            {t('chat.turn.forkHere')}
           </MenuItem>
         </MenuContent>
       </Menu>
       <ConfirmDialog
         open={rollingBack}
         onOpenChange={setRollingBack}
-        title={`Roll ${agent.name} back to turn ${n}?`}
-        description={
-          <>
-            The turns after it leave the conversation, and the worktree goes back to its files as this turn ended. {agent.name}'s session starts again,
-            told the conversation up to here. What the worktree has now is saved first, so you can still fork from it.
-          </>
-        }
-        confirmLabel="Roll back"
+        title={t('chat.turn.rollBackTitle', { name: agent.name, n })}
+        description={t('chat.turn.rollBackDescription', { name: agent.name })}
+        confirmLabel={t('chat.turn.rollBack')}
         destructive
         onConfirm={async () => {
           const res = await api.rollback(agent.ref, checkpoint.id);
           await queryClient.invalidateQueries({ queryKey: ['checkpoints', agent.ref] });
-          toast(`Rolled back to turn ${n}`, { description: `What ${agent.name} had is saved as ${res.saved.id}.` });
+          toast(t('chat.turn.rolledBack', { n }), { description: t('chat.turn.rolledBackSaved', { name: agent.name, id: res.saved.id }) });
         }}
       />
       <ForkDialog
@@ -60,8 +57,8 @@ export function TurnMarker({ agent, checkpoint, latest, onOpenAgent }: { agent: 
         from={
           forking
             ? {
-                title: `Fork ${agent.name} from turn ${n}`,
-                description: 'A new agent whose branch starts from the files as this turn ended, and whose chat carries the conversation up to here.',
+                title: t('chat.turn.forkTitle', { name: agent.name, n }),
+                description: t('chat.turn.forkDescription'),
                 request: { checkpoint: checkpoint.id },
               }
             : null

@@ -4,6 +4,7 @@ import { Fragment, useState } from 'react';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api, type TokenQuery } from '../lib/api';
+import { formatDate, formatDateTime, formatTime, t, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { humanTokens, limitTone, share, tps, usd, windowNow } from '../lib/tokens';
 import { projectLimits } from '../lib/usageMeter';
@@ -25,13 +26,20 @@ import { Tip } from './ui/tooltip';
 
 type Period = '5h' | '24h' | '7d' | '30d' | 'all';
 
-const periods: { id: Period; label: string; since?: string; words: string }[] = [
-  { id: '5h', label: '5 hours', since: '5h', words: 'in the last 5 hours' },
-  { id: '24h', label: '24 hours', since: '24h', words: 'in the last 24 hours' },
-  { id: '7d', label: '7 days', since: '7d', words: 'in the last 7 days' },
-  { id: '30d', label: '30 days', since: '30d', words: 'in the last 30 days' },
-  { id: 'all', label: 'All time', words: 'since the ledger began' },
+const periods: { id: Period; label: MessageKey; since?: string }[] = [
+  { id: '5h', label: 'vm.tokens.period.5h', since: '5h' },
+  { id: '24h', label: 'vm.tokens.period.24h', since: '24h' },
+  { id: '7d', label: 'vm.tokens.period.7d', since: '7d' },
+  { id: '30d', label: 'vm.tokens.period.30d', since: '30d' },
+  { id: 'all', label: 'vm.tokens.period.all' },
 ];
+
+const kindLabel: Record<string, MessageKey> = {
+  [A.TokensTurn]: 'vm.tokens.kind.turn',
+  [A.TokensBackground]: 'vm.tokens.kind.background',
+  [A.TokensCompaction]: 'vm.tokens.kind.compaction',
+  [A.TokensConsolidation]: 'vm.tokens.kind.consolidation',
+};
 
 const kindVariant: Record<string, BadgeVariant> = {
   [A.TokensTurn]: 'default',
@@ -43,6 +51,7 @@ const kindVariant: Record<string, BadgeVariant> = {
 // TokensPanel is the ledger for one project, or for every project when none is
 // given. onOpenAgent opens an agent that still exists.
 export function TokensPanel({ project, onOpenAgent }: { project?: string; onOpenAgent?: (ref: string) => void }) {
+  const t = useT();
   const [period, setPeriod] = useState<Period>('5h');
   const chosen = periods.find((p) => p.id === period) ?? periods[0];
   const report = useQuery({
@@ -59,30 +68,30 @@ export function TokensPanel({ project, onOpenAgent }: { project?: string; onOpen
     <div className="grid grid-cols-1 gap-4" data-tokens-panel>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <Tabs value={period} onValueChange={(value) => setPeriod(value as Period)}>
-          <TabsList aria-label="How far back">
+          <TabsList aria-label={t('vm.tokens.howFarBack')}>
             {periods.map((p) => (
               <TabsTrigger key={p.id} value={p.id} data-period={p.id}>
-                {p.label}
+                {t(p.label)}
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
         <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-subtle">
-          What each agent's chat spent, kept after the agent is retired. A Claude Code you start by hand in an agent's terminal isn't counted.
+          {t('vm.tokens.intro')}
         </p>
       </div>
 
       <ClaudeLimits project={project} />
 
       {report.error && <Notice>{errorMessage(report.error)}</Notice>}
-      {report.isPending && <p className="text-[13px] text-subtle">Loading…</p>}
+      {report.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
 
       {data && data.agents.length === 0 && (
         <Panel className="p-6 text-center">
           <Coins className="mx-auto size-5 text-faint" />
-          <p className="mt-2 text-[13px] font-medium text-secondary">Nothing spent {chosen.words}.</p>
+          <p className="mt-2 text-[13px] font-medium text-secondary">{t('vm.tokens.nothingSpent', { period: chosen.id })}</p>
           <p className="mx-auto mt-1 max-w-md text-[12px] leading-relaxed text-subtle">
-            Every turn a chat takes is written here as it ends: its tokens by model, how full its context was, and the AI tool's own estimate of what it cost.
+            {t('vm.tokens.emptyDescription')}
           </p>
         </Panel>
       )}
@@ -106,6 +115,7 @@ export function TokensPanel({ project, onOpenAgent }: { project?: string; onOpen
 // not the machine's default when the project uses another. Nothing shows until
 // a chat has reported one.
 function ClaudeLimits({ project }: { project?: string }) {
+  const t = useT();
   const limits = useQuery({ queryKey: ['claudeLimits'], queryFn: api.claudeLimits, refetchInterval: 30_000 });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: !!project });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: !!project });
@@ -114,15 +124,15 @@ function ClaudeLimits({ project }: { project?: string }) {
   const shown = p ? projectLimits({ limits: limits.data ?? [], project: p, agents: agents.data ?? [] }) : (limits.data ?? []);
   if (!shown.length) return null;
   return (
-    <Card title="Claude limits" icon={Gauge} description="Shared by every agent on the account. As Anthropic reported them to the account's last chat.">
+    <Card title={t('vm.tokens.claudeLimits')} icon={Gauge} description={t('vm.tokens.claudeLimitsDescription')}>
       <div className="grid gap-4">
         {shown.map((l) => (
           <div key={l.account} className="min-w-0" data-claude-limit={l.account}>
             <div className="mb-2 flex flex-wrap items-baseline gap-x-2 text-[12px]">
               <span className="font-medium text-secondary">{l.account}</span>
-              {l.default && <span className="text-faint">default</span>}
+              {l.default && <span className="text-faint">{t('vm.tokens.default')}</span>}
               {l.status && l.status !== 'allowed' && <Badge variant={l.status === 'rejected' ? 'danger' : 'warning'}>{l.status.replace('_', ' ')}</Badge>}
-              <span className="ml-auto text-faint">as of {timeAgo(l.at)}</span>
+              <span className="ml-auto text-faint">{t('vm.tokens.asOf', { ago: timeAgo(l.at) })}</span>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               {l.windows.map((w) => {
@@ -132,7 +142,7 @@ function ClaudeLimits({ project }: { project?: string }) {
                   <div key={w.name} className="min-w-0">
                     <div className="flex items-baseline justify-between gap-2 text-[12px]">
                       <span className="text-muted">{w.label}</span>
-                      <span className="tabular-nums text-secondary">{now === null ? 'reset since' : `${Math.round(now * 100)}%`}</span>
+                      <span className="tabular-nums text-secondary">{now === null ? t('vm.tokens.resetSince') : `${Math.round(now * 100)}%`}</span>
                     </div>
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-strong" aria-hidden>
                       <div
@@ -140,7 +150,7 @@ function ClaudeLimits({ project }: { project?: string }) {
                         style={{ width: `${now === null ? 0 : Math.max(Math.min(now, 1) * 100, 2)}%` }}
                       />
                     </div>
-                    <div className="mt-1 text-[11px] text-faint">{now === null ? `Reset ${timeAgo(w.resetsAt)}; no chat since` : `Resets in ${timeUntil(w.resetsAt)}`}</div>
+                    <div className="mt-1 text-[11px] text-faint">{now === null ? t('vm.tokens.resetNoChat', { ago: timeAgo(w.resetsAt) }) : t('vm.tokens.resetsIn', { time: timeUntil(w.resetsAt) })}</div>
                   </div>
                 );
               })}
@@ -155,18 +165,19 @@ function ClaudeLimits({ project }: { project?: string }) {
 // --- Headline -----------------------------------------------------------------
 
 function Headline({ report }: { report: T.TokenReport }) {
+  const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const fullest = report.agents.reduce<T.AgentTokens | undefined>((best, a) => (!best || a.maxContext > best.maxContext ? a : best), undefined);
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-      <Stat label="Tokens" value={humanTokens(report.total)} hint={`${humanTokens(report.output)} of them written by the model`} />
-      <Stat label="Estimated cost" value={usd(report.costUSD)} hint="The AI tool's estimate at API prices" />
-      <Stat label="Avg TPS" value={tps(report.avgTPS ?? 0)} hint="Output tokens per second of generation, over every turn that timed itself" />
-      <Stat label="Cache reads" value={share(report.cacheRead, report.total)} hint="Conversation sent again with each step" />
+      <Stat label={t('vm.tokens.tokens')} value={humanTokens(report.total)} hint={t('vm.tokens.writtenByModel', { n: humanTokens(report.output) })} />
+      <Stat label={t('vm.tokens.estimatedCost')} value={usd(report.costUSD)} hint={t('vm.tokens.costHint')} />
+      <Stat label={t('vm.tokens.avgTPS')} value={tps(report.avgTPS ?? 0)} hint={t('vm.tokens.avgTPSHint')} />
+      <Stat label={t('vm.tokens.cacheReads')} value={share(report.cacheRead, report.total)} hint={t('vm.tokens.cacheReadsHint')} />
       <Stat
-        label="Peak context"
+        label={t('vm.tokens.peakContext')}
         value={fullest ? humanTokens(fullest.maxContext) : '—'}
-        hint={fullest ? `Carried by every call of ${agentName(fullest, false, projects.data).name}'s busiest turn` : undefined}
+        hint={fullest ? t('vm.tokens.peakContextHint', { name: agentName(fullest, false, projects.data).name }) : undefined}
       />
     </div>
   );
@@ -197,12 +208,12 @@ function slots(report: T.TokenReport): Slot[] {
   const step = report.bucketSeconds * 1000;
   if (step <= 0) return [];
   const byStart = new Map(report.buckets.map((b) => [Date.parse(b.start), b] as const));
-  const floor = (t: number) => Math.floor(t / step) * step;
+  const floor = (ms: number) => Math.floor(ms / step) * step;
   const first = report.since ? floor(Date.parse(report.since)) : report.buckets.length ? Date.parse(report.buckets[0].start) : floor(Date.parse(report.until));
   const last = floor(Date.parse(report.until));
   const out: Slot[] = [];
   // Bounded, so a ledger years long at a day a column still draws.
-  for (let t = Math.max(first, last - 400 * step); t <= last; t += step) out.push({ start: t, counts: byStart.get(t) });
+  for (let at = Math.max(first, last - 400 * step); at <= last; at += step) out.push({ start: at, counts: byStart.get(at) });
   return out;
 }
 
@@ -223,20 +234,21 @@ function niceCeiling(v: number): number {
 
 function slotLabel(start: number, stepSeconds: number): string {
   const from = new Date(start);
-  if (stepSeconds >= 86_400) return from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  if (stepSeconds >= 86_400) return formatDate(from, { month: 'short', day: 'numeric' });
   const to = new Date(start + stepSeconds * 1000);
-  const time = (d: Date) => d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  const day = stepSeconds >= 3600 ? `${from.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ` : '';
+  const time = (d: Date) => formatTime(d, { hour: '2-digit', minute: '2-digit' });
+  const day = stepSeconds >= 3600 ? `${formatDate(from, { month: 'short', day: 'numeric' })}, ` : '';
   return `${day}${time(from)}–${time(to)}`;
 }
 
 function stepWords(seconds: number): string {
-  if (seconds >= 86_400) return 'a day';
-  if (seconds >= 3600) return seconds === 3600 ? 'an hour' : `${seconds / 3600} hours`;
-  return `${seconds / 60} minutes`;
+  if (seconds >= 86_400) return t('vm.tokens.columnIs', { unit: 'day' });
+  if (seconds >= 3600) return seconds === 3600 ? t('vm.tokens.columnIs', { unit: 'hour' }) : t('vm.tokens.columnIs', { unit: 'hours', n: seconds / 3600 });
+  return t('vm.tokens.columnIs', { unit: 'minutes', n: seconds / 60 });
 }
 
 function SpendOverTime({ report }: { report: T.TokenReport }) {
+  const t = useT();
   const [asTable, setAsTable] = useState(false);
   const series = slots(report);
   const peak = niceCeiling(Math.max(0, ...series.map((s) => s.counts?.total ?? 0)));
@@ -245,12 +257,12 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
 
   return (
     <Card
-      title="Tokens over time"
+      title={t('vm.tokens.overTime')}
       icon={ChartColumn}
-      description={`Each column is ${stepWords(report.bucketSeconds)}.`}
+      description={stepWords(report.bucketSeconds)}
       action={
         <Button variant="ghost" size="sm" onClick={() => setAsTable((v) => !v)} data-tokens-as-table={asTable}>
-          {asTable ? 'Show the chart' : 'Show as a table'}
+          {asTable ? t('vm.tokens.showChart') : t('vm.tokens.showTable')}
         </Button>
       }
     >
@@ -259,12 +271,12 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
           <table className="w-full text-[12px]">
             <thead className="sticky top-0 bg-surface">
               <tr className="whitespace-nowrap border-b border-line text-left text-[10.5px] uppercase tracking-[0.06em] text-subtle">
-                <th className="py-1.5 pl-3 pr-2 font-medium">When</th>
-                <th className="px-2 py-1.5 text-right font-medium">Tokens</th>
-                <th className="px-2 py-1.5 text-right font-medium">Cache read</th>
-                <th className="px-2 py-1.5 text-right font-medium">Output</th>
-                <th className="px-2 py-1.5 text-right font-medium">Avg TPS</th>
-                <th className="py-1.5 pl-2 pr-3 text-right font-medium">Cost</th>
+                <th className="py-1.5 pl-3 pr-2 font-medium">{t('vm.tokens.when')}</th>
+                <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.tokens')}</th>
+                <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.cacheRead')}</th>
+                <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.output')}</th>
+                <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.avgTPS')}</th>
+                <th className="py-1.5 pl-2 pr-3 text-right font-medium">{t('vm.tokens.cost')}</th>
               </tr>
             </thead>
             <tbody>
@@ -291,7 +303,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
                 <span className="absolute -left-12 w-10 -translate-y-1/2 text-right text-[10.5px] tabular-nums text-faint">{axisTokens(peak * f)}</span>
               </div>
             ))}
-            <div className="absolute inset-y-0 left-12 right-0 flex items-end gap-[2px]" role="list" aria-label="Tokens over time">
+            <div className="absolute inset-y-0 left-12 right-0 flex items-end gap-[2px]" role="list" aria-label={t('vm.tokens.overTime')}>
               {series.map((s) => {
                 const total = s.counts?.total ?? 0;
                 const height = total ? Math.max((total / peak) * 100, 1.5) : 0;
@@ -301,10 +313,10 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
                     side="top"
                     label={
                       <span className="grid gap-0.5">
-                        <span className="font-semibold text-title">{total ? `${humanTokens(total)} tokens` : 'Nothing spent'}</span>
+                        <span className="font-semibold text-title">{total ? t('vm.tokens.nTokens', { n: humanTokens(total) }) : t('vm.tokens.nothingSpentSlot')}</span>
                         {s.counts && (
                           <span className="text-muted">
-                            {share(s.counts.cacheRead, total)} cache reads · {tps(s.counts.avgTPS ?? 0)} · {usd(s.counts.costUSD)}
+                            {t('vm.tokens.cacheReadsShare', { share: share(s.counts.cacheRead, total) })} · {tps(s.counts.avgTPS ?? 0)} · {usd(s.counts.costUSD)}
                           </span>
                         )}
                         <span className="text-faint">{slotLabel(s.start, report.bucketSeconds)}</span>
@@ -314,7 +326,7 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
                     <button
                       type="button"
                       role="listitem"
-                      aria-label={`${slotLabel(s.start, report.bucketSeconds)}: ${humanTokens(total)} tokens`}
+                      aria-label={`${slotLabel(s.start, report.bucketSeconds)}: ${t('vm.tokens.nTokens', { n: humanTokens(total) })}`}
                       className="group flex h-full min-w-0 flex-1 items-end justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
                     >
                       <span
@@ -346,30 +358,31 @@ function SpendOverTime({ report }: { report: T.TokenReport }) {
 // it has one, and the project's chat for the lead. scoped leaves the project
 // out, on a page that is already about one.
 function agentName(a: T.AgentTokens, scoped: boolean, projects?: readonly T.Project[]): { name: string; sub: string } {
-  if (a.project === A.HomeProject) return { name: 'Main chat', sub: a.ref };
-  if (a.agent === A.LeadName) return { name: scoped ? 'Project chat' : `${projectLabel(a.project, projects)} chat`, sub: a.ref };
+  if (a.project === A.HomeProject) return { name: t('vm.tokens.mainChat'), sub: a.ref };
+  if (a.agent === A.LeadName) return { name: scoped ? t('vm.tokens.projectChat') : t('vm.tokens.projectChatOf', { project: projectLabel(a.project, projects) }), sub: a.ref };
   return { name: a.title || a.agent, sub: scoped ? a.agent : a.ref };
 }
 
 function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; scoped: boolean; onOpenAgent?: (ref: string) => void }) {
+  const t = useT();
   const [open, setOpen] = useState<string | null>(null);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const top = Math.max(1, ...report.agents.map((a) => a.total));
   const since = report.since;
 
   return (
-    <Card title="By agent" icon={Users} description="Most expensive first. Open one for its models and its last turns.">
+    <Card title={t('vm.tokens.byAgent')} icon={Users} description={t('vm.tokens.byAgentDescription')}>
       <div className="overflow-x-auto rounded-xl border border-line-faint">
         <table className="w-full min-w-[38rem] text-[12px]">
           <thead>
             <tr className="whitespace-nowrap border-b border-line text-left text-[10.5px] uppercase tracking-[0.06em] text-subtle">
-              <th className="py-1.5 pl-3 pr-2 font-medium">Agent</th>
-              <th className="px-2 py-1.5 font-medium">Tokens</th>
-              <th className="px-2 py-1.5 text-right font-medium">Cache read</th>
-              <th className="px-2 py-1.5 text-right font-medium">Avg TPS</th>
-              <th className="px-2 py-1.5 text-right font-medium">Cost</th>
-              <th className="py-1.5 pl-2 pr-3 text-right font-medium" title="The fullest its context was when a turn ended: what each call of that turn carried">
-                Peak context
+              <th className="py-1.5 pl-3 pr-2 font-medium">{t('vm.tokens.agent')}</th>
+              <th className="px-2 py-1.5 font-medium">{t('vm.tokens.tokens')}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.cacheRead')}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.avgTPS')}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{t('vm.tokens.cost')}</th>
+              <th className="py-1.5 pl-2 pr-3 text-right font-medium" title={t('vm.tokens.peakContextTip')}>
+                {t('vm.tokens.peakContext')}
               </th>
             </tr>
           </thead>
@@ -408,7 +421,7 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
                                 {name}
                               </span>
                             )}
-                            {!a.exists && a.agent !== A.LeadName && <Badge>retired</Badge>}
+                            {!a.exists && a.agent !== A.LeadName && <Badge>{t('vm.tokens.retired')}</Badge>}
                           </div>
                           <div className="truncate text-[10.5px] text-faint">
                             <span className="font-mono">{sub}</span> · {timeAgo(a.lastAt)}
@@ -453,11 +466,16 @@ function AgentsTable({ report, scoped, onOpenAgent }: { report: T.TokenReport; s
 }
 
 function AgentDetail({ agent, since }: { agent: T.AgentTokens; since?: string }) {
+  const t = useT();
   return (
     <div className="grid grid-cols-1 gap-3">
       <p className="text-[11.5px] tabular-nums text-muted">
-        {agent.turns} turn{agent.turns === 1 ? '' : 's'} · {humanTokens(agent.output)} output · {humanTokens(agent.cacheWrite)} cache writes ·{' '}
-        {humanTokens(agent.input)} fresh input
+        {t('vm.tokens.turnsLine', {
+          turns: agent.turns,
+          output: humanTokens(agent.output),
+          cacheWrites: humanTokens(agent.cacheWrite),
+          input: humanTokens(agent.input),
+        })}
       </p>
       <ModelBreakdown models={agent.models} />
       <RecentTurns query={{ project: agent.project, agent: agent.agent, since }} limit={12} />
@@ -468,15 +486,16 @@ function AgentDetail({ agent, since }: { agent: T.AgentTokens; since?: string })
 // ModelBreakdown is an agent's spend split by model. A subagent on another
 // model is its own line: Claude Code bills it to the turn that started it.
 export function ModelBreakdown({ models }: { models: T.ModelTokens[] }) {
+  const t = useT();
   const total = models.reduce((sum, m) => sum + m.total, 0);
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-subtle">By model</div>
+      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-subtle">{t('vm.tokens.byModel')}</div>
       <ul className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
         {models.map((m) => (
           <li key={m.model || 'unnamed'} className="min-w-0">
             <div className="flex items-baseline justify-between gap-2 text-[12px]">
-              <span className="truncate font-mono text-[11.5px] text-secondary">{m.model || 'unnamed model'}</span>
+              <span className="truncate font-mono text-[11.5px] text-secondary">{m.model || t('vm.tokens.unnamedModel')}</span>
               <span className="shrink-0 tabular-nums text-muted">
                 {humanTokens(m.total)} · {tps(m.avgTPS ?? 0)}
               </span>
@@ -493,6 +512,7 @@ export function ModelBreakdown({ models }: { models: T.ModelTokens[] }) {
 
 // RecentTurns is the ledger itself, newest first: the lines an audit reads.
 export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number }) {
+  const t = useT();
   const turns = useQuery({
     queryKey: ['tokenTurns', query.project ?? '', query.agent ?? '', query.since ?? '', limit],
     queryFn: () => api.tokenTurns(query, limit),
@@ -500,41 +520,41 @@ export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number
   });
   return (
     <div className="min-w-0">
-      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-subtle">Last turns</div>
+      <div className="mb-1.5 text-[10.5px] font-medium uppercase tracking-[0.06em] text-subtle">{t('vm.tokens.lastTurns')}</div>
       {turns.error && <Notice>{errorMessage(turns.error)}</Notice>}
-      {turns.data && turns.data.length === 0 && <p className="text-[12px] text-subtle">None in this stretch.</p>}
+      {turns.data && turns.data.length === 0 && <p className="text-[12px] text-subtle">{t('vm.tokens.noneInStretch')}</p>}
       {turns.data && turns.data.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-line-faint bg-surface">
           <table className="w-full text-[11.5px]">
             <thead>
               <tr className="whitespace-nowrap border-b border-line text-left text-[10px] uppercase tracking-[0.06em] text-subtle">
-                <th className="py-1 pl-2.5 pr-2 font-medium">When</th>
-                <th className="px-2 py-1 font-medium">Kind</th>
-                <th className="px-2 py-1 font-medium">Model</th>
-                <th className="px-2 py-1 text-right font-medium">Tokens</th>
-                <th className="px-2 py-1 text-right font-medium">TPS</th>
-                <th className="px-2 py-1 text-right font-medium">Cost</th>
-                <th className="py-1 pl-2 pr-2.5 text-right font-medium">Context</th>
+                <th className="py-1 pl-2.5 pr-2 font-medium">{t('vm.tokens.when')}</th>
+                <th className="px-2 py-1 font-medium">{t('vm.tokens.kind')}</th>
+                <th className="px-2 py-1 font-medium">{t('vm.tokens.model')}</th>
+                <th className="px-2 py-1 text-right font-medium">{t('vm.tokens.tokens')}</th>
+                <th className="px-2 py-1 text-right font-medium">{t('vm.tokens.tps')}</th>
+                <th className="px-2 py-1 text-right font-medium">{t('vm.tokens.cost')}</th>
+                <th className="py-1 pl-2 pr-2.5 text-right font-medium">{t('vm.tokens.context')}</th>
               </tr>
             </thead>
             <tbody>
-              {turns.data.map((t, i) => (
-                <tr key={`${t.turn}-${t.model}-${i}`} className="border-t border-line-faint first:border-t-0">
-                  <td className="py-1 pl-2.5 pr-2 whitespace-nowrap text-muted" title={new Date(t.at).toLocaleString()}>
-                    {timeAgo(t.at)}
+              {turns.data.map((turn, i) => (
+                <tr key={`${turn.turn}-${turn.model}-${i}`} className="border-t border-line-faint first:border-t-0">
+                  <td className="py-1 pl-2.5 pr-2 whitespace-nowrap text-muted" title={formatDateTime(turn.at, { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })}>
+                    {timeAgo(turn.at)}
                   </td>
                   <td className="px-2 py-1">
-                    <Badge variant={kindVariant[t.kind] ?? 'default'}>{t.kind}</Badge>
+                    <Badge variant={kindVariant[turn.kind] ?? 'default'}>{kindLabel[turn.kind] ? t(kindLabel[turn.kind]) : turn.kind}</Badge>
                   </td>
-                  <td className="max-w-[9rem] truncate px-2 py-1 font-mono text-[11px] text-tertiary" title={t.model}>
-                    {t.model || '—'}
+                  <td className="max-w-[9rem] truncate px-2 py-1 font-mono text-[11px] text-tertiary" title={turn.model}>
+                    {turn.model || '—'}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums text-secondary" title={`${humanTokens(t.cacheRead)} cache read · ${humanTokens(t.cacheWrite)} cache write · ${humanTokens(t.input)} input · ${humanTokens(t.output)} output`}>
-                    {t.total ? humanTokens(t.total) : '—'}
+                  <td className="px-2 py-1 text-right tabular-nums text-secondary" title={t('vm.tokens.turnTip', { cacheRead: humanTokens(turn.cacheRead), cacheWrite: humanTokens(turn.cacheWrite), input: humanTokens(turn.input), output: humanTokens(turn.output) })}>
+                    {turn.total ? humanTokens(turn.total) : '—'}
                   </td>
-                  <td className="px-2 py-1 text-right tabular-nums text-tertiary">{t.generationMS ? tps((t.output / t.generationMS) * 1000) : '—'}</td>
-                  <td className="px-2 py-1 text-right tabular-nums text-tertiary">{usd(t.costUSD)}</td>
-                  <td className="py-1 pl-2 pr-2.5 text-right tabular-nums text-tertiary">{t.context ? humanTokens(t.context) : '—'}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-tertiary">{turn.generationMS ? tps((turn.output / turn.generationMS) * 1000) : '—'}</td>
+                  <td className="px-2 py-1 text-right tabular-nums text-tertiary">{usd(turn.costUSD)}</td>
+                  <td className="py-1 pl-2 pr-2.5 text-right tabular-nums text-tertiary">{turn.context ? humanTokens(turn.context) : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -547,6 +567,7 @@ export function RecentTurns({ query, limit }: { query: TokenQuery; limit: number
 
 // AgentTokensCard is one agent's line of the ledger, on its Settings tab, under AI tool.
 export function AgentTokensCard({ agent }: { agent: T.Agent }) {
+  const t = useT();
   const [project, name] = agent.ref.split('/');
   const all = useQuery({ queryKey: ['tokens', project, name, 'all'], queryFn: () => api.tokens({ project, agent: name }), refetchInterval: 15_000 });
   const recent = useQuery({
@@ -560,21 +581,21 @@ export function AgentTokensCard({ agent }: { agent: T.Agent }) {
   return (
     <Card
       className="mt-3"
-      title="What it spent"
+      title={t('vm.tokens.whatItSpent')}
       icon={Coins}
-      description="This agent's chat, from the token ledger. A Claude Code started by hand in its terminal isn't counted."
+      description={t('vm.tokens.whatItSpentDescription')}
     >
       {all.error && <Notice>{errorMessage(all.error)}</Notice>}
-      {all.isPending && <p className="text-[13px] text-subtle">Loading…</p>}
-      {all.data && !mine && <p className="text-[13px] text-subtle">Nothing yet: its chat hasn't finished a turn since AgentBox started keeping the ledger.</p>}
+      {all.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
+      {all.data && !mine && <p className="text-[13px] text-subtle">{t('vm.tokens.nothingYet')}</p>}
       {mine && (
         <div className="grid grid-cols-1 gap-4" data-agent-tokens={agent.ref}>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-            <Stat label="Tokens" value={humanTokens(mine.total)} hint={`${share(mine.cacheRead, mine.total)} of them cache reads`} />
-            <Stat label="Last 5 hours" value={lately ? humanTokens(lately.total) : '0'} hint={lately ? usd(lately.costUSD) : 'Nothing spent'} />
-            <Stat label="Estimated cost" value={usd(mine.costUSD)} hint="At API prices" />
-            <Stat label="Avg TPS" value={tps(mine.avgTPS ?? 0)} hint="Output tokens per second of generation" />
-            <Stat label="Peak context" value={mine.maxContext ? humanTokens(mine.maxContext) : '—'} hint={`${mine.turns} turns`} />
+            <Stat label={t('vm.tokens.tokens')} value={humanTokens(mine.total)} hint={t('vm.tokens.shareOfCache', { share: share(mine.cacheRead, mine.total) })} />
+            <Stat label={t('vm.tokens.last5h')} value={lately ? humanTokens(lately.total) : '0'} hint={lately ? usd(lately.costUSD) : t('vm.tokens.nothingSpentSlot')} />
+            <Stat label={t('vm.tokens.estimatedCost')} value={usd(mine.costUSD)} hint={t('vm.tokens.atAPIPrices')} />
+            <Stat label={t('vm.tokens.avgTPS')} value={tps(mine.avgTPS ?? 0)} hint={t('vm.tokens.outputPerSecond')} />
+            <Stat label={t('vm.tokens.peakContext')} value={mine.maxContext ? humanTokens(mine.maxContext) : '—'} hint={t('vm.tokens.turnsCount', { turns: mine.turns })} />
           </div>
           <ModelBreakdown models={mine.models} />
           <RecentTurns query={{ project, agent: name }} limit={15} />

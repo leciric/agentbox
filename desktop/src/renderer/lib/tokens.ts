@@ -2,10 +2,18 @@
 // context window — 200k, 1M — and rounds too hard for a ledger, where 12.4M and
 // 1.3B are the numbers worth telling apart.
 
+import { formatNumber } from '../../shared/i18n/index.ts';
+
+// fixed is a number with a set count of decimals, in the language's own
+// separator, and never grouped: 1.30B, not 1,300.00M.
+function fixed(n: number, digits: number): string {
+  return formatNumber(n, { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false });
+}
+
 export function humanTokens(n: number): string {
-  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  if (n >= 1e9) return `${fixed(n / 1e9, 2)}B`;
+  if (n >= 1e6) return `${fixed(n / 1e6, 1)}M`;
+  if (n >= 1e3) return `${fixed(n / 1e3, 1)}K`;
   return String(n);
 }
 
@@ -14,8 +22,8 @@ export function humanTokens(n: number): string {
 export function usd(v: number): string {
   if (!v) return '—';
   if (v < 0.01) return '<$0.01';
-  if (v >= 1000) return `$${(v / 1000).toFixed(1)}K`;
-  return `$${v.toFixed(2)}`;
+  if (v >= 1000) return `$${fixed(v / 1000, 1)}K`;
+  return `$${fixed(v, 2)}`;
 }
 
 // tps is an average tokens-per-second reading (state.TokenTotal.TPSOutput /
@@ -24,7 +32,7 @@ export function usd(v: number): string {
 export function tps(n: number): string {
   if (!n) return '—';
   if (n >= 100) return `${Math.round(n)} tok/s`;
-  return `${n.toFixed(1)} tok/s`;
+  return `${fixed(n, 1)} tok/s`;
 }
 
 // share is a fraction as a percentage a person reads: never "0%" for something
@@ -35,7 +43,7 @@ export function share(part: number, whole: number): string {
   if (pct < 1) return '<1%';
   // Not "100%" for something that fell short of it: cache reads are 99.6% of
   // a long session, and the rest is the part worth seeing.
-  if (pct > 99 && pct < 100) return `${Math.floor(pct * 10) / 10}%`;
+  if (pct > 99 && pct < 100) return `${formatNumber(Math.floor(pct * 10) / 10)}%`;
   return `${Math.round(pct)}%`;
 }
 

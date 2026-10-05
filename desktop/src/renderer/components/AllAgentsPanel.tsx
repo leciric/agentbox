@@ -3,6 +3,8 @@ import { ChevronRight, FolderGit2, Plus } from 'lucide-react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { Fragment } from 'react';
+import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { projectLabel } from '../lib/projectName';
 import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
@@ -38,6 +40,7 @@ function compareAgents(a: T.Agent, b: T.Agent): number {
 // paused) are just drawn quieter, so they don't compete with the ones doing
 // something or waiting on you.
 export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View) => void; onNewAgent: () => void }) {
+  const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage });
@@ -50,10 +53,10 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
   if (agents.data && all.length === 0) {
     return (
       <div className="panel grid justify-items-center gap-3 rounded-2xl px-4 py-10 text-center">
-        <p className="text-[13.5px] text-muted">No agents yet. Create one to get started.</p>
+        <p className="text-[13.5px] text-muted">{t('project.all.empty')}</p>
         <Button size="sm" onClick={onNewAgent}>
           <Plus />
-          New agent
+          {t('project.view.newAgent')}
         </Button>
       </div>
     );
@@ -63,13 +66,13 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
     <div>
       <div className="hidden items-center gap-3 px-4 pb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-faint sm:flex">
         <span className="w-8 shrink-0" />
-        <span className="w-24 shrink-0 md:w-32 lg:w-40">Project</span>
-        <span className="min-w-0 flex-1">Agent</span>
-        <span className="w-[124px] shrink-0">Status</span>
-        <span className="hidden w-[200px] shrink-0 md:block">Activity</span>
+        <span className="w-24 shrink-0 md:w-32 lg:w-40">{t('project.all.project')}</span>
+        <span className="min-w-0 flex-1">{t('project.all.agent')}</span>
+        <span className="w-[124px] shrink-0">{t('project.all.status')}</span>
+        <span className="hidden w-[200px] shrink-0 md:block">{t('project.all.activity')}</span>
         <span className="w-4 shrink-0" />
       </div>
-      <Panel className="divide-y divide-line-faint overflow-hidden rounded-2xl" aria-label="All agents" aria-busy={!agents.data}>
+      <Panel className="divide-y divide-line-faint overflow-hidden rounded-2xl" aria-label={t('project.all.label')} aria-busy={!agents.data}>
         {/* Until the first list arrives there is nothing to say about the
             agents, not even that there are none. */}
         {!agents.data && skeletonWidths.map((width) => <AgentFleetRowSkeleton key={width} width={width} />)}
@@ -86,21 +89,25 @@ export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View
       </Panel>
       {emptyProjects.length > 0 && (
         <p className="mt-3 px-1 text-[12.5px] leading-relaxed text-subtle">
-          No agents yet in{' '}
-          {emptyProjects.map((project, i) => (
-            <span key={project.name}>
-              {i > 0 && (i === emptyProjects.length - 1 ? ' and ' : ', ')}
-              <button
-                type="button"
-                data-project={project.name}
-                className="text-muted underline decoration-line-heavy underline-offset-2 transition hover:text-secondary"
-                onClick={() => onSelect({ kind: 'project', project: project.name })}
-              >
-                {projectLabel(project)}
-              </button>
-            </span>
-          ))}
-          .
+          {t.rich('project.all.emptyProjects', {
+            list: (
+              <>
+                {emptyProjects.map((project, i) => (
+                  <Fragment key={project.name}>
+                    {i > 0 && (i === emptyProjects.length - 1 ? t('project.all.and') : ', ')}
+                    <button
+                      type="button"
+                      data-project={project.name}
+                      className="text-muted underline decoration-line-heavy underline-offset-2 transition hover:text-secondary"
+                      onClick={() => onSelect({ kind: 'project', project: project.name })}
+                    >
+                      {projectLabel(project)}
+                    </button>
+                  </Fragment>
+                ))}
+              </>
+            ),
+          })}
         </p>
       )}
     </div>
@@ -143,6 +150,7 @@ function AgentFleetRow({
   onSelect: () => void;
   onOpen: (view: View) => void;
 }) {
+  const t = useT();
   const status = chatLabel(agent);
   const projectName = useProjectName(agent.project);
   // A machine that's stopped or paused holds nothing live: draw it quieter so
@@ -207,7 +215,12 @@ function AgentFleetRow({
         {sample && agent.state === 'running' ? (
           <>
             <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
-            <span className="font-mono text-[10.5px] tabular-nums text-subtle" title={`CPU ${sample.cpu.toFixed(0)}% · memory ${humanBytes(sample.memory)} · disk ${humanRate(sample.diskRead)} read, ${humanRate(sample.diskWrite)} write`}>
+            <span className="font-mono text-[10.5px] tabular-nums text-subtle" title={t('project.all.usage', {
+                cpu: sample.cpu.toFixed(0),
+                memory: humanBytes(sample.memory),
+                read: humanRate(sample.diskRead),
+                write: humanRate(sample.diskWrite),
+              })}>
               {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)} · {shortRate(sample.diskRead + sample.diskWrite)}
             </span>
           </>

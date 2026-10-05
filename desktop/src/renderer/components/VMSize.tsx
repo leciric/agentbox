@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type { VMStatus } from '../../preload';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatNumber, useT } from '../lib/i18n';
 import { errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { appendOutput, CommandBox, SetupLog } from './SettingsView';
@@ -20,12 +21,18 @@ function gib(bytes: number): string {
   return String(Math.round((bytes / GiB) * 10) / 10);
 }
 
+// gibText is the same size for the screen, with the language's decimal mark.
+function gibText(bytes: number): string {
+  return formatNumber(Math.round((bytes / GiB) * 10) / 10);
+}
+
 // VMSize is the CPUs and memory of AgentBox's Linux VM on a Mac, which the
 // daemon, Incus and every agent share, and a way to change them: `agentbox vm
 // resize`, run by the main process. Lima only changes a stopped VM, so that
 // restarts the VM and stops every agent — which the dialog says before it
 // happens. The disk stays the size it was made with.
 export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const running = (agents.data ?? []).filter((a) => a.state === 'running').length;
@@ -46,7 +53,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
     onMutate: () => setLines([]),
     onSuccess: async (_, { cpus, memory }) => {
       setEdited(false);
-      toast(`AgentBox's VM has ${cpus} CPUs and ${memory} GiB of memory`, { description: 'Start the agents you need again from their pages.' });
+      toast(t('vm.size.toastMac', { cpus, memory: formatNumber(memory) }), { description: t('vm.size.toastRestart') });
       // The rest refetches when the app reconnects to the restarted daemon.
       await queryClient.invalidateQueries({ queryKey: ['host-setup'] });
     },
@@ -64,16 +71,20 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
     <Panel className="mt-3 grid gap-3 p-4" data-vm-size>
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <div className="text-[13px] font-medium text-primary">AgentBox's VM</div>
-          {vm.driver === 'vz' && <Badge variant="warning">Experimental: vz driver</Badge>}
+          <div className="text-[13px] font-medium text-primary">{t('vm.agentboxVM')}</div>
+          {vm.driver === 'vz' && <Badge variant="warning">{t('vm.size.experimental')}</Badge>}
           <div className="text-[12px] text-subtle" data-vm-size-current>
-            {vm.status ?? 'Unknown'} · {vm.cpus ?? '—'} CPUs · {vm.memory ? `${gib(vm.memory)} GiB` : '—'} of memory
-            {vm.disk ? ` · ${gib(vm.disk)} GiB disk` : ''}
+            {t('vm.size.currentMac', {
+              status: vm.status ?? t('common.unknown'),
+              cpus: vm.cpus ?? '—',
+              memory: vm.memory ? `${gibText(vm.memory)} GiB` : '—',
+              hasDisk: vm.disk ? 'yes' : 'no',
+              disk: vm.disk ? gibText(vm.disk) : '',
+            })}
           </div>
         </div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          On a Mac, the daemon, Incus and every agent run in one Linux VM, and share what it has. Changing it
-          restarts the VM, which stops every agent. The disk keeps the size it was made with.
+          {t('vm.size.descriptionMac')}
         </p>
       </div>
 
@@ -87,9 +98,15 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
-              label="CPUs"
+              label={t('vm.size.cpus')}
               htmlFor="vm-cpus"
-              hint={cpusOk || form.cpus === '' ? `${limits.minCpus} to ${limits.maxCpus} on this Mac.` : <Bad>{`${limits.minCpus} to ${limits.maxCpus} on this Mac, in whole CPUs.`}</Bad>}
+              hint={
+                cpusOk || form.cpus === '' ? (
+                  t('vm.size.cpusHintMac', { min: limits.minCpus, max: limits.maxCpus })
+                ) : (
+                  <Bad>{t('vm.size.cpusHintMacBad', { min: limits.minCpus, max: limits.maxCpus })}</Bad>
+                )
+              }
             >
               <div className="relative">
                 <Cpu className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
@@ -111,13 +128,13 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
               </div>
             </Field>
             <Field
-              label="Memory, in GiB"
+              label={t('vm.size.memoryLabel')}
               htmlFor="vm-memory"
               hint={
                 memoryOk || form.memory === '' ? (
-                  `${gib(limits.minMemory)} to ${gib(limits.maxMemory)} GiB on this Mac, which keeps 2 GiB for itself.`
+                  t('vm.size.memoryHintMac', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })
                 ) : (
-                  <Bad>{`${gib(limits.minMemory)} to ${gib(limits.maxMemory)} GiB on this Mac, which keeps 2 GiB for itself.`}</Bad>
+                  <Bad>{t('vm.size.memoryHintMac', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })}</Bad>
                 )
               }
             >
@@ -144,7 +161,7 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" variant="primary" size="sm" disabled={busy || !changed || !cpusOk || !memoryOk} data-vm-resize>
               {busy && <LoaderCircle className="animate-spin" />}
-              {busy ? 'Resizing…' : 'Resize the VM'}
+              {busy ? t('vm.size.resizing') : t('vm.size.resize')}
             </Button>
             {edited && !busy && (
               <Button
@@ -156,44 +173,36 @@ export function VMSize({ vm, busy: resizing }: { vm: VMStatus; busy: boolean }) 
                 }}
               >
                 <RotateCcw />
-                Reset
+                {t('common.reset')}
               </Button>
             )}
             <span className="text-xs text-subtle">
-              {busy ? 'Stopping the VM, resizing it and starting it again. This takes a minute or two.' : 'Restarts the VM and stops every agent.'}
+              {busy ? t('vm.size.busyMac') : t('vm.size.restartsVM')}
             </span>
           </div>
         </form>
       ) : (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">This agentbox is too old to resize the VM from here. Update the app, or run it in a terminal:</p>
+          <p className="text-[13px] text-muted">{t('vm.size.tooOld')}</p>
           <CommandBox command="agentbox vm resize --cpus 6 --memory 12GiB" />
         </div>
       )}
 
-      {(lines.length > 0 || busy) && <SetupLog lines={lines} label="VM resize log" />}
+      {(lines.length > 0 || busy) && <SetupLog lines={lines} label={t('vm.size.log')} />}
       {resize.error && <Notice>{errorMessage(resize.error)}</Notice>}
 
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Restart AgentBox's VM?"
-        description={
-          <>
-            It will have {cpus} CPUs and {memory} GiB of memory.{' '}
-            {vm.driver === 'vz' ? 'More CPUs or memory need the VM restarted, so it may stop, and' : 'Lima only resizes a stopped VM, so it stops, and'}{' '}
-            {running > 0 ? (
-              <strong className="font-medium text-primary">
-                {running === 1 ? 'the agent running now stops' : `the ${running} agents running now stop`}
-              </strong>
-            ) : (
-              'every agent stops'
-            )}{' '}
-            with it: their terminals, dev servers and any turn in progress. Their worktrees and branches are on your Mac and stay. The app can't reach the
-            daemon until the VM is back, in a minute or two.
-          </>
-        }
-        confirmLabel="Restart and resize"
+        title={t('vm.size.confirmTitle')}
+        description={t.rich('vm.size.confirmMac', {
+          cpus,
+          memory: formatNumber(memory),
+          driver: vm.driver,
+          running,
+          b: (c) => <strong className="font-medium text-primary">{c}</strong>,
+        })}
+        confirmLabel={t('vm.size.restartResize')}
         destructive
         // The resize outlives the dialog: its log is on this page.
         onConfirm={async () => resize.mutate({ cpus, memory })}
@@ -217,6 +226,7 @@ function Bad({ children }: { children: string }) {
 // with a restart on the vz driver. It's sparse, so its size is only what it
 // may grow to on this computer's disk.
 export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const running = (agents.data ?? []).filter((a) => a.state === 'running').length;
@@ -240,12 +250,8 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
     onMutate: () => setLines([]),
     onSuccess: async (_, { cpus, memory, disk, restart }) => {
       setEdited(false);
-      toast(`AgentBox's VM has ${cpus} CPUs, a memory cap of ${memory} GiB${disk ? ` and a ${disk} GiB disk` : ''}`, {
-        description: restart
-          ? 'Start the agents you need again from their pages.'
-          : on
-            ? 'Every agent kept running.'
-            : 'It has them from when it next starts.',
+      toast(t('vm.size.toastCHV', { cpus, memory: formatNumber(memory), hasDisk: disk ? 'yes' : 'no', disk: formatNumber(disk ?? 0) }), {
+        description: restart ? t('vm.size.toastRestart') : on ? t('vm.size.toastLive') : t('vm.size.toastLater'),
       });
       await queryClient.invalidateQueries({ queryKey: ['host-setup'] });
     },
@@ -285,18 +291,22 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
     <Panel className="mt-3 grid gap-3 p-4" data-vm-size data-chv>
       <div>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <div className="text-[13px] font-medium text-primary">AgentBox's VM</div>
-          {vm.driver === 'vz' && <Badge variant="warning">Experimental: vz driver</Badge>}
+          <div className="text-[13px] font-medium text-primary">{t('vm.agentboxVM')}</div>
+          {vm.driver === 'vz' && <Badge variant="warning">{t('vm.size.experimental')}</Badge>}
           <div className="text-[12px] text-subtle" data-vm-size-current>
-            {vm.state} · {vm.cpus ?? '—'} CPUs · memory up to {vm.memory.cap ? `${gib(vm.memory.cap)} GiB` : '—'}
-            {on && vm.memory.granted ? `, ${gib(vm.memory.granted)} GiB now` : ''}
-            {hasDisk ? ` · ${gib(hasDisk)} GiB disk` : ''}
+            {t('vm.size.currentCHV', {
+              state: vm.state,
+              cpus: vm.cpus ?? '—',
+              memory: vm.memory.cap ? `${gibText(vm.memory.cap)} GiB` : '—',
+              granted: on && vm.memory.granted ? 'yes' : 'no',
+              grantedGib: gibText(vm.memory.granted),
+              hasDisk: hasDisk ? 'yes' : 'no',
+              disk: gibText(hasDisk),
+            })}
           </div>
         </div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-          The daemon, Incus and every agent run in one VM, and share what it has. The VM starts small and takes
-          memory as its agents need it, up to the cap, and gives it back as they stop. Its disk takes room on this
-          computer only as agents fill it, and can grow but not shrink.
+          {t('vm.size.descriptionCHV')}
         </p>
       </div>
 
@@ -312,13 +322,13 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
-              label="CPUs"
+              label={t('vm.size.cpus')}
               htmlFor="vm-cpus"
               hint={
                 cpusOk || form.cpus === '' ? (
-                  `${limits.minCpus} to ${limits.maxCpus}, this computer's cores.`
+                  t('vm.size.cpusHintCHV', { min: limits.minCpus, max: limits.maxCpus })
                 ) : (
-                  <Bad>{`${limits.minCpus} to ${limits.maxCpus}, in whole CPUs.`}</Bad>
+                  <Bad>{t('vm.size.cpusHintCHVBad', { min: limits.minCpus, max: limits.maxCpus })}</Bad>
                 )
               }
             >
@@ -342,13 +352,13 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
               </div>
             </Field>
             <Field
-              label="Memory cap, in GiB"
+              label={t('vm.size.memoryCapLabel')}
               htmlFor="vm-memory"
               hint={
                 memoryOk || form.memory === '' ? (
-                  `${gib(limits.minMemory)} to ${gib(limits.maxMemory)} GiB, all of this computer's. The VM only takes what its agents use.`
+                  t('vm.size.memoryHintCHV', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })
                 ) : (
-                  <Bad>{`${gib(limits.minMemory)} to ${gib(limits.maxMemory)} GiB.`}</Bad>
+                  <Bad>{t('vm.size.memoryHintCHVBad', { min: gibText(limits.minMemory), max: gibText(limits.maxMemory) })}</Bad>
                 )
               }
             >
@@ -373,13 +383,13 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
             </Field>
             {minDisk > 0 && (
               <Field
-                label="Disk, in GiB"
+                label={t('vm.size.diskLabel')}
                 htmlFor="vm-disk"
                 hint={
                   diskOk || form.disk === '' ? (
-                    `${gib(hasDisk)} GiB now: it can grow, up to ${gib(maxDisk)} GiB, but not shrink.`
+                    t('vm.size.diskHint', { now: gibText(hasDisk), max: gibText(maxDisk) })
                   ) : (
-                    <Bad>{`${gib(hasDisk)} to ${gib(maxDisk)} GiB: a disk can grow, but not shrink.`}</Bad>
+                    <Bad>{t('vm.size.diskHintBad', { now: gibText(hasDisk), max: gibText(maxDisk) })}</Bad>
                   )
                 }
               >
@@ -408,7 +418,7 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
           <div className="flex flex-wrap items-center gap-2">
             <Button type="submit" variant="primary" size="sm" disabled={busy || !changed || !cpusOk || !memoryOk || !diskOk} data-vm-resize>
               {busy && <LoaderCircle className="animate-spin" />}
-              {busy ? 'Resizing…' : needsRestart ? 'Restart and resize' : 'Resize the VM'}
+              {busy ? t('vm.size.resizing') : needsRestart ? t('vm.size.restartResize') : t('vm.size.resize')}
             </Button>
             {edited && !busy && (
               <Button
@@ -420,56 +430,49 @@ export function CHVSize({ vm, busy: resizing }: { vm: T.VMStatus; busy: boolean 
                 }}
               >
                 <RotateCcw />
-                Reset
+                {t('common.reset')}
               </Button>
             )}
             <span className="text-xs text-subtle" data-vm-resize-hint={needsRestart ? 'restart' : on ? 'live' : 'off'}>
               {busy
                 ? needsRestart
-                  ? 'Restarting the VM at its new size. This takes a minute.'
-                  : 'Resizing the VM.'
+                  ? t('vm.size.busyRestart')
+                  : t('vm.size.busyLive')
                 : !on
-                  ? 'The VM is off: it has the new size when it next starts.'
+                  ? t('vm.size.hintOff')
                   : needsRestart
                     ? live
                       ? diskGrows && !live.maxDisk
-                        ? "This VM's disk can't grow while it runs: this needs a restart, which stops every agent."
-                        : `The VM started with room for ${live.maxCpus} CPUs and ${gib(live.maxMemory)} GiB: this needs a restart, which stops every agent.`
-                      : 'This VM was started by an older AgentBox: resizing it restarts it, which stops every agent.'
-                    : 'Changes at once. Every agent keeps running.'}
+                        ? t('vm.size.hintDisk')
+                        : t('vm.size.hintRoom', { cpus: live.maxCpus, memory: gibText(live.maxMemory) })
+                      : t('vm.size.hintOlder')
+                    : t('vm.size.hintLive')}
             </span>
           </div>
         </form>
       ) : (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">This agentbox is too old to resize the VM from here. Update the app, or run it in a terminal:</p>
+          <p className="text-[13px] text-muted">{t('vm.size.tooOld')}</p>
           <CommandBox command="agentbox vm resize --cpus 6 --memory-cap 16GiB" />
         </div>
       )}
 
-      {(lines.length > 0 || busy) && <SetupLog lines={lines} label="VM resize log" />}
+      {(lines.length > 0 || busy) && <SetupLog lines={lines} label={t('vm.size.log')} />}
       {resize.error && <Notice>{errorMessage(resize.error)}</Notice>}
 
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Restart AgentBox's VM?"
-        description={
-          <>
-            It will have {cpus} CPUs and a memory cap of {memory} GiB{diskGrows ? `, and a ${disk} GiB disk` : ''}. That's more than the running VM can
-            take while it runs, so it restarts, and{' '}
-            {running > 0 ? (
-              <strong className="font-medium text-primary">
-                {running === 1 ? 'the agent running now stops' : `the ${running} agents running now stop`}
-              </strong>
-            ) : (
-              'every agent stops'
-            )}{' '}
-            with it: their terminals, dev servers and any turn in progress. Their worktrees and branches are in your home folder and stay. After this
-            restart, the VM can be resized again without one.
-          </>
-        }
-        confirmLabel="Restart and resize"
+        title={t('vm.size.confirmTitle')}
+        description={t.rich('vm.size.confirmCHV', {
+          cpus,
+          memory: formatNumber(memory),
+          diskGrows: diskGrows ? 'yes' : 'no',
+          disk: formatNumber(disk),
+          running,
+          b: (c) => <strong className="font-medium text-primary">{c}</strong>,
+        })}
+        confirmLabel={t('vm.size.restartResize')}
         destructive
         onConfirm={async () => resize.mutate({ ...request(), restart: true })}
       />

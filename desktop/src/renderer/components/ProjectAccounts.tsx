@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { t as translate, useT } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
@@ -19,6 +20,7 @@ import { SettingNote, SettingRow } from './ui/settings';
 // ClaudeAccountPicker chooses which stored Claude Code login this project's new
 // agents get. Agents that already exist keep the token they were created with.
 export function ClaudeAccountPicker({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const fleet = useQuery({ queryKey: ['fleet', project.name], queryFn: () => api.fleet(project.name) });
@@ -31,8 +33,8 @@ export function ClaudeAccountPicker({ project }: { project: T.Project }) {
     onSuccess: async (updated) => {
       toast(
         updated.claudeAccount
-          ? `New agents of ${updated.name} use the Claude Code account "${updated.claudeAccount}"`
-          : `New agents of ${updated.name} use this machine's default Claude Code account`,
+          ? t('project.accounts.claudeSet', { name: updated.name, account: updated.claudeAccount })
+          : t('project.accounts.claudeDefault', { name: updated.name }),
       );
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
       await queryClient.invalidateQueries({ queryKey: ['fleet', project.name] });
@@ -56,19 +58,13 @@ export function ClaudeAccountPicker({ project }: { project: T.Project }) {
   return (
     <>
       <SettingRow
-        label="Claude Code account"
-        description={
-          auth.isPending
-            ? 'Loading…'
-            : accounts.length === 0
-              ? 'No account stored yet — add one in Settings → Accounts.'
-              : 'The Claude Code login its new agents get.'
-        }
-        details={accounts.length > 0 && 'Agents that already exist keep the token they were created with. Changing it asks whether to move the agents still on the old one too.'}
+        label={t('project.accounts.claudeLabel')}
+        description={auth.isPending ? t('common.loading') : accounts.length === 0 ? t('project.accounts.noneStored') : t('project.accounts.claudeDescription')}
+        details={accounts.length > 0 && t('project.accounts.claudeDetails')}
         control={
           accounts.length > 0 && (
-            <Select aria-label="Claude Code account" value={project.claudeAccount} disabled={pick.isPending} onChange={choose}>
-              <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
+            <Select aria-label={t('project.accounts.claudeLabel')} value={project.claudeAccount} disabled={pick.isPending} onChange={choose}>
+              <SelectOption value="">{fallback ? t('project.newAgent.defaultOption', { value: fallback }) : t('common.default')}</SelectOption>
               {accounts.filter((account) => allowed(project, account.name)).map((account) => (
                 <SelectOption key={account.name} value={account.name}>
                   {account.name}
@@ -103,7 +99,7 @@ function allowed(project: T.Project, name: string) {
 // accountLabel names an account the way a question reads best: quoted, or
 // "the default account" for the machine's own.
 function accountLabel(name: string) {
-  return name ? `"${name}"` : 'the default account';
+  return name ? `"${name}"` : translate('project.accounts.theDefault');
 }
 
 // MoveAgentsDialog asks whether a project's agents still on the account
@@ -125,6 +121,7 @@ function MoveAgentsDialog({
   to: string;
   onChoose: (move: boolean) => Promise<unknown>;
 }) {
+  const t = useT();
   const [pending, setPending] = useState<'move' | 'leave' | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -147,26 +144,24 @@ function MoveAgentsDialog({
     }
   };
 
-  const plural = count === 1 ? '' : 's';
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Move its agents too?</DialogTitle>
+          <DialogTitle>{t('project.accounts.moveTitle')}</DialogTitle>
           <DialogDescription>
-            {count} agent{plural} still {count === 1 ? 'uses' : 'use'} {accountLabel(from)}. Move {count === 1 ? 'it' : 'them'} to {accountLabel(to)} too, or
-            leave {count === 1 ? 'it' : 'them'} where {count === 1 ? 'it is' : 'they are'}?
+            {t('project.accounts.moveQuestion', { count, from: accountLabel(from), to: accountLabel(to) })}
           </DialogDescription>
         </DialogHeader>
         {error && <Notice>{error}</Notice>}
         <DialogFooter>
           <Button variant="ghost" disabled={pending !== null} onClick={() => void choose(false)}>
             {pending === 'leave' && <LoaderCircle className="animate-spin" />}
-            Leave them
+            {t('project.accounts.leave', { count })}
           </Button>
           <Button variant="primary" disabled={pending !== null} onClick={() => void choose(true)}>
             {pending === 'move' && <LoaderCircle className="animate-spin" />}
-            Move {count} agent{plural} too
+            {t('project.accounts.move', { count })}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -178,6 +173,7 @@ function MoveAgentsDialog({
 // agents may use; none ticked off means every one. The project's own
 // account can't be left out, so its chip is locked.
 export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const accounts = auth.data?.claudeAccounts ?? [];
@@ -192,8 +188,8 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
   if (accounts.length < 2) {
     return (
       <SettingRow
-        label="Allowed accounts"
-        description={auth.isPending ? 'Loading…' : `Every account — there is only ${accounts.length === 1 ? 'one' : 'none'} on this machine.`}
+        label={t('project.accounts.allowedLabel')}
+        description={auth.isPending ? t('common.loading') : t('project.accounts.onlyOne', { count: accounts.length })}
       />
     );
   }
@@ -206,16 +202,15 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
   const effective = project.claudeAccount || fallback;
   return (
     <SettingRow
-      label="Allowed accounts"
-      description={
-        <>
-          Which Claude Code accounts its agents may use.{' '}
-          {project.claudeAccounts.length === 0 ? 'Every account allowed.' : `${project.claudeAccounts.length} of ${accounts.length} allowed.`}
-        </>
-      }
-      details="Agents that already have an account keep it. The account its new agents get is always allowed."
+      label={t('project.accounts.allowedLabel')}
+      description={t('project.accounts.allowedDescription', {
+        state: project.claudeAccounts.length === 0 ? 'all' : 'some',
+        allowed: project.claudeAccounts.length,
+        total: accounts.length,
+      })}
+      details={t('project.accounts.allowedDetails')}
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label="Allowed Claude Code accounts">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label={t('project.accounts.allowedAria')}>
         {accounts.map((account) => {
           const on = allowed(project, account.name);
           const locked = account.name === project.claudeAccount;
@@ -225,7 +220,7 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
               type="button"
               aria-pressed={on}
               disabled={save.isPending || (on && locked)}
-              title={locked ? "The project's own account: pick another one above to leave it out" : undefined}
+              title={locked ? t('project.accounts.locked') : undefined}
               onClick={() => toggle(account.name)}
               className={cn(
                 'flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13px] text-muted transition hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:cursor-default',
@@ -234,13 +229,13 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
             >
               {on ? <Check className="size-3.5 shrink-0" /> : <span className="size-3.5 shrink-0" />}
               <span className="truncate">{account.name}</span>
-              {account.name === effective && <span className="text-subtle">default</span>}
+              {account.name === effective && <span className="text-subtle">{t('project.accounts.defaultChip')}</span>}
             </button>
           );
         })}
       </div>
       {effective && !allowed(project, effective) && (
-        <SettingNote tone="warning">New agents default to {effective}, which isn't allowed: pick an allowed account above.</SettingNote>
+        <SettingNote tone="warning">{t('project.accounts.notAllowed', { account: effective })}</SettingNote>
       )}
       {save.error && <SettingNote tone="error">{errorMessage(save.error)}</SettingNote>}
     </SettingRow>
@@ -250,6 +245,7 @@ export function ClaudeAccountsPicker({ project }: { project: T.Project }) {
 // GitHubAccountPicker chooses which stored GitHub login this project's new
 // agents get. Agents that already exist keep the token they were created with.
 export function GitHubAccountPicker({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const fleet = useQuery({ queryKey: ['fleet', project.name], queryFn: () => api.fleet(project.name) });
@@ -262,8 +258,8 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
     onSuccess: async (updated) => {
       toast(
         updated.githubAccount
-          ? `New agents of ${updated.name} use the GitHub account "${updated.githubAccount}"`
-          : `New agents of ${updated.name} use this machine's default GitHub account`,
+          ? t('project.accounts.githubSet', { name: updated.name, account: updated.githubAccount })
+          : t('project.accounts.githubDefault', { name: updated.name }),
       );
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
       // What the Pull requests tab and the fleet are showing was read with the
@@ -292,19 +288,13 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
   return (
     <>
       <SettingRow
-        label="GitHub account"
-        description={
-          auth.isPending
-            ? 'Loading…'
-            : accounts.length === 0
-              ? 'No account stored yet — add one in Settings → Accounts.'
-              : 'The login its new agents push and open pull requests with.'
-        }
-        details={accounts.length > 0 && 'Agents get it as GH_TOKEN, and AgentBox uses it to show their pull requests. Changing it asks whether to move the agents still on the old one too.'}
+        label={t('project.accounts.githubLabel')}
+        description={auth.isPending ? t('common.loading') : accounts.length === 0 ? t('project.accounts.noneStored') : t('project.accounts.githubDescription')}
+        details={accounts.length > 0 && t('project.accounts.githubDetails')}
         control={
           accounts.length > 0 && (
-            <Select aria-label="GitHub account" value={project.githubAccount} disabled={pick.isPending} onChange={choose}>
-              <SelectOption value="">Default{fallback ? ` (${fallback})` : ''}</SelectOption>
+            <Select aria-label={t('project.accounts.githubLabel')} value={project.githubAccount} disabled={pick.isPending} onChange={choose}>
+              <SelectOption value="">{fallback ? t('project.newAgent.defaultOption', { value: fallback }) : t('common.default')}</SelectOption>
               {/* Every stored account: the project's allow-list is for Claude Code
                   accounts, and filtering these by it left only Default (and the
                   picked account showing as "Select…") on a project that has one. */}
@@ -317,7 +307,7 @@ export function GitHubAccountPicker({ project }: { project: T.Project }) {
                   still what the project names, so it shows rather than "Select…". */}
               {project.githubAccount && !accounts.some((a) => a.name === project.githubAccount) && (
                 <SelectOption value={project.githubAccount} disabled>
-                  {project.githubAccount} (removed)
+                  {t('project.accounts.removed', { account: project.githubAccount })}
                 </SelectOption>
               )}
             </Select>

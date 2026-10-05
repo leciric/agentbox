@@ -3,7 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronsUpDown, MessagesSquare, Plus, Users } from 'lucide-react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
+import { usageTip } from '../lib/agentStatus';
 import { api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { cn, humanBytes, humanRate, shortRate } from '../lib/utils';
 import { AIIcon, aiLabel, StatusDot } from './state';
@@ -21,6 +23,7 @@ const itemClass = (active: boolean) =>
 // first entry is always the project's chat, which doubles as the one-click
 // way back to it from anywhere.
 export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
+  const t = useT();
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
   const projectName = useProjectName(project ?? '');
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled: project !== null });
@@ -35,7 +38,7 @@ export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSe
       <MenuTrigger asChild>
         <button
           className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised hover:text-primary"
-          aria-label={`Switch chat or agent in ${projectName}`}
+          aria-label={t('agent.switcher.label', { project: projectName })}
         >
           <Users className="size-3.5" />
           {/* No count before the agents are in: 0 would say there are none. */}
@@ -47,7 +50,7 @@ export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSe
         <MenuLabel>{projectName}</MenuLabel>
         <MenuPrimitive.Item className={itemClass(onLead)} onSelect={() => onSelect({ kind: 'project', project })}>
           <MessagesSquare className="size-4 shrink-0 text-brand-300" />
-          <span className="min-w-0 flex-1 truncate">Project chat</span>
+          <span className="min-w-0 flex-1 truncate">{t('agent.rail.projectChat')}</span>
           {onLead && <span className="size-1.5 shrink-0 rounded-full bg-brand-400" />}
         </MenuPrimitive.Item>
         {mine.length > 0 && <MenuSeparator />}
@@ -63,7 +66,7 @@ export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSe
         <MenuSeparator />
         <MenuPrimitive.Item className={cn(itemClass(false), 'text-muted')} onSelect={() => onNewAgent(project)}>
           <Plus className="size-4 shrink-0" />
-          <span className="flex-1">New agent</span>
+          <span className="flex-1">{t('agent.rail.newAgent')}</span>
         </MenuPrimitive.Item>
       </MenuContent>
     </Menu>
@@ -71,20 +74,21 @@ export function AgentSwitcher({ view, onSelect, onNewAgent }: { view: View; onSe
 }
 
 function AgentRow({ agent, active, sample, onSelect }: { agent: T.Agent; active: boolean; sample?: T.AgentUsage; onSelect: () => void }) {
+  const t = useT();
   return (
     <MenuPrimitive.Item data-agent={agent.ref} className={itemClass(active)} onSelect={onSelect}>
       <StatusDot state={agent.state} />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2">
           <span className="min-w-0 flex-1 truncate font-medium">{agent.title || agent.name}</span>
-          {agent.chat === 'running' && <span className="shrink-0 text-[10.5px] font-medium text-sky-300/90">Working</span>}
-          {agent.chat === 'waiting' && <span className="shrink-0 text-[10.5px] font-medium text-amber-300">Needs you</span>}
+          {agent.chat === 'running' && <span className="shrink-0 text-[10.5px] font-medium text-sky-300/90">{t('agent.status.working')}</span>}
+          {agent.chat === 'waiting' && <span className="shrink-0 text-[10.5px] font-medium text-amber-300">{t('agent.status.needsYou')}</span>}
         </span>
         <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-subtle">
           <AIIcon ai={agent.ai} className="size-3 shrink-0" />
           <span className={cn('truncate', agent.title && 'font-mono')}>{agent.title ? agent.name : aiLabel(agent.ai)}</span>
           {sample && agent.state === 'running' && (
-            <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-subtle" title={`CPU ${sample.cpu.toFixed(0)}% · memory ${humanBytes(sample.memory)} · disk ${humanRate(sample.diskRead)} read, ${humanRate(sample.diskWrite)} write`}>
+            <span className="ml-auto shrink-0 font-mono text-[10.5px] tabular-nums text-subtle" title={usageTip(sample, humanBytes, humanRate)}>
               {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)} · {shortRate(sample.diskRead + sample.diskWrite)}
             </span>
           )}
