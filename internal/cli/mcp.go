@@ -635,6 +635,81 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "agent_checkpoints",
+			Description: "An agent's checkpoints, oldest first: one at the end of each of its chat turns (its files, " +
+				"uncommitted ones included), and saved-… ones holding what it had before a rollback. " +
+				"roll_back_agent and fork_agent take their IDs.",
+			Schema: object([]string{"agent"}, map[string]any{
+				"agent": str("its name, like agent-03"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Agent string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				list, err := c.AgentCheckpoints(ctx, in.Agent)
+				if err != nil {
+					return "", err
+				}
+				if len(list) == 0 {
+					return in.Agent + " has no checkpoints yet: one is taken as each of its chat turns ends.", nil
+				}
+				var b strings.Builder
+				for _, cp := range list {
+					fmt.Fprintf(&b, "%s, %s: %s\n", cp.ID, ago(cp.CreatedAt), oneLine(cp.Prompt))
+				}
+				return b.String(), nil
+			},
+		},
+		{
+			Name: "roll_back_agent",
+			Description: "Put an agent's worktree and chat back to the end of one of its turns: the turns after it " +
+				"leave its conversation, its files go back, and its AI session restarts told the conversation up to there. " +
+				"What it had is saved as a checkpoint first. It undoes the agent's work, so do it only when the user " +
+				"asked for it. Refused while the agent is mid-turn.",
+			Schema: object([]string{"agent", "checkpoint"}, map[string]any{
+				"agent":      str("its name, like agent-03"),
+				"checkpoint": str("a turn's checkpoint from agent_checkpoints, like turn-4, or just the turn's number"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Agent, Checkpoint string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				res, err := c.RollbackAgent(ctx, in.Agent, in.Checkpoint)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("%s is back at %s. What it had is saved as %s, which fork_agent can start from.", in.Agent, in.Checkpoint, res.Saved.ID), nil
+			},
+		},
+		{
+			Name: "fork_agent",
+			Description: "Create a new agent from another's work: from one of its checkpoints (its branch starts from " +
+				"the files as they were at that turn, and its chat from the conversation up to it), or, without one, " +
+				"from its machine and files as they are now. Tell the fork what to do next with tell_agent once it exists.",
+			Schema: object([]string{"agent"}, map[string]any{
+				"agent":      str("the agent to fork, like agent-03"),
+				"checkpoint": str("a checkpoint from agent_checkpoints, like turn-4, or just the turn's number"),
+				"title":      str("the new agent's title; the source's with \" (fork)\" by default"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Agent, Checkpoint, Title string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				job, err := c.ForkAgent(ctx, in.Agent, api.ForkRequest{Checkpoint: in.Checkpoint, Title: in.Title})
+				if err != nil {
+					return "", err
+				}
+				from := "as it is now"
+				if in.Checkpoint != "" {
+					from = "at " + in.Checkpoint
+				}
+				return fmt.Sprintf("Forking %s %s; list_agents shows the new agent when it is ready. Job %s.", in.Agent, from, job.ID), nil
+			},
+		},
+		{
 			Name: "read_notes",
 			Description: "This project's notes: what every one of its agents is told before it starts, " +
 				"written by the user and by you. They are in your own brief too, as they were when this " +

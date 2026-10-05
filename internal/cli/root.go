@@ -297,6 +297,8 @@ func NewRootCmd() *cobra.Command {
 		newSnapshotsCmd(a),
 		newRestoreCmd(a),
 		newForkCmd(a),
+		newCheckpointsCmd(a),
+		newRollbackCmd(a),
 		newTopCmd(a),
 		newTokensCmd(a),
 		newDestroyCmd(a),

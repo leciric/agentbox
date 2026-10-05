@@ -114,7 +114,7 @@ test('workSummary counts each kind of tool call, and files edited by path', () =
     item({ kind: 'tool', tool: tool({ kind: 'edit', paths: ['a.ts'] }) }),
     item({ kind: 'tool', tool: tool({ kind: 'edit', paths: ['a.ts'] }) }),
   ];
-  assert.equal(workSummary(items), 'Ran 1 command, read 2 files and edited 1 file');
+  assert.equal(workSummary(items), 'Ran 1 command, edited 1 file and read 2 files');
 });
 
 test('workSummary falls back to thoughts and answers when there was no tool work', () => {
@@ -293,6 +293,34 @@ test('an event for an item of a page not read yet waits for that page', () => {
   const fresh = item({ id: 'new', kind: 'assistant', turn: 'u5', createdAt: '2026-01-02T00:00:00Z' });
   applyChatEvent(queryClient, { agent: ref, seq: 3, item: fresh });
   assert.equal(queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.at(-1)!.id, 'new');
+});
+
+test('a rollback drops what came after its turn, and refreshes the checkpoints', () => {
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-rolled';
+  queryClient.setQueryData(chatKey(ref), { ...thread(turns(3)), agent: ref, seq: 1 });
+  queryClient.setQueryData(['checkpoints', ref], []);
+  applyChatEvent(queryClient, { agent: ref, seq: 2, after: 'a0' });
+  assert.deepEqual(
+    queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.map((it) => it.id),
+    ['u0', 'a0'],
+  );
+  assert.equal(queryClient.getQueryState(['checkpoints', ref])!.isInvalidated, true);
+  // A checkpoint taken moves the thread's seq on and nothing else.
+  applyChatEvent(queryClient, { agent: ref, seq: 3, checkpoint: 'u0' });
+  assert.equal(queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.seq, 3);
+});
+
+test('timelineRows ends a settled turn that has a checkpoint with its marker', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const assistant = item({ kind: 'assistant', turn: user.id });
+  const running = item({ kind: 'user' });
+  const checkpoint = { id: 'turn-1', kind: 'turn', turn: user.id, number: 1 } as T.Checkpoint;
+  const rows = timelineRows(thread([user, assistant, running]), new Set(), new Map([[user.id, checkpoint]]));
+  assert.deepEqual(
+    rows.map((r) => r.type),
+    ['user', 'assistant', 'turn', 'user', 'working', 'thinking'],
+  );
 });
 
 test('a chat is read a page at a time, back to its start', async (t) => {

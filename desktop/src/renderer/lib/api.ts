@@ -293,6 +293,8 @@ export const api = {
   deleteSnapshot: (ref: string, name: string) => call<void>('DELETE', `${agent(ref)}/snapshots/${encodeURIComponent(name)}`),
   restore: (ref: string, snapshot: string) => call<T.Job>('POST', `${agent(ref)}/restore`, { snapshot } satisfies T.RestoreRequest),
   fork: (ref: string, req: T.ForkRequest) => call<T.Job>('POST', `${agent(ref)}/fork`, req),
+  checkpoints: (ref: string) => call<T.Checkpoint[]>('GET', `${agent(ref)}/checkpoints`),
+  rollback: (ref: string, checkpoint: string) => call<T.RollbackResult>('POST', `${agent(ref)}/rollback`, { checkpoint } satisfies T.RollbackRequest),
 
   browser: (ref: string) => call<T.BrowserStatus>('GET', `${agent(ref)}/browser`),
   browserAction: (ref: string, action: 'start' | 'stop') => call<T.BrowserStatus>('POST', `${agent(ref)}/browser/${action}`),

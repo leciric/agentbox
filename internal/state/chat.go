@@ -19,6 +19,9 @@ type ChatItem struct {
 type Chat struct {
 	SessionID string            // the AI tool's session, resumed after the adapter restarts
 	Options   map[string]string // settings you chose, like the model, applied to every new session
+	// Handoff is what the next fresh session is told of the conversation it
+	// continues, after a rollback or a fork; "" once a turn has carried it.
+	Handoff string
 }
 
 // ChatItems returns an agent's conversation, in order.
@@ -89,7 +92,7 @@ func (s *Store) SaveChatItems(ctx context.Context, project, agent string, items 
 func (s *Store) Chat(ctx context.Context, project, agent string) (Chat, error) {
 	c := Chat{Options: map[string]string{}}
 	var options string
-	err := s.db.QueryRowContext(ctx, `SELECT session_id, options FROM chats WHERE project = ? AND agent = ?`, project, agent).Scan(&c.SessionID, &options)
+	err := s.db.QueryRowContext(ctx, `SELECT session_id, options, handoff FROM chats WHERE project = ? AND agent = ?`, project, agent).Scan(&c.SessionID, &options, &c.Handoff)
 	if errors.Is(err, sql.ErrNoRows) {
 		return c, nil
 	}
@@ -110,9 +113,9 @@ func (s *Store) SaveChat(ctx context.Context, project, agent string, c Chat) err
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO chats (project, agent, session_id, options) VALUES (?, ?, ?, ?)
-		ON CONFLICT (project, agent) DO UPDATE SET session_id = excluded.session_id, options = excluded.options`,
-		project, agent, c.SessionID, string(options))
+	_, err = s.db.ExecContext(ctx, `INSERT INTO chats (project, agent, session_id, options, handoff) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (project, agent) DO UPDATE SET session_id = excluded.session_id, options = excluded.options, handoff = excluded.handoff`,
+		project, agent, c.SessionID, string(options), c.Handoff)
 	return err
 }
 
@@ -126,10 +129,17 @@ func (s *Store) ClearChat(ctx context.Context, project, agent string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM chat_items WHERE project = ? AND agent = ?`, project, agent); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE chats SET session_id = '' WHERE project = ? AND agent = ?`, project, agent); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE chats SET session_id = '', handoff = '' WHERE project = ? AND agent = ?`, project, agent); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// TruncateChatItems removes every item from position keep on: what a rollback
+// takes out of a conversation.
+func (s *Store) TruncateChatItems(ctx context.Context, project, agent string, keep int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM chat_items WHERE project = ? AND agent = ? AND position >= ?`, project, agent, keep)
+	return err
 }
 
 // removeChat deletes everything kept about an agent's conversation, with the agent.

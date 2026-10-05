@@ -788,6 +788,28 @@ var migrations = []string{
 	// before this keeps the name it had as both.
 	`ALTER TABLE projects ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
 	`UPDATE projects SET display_name = name WHERE display_name = ''`,
+
+	// An agent's checkpoints: its worktree at the end of each chat turn, a
+	// commit on refs/agentbox/snapshots/<agent>/turn-<n>, and what it had
+	// before a rollback (internal/agent/checkpoint.go).
+	`CREATE TABLE checkpoints (
+		project    TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		id         TEXT NOT NULL,
+		kind       TEXT NOT NULL,
+		turn       TEXT NOT NULL DEFAULT '',
+		number     INTEGER NOT NULL DEFAULT 0,
+		prompt     TEXT NOT NULL DEFAULT '',
+		ref        TEXT NOT NULL,
+		commit_id  TEXT NOT NULL,
+		head       TEXT NOT NULL DEFAULT '',
+		context    TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL,
+		PRIMARY KEY (project, agent, id)
+	)`,
+	// What a fresh session is told of the conversation it continues, after a
+	// rollback or a fork, until its first turn has it.
+	`ALTER TABLE chats ADD COLUMN handoff TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2116,6 +2138,9 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 		return err
 	}
 	if err := s.removeAgentEvents(ctx, project, name); err != nil {
+		return err
+	}
+	if err := s.removeCheckpoints(ctx, project, name); err != nil {
 		return err
 	}
 	// Nobody will ever answer these now, and its name may go to somebody else.

@@ -824,6 +824,18 @@ func (c *Client) CheckMigration(ctx context.Context, req MigrationCheckRequest) 
 	return out, c.do(ctx, http.MethodPost, "/v1/migration/check", req, &out)
 }
 
+// Checkpoints lists an agent's turn checkpoints and saved states, oldest first.
+func (c *Client) Checkpoints(ctx context.Context, ref string) ([]Checkpoint, error) {
+	var out []Checkpoint
+	return out, c.agentDo(ctx, http.MethodGet, ref, "/checkpoints", nil, &out)
+}
+
+// Rollback puts an agent's worktree and conversation back to a checkpoint.
+func (c *Client) Rollback(ctx context.Context, ref, checkpoint string) (RollbackResult, error) {
+	var out RollbackResult
+	return out, c.agentDo(ctx, http.MethodPost, ref, "/rollback", RollbackRequest{Checkpoint: checkpoint}, &out)
+}
+
 func (c *Client) Fork(ctx context.Context, ref string, req ForkRequest) (Job, error) {
 	var out Job
 	return out, c.agentDo(ctx, http.MethodPost, ref, "/fork", req, &out)

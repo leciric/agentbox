@@ -1,6 +1,8 @@
 import { Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Info, LoaderCircle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
+import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { cn } from '../../lib/utils';
 import { aiLabel } from '../state';
@@ -9,11 +11,17 @@ import { Tip } from '../ui/tooltip';
 import { ChangedFiles } from './ChangedFiles';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
+import { TurnMarker } from './TurnMarker';
 import { SubagentCard, WorkGroup } from './Work';
 
-export function Timeline({ agent, thread }: { agent: T.Agent; thread: T.ChatThread }) {
+export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; thread: T.ChatThread; onOpenAgent?: (ref: string) => void }) {
   const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set());
-  const rows = useMemo(() => timelineRows(thread, openTurns), [thread, openTurns]);
+  // An agent's turns end in checkpoints to roll back to or fork from; a
+  // project's chat has no worktree of its own to put back.
+  const checkpoints = useQuery({ queryKey: ['checkpoints', agent.ref], queryFn: () => api.checkpoints(agent.ref), enabled: !isProjectChat(agent.ref) });
+  const byTurn = useMemo(() => new Map((checkpoints.data ?? []).filter((cp) => cp.kind === 'turn' && cp.turn).map((cp) => [cp.turn!, cp])), [checkpoints.data]);
+  const latest = Math.max(0, ...Array.from(byTurn.values(), (cp) => cp.number));
+  const rows = useMemo(() => timelineRows(thread, openTurns, byTurn), [thread, openTurns, byTurn]);
   const toggleTurn = useCallback(
     (turn: string) =>
       setOpenTurns((open) => {
@@ -26,9 +34,13 @@ export function Timeline({ agent, thread }: { agent: T.Agent; thread: T.ChatThre
   const starting = thread.session.state === 'starting' ? thread.session.detail || `Starting ${aiLabel(agent.ai)}` : undefined;
   return (
     <div className="flex flex-col" data-chat-timeline>
-      {rows.map((row) => (
-        <TimelineRow key={row.key} row={row} chatRef={agent.ref} root={agent.worktree} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
-      ))}
+      {rows.map((row) =>
+        row.type === 'turn' ? (
+          <TurnMarker key={row.key} agent={agent} checkpoint={row.checkpoint} latest={row.checkpoint.number === latest} onOpenAgent={onOpenAgent} />
+        ) : (
+          <TimelineRow key={row.key} row={row} chatRef={agent.ref} root={agent.worktree} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
+        ),
+      )}
     </div>
   );
 }
@@ -115,11 +127,26 @@ const TimelineRow = memo(
         ) : (
           <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px] text-muted" data-chat-item="notice">
             <Info className="mt-0.5 size-4 shrink-0 text-subtle" />
-            <p className="min-w-0 break-words leading-relaxed">{row.item.text}</p>
+            <div className="min-w-0 flex-1 leading-relaxed">
+              <p className="break-words">{row.item.text}</p>
+              {/* A rollback's or a fork's context transfer: what the fresh
+                  session is told, in the open rather than slipped into its prompt. */}
+              {row.item.handoff && (
+                <details className="group/handoff mt-1" data-chat-handoff>
+                  <summary className="flex cursor-default list-none items-center gap-1 text-[12px] text-subtle hover:text-tertiary">
+                    What the new session is told
+                    <ChevronRight className="size-3.5 transition-transform group-open/handoff:rotate-90" />
+                  </summary>
+                  <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-raised p-2.5 font-mono text-[11.5px] text-tertiary">{row.item.handoff}</pre>
+                </details>
+              )}
+            </div>
           </div>
         );
       case 'changes':
         return <ChangedFiles files={row.files} root={root} />;
+      case 'turn':
+        return null; // Timeline renders it, with the agent it needs
     }
   },
   (a, b) => a.chatRef === b.chatRef && a.root === b.root && a.starting === b.starting && a.onToggleTurn === b.onToggleTurn && sameRow(a.row, b.row),
@@ -149,6 +176,8 @@ function sameRow(a: Row, b: Row): boolean {
       return a.since === (b as typeof a).since && a.stalledSince === (b as typeof a).stalledSince;
     case 'thinking':
       return true;
+    case 'turn':
+      return a.checkpoint === (b as typeof a).checkpoint;
     case 'changes': {
       const other = b as typeof a;
       return a.files.length === other.files.length && a.files.every((f, i) => f.path === other.files[i].path && f.added === other.files[i].added && f.removed === other.files[i].removed);

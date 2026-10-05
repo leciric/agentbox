@@ -65,6 +65,9 @@ type Config struct {
 
 type Server struct {
 	cfg Config
+	// timeline holds a *sync.Mutex per agent ref, taken by its checkpoints
+	// and rollbacks (timeline.go).
+	timeline sync.Map
 	// imageCache is the image cache agents' Docker shares (imagecache.go),
 	// and imageCacheUp whether its socket is being served.
 	imageCache   *imagecache.Cache
@@ -285,6 +288,7 @@ func New(cfg Config) (*Server, error) {
 		Finished:   s.agentFinished,
 		LeadIdle:   s.leadCacheIdle,
 		Idle:       s.leadIdle,
+		TurnEnded:  s.checkpointTurn,
 		AuthFailed: s.claudeAuthFailed,
 		Lost:       s.agentLost,
 		Limits:     s.claudeLimited,
@@ -649,6 +653,8 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/agents/{project}/{agent}/snapshots/{name}", s.deleteSnapshot)
 	h("POST /v1/agents/{project}/{agent}/restore", s.restore)
 	h("POST /v1/agents/{project}/{agent}/fork", s.fork)
+	h("GET /v1/agents/{project}/{agent}/checkpoints", s.listCheckpoints)
+	h("POST /v1/agents/{project}/{agent}/rollback", s.rollback)
 	h("POST /v1/agents/{project}/{agent}/recreate", s.recreate)
 	h("POST /v1/migration/check", s.checkMigration)
 	s.connectorRoutes(h)

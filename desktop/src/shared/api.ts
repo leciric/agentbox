@@ -234,6 +234,7 @@ export interface ForkRequest {
   name?: string;
   title?: string;
   snapshot?: string;
+  checkpoint?: string;
 }
 
 export interface UpdateAgentRequest {
@@ -256,6 +257,25 @@ export interface SnapshotRequest {
 
 export interface RestoreRequest {
   snapshot: string;
+}
+
+export interface Checkpoint {
+  id: string;
+  kind: string;
+  turn?: string;
+  number: number;
+  prompt: string;
+  commit: string;
+  head: string;
+  createdAt: string;
+}
+
+export interface RollbackRequest {
+  checkpoint: string;
+}
+
+export interface RollbackResult {
+  saved: Checkpoint;
 }
 
 export interface Base {
@@ -1286,6 +1306,7 @@ export interface ChatItem {
   result?: ChatTurnResult;
   subagent?: ChatSubagent;
   compaction?: ChatCompaction;
+  handoff?: string;
   parent?: string;
   createdAt: string;
   updatedAt: string;
@@ -1380,6 +1401,8 @@ export interface ChatEvent {
   append?: ChatAppend;
   session?: ChatSession;
   cleared?: boolean;
+  after?: string;
+  checkpoint?: string;
 }
 
 export interface ChatAppend {
