@@ -20,40 +20,52 @@ func TestPackageCacheEnvNamesTheCachesOnlyWhenTheyreThere(t *testing.T) {
 	t.Parallel()
 	m := &Manager{User: image.User{Name: "dev", UID: os.Getuid(), GID: os.Getgid()}}
 	dir := t.TempDir()
-	env := func() string {
+	// The shell gets a controlled environment, never the test's own: an agent
+	// has npm_config_*, pnpm_config_* and BASH_ENV set, which would leak in.
+	env := func() map[string]string {
 		t.Helper()
-		out, err := exec.Command("sh", "-c", inSandbox(m.packageCacheEnv(), dir)+"env").Output()
+		cmd := exec.Command("sh", "-c", inSandbox(m.packageCacheEnv(), dir)+"env")
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(dir, "home")}
+		out, err := cmd.Output()
 		if err != nil {
 			t.Fatal(err)
 		}
-		return string(out)
+		vars := map[string]string{}
+		for _, line := range strings.Split(string(out), "\n") {
+			if k, v, ok := strings.Cut(line, "="); ok {
+				vars[k] = v
+			}
+		}
+		return vars
 	}
-	if got := env(); strings.Contains(got, "npm_config_cache") {
-		t.Errorf("caches named with no directory:\n%s", got)
+	if got := env(); got["npm_config_cache"] != "" {
+		t.Errorf("caches named with no directory: npm_config_cache=%q", got["npm_config_cache"])
 	}
 	if err := os.Mkdir(filepath.Join(dir, "cache"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	got := env()
-	for _, want := range []string{
-		"npm_config_cache=" + dir + "/cache/npm\n",
-		"npm_config_logs_dir=" + dir + "/home/.npm/_logs\n",
-		"pnpm_config_store_dir=" + dir + "/cache/pnpm/store\n",
-		"GOMODCACHE=" + dir + "/cache/go/mod\n",
-		"GOCACHE=" + dir + "/cache/go/build\n",
-		"PIP_CACHE_DIR=" + dir + "/cache/pip\n",
-		"UV_CACHE_DIR=" + dir + "/cache/uv\n",
-		"PLAYWRIGHT_BROWSERS_PATH=" + dir + "/cache/ms-playwright\n",
-		"PLAYWRIGHT_SKIP_BROWSER_GC=1\n",
-		"COREPACK_HOME=" + dir + "/cache/corepack\n",
+	for k, want := range map[string]string{
+		"npm_config_cache":           dir + "/cache/npm",
+		"npm_config_logs_dir":        dir + "/home/.npm/_logs",
+		"pnpm_config_store_dir":      dir + "/cache/pnpm/store",
+		"GOMODCACHE":                 dir + "/cache/go/mod",
+		"GOCACHE":                    dir + "/cache/go/build",
+		"PIP_CACHE_DIR":              dir + "/cache/pip",
+		"UV_CACHE_DIR":               dir + "/cache/uv",
+		"PLAYWRIGHT_BROWSERS_PATH":   dir + "/cache/ms-playwright",
+		"PLAYWRIGHT_SKIP_BROWSER_GC": "1",
+		"COREPACK_HOME":              dir + "/cache/corepack",
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("no %q in the env", want)
+		if got[k] != want {
+			t.Errorf("%s = %q, want %q", k, got[k], want)
 		}
 	}
 	// Yarn 1 would take YARN_GLOBAL_FOLDER for where `yarn global` installs.
-	if strings.Contains(got, "YARN_") {
-		t.Error("a Yarn variable is set")
+	for k := range got {
+		if strings.HasPrefix(k, "YARN_") {
+			t.Errorf("a Yarn variable is set: %s", k)
+		}
 	}
 }
 
@@ -71,7 +83,9 @@ func TestPackageCacheSetupPointsPnpmAndYarnAtTheCachesOnce(t *testing.T) {
 	}
 	script := inSandbox(m.packageCacheSetup(), dir)
 	for range 2 {
-		if out, err := exec.Command("sh", "-c", script).CombinedOutput(); err != nil {
+		cmd := exec.Command("sh", "-c", script)
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(dir, "home")}
+		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%v: %s", err, out)
 		}
 	}
