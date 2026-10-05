@@ -4,7 +4,7 @@ import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { projectLabel } from '../lib/projectName';
-import { timeAgo } from '../lib/utils';
+import { cn, timeAgo } from '../lib/utils';
 import { Badge, type BadgeVariant } from './ui/badge';
 
 const prVariant: Record<string, BadgeVariant> = { open: 'success', merged: 'brand', closed: 'danger' };
@@ -22,6 +22,7 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
   const title = agent?.title ?? item.agentTitle;
   const pr = agent?.pr;
   const projectName = projectLabel(project, projects.data);
+  const variant = !pr || pr.draft ? 'default' : (prVariant[pr.state] ?? 'default');
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 border-b border-line bg-surface-faint px-5 py-2 text-[12.5px]" data-viewer-links>
       <button
@@ -55,7 +56,8 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
           title={pr.title}
         >
           <GitPullRequest className="size-3.5" />#{pr.number}
-          <Badge variant={pr.draft ? 'default' : (prVariant[pr.state] ?? 'default')} className="ml-0.5">
+          {/* brand-300 is too faint on light surfaces. */}
+          <Badge variant={variant} className={cn('ml-0.5', variant === 'brand' && '[:root[data-appearance=light]_&]:text-brand-600')}>
             {pr.draft ? 'draft' : pr.state}
           </Badge>
           <ExternalLink className="size-3 text-subtle" />

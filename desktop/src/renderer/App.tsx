@@ -159,7 +159,8 @@ export function App() {
           }}
         />
       ),
-      { id: n.id },
+      // Long enough to reach with the pointer: the toast is the way in.
+      { id: n.id, duration: 10_000 },
     );
     void window.agentbox.notify({ id: n.id, ...noticeText(n, projectName) });
   };
