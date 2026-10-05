@@ -2,8 +2,6 @@ package desktop
 
 import (
 	"context"
-	"encoding/json"
-	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,12 +10,9 @@ import (
 )
 
 // InputEvent is one key pressed or button clicked on the display, as
-// LogInput writes it, one JSON object a line, for Overlay to draw onto a
-// recording afterwards.
+// watchInput sees it, for the overlay to draw onto a recording.
 type InputEvent struct {
-	// T is when it happened, in seconds since the Unix epoch: the clock
-	// ffmpeg's x11grab stamps its frames with, so a recording's own start
-	// time places every event on its timeline.
+	// T is when it happened, in seconds since the Unix epoch.
 	T float64 `json:"t"`
 	// Key is the key pressed: the character it types ("a", "A", " "), or its
 	// name for one that types nothing ("Enter", "←", "F5"). Modifier
@@ -31,34 +26,26 @@ type InputEvent struct {
 	Y      int `json:"y,omitempty"`
 }
 
-// LogInput writes every key press and button press on the display to w, until
-// ctx ends or the display goes away.
-func LogInput(ctx context.Context, w io.Writer) error {
-	x, err := dialX(Display)
-	if err != nil {
-		return err
-	}
+// watchInput calls on with every key press and button press on the display,
+// and moved, when it isn't nil, with where the pointer is each time it moves,
+// until ctx ends or the display goes away. x is connected already, which is
+// what makes it testable without a real display: a test drives x's protocol
+// directly rather than dialing one.
+func watchInput(ctx context.Context, x *xRecorder, on func(InputEvent), moved func(x, y int)) error {
 	stop := context.AfterFunc(ctx, func() { _ = x.Close() })
 	defer stop()
-	defer func() { _ = x.Close() }()
-	return logInput(ctx, x, w)
-}
-
-// logInput is LogInput against an xRecorder already connected, which is what
-// makes it testable without a real display: a test drives x's protocol
-// directly rather than dialing one.
-func logInput(ctx context.Context, x *xRecorder, w io.Writer) error {
-	enc := json.NewEncoder(w)
 	held := map[string]bool{}
-	err := x.start(func(in rawInput) bool {
+	err := x.start(moved != nil, func(in rawInput) bool {
 		now := float64(time.Now().UnixMicro()) / 1e6
 		switch in.kind {
+		case xMotionNotify:
+			moved(in.x, in.y)
 		case xButtonPress:
 			// 4 to 7 are the scroll wheel, which isn't a click.
 			if in.detail >= 4 && in.detail <= 7 {
 				return true
 			}
-			return enc.Encode(InputEvent{T: now, Button: int(in.detail), X: in.x, Y: in.y}) == nil
+			on(InputEvent{T: now, Button: int(in.detail), X: in.x, Y: in.y})
 		case xKeyPress, xKeyRelease:
 			syms := x.keysyms[in.detail]
 			base := uint32(0)
@@ -82,7 +69,7 @@ func logInput(ctx context.Context, x *xRecorder, w io.Writer) error {
 					mods = append(mods, m)
 				}
 			}
-			return enc.Encode(InputEvent{T: now, Key: key, Mods: mods}) == nil
+			on(InputEvent{T: now, Key: key, Mods: mods})
 		}
 		return true
 	})

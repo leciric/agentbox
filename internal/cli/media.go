@@ -246,18 +246,24 @@ func newMediaScreenshotCmd(a *app) *cobra.Command {
 }
 
 func newRecordStartCmd(a *app) *cobra.Command {
-	var name, input string
+	var name, input, target string
 	var limit time.Duration
 	cmd := &cobra.Command{
 		Use:   "start [agent]",
 		Short: "Start recording the agent's display",
 		Long: `Start recording the agent's display.
 
+By default (--target auto) a recording made while the browser is all there is
+to see, or driven with Playwright, is of the browser's page alone, from
+Chromium's own screencast: lighter to make and sharper to watch. Anything else,
+a desktop app or Electron included, records the whole display. --target
+display or --target browser says which.
+
 With --input desktop the recording also shows how it was driven: the mouse
-cursor, a ripple where it clicks, and the keys pressed as a caption over the
-dock, drawn onto the video when it stops. Use it for a flow driven through the
-desktop, with xdotool; Playwright's input is synthesized inside Chromium, where
-neither the cursor nor the overlay sees it.`,
+cursor, a ripple where it clicks, and the keys pressed as a caption, drawn as
+it records. Use it for a flow driven through the desktop, with xdotool;
+Playwright's input is synthesized inside Chromium, where neither the cursor
+nor the overlay sees it.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := optionalRef(args)
@@ -272,19 +278,20 @@ neither the cursor nor the overlay sees it.`,
 					return err
 				}
 			}
-			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Input: input, Name: name, LimitSeconds: int(limit.Seconds())})
+			status, err := c.StartRecording(cmd.Context(), ref, api.RecordRequest{Target: target, Input: input, Name: name, LimitSeconds: int(limit.Seconds())})
 			if err != nil {
 				if ref == "" {
 					_, _ = c.ReleaseBurst(cmd.Context(), recordingKey)
 				}
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Recording %q%s. Run agentbox media record stop when you're done (it stops by itself after %s)\n",
-				status.Name, recordInput(status.Input), time.Duration(status.LimitSeconds)*time.Second)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Recording %q%s%s. Run agentbox media record stop when you're done (it stops by itself after %s)\n",
+				status.Name, recordTarget(status.Target), recordInput(status.Input), time.Duration(status.LimitSeconds)*time.Second)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", `a name, like "checkout-flow"`)
+	cmd.Flags().StringVar(&target, "target", "auto", "auto, display (the whole desktop) or browser (the page alone)")
 	cmd.Flags().StringVar(&input, "input", "playwright", "playwright, or desktop to show the mouse cursor and the keys pressed")
 	cmd.Flags().DurationVar(&limit, "limit", 10*time.Minute, "stop by itself after this long (at most 1h)")
 	return cmd
@@ -306,6 +313,14 @@ func leaseRecording(cmd *cobra.Command, c burstClient, limit time.Duration) erro
 		return fmt.Errorf("no memory to record after 10 minutes: %s. Try again later", lease.Why)
 	}
 	return nil // a daemon that can't lease doesn't keep the recording from starting
+}
+
+// recordTarget says what is being recorded, when it's the browser's page.
+func recordTarget(target string) string {
+	if target == "browser" {
+		return " of the browser's page"
+	}
+	return ""
 }
 
 // recordInput names the mode in a sentence, and says nothing for the default.

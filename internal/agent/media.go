@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/desktop"
 	"agentbox/internal/state"
 )
 
@@ -252,7 +253,7 @@ func (m *Manager) withPage(ctx context.Context, a state.Agent, page BrowserPage,
 // RecordingStatus describes the recording running in an agent, if any.
 type RecordingStatus struct {
 	Recording bool
-	Target    string // display or android
+	Target    string // display, browser or android
 	Input     string // playwright (the default) or desktop, which shows the keys pressed
 	Name      string
 	Source    string
@@ -267,10 +268,15 @@ type recordingState struct {
 	Source    string    `json:"source"`
 	StartedAt time.Time `json:"startedAt"`
 	Limit     int       `json:"limit"` // seconds
+	// Staged is a recording written straight into the agent's media, through
+	// the recordings device, rather than inside the agent and copied out.
+	Staged bool `json:"staged,omitempty"`
 }
 
 // StartRecording records until StopRecording, or until limit: the agent's
-// display with ffmpeg, or its Android emulator's screen with scrcpy.
+// display or its browser's page, with the recorder in the agentbox binary
+// (desktop.Record), or its Android emulator's screen with scrcpy. The target
+// "auto", the default, takes the page when the browser is all there is to see.
 func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, input, name string, limit time.Duration, source string) (RecordingStatus, error) {
 	if err := m.requireRunning(ctx, a); err != nil {
 		return RecordingStatus{}, err
@@ -279,102 +285,127 @@ func (m *Manager) StartRecording(ctx context.Context, a state.Agent, target, inp
 		limit = DefaultRecordLimit
 	}
 	limit = min(limit, maxRecordLimit)
-	st := recordingState{Target: cmpOr(target, "display"), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds())}
+	st := recordingState{Target: cmpOr(target, desktop.RecordAuto), Input: cmpOr(input, RecordInputPlaywright), Name: cmpOr(strings.TrimSpace(name), "recording"), Source: cmpOr(source, "user"), StartedAt: time.Now().UTC(), Limit: int(limit.Seconds())}
 	if st.Input != RecordInputPlaywright && st.Input != RecordInputDesktop {
 		return RecordingStatus{}, fmt.Errorf("unknown recording input %q: use playwright or desktop", st.Input)
 	}
-	if st.Input == RecordInputDesktop && st.Target != "display" {
-		return RecordingStatus{}, fmt.Errorf("--input desktop records the display, not %s", st.Target)
+	if st.Input == RecordInputDesktop && st.Target == "android" {
+		return RecordingStatus{}, errors.New("--input desktop records the display or the browser, not android")
 	}
+	staged, err := m.ensureRecordingStage(ctx, a)
+	if err != nil {
+		m.logf("recording %s: copying it out instead of writing it to its media: %v", a.Ref(), err)
+	}
+	st.Staged = staged
 	script, err := startRecordingScript(st)
 	if err != nil {
 		return RecordingStatus{}, err
 	}
-	if _, err := m.agentShell(ctx, a, script); err != nil {
+	out, err := m.agentShell(ctx, a, script)
+	if err != nil {
 		return RecordingStatus{}, fmt.Errorf("starting the recording: %w", err)
+	}
+	if t := strings.TrimSpace(out); t != "" {
+		st.Target = t
 	}
 	return RecordingStatus{Recording: true, Target: st.Target, Input: st.Input, Name: st.Name, Source: st.Source, StartedAt: st.StartedAt, Limit: limit}, nil
 }
 
-// recordingOutputArgs are what a display recording is encoded with, after
-// its input: the filters, the codec, and an MP4 every Chromium plays and can
-// show the first frame of before it has the rest, which is what the Media
-// grid's thumbnails are. That means 4:2:0 (x11grab's frames are RGB, which
-// libx264 would otherwise keep as High 4:4:4, which Chromium can't decode) and
-// the index at the front (+faststart), where the app reads it with its first
-// range request; TestRecordingsPlayInChromium encodes with these and checks
-// both. fast is the desktop-input first pass, which trades size for speed
-// since it is encoded again when the overlay is burned onto it.
-func recordingOutputArgs(fast bool) string {
-	quality := "-preset veryfast -crf 28"
-	if fast {
-		quality = "-preset ultrafast -crf 16"
-	}
-	return "-vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' -c:v libx264 " + quality + " -pix_fmt yuv420p -movflags +faststart"
+// RecordingOutputArgs are what a display recording is encoded with, after its
+// input, for one made outside an agent (`agentbox machines`).
+func RecordingOutputArgs() string {
+	return "-vf '" + desktop.EvenSize + "' " + strings.Join(desktop.EncodeArgs, " ")
 }
 
-// RecordingOutputArgs are recordingOutputArgs(false), for a recording made
-// outside an agent (`agentbox machines`), which has no overlay pass.
-func RecordingOutputArgs() string { return recordingOutputArgs(false) }
+// recordingDevice mounts the agent's recording stage at recordingOut, so that
+// a recording is written where it will be kept, and stopping it is a rename
+// rather than a copy out of the agent. The stage is in the agent's media
+// directory, on the same filesystem as its items, and only ever holds the
+// recording in progress: the agent can write to it, but an item, once kept,
+// is out of its reach. required=false lets the agent start without it, should
+// its media be deleted or moved.
+const (
+	recordingDevice = "recordings"
+	recordingOut    = agentStateDir + "/out"
+)
 
-// overlayEncodeArgs encode a desktop recording again with its keys and clicks
-// drawn on (burn_overlay), to the same kind of MP4 as recordingOutputArgs.
-const overlayEncodeArgs = "-c:v libx264 -preset veryfast -crf 28 -pix_fmt yuv420p -movflags +faststart"
+func (m *Manager) recordingStage(a state.Agent) string {
+	return filepath.Join(m.MediaDir(a.Project, a.Name), ".recording")
+}
+
+// ensureRecordingStage mounts the recording stage into the agent, unless it
+// is already, and says whether a recording can be written to it.
+func (m *Manager) ensureRecordingStage(ctx context.Context, a state.Agent) (bool, error) {
+	stage := m.recordingStage(a)
+	if err := os.MkdirAll(stage, 0o700); err != nil {
+		return false, err
+	}
+	devices, err := m.Incus.Devices(ctx, a.Instance)
+	if err != nil {
+		return false, err
+	}
+	if device, ok := devices[recordingDevice]; ok {
+		if device["source"] == stage {
+			return true, nil
+		}
+		// The media moved (agentbox data move), or this is a copy of another agent.
+		if err := m.Incus.RemoveDevice(ctx, a.Instance, recordingDevice); err != nil {
+			return false, err
+		}
+	}
+	err = m.Incus.AddDevice(ctx, a.Instance, recordingDevice, "disk",
+		"source="+stage, "path=/home/"+m.User.Name+"/"+recordingOut, "required=false")
+	return err == nil, err
+}
 
 // startRecordingScript is what runs inside the agent to start a recording, and
-// what the integration test runs against a display of its own.
+// what the integration test runs against a display of its own. It prints what
+// is being recorded.
 func startRecordingScript(st recordingState) (string, error) {
 	// started waits until the recorder is running, so a recorder that can't
-	// start is caught here rather than at stop. ffmpeg creates its file once it
-	// has opened the display and the encoder, about 150 ms in, so it is waited
-	// for rather than a fixed second; scrcpy may take longer to connect to the
-	// device before it writes anything, so it keeps the second.
-	started := "sleep 1"
-	var recorder string
+	// start is caught here rather than at stop. The desktop recorder says so
+	// once ffmpeg has written its first frames, about 150 ms in (more for the
+	// browser, which waits for the page's first frame); scrcpy may take
+	// longer to connect to the device before it writes anything, so it keeps
+	// a second.
+	var recorder, started string
 	switch st.Target {
-	case "display":
-		// A recording of desktop input logs the keys and clicks beside the
-		// video, which stopping draws onto it (desktop.Overlay). The first
-		// pass is quick and near lossless, since it is encoded again then,
-		// and ffmpeg logs at info for the line that says when its first frame
-		// was taken, which places every logged event on the video.
-		overlay, level, fast := "", "error", false
-		if st.Input == RecordInputDesktop {
-			overlay, level, fast = inputLogStart(st.Limit)+"\n", "info -nostats", true
-		}
-		// draw_mouse is x11grab's default, and Xvnc serves the pointer through
-		// XFIXES, so the cursor lands in the frames; it is spelled out here
-		// because the whole point of desktop input is seeing it.
-		recorder = fmt.Sprintf(`[ -e /tmp/.X11-unix/X99 ] || { echo "the display isn't running: start the browser first" >&2; exit 1; }
-%[2]ssetsid ffmpeg -hide_banner -loglevel %[3]s -f x11grab -draw_mouse 1 -framerate 15 -i :99 -t %[1]d \
-  %[4]s "$dir/recording.mp4" >"$dir/recording.log" 2>&1 </dev/null &`,
-			st.Limit, overlay, level, recordingOutputArgs(fast))
+	case desktop.RecordAuto, desktop.RecordDisplay, desktop.RecordBrowser:
+		recorder = fmt.Sprintf(`command -v agentbox >/dev/null || { echo "agentbox isn't installed in this machine" >&2; exit 1; }
+setsid agentbox desktop record --target %s --input %s --limit %ds --bottom %d --ready "$dir/recording.ready" "$out" >"$dir/recording.log" 2>&1 </dev/null &`,
+			st.Target, st.Input, st.Limit, dockMargin+dockHeight/2)
 		started = `i=0
-while [ ! -e "$dir/recording.mp4" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 60 ]; do sleep 0.05; i=$((i + 1)); done`
+while [ ! -s "$dir/recording.ready" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ "$i" -lt 200 ]; do sleep 0.05; i=$((i + 1)); done
+target=$(cat "$dir/recording.ready" 2>/dev/null || true)`
 	case "android":
 		// The device's own screen, at its resolution, rather than the display showing it.
 		recorder = fmt.Sprintf(`[ -x %[1]s ] || { echo "the emulator isn't running: start it with agentbox android start" >&2; exit 1; }
-setsid %[1]s record "$dir/recording.mp4" %[2]d >"$dir/recording.log" 2>&1 </dev/null &`, androidScriptPath, st.Limit)
+setsid %[1]s record "$out" %[2]d >"$dir/recording.log" 2>&1 </dev/null &`, androidScriptPath, st.Limit)
+		started = "sleep 1\ntarget=android"
 	default:
-		return "", fmt.Errorf("unknown recording target %q: use display or android", st.Target)
+		return "", fmt.Errorf("unknown recording target %q: use auto, display, browser or android", st.Target)
 	}
 	encoded, err := json.Marshal(st)
 	if err != nil {
 		return "", err
 	}
+	out := `"$dir/recording.mp4"`
+	if st.Staged {
+		out = `"$dir/out/recording.mp4"`
+	}
 	return fmt.Sprintf(`set -eu
-dir="$HOME/%s"
+dir="$HOME/%[1]s"
+out=%[2]s
 mkdir -p "$dir"
 if [ -f "$dir/recording.pid" ] && kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null; then echo "a recording is already running: stop it first" >&2; exit 1; fi
-%[4]s
-stop_overlay
-rm -f "$dir"/recording.*
-%[2]s
+rm -f "$dir"/recording.* "$out"
+%[3]s
 echo $! >"$dir/recording.pid"
-printf '%%s' %[3]s >"$dir/recording.json"
 %[5]s
-kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null || { echo "the recording didn't start:" >&2; cat "$dir/recording.log" >&2; stop_overlay; rm -f "$dir"/recording.*; exit 1; }`,
-		agentStateDir, recorder, shellQuote(string(encoded)), overlayScript, started), nil
+kill -0 "$(cat "$dir/recording.pid")" 2>/dev/null && [ -n "$target" ] || { echo "the recording didn't start:" >&2; tail -n 5 "$dir/recording.log" >&2; kill "$(cat "$dir/recording.pid")" 2>/dev/null || true; rm -f "$dir"/recording.* "$out"; exit 1; }
+printf '%%s' %[4]s | sed "s/\"target\":\"[a-z]*\"/\"target\":\"$target\"/" >"$dir/recording.json"
+echo "$target"`,
+		agentStateDir, out, recorder, shellQuote(string(encoded)), started), nil
 }
 
 // Recording inputs: how the flow being recorded is driven, which decides
@@ -398,42 +429,6 @@ const (
 	dockMargin = 10
 )
 
-// inputLogStart logs the keys and clicks on the display for the recording's
-// duration, for stopRecordingScript to draw onto it. It writes its own pid,
-// because setsid may fork; timeout is the backstop for a recording that ends
-// at its limit rather than at StopRecording, with a couple of seconds of slack
-// so the log outlives the last frame. The agentbox binary it runs is the one
-// AgentBox pushes into every agent.
-func inputLogStart(limit int) string {
-	return fmt.Sprintf(`command -v agentbox >/dev/null || { echo "agentbox isn't installed in this machine: record without --input desktop" >&2; exit 1; }
-DISPLAY=:99 setsid sh -c 'echo $$ >"$1/input.pid"; exec timeout %d agentbox desktop input-log "$1/recording.events"' sh "$dir" >"$dir/input.log" 2>&1 </dev/null &`,
-		limit+2)
-}
-
-// overlayScript defines stop_overlay, which ends the input log if this
-// recording had one and waits for it to go, and burn_overlay, which draws what
-// it logged onto the finished video. Both scripts define them: a recording
-// started without the log still cleans up after one that crashed.
-var overlayScript = fmt.Sprintf(`stop_overlay() {
-  [ -f "$dir/input.pid" ] || return 0
-  # The pid is the log's own session leader, so the whole group goes: the
-  # timeout wrapper forwards TERM and then exits.
-  overlay=$(cat "$dir/input.pid")
-  kill -TERM "-$overlay" 2>/dev/null || kill -TERM "$overlay" 2>/dev/null || true
-  i=0
-  while kill -0 "-$overlay" 2>/dev/null && [ "$i" -lt 30 ]; do sleep 0.1; i=$((i + 1)); done
-  rm -f "$dir"/input.*
-}
-burn_overlay() {
-  start=$(sed -n 's/.*, start: \([0-9.]*\),.*/\1/p' "$dir/recording.log" | head -n 1)
-  size=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$dir/recording.mp4")
-  [ -n "$start" ] && [ -n "$size" ] || { echo "ffmpeg didn't say when the recording started" >"$dir/recording.overlay.log"; return 1; }
-  agentbox desktop overlay --events "$dir/recording.events" --start "$start" --width "${size%%%%x*}" --height "${size##*x}" \
-    --bottom %d >"$dir/recording.ass" 2>"$dir/recording.overlay.log" || return 1
-  (cd "$dir" && ffmpeg -hide_banner -loglevel error -y -i recording.mp4 -vf ass=recording.ass %s recording.overlay.mp4) >>"$dir/recording.overlay.log" 2>&1 || return 1
-  mv "$dir/recording.overlay.mp4" "$dir/recording.mp4"
-}`, dockMargin+dockHeight/2, overlayEncodeArgs)
-
 func (m *Manager) Recording(ctx context.Context, a state.Agent) (RecordingStatus, error) {
 	if m.requireRunning(ctx, a) != nil {
 		return RecordingStatus{}, nil
@@ -456,25 +451,20 @@ func stopRecordingScript() string {
 	return fmt.Sprintf(`set -eu
 dir="$HOME/%s"
 [ -f "$dir/recording.json" ] || { echo "no recording is running" >&2; exit 1; }
-%s
-stop_overlay
+out="$dir/recording.mp4"
+if grep -q '"staged":true' "$dir/recording.json"; then out="$dir/out/recording.mp4"; fi
 pid=$(cat "$dir/recording.pid" 2>/dev/null || true)
 if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
   # Both finish the file when told to stop. scrcpy ignores INT, which a
   # background process starts out ignoring, so it gets TERM.
   if grep -q '"target":"android"' "$dir/recording.json"; then kill -TERM "$pid"; else kill -INT "$pid"; fi
   i=0
-  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
+  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 500 ]; do sleep 0.05; i=$((i + 1)); done
 fi
-[ -s "$dir/recording.mp4" ] || { echo "the recording is empty:" >&2; tail -n 5 "$dir/recording.log" >&2; rm -f "$dir"/recording.*; exit 1; }
-if [ -s "$dir/recording.events" ] && ! burn_overlay; then
-  echo "the keys and clicks couldn't be drawn onto the recording, which is kept without them:" >&2
-  tail -n 5 "$dir/recording.overlay.log" >&2
-  rm -f "$dir/recording.overlay.mp4"
-fi
+[ -s "$out" ] || { echo "the recording is empty:" >&2; tail -n 5 "$dir/recording.log" >&2; rm -f "$dir"/recording.* "$out"; exit 1; }
 cat "$dir/recording.json"
 echo
-ffprobe -v error -show_entries stream=width,height:format=duration -of csv=p=0 "$dir/recording.mp4" || true`, agentStateDir, overlayScript)
+ffprobe -v error -show_entries stream=width,height:format=duration -of csv=p=0 "$out" || true`, agentStateDir)
 }
 
 // StopRecording finishes the recording and keeps it as a media item.
@@ -511,13 +501,34 @@ func (m *Manager) StopRecording(ctx context.Context, a state.Agent) (state.Media
 	file := filepath.Join(p.dir, fileName(st.Name, "recording", ".mp4"))
 	remote := home + "/" + agentStateDir
 	defer func() {
-		_, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "sh", "-c", "rm -f "+home+"/"+agentStateDir+"/recording.* "+home+"/"+agentStateDir+"/input.*")
+		_, _ = m.Incus.Exec(context.WithoutCancel(ctx), a.Instance, "sh", "-c", "rm -f "+remote+"/recording.* "+remote+"/input.*")
 	}()
-	if err := m.Incus.PullFile(ctx, a.Instance, remote+"/recording.mp4", file); err != nil {
+	if st.Staged {
+		err = takeStaged(filepath.Join(m.recordingStage(a), "recording.mp4"), file)
+	} else {
+		err = m.Incus.PullFile(ctx, a.Instance, remote+"/recording.mp4", file)
+	}
+	if err != nil {
 		p.discard()
 		return state.Media{}, err
 	}
 	return m.saveMedia(ctx, p, file, meta)
+}
+
+// takeStaged moves a recording the agent wrote to its stage into the item it
+// is kept as. The agent could have left anything there, so it has to be a
+// file of its own: not a link to one of the host's, which saving and serving
+// it would follow.
+func takeStaged(staged, file string) error {
+	info, err := os.Lstat(staged)
+	if err != nil {
+		return fmt.Errorf("the recording isn't in the agent's media: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		_ = os.Remove(staged)
+		return errors.New("the recording the agent left isn't a file")
+	}
+	return os.Rename(staged, file)
 }
 
 type AddMediaOptions struct {

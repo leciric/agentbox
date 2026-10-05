@@ -1,10 +1,8 @@
 package desktop
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 )
@@ -23,11 +21,11 @@ func serverEvent(kind, detail byte, x, y int16) []byte {
 	return reply
 }
 
-// TestLogInputWritesShiftedKeysAndClicksNotScrolls drives logInput against a
+// TestWatchInputSeesShiftedKeysAndClicksNotScrolls drives watchInput against a
 // fake X server: a shift held down, a keypress that shift turns into a
 // capital, a button click and a scroll-wheel "click" (buttons 4-7), which
-// LogInput must not log as a click.
-func TestLogInputWritesShiftedKeysAndClicksNotScrolls(t *testing.T) {
+// watchInput must not report as a click.
+func TestWatchInputSeesShiftedKeysAndClicksNotScrolls(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	x, srv := newXServer(t)
@@ -36,9 +34,12 @@ func TestLogInputWritesShiftedKeysAndClicksNotScrolls(t *testing.T) {
 	x.keysyms[50] = []uint32{0xffe1}
 	x.keysyms[38] = []uint32{'a', 'A'}
 
-	var buf bytes.Buffer
+	var mu sync.Mutex
+	var events []InputEvent
 	done := make(chan error, 1)
-	go func() { done <- logInput(ctx, x, &buf) }()
+	go func() {
+		done <- watchInput(ctx, x, func(e InputEvent) { mu.Lock(); events = append(events, e); mu.Unlock() }, nil)
+	}()
 
 	srv.readRequest(20 + 4 + 24) // CreateContext
 	srv.readRequest(8)           // EnableContext
@@ -50,7 +51,7 @@ func TestLogInputWritesShiftedKeysAndClicksNotScrolls(t *testing.T) {
 	_, _ = srv.conn.Write(serverEvent(xButtonPress, 4, 0, 0)) // scroll notch: not a click
 
 	// Give the reader a moment to consume the events before tearing down;
-	// logInput has no other way to observe "caught up" than reading more.
+	// watchInput has no other way to observe "caught up" than reading more.
 	time.Sleep(50 * time.Millisecond)
 	cancel()
 	_ = srv.conn.Close()
@@ -58,21 +59,14 @@ func TestLogInputWritesShiftedKeysAndClicksNotScrolls(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("logInput() = %v", err)
+			t.Fatalf("watchInput() = %v", err)
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("logInput() didn't return after the context was cancelled")
+		t.Fatal("watchInput() didn't return after the context was cancelled")
 	}
 
-	var events []InputEvent
-	sc := bufio.NewScanner(&buf)
-	for sc.Scan() {
-		var ev InputEvent
-		if err := json.Unmarshal(sc.Bytes(), &ev); err != nil {
-			t.Fatalf("decoding %q: %v", sc.Text(), err)
-		}
-		events = append(events, ev)
-	}
+	mu.Lock()
+	defer mu.Unlock()
 	if len(events) != 2 {
 		t.Fatalf("logged %d events, want 2 (the key and the click, not shift or the scroll): %+v", len(events), events)
 	}
