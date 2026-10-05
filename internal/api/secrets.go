@@ -30,3 +30,43 @@ type Secret struct {
 type SetSecretRequest struct {
 	Value string `json:"value"`
 }
+
+// BrowserCookies is a project's browser cookie import, as the app and the
+// command line see it: the domains, how many cookies and when, never a cookie.
+// The cookies come from an export the user made (cookies.txt, or a cookie
+// extension's or Playwright's JSON), are sealed as a project secret, and are
+// set into the Chromium of agents created after the import, the first time
+// it starts.
+type BrowserCookies struct {
+	Imported   bool       `json:"imported"`
+	Domains    []string   `json:"domains"`
+	Cookies    int        `json:"cookies"`
+	Format     string     `json:"format,omitempty"`
+	ImportedAt *time.Time `json:"importedAt,omitempty"`
+}
+
+// BrowserCookiesPreviewRequest is an export to look into before importing it.
+type BrowserCookiesPreviewRequest struct {
+	Export string `json:"export"`
+}
+
+// BrowserCookiesPreview is what an export holds, by site, for the user to
+// pick from: counts only.
+type BrowserCookiesPreview struct {
+	Format  string         `json:"format"`
+	Cookies int            `json:"cookies"`
+	Domains []CookieDomain `json:"domains"`
+}
+
+type CookieDomain struct {
+	Domain  string `json:"domain"`
+	Cookies int    `json:"cookies"`
+}
+
+// ImportBrowserCookiesRequest is the body of PUT .../browser-cookies: the
+// export, and the domains to keep of it. Cookies of other domains are
+// dropped before anything is stored.
+type ImportBrowserCookiesRequest struct {
+	Export  string   `json:"export"`
+	Domains []string `json:"domains"`
+}

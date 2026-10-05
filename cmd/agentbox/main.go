@@ -16,6 +16,14 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "machines" {
 		os.Exit(cli.Execute())
 	}
+	// `agentbox snap` and `agentbox browser-cookies` are the user's machine's
+	// too, VM or not: the window they capture and the export they read are
+	// here. They reach the daemon in the VM through its socket, forwarded to
+	// its usual path, and never start one here.
+	if len(os.Args) > 1 && (os.Args[1] == "snap" || os.Args[1] == "browser-cookies") && hostvm.Front() {
+		_ = os.Setenv("AGENTBOX_NO_AUTOSTART", "1")
+		os.Exit(cli.Execute())
+	}
 	// On a Mac, AgentBox runs in a Linux VM, and this binary is its front end;
 	// on Linux too once `agentbox vm init` made one (Cloud Hypervisor). On a
 	// Linux machine running AgentBox itself, `agentbox vm …` is still the

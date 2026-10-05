@@ -6,6 +6,7 @@ import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { projectLabel } from '../lib/projectName';
 import { errorMessage, timeAgo } from '../lib/utils';
+import { BrowserCookiesCard } from './BrowserCookies';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -76,6 +77,8 @@ export function SecretsTab({ target }: { target: string }) {
             ))}
           </ul>
         </Card>
+
+        {!forAgent && <BrowserCookiesCard project={target} />}
       </div>
 
       <ConfirmDialog

@@ -25,8 +25,8 @@ const cors = {
 };
 
 // chatImage is the one daemon path agentbox-media://api/... reaches: a picture
-// sent in an agent's chat, or in a project's.
-const chatImage = /^\/v1\/(projects\/[^/]+|agents\/[^/]+\/[^/]+)\/chat\/images\/[0-9a-f]{16}$/;
+// sent in an agent's chat, or in a project's, or a SnapShot waiting to be.
+const chatImage = /^\/v1\/((projects\/[^/]+|agents\/[^/]+\/[^/]+)\/chat\/images\/[0-9a-f]{16}|snaps\/[0-9a-f]{16}\/image)$/;
 
 export function handleMedia(): void {
   protocol.handle(mediaScheme, (request) => {

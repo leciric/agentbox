@@ -226,6 +226,9 @@ func (s Store) Project(ctx context.Context, project string) ([]Secret, error) {
 func without(stored []state.Secret) []Secret {
 	out := make([]Secret, 0, len(stored))
 	for _, sec := range stored {
+		if !envName.MatchString(sec.Name) {
+			continue // AgentBox's own, like the browser cookies
+		}
 		out = append(out, Secret{Project: sec.Project, Agent: sec.Agent, Name: sec.Name, UpdatedAt: sec.UpdatedAt})
 	}
 	return out
@@ -249,6 +252,9 @@ func (s Store) ForAgent(ctx context.Context, project, agent string) ([]Value, er
 	}
 	byName := map[string]string{}
 	for _, sec := range slices.Concat(scoped, own) {
+		if !envName.MatchString(sec.Name) {
+			continue
+		}
 		value, err := s.open(sec.Value)
 		if err != nil {
 			return nil, fmt.Errorf("%s of %s/%s: %w", sec.Name, project, agent, err)
@@ -279,7 +285,7 @@ func (s Store) NamesForAgent(ctx context.Context, project, agent string) ([]stri
 	}
 	var names []string
 	for _, sec := range slices.Concat(scoped, own) {
-		if !slices.Contains(names, sec.Name) {
+		if envName.MatchString(sec.Name) && !slices.Contains(names, sec.Name) {
 			names = append(names, sec.Name)
 		}
 	}
@@ -312,6 +318,9 @@ func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + 
 func (s Store) Resolve(ctx context.Context, project, agent, secretName string) (string, error) {
 	if err := s.ready(); err != nil {
 		return "", err
+	}
+	if !envName.MatchString(secretName) {
+		return "", fmt.Errorf("secret %s: %w", secretName, state.ErrNotFound)
 	}
 	sec, err := s.State.Secret(ctx, project, agent, secretName)
 	if agent != "" && errors.Is(err, state.ErrNotFound) {

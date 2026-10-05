@@ -7,12 +7,14 @@ require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/coder/websocket v1.8.15
 	github.com/creack/pty v1.1.24
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/yamux v0.1.2
 	github.com/lxc/incus/v7 v7.5.1
 	github.com/pkg/sftp v1.13.11
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/mod v0.41.0
+	golang.org/x/net v0.59.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
@@ -69,7 +71,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
-	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	modernc.org/libc v1.77.1 // indirect
