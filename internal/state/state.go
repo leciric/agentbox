@@ -810,6 +810,23 @@ var migrations = []string{
 	// What a fresh session is told of the conversation it continues, after a
 	// rollback or a fork, until its first turn has it.
 	`ALTER TABLE chats ADD COLUMN handoff TEXT NOT NULL DEFAULT ''`,
+
+	// What the app told the user about, across projects: an agent finishing,
+	// asking, or keeping media. Kept past its agent, so the top bar's history
+	// still has a finish the user missed, and with when it was seen, which is
+	// also what marks an item new in the Media view (media_id).
+	`CREATE TABLE notifications (
+		id         TEXT PRIMARY KEY,
+		project    TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		kind       TEXT NOT NULL,
+		media_id   TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL,
+		seen_at    INTEGER NOT NULL DEFAULT 0,
+		data       TEXT NOT NULL
+	)`,
+	`CREATE INDEX notifications_by_time ON notifications (created_at)`,
+	`CREATE INDEX notifications_by_media ON notifications (media_id) WHERE media_id != ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

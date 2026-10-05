@@ -25,7 +25,7 @@ var tsTypes = []any{
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, CPUUsageAgent{}, CPUUsage{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
 	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, IncusStatus{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
 	BrowserStatus{}, BrowserPage{}, BrowserOpenRequest{}, PreviewInfo{},
-	MediaItem{}, MediaMeta{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{},
+	MediaItem{}, MediaMeta{}, Notification{}, SeeNotificationsRequest{}, SeeNotificationsResult{}, TestCounts{}, ScreenshotRequest{}, RecordRequest{}, RecordingStatus{},
 	AddMediaRequest{}, NoteRequest{}, LogsRequest{}, ExportRequest{}, ExportResult{}, DeleteMediaRequest{}, DeleteMediaResult{},
 	SetupCheck{}, SetupStatus{}, ImageComponents{}, ImageBuild{}, ImageDownload{}, BuildImageRequest{},
 	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},
@@ -54,7 +54,7 @@ var tsTypes = []any{
 
 var tsConstants = [][2]string{
 	{"JobRunning", JobRunning}, {"JobSucceeded", JobSucceeded}, {"JobFailed", JobFailed}, {"JobCancelled", JobCancelled},
-	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventPulls", EventPulls}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap},
+	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventNotification", EventNotification}, {"EventNotificationsSeen", EventNotificationsSeen}, {"NotifyFinished", NotifyFinished}, {"NotifyQuestion", NotifyQuestion}, {"NotifyMedia", NotifyMedia}, {"EventPulls", EventPulls}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap},
 	{"SetupOK", SetupOK}, {"SetupMissing", SetupMissing}, {"SetupOutdated", SetupOutdated}, {"SetupOptional", SetupOptional}, {"SetupUpdating", SetupUpdating},
 	{"InAgentSocket", InAgentSocket}, {"ErrorFolderNotEmpty", ErrorFolderNotEmpty},
 	{"LeadName", LeadName}, {"HomeProject", HomeProject}, {"AgentModelAuto", AgentModelAuto},
