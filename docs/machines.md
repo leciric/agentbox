@@ -110,3 +110,10 @@ agentbox machines rm [dir]    # delete a worktree's machine, and its Docker volu
 ```
 
 `AGENTBOX_MACHINES_RUNTIME=docker` picks Docker when Podman is installed too.
+
+## Storage pool size (WSL and other hosts without btrfs)
+
+Where `/var/lib` isn't btrfs, host setup makes the Incus pool a sparse loop-backed btrfs image sized
+at 80% of the free space on `/var/lib`'s disk (at least 60 GiB). It only takes the space agents use.
+Pools made at the old fixed 60 GiB grow the next time host setup runs, and never shrink. To grow one
+now, run `sudo agentbox host setup` again; it is safe to repeat.
