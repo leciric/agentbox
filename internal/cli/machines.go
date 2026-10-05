@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"agentbox/internal/api"
+	"agentbox/internal/desktop"
 	"agentbox/internal/machines"
 	"agentbox/internal/machinesmedia"
 	"agentbox/internal/machinesweb"
@@ -41,7 +42,7 @@ func newMachinesCmd(a *app) *cobra.Command {
 screenshots and recordings go to one store, ` + "`<data>/machines/media`" + `, and agentbox machines serve
 shows them beside your AgentBox agents' media.`,
 	}
-	cmd.AddCommand(newMachinesMCPCmd(a), newMachinesInstallCmd(), newMachinesUninstallCmd(),
+	cmd.AddCommand(newMachinesMCPCmd(a), newMachinesDesktopMCPCmd(), newMachinesInstallCmd(), newMachinesUninstallCmd(),
 		newMachinesBuildCmd(), newMachinesListCmd(), newMachinesRemoveCmd(), newMachinesServeCmd(a))
 	return cmd
 }
@@ -61,16 +62,32 @@ func newMachinesMCPCmd(a *app) *cobra.Command {
 				// Served anyway, every tool saying why: a session outside a
 				// project is every session in the home directory, and a
 				// server that fails to start is an error in each of them.
-				tools = failingTools((&machines.Session{}).Tools(ctx), err)
+				session = &machines.Session{}
+				tools = failingTools(session.Tools(ctx), err)
 			} else {
 				tools = session.Tools(ctx)
 			}
-			srv := &mcp.Server{Name: "agentbox-machines", Version: version, Tools: tools}
+			srv := &mcp.Server{Name: "agentbox-machines", Version: version, Tools: tools, Instructions: session.Instructions()}
 			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().StringVar(&tool, "tool", "other", "the AI tool serving it, for its media: claude, codex or other")
 	return cmd
+}
+
+// newMachinesDesktopMCPCmd is `agentbox desktop mcp` for a machine: run in
+// it by the session's server, which relays its tools (machines.Session).
+func newMachinesDesktopMCPCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "desktop-mcp",
+		Short:  "Serve the machine's display over the Model Context Protocol, from inside the machine",
+		Hidden: true, // run in the machine by agentbox machines mcp
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			srv := &mcp.Server{Name: "agentbox-desktop", Version: version, Tools: desktop.Tools(cmd.Context())}
+			return srv.Serve(cmd.InOrStdin(), cmd.OutOrStdout())
+		},
+	}
 }
 
 func machinesSession(ctx context.Context, a *app, tool string) (*machines.Session, error) {

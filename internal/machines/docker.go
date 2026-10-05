@@ -260,6 +260,13 @@ func (d *Docker) Start(ctx context.Context, worktree string, c Config, progress 
 	if err := d.waitReady(ctx, worktree); err != nil {
 		return st, err
 	}
+	bin, err := LinuxAgentBinary()
+	if err != nil {
+		return st, fmt.Errorf("the desktop tools need agentbox in the machine: %w", err)
+	}
+	if _, err := d.run(ctx, nil, "cp", bin, name+":"+AgentBinary); err != nil {
+		return st, err
+	}
 	if out, err := d.Command(ctx, worktree, "agentbox-browser", "start").CombinedOutput(); err != nil {
 		return st, fmt.Errorf("starting the desktop: %s", strings.TrimSpace(string(out)))
 	}

@@ -74,6 +74,9 @@ func TestServeAnswersTheToolProtocol(t *testing.T) {
 	if _, ok := init["capabilities"].(map[string]any)["tools"]; !ok {
 		t.Errorf("initialize doesn't offer tools: %+v", init)
 	}
+	if _, ok := init["instructions"]; ok {
+		t.Errorf("instructions from a server without any: %+v", init)
+	}
 	tools := answers[1]["result"].(map[string]any)["tools"].([]any)
 	if len(tools) != 2 {
 		t.Fatalf("tools/list = %+v, want 2", tools)
@@ -91,6 +94,15 @@ func TestServeAnswersTheToolProtocol(t *testing.T) {
 	}
 	if text := call["content"].([]any)[0].(map[string]any)["text"]; text != "you said hello" {
 		t.Errorf("content = %v", text)
+	}
+}
+
+func TestServeSaysItsInstructions(t *testing.T) {
+	srv := server()
+	srv.Instructions = "use them together"
+	answers := speak(t, srv, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
+	if got := answers[0]["result"].(map[string]any)["instructions"]; got != "use them together" {
+		t.Errorf("instructions = %v", got)
 	}
 }
 
