@@ -37,6 +37,7 @@ Docker they run as root in the machine, which is you outside.
 | `machine_start`, `machine_stop`, `machine_status` | Make or start the machine, stop it, say how it is. |
 | `run` | Run a shell command in the worktree; `background` for a dev server, answered with the start of its log and a job id to read more. |
 | `preview_url` | The URL on your computer of a port published from the machine (`http://127.0.0.1:<port>`). |
+| `view_url` | A link to watch the machine's desktop live in your browser, and take control of it. |
 | `screenshot` | A picture of the desktop, in the conversation, also saved in full size. |
 | `record_start`, `record_stop` | Record the desktop to an mp4. |
 | `click`, `type`, `key`, `scroll` | The real mouse and keyboard. |
@@ -47,6 +48,23 @@ Docker they run as root in the machine, which is you outside.
 They're saved to `~/.local/share/agentbox/machines/media/<id>.png` or `.mp4`, each with an
 `<id>.json` beside it saying where it came from: the worktree, repository, branch, AI tool and
 session, its caption, size and duration. The tools answer with the path.
+
+## Watching a machine live
+
+```bash
+agentbox machines serve --open   # a page on 127.0.0.1:7790
+```
+
+The page's sidebar lists your machines, with their repository, branch, uptime and memory, to start
+and stop them. Click one to watch its desktop live: view-only until you press **Take control**,
+which gives it your mouse and keyboard. **Paste clipboard** sends what you copied to the machine,
+and what you copy there lands on your clipboard. The same page browses every screenshot and
+recording.
+
+Ask the AI tool for a link and it calls `view_url`, which starts `serve` in the background when it
+isn't running. The desktop's VNC server listens only inside the machine: the page reaches it
+through `docker exec` (or Podman's), and the page itself only answers on `127.0.0.1`, to pages it
+served.
 
 ## Configuring a project's machine
 

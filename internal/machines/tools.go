@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -33,6 +34,9 @@ type Session struct {
 	Progress func(string)
 	// Load reads the machine's configuration; Load by default.
 	Load func(worktree string) (Config, error)
+	// Serve is the address of `agentbox machines serve`, started when it
+	// isn't running, for view_url.
+	Serve func(ctx context.Context) (string, error)
 
 	mu sync.Mutex
 	pw *mcpClient
@@ -129,6 +133,13 @@ func (s *Session) Tools(ctx context.Context) []mcp.Tool {
 				"on 0.0.0.0, not localhost, to be reached there; the machine's own Chromium reaches localhost.",
 			Schema: object([]string{"port"}, map[string]any{"port": map[string]any{"type": "integer", "description": "the port in the machine"}}),
 			Wait:   s.previewURL,
+		},
+		{
+			Name: "view_url",
+			Description: "A link for the user to watch the machine's desktop live in their browser, and take control " +
+				"of it. Give it to them when they want to see or do something on the machine themselves.",
+			Schema: object(nil, map[string]any{}),
+			Wait:   s.viewURL,
 		},
 		{
 			Name: "screenshot",
@@ -345,6 +356,24 @@ func (s *Session) previewURL(ctx context.Context, raw json.RawMessage) (string, 
 	}
 	return "", fmt.Errorf("port %d isn't published (%s). Add it to \"ports\" in %s and call machine_start again, "+
 		"or open http://localhost:%d in the machine's Chromium", in.Port, describe(st), ConfigFile, in.Port)
+}
+
+func (s *Session) viewURL(ctx context.Context, _ json.RawMessage) (string, error) {
+	st, err := s.Backend.Status(ctx, s.Worktree)
+	if err != nil {
+		return "", err
+	}
+	if !st.Running {
+		return "", fmt.Errorf("%s", notStarted)
+	}
+	if s.Serve == nil {
+		return "", fmt.Errorf("no page to view it in: run agentbox machines serve")
+	}
+	base, err := s.Serve(ctx)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(base, "/") + "/#machine=" + url.QueryEscape(st.Name), nil
 }
 
 // media is a new item's sidecar, as much of it as is known before the file.

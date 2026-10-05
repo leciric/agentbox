@@ -12,6 +12,7 @@
 // picker, opening local folders) isn't available either way.
 import type { ApiResponse, Bridge, CliStatus, ConnectionState, EnvironmentTarget, HostSetupStatus, HubAccount, HubEnvironment } from '../../preload';
 import * as T from '../../shared/api.ts';
+import { webStreams } from './streams.ts';
 
 // lan says a daemon serves this page to a phone, not a hub.
 export const lan = document.querySelector('meta[name="agentbox-lan"]') !== null;
@@ -106,13 +107,6 @@ function followEvents() {
   for (const type of types) es.addEventListener(type, deliver as EventListener);
 }
 
-// WebSocket streams: terminals, and the browser and Android views.
-let nextStream = 1;
-const sockets = new Map<number, WebSocket>();
-const opened = new Set<(id: number) => void>();
-const data = new Set<(id: number, bytes: Uint8Array) => void>();
-const exited = new Set<(id: number, reason: string) => void>();
-
 function listen<F>(set: Set<F>, fn: F): () => void {
   set.add(fn);
   return () => {
@@ -120,10 +114,10 @@ function listen<F>(set: Set<F>, fn: F): () => void {
   };
 }
 
-function closeStreams() {
-  for (const ws of sockets.values()) ws.close();
-  sockets.clear();
-}
+// WebSocket streams: terminals, and the browser and Android views.
+const { stream, closeAll: closeStreams } = webStreams(
+  (path) => `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${apiBase()}${path}`,
+);
 
 const unavailable = (what: string) => () => Promise.reject(new Error(`${what} works in the desktop app, on the machine itself`));
 
@@ -146,41 +140,7 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   // The browser's own Chromium, whose switches the app can't choose.
   voiceGPU: () => Promise.resolve({ saved: { vulkan: false }, running: { vulkan: false }, platform: 'web' }),
   setVoiceGPU: () => Promise.resolve(),
-  stream: {
-    open: (path: string) => {
-      const id = nextStream++;
-      const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}${apiBase()}${path}`);
-      ws.binaryType = 'arraybuffer';
-      sockets.set(id, ws);
-      let done = false;
-      const exit = (reason: string) => {
-        if (done) return;
-        done = true;
-        sockets.delete(id);
-        for (const fn of exited) fn(id, reason);
-      };
-      ws.onopen = () => {
-        for (const fn of opened) fn(id);
-      };
-      ws.onmessage = (message) => {
-        if (message.data instanceof ArrayBuffer) for (const fn of data) fn(id, new Uint8Array(message.data));
-      };
-      ws.onerror = () => exit('the connection failed');
-      ws.onclose = (event) => exit(event.reason || (event.code === 1000 ? 'the session ended' : `the connection closed (${event.code})`));
-      return Promise.resolve(id);
-    },
-    write: (id, payload) => {
-      const ws = sockets.get(id);
-      if (ws?.readyState === WebSocket.OPEN) ws.send(typeof payload === 'string' ? payload : payload.slice());
-    },
-    close: (id) => {
-      sockets.get(id)?.close();
-      sockets.delete(id);
-    },
-    onOpened: (fn) => listen(opened, fn),
-    onData: (fn) => listen(data, fn),
-    onExited: (fn) => listen(exited, fn),
-  },
+  stream,
   cli: {
     status: () =>
       Promise.resolve<CliStatus>({ linkPath: '', linked: false, path: null, version: null, onPath: false, bundled: false, binary: null }),

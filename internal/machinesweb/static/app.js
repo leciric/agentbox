@@ -1,7 +1,9 @@
 // The page of `agentbox machines serve`. The server filters, groups and pages
 // (GET /api/items, /api/facets); this keeps the filters in the URL, renders
 // pages of cards as they scroll into view, and reuses each card's element
-// across refreshes so its thumbnail never reloads.
+// across refreshes so its thumbnail never reloads. The sidebar's Machines
+// section lists the machines (GET /api/machines), and opens one's desktop
+// live (#machine=<name>) with the app's VNC client, vnc.js.
 
 const PAGE = 120;
 const $ = (id) => document.getElementById(id);
@@ -26,7 +28,7 @@ function writeURL() {
   const p = new URLSearchParams();
   for (const [k, v] of Object.entries(state)) if (v && !(k === "group" && v === "day")) p.set(k, v);
   const s = p.toString();
-  history.replaceState(null, "", s ? "?" + s : location.pathname);
+  history.replaceState(null, "", (s ? "?" + s : location.pathname) + location.hash);
 }
 
 function query(extra = {}) {
@@ -446,6 +448,13 @@ function toast(text) {
 
 document.addEventListener("keydown", (e) => {
   if ($("confirm").open) return;
+  if (!$("mv").hidden) {
+    // In control, every key is the machine's.
+    if (mv.control) return;
+    if (e.key === "Escape" && !document.fullscreenElement) { e.preventDefault(); mv.close(); }
+    else if (e.key === "f" && !e.ctrlKey && !e.metaKey) { e.preventDefault(); mv.fullscreen(); }
+    return;
+  }
   const typing = e.target.matches?.("input, select, textarea");
   if (!$("lb").hidden) {
     if (e.key === "Escape") { e.preventDefault(); lb.close(); }
@@ -513,6 +522,215 @@ $("theme").addEventListener("click", () => {
   localStorage.setItem("theme", next);
 });
 
+// ---- Machines ----
+
+let machines = [];
+let machinesError = "";
+
+function machineTitle(m) {
+  const base = m.worktree.split("/").filter(Boolean).pop() || m.name;
+  if (m.repo && m.branch) return `${m.repo.split("/").pop()} · ${m.branch}`;
+  return m.branch ? `${base} · ${m.branch}` : base;
+}
+function fmtUptime(started) {
+  const s = Math.max(0, Math.floor((Date.now() - new Date(started)) / 1000));
+  if (s < 60) return "up " + s + "s";
+  const m = Math.floor(s / 60);
+  if (m < 60) return "up " + m + "m";
+  const h = Math.floor(m / 60);
+  if (h < 24) return `up ${h}h ${m % 60}m`;
+  return `up ${Math.floor(h / 24)}d ${h % 24}h`;
+}
+function machineSub(m) {
+  if (m.busy) return m.busy[0].toUpperCase() + m.busy.slice(1) + "…";
+  if (m.error) return m.error;
+  if (!m.running) return "Stopped";
+  const parts = [];
+  if (m.started) parts.push(fmtUptime(m.started));
+  if (m.memory) parts.push(m.limit ? `${m.memory} of ${m.limit}` : m.memory);
+  return parts.join(" · ") || "Running";
+}
+function dotClass(m) { return "dot" + (m.busy ? " busy" : m.running ? " on" : ""); }
+
+async function loadMachines() {
+  try {
+    const r = await getJSON("/api/machines");
+    machines = r.machines || [];
+    machinesError = r.error || "";
+  } catch (e) {
+    machinesError = String(e.message || e);
+  }
+  renderMachines();
+  mv.sync();
+}
+
+function renderMachines() {
+  const out = [];
+  const lbl = document.createElement("div");
+  lbl.className = "label"; lbl.textContent = "Machines";
+  out.push(lbl);
+  if (machinesError || !machines.length) {
+    const p = document.createElement("div");
+    p.className = "none" + (machinesError ? " err" : "");
+    p.textContent = machinesError || "None yet: an AI tool's machine_start makes one for its worktree.";
+    out.push(p);
+  }
+  for (const m of machines) {
+    const row = document.createElement("div");
+    row.className = "machine";
+    if (mv.name === m.name) row.setAttribute("aria-current", "true");
+    const dot = document.createElement("span");
+    dot.className = dotClass(m);
+    const open = document.createElement("button");
+    open.className = "open";
+    open.title = m.running ? `Watch ${m.worktree} live` : m.worktree;
+    const t = document.createElement("span");
+    t.className = "title"; t.textContent = machineTitle(m);
+    const sub = document.createElement("span");
+    sub.className = "sub" + (m.error && !m.busy ? " err" : ""); sub.textContent = machineSub(m);
+    open.append(t, sub);
+    open.addEventListener("click", () => { location.hash = "machine=" + encodeURIComponent(m.name); });
+    row.append(dot, open, powerButton(m, "power"));
+    out.push(row);
+  }
+  $("machines").replaceChildren(...out);
+}
+
+function powerButton(m, cls) {
+  const b = document.createElement("button");
+  b.className = cls;
+  setPower(b, m);
+  return b;
+}
+function setPower(b, m) {
+  b.textContent = m.running ? "Stop" : "Start";
+  b.disabled = !!m.busy;
+  b.onclick = (e) => { e.stopPropagation(); power(m, m.running ? "stop" : "start"); };
+}
+
+async function power(m, op) {
+  const r = await fetch(`/api/machines/${encodeURIComponent(m.name)}/${op}`, { method: "POST", headers: { "X-Machines": "1" } });
+  if (!r.ok) toast(await r.text());
+  loadMachines();
+}
+
+// mv is the live view of one machine, opened by #machine=<name>.
+const mv = {
+  name: "",
+  session: null,
+  control: false,
+  connected: false,
+  open(name) {
+    if (this.name === name) return;
+    this.close({ keepHash: true });
+    this.name = name;
+    $("mv").hidden = false;
+    document.body.style.overflow = "hidden";
+    this.setControl(false);
+    this.sync();
+    renderMachines();
+  },
+  machine() { return machines.find((m) => m.name === this.name); },
+  // sync follows the machine: connects when it runs, says why not otherwise.
+  sync() {
+    if (!this.name) return;
+    const m = this.machine();
+    $("mv-name").textContent = m ? machineTitle(m) : this.name;
+    $("mv-sub").textContent = m ? m.worktree : "";
+    $("mv-dot").className = m ? dotClass(m) : "dot";
+    $("mv-power").hidden = !m;
+    if (m) setPower($("mv-power"), m);
+    const msg = $("mv-msg");
+    if (m && m.running) {
+      msg.hidden = true;
+      if (!this.session) this.connect();
+    } else {
+      this.disconnect();
+      msg.hidden = false;
+      msg.textContent = !m ? (machinesError || "There's no machine called " + this.name + ".")
+        : m.busy ? m.busy[0].toUpperCase() + m.busy.slice(1) + "…"
+        : m.error || "This machine is stopped. Start it to watch its desktop.";
+    }
+    this.state();
+  },
+  async connect() {
+    const name = this.name;
+    this.session = {}; // connecting
+    let view;
+    try {
+      view = await import("./vnc.js");
+    } catch (e) {
+      this.session = null;
+      toast("Couldn't load the viewer: " + (e.message || e));
+      return;
+    }
+    if (this.name !== name || !this.session) return;
+    this.session = view.open($("mv-view"), name, (connected) => {
+      this.connected = connected;
+      this.state();
+      if (connected) this.session?.setControl(this.control);
+    });
+  },
+  disconnect() {
+    this.session?.close?.();
+    this.session = null;
+    this.connected = false;
+    $("mv-view").replaceChildren();
+  },
+  state() {
+    const m = this.machine();
+    $("mv-state").textContent = !m || !m.running ? "" : this.connected ? (this.control ? "Live · you're in control" : "Live · view only") : "Connecting…";
+  },
+  setControl(on) {
+    this.control = on;
+    $("mv-control").setAttribute("aria-pressed", String(on));
+    $("mv-control").textContent = on ? "Release control" : "Take control";
+    $("mv-paste").disabled = !on;
+    $("mv-cover").hidden = on;
+    this.session?.setControl?.(on);
+    this.state();
+  },
+  fullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else $("mv-screen").requestFullscreen?.().catch(() => {});
+  },
+  close({ keepHash = false } = {}) {
+    if (!this.name) return;
+    this.disconnect();
+    this.name = "";
+    this.setControl(false);
+    $("mv").hidden = true;
+    document.body.style.overflow = "";
+    if (document.fullscreenElement) document.exitFullscreen();
+    if (!keepHash && location.hash) history.replaceState(null, "", location.pathname + location.search);
+    renderMachines();
+  },
+};
+
+$("mv-control").addEventListener("click", () => mv.setControl(!mv.control));
+$("mv-paste").addEventListener("click", async () => {
+  try {
+    await mv.session?.paste?.();
+    toast("Sent your clipboard: paste it on the machine");
+  } catch {
+    toast("The browser didn't let the page read your clipboard");
+  }
+});
+$("mv-full").addEventListener("click", () => mv.fullscreen());
+$("mv-close").addEventListener("click", () => mv.close());
+
+function followHash() {
+  const name = new URLSearchParams(location.hash.slice(1)).get("machine");
+  if (name) mv.open(name);
+  else mv.close({ keepHash: true });
+}
+window.addEventListener("hashchange", followHash);
+
+// Machines are polled: their uptime and memory change all the time, and
+// starting one is the runtime's, not the page's, to report.
+setInterval(() => { if (!document.hidden) loadMachines(); }, 3000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) loadMachines(); });
+
 // ---- Live updates ----
 
 function listen() {
@@ -534,3 +752,5 @@ readURL();
 syncControls();
 reload().catch((e) => toast(String(e.message || e)));
 listen();
+followHash();
+loadMachines();

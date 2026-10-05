@@ -92,7 +92,55 @@ func machinesSession(ctx context.Context, a *app, tool string) (*machines.Sessio
 	return &machines.Session{
 		Backend: backend, Worktree: worktree, Media: store, Tool: tool, ID: hex.EncodeToString(id),
 		Progress: func(line string) { fmt.Fprintln(os.Stderr, line) },
+		Serve:    func(ctx context.Context) (string, error) { return ensureMachinesServe(ctx, a) },
 	}, nil
+}
+
+// ensureMachinesServe is the address of a running `agentbox machines serve`,
+// after starting one in the background when none answers: view_url's link
+// has to work when the user clicks it.
+func ensureMachinesServe(ctx context.Context, a *app) (string, error) {
+	file := machinesweb.RunningFile(a.paths.Data)
+	if url, ok := machinesweb.Running(ctx, file); ok {
+		return url, nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	logPath := filepath.Join(a.paths.Data, "machines", "serve.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		return "", err
+	}
+	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = log.Close() }()
+	cmd := exec.Command(exe, "machines", "serve")
+	cmd.Stdout, cmd.Stderr = log, log
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // outlives the session
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	exited := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(exited) }()
+	deadline := time.NewTimer(15 * time.Second)
+	defer deadline.Stop()
+	for {
+		if url, ok := machinesweb.Running(ctx, file); ok {
+			return url, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-exited:
+			return "", fmt.Errorf("agentbox machines serve stopped: see %s", logPath)
+		case <-deadline.C:
+			return "", fmt.Errorf("agentbox machines serve didn't answer: see %s", logPath)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // failingTools are tools that all answer with err.
@@ -267,12 +315,16 @@ func newMachinesServeCmd(a *app) *cobra.Command {
 	var openIt bool
 	cmd := &cobra.Command{
 		Use:   "serve",
-		Short: "Browse every screenshot and recording in a web page on 127.0.0.1",
+		Short: "Watch your machines live, and browse every screenshot and recording, in a web page on 127.0.0.1",
 		Long: `Serves a page on 127.0.0.1 to browse every screenshot and recording on this machine: those
 taken with agentbox machines mcp, and your AgentBox agents' media when AgentBox is running.
 Group and filter them by repository, branch and session, kind and date, search their
 captions, and open one to play, copy its path, download or delete it. New ones appear as
 they're taken.
+
+Its Machines section lists the machines of agentbox machines mcp, to start and stop them,
+and opens one's desktop live: view-only until you take control of its mouse and keyboard.
+The desktop is relayed through Docker or Podman, so it never listens outside the machine.
 
 It listens on port ` + strconv.Itoa(machinesDefaultPort) + ` unless --port names another, or on any free port when that one is
 taken, and prints the address. Thumbnails are made once and kept in <data>/machines/thumbs;
@@ -293,10 +345,16 @@ recordings get a poster frame when ffmpeg is installed.`,
 			srv.Logf = func(format string, args ...any) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", args...)
 			}
+			if d, err := machines.DetectDocker(cmd.Context()); err == nil {
+				srv.Machines = machinesweb.DockerMachines{Docker: d}
+			}
 			ctx := cmd.Context()
 			go srv.Run(ctx)
 
 			url := "http://" + ln.Addr().String() + "/"
+			if remove, err := machinesweb.WriteRunning(machinesweb.RunningFile(a.paths.Data), url); err == nil {
+				defer remove()
+			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Serving screenshots and recordings at %s\n", url)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Media from %s. Ctrl+C to stop.\n", store.Dir)
 			if openIt {

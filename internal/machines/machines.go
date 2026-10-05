@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Backend runs machines, one per worktree.
@@ -64,6 +65,8 @@ type Status struct {
 	Ports        map[int]string `json:"ports,omitempty"`
 	DockerInside bool           `json:"docker_inside,omitempty"`
 	Memory       string         `json:"memory,omitempty"`
+	// Started is when a running machine started.
+	Started time.Time `json:"started,omitzero"`
 
 	// config is the Config.Hash it was made with.
 	config string

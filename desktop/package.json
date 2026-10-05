@@ -10,6 +10,7 @@
   "main": "out/main/index.cjs",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:machines-view": "node scripts/build-machines-view.mjs",
     "start": "npm run build && electron .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "oxlint",
