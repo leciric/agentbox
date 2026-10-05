@@ -1013,6 +1013,7 @@ let defaultsSettings = {
   enforceAgentDefaults: false,
   defaultLeadModel: '',
   defaultLeadContextWindow: '',
+  language: new URLSearchParams(location.search).get('lang') ?? 'en-US',
   mediaRetention: '1d',
   claudeModelChoices: [
     { value: 'default', name: 'Default (recommended)', description: 'Opus 5.5 with 1M context' },
@@ -1059,6 +1060,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   if (req.defaultLeadModel !== undefined) next.defaultLeadModel = req.defaultLeadModel;
   if (req.defaultAgentContextWindow !== undefined) next.defaultAgentContextWindow = window(req.defaultAgentContextWindow);
   if (req.enforceAgentDefaults !== undefined) next.enforceAgentDefaults = req.enforceAgentDefaults;
+  if (req.language !== undefined) next.language = req.language || 'en-US';
   if (req.defaultLeadContextWindow !== undefined) next.defaultLeadContextWindow = window(req.defaultLeadContextWindow);
   if (req.diskFloorMin !== undefined) next.diskFloorMin = req.diskFloorMin || 10 * 1024 ** 3;
   if (req.diskFloorPercent !== undefined) next.diskFloorPercent = req.diskFloorPercent < 0 ? 5 : req.diskFloorPercent;
@@ -1644,6 +1646,7 @@ export function installDevBridge(): void {
     mediaUrl: (id: string) => mediaFiles.get(id) ?? '',
     report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '' },
     pickDirectory: async () => null,
+    setLanguage: () => {},
     openPath: async () => '',
     showItem: async () => {},
     openExternal: async () => {},

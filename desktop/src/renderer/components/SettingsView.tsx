@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Languages,
   ArrowRight,
   Bot,
   Check,
@@ -35,8 +36,9 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import type * as T from "../../shared/api";
+import * as T from "../../shared/api";
 import { api } from "../lib/api";
+import { languages, useT } from "../lib/i18n";
 import { isNightly, isUpgrade } from "../lib/nightly";
 import { openLatestRelease } from "../lib/releaseLink";
 import type { SettingSection } from "../lib/settingsSearch";
@@ -781,6 +783,7 @@ function InstalledSettings({
   agentbox: string;
   onWizard: () => void;
 }) {
+  const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const theme = useQuery({ queryKey: ["theme"], queryFn: api.theme });
   const update = useQuery({ queryKey: ["update"], queryFn: api.update, staleTime: Infinity });
@@ -861,6 +864,13 @@ function InstalledSettings({
               keywords: "theme dark light mode omarchy colours colors accent follow desktop",
               modified: theme.data ? theme.data.appearance !== "follow" : undefined,
               render: () => <Appearance />,
+            },
+            {
+              id: "language",
+              label: t("common.language"),
+              keywords: t("settings.languageKeywords"),
+              modified: changed((s) => s.language !== T.DefaultLanguage),
+              render: () => <LanguageSetting />,
             },
           ],
         },
@@ -1696,6 +1706,52 @@ function WhatsNewRow({ version }: { version: string }) {
       }
     >
       <WhatsNewDialog open={open} onOpenChange={setOpen} version={version} />
+    </SettingRow>
+  );
+}
+
+// LanguageSetting is the language the app speaks. Picking one retranslates the
+// whole window at once (main.tsx's Root follows the setting); the CLI, the
+// brief and the agents' chats stay in English, which the description says.
+function LanguageSetting() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const set = useMutation({
+    mutationFn: (language: string) => api.updateSettings({ language }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const current = settings.data?.language ?? t.lang;
+  return (
+    <SettingRow label={t("common.language")} description={t("common.languageDescription")}>
+      <div
+        className="inline-flex w-fit flex-wrap rounded-xl border border-line bg-rail p-0.5"
+        role="radiogroup"
+        aria-label={t("common.language")}
+        data-language-choice
+      >
+        {languages.map(({ tag, name }) => (
+          <button
+            key={tag}
+            role="radio"
+            lang={tag}
+            aria-checked={current === tag}
+            data-language={tag}
+            disabled={set.isPending || settings.data === undefined}
+            onClick={() => set.mutate(tag)}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              current === tag
+                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                : "text-muted hover:text-primary",
+            )}
+          >
+            <Languages className="size-[15px]" />
+            {name}
+          </button>
+        ))}
+      </div>
     </SettingRow>
   );
 }

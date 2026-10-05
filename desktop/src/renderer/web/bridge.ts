@@ -208,6 +208,7 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     openLogs: unavailable("Opening the app's logs"),
   },
   pickDirectory: () => Promise.resolve(null),
+  setLanguage: () => {},
   openPath: unavailable('Opening a folder'),
   showItem: unavailable('Showing a file'),
   openExternal: (url) => {

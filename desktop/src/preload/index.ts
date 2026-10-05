@@ -267,6 +267,8 @@ const bridge = {
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   copyText: (text: string) => ipcRenderer.send('clipboard:write', text),
+  // setLanguage tells the main process the app's language, for its dialogs.
+  setLanguage: (tag: string) => ipcRenderer.send('app:language', tag),
   readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
 };
 

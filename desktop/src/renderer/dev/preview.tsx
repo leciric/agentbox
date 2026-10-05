@@ -9,6 +9,8 @@
 // State comes from the URL, not clicks, so a scenario is a link both a
 // person and scripts/preview.mjs can go straight to:
 //   ?theme=light            the light appearance (default: dark)
+//   ?lang=pt-BR             the app in another language (default: en-US), for
+//                           strings longer than English's
 //   ?folded=1               the rail folded to 56px (default: open)
 //   ?open=agent-99          the named agent open, its row active (ref suffix only)
 //   ?finished=1             the rail's Finished section open (default: closed,
@@ -186,6 +188,7 @@ import { MovePrompt } from '../components/RunInVM';
 import { laterKey } from '../lib/vmMove';
 import { VMSize } from '../components/VMSize';
 import { connectEvents } from '../lib/events';
+import { applyLanguage, useLanguage } from '../lib/i18n';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
@@ -197,6 +200,7 @@ installDevBridge();
 
 const params = new URLSearchParams(location.search);
 document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
+applyLanguage(params.get('lang'));
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.voice.readAloud', JSON.stringify({ on: params.get('readAloud') === '1' }));
@@ -884,6 +888,17 @@ function LoadingPreview() {
   );
 }
 
+// Languaged draws the preview again when Settings changes the language, as the
+// app's Root does.
+function Languaged() {
+  useLanguage();
+  const language = useQuery({ queryKey: ['settings'], queryFn: api.settings }).data?.language;
+  useEffect(() => {
+    if (language) applyLanguage(language);
+  }, [language]);
+  return <Preview />;
+}
+
 if (loading) {
   slowListsBridge(loading === 'hold' ? null : loading === 'refetch' ? null : Number(loading), loading === 'refetch');
   createRoot(document.getElementById('root')!).render(
@@ -910,7 +925,7 @@ if (loading) {
 } else createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={queryClient}>
     <TooltipProvider delayDuration={250}>
-      <Preview />
+      <Languaged />
       <Toaster position="bottom-right" />
     </TooltipProvider>
   </QueryClientProvider>,
