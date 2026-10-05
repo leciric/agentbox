@@ -254,6 +254,22 @@ else
 fi
 
 step "Storage pool 'default' (btrfs)"
+# A loop-backed pool's image is sparse, so its size is a ceiling, not a cost.
+# pool_target_gib <free GiB> <GiB the image already holds> prints how big it
+# should be: 80% of what the disk could give it (free space plus what it
+# already holds, so a re-run settles on the same number), never under 60.
+pool_target_gib() {
+  local t=$((($1 + $2) * 80 / 100))
+  echo $((t < 60 ? 60 : t))
+}
+# free_gib <path>: whole GiB available on the filesystem holding path.
+free_gib() {
+  local b
+  b=$(df -B1 --output=avail "$1" 2>/dev/null | tail -n1 | tr -d ' ') || b=0
+  [[ $b =~ ^[0-9]+$ ]] || b=0
+  echo $((b / 1073741824))
+}
+new_pool_size="$(pool_target_gib "$(free_gib /var/lib)" 0)GiB"
 # WSL2's kernel builds btrfs as a module, on the modules disk WSL mounts at
 # /lib/modules, so it has to be loaded, and loaded again at every boot. A WSL
 # too old to carry that disk has no btrfs at all, and there the pool is a
@@ -273,11 +289,11 @@ if ! incus storage show default >/dev/null 2>&1; then
     [[ -d /var/lib/incus-pool ]] || btrfs subvolume create /var/lib/incus-pool
     if [[ $nested == yes ]]; then
       incus storage create default btrfs source=/var/lib/incus-pool ||
-        incus storage create default btrfs size=60GiB ||
+        incus storage create default btrfs size=$new_pool_size ||
         incus storage create default dir
     else
       incus storage create default btrfs source=/var/lib/incus-pool ||
-        incus storage create default btrfs size=60GiB
+        incus storage create default btrfs size=$new_pool_size
     fi
   elif [[ $nested == yes ]]; then
     # A loopback-backed btrfs image needs its own block device (losetup),
@@ -285,10 +301,26 @@ if ! incus storage show default >/dev/null 2>&1; then
     # pool is a directory here, silently, the way it already is on a real
     # host whose btrfs fails outright — a real host's own failed loop device
     # is worth seeing, not papering over with a slower pool it never asked for.
-    incus storage create default btrfs size=60GiB ||
+    incus storage create default btrfs size=$new_pool_size ||
       incus storage create default dir
   else
-    incus storage create default btrfs size=60GiB
+    incus storage create default btrfs size=$new_pool_size
+  fi
+fi
+# An existing loop-backed pool made at a fixed size grows to the target and is
+# never shrunk. `incus storage get default source` is the image file for a
+# loop pool, and a directory or device for the others, which are left alone.
+if [[ "$(incus storage get default driver 2>/dev/null)" == btrfs ]]; then
+  pool_img=$(incus storage get default source 2>/dev/null || true)
+  if [[ -n $pool_img && -f $pool_img ]]; then
+    cur_gib=$(($(stat -c %s "$pool_img") / 1073741824))
+    held_gib=$(($(du -B1 "$pool_img" | cut -f1) / 1073741824))
+    want_gib=$(pool_target_gib "$(free_gib "$(dirname "$pool_img")")" "$held_gib")
+    if ((want_gib > cur_gib)); then
+      echo "growing the storage pool from ${cur_gib}GiB to ${want_gib}GiB"
+      incus storage set default "size=${want_gib}GiB" ||
+        echo "warning: could not grow the storage pool to ${want_gib}GiB" >&2
+    fi
   fi
 fi
 

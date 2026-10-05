@@ -340,3 +340,28 @@ func TestSystemLookupFindsThisUser(t *testing.T) {
 		t.Error("TargetUser(--user nosuchuser-agentbox) found one")
 	}
 }
+
+// TestPoolTargetGiB runs the script's size calculation: 80% of what the disk
+// could give the pool, never under 60GiB, and the same answer on a re-run.
+func TestPoolTargetGiB(t *testing.T) {
+	script := string(Script)
+	start := strings.Index(script, "pool_target_gib() {")
+	end := strings.Index(script, "new_pool_size=")
+	if start < 0 || end < start {
+		t.Fatal("host-setup.sh has no pool_target_gib")
+	}
+	funcs := script[start:end]
+	for _, c := range []struct{ free, held, want string }{
+		{"0", "0", "60"},
+		{"50", "0", "60"},
+		{"100", "0", "80"},
+		{"500", "0", "400"},
+		{"440", "60", "400"}, // after growing: same target
+		{"10", "200", "168"},
+	} {
+		out, err := exec.Command("bash", "-c", funcs+"pool_target_gib "+c.free+" "+c.held).CombinedOutput()
+		if err != nil || strings.TrimSpace(string(out)) != c.want {
+			t.Errorf("free %s held %s: %q, %v; want %s", c.free, c.held, out, err, c.want)
+		}
+	}
+}
