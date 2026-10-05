@@ -106,6 +106,9 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/agents/{agent}/chat/messages", withProject(s.leadTellAgent))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/diff", withProject(s.leadAgentDiff))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/run", withProject(s.leadRunInAgent))
+	mux.HandleFunc("GET /v1/project/agents/{agent}/checkpoints", withProject(s.listCheckpoints))
+	mux.HandleFunc("POST /v1/project/agents/{agent}/rollback", withProject(s.rollback))
+	mux.HandleFunc("POST /v1/project/agents/{agent}/fork", withProject(s.fork))
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))
 	// The project's connectors: listed for list_connectors, and relayed to

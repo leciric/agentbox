@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -19,7 +20,7 @@ func TestDisplayNameMigrationKeepsTheName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before := len(migrations) - 2
+	before := slices.Index(migrations, `ALTER TABLE projects ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`)
 	for i, m := range migrations[:before] {
 		if _, err := db.ExecContext(ctx, m); err != nil {
 			t.Fatalf("migration %d: %v", i+1, err)

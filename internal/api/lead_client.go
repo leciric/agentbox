@@ -161,3 +161,21 @@ func (c *Client) CopyBetweenAgents(ctx context.Context, req LeadCopyRequest) (Le
 	var out LeadCopyResult
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/copy"), req, &out)
 }
+
+// AgentCheckpoints lists one of the project's agents' checkpoints, oldest first.
+func (c *Client) AgentCheckpoints(ctx context.Context, agent string) ([]Checkpoint, error) {
+	var out []Checkpoint
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/agents/"+url.PathEscape(agent)+"/checkpoints"), nil, &out)
+}
+
+// RollbackAgent puts one of the project's agents back to a checkpoint.
+func (c *Client) RollbackAgent(ctx context.Context, agent, checkpoint string) (RollbackResult, error) {
+	var out RollbackResult
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/rollback"), RollbackRequest{Checkpoint: checkpoint}, &out)
+}
+
+// ForkAgent starts a job making a new agent from one of the project's.
+func (c *Client) ForkAgent(ctx context.Context, agent string, req ForkRequest) (Job, error) {
+	var out Job
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/fork"), req, &out)
+}

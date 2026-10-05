@@ -1408,12 +1408,25 @@ func (s *Server) fork(w http.ResponseWriter, r *http.Request) error {
 	if err := s.diskRefusal("forking " + src.Ref()); err != nil {
 		return err
 	}
+	// The conversation is taken now, as the user saw it when asking.
+	var conv *forkConversation
+	if req.Checkpoint != "" {
+		if conv, err = s.forkConversation(r.Context(), src, req.Checkpoint); err != nil {
+			return err
+		}
+	}
 	return s.startJob(w, "fork", src.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
-		a, err := s.manager(log).Fork(ctx, src, agent.ForkOptions{Name: req.Name, Title: req.Title, Snapshot: req.Snapshot})
+		a, err := s.manager(log).Fork(ctx, src, agent.ForkOptions{Name: req.Name, Title: req.Title, Snapshot: req.Snapshot, Checkpoint: req.Checkpoint})
 		if err != nil {
 			return nil, err
 		}
 		s.countFeature(api.FeatureAgentFork)
+		if conv != nil {
+			s.countFeature(api.FeatureAgentForkTurn)
+			if err := s.chat.Seed(a, src, conv.items, conv.handoff, conv.notice); err != nil {
+				_, _ = fmt.Fprintf(log, "Couldn't copy %s's conversation: %v\n", src.Ref(), err)
+			}
+		}
 		return s.agentReady(ctx, a)
 	})
 }

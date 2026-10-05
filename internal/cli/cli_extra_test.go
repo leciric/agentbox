@@ -85,6 +85,9 @@ func TestSnapshotFamilyOnAnUnknownAgent(t *testing.T) {
 		{"snapshots", "pawly/agent-01"},
 		{"restore", "pawly/agent-01", "before"},
 		{"fork", "pawly/agent-01"},
+		{"checkpoints", "pawly/agent-01"},
+		{"rollback", "pawly/agent-01", "3", "--yes"},
+		{"fork", "pawly/agent-01", "--checkpoint", "3"},
 	} {
 		if _, err := run(t, "", args...); err == nil {
 			t.Errorf("agentbox %s on an unknown agent succeeded", strings.Join(args, " "))
@@ -772,4 +775,15 @@ func TestPackageCache(t *testing.T) {
 	if _, err := run(t, "", "package-cache", "--max", "10MiB"); err == nil {
 		t.Error("a 10MiB cap was taken")
 	}
+}
+
+// TestRollbackAsksFirst: without --yes, rollback asks, and no is no.
+func TestRollbackAsksFirst(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	out, err := run(t, "n\n", "rollback", "pawly/agent-01", "3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Nothing rolled back")
 }
