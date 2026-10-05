@@ -255,3 +255,29 @@ func TestDetectDockerHonoursTheOverride(t *testing.T) {
 		t.Skip("no sh")
 	}
 }
+
+// TestStopClosesTheBrowserBeforeStopping: docker stop only signals the
+// container's init, so Chromium has to be closed first or it is killed and the
+// next start offers to restore its pages.
+func TestStopClosesTheBrowserBeforeStopping(t *testing.T) {
+	f := newFake(t)
+	wt := t.TempDir()
+	f.made(t, wt, "c", true)
+	f.exists(t)
+	if err := f.d.Stop(context.Background(), wt); err != nil {
+		t.Fatal(err)
+	}
+	log := f.log(t)
+	closed, stopped := -1, -1
+	for i, l := range log {
+		if strings.HasPrefix(l, "exec") && strings.HasSuffix(l, "agentbox-browser stop") {
+			closed = i
+		}
+		if strings.HasPrefix(l, "stop ") {
+			stopped = i
+		}
+	}
+	if closed < 0 || stopped < 0 || closed > stopped {
+		t.Errorf("the browser wasn't closed before the stop:\n%s", strings.Join(log, "\n"))
+	}
+}

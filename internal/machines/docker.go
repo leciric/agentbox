@@ -291,6 +291,9 @@ func (d *Docker) Stop(ctx context.Context, worktree string) error {
 	if err != nil || !st.Running {
 		return err
 	}
+	// docker stop only signals the container's init, which would kill
+	// Chromium; closing the browser first lets it save its session.
+	_ = d.Command(ctx, worktree, "agentbox-browser", "stop").Run()
 	_, err = d.run(ctx, nil, "stop", "-t", "5", st.Name)
 	return err
 }
