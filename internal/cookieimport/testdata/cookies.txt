@@ -1,0 +1,9 @@
+# Netscape HTTP Cookie File
+# https://curl.se/docs/http-cookies.html
+
+.github.com	TRUE	/	TRUE	4102444800	_octo	GH1.1.123
+#HttpOnly_github.com	FALSE	/	TRUE	4102444800	user_session	sess-abc
+gist.github.com	FALSE	/	TRUE	0	_gist_session	gist-1
+.notgithub.com	TRUE	/	FALSE	4102444800	id	x
+.example.co.uk	TRUE	/app	FALSE	1000	old	gone
+localhost	FALSE	/	FALSE	4102444800	dev	

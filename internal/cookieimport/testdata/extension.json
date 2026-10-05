@@ -1,0 +1,7 @@
+[
+  {"domain": ".github.com", "expirationDate": 4102444800.5, "hostOnly": false, "httpOnly": false, "name": "_octo", "path": "/", "sameSite": "lax", "secure": true, "session": false, "storeId": "0", "value": "GH1.1.123"},
+  {"domain": "github.com", "hostOnly": true, "httpOnly": true, "name": "user_session", "path": "/", "sameSite": "strict", "secure": true, "session": true, "value": "sess-abc"},
+  {"domain": "www.google.com", "expirationDate": 4102444800, "hostOnly": true, "name": "NID", "path": "/", "sameSite": "no_restriction", "secure": true, "value": "n"},
+  {"domain": ".chat.example", "name": "part", "path": "/", "value": "p", "partitionKey": {"topLevelSite": "https://example.com"}},
+  {"domain": "www.google.com", "expirationDate": 1000, "name": "old", "path": "/", "value": "gone"}
+]

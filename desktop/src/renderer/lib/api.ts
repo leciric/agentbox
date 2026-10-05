@@ -192,6 +192,20 @@ export const api = {
     call<T.Secret>('PUT', `${secretsBase(target)}/${encodeURIComponent(name)}`, { value } satisfies T.SetSecretRequest),
   removeSecret: (target: string, name: string) => call<void>('DELETE', `${secretsBase(target)}/${encodeURIComponent(name)}`),
 
+  // A project's browser cookies, imported from an export the user made: the
+  // export goes in, and only domains and counts come back (internal/cookieimport).
+  browserCookies: (name: string) => call<T.BrowserCookies>('GET', `${project(name)}/browser-cookies`),
+  previewBrowserCookies: (name: string, exported: string) =>
+    call<T.BrowserCookiesPreview>('POST', `${project(name)}/browser-cookies/preview`, { export: exported } satisfies T.BrowserCookiesPreviewRequest),
+  importBrowserCookies: (name: string, exported: string, domains: string[]) =>
+    call<T.BrowserCookies>('PUT', `${project(name)}/browser-cookies`, { export: exported, domains } satisfies T.ImportBrowserCookiesRequest),
+  removeBrowserCookies: (name: string) => call<void>('DELETE', `${project(name)}/browser-cookies`),
+
+  // SnapShots waiting for the composer (agentbox snap), and sending one.
+  snaps: () => call<T.Snap[]>('GET', '/v1/snaps'),
+  sendSnap: (id: string, req: T.SnapSendRequest) => call<T.ChatItem>('POST', `/v1/snaps/${id}/send`, req),
+  dropSnap: (id: string) => call<void>('DELETE', `/v1/snaps/${id}`),
+
   // Connectors: remote MCP servers the agents use, signed in on the host. No
   // answer carries a token (internal/connectors).
   connectors: (target: string) => call<T.Connector[]>('GET', connectorsBase(target)),

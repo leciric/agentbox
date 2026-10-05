@@ -189,6 +189,10 @@ export function connectEvents(queryClient: QueryClient): void {
         for (const fn of mediaListeners) fn(item);
         break;
       }
+      case T.EventSnap:
+        // agentbox snap took one: the composer (SnapComposer) opens on it.
+        void queryClient.invalidateQueries({ queryKey: ['snaps'] });
+        break;
     }
   });
 

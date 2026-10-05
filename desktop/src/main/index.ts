@@ -15,6 +15,7 @@ import { handleMedia, registerMediaScheme } from './media';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
+import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
 import { learnMode, linuxVM } from './vmmode';
 import { allowMicrophone, enableWebGPU } from './voice';
@@ -31,6 +32,7 @@ captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
 registerMediaScheme();
 enableWebGPU();
+enableShortcutPortal();
 
 let win: BrowserWindow | undefined;
 
@@ -39,7 +41,10 @@ const send = (channel: string, ...args: unknown[]) => {
 };
 const streams = new Streams(send);
 const events = new EventStream(
-  (event) => send('daemon:event', event),
+  (event) => {
+    send('daemon:event', event);
+    showForSnap(win, event);
+  },
   (state) => {
     send('daemon:connection', state);
     // Each time the daemon is back, it may be one that hasn't the web
@@ -264,6 +269,7 @@ void app.whenReady().then(async () => {
   handleMedia();
   allowMicrophone();
   createWindow();
+  registerSnapShortcut();
   // The relay answers at once, whether or not WSL does: it only reaches into
   // the distro on the first request.
   if (onWindows) await startRelay(agentboxBin()).catch(() => {});
