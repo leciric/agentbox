@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
@@ -78,6 +79,18 @@ func TestRewindRestartsFromATurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitThread(t, m, testAgent, "the turn", turnsEnded(3))
+	// TurnEnded runs in the background, so its calls can come late and in
+	// any order.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		mu.Lock()
+		n := len(ended)
+		mu.Unlock()
+		if n >= 5 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	if len(prompts) != 5 || !strings.HasPrefix(prompts[3], "[AgentBox: context transfer] You were rolled back.") ||
@@ -87,7 +100,7 @@ func TestRewindRestartsFromATurn(t *testing.T) {
 	if n := len(f.called(acp.MethodSessionNew)); n != 2 {
 		t.Errorf("%d sessions started, want 2", n)
 	}
-	if len(ended) != 5 || ended[0] != first {
+	if len(ended) != 5 || !slices.Contains(ended, first) {
 		t.Errorf("TurnEnded for %v", ended)
 	}
 	if stored, _ := store.Chat(context.Background(), testAgent.Project, testAgent.Name); stored.Handoff != "" {
