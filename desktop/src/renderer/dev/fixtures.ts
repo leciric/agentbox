@@ -395,6 +395,11 @@ export function buildFixtures(): FixtureData {
 // mediaItems, read by installDevBridge.
 const mediaFiles = new Map<string, string>();
 
+// setMediaFile serves url as item id's file, for fixtures made outside this file.
+export function setMediaFile(id: string, url: string): void {
+  mediaFiles.set(id, url);
+}
+
 // mediaItems is a project's Media: hundreds of items across four agents and
 // every kind, so the gallery and its search can be checked at the size a busy
 // project reaches, with names, file names and notes long and unbroken enough
