@@ -3,11 +3,10 @@ import { Camera, ClipboardPaste, Circle, Ellipsis, Globe, LoaderCircle, Monitor,
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
-import { api } from '../lib/api';
+import { api, browserViewPath } from '../lib/api';
 import { clock } from '../lib/media';
 import { useVncView } from '../lib/useVncView';
 import { cn, errorMessage } from '../lib/utils';
-import { browserViewPath } from '../lib/vnc';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/menu';

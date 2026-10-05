@@ -347,7 +347,7 @@ func TestGuardRefusesForeignHost(t *testing.T) {
 
 func TestPageIsEmbedded(t *testing.T) {
 	f := newFixture(t, nil)
-	for path, want := range map[string]string{"/": "Machines media", "/app.js": "EventSource", "/style.css": "prefers-color-scheme"} {
+	for path, want := range map[string]string{"/": "mv-control", "/app.js": "EventSource", "/style.css": "prefers-color-scheme", "/vnc.js": "clipboardPasteFrom"} {
 		b, _ := io.ReadAll(f.do("GET", path).Body)
 		if !strings.Contains(string(b), want) {
 			t.Errorf("%s doesn't contain %q", path, want)

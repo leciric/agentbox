@@ -1,8 +1,9 @@
 // Shows an agent's browser with noVNC. noVNC usually opens its own WebSocket;
 // here it gets a stand-in that sends the bytes through the main process, which
-// holds the connection to the daemon's unix socket.
+// holds the connection to the daemon's unix socket. Outside the app (the web
+// app, and the page of `agentbox machines serve`), window.agentbox.stream is
+// the browser's own WebSockets (web/streams.ts).
 import RFB from '@novnc/novnc';
-import { agentPath } from './api';
 
 const channels = new Map<number, IpcChannel>();
 
@@ -70,6 +71,3 @@ export function connectView(path: string, target: HTMLElement): RFB {
   rfb.addEventListener('clipboard', (event) => window.agentbox.copyText((event as CustomEvent<{ text: string }>).detail.text));
   return rfb;
 }
-
-export const browserViewPath = (ref: string) => `${agentPath(ref)}/browser/view`;
-export const androidViewPath = (ref: string) => `${agentPath(ref)}/android/view`;

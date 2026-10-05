@@ -48,6 +48,10 @@ type Server struct {
 	thumbDir string
 	daemon   Daemon // nil when there is none to ask
 
+	// Machines are the machines of `agentbox machines mcp`, for the page's
+	// Machines section; nil when there's no runtime to ask.
+	Machines Machines
+
 	// Poll is how often the store's directory is checked for changes, and
 	// DaemonRefresh how often the daemon's media is reread even with no
 	// event saying it changed (an agent's branch or title may have).
@@ -64,6 +68,9 @@ type Server struct {
 	version int64
 	subs    map[chan int64]struct{}
 
+	opsMu sync.Mutex
+	ops   map[string]machineOp // starts and stops under way, or failed, by machine
+
 	thumbs singleflight.Group
 	sem    chan struct{} // bounds thumbnails made at once
 }
@@ -74,7 +81,7 @@ func New(store machinesmedia.Store, thumbDir string, daemon Daemon) *Server {
 	return &Server{
 		store: store, thumbDir: thumbDir, daemon: daemon,
 		Poll: 500 * time.Millisecond, DaemonRefresh: time.Minute, Logf: log.Printf,
-		byID: map[string]Item{}, subs: map[chan int64]struct{}{},
+		byID: map[string]Item{}, subs: map[chan int64]struct{}{}, ops: map[string]machineOp{},
 		sem: make(chan struct{}, 4),
 	}
 }
@@ -265,6 +272,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/items/{id}/thumb", s.handleThumb)
 	mux.HandleFunc("DELETE /api/items/{id}", s.handleDelete)
 	mux.HandleFunc("GET /api/events", s.handleEvents)
+	mux.HandleFunc("GET /api/machines", s.handleMachines)
+	mux.HandleFunc("POST /api/machines/{name}/start", s.handleMachineOp("starting", Machines.Start))
+	mux.HandleFunc("POST /api/machines/{name}/stop", s.handleMachineOp("stopping", Machines.Stop))
+	mux.HandleFunc("GET /api/machines/{name}/view", s.handleView)
 	return guard(mux)
 }
 

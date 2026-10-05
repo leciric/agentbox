@@ -310,7 +310,11 @@ func TestSessionTools(t *testing.T) {
 	wt := t.TempDir()
 	write(t, filepath.Join(wt, ".env"), "GREETING=hi\n")
 	ctx := context.Background()
-	s := &Session{Backend: f.d, Worktree: wt}
+	serves := 0
+	s := &Session{Backend: f.d, Worktree: wt, Serve: func(context.Context) (string, error) {
+		serves++
+		return "http://127.0.0.1:7790/", nil
+	}}
 	tools := map[string]mcp.Tool{}
 	for _, tool := range s.Tools(ctx) {
 		tools[tool.Name] = tool
@@ -318,8 +322,8 @@ func TestSessionTools(t *testing.T) {
 			t.Errorf("%s's description: %q", tool.Name, tool.Description)
 		}
 	}
-	for _, name := range []string{"machine_start", "machine_stop", "machine_status", "run", "preview_url", "screenshot",
-		"record_start", "record_stop", "click", "type", "key", "scroll", "browser_navigate", "browser_snapshot"} {
+	for _, name := range []string{"machine_start", "machine_stop", "machine_status", "run", "preview_url", "view_url",
+		"screenshot", "record_start", "record_stop", "click", "type", "key", "scroll", "browser_navigate", "browser_snapshot"} {
 		if _, ok := tools[name]; !ok {
 			t.Errorf("no %s tool", name)
 		}
@@ -335,6 +339,9 @@ func TestSessionTools(t *testing.T) {
 
 	if _, err := call("run", `{"command":"true"}`); err == nil || !strings.Contains(err.Error(), "machine_start") {
 		t.Errorf("run without a machine: %v", err)
+	}
+	if _, err := call("view_url", `{}`); err == nil || !strings.Contains(err.Error(), "machine_start") || serves != 0 {
+		t.Errorf("view_url without a machine: %v, serve started %d times", err, serves)
 	}
 	cfg, _ := Load(wt)
 	f.made(t, wt, cfg.Hash(ImageTag()), true)
@@ -362,6 +369,9 @@ func TestSessionTools(t *testing.T) {
 	}
 	if _, err := call("preview_url", `{"port":9999}`); err == nil || !strings.Contains(err.Error(), ConfigFile) {
 		t.Errorf("an unpublished port: %v", err)
+	}
+	if out, err := call("view_url", `{}`); err != nil || out != "http://127.0.0.1:7790/#machine="+containerName(wt) || serves != 1 {
+		t.Errorf("view_url = %q, %v", out, err)
 	}
 	if out, err := call("machine_status", `{}`); err != nil || !strings.Contains(out, "Running") {
 		t.Errorf("machine_status = %q, %v", out, err)

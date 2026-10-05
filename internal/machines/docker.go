@@ -316,7 +316,10 @@ func notFound(err error) bool {
 // Podman's says the same.
 type inspected struct {
 	Name  string
-	State struct{ Running bool }
+	State struct {
+		Running   bool
+		StartedAt time.Time
+	}
 	// Config.Labels.
 	Config struct {
 		Labels map[string]string
@@ -336,6 +339,9 @@ type inspected struct {
 func (i inspected) status(engine string) Status {
 	st := Status{Backend: engine, Name: strings.TrimPrefix(i.Name, "/"), Worktree: i.Config.Labels[labelWorktree],
 		Exists: true, Running: i.State.Running, DockerInside: i.HostConfig.Privileged, config: i.Config.Labels[labelConfig]}
+	if i.State.Running && i.State.StartedAt.Year() > 1 {
+		st.Started = i.State.StartedAt
+	}
 	if i.HostConfig.Memory > 0 {
 		st.Memory = fmt.Sprintf("%dm", i.HostConfig.Memory>>20)
 	}
@@ -404,4 +410,31 @@ func (d *Docker) List(ctx context.Context) ([]Status, error) {
 	}
 	sort.Slice(all, func(a, b int) bool { return all[a].Worktree < all[b].Worktree })
 	return all, nil
+}
+
+// MemoryUsage is how much memory the named running machines use, by name, as
+// the runtime writes it: 312.4MiB.
+func (d *Docker) MemoryUsage(ctx context.Context, names []string) (map[string]string, error) {
+	if len(names) == 0 {
+		return map[string]string{}, nil
+	}
+	args := append([]string{"stats", "--no-stream", "--format", "{{.Name}}\t{{.MemUsage}}"}, names...)
+	out, err := d.run(ctx, nil, args...)
+	if err != nil {
+		return nil, err
+	}
+	return parseMemUsage(out), nil
+}
+
+func parseMemUsage(out string) map[string]string {
+	usage := map[string]string{}
+	for line := range strings.Lines(out) {
+		name, mem, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if !ok {
+			continue
+		}
+		used, _, _ := strings.Cut(mem, "/")
+		usage[strings.TrimPrefix(name, "/")] = strings.TrimSpace(used)
+	}
+	return usage
 }

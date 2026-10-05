@@ -209,6 +209,16 @@ jobs:
       # Packaging the AppImage takes minutes and belongs to the release.
       - run: npm --prefix desktop run build
 
+      # The live view of `agentbox machines serve` is the app's VNC client,
+      # bundled into the Go binary's page and committed: it must match.
+      - name: internal/machinesweb/static/vnc.js is up to date
+        run: |
+          npm --prefix desktop run build:machines-view
+          git diff --exit-code internal/machinesweb/static/vnc.js || {
+            echo "::error::Run npm --prefix desktop run build:machines-view and commit internal/machinesweb/static/vnc.js"
+            exit 1
+          }
+
   desktop-lint:
     name: Desktop lint
     runs-on: ubuntu-24.04
