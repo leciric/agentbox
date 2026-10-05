@@ -234,6 +234,7 @@ func (s *Server) leadEscalateQuestion(w http.ResponseWriter, r *http.Request) er
 		"question": escalated.Text, "why": escalated.Escalation,
 	}, "")
 	s.events.publish(api.EventQuestion, toAPIQuestion(escalated))
+	s.notifyQuestion(r.Context(), escalated, s.titleOf(r.Context(), escalated.Project, escalated.Agent))
 	s.logf("%s/%s's question went to the user: %s", q.Project, q.Agent, req.Why)
 	return writeJSON(w, http.StatusOK, toAPIQuestion(escalated))
 }
@@ -380,6 +381,7 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, result 
 	s.prWatch.poke(a.Project)
 	ev := s.record(ctx, finishedEvent(a, changes, pr, s.chat.LastMessage(a), time.Now()))
 	s.captureAgentFinished(ctx, a, changes, pr, ev.Summary)
+	s.notifyFinished(ctx, ev)
 	// Whether the lead reacts to this now is the project's to say, or the
 	// agent's when the project leaves it to whichever agent finished — and
 	// only ever for work the lead asked for (D87). A turn somebody drove from

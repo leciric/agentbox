@@ -395,6 +395,31 @@ export function buildFixtures(): FixtureData {
 // mediaItems, read by installDevBridge.
 const mediaFiles = new Map<string, string>();
 
+// setMediaFile serves url as item id's file, for fixtures made outside this file.
+// setNotifications gives the dev bridge a bell history and the all-projects
+// media list to answer with, and marks them seen the way the daemon does.
+export function setNotifications(notifications: T.Notification[], allMedia: T.MediaItem[]): void {
+  devState.notifications = notifications;
+  devState.allMedia = allMedia;
+}
+
+function seeNotifications(req: T.SeeNotificationsRequest): T.SeeNotificationsResult {
+  let seen = 0;
+  const media = new Set(req.media ?? []);
+  devState.notifications = devState.notifications?.map((n) => {
+    if (n.seen || !(req.all || req.ids?.includes(n.id) || (n.media && media.has(n.media.id)))) return n;
+    seen++;
+    if (n.media) media.add(n.media.id);
+    return { ...n, seen: true };
+  });
+  devState.allMedia = devState.allMedia?.map((m) => (m.unseen && (req.all || media.has(m.id)) ? { ...m, unseen: false } : m));
+  return { seen };
+}
+
+export function setMediaFile(id: string, url: string): void {
+  mediaFiles.set(id, url);
+}
+
 // mediaItems is a project's Media: hundreds of items across four agents and
 // every kind, so the gallery and its search can be checked at the size a busy
 // project reaches, with names, file names and notes long and unbroken enough
@@ -702,6 +727,9 @@ function agent99Turns(): T.TokenTurn[] {
 const devState: {
   projects: T.Project[];
   media?: T.MediaItem[];
+  // The ?notify= scenarios' bell history and all-projects media (notifications.tsx).
+  notifications?: T.Notification[];
+  allMedia?: T.MediaItem[];
   auth?: T.AuthStatus;
   jobLog?: string;
   job?: T.Job;
@@ -1588,6 +1616,12 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(devState.media), contentType: 'application/json' };
       if (method === 'GET' && devState.media && path === `/v1/agents/${PROJECT}/agent-99/media`)
         return { status: 200, body: JSON.stringify(devState.media.filter((m) => m.agentName === 'agent-99')), contentType: 'application/json' };
+      if (method === 'GET' && devState.notifications && path === '/v1/notifications')
+        return { status: 200, body: JSON.stringify(devState.notifications), contentType: 'application/json' };
+      if (method === 'GET' && devState.allMedia && path.startsWith('/v1/media?'))
+        return { status: 200, body: JSON.stringify(devState.allMedia), contentType: 'application/json' };
+      if (method === 'POST' && devState.notifications && path === '/v1/notifications/seen')
+        return { status: 200, body: JSON.stringify(seeNotifications(body as T.SeeNotificationsRequest)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/agents/stop') return stopAgents((body as T.StopAgentsRequest).refs ?? []);
       const started = method === 'POST' ? /^\/v1\/agents\/([^/]+)\/([^/]+)\/start$/.exec(path) : null;
       if (started && devState.agents) {
@@ -1647,6 +1681,8 @@ export function installDevBridge(): void {
     openPath: async () => '',
     showItem: async () => {},
     openExternal: async () => {},
+    notify: async () => false,
+    onNotificationClick: () => () => {},
     copyText: () => {},
     readText: async () => '',
   };

@@ -266,6 +266,10 @@ const bridge = {
   openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
+  // An OS notification, shown only while the window isn't in front (main/notify.ts);
+  // onNotificationClick gets its ID when it's clicked.
+  notify: (notice: { id: string; title: string; body: string }): Promise<boolean> => ipcRenderer.invoke('notify:show', notice),
+  onNotificationClick: (fn: (id: string) => void) => listen('notify:click', fn),
   copyText: (text: string) => ipcRenderer.send('clipboard:write', text),
   readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
 };

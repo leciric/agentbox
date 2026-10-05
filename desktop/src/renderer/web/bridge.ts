@@ -59,6 +59,7 @@ let connection: ConnectionState = { state: 'connecting' };
 let source: EventSource | undefined;
 const connectionListeners = new Set<(s: ConnectionState) => void>();
 const eventListeners = new Set<(e: unknown) => void>();
+const noticeClickListeners = new Set<(id: string) => void>();
 
 function setConnection(next: ConnectionState) {
   connection = next;
@@ -214,6 +215,21 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     window.open(url, '_blank', 'noopener');
     return Promise.resolve();
   },
+  // The browser's own notifications, while the tab is hidden, once it's
+  // allowed them (lib/notifications.ts asks on the first one).
+  notify: async (notice) => {
+    if (typeof Notification === 'undefined' || document.visibilityState === 'visible') return false;
+    if (Notification.permission === 'default') await Notification.requestPermission();
+    if (Notification.permission !== 'granted') return false;
+    const n = new Notification(notice.title, { body: notice.body, tag: notice.id });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+      for (const fn of noticeClickListeners) fn(notice.id);
+    };
+    return true;
+  },
+  onNotificationClick: (fn) => listen(noticeClickListeners, fn),
   copyText: (text) => void navigator.clipboard?.writeText(text),
   readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
 };

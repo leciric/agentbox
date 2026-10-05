@@ -8,6 +8,7 @@ import { applyChatEvent, resetChatEvents } from './chat.ts';
 
 const listeners = new Set<() => void>();
 const mediaListeners = new Set<(item: T.MediaItem) => void>();
+const notificationListeners = new Set<(n: T.Notification) => void>();
 const logs = new Map<string, string[]>();
 const noLines: string[] = [];
 let connection: ConnectionState = { state: 'connecting' };
@@ -36,6 +37,14 @@ export function onMedia(fn: (item: T.MediaItem) => void): () => void {
   mediaListeners.add(fn);
   return () => {
     mediaListeners.delete(fn);
+  };
+}
+
+// onNotification calls fn for every notification as the daemon makes it.
+export function onNotification(fn: (n: T.Notification) => void): () => void {
+  notificationListeners.add(fn);
+  return () => {
+    notificationListeners.delete(fn);
   };
 }
 
@@ -187,8 +196,20 @@ export function connectEvents(queryClient: QueryClient): void {
         );
         if (item.kind === 'recording') void queryClient.invalidateQueries({ queryKey: ['recording', item.agent] });
         for (const fn of mediaListeners) fn(item);
+        void queryClient.invalidateQueries({ queryKey: ['allMedia'] });
         break;
       }
+      case T.EventNotification: {
+        const n = event.data as T.Notification;
+        queryClient.setQueryData<T.Notification[]>(['notifications'], (list) => list && [n, ...list.filter((x) => x.id !== n.id)]);
+        for (const fn of notificationListeners) fn(n);
+        break;
+      }
+      case T.EventNotificationsSeen:
+        // Another window, or the Media view, marked some seen.
+        void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+        void queryClient.invalidateQueries({ queryKey: ['allMedia'] });
+        break;
       case T.EventSnap:
         // agentbox snap took one: the composer (SnapComposer) opens on it.
         void queryClient.invalidateQueries({ queryKey: ['snaps'] });

@@ -666,6 +666,7 @@ export interface MediaItem {
   createdAt: string;
   expiresAt?: string;
   removed?: boolean;
+  unseen?: boolean;
 }
 
 export interface MediaMeta {
@@ -676,6 +677,32 @@ export interface MediaMeta {
   url?: string;
   entry?: string;
   tests?: TestCounts;
+}
+
+export interface Notification {
+  id: string;
+  kind: string;
+  project: string;
+  agent: string;
+  ref: string;
+  title?: string;
+  text?: string;
+  status?: string;
+  pr?: PullRequest;
+  media?: MediaItem;
+  question?: string;
+  at: string;
+  seen?: boolean;
+}
+
+export interface SeeNotificationsRequest {
+  ids?: string[];
+  media?: string[];
+  all?: boolean;
+}
+
+export interface SeeNotificationsResult {
+  seen: number;
 }
 
 export interface TestCounts {
@@ -1972,6 +1999,11 @@ export const EventAgent = "agent";
 export const EventUsage = "usage";
 export const EventProject = "project";
 export const EventMedia = "media";
+export const EventNotification = "notification";
+export const EventNotificationsSeen = "notification.seen";
+export const NotifyFinished = "finished";
+export const NotifyQuestion = "question";
+export const NotifyMedia = "media";
 export const EventPulls = "pulls";
 export const EventTheme = "theme";
 export const EventUpdate = "update";

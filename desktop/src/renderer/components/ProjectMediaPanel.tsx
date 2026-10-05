@@ -3,6 +3,7 @@ import { Image, Layers } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useSeeMedia } from '../lib/notifications';
 import { useProjectName } from '../lib/useProjectName';
 import { describeAll, searchMedia } from '../lib/media';
 import { humanBytes } from '../lib/utils';
@@ -22,7 +23,12 @@ export function ProjectMediaPanel({ project }: { project: string }) {
   const [kind, setKind] = useState('');
   const [query, setQuery] = useState('');
   const search = useDeferredValue(query);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenIdState] = useState<string | null>(null);
+  const seeMedia = useSeeMedia();
+  const setOpenId = (id: string | null) => {
+    setOpenIdState(id);
+    seeMedia(id);
+  };
   const [deleting, setDeleting] = useState<T.MediaItem | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());

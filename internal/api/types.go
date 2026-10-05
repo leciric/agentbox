@@ -1905,6 +1905,9 @@ type MediaItem struct {
 	// gone; unset for one whose agent still exists.
 	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 	Removed   bool       `json:"removed,omitempty"` // in events: the item was deleted
+	// Unseen is true, in GET /v1/media, for an item the user was told about
+	// and hasn't opened or marked seen yet.
+	Unseen bool `json:"unseen,omitempty"`
 }
 
 type MediaMeta struct {
@@ -1996,6 +1999,58 @@ type DeleteMediaResult struct {
 }
 
 const EventMedia = "media"
+
+// Notification is one entry in the app's history of what agents did, across
+// projects (GET /v1/notifications, and EventNotification as it happens): an
+// agent finishing, asking something, or keeping a screenshot or recording.
+// Clicking one goes to its agent, and for media to the item itself.
+type Notification struct {
+	ID      string `json:"id"`
+	Kind    string `json:"kind"` // NotifyFinished, NotifyQuestion or NotifyMedia
+	Project string `json:"project"`
+	Agent   string `json:"agent"` // the agent's name
+	Ref     string `json:"ref"`
+	Title   string `json:"title,omitempty"` // what the agent was called at the time
+	// Text is what to show under the headline: the finish's summary, the
+	// question, or the media item's name.
+	Text string `json:"text,omitempty"`
+	// Status is a finish's last report status (done, partial, blocked or
+	// failed), when the agent reported one before it finished.
+	Status string       `json:"status,omitempty"`
+	PR     *PullRequest `json:"pr,omitempty"`    // on a finish
+	Media  *MediaItem   `json:"media,omitempty"` // on NotifyMedia
+	// Question is the question's ID, on NotifyQuestion.
+	Question string    `json:"question,omitempty"`
+	At       time.Time `json:"at"`
+	Seen     bool      `json:"seen,omitempty"`
+}
+
+// The kinds of Notification.
+const (
+	NotifyFinished = "finished"
+	NotifyQuestion = "question"
+	NotifyMedia    = "media"
+)
+
+// SeeNotificationsRequest marks notifications seen: those listed by ID, those
+// about the listed media items, or all of them.
+type SeeNotificationsRequest struct {
+	IDs   []string `json:"ids,omitempty"`
+	Media []string `json:"media,omitempty"`
+	All   bool     `json:"all,omitempty"`
+}
+
+// SeeNotificationsResult is how many were newly marked seen.
+type SeeNotificationsResult struct {
+	Seen int `json:"seen"`
+}
+
+// EventNotification carries a Notification as it is made, and EventNotificationsSeen
+// a SeeNotificationsRequest once applied, so every window's bell agrees.
+const (
+	EventNotification      = "notification"
+	EventNotificationsSeen = "notification.seen"
+)
 
 // SetupCheck is one thing AgentBox needs, or can use, on this machine.
 type SetupCheck struct {

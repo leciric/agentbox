@@ -91,6 +91,10 @@
 //   ?media=project|agent    a project's Media, 360 items across four agents
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
+//   ?notify=bell|media|viewer|toast
+//                           a mock of clickable notifications, the top bar's
+//                           bell and its history, the all-projects Media view
+//                           and the viewer a notification opens (notifications.tsx)
 //   ?power=host|host-start  the top bar's resource controls in host mode:
 //                           agents running (Free resources), or every one
 //                           stopped by it, with Start to bring them back
@@ -193,6 +197,8 @@ import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
 
+import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
+
 installDevBridge();
 
 const params = new URLSearchParams(location.search);
@@ -212,6 +218,7 @@ const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
+const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "disk" | "disk-unmeasured" | "pool" | null
@@ -310,6 +317,7 @@ seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media) seedMedia(queryClient);
+if (notify) seedNotifications(queryClient, mockMedia());
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (params.get('nightly') === '1') seedNightly(queryClient);
@@ -510,6 +518,7 @@ function Preview() {
   if (github) return <GitHubPreview />;
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
+  if (notify) return <NotificationsPreview scenario={notify} />;
   if (newAgent) return <NewAgentDialog project={PROJECT} onClose={() => {}} onCreated={() => {}} />;
 
   if (power) {
