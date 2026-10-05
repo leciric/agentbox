@@ -139,12 +139,40 @@ func (m *Manager) repairLead(ctx context.Context, a state.Agent) (state.Agent, e
 	}
 	if !repo.HasWorktree(a.Worktree) {
 		m.logf("Recreating the %s chat's worktree", a.Project)
+		if a, err = m.rebaseLead(ctx, a, repo); err != nil {
+			return a, err
+		}
 		_ = repo.RemoveWorktree(a.Worktree)
 		if err := repo.AddWorktreeDetached(a.Worktree, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 			return a, fmt.Errorf("recreating the %s chat's worktree: %w", a.Project, err)
 		}
 	}
 	return a, m.configureLead(ctx, a, p, repo.Root, m.LeadSocket(a.Project))
+}
+
+// rebaseLead finds a commit to rebuild the lead's worktree on when the one it
+// stood on is gone, as it is when the project's repository was cloned afresh
+// and the lead had stood on a branch never pushed: its branch's tip, or, with
+// that branch gone too, the branch the project is on now, as EnsureLead would
+// pick. The lead commits nothing, so nothing is lost.
+func (m *Manager) rebaseLead(ctx context.Context, a state.Agent, repo gitrepo.Repo) (state.Agent, error) {
+	if _, err := repo.ResolveCommit(a.BaseCommit); err == nil {
+		return a, nil
+	}
+	ref := a.BaseRef
+	commit, err := repo.ResolveCommit(ref)
+	if err != nil {
+		ref = repo.CurrentBranch()
+		if commit, err = repo.ResolveCommit(ref); err != nil {
+			return a, fmt.Errorf("recreating the %s chat's worktree: %w", a.Project, err)
+		}
+	}
+	m.logf("The %s chat's commit %s is gone; moving it to %s", a.Project, a.BaseCommit[:min(7, len(a.BaseCommit))], ref)
+	if err := m.Store.SetAgentBase(ctx, a.Project, a.Name, ref, commit); err != nil {
+		return a, err
+	}
+	a.BaseRef, a.BaseCommit = ref, commit
+	return a, nil
 }
 
 // ReconfigureLead rewrites a project's chat brief where it already has one, so

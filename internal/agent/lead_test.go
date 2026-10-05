@@ -228,6 +228,56 @@ func TestLeadRecoversAWorktreeGitForgot(t *testing.T) {
 	}
 }
 
+// A repository cloned afresh in the project's place knows neither the lead's
+// worktree nor, when it stood on a branch never pushed, the commit or branch it
+// was made on. The lead commits nothing, so nothing is lost by rebuilding it on
+// the branch the project is on now.
+func TestLeadRecoversFromACommitThatIsGone(t *testing.T) {
+	ctx := context.Background()
+	f := leadFixture(t)
+	testutil.Git(t, f.repo.Root, "checkout", "-q", "-b", "fix/unpushed")
+	if err := os.WriteFile(filepath.Join(f.repo.Root, "UNPUSHED.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, f.repo.Root, "add", "-A")
+	testutil.Git(t, f.repo.Root, "commit", "-q", "-m", "unpushed")
+	a, err := f.m.EnsureLead(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone := a.BaseCommit
+
+	// The user clones main afresh where the project was: no such worktree,
+	// branch or commit.
+	old := f.repo.Root + ".old"
+	if err := os.Rename(f.repo.Root, old); err != nil {
+		t.Fatal(err)
+	}
+	testutil.Git(t, filepath.Dir(old), "clone", "-q", "--no-local", "--single-branch", "--branch", "main", old, f.repo.Root)
+	if err := os.RemoveAll(a.Worktree); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.repo.ResolveCommit(gone); err == nil {
+		t.Fatalf("%s is still in the repository", gone)
+	}
+
+	a, err = f.m.EnsureLead(ctx, "hello-stack")
+	if err != nil {
+		t.Fatalf("EnsureLead() = %v, want the lead rebuilt on main", err)
+	}
+	main := testutil.Git(t, f.repo.Root, "rev-parse", "main")
+	if a.BaseRef != "main" || a.BaseCommit != main {
+		t.Errorf("lead on %s at %s, want main at %s", a.BaseRef, a.BaseCommit, main)
+	}
+	if at := testutil.Git(t, a.Worktree, "rev-parse", "HEAD"); at != main {
+		t.Errorf("worktree at %s, want %s", at, main)
+	}
+	stored, _ := f.st.Agent(ctx, "hello-stack", state.LeadName)
+	if stored.BaseRef != "main" || stored.BaseCommit != main {
+		t.Errorf("stored lead on %s at %s, want main at %s", stored.BaseRef, stored.BaseCommit, main)
+	}
+}
+
 func TestDestroyLeadLeavesTheProjectAlone(t *testing.T) {
 	ctx := context.Background()
 	f := leadFixture(t)
