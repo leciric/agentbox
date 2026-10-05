@@ -10,7 +10,7 @@ import { autoModel, formatMB, pickModel, voiceModels } from '../lib/voice/models
 import { speak, stop, unlock, useReader } from '../lib/voice/reader';
 import { defaultVoiceSettings, setReadAloud, setVoiceSettings, speeds, useReadAloudSettings, useVoiceSettings, voices, type VoiceSettings } from '../lib/voice/settings';
 import type { VoiceLanguage } from '../lib/voice/speakable';
-import { forgetWhisper, preloadWhisper, probeWhisper, useWhisper, whisperState } from '../lib/voice/whisper';
+import { deviceReason, forgetWhisper, preloadWhisper, probeWhisper, useWhisper, whisperState } from '../lib/voice/whisper';
 import { Button } from './ui/button';
 import { Select, SelectOption } from './ui/select';
 import { SettingRow } from './ui/settings';
@@ -75,7 +75,7 @@ function ModelRow() {
         device === 'webgpu' ? (
           <>{whisper.adapter ? t('defaults.voice.gpuAdapter', { adapter: whisper.adapter }) : t('defaults.voice.gpu')}</>
         ) : device === 'wasm' ? (
-          <span className="text-amber-300">{t('defaults.voice.cpu', { reason: whisper.reason ?? '' })}</span>
+          <span className="text-amber-300">{t('defaults.voice.cpu', { reason: deviceReason(whisper.reason) })}</span>
         ) : (
           t('defaults.voice.lookingForGpu')
         )

@@ -1131,6 +1131,10 @@ export const enUS = {
   'memory.pulls.mergeFailed': 'Merge failed: {error}',
 
   // chat
+  'chat.voice.webgpuUnavailable': 'WebGPU isn’t available in this app.',
+  'chat.voice.webgpuNoGpu': 'WebGPU found no usable GPU.',
+  'chat.voice.webgpuSoftware': 'WebGPU found only a software renderer, not the GPU.',
+  'chat.voice.webgpuFailed': 'WebGPU failed: {error}',
   'chat.changedFiles.count': '{count, plural, one {# changed file} other {# changed files}}',
   'chat.changedFiles.show': 'Show files',
   'chat.diff.unchanged': '{count, plural, one {# unchanged line} other {# unchanged lines}}',

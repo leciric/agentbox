@@ -505,7 +505,7 @@ export const ptBR: Messages = {
   'settings.hostSetup.terminalSudo': 'Execute no terminal, com sudo:',
   'settings.commandBox.copy': 'Copiar o comando',
   'settings.page.toLookAt': '{n} para ver',
-  'settings.page.search': 'Pesquisar configurações',
+  'settings.page.search': 'Buscar configurações',
   'settings.page.clearSearch': 'Limpar a pesquisa',
   'settings.page.changedFromDefault': '{n, plural, one {# alterada} other {# alteradas}} em relação ao padrão',
   'settings.page.sections': 'Seções de configurações',
@@ -1132,6 +1132,10 @@ export const ptBR: Messages = {
   'memory.pulls.mergeFailed': 'Falha no merge: {error}',
 
   // chat
+  'chat.voice.webgpuUnavailable': 'O WebGPU não está disponível neste app.',
+  'chat.voice.webgpuNoGpu': 'O WebGPU não encontrou uma GPU utilizável.',
+  'chat.voice.webgpuSoftware': 'O WebGPU encontrou só um renderizador por software, não a GPU.',
+  'chat.voice.webgpuFailed': 'O WebGPU falhou: {error}',
   'chat.changedFiles.count': '{count, plural, one {# arquivo alterado} other {# arquivos alterados}}',
   'chat.changedFiles.show': 'Mostrar arquivos',
   'chat.diff.unchanged': '{count, plural, one {# linha sem alteração} other {# linhas sem alteração}}',

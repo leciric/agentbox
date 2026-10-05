@@ -6,7 +6,7 @@ import { silent } from '../../lib/voice/audio';
 import { formatMB, pickModel } from '../../lib/voice/models';
 import { record, type Recording } from '../../lib/voice/recorder';
 import { useVoiceSettings } from '../../lib/voice/settings';
-import { preloadWhisper, probeWhisper, transcribe, useWhisper, whisperState } from '../../lib/voice/whisper';
+import { deviceReason, preloadWhisper, probeWhisper, transcribe, useWhisper, whisperState } from '../../lib/voice/whisper';
 import { cn, errorMessage } from '../../lib/utils';
 import { Tip } from '../ui/tooltip';
 
@@ -84,7 +84,7 @@ export function VoiceButton({ disabled, onText, scope }: { disabled: boolean; on
     const { device, reason } = whisperState();
     if (device === 'wasm' && !warnedCPU) {
       warnedCPU = true;
-      toast.warning(t('chat.voice.noWebGPU', { model: pickModel(settings.model, 'wasm').label }), { description: t('chat.voice.noWebGPUHint', { reason: reason ?? '' }).trim() });
+      toast.warning(t('chat.voice.noWebGPU', { model: pickModel(settings.model, 'wasm').label }), { description: t('chat.voice.noWebGPUHint', { reason: deviceReason(reason) }).trim() });
     }
     if (stopRequested.current) void finish();
   };
