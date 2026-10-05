@@ -1,12 +1,13 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -24,7 +25,7 @@ func newDesktopCmd(a *app) *cobra.Command {
 		Use:   "desktop",
 		Short: "The agent's virtual desktop: mouse, keyboard and screenshots of the whole display",
 	}
-	cmd.AddCommand(newDesktopMCPCmd(a), newDesktopInputLogCmd(), newDesktopOverlayCmd())
+	cmd.AddCommand(newDesktopMCPCmd(a), newDesktopRecordCmd())
 	return cmd
 }
 
@@ -52,57 +53,37 @@ func newDesktopMCPCmd(_ *app) *cobra.Command {
 	}
 }
 
-// newDesktopInputLogCmd and newDesktopOverlayCmd are the two halves of the
-// overlay on a recording made with --input desktop: the recording script runs
-// input-log beside ffmpeg while it records, and at the end draws what it
-// logged onto the video with overlay's subtitles.
-func newDesktopInputLogCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "input-log <file>",
-		Short:  "Log the keys and buttons pressed on the display, one JSON object a line, until stopped",
+// newDesktopRecordCmd is the recorder a recording runs in the agent: one
+// process that captures, draws the input on and encodes, until it is
+// interrupted or reaches its limit. It writes what it records, display or
+// browser, to --ready once the file has its first frames, which is what the
+// recording script waits for.
+func newDesktopRecordCmd() *cobra.Command {
+	opts := desktop.RecordOptions{Target: desktop.RecordAuto}
+	var ready string
+	cmd := &cobra.Command{
+		Use:    "record <file>",
+		Short:  "Record the display or the browser's page to an MP4, until interrupted",
 		Hidden: true, // run by the recording script
 		Args:   cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			f, err := os.OpenFile(args[0], os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-			if err != nil {
-				return err
+			opts.Out = args[0]
+			opts.Log = cmd.ErrOrStderr()
+			if ready != "" {
+				opts.Started = func(target string) { _ = os.WriteFile(ready, []byte(target+"\n"), 0o644) }
 			}
-			defer func() { _ = f.Close() }()
 			ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
-			return desktop.LogInput(ctx, f)
+			// The first signal has ffmpeg finish the file; a second one, from
+			// a caller done waiting, ends the recorder as usual.
+			context.AfterFunc(ctx, stop)
+			return desktop.Record(ctx, opts)
 		},
 	}
-}
-
-func newDesktopOverlayCmd() *cobra.Command {
-	var opts desktop.OverlayOptions
-	var events string
-	cmd := &cobra.Command{
-		Use:    "overlay",
-		Short:  "Write the subtitles that draw logged input onto a recording, as ASS",
-		Hidden: true, // run by the recording script
-		Args:   cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			f, err := os.Open(events)
-			if err != nil {
-				return err
-			}
-			defer func() { _ = f.Close() }()
-			evs, err := desktop.ReadInputLog(f)
-			if err != nil {
-				return err
-			}
-			_, err = io.WriteString(cmd.OutOrStdout(), desktop.Overlay(evs, opts))
-			return err
-		},
-	}
-	cmd.Flags().StringVar(&events, "events", "", "the file input-log wrote")
-	cmd.Flags().Float64Var(&opts.Start, "start", 0, "when the video's first frame was taken, in seconds since the Unix epoch")
-	cmd.Flags().IntVar(&opts.Width, "width", 1440, "the video's width")
-	cmd.Flags().IntVar(&opts.Height, "height", 900, "the video's height")
-	cmd.Flags().IntVar(&opts.Bottom, "bottom", 0, "how far above the bottom edge the key captions' centre sits")
-	_ = cmd.MarkFlagRequired("events")
-	_ = cmd.MarkFlagRequired("start")
+	cmd.Flags().StringVar(&opts.Target, "target", desktop.RecordAuto, "auto, display or browser")
+	cmd.Flags().StringVar(&opts.Input, "input", "playwright", "playwright, or desktop to draw the keys, clicks and cursor")
+	cmd.Flags().DurationVar(&opts.Limit, "limit", 10*time.Minute, "stop after this long")
+	cmd.Flags().IntVar(&opts.Bottom, "bottom", 0, "how far above the display's bottom edge the key caption's centre sits")
+	cmd.Flags().StringVar(&ready, "ready", "", "a file to write what is recorded to, once it is")
 	return cmd
 }

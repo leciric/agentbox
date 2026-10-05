@@ -1899,7 +1899,7 @@ type ScreenshotRequest struct {
 }
 
 type RecordRequest struct {
-	Target       string `json:"target,omitempty"` // display (default) or android
+	Target       string `json:"target,omitempty"` // auto (default), display, browser or android
 	Input        string `json:"input,omitempty"`  // playwright (default) or desktop, which overlays the keys and shows the cursor
 	Name         string `json:"name,omitempty"`
 	LimitSeconds int    `json:"limitSeconds,omitempty"`

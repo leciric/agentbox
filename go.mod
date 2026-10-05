@@ -12,6 +12,7 @@ require (
 	github.com/lxc/incus/v7 v7.5.1
 	github.com/pkg/sftp v1.13.11
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/image v0.46.0
 	golang.org/x/mod v0.41.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0

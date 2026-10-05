@@ -226,7 +226,7 @@ func TestXRecorderStartDecodesEvents(t *testing.T) {
 	var got []rawInput
 	done := make(chan error, 1)
 	go func() {
-		done <- x.start(func(in rawInput) bool {
+		done <- x.start(false, func(in rawInput) bool {
 			got = append(got, in)
 			return len(got) < 2
 		})
@@ -305,7 +305,7 @@ func TestXRecorderStartRefused(t *testing.T) {
 	x, srv := newXServer(t)
 	x.idBase, x.record = 0x400, 42
 	done := make(chan error, 1)
-	go func() { done <- x.start(func(rawInput) bool { return true }) }()
+	go func() { done <- x.start(false, func(rawInput) bool { return true }) }()
 	srv.readRequest(20 + 4 + 24)
 	srv.readRequest(8)
 	reply := make([]byte, 32)

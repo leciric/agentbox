@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// TestRecordingsPlayInChromium encodes a clip with the arguments a display
-// recording and its desktop-input overlay pass are made with, from frames
+// TestRecordingsPlayInChromium encodes a clip with the arguments a recording
+// is made with, from frames
 // like x11grab's (RGB, at a size with odd sides), and checks with ffprobe that
 // the file is one the app plays and draws a thumbnail of: H.264 in 4:2:0, not
 // High 4:4:4, with its moov before its mdat, and the duration it was given.
@@ -25,9 +25,7 @@ func TestRecordingsPlayInChromium(t *testing.T) {
 	dir := t.TempDir()
 	const source = `-f lavfi -i 'testsrc2=size=1365x767:rate=15,format=bgr0' -t 2`
 	cases := []struct{ name, command string }{
-		{"recording", "ffmpeg -hide_banner -loglevel error -y " + source + " " + recordingOutputArgs(false) + " recording.mp4"},
-		{"desktop first pass", "ffmpeg -hide_banner -loglevel error -y " + source + " " + recordingOutputArgs(true) + " fast.mp4"},
-		{"overlay pass", "ffmpeg -hide_banner -loglevel error -y -i fast.mp4 -vf null " + overlayEncodeArgs + " overlay.mp4"},
+		{"recording", "ffmpeg -hide_banner -loglevel error -y " + source + " " + RecordingOutputArgs() + " recording.mp4"},
 	}
 	for _, c := range cases {
 		cmd := exec.Command("sh", "-c", c.command)
@@ -36,7 +34,7 @@ func TestRecordingsPlayInChromium(t *testing.T) {
 			t.Fatalf("%s: %v\n%s", c.name, err, out)
 		}
 	}
-	for _, file := range []string{"recording.mp4", "fast.mp4", "overlay.mp4"} {
+	for _, file := range []string{"recording.mp4"} {
 		path := filepath.Join(dir, file)
 		out, err := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
 			"-show_entries", "stream=codec_name,profile,pix_fmt,width,height:format=duration", "-of", "default=nw=1", path).Output()

@@ -52,7 +52,7 @@ var browserPorts = map[string]struct {
 
 // copiedDevices point at one agent's host paths and sockets, so a copy of an
 // agent (a fork or a project base) must not keep them.
-var copiedDevices = []string{"worktree", "gitdir", agentAPIDevice, vncDevice, devtoolsDevice, androidViewDevice}
+var copiedDevices = []string{"worktree", "gitdir", agentAPIDevice, vncDevice, devtoolsDevice, androidViewDevice, recordingDevice}
 
 type BrowserStatus struct {
 	// Display is the agent's desktop: the display and its VNC server. It runs

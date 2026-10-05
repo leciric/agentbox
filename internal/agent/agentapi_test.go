@@ -138,3 +138,40 @@ exit 0`)
 			removed, added, strings.Join(calls(), "\n"))
 	}
 }
+
+// A recording is written into the agent's media through the recordings
+// device, mounted once; one whose media has moved has it mounted again.
+func TestEnsureRecordingStageMountsTheAgentsMedia(t *testing.T) {
+	for _, tc := range []struct {
+		name, source string
+		remove, add  bool
+	}{
+		{"missing", "", false, true},
+		{"there", "STAGE", false, false},
+		{"moved", "/old/media/.recording", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setup(t, fakeIncus(t, "exit 0"))
+			a := state.Agent{Project: "hello-stack", Name: "agent-01", Instance: "ab-agent-01"}
+			stage := filepath.Join(f.m.MediaDir(a.Project, a.Name), ".recording")
+			devices := `{}`
+			if tc.source != "" {
+				devices = `{"recordings": {"type": "disk", "source": "` + strings.ReplaceAll(tc.source, "STAGE", stage) + `"}}`
+			}
+			inc, calls := loggingIncus(t, `case "$1" in query) echo '{"devices": `+devices+`}' ;; esac`)
+			f.m.Incus = inc
+			staged, err := f.m.EnsureRecordingStage(context.Background(), a)
+			if err != nil || !staged {
+				t.Fatalf("EnsureRecordingStage() = %t, %v", staged, err)
+			}
+			got := strings.Join(calls(), "\n")
+			if removed := strings.Contains(got, "config device remove ab-agent-01 recordings"); removed != tc.remove {
+				t.Errorf("removed %t, want %t:\n%s", removed, tc.remove, got)
+			}
+			want := "config device add ab-agent-01 recordings disk source=" + stage + " path=/home/dev/.local/state/agentbox/out required=false"
+			if added := strings.Contains(got, want); added != tc.add {
+				t.Errorf("added %t, want %t:\n%s", added, tc.add, got)
+			}
+		})
+	}
+}

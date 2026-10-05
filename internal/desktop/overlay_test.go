@@ -117,35 +117,3 @@ func TestCaptionsKeepTheEndOfLongTyping(t *testing.T) {
 		t.Errorf("long typing shows as %q", last)
 	}
 }
-
-func TestOverlay(t *testing.T) {
-	evs := []InputEvent{
-		{T: 97, Key: "q"}, // gone before the video starts: not shown
-		{T: 101.5, Button: 1, X: 300, Y: 200},
-		{T: 102, Key: "{"},
-		{T: 102.05, Key: `\`},
-	}
-	ass := Overlay(evs, OverlayOptions{Start: 100, Width: 1440, Height: 900, Bottom: 38})
-	for _, want := range []string{
-		"PlayResX: 1440\nPlayResY: 900\n",
-		`Dialogue: 3,0:00:01.50,0:00:02.00,Default,,0,0,0,,{\an5\pos(300,200)`,
-		`Dialogue: 2,0:00:02.00,0:00:02.05,Default,,0,0,0,,{\an5\pos(720,862)\1c&HFFF2F4&\fad(120,0)}｛`,
-		`\fad(0,350)}｛＼`,
-	} {
-		if !strings.Contains(ass, want) {
-			t.Errorf("the overlay has no %q:\n%s", want, ass)
-		}
-	}
-	if strings.Contains(ass, "}q\n") {
-		t.Errorf("a key pressed before the video started is drawn onto it:\n%s", ass)
-	}
-}
-
-func TestReadInputLogSkipsATornLine(t *testing.T) {
-	evs, err := ReadInputLog(strings.NewReader(`{"t":2,"key":"b"}
-{"t":1,"key":"a"}
-{"t":3,"ke`))
-	if err != nil || len(evs) != 2 || evs[0].Key != "a" || evs[1].Key != "b" {
-		t.Errorf("ReadInputLog = %+v, %v", evs, err)
-	}
-}

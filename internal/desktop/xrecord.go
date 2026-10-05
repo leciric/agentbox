@@ -26,6 +26,7 @@ const (
 	xKeyRelease            = 3
 	xButtonPress           = 4
 	xButtonRelease         = 5
+	xMotionNotify          = 6
 	xChangeKeyboardMapping = 100
 	xGetKeyboardMapping    = 101
 	xQueryExtension        = 98
@@ -38,7 +39,7 @@ const (
 
 // rawInput is one device event, as RECORD reports it.
 type rawInput struct {
-	kind   byte // xKeyPress … xButtonRelease
+	kind   byte // xKeyPress … xMotionNotify
 	detail byte // the keycode or the button
 	x, y   int  // where the pointer was, on the root window
 }
@@ -52,6 +53,8 @@ type xRecorder struct {
 	minKey byte
 	maxKey byte
 	record byte // RECORD's major opcode
+	// width and height are the first screen's, in pixels.
+	width, height int
 
 	// keysyms is the keyboard mapping, keycode by keycode, kept up to date
 	// from the ChangeKeyboardMapping requests recorded alongside the input:
@@ -104,6 +107,10 @@ func (x *xRecorder) setup() error {
 	}
 	x.idBase = le.Uint32(body[4:])
 	x.minKey, x.maxKey = body[26], body[27]
+	// The first screen follows the vendor's name and the pixmap formats.
+	if screen := 32 + pad4(int(le.Uint16(body[16:]))) + 8*int(body[21]); len(body) >= screen+24 {
+		x.width, x.height = int(le.Uint16(body[screen+20:])), int(le.Uint16(body[screen+22:]))
+	}
 
 	name := "RECORD"
 	req := make([]byte, 8+pad4(len(name)))
@@ -182,7 +189,7 @@ func (x *xRecorder) setKeysyms(first byte, count, perKey int, data []byte) {
 // and the requests that remap the keyboard, and enables it. From then on the
 // connection only carries what it records, which each calls fn with, until
 // the connection closes or fn returns false.
-func (x *xRecorder) start(fn func(rawInput) bool) error {
+func (x *xRecorder) start(motion bool, fn func(rawInput) bool) error {
 	ctxID := x.idBase | 1
 	// One client spec (every client) and one range, whose 24 bytes are the
 	// core requests, core replies, extension requests and replies, delivered
@@ -197,6 +204,9 @@ func (x *xRecorder) start(fn func(rawInput) bool) error {
 	rng := req[24:]
 	rng[0], rng[1] = xChangeKeyboardMapping, xChangeKeyboardMapping
 	rng[18], rng[19] = xKeyPress, xButtonRelease
+	if motion {
+		rng[19] = xMotionNotify
+	}
 	if _, err := x.conn.Write(req); err != nil {
 		return err
 	}
@@ -231,7 +241,7 @@ func (x *xRecorder) start(fn func(rawInput) bool) error {
 				ev := data[:32]
 				data = data[32:]
 				kind := ev[0] & 0x7f
-				if kind < xKeyPress || kind > xButtonRelease {
+				if kind < xKeyPress || kind > xMotionNotify {
 					continue
 				}
 				in := rawInput{kind: kind, detail: ev[1], x: int(int16(le.Uint16(ev[20:]))), y: int(int16(le.Uint16(ev[22:])))}
