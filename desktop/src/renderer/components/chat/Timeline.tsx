@@ -1,10 +1,13 @@
-import { Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Info, LoaderCircle } from 'lucide-react';
+import { Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Info, LoaderCircle, Square, Volume2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { cn } from '../../lib/utils';
+import { speak, stop, useReader } from '../../lib/voice/reader';
+import { replaying, toggleReplay } from '../../lib/voice/replay';
+import { fallbackLanguage, useReadAloudSettings } from '../../lib/voice/settings';
 import { aiLabel } from '../state';
 import { ChatCredentialCard } from '../CredentialCard';
 import { Tip } from '../ui/tooltip';
@@ -65,7 +68,7 @@ const TimelineRow = memo(
         return (
           <div className={cn('group min-w-0 px-1', row.final ? 'pb-4' : 'pb-2.5')} data-chat-item="assistant">
             <Markdown text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
-            {row.final && <Meta item={row.item} className="mt-1.5" />}
+            {row.final && <Meta item={row.item} className="mt-1.5" replay />}
           </div>
         );
       case 'work':
@@ -185,7 +188,8 @@ function sameRow(a: Row, b: Row): boolean {
   }
 }
 
-// Meta is a message's time and a copy button, shown on hover.
+// Meta is a message's time and a copy button, shown on hover; under a reply,
+// with read aloud on, a speaker that reads it again.
 // Delivered says what became of a message sent while the tool was working. The
 // interesting one is "sent": the tool read it mid-work and it was the model,
 // not AgentBox, that decided what to do about it.
@@ -249,7 +253,7 @@ function Delivered({ item }: { item: T.ChatItem }) {
   );
 }
 
-function Meta({ item, className }: { item: T.ChatItem; className?: string }) {
+function Meta({ item, className, replay }: { item: T.ChatItem; className?: string; replay?: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className={cn('flex items-center gap-1 text-xs tabular-nums text-faint opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100', className)}>
@@ -267,7 +271,27 @@ function Meta({ item, className }: { item: T.ChatItem; className?: string }) {
       >
         {copied ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
       </button>
+      {replay && <Replay item={item} />}
     </div>
+  );
+}
+
+// Replay reads a reply aloud again from the start (replay.ts), and stops it
+// while it does.
+function Replay({ item }: { item: T.ChatItem }) {
+  const { on } = useReadAloudSettings();
+  const reader = useReader();
+  if (!on) return null;
+  const reading = replaying(reader, item.id);
+  return (
+    <button
+      aria-label={reading ? 'Stop reading the message' : 'Read the message aloud'}
+      className={cn('flex size-6 items-center justify-center rounded-md transition hover:bg-surface-raised hover:text-tertiary', reading && 'text-brand-300')}
+      data-chat-replay={reading ? 'reading' : 'idle'}
+      onClick={() => toggleReplay({ speak, stop }, reader, item.id, item.text ?? '', fallbackLanguage())}
+    >
+      {reading ? <Square className="size-3.5" /> : <Volume2 className="size-3.5" />}
+    </button>
   );
 }
 

@@ -24,6 +24,7 @@
 //                           installed (it gives memory back), or without it
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
+//   ?readAloud=1            read aloud on: replies' hover rows get their speaker
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
@@ -198,6 +199,7 @@ const params = new URLSearchParams(location.search);
 document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 'light' : '';
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
+localStorage.setItem('agentbox.voice.readAloud', JSON.stringify({ on: params.get('readAloud') === '1' }));
 const openAgent = params.get('open'); // e.g. "agent-99"
 const page = params.get('page'); // a tab or Settings section of the project's page, or of ?open's agent
 const vm = params.get('vm');

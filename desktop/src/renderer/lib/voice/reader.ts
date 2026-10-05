@@ -14,9 +14,12 @@ export type ReaderState = {
   progress?: number;
   device?: 'webgpu' | 'wasm';
   error?: string;
+  // owner is whose sentence is being read, or comes next: the reply a
+  // replay is reading (replay.ts), and nobody's for the live stream.
+  owner?: string;
 };
 
-type Entry = { id: number; audio?: AudioBuffer; failed?: boolean };
+type Entry = { id: number; owner?: string; audio?: AudioBuffer; failed?: boolean };
 
 let state: ReaderState = { status: 'idle' };
 const listeners = new Set<() => void>();
@@ -95,7 +98,7 @@ function pump() {
 }
 
 function status() {
-  set({ status: queue.length === 0 ? 'idle' : ready ? 'speaking' : 'loading' });
+  set({ status: queue.length === 0 ? 'idle' : ready ? 'speaking' : 'loading', owner: queue[0]?.owner });
 }
 
 // unlock makes the audio output ready while a click is still being handled:
@@ -106,12 +109,12 @@ export function unlock(): void {
 }
 
 // speak queues a sentence in the settings' voice for its language, at their
-// speed, as they are now.
-export function speak(text: string, language: VoiceLanguage): void {
+// speed, as they are now, for owner if it's given.
+export function speak(text: string, language: VoiceLanguage, owner?: string): void {
   const { voices, speed } = readAloudSettings();
   const voice = voices[language];
   unlock();
-  const entry: Entry = { id: nextId++ };
+  const entry: Entry = { id: nextId++, owner };
   queue.push(entry);
   if (state.error) set({ error: undefined });
   const req: WorkerRequest = { type: 'speak', id: entry.id, generation, text, voice, speed };
