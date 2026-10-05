@@ -344,7 +344,7 @@ func (a *app) findEnvironment(ctx context.Context, name string) (savedHub, api.H
 }
 
 // localOnly are commands that work on this machine only, so --env can't apply.
-var localOnly = map[string]bool{"shell": true, "exec": true, "auth": true, "host": true, "daemon": true, "server": true, "remote": true, "login": true, "logout": true, "env": true, "path": true}
+var localOnly = map[string]bool{"shell": true, "exec": true, "auth": true, "host": true, "daemon": true, "server": true, "remote": true, "login": true, "logout": true, "env": true, "path": true, "machines": true}
 
 func topCommand(cmd *cobra.Command) string {
 	for cmd.HasParent() && cmd.Parent().HasParent() {

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Machines media</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='1' y='3' width='14' height='10' rx='2' fill='%236d5dfc'/%3E%3Ccircle cx='8' cy='8' r='2.5' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script>
+  // Before the first paint, so a dark page never flashes white.
+  const t = localStorage.getItem("theme");
+  if (t) document.documentElement.dataset.theme = t;
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="3" width="14" height="10" rx="2"/><circle cx="8" cy="8" r="2.5"/></svg>
+    <span>Machines media</span>
+  </div>
+  <label class="search">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+    <input id="q" type="search" placeholder="Search captions, branches, sessions…" autocomplete="off" spellcheck="false">
+    <kbd>/</kbd>
+  </label>
+  <div class="seg" id="kind" role="radiogroup" aria-label="Kind">
+    <button data-v="" aria-pressed="true">All</button>
+    <button data-v="screenshot">Screenshots</button>
+    <button data-v="recording">Recordings</button>
+  </div>
+  <select id="when" aria-label="Date">
+    <option value="">Any time</option>
+    <option value="today">Today</option>
+    <option value="7">Last 7 days</option>
+    <option value="30">Last 30 days</option>
+    <option value="custom">Between…</option>
+  </select>
+  <span id="range" hidden>
+    <input id="from" type="date" aria-label="From"> – <input id="to" type="date" aria-label="To">
+  </span>
+  <select id="group" aria-label="Group by">
+    <option value="day">By day</option>
+    <option value="repo">By repository</option>
+    <option value="branch">By branch</option>
+    <option value="session">By session</option>
+  </select>
+  <select id="source" aria-label="Source" hidden>
+    <option value="">All sources</option>
+    <option value="machines">Your machine</option>
+    <option value="agentbox">AgentBox agents</option>
+  </select>
+  <span class="spacer"></span>
+  <input id="zoom" type="range" min="180" max="520" step="20" value="300" aria-label="Thumbnail size" title="Thumbnail size">
+  <button id="theme" class="icon" title="Light or dark" aria-label="Toggle theme">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 2.5v11a5.5 5.5 0 0 0 0-11z" class="fill"/></svg>
+  </button>
+</header>
+
+<div class="body">
+  <nav class="side" id="tree" aria-label="Repositories, branches and sessions"></nav>
+  <main id="main">
+    <div class="status" id="status"></div>
+    <div id="grid"></div>
+    <div id="more"></div>
+    <div class="empty" id="empty" hidden>
+      <svg viewBox="0 0 48 48" aria-hidden="true"><rect x="6" y="10" width="36" height="28" rx="4"/><circle cx="24" cy="24" r="7"/></svg>
+      <h2>No media here yet</h2>
+      <p>Screenshots and recordings taken with <code>agentbox machines mcp</code>, and your AgentBox agents' media, show up here as they're made.</p>
+    </div>
+  </main>
+</div>
+
+<div class="lightbox" id="lb" hidden role="dialog" aria-modal="true" aria-label="Media viewer">
+  <div class="stage" id="lb-stage">
+    <button class="nav prev" id="lb-prev" aria-label="Previous (←)">‹</button>
+    <div class="media" id="lb-media"></div>
+    <button class="nav next" id="lb-next" aria-label="Next (→)">›</button>
+  </div>
+  <aside class="info">
+    <div class="info-head">
+      <span id="lb-pos"></span>
+      <button class="icon" id="lb-close" aria-label="Close (Esc)">✕</button>
+    </div>
+    <h2 id="lb-caption"></h2>
+    <dl id="lb-meta"></dl>
+    <div class="actions">
+      <button id="lb-copy" title="Copy the file's path (C)">Copy path</button>
+      <a id="lb-download" class="button" title="Download (D)">Download</a>
+      <a id="lb-open" class="button" target="_blank" rel="noopener" title="Open the file in a tab">Open</a>
+      <button id="lb-delete" class="danger" title="Delete (Del)">Delete…</button>
+    </div>
+    <p class="keys"><kbd>←</kbd><kbd>→</kbd> browse · <kbd>Space</kbd> play · <kbd>C</kbd> copy path · <kbd>D</kbd> download · <kbd>Del</kbd> delete · <kbd>Esc</kbd> close</p>
+  </aside>
+</div>
+
+<dialog id="confirm">
+  <form method="dialog">
+    <h3>Delete this item?</h3>
+    <p id="confirm-text"></p>
+    <div class="actions">
+      <button value="cancel" autofocus>Cancel</button>
+      <button value="ok" class="danger">Delete</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="app.js" type="module"></script>
+</body>
+</html>

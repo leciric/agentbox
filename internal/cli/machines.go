@@ -5,35 +5,48 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strconv"
+	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"agentbox/internal/api"
 	"agentbox/internal/machines"
 	"agentbox/internal/machinesmedia"
+	"agentbox/internal/machinesweb"
 	"agentbox/internal/mcp"
-	"agentbox/internal/paths"
 )
 
 // newMachinesCmd is desktop machines for AI tools running on the user's own
-// machine rather than in an agent (internal/machines). It runs here, not in
-// AgentBox's VM: the machines are this machine's containers, and the AI tools
-// asking for them are this machine's too (cmd/agentbox).
-func newMachinesCmd() *cobra.Command {
+// machine rather than in an agent (internal/machines), plus the page that
+// browses their screenshots and recordings. It runs here, not in AgentBox's
+// VM: the machines are this machine's containers, and the AI tools asking for
+// them are this machine's too (cmd/agentbox).
+func newMachinesCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "machines",
 		Short: "Desktop machines for Claude Code and Codex running on this computer, to test an app in",
+		Long: `For the AI tools you run yourself, on this machine rather than in an AgentBox agent: their
+screenshots and recordings go to one store, ` + "`<data>/machines/media`" + `, and agentbox machines serve
+shows them beside your AgentBox agents' media.`,
 	}
-	cmd.AddCommand(newMachinesMCPCmd(), newMachinesInstallCmd(), newMachinesUninstallCmd(),
-		newMachinesBuildCmd(), newMachinesListCmd(), newMachinesRemoveCmd())
+	cmd.AddCommand(newMachinesMCPCmd(a), newMachinesInstallCmd(), newMachinesUninstallCmd(),
+		newMachinesBuildCmd(), newMachinesListCmd(), newMachinesRemoveCmd(), newMachinesServeCmd(a))
 	return cmd
 }
 
-func newMachinesMCPCmd() *cobra.Command {
+func newMachinesMCPCmd(a *app) *cobra.Command {
 	var tool string
 	cmd := &cobra.Command{
 		Use:    "mcp",
@@ -42,7 +55,7 @@ func newMachinesMCPCmd() *cobra.Command {
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
-			session, err := machinesSession(ctx, tool)
+			session, err := machinesSession(ctx, a, tool)
 			var tools []mcp.Tool
 			if err != nil {
 				// Served anyway, every tool saying why: a session outside a
@@ -60,7 +73,7 @@ func newMachinesMCPCmd() *cobra.Command {
 	return cmd
 }
 
-func machinesSession(ctx context.Context, tool string) (*machines.Session, error) {
+func machinesSession(ctx context.Context, a *app, tool string) (*machines.Session, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -73,11 +86,7 @@ func machinesSession(ctx context.Context, tool string) (*machines.Session, error
 	if err != nil {
 		return nil, err
 	}
-	p, err := paths.Default()
-	if err != nil {
-		return nil, err
-	}
-	store := machinesmedia.Open(p)
+	store := machinesmedia.Open(a.paths)
 	id := make([]byte, 6)
 	_, _ = rand.Read(id)
 	return &machines.Session{
@@ -246,5 +255,99 @@ func newMachinesRemoveCmd() *cobra.Command {
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %s's machine.\n", worktree)
 			return nil
 		},
+	}
+}
+
+// machinesDefaultPort is serve's port unless --port says otherwise; taken,
+// it falls back to any free one.
+const machinesDefaultPort = 7790
+
+func newMachinesServeCmd(a *app) *cobra.Command {
+	var port int
+	var openIt bool
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Browse every screenshot and recording in a web page on 127.0.0.1",
+		Long: `Serves a page on 127.0.0.1 to browse every screenshot and recording on this machine: those
+taken with agentbox machines mcp, and your AgentBox agents' media when AgentBox is running.
+Group and filter them by repository, branch and session, kind and date, search their
+captions, and open one to play, copy its path, download or delete it. New ones appear as
+they're taken.
+
+It listens on port ` + strconv.Itoa(machinesDefaultPort) + ` unless --port names another, or on any free port when that one is
+taken, and prints the address. Thumbnails are made once and kept in <data>/machines/thumbs;
+recordings get a poster frame when ffmpeg is installed.`,
+		Example: `  agentbox machines serve --open
+  agentbox machines serve --port 8080`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ln, err := listenMachines(port, cmd.Flags().Changed("port"))
+			if err != nil {
+				return err
+			}
+			store := machinesmedia.Open(a.paths)
+			// Never started for this: on a front end, starting the daemon
+			// would boot the VM. Not running only means no agents' media.
+			srv := machinesweb.New(store, filepath.Join(a.paths.Data, "machines", "thumbs"),
+				machinesweb.APIDaemon{Client: api.NewClient(a.paths.Socket())})
+			srv.Logf = func(format string, args ...any) {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), format+"\n", args...)
+			}
+			ctx := cmd.Context()
+			go srv.Run(ctx)
+
+			url := "http://" + ln.Addr().String() + "/"
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Serving screenshots and recordings at %s\n", url)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Media from %s. Ctrl+C to stop.\n", store.Dir)
+			if openIt {
+				openInBrowser(url)
+			}
+			hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+			go func() {
+				<-ctx.Done()
+				sctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_ = hs.Shutdown(sctx)
+			}()
+			if err := hs.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+				return err
+			}
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&port, "port", machinesDefaultPort, "the port to listen on, on 127.0.0.1")
+	cmd.Flags().BoolVar(&openIt, "open", false, "open the page in your browser")
+	return cmd
+}
+
+// listenMachines listens on 127.0.0.1:port. A default port that's taken
+// (another serve, or anything else) gives way to a free one; a port asked for
+// with --port doesn't.
+func listenMachines(port int, explicit bool) (net.Listener, error) {
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err == nil || explicit || !errors.Is(err, syscall.EADDRINUSE) {
+		return ln, err
+	}
+	return net.Listen("tcp", "127.0.0.1:0")
+}
+
+// openInBrowser opens url in the desktop's browser, best effort: the
+// printed address is the answer on a machine with none.
+func openInBrowser(url string) {
+	name := "xdg-open"
+	switch runtime.GOOS {
+	case "darwin":
+		name = "open"
+	case "windows":
+		name = "explorer"
+	}
+	if b := os.Getenv("BROWSER"); b != "" && runtime.GOOS == "linux" {
+		if _, err := exec.LookPath("xdg-open"); err != nil {
+			name = b
+		}
+	}
+	c := exec.Command(name, url)
+	if c.Start() == nil {
+		go func() { _ = c.Wait() }()
 	}
 }
