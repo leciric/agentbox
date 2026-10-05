@@ -11,6 +11,11 @@ import (
 )
 
 func main() {
+	// `agentbox machines` is this machine's own: its containers, for the AI
+	// tools running here, with no daemon or VM involved.
+	if len(os.Args) > 1 && os.Args[1] == "machines" {
+		os.Exit(cli.Execute())
+	}
 	// On a Mac, AgentBox runs in a Linux VM, and this binary is its front end;
 	// on Linux too once `agentbox vm init` made one (Cloud Hypervisor). On a
 	// Linux machine running AgentBox itself, `agentbox vm …` is still the

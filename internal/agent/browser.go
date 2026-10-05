@@ -386,3 +386,7 @@ func (s *devtoolsSession) call(ctx context.Context, method string, params, resul
 		return json.Unmarshal(reply.Result, result)
 	}
 }
+
+// BrowserScript is browser.sh, for a machine outside Incus that runs the same
+// desktop: `agentbox machines` bakes it into its container image.
+func BrowserScript() []byte { return browserScript }

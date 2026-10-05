@@ -313,6 +313,10 @@ func recordingOutputArgs(fast bool) string {
 	return "-vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' -c:v libx264 " + quality + " -pix_fmt yuv420p -movflags +faststart"
 }
 
+// RecordingOutputArgs are recordingOutputArgs(false), for a recording made
+// outside an agent (`agentbox machines`), which has no overlay pass.
+func RecordingOutputArgs() string { return recordingOutputArgs(false) }
+
 // overlayEncodeArgs encode a desktop recording again with its keys and clicks
 // drawn on (burn_overlay), to the same kind of MP4 as recordingOutputArgs.
 const overlayEncodeArgs = "-c:v libx264 -preset veryfast -crf 28 -pix_fmt yuv420p -movflags +faststart"
