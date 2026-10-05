@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"slices"
 	"strconv"
 )
 
@@ -206,7 +207,35 @@ func (o *ConfigOption) UnmarshalJSON(data []byte) error {
 		}
 		o.Choices = append(o.Choices, ConfigChoice{Value: c.Value, Name: c.Name, Description: c.Description, Kind: c.Meta.Kind})
 	}
+	o.inferKinds()
 	return nil
+}
+
+// modeKinds are the kinds of the permission modes the adapters name. Since
+// claude-agent-acp 0.85 only sends _meta.kind to "AIR" clients, so without it
+// "bypassPermissions" would be just another mode to the app and the daemon.
+// codex-acp sends its own kinds; they're listed so a build that stops doing so
+// still works. OpenCode's modes are agents (build, plan), not permission
+// presets, and have no full-access one.
+var modeKinds = map[string]string{
+	"default":           "standard",
+	"plan":              "plan",
+	"auto":              "auto_review",
+	"bypassPermissions": "full_access",
+	"read-only":         "standard",
+	"agent":             "auto_review",
+	"agent-full-access": "full_access",
+}
+
+// inferKinds fills in a mode's kinds from its values when the adapter sent
+// none; one that sent any is believed.
+func (o *ConfigOption) inferKinds() {
+	if o.Category != "mode" || slices.ContainsFunc(o.Choices, func(c ConfigChoice) bool { return c.Kind != "" }) {
+		return
+	}
+	for i, c := range o.Choices {
+		o.Choices[i].Kind = modeKinds[c.Value]
+	}
 }
 
 type SetConfigOptionRequest struct {

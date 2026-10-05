@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -218,5 +219,27 @@ func TestConfigOptionsReadGroupsAndBooleans(t *testing.T) {
 	}
 	if f := options[2]; f.Type != "boolean" || f.Value != "true" {
 		t.Errorf("fast = %+v", f)
+	}
+}
+
+func TestModeKindsAreInferredWhenTheAdapterSendsNone(t *testing.T) {
+	var options []ConfigOption
+	err := json.Unmarshal([]byte(`[
+		{"id":"mode","category":"mode","type":"select","currentValue":"default","options":[
+			{"value":"default","name":"Manual"},{"value":"acceptEdits","name":"Accept edits"},
+			{"value":"plan","name":"Plan"},{"value":"bypassPermissions","name":"Bypass"}]},
+		{"id":"other","category":"thought_level","type":"select","currentValue":"plan","options":[{"value":"plan","name":"Plan"}]}]`), &options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range options[0].Choices {
+		got = append(got, c.Kind)
+	}
+	if want := []string{"standard", "", "plan", "full_access"}; !slices.Equal(got, want) {
+		t.Errorf("kinds = %q, want %q", got, want)
+	}
+	if k := options[1].Choices[0].Kind; k != "" {
+		t.Errorf("a non-mode choice got kind %q", k)
 	}
 }
