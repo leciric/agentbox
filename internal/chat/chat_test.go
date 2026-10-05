@@ -56,6 +56,7 @@ type fakeTool struct {
 	effort      bool // also offers an "effort" setting, like Claude Code's
 	images      bool // says it takes images in a prompt, like claude-agent-acp
 	plainOpus   bool // model choices are "opus", not "opus[1m]" — an account with no 1M-context entry
+	noKinds     bool // modes carry no _meta.kind, like claude-agent-acp 0.85 for a client that is not AIR
 	// strictModel refuses a model that isn't literally one of its choices,
 	// the way claude-agent-acp answers an unresolvable one ("Invalid value for
 	// config option model: fable").
@@ -258,11 +259,16 @@ func (f *fakeTool) options() []map[string]any {
 	} else {
 		modelChoices = append(modelChoices, map[string]any{"value": "opus[1m]", "name": "Opus 5", "description": "Opus 5 with 1M context"})
 	}
+	modes := []map[string]any{
+		{"value": "default", "name": "Manual", "_meta": map[string]string{"kind": "standard"}},
+		{"value": "bypassPermissions", "name": "Bypass permissions", "_meta": map[string]string{"kind": "full_access"}},
+	}
+	if f.noKinds {
+		// claude-agent-acp 0.85 only sends _meta.kind to "AIR" clients.
+		modes = []map[string]any{{"value": "default", "name": "Manual"}, {"value": "bypassPermissions", "name": "Bypass permissions"}}
+	}
 	options := []map[string]any{
-		{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": f.values["mode"], "options": []map[string]any{
-			{"value": "default", "name": "Manual", "_meta": map[string]string{"kind": "standard"}},
-			{"value": "bypassPermissions", "name": "Bypass permissions", "_meta": map[string]string{"kind": "full_access"}},
-		}},
+		{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": f.values["mode"], "options": modes},
 		{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": f.values["model"], "options": modelChoices},
 	}
 	if f.effort {
@@ -772,6 +778,23 @@ func TestTheToolExitingFailsTheTurn(t *testing.T) {
 	}
 	if !strings.Contains(find(th, "notice", 0).Text, "can't resume sessions") {
 		t.Errorf("items %v", kinds(th))
+	}
+}
+
+func TestAutonomousAgentGetsFullAccessWithoutModeKinds(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	a := testAgent
+	a.Autonomous = true
+	tool := newFakeTool(answerHello)
+	tool.noKinds = true
+	m, _ := newManager(t, store, tool)
+	if _, err := m.Start(a); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, a, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+	if mode := optionValue(th.Session, "mode"); mode != "bypassPermissions" {
+		t.Errorf("an autonomous agent's mode is %q without _meta.kind", mode)
 	}
 }
 
