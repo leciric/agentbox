@@ -2540,3 +2540,31 @@ func TestTheRingShowsTheWindowTheChatRunsAtMidTurn(t *testing.T) {
 		})
 	}
 }
+
+// TestQueuedAgentStartsOnItsSavedModel: reading a queued agent's chat caches
+// an empty copy; once creation saves its options, the session must use them.
+func TestQueuedAgentStartsOnItsSavedModel(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	ctx := context.Background()
+	a := testAgent
+	queued := a
+	queued.Status = state.AgentQueued
+	f := newFakeTool(answerHello)
+	m, _ := newManager(t, store, f)
+	if _, err := m.Thread(queued); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: map[string]string{"model": "opus", "effort": "high"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Start(a); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, a, "the session", func(th api.ChatThread) bool { return th.Session.State == api.ChatReady })
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if got := f.values["model"]; got != "opus" {
+		t.Errorf("session model = %q, want opus", got)
+	}
+}
