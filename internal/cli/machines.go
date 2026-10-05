@@ -28,14 +28,6 @@ import (
 	"agentbox/internal/mcp"
 )
 
-// RunsOnFrontEnd reports whether a command line (os.Args[1:]) is one the
-// VM's front end runs itself rather than forwards into the VM: `agentbox
-// machines …` is for AI tools running on this machine, outside AgentBox, and
-// its media and its web page are this machine's.
-func RunsOnFrontEnd(args []string) bool {
-	return len(args) > 0 && args[0] == "machines"
-}
-
 // newMachinesCmd is desktop machines for AI tools running on the user's own
 // machine rather than in an agent (internal/machines), plus the page that
 // browses their screenshots and recordings. It runs here, not in AgentBox's

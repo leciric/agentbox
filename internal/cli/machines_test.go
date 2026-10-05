@@ -6,12 +6,6 @@ import (
 	"testing"
 )
 
-func TestRunsOnFrontEnd(t *testing.T) {
-	if !RunsOnFrontEnd([]string{"machines", "serve"}) || RunsOnFrontEnd([]string{"media"}) || RunsOnFrontEnd(nil) {
-		t.Fatal("RunsOnFrontEnd")
-	}
-}
-
 func TestListenMachinesFallsBackOnlyFromTheDefault(t *testing.T) {
 	taken, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

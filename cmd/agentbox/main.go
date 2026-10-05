@@ -23,9 +23,7 @@ func main() {
 	// which it is.
 	// Help is this binary's own, the VM's being the same build: asking for it
 	// never starts the VM.
-	// agentbox machines is this machine's own, for AI tools running outside
-	// AgentBox, so it runs here on a front end too.
-	if hostvm.Handles(os.Args[1:]) && !hostvm.Help(os.Args[1:]) && !cli.RunsOnFrontEnd(os.Args[1:]) {
+	if hostvm.Handles(os.Args[1:]) && !hostvm.Help(os.Args[1:]) {
 		os.Exit(hostvm.Main(os.Args[1:], cli.Version()))
 	}
 	// On Windows it runs in a WSL distro, and this is that front end.
