@@ -87,6 +87,11 @@ type Manager struct {
 	// lead's full chat then (D73), while nobody is waiting on it. Off the
 	// conversation's lock, in a goroutine of its own.
 	Idle func(a state.Agent)
+	// TurnEnded, when set, is called after one of an agent's turns ends
+	// (never a lead's), with the user message heading it, so the daemon can
+	// checkpoint the worktree. Off the lock, in a goroutine of its own: by
+	// then the turn may have been rolled back, which Turn tells.
+	TurnEnded func(a state.Agent, turn string)
 	// AuthFailed, when set, is called when a turn failed because the agent's
 	// AI tool was refused by its provider: an expired or revoked login. The
 	// daemon marks the account rejected, so a dead token is named where it is
@@ -1773,6 +1778,12 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	c.session.State = c.stateNow()
 	c.markSession()
 	sessionID, dir, text, images := ad.sessionID, c.m.imageDir(c.agent), t.text, t.images
+	// A session started after a rollback or a fork hasn't seen the
+	// conversation: its first prompt carries it (timeline.go).
+	handoff := c.stored.Handoff
+	if handoff != "" {
+		text = handoff + "\n\n---\n\n" + text
+	}
 	if len(images) > 0 && !ad.images {
 		// Attached before this tool's adapter had ever said whether it reads
 		// images, and it turned out not to: the text still goes, and the
@@ -1802,6 +1813,12 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 		}
 		c.finishTurn(t, nil, err)
 	} else {
+		if handoff != "" && c.stored.Handoff == handoff {
+			c.stored.Handoff = ""
+			if err := c.m.Store.SaveChat(context.Background(), c.agent.Project, c.agent.Name, c.stored); err != nil {
+				c.m.logf("chat %s: %v", c.agent.Ref(), err)
+			}
+		}
 		c.finishTurn(t, &res, nil)
 	}
 }
@@ -1928,6 +1945,10 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	if c.m.Finished != nil && !c.agent.IsLead() {
 		agent, res := c.agent, *result
 		c.m.background.Go(func() { c.m.Finished(agent, res) })
+	}
+	if c.m.TurnEnded != nil && !c.agent.IsLead() {
+		agent, turn := c.agent, t.id
+		c.m.background.Go(func() { c.m.TurnEnded(agent, turn) })
 	}
 	// A lead is idle from here, and its prompt cache starts running out. The
 	// daemon checks again when it acts: a message drain is still handing the

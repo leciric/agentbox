@@ -149,21 +149,34 @@ export function SnapshotsTab({ agent, onOpenAgent }: { agent: T.Agent; onOpenAge
           await refresh();
         }}
       />
-      <ForkDialog agent={agent} snapshot={forking} onClose={() => setForking(null)} onOpenAgent={onOpenAgent} />
+      <ForkDialog
+        agent={agent}
+        from={
+          forking && {
+            title: `Fork ${agent.name}@${forking.name}`,
+            description: "A new agent with a copy of the machine, a new branch at the snapshot's commit, and the snapshot's uncommitted and untracked files.",
+            request: { snapshot: forking.name },
+          }
+        }
+        onClose={() => setForking(null)}
+        onOpenAgent={onOpenAgent}
+      />
     </div>
   );
 }
 
-function ForkDialog({
+// ForkDialog makes a new agent from one of agent's snapshots or checkpoints:
+// from says which, and how to put it.
+export function ForkDialog({
   agent,
-  snapshot,
+  from,
   onClose,
   onOpenAgent,
 }: {
   agent: T.Agent;
-  snapshot: T.Snapshot | null;
+  from: { title: string; description: string; request: Pick<T.ForkRequest, 'snapshot' | 'checkpoint'> } | null;
   onClose: () => void;
-  onOpenAgent: (ref: string) => void;
+  onOpenAgent?: (ref: string) => void;
 }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
@@ -171,7 +184,7 @@ function ForkDialog({
   const [job, setJob] = useState<T.Job | null>(null);
   const [failed, setFailed] = useState(false);
   const fork = useMutation({
-    mutationFn: () => api.fork(agent.ref, { name: name.trim() || undefined, title: title.trim() || undefined, snapshot: snapshot!.name }),
+    mutationFn: () => api.fork(agent.ref, { name: name.trim() || undefined, title: title.trim() || undefined, ...from!.request }),
     onSuccess: setJob,
   });
   const close = () => {
@@ -184,13 +197,11 @@ function ForkDialog({
   };
 
   return (
-    <Dialog open={snapshot !== null} onOpenChange={(open) => !open && close()}>
+    <Dialog open={from !== null} onOpenChange={(open) => !open && close()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>
-            Fork {agent.name}@{snapshot?.name}
-          </DialogTitle>
-          <DialogDescription>A new agent with a copy of the machine, a new branch at the snapshot's commit, and the snapshot's uncommitted and untracked files.</DialogDescription>
+          <DialogTitle>{from?.title}</DialogTitle>
+          <DialogDescription>{from?.description}</DialogDescription>
         </DialogHeader>
         {job ? (
           <>
@@ -201,7 +212,8 @@ function ForkDialog({
                 await queryClient.invalidateQueries({ queryKey: ['agents'] });
                 const ref = (done.result as T.Agent).ref;
                 close();
-                onOpenAgent(ref);
+                if (onOpenAgent) onOpenAgent(ref);
+                else toast(`${ref} is ready`);
               }}
             />
             <DialogFooter>

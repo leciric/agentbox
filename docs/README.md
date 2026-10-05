@@ -67,6 +67,9 @@ flowchart LR
   Claude accounts, and their five-hour and weekly limits.
 - [Connectors](connectors.md) — remote MCP servers (Notion, Linear…) that agents use, signed in
   to with OAuth on the host and relayed so no token reaches an agent; the API routes.
+- [SnapShots](snapshots.md) — a shortcut, or `agentbox snap`, that sends the window you're in to a
+  chat as a bug report, with its accessibility tree.
+- [Browser cookies](browser-cookies.md) — signing agents' browsers in with a cookie export you make.
 - [Machines for Claude Code and Codex on your computer](machines.md) — `agentbox machines`: a
   desktop machine per worktree, in Docker or Podman, for AI tools that run outside AgentBox.
 - [Project notes and the brief](notes-and-brief.md) — the per-project notes file, and the brief

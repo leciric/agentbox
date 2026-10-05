@@ -78,6 +78,11 @@ func (m *Manager) StartBrowser(ctx context.Context, a state.Agent) (BrowserStatu
 	if err := m.runBrowserScript(ctx, a, "start"); err != nil {
 		return BrowserStatus{}, err
 	}
+	// The browser works without the project's imported cookies, so failing
+	// to set them is said, not returned.
+	if err := m.applyBrowserCookies(ctx, a); err != nil {
+		m.logf("The browser started without the project's imported cookies: %v", err)
+	}
 	return m.BrowserStatus(ctx, a)
 }
 

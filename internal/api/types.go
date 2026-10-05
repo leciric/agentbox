@@ -792,6 +792,37 @@ type ForkRequest struct {
 	Name     string `json:"name,omitempty"`
 	Title    string `json:"title,omitempty"`
 	Snapshot string `json:"snapshot,omitempty"`
+	// Checkpoint forks from one of the source's checkpoints instead (its ID,
+	// or a turn's number): the branch starts from its files, and the new
+	// agent's chat from the conversation up to that turn.
+	Checkpoint string `json:"checkpoint,omitempty"`
+}
+
+// A Checkpoint is an agent's worktree at the end of one of its chat turns
+// (kind "turn"), or as it was just before a rollback (kind "saved"), which
+// can be forked from but not rolled back to.
+type Checkpoint struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	// Turn is the chat item ID of the user message heading the turn, and
+	// Number which turn of the conversation it is, from 1.
+	Turn      string    `json:"turn,omitempty"`
+	Number    int       `json:"number"`
+	Prompt    string    `json:"prompt"`
+	Commit    string    `json:"commit"`
+	Head      string    `json:"head"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// RollbackRequest puts an agent's worktree and conversation back to the end
+// of a turn: Checkpoint is its checkpoint's ID, or the turn's number.
+type RollbackRequest struct {
+	Checkpoint string `json:"checkpoint"`
+}
+
+// RollbackResult says where what the agent had before the rollback was saved.
+type RollbackResult struct {
+	Saved Checkpoint `json:"saved"`
 }
 
 // UpdateAgentRequest changes what's set; a nil field stays as it is.
@@ -2195,6 +2226,8 @@ const (
 	FeatureAgentFork           = "agent.fork"
 	FeatureAgentSnapshot       = "agent.snapshot"
 	FeatureAgentRestore        = "agent.restore"
+	FeatureAgentRollback       = "agent.rollback"
+	FeatureAgentForkTurn       = "agent.fork.turn"
 	FeatureAgentTurn           = "agent.turn"
 	FeatureLeadTurnClaude      = "lead.turn.claude"
 	FeatureLeadTurnCodex       = "lead.turn.codex"

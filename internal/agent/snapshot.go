@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -35,8 +36,8 @@ func (m *Manager) Snapshot(ctx context.Context, a state.Agent, name string, cons
 	if name == "" {
 		name = "snap-" + time.Now().Format("20060102-150405")
 	}
-	if !snapshotNameRe.MatchString(name) || name == "rm" || strings.HasPrefix(name, "base-") || strings.HasPrefix(name, "fork-") {
-		return Snapshot{}, fmt.Errorf("invalid snapshot name %q: use lowercase letters, digits, dots, dashes and underscores (rm, base-* and fork-* are reserved)", name)
+	if !snapshotNameRe.MatchString(name) || name == "rm" || strings.HasPrefix(name, "base-") || strings.HasPrefix(name, "fork-") || strings.HasPrefix(name, "turn-") {
+		return Snapshot{}, fmt.Errorf("invalid snapshot name %q: use lowercase letters, digits, dots, dashes and underscores (rm, base-*, fork-* and turn-* are reserved)", name)
 	}
 	return m.takeSnapshot(ctx, a, name, consistent)
 }
@@ -188,6 +189,10 @@ type ForkOptions struct {
 	Name     string // default: the next free agent-NN
 	Title    string // default: the source's title, marked as a fork
 	Snapshot string // default: a snapshot taken now and deleted afterwards
+	// Checkpoint, instead of a snapshot, starts the fork's branch and files
+	// where one of the source's checkpoints has them, on a copy of its machine
+	// as it is now.
+	Checkpoint string
 }
 
 // Fork creates a new agent from a snapshot of another one: a copy of its
@@ -213,6 +218,18 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 	if err != nil {
 		return state.Agent{}, err
 	}
+	if opts.Snapshot != "" && opts.Checkpoint != "" {
+		return state.Agent{}, errors.New("fork from a snapshot or from a checkpoint, not both")
+	}
+	var cp state.Checkpoint
+	if opts.Checkpoint != "" {
+		if cp, err = m.Store.Checkpoint(ctx, src.Project, src.Name, CheckpointID(opts.Checkpoint)); err != nil {
+			return state.Agent{}, err
+		}
+		if _, err := repo.ResolveRef(cp.Ref); err != nil {
+			return state.Agent{}, fmt.Errorf("%s's checkpoint %s is gone from the repository", src.Ref(), cp.ID)
+		}
+	}
 	name := opts.Snapshot
 	if name == "" {
 		name = "fork-" + time.Now().UTC().Format("20060102-150405")
@@ -231,7 +248,10 @@ func (m *Manager) Fork(ctx context.Context, src state.Agent, opts ForkOptions) (
 		return state.Agent{}, err
 	}
 	baseRef := src.Ref() + "@" + name
-	if opts.Snapshot == "" {
+	switch {
+	case cp.ID != "":
+		tree, head, baseRef = cp.Commit, cp.Head, src.Ref()+"@"+cp.ID
+	case opts.Snapshot == "":
 		baseRef = src.Ref()
 	}
 	return m.build(ctx, plan{

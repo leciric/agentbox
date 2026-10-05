@@ -18,7 +18,7 @@ const tsFile = "../../desktop/src/shared/api.ts"
 var tsTypes = []any{
 	Project{}, AddProjectRequest{}, UpdateProjectRequest{}, Section{}, AddSectionRequest{}, UpdateSectionRequest{},
 	ProjectLayout{}, SectionProjects{}, Notes{}, NotesRequest{}, Settings{}, UpdateSettingsRequest{}, Agent{}, WorktreeFiles{}, CreateAgentRequest{}, ForkRequest{}, UpdateAgentRequest{},
-	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
+	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Checkpoint{}, RollbackRequest{}, RollbackResult{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
 	QueueStatus{}, ProjectSlots{}, QueuedAgent{}, MoveQueuedRequest{}, SlotAgent{},
 	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{}, DiskGuard{}, DiskGuardDisk{},
@@ -30,6 +30,8 @@ var tsTypes = []any{
 	SetupCheck{}, SetupStatus{}, ImageComponents{}, ImageBuild{}, ImageDownload{}, BuildImageRequest{},
 	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},
 	Secret{}, SetSecretRequest{},
+	BrowserCookies{}, BrowserCookiesPreviewRequest{}, BrowserCookiesPreview{}, CookieDomain{}, ImportBrowserCookiesRequest{},
+	SnapRequest{}, Snap{}, SnapSendRequest{},
 	Connector{}, SetConnectorRequest{}, ConnectResult{}, SelfConnector{}, ConnectorRequest{},
 	PullRequest{}, GitHubError{}, ProjectPullRequests{}, MergePullRequestRequest{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{},
 	RetireRequest{}, RetiredAgent{}, RetireResult{},
@@ -52,7 +54,7 @@ var tsTypes = []any{
 
 var tsConstants = [][2]string{
 	{"JobRunning", JobRunning}, {"JobSucceeded", JobSucceeded}, {"JobFailed", JobFailed}, {"JobCancelled", JobCancelled},
-	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventPulls", EventPulls}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN},
+	{"EventJob", EventJob}, {"EventJobLog", EventJobLog}, {"EventAgent", EventAgent}, {"EventUsage", EventUsage}, {"EventProject", EventProject}, {"EventMedia", EventMedia}, {"EventPulls", EventPulls}, {"EventTheme", EventTheme}, {"EventUpdate", EventUpdate}, {"EventDisk", EventDisk}, {"DiskOK", DiskOK}, {"DiskLow", DiskLow}, {"DiskFull", DiskFull}, {"EventLAN", EventLAN}, {"EventSnap", EventSnap},
 	{"SetupOK", SetupOK}, {"SetupMissing", SetupMissing}, {"SetupOutdated", SetupOutdated}, {"SetupOptional", SetupOptional}, {"SetupUpdating", SetupUpdating},
 	{"InAgentSocket", InAgentSocket}, {"ErrorFolderNotEmpty", ErrorFolderNotEmpty},
 	{"LeadName", LeadName}, {"HomeProject", HomeProject}, {"AgentModelAuto", AgentModelAuto},

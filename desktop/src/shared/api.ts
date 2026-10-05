@@ -234,6 +234,7 @@ export interface ForkRequest {
   name?: string;
   title?: string;
   snapshot?: string;
+  checkpoint?: string;
 }
 
 export interface UpdateAgentRequest {
@@ -256,6 +257,25 @@ export interface SnapshotRequest {
 
 export interface RestoreRequest {
   snapshot: string;
+}
+
+export interface Checkpoint {
+  id: string;
+  kind: string;
+  turn?: string;
+  number: number;
+  prompt: string;
+  commit: string;
+  head: string;
+  createdAt: string;
+}
+
+export interface RollbackRequest {
+  checkpoint: string;
+}
+
+export interface RollbackResult {
+  saved: Checkpoint;
 }
 
 export interface Base {
@@ -838,6 +858,65 @@ export interface SetSecretRequest {
   value: string;
 }
 
+export interface BrowserCookies {
+  imported: boolean;
+  domains: string[];
+  cookies: number;
+  format?: string;
+  importedAt?: string;
+}
+
+export interface BrowserCookiesPreviewRequest {
+  export: string;
+}
+
+export interface BrowserCookiesPreview {
+  format: string;
+  cookies: number;
+  domains: CookieDomain[];
+}
+
+export interface CookieDomain {
+  domain: string;
+  cookies: number;
+}
+
+export interface ImportBrowserCookiesRequest {
+  export: string;
+  domains: string[];
+}
+
+export interface SnapRequest {
+  image: ChatImageUpload;
+  app?: string;
+  title?: string;
+  desktop?: string;
+  window: boolean;
+  accessibility?: string;
+  takenAt: string;
+  project?: string;
+}
+
+export interface Snap {
+  id: string;
+  app?: string;
+  title?: string;
+  desktop?: string;
+  window: boolean;
+  accessibility?: string;
+  mimeType: string;
+  size: number;
+  takenAt: string;
+  project?: string;
+}
+
+export interface SnapSendRequest {
+  project: string;
+  agent?: string;
+  note?: string;
+  accessibility: boolean;
+}
+
 export interface Connector {
   name: string;
   scope: string;
@@ -1286,6 +1365,7 @@ export interface ChatItem {
   result?: ChatTurnResult;
   subagent?: ChatSubagent;
   compaction?: ChatCompaction;
+  handoff?: string;
   parent?: string;
   createdAt: string;
   updatedAt: string;
@@ -1380,6 +1460,8 @@ export interface ChatEvent {
   append?: ChatAppend;
   session?: ChatSession;
   cleared?: boolean;
+  after?: string;
+  checkpoint?: string;
 }
 
 export interface ChatAppend {
@@ -1898,6 +1980,7 @@ export const DiskOK = "ok";
 export const DiskLow = "low";
 export const DiskFull = "full";
 export const EventLAN = "lan";
+export const EventSnap = "snap";
 export const SetupOK = "ok";
 export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";

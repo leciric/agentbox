@@ -1,0 +1,4 @@
+{"cookies": [
+  {"name": "_octo", "value": "GH1.1.123", "domain": ".github.com", "path": "/", "expires": 4102444800, "httpOnly": false, "secure": true, "sameSite": "Lax"},
+  {"name": "user_session", "value": "sess-abc", "domain": "github.com", "path": "/", "expires": -1, "httpOnly": true, "secure": true, "sameSite": "None"}
+], "origins": []}

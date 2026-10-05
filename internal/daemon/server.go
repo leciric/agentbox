@@ -65,6 +65,9 @@ type Config struct {
 
 type Server struct {
 	cfg Config
+	// timeline holds a *sync.Mutex per agent ref, taken by its checkpoints
+	// and rollbacks (timeline.go).
+	timeline sync.Map
 	// imageCache is the image cache agents' Docker shares (imagecache.go),
 	// and imageCacheUp whether its socket is being served.
 	imageCache   *imagecache.Cache
@@ -139,6 +142,7 @@ type Server struct {
 	claudeLogins map[string]*claudeLogin  // in-app Claude Code logins, by job
 	distilling   map[string]bool          // projects with a distillation running, by name
 	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
+	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
@@ -285,6 +289,7 @@ func New(cfg Config) (*Server, error) {
 		Finished:   s.agentFinished,
 		LeadIdle:   s.leadCacheIdle,
 		Idle:       s.leadIdle,
+		TurnEnded:  s.checkpointTurn,
 		AuthFailed: s.claudeAuthFailed,
 		Lost:       s.agentLost,
 		Limits:     s.claudeLimited,
@@ -620,6 +625,10 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/secrets", s.listProjectSecrets)
 	h("PUT /v1/projects/{project}/secrets/{name}", s.setProjectSecret)
 	h("DELETE /v1/projects/{project}/secrets/{name}", s.removeProjectSecret)
+	h("GET /v1/projects/{project}/browser-cookies", s.getBrowserCookies)
+	h("POST /v1/projects/{project}/browser-cookies/preview", s.previewBrowserCookies)
+	h("PUT /v1/projects/{project}/browser-cookies", s.importBrowserCookies)
+	h("DELETE /v1/projects/{project}/browser-cookies", s.removeBrowserCookies)
 	for _, route := range memoryRoutes {
 		h(route.method+" /v1/projects/{project}/memory"+route.path, s.memoryHandler(route.action, s.projectMemoryScope))
 	}
@@ -649,6 +658,8 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/agents/{project}/{agent}/snapshots/{name}", s.deleteSnapshot)
 	h("POST /v1/agents/{project}/{agent}/restore", s.restore)
 	h("POST /v1/agents/{project}/{agent}/fork", s.fork)
+	h("GET /v1/agents/{project}/{agent}/checkpoints", s.listCheckpoints)
+	h("POST /v1/agents/{project}/{agent}/rollback", s.rollback)
 	h("POST /v1/agents/{project}/{agent}/recreate", s.recreate)
 	h("POST /v1/migration/check", s.checkMigration)
 	s.connectorRoutes(h)
@@ -719,6 +730,11 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/lan/web/{version}", s.installLANWeb)
 	mux.Handle(lanNetPrefix+"/", http.StripPrefix(lanNetPrefix, s.lanHandler(lanViaSocket)))
 
+	h("POST /v1/snaps", s.takeSnap)
+	h("GET /v1/snaps", s.listSnaps)
+	h("GET /v1/snaps/{id}/image", s.snapImage)
+	h("POST /v1/snaps/{id}/send", s.sendSnap)
+	h("DELETE /v1/snaps/{id}", s.dropSnap)
 	h("GET /v1/jobs", s.listJobs)
 	h("GET /v1/jobs/{id}", s.getJob)
 	h("GET /v1/jobs/{id}/log", s.jobLog)

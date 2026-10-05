@@ -422,6 +422,8 @@ func TestJobsAndSnapshotArgs(t *testing.T) {
 		{"snapshot", "rm", "pawly/agent-01"},
 		{"restore", "pawly/agent-01"},
 		{"fork"},
+		{"rollback", "pawly/agent-01"},
+		{"checkpoints"},
 		{"jobs", "cancel"},
 	} {
 		if _, err := run(t, "", args...); err == nil || !strings.Contains(err.Error(), "arg") {

@@ -114,6 +114,10 @@ type ChatItem struct {
 	// Compaction is set on a compaction's card (D73): the conversation being
 	// saved to the project's memory and carried on in a fresh session.
 	Compaction *ChatCompaction `json:"compaction,omitempty"`
+	// Handoff, on the notice a rollback or a fork leaves, is what the fresh
+	// session is told of the conversation before it: a context transfer the
+	// app lets you read, not a prompt hidden from you.
+	Handoff string `json:"handoff,omitempty"`
 	// Parent, on a message, thought or tool call a subagent made, is that
 	// subagent's card. The app nests the item under the card instead of
 	// showing it in the conversation itself.
@@ -325,6 +329,12 @@ type ChatEvent struct {
 	Append  *ChatAppend  `json:"append,omitempty"`  // text added to an item
 	Session *ChatSession `json:"session,omitempty"` // the session's new state
 	Cleared bool         `json:"cleared,omitempty"` // every item was removed
+	// After says every item after this one was removed: the conversation was
+	// rolled back to the turn it ends.
+	After string `json:"after,omitempty"`
+	// Checkpoint is a turn, by its user message's ID, whose checkpoint was
+	// just taken: it can be rolled back to and forked from now.
+	Checkpoint string `json:"checkpoint,omitempty"`
 }
 
 // ChatAppend is text added to the end of an item's text.

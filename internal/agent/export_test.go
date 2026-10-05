@@ -14,3 +14,6 @@ func (m *Manager) GHPath() string { return m.ghPath() }
 func (m *Manager) EnsureRecordingStage(ctx context.Context, a state.Agent) (bool, error) {
 	return m.ensureRecordingStage(ctx, a)
 }
+
+// KeepTurnCheckpoints is how many turns' checkpoints are kept.
+const KeepTurnCheckpoints = keepTurnCheckpoints
