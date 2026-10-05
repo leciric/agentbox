@@ -2079,6 +2079,19 @@ func (s *Store) SetAgentBaseCommit(ctx context.Context, project, name, commit st
 	return nil
 }
 
+// SetAgentBase records the branch an agent's worktree follows and the commit
+// it stands on, for a lead whose branch is gone.
+func (s *Store) SetAgentBase(ctx context.Context, project, name, ref, commit string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE agents SET base_ref = ?, base_commit = ? WHERE project = ? AND name = ?`, ref, commit, project, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("agent %s/%s: %w", project, name, ErrNotFound)
+	}
+	return nil
+}
+
 // SetAgentInterface records how you work with an agent's AI tool.
 func (s *Store) SetAgentInterface(ctx context.Context, project, name, iface string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE agents SET interface = ? WHERE project = ? AND name = ?`, iface, project, name)
