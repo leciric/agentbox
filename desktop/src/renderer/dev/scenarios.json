@@ -322,6 +322,14 @@
     "height": 120
   },
   {
+    "id": "disk-low-popover-dark",
+    "description": "The top bar's Disk low pill in VM mode with its popover open: the agents' disk near its floor, named, with what grows it (Settings, agentbox vm resize --disk) and what can be cleared — dark",
+    "query": "meters=disklow&theme=dark",
+    "width": 1280,
+    "height": 700,
+    "click": "[data-disk-level=\"low\"]"
+  },
+  {
     "id": "disk-meter-unmeasured-dark",
     "description": "The top bar's disk meter in VM mode with nothing allocated yet: — / 120 GiB and an empty bar, never 0 B — dark",
     "query": "meters=disk-unmeasured&theme=dark",

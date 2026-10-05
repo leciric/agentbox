@@ -1620,6 +1620,9 @@ type DiskGuardDisk struct {
 	Total int64  `json:"total"`
 	Floor int64  `json:"floor"`
 	Level string `json:"level"`
+	// Advice says what frees this disk or gives it room: the command or the
+	// Settings change, and what can be cleared.
+	Advice string `json:"advice,omitempty"`
 }
 
 // Disk guard levels.

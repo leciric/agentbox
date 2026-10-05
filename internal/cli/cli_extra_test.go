@@ -745,13 +745,14 @@ func TestDockerCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustContain(t, out, "shared Docker image cache: on")
-	mustContain(t, out, "holds 0 B of at most 20.0 GiB")
-	out, err = run(t, "", "docker-cache", "off", "--max", "40GiB", "--clear")
+	// At most 20 GiB, less on a small disk (fitCacheMax).
+	mustContain(t, out, "holds 0 B of at most ")
+	out, err = run(t, "", "docker-cache", "off", "--max", "40PiB", "--clear")
 	if err != nil {
 		t.Fatal(err)
 	}
 	mustContain(t, out, "off: agents pull from Docker Hub directly")
-	mustContain(t, out, "at most 40.0 GiB")
+	mustContain(t, out, "warning: 40.0 PiB is more than the image cache's disk can hold")
 	if _, err := run(t, "", "docker-cache", "--max", "10MiB"); err == nil {
 		t.Error("a 10MiB cap was taken")
 	}
@@ -765,13 +766,13 @@ func TestPackageCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustContain(t, out, "shared package caches: on")
-	mustContain(t, out, "of at most 20.0 GiB")
-	out, err = run(t, "", "package-cache", "off", "--max", "40GiB", "--clear")
+	mustContain(t, out, "holds 0 B of at most ")
+	out, err = run(t, "", "package-cache", "off", "--max", "40PiB", "--clear")
 	if err != nil {
 		t.Fatal(err)
 	}
 	mustContain(t, out, "off: each agent downloads into caches of its own")
-	mustContain(t, out, "holds 0 B of at most 40.0 GiB")
+	mustContain(t, out, "warning: 40.0 PiB is more than the package caches' disk can hold")
 	if _, err := run(t, "", "package-cache", "--max", "10MiB"); err == nil {
 		t.Error("a 10MiB cap was taken")
 	}

@@ -44,6 +44,7 @@ export function DiskGuardPill({ onSelect }: { onSelect: (view: View) => void }) 
           <div className="grid gap-1">
             <span className={cn('text-[13px] font-medium', full ? 'text-rose-200' : 'text-amber-200')}>{view.title}</span>
             <span className="text-[12px] leading-relaxed text-secondary">{view.body}</span>
+            {view.advice && <Advice text={view.advice} />}
           </div>
           {!vm?.pausedForDisk && disk.data && disk.data.disks.length > 0 && <DiskList disks={disk.data.disks} />}
           {!vm?.pausedForDisk && disk.data && disk.data.paused.length > 0 && (
@@ -65,6 +66,23 @@ export function DiskGuardPill({ onSelect }: { onSelect: (view: View) => void }) 
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+// Advice is what to do about the disk, its `commands` set as code.
+function Advice({ text }: { text: string }) {
+  return (
+    <span className="text-[12px] leading-relaxed text-secondary">
+      {text.split('`').map((part, i) =>
+        i % 2 === 1 ? (
+          <code key={i} className="rounded bg-surface-raised px-1 font-mono text-[11.5px] text-primary">
+            {part}
+          </code>
+        ) : (
+          part
+        ),
+      )}
+    </span>
   );
 }
 

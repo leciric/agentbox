@@ -7,3 +7,6 @@ func onSharedFS(string) bool { return false }
 
 // diskSpace measures nothing off Linux, where no daemon runs.
 func diskSpace(string) (free, total int64, id string, ok bool) { return 0, 0, "", false }
+
+// isMountpoint is false off Linux, where no daemon runs.
+func isMountpoint(string) bool { return false }

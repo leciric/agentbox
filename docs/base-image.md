@@ -44,8 +44,10 @@ Run inside the container before it's snapshotted:
 ## Docker images agents share
 
 Agents that run Docker pull Docker Hub's images through one cache that AgentBox's daemon keeps in
-its VM, so an image several agents use is downloaded and stored once. It's on by default, holds at
-most 20 GiB (the least recently used images go first) and never fills the disk past its floor.
+its VM, on the agents' disk, so an image several agents use is downloaded and stored once. It's on
+by default, holds at most 20 GiB or an eighth of its disk, whichever is less (the least recently used
+images go first), and never fills the disk past its floor. A `--max` bigger than the disk can hold is
+capped, with a warning.
 Settings → Resources → "Share Docker images between agents" turns it off, changes its size, shows
 what it holds and empties it; so does `agentbox docker-cache [on|off] [--max 30GiB] [--clear]`.
 
@@ -62,8 +64,9 @@ what it holds and empties it; so does `agentbox docker-cache [on|off] [--max 30G
 Agents' package managers download into caches that AgentBox keeps in its VM and every agent shares,
 so a new agent installs from what earlier ones fetched instead of downloading it all again: pnpm's
 store, npm's cache and `npx`, Yarn 2+ (Berry), Go's module and build caches, pip, uv, Corepack's
-package managers and Playwright's browsers. They outlive the agents, are on by default, hold at
-most 20 GiB together (what was used longest ago goes first) and never fill the disk past its floor.
+package managers and Playwright's browsers. They're on the agents' disk, outlive the agents, are on
+by default, hold at most 20 GiB together or an eighth of their disk, whichever is less (what was used
+longest ago goes first), and never fill the disk past its floor.
 Settings → Resources → "Share package caches between agents" turns them off, changes their size,
 shows what they hold and empties them; so does `agentbox package-cache [on|off] [--max 30GiB] [--clear]`.
 
