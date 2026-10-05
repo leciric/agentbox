@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/hostos"
 	"agentbox/internal/image"
 	"agentbox/internal/state"
 )
@@ -75,6 +76,15 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 	env = append(env, toolEnv()...)
 	if term := os.Getenv("TERM"); term != "" {
 		env = append(env, "TERM="+term)
+	}
+	// What the front end told the daemon about the host. A VM made before
+	// /etc/agentbox/vm was has nothing else to say it's AgentBox's VM, and the
+	// lead's HOME holds no state.db: without these, its `agentbox mcp` takes
+	// itself for the Mac's front end and quits (hostvm.Front).
+	for _, name := range []string{hostos.Env, hostos.HomeEnv} {
+		if v := os.Getenv(name); v != "" {
+			env = append(env, name+"="+v)
+		}
 	}
 	token, err := m.Creds.ClaudeToken(a.ClaudeAccount)
 	if err != nil {
