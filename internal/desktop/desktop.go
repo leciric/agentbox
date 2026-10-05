@@ -70,10 +70,48 @@ func Running() bool {
 	return err == nil
 }
 
+// Target is a display on another machine, which every command is run in:
+// `agentbox machines mcp` drives a container's display from the host this
+// way, one `docker exec` a command. Without one, the display is this
+// machine's own :99.
+type Target struct {
+	// Command is name with args, run where the display is with DISPLAY set.
+	Command func(ctx context.Context, name string, args ...string) *exec.Cmd
+	// Running reports whether the display is up.
+	Running func(ctx context.Context) bool
+	// NotRunning is what a tool says when it isn't: what starts it there.
+	NotRunning string
+}
+
+type targetKey struct{}
+
+// OnTarget is ctx with every desktop command run on t rather than here.
+func OnTarget(ctx context.Context, t Target) context.Context {
+	return context.WithValue(ctx, targetKey{}, t)
+}
+
+// local is this machine's own display.
+var local = Target{
+	Command: func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, name, args...)
+		cmd.Env = append(os.Environ(), "DISPLAY="+Display)
+		return cmd
+	},
+	Running:    func(context.Context) bool { return Running() },
+	NotRunning: notRunning,
+}
+
+func targetOf(ctx context.Context) Target {
+	if t, ok := ctx.Value(targetKey{}).(Target); ok {
+		return t
+	}
+	return local
+}
+
 // requireDisplay is the check every tool makes first.
-func requireDisplay() error {
-	if !Running() {
-		return errors.New(notRunning)
+func requireDisplay(ctx context.Context) error {
+	if t := targetOf(ctx); !t.Running(ctx) {
+		return errors.New(t.NotRunning)
 	}
 	return nil
 }
@@ -85,8 +123,7 @@ func requireDisplay() error {
 func runBoth(ctx context.Context, name string, args ...string) (stdout, stderr string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = append(os.Environ(), "DISPLAY="+Display)
+	cmd := targetOf(ctx).Command(ctx, name, args...)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
 	if err := cmd.Run(); err != nil {
@@ -107,7 +144,7 @@ func run(ctx context.Context, name string, args ...string) (string, error) {
 
 // xdotool runs one xdotool command line, which may chain several actions.
 func xdotool(ctx context.Context, args ...string) (string, error) {
-	if err := requireDisplay(); err != nil {
+	if err := requireDisplay(ctx); err != nil {
 		return "", err
 	}
 	return run(ctx, "xdotool", args...)
@@ -342,7 +379,7 @@ func pressKeys(ctx context.Context, combo string) error {
 	if err != nil {
 		return err
 	}
-	if err := requireDisplay(); err != nil {
+	if err := requireDisplay(ctx); err != nil {
 		return err
 	}
 	_, warnings, err := runBoth(ctx, "xdotool", args...)
@@ -493,7 +530,7 @@ func SettledScreenshot(ctx context.Context) (jpg []byte, sc Scale, err error) {
 // here. One process for however many frames settling takes, and no
 // temporary file.
 func capture(ctx context.Context, settle bool) ([]byte, Scale, error) {
-	if err := requireDisplay(); err != nil {
+	if err := requireDisplay(ctx); err != nil {
 		return nil, Scale{}, err
 	}
 	sc, err := DisplayScale(ctx)
@@ -510,8 +547,7 @@ func capture(ctx context.Context, settle bool) ([]byte, Scale, error) {
 		args = append(args, "-frames:v", "1")
 	}
 	args = append(args, "-pix_fmt", "rgba", "-f", "rawvideo", "-")
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	cmd.Env = append(os.Environ(), "DISPLAY="+Display)
+	cmd := targetOf(ctx).Command(ctx, "ffmpeg", args...)
 	var errOut bytes.Buffer
 	cmd.Stderr = &errOut
 	out, err := cmd.StdoutPipe()
