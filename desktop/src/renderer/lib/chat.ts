@@ -109,6 +109,8 @@ export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void 
       info && info.ref === ev.agent && info.chat !== state ? { ...info, chat: state } : info,
     );
   }
+  // A turn's checkpoint was taken, or a rollback dropped the later ones.
+  if (ev.checkpoint || ev.after) void queryClient.invalidateQueries({ queryKey: ['checkpoints', ev.agent] });
   const thread = queryClient.getQueryData<T.ChatThread>(chatKey(ev.agent));
   if (!thread) return;
   const next = advance(thread, [ev]);
@@ -141,6 +143,11 @@ function applyEvent(thread: T.ChatThread, ev: T.ChatEvent): T.ChatThread {
   } else if (ev.append) {
     const i = indexOf(thread.items, ev.append.id);
     if (i >= 0) next.items = thread.items.with(i, { ...thread.items[i], text: (thread.items[i].text ?? '') + ev.append.text });
+  } else if (ev.after) {
+    // A rollback: what came after the turn it went back to is gone. Not
+    // holding that item means it is on a page not read yet, before
+    // everything held.
+    next.items = thread.items.slice(0, indexOf(thread.items, ev.after) + 1);
   }
   return next;
 }
@@ -173,7 +180,8 @@ export type Row =
   | { type: 'subagent'; key: string; item: T.ChatItem; children: T.ChatItem[] }
   | { type: 'compaction'; key: string; item: T.ChatItem }
   | { type: 'credential'; key: string; item: T.ChatItem }
-  | { type: 'changes'; key: string; files: ChangedFile[] };
+  | { type: 'changes'; key: string; files: ChangedFile[] }
+  | { type: 'turn'; key: string; checkpoint: T.Checkpoint };
 
 interface Turn {
   id: string;
@@ -256,7 +264,9 @@ function nestedOf(items: T.ChatItem[]): { top: T.ChatItem[]; children: Map<strin
   return { top, children };
 }
 
-export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string>): Row[] {
+// checkpoints are the agent's, by the turn each ends: a settled turn that has
+// one ends with a marker to roll back to it or fork from it.
+export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string>, checkpoints?: ReadonlyMap<string, T.Checkpoint>): Row[] {
   const rows: Row[] = [];
   const { top, children } = nestedOf(thread.items);
   for (const turn of turnsOf(top)) {
@@ -317,6 +327,8 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
       const nested = turn.items.filter((it) => it.kind === 'subagent').flatMap((it) => children.get(it.id) ?? []);
       const files = changedFiles([...turn.items, ...nested]);
       if (files.length > 0) rows.push({ type: 'changes', key: `changes:${turn.id}`, files });
+      const checkpoint = user && checkpoints?.get(user.id);
+      if (checkpoint) rows.push({ type: 'turn', key: `turn:${turn.id}`, checkpoint });
     }
   }
   return rows;
@@ -362,8 +374,9 @@ export function toolOf(thread: T.ChatThread, callId: string): T.ChatTool | undef
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // workSummary describes a group of tool calls by what they did, like "Ran 3
-// commands, read 2 files and edited 1 file". The thoughts and answered requests
-// among them show when the group is opened.
+// commands, edited 1 file and read 2 files": what changed things first, as
+// t3code's activity log does. The thoughts and answered requests among them
+// show when the group is opened.
 export function workSummary(items: T.ChatItem[]): string {
   let commands = 0;
   let reads = 0;
@@ -403,8 +416,8 @@ export function workSummary(items: T.ChatItem[]): string {
   }
   const actions = [
     commands && `ran ${plural(commands, 'command')}`,
-    reads && `read ${plural(reads, 'file')}`,
     edited.size && `edited ${plural(edited.size, 'file')}`,
+    reads && `read ${plural(reads, 'file')}`,
     searches && `searched ${searches === 1 ? 'once' : `${searches} times`}`,
     fetches && `fetched ${plural(fetches, 'page')}`,
     others && `used ${plural(others, 'tool')}`,

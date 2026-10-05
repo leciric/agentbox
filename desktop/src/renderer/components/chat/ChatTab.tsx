@@ -20,7 +20,19 @@ import { Timeline } from './Timeline';
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
 // composer floating over its end.
 // autoStart is off only where nothing should start, like the dev preview.
-export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent: T.Agent; starting: boolean; onStart: () => void; autoStart?: boolean }) {
+export function ChatTab({
+  agent,
+  starting,
+  onStart,
+  autoStart = true,
+  onOpenAgent,
+}: {
+  agent: T.Agent;
+  starting: boolean;
+  onStart: () => void;
+  autoStart?: boolean;
+  onOpenAgent?: (ref: string) => void;
+}) {
   const queryClient = useQueryClient();
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
   const session = thread.data?.session;
@@ -157,7 +169,7 @@ export function ChatTab({ agent, starting, onStart, autoStart = true }: { agent:
                   {loadingOlder ? 'Loading earlier messages' : ''}
                 </div>
               )}
-              <Timeline agent={agent} thread={thread.data} />
+              <Timeline agent={agent} thread={thread.data} onOpenAgent={onOpenAgent} />
             </>
           )}
           {/* What the project's agents are waiting on you for, at the end of
