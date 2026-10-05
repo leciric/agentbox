@@ -92,6 +92,10 @@ type Config struct {
 	EnvFiles []string `json:"env_files,omitempty"`
 	// Image replaces the machine image `agentbox machines build` makes.
 	Image string `json:"image,omitempty"`
+	// BrowserTools gives the session Playwright's browser_* tools, which read
+	// a page's DOM. Off, the desktop tools are the only ones that operate the
+	// app, which is what the user sees.
+	BrowserTools bool `json:"browser_tools,omitempty"`
 
 	// env is what EnvFiles held, read by Load.
 	env map[string]string

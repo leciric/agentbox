@@ -100,10 +100,15 @@ type mcpClient struct {
 	out    *json.Decoder
 	cmd    *exec.Cmd
 	nextID int
+	// what the server is, for its errors: "the browser's tools".
+	what string
 }
 
+// errStopped is a server that stopped answering: the machine stopped, say.
+var errStopped = errors.New("stopped")
+
 // startClient starts cmd and opens an MCP session with it.
-func startClient(cmd *exec.Cmd) (*mcpClient, error) {
+func startClient(cmd *exec.Cmd, what string) (*mcpClient, error) {
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -116,7 +121,7 @@ func startClient(cmd *exec.Cmd) (*mcpClient, error) {
 		return nil, err
 	}
 	c := newClient(in, out)
-	c.cmd = cmd
+	c.cmd, c.what = cmd, what
 	if err := c.initialize(); err != nil {
 		c.close()
 		return nil, err
@@ -125,7 +130,7 @@ func startClient(cmd *exec.Cmd) (*mcpClient, error) {
 }
 
 func newClient(in io.WriteCloser, out io.Reader) *mcpClient {
-	return &mcpClient{in: in, out: json.NewDecoder(bufio.NewReader(out))}
+	return &mcpClient{in: in, out: json.NewDecoder(bufio.NewReader(out)), what: "the server's tools"}
 }
 
 func (c *mcpClient) initialize() error {
@@ -156,7 +161,7 @@ func (c *mcpClient) call(method string, params any) (json.RawMessage, error) {
 	c.nextID++
 	id := fmt.Sprint(c.nextID)
 	if err := c.send(map[string]any{"jsonrpc": "2.0", "id": c.nextID, "method": method, "params": params}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s %w: %v", c.what, errStopped, err)
 	}
 	for {
 		var m struct {
@@ -224,53 +229,80 @@ func (c *mcpClient) close() {
 	}
 }
 
-// browserTool relays one tool to Playwright, starting it in the machine the
-// first time and again after it stopped: with the machine, say.
+// browserTool relays one tool to Playwright.
 func (s *Session) browserTool(ctx context.Context, name string, defaults map[string]any) func(json.RawMessage) ([]mcp.Content, error) {
 	return func(args json.RawMessage) ([]mcp.Content, error) {
 		args, err := withDefaults(args, defaults)
 		if err != nil {
 			return nil, err
 		}
-		if err := s.requireRunning(ctx); err != nil {
-			return nil, err
-		}
-		for attempt := 0; ; attempt++ {
-			c, err := s.browser(ctx)
-			if err != nil {
-				return nil, err
-			}
-			content, err := c.callTool(name, args)
-			if err != nil && strings.HasPrefix(err.Error(), "the browser's tools stopped") && attempt == 0 {
-				s.closeBrowser()
-				continue
-			}
-			return content, err
-		}
+		return s.relay(ctx, playwright, name, args)
 	}
 }
 
-func (s *Session) browser(ctx context.Context) (*mcpClient, error) {
+// server is an MCP server run in the machine, whose tools are relayed.
+type server struct {
+	what    string
+	command []string
+}
+
+var playwright = server{"the browser's tools", playwrightCommand}
+
+// relay calls a tool of a server in the machine, starting the server the
+// first time and again after it stopped: with the machine, say.
+func (s *Session) relay(ctx context.Context, srv server, name string, args json.RawMessage) ([]mcp.Content, error) {
+	if err := s.requireRunning(ctx); err != nil {
+		return nil, err
+	}
+	for attempt := 0; ; attempt++ {
+		c, err := s.client(ctx, srv)
+		if err != nil {
+			return nil, err
+		}
+		content, err := c.callTool(name, args)
+		if errors.Is(err, errStopped) && attempt == 0 {
+			s.closeClient(srv, c)
+			continue
+		}
+		return content, err
+	}
+}
+
+func (s *Session) client(ctx context.Context, srv server) (*mcpClient, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.pw != nil {
-		return s.pw, nil
+	if c := s.clients[srv.what]; c != nil {
+		return c, nil
 	}
 	// Not the call's context: the server outlives the call.
-	cmd := s.Backend.Command(context.WithoutCancel(ctx), s.Worktree, playwrightCommand[0], playwrightCommand[1:]...)
-	c, err := startClient(cmd)
+	cmd := s.Backend.Command(context.WithoutCancel(ctx), s.Worktree, srv.command[0], srv.command[1:]...)
+	c, err := startClient(cmd, srv.what)
 	if err != nil {
-		return nil, fmt.Errorf("starting the browser's tools: %w", err)
+		return nil, fmt.Errorf("starting %s: %w", srv.what, err)
 	}
-	s.pw = c
+	if s.clients == nil {
+		s.clients = map[string]*mcpClient{}
+	}
+	s.clients[srv.what] = c
 	return c, nil
 }
 
-func (s *Session) closeBrowser() {
+// closeClient closes the server's client, if it is still c.
+func (s *Session) closeClient(srv server, c *mcpClient) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.pw != nil {
-		s.pw.close()
-		s.pw = nil
+	if s.clients[srv.what] == c {
+		delete(s.clients, srv.what)
+	}
+	c.close()
+}
+
+// closeClients closes every server's client, with the machine.
+func (s *Session) closeClients() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for what, c := range s.clients {
+		c.close()
+		delete(s.clients, what)
 	}
 }

@@ -59,6 +59,9 @@ type Server struct {
 	Name    string
 	Version string
 	Tools   []Tool
+	// Instructions, when set, tell the client how to use the server's tools
+	// together; a client may give them to its model.
+	Instructions string
 
 	mu  sync.Mutex
 	out *bufio.Writer
@@ -135,11 +138,15 @@ func (s *Server) Serve(in io.Reader, out io.Writer) error {
 func (s *Server) handle(msg message) (any, *rpcError) {
 	switch msg.Method {
 	case "initialize":
-		return map[string]any{
+		res := map[string]any{
 			"protocolVersion": ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": s.Name, "version": s.Version},
-		}, nil
+		}
+		if s.Instructions != "" {
+			res["instructions"] = s.Instructions
+		}
+		return res, nil
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":

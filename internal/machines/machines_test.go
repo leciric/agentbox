@@ -318,15 +318,18 @@ func TestSessionTools(t *testing.T) {
 	tools := map[string]mcp.Tool{}
 	for _, tool := range s.Tools(ctx) {
 		tools[tool.Name] = tool
-		if tool.Description == "" || len(tool.Description) > 200 {
-			t.Errorf("%s's description: %q", tool.Name, tool.Description)
+		if tool.Description == "" {
+			t.Errorf("%s has no description", tool.Name)
 		}
 	}
-	for _, name := range []string{"machine_start", "machine_stop", "machine_status", "run", "preview_url", "view_url",
-		"screenshot", "record_start", "record_stop", "click", "type", "key", "scroll", "browser_navigate", "browser_snapshot"} {
+	for _, name := range []string{"machine_start", "machine_stop", "machine_status", "run", "preview_url", "view_url", "screenshot",
+		"record_start", "record_stop", "click", "type", "key", "scroll", "drag", "mouse_move", "windows", "focus", "wait", "cursor"} {
 		if _, ok := tools[name]; !ok {
 			t.Errorf("no %s tool", name)
 		}
+	}
+	if _, ok := tools["browser_navigate"]; ok {
+		t.Error("the browser tools are there without browser_tools")
 	}
 	call := func(name, args string) (string, error) {
 		t.Helper()

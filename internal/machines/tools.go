@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/png" // the screenshots saveScreenshot keeps
 	"net/url"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +41,8 @@ type Session struct {
 	Serve func(ctx context.Context) (string, error)
 
 	mu sync.Mutex
-	pw *mcpClient
+	// clients are the servers run in the machine, by what they are.
+	clients map[string]*mcpClient
 }
 
 // Limits of what run answers with and waits for.
@@ -64,15 +67,6 @@ const notStarted = "this worktree's machine isn't running: call machine_start"
 // Tools are the session's tools. Their descriptions are short: every one is
 // resent with each model call.
 func (s *Session) Tools(ctx context.Context) []mcp.Tool {
-	dctx := desktop.OnTarget(ctx, desktop.Target{
-		Command: func(ctx context.Context, name string, args ...string) *exec.Cmd {
-			return s.Backend.Command(ctx, s.Worktree, name, args...)
-		},
-		Running: func(ctx context.Context) bool {
-			return s.Backend.Command(ctx, s.Worktree, "test", "-S", "/tmp/.X11-unix/X99").Run() == nil
-		},
-		NotRunning: notStarted,
-	})
 	tools := []mcp.Tool{
 		{
 			Name: "machine_start",
@@ -96,7 +90,7 @@ func (s *Session) Tools(ctx context.Context) []mcp.Tool {
 			Description: "Stop this worktree's machine.",
 			Schema:      object(nil, map[string]any{}),
 			Wait: func(ctx context.Context, _ json.RawMessage) (string, error) {
-				s.closeBrowser()
+				s.closeClients()
 				if err := s.Backend.Stop(ctx, s.Worktree); err != nil {
 					return "", err
 				}
@@ -142,11 +136,10 @@ func (s *Session) Tools(ctx context.Context) []mcp.Tool {
 			Wait:   s.viewURL,
 		},
 		{
-			Name: "screenshot",
-			Description: "Look at the machine's display. Saved to AgentBox's media; answers with the image and its path. " +
-				"Coordinates for the other tools are in this image's pixels.",
-			Schema:     object(nil, map[string]any{"caption": str("what it shows, for the user")}),
-			RunContent: func(raw json.RawMessage) ([]mcp.Content, error) { return s.screenshot(dctx, raw) },
+			Name:        "screenshot",
+			Description: desktopDescription("screenshot") + " Saved to AgentBox's media, with its path.",
+			Schema:      object(nil, map[string]any{"caption": str("what it shows, for the user")}),
+			RunContent:  func(raw json.RawMessage) ([]mcp.Content, error) { return s.screenshot(ctx, raw) },
 		},
 		{
 			Name:        "record_start",
@@ -161,22 +154,11 @@ func (s *Session) Tools(ctx context.Context) []mcp.Tool {
 			Wait:        s.recordStop,
 		},
 	}
-	// The desktop's own tools, run on the machine's display, with short
-	// descriptions instead of theirs.
-	short := map[string]string{
-		"click":  "Click at a point of the display, in the last screenshot's pixels.",
-		"type":   "Type text into what has focus, or click x,y first; key presses a key after (Return).",
-		"key":    "Press a key or combination: Return, Escape, ctrl+l.",
-		"scroll": "Turn the mouse wheel over a point.",
-	}
-	for _, t := range desktop.Tools(dctx) {
-		if d, ok := short[t.Name]; ok {
-			t.Description = d + " Answers with a screenshot."
-			tools = append(tools, t)
+	tools = append(tools, s.desktopTools(ctx)...)
+	if s.browserTools() {
+		for _, b := range browserTools {
+			tools = append(tools, mcp.Tool{Name: b.name, Description: b.description, Schema: b.schema, RunContent: s.browserTool(ctx, b.name, b.defaults)})
 		}
-	}
-	for _, b := range browserTools {
-		tools = append(tools, mcp.Tool{Name: b.name, Description: b.description, Schema: b.schema, RunContent: s.browserTool(ctx, b.name, b.defaults)})
 	}
 	return tools
 }
@@ -398,28 +380,28 @@ func (s *Session) screenshot(ctx context.Context, raw json.RawMessage) ([]mcp.Co
 			return nil, err
 		}
 	}
-	jpg, sc, err := desktop.Screenshot(ctx)
+	content, err := s.relay(ctx, desktopServer, "screenshot", nil)
 	if err != nil {
 		return nil, err
 	}
-	content := []mcp.Content{mcp.Image(jpg, "image/jpeg")}
-	note := fmt.Sprintf("The screenshot is %s: give coordinates in its pixels.", sc.Shown)
 	// What is kept is the display at its real size, as a PNG.
-	path, err := s.saveScreenshot(ctx, sc.Real, in.Caption)
+	path, err := s.saveScreenshot(ctx, in.Caption)
 	if err != nil {
-		return append(content, mcp.Text(note+" Saving it failed: "+err.Error())), nil
+		return append(content, mcp.Text("Saving it failed: "+err.Error())), nil
 	}
-	return append(content, mcp.Text(note+" Saved as "+path)), nil
+	return append(content, mcp.Text("Saved as "+path)), nil
 }
 
-func (s *Session) saveScreenshot(ctx context.Context, size desktop.Size, caption string) (string, error) {
+func (s *Session) saveScreenshot(ctx context.Context, caption string) (string, error) {
 	png, err := s.Backend.Command(ctx, s.Worktree, "ffmpeg", "-loglevel", "error", "-f", "x11grab", "-i", desktop.Display,
 		"-frames:v", "1", "-f", "image2", "-c:v", "png", "-").Output()
 	if err != nil {
 		return "", fmt.Errorf("grabbing the display: %w", err)
 	}
 	it := s.media(ctx, machinesmedia.Screenshot, caption)
-	it.Width, it.Height = size.Width, size.Height
+	if size, _, err := image.DecodeConfig(bytes.NewReader(png)); err == nil {
+		it.Width, it.Height = size.Width, size.Height
+	}
 	it, err = s.Media.Write(it, ".png", bytes.NewReader(png))
 	if err != nil {
 		return "", err

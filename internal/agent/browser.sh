@@ -427,6 +427,9 @@ reload_desktop() {
   fi
 }
 
+dock_running() { pgrep -u "$uid" -f "tint2 -c $config/tint2/tint2rc" >/dev/null; }
+start_dock() { setsid tint2 -c "$config/tint2/tint2rc" >"$state/panel.log" 2>&1 </dev/null & }
+
 # fit_windows shrinks and moves every window that doesn't fit the work area
 # (the display less the dock) until it does. Maximized and full-screen ones
 # are openbox's: it refits those itself. The frame is what has to fit, so its
@@ -540,8 +543,8 @@ start)
   if ! pgrep -u "$uid" -f "openbox --config-file $config/openbox/rc.xml" >/dev/null; then
     setsid openbox --config-file "$config/openbox/rc.xml" >"$state/window-manager.log" 2>&1 </dev/null &
   fi
-  if ! pgrep -u "$uid" -f "tint2 -c $config/tint2/tint2rc" >/dev/null; then
-    setsid tint2 -c "$config/tint2/tint2rc" >"$state/panel.log" 2>&1 </dev/null &
+  if ! dock_running; then
+    start_dock
   else
     reload_desktop
   fi
@@ -555,6 +558,14 @@ start)
       --user-data-dir="$profile" --remote-debugging-port=9222 --start-maximized about:blank >"$state/chromium.log" 2>&1 </dev/null &
     wait_for devtools || { echo "the browser didn't start: see $state/chromium.log" >&2; tail -n 5 "$state/chromium.log" >&2; exit 1; }
   fi
+  # tint2 sometimes dies of SIGBUS as the desktop comes up, most often on a
+  # machine's first start, leaving the browser alone on the screen: look
+  # again once everything is up, and bring the dock back.
+  for _ in 1 2 3; do
+    sleep 1
+    dock_running && break
+    start_dock
+  done
   ;;
 theme)
   # Repaint a desktop that is already up, after the host's theme changed. On

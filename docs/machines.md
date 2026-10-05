@@ -40,8 +40,15 @@ Docker they run as root in the machine, which is you outside.
 | `view_url` | A link to watch the machine's desktop live in your browser, and take control of it. |
 | `screenshot` | A picture of the desktop, in the conversation, also saved in full size. |
 | `record_start`, `record_stop` | Record the desktop to an mp4. |
-| `click`, `type`, `key`, `scroll` | The real mouse and keyboard. |
-| `browser_*` | Playwright on the machine's Chromium: navigate, snapshot, click, type, evaluate, wait, console, network. |
+| `click`, `type`, `key`, `scroll`, `drag`, `mouse_move`, `windows`, `focus`, `wait`, `cursor` | The real mouse and keyboard, the same desktop tools an AgentBox agent has. |
+| `browser_*` | Playwright on the machine's Chromium: navigate, snapshot, click, type, evaluate, wait, console, network. Off unless the project turns on `browser_tools`. |
+
+The desktop tools move the real pointer and press real keys on the machine's display, so what they
+do shows on the desktop and in recordings, and they work in every window: the browser, the
+terminal, a file dialog, your app's own. They are AgentBox's own `desktop` server, run inside the
+machine: `machine_start` copies `agentbox` into it (on a Mac, the Linux build the app ships beside
+it). The server's instructions tell the AI tool to operate the app with them and look with
+`screenshot`.
 
 ## Screenshots and recordings
 
@@ -75,7 +82,8 @@ served.
   "memory": "4g",
   "ports": [3000, 4173, 5173, 8000, 8080],
   "env_files": [".env"],
-  "docker_inside": false
+  "docker_inside": false,
+  "browser_tools": false
 }
 ```
 
@@ -87,8 +95,12 @@ served.
 - `docker_inside` runs Docker in the machine, for a project that needs it (kind, compose). The
   machine is then **privileged**, with high inotify and open-file limits, and its images are kept
   in a volume of its own. Off by default.
+- `browser_tools` gives sessions Playwright's `browser_*` tools, which read a page's DOM, console
+  and requests. Off by default, so the AI tool operates the app with the desktop tools, as a person
+  would; a session started after the change has them.
 
-A change to any of these, or to an env file, makes the machine again at the next `machine_start`.
+A change to any of these but `browser_tools`, or to an env file, makes the machine again at the next
+`machine_start`.
 
 ## Managing machines
 
