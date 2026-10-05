@@ -22,6 +22,16 @@ config="$HOME/.config"
 uid=$(id -u)
 mkdir -p "$state" "$profile"
 
+# mark_clean_exit clears what a Chromium that was killed leaves in its profile,
+# so the next start doesn't ask to restore pages.
+mark_clean_exit() {
+  for f in "$profile/Default/Preferences" "$profile/Local State"; do
+    [ -f "$f" ] || continue
+    sed -i -e 's/"exit_type": *"[^"]*"/"exit_type":"Normal"/g' \
+      -e 's/"exited_cleanly": *false/"exited_cleanly":true/g' "$f" || true
+  done
+}
+
 # What the agentbox binary writes into the agent before running this script
 # (wallpaper.go, theme.go). AGENTBOX_SHARE is the seam the Go tests write a
 # palette through; in an agent it is never set.
@@ -551,7 +561,8 @@ start)
   if ! devtools; then
     # Same for the lock of a browser that was running.
     rm -f "$profile"/Singleton*
-    setsid chromium --no-first-run --no-default-browser-check --disable-dev-shm-usage --password-store=basic \
+    mark_clean_exit
+    setsid chromium --no-first-run --hide-crash-restore-bubble --disable-session-crashed-bubble --no-default-browser-check --disable-dev-shm-usage --password-store=basic \
       --user-data-dir="$profile" --remote-debugging-port=9222 --start-maximized about:blank >"$state/chromium.log" 2>&1 </dev/null &
     wait_for devtools || { echo "the browser didn't start: see $state/chromium.log" >&2; tail -n 5 "$state/chromium.log" >&2; exit 1; }
   fi
@@ -566,6 +577,15 @@ theme)
   reload_desktop
   ;;
 stop)
+  # SIGTERM lets Chromium write its session and mark the exit clean; killing
+  # it is what makes the next start offer to restore pages.
+  if pkill -u "$uid" -x -TERM chromium; then
+    i=0
+    while pgrep -u "$uid" -x chromium >/dev/null && [ "$i" -lt 50 ]; do
+      sleep 0.1
+      i=$((i + 1))
+    done
+  fi
   pkill -u "$uid" -x chromium || true
   pkill -u "$uid" -x pcmanfm || true
   pkill -u "$uid" -x xfce4-terminal || true

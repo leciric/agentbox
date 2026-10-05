@@ -3,7 +3,10 @@ package agent
 import (
 	"context"
 	"net"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"agentbox/internal/state"
@@ -47,5 +50,32 @@ func TestDisplayUpReadsTheVNCGreeting(t *testing.T) {
 	m := &Manager{BrowserSocket: func(string, string) string { return filepath.Join(t.TempDir(), "nothing") }}
 	if m.displayUp(context.Background(), state.Agent{Instance: "ab-p-agent-01"}) {
 		t.Error("no socket at all: displayUp = true, want false")
+	}
+}
+
+// TestBrowserScriptMarksACrashedProfileClean is what keeps Chromium from
+// offering to restore pages after it was killed instead of closed.
+func TestBrowserScriptMarksACrashedProfileClean(t *testing.T) {
+	t.Parallel()
+	profile := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(profile, "Default"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prefs := filepath.Join(profile, "Default", "Preferences")
+	if err := os.WriteFile(prefs, []byte(`{"profile":{"exit_type":"Crashed","exited_cleanly":false}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fn := regexp.MustCompile(`(?s)\nmark_clean_exit\(\) \{.*?\n\}\n`).FindString(string(BrowserScript()))
+	if fn == "" {
+		t.Fatal("browser.sh has no mark_clean_exit")
+	}
+	cmd := exec.Command("sh", "-c", fn+"mark_clean_exit")
+	cmd.Env = append(os.Environ(), "profile="+profile)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	got, _ := os.ReadFile(prefs)
+	if string(got) != `{"profile":{"exit_type":"Normal","exited_cleanly":true}}` {
+		t.Errorf("preferences = %s", got)
 	}
 }
