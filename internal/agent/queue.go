@@ -80,6 +80,7 @@ func (m *Manager) Enqueue(ctx context.Context, project string, opts CreateOption
 		Interface:     iface,
 		FinishNotice:  opts.FinishNotice,
 		Size:          size,
+		Parent:        opts.Parent,
 	}
 	if err := m.Store.Enqueue(ctx, a, request); err != nil {
 		return state.Agent{}, err

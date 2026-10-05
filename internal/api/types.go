@@ -609,7 +609,11 @@ type Agent struct {
 	// Size is how much of the VM's burst pool the agent takes in its heavy
 	// phases (tests, builds, the browser, a recording): "light", "normal" or
 	// "heavy", or "" for its project's learned burst (agent.Burst).
-	Size      string    `json:"size,omitempty"`
+	Size string `json:"size,omitempty"`
+	// Parent is the agent that started this one as its sub-agent, by name in
+	// the same project: the app shows it under that agent. Absent for an agent
+	// the user or the project's chat made.
+	Parent    string    `json:"parent,omitempty"`
 	IP        string    `json:"ip"`
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -706,6 +710,11 @@ type CreateAgentRequest struct {
 	// given, by name; absent gives it every one, and an empty list none. An
 	// agent's own connectors, added to it later, aren't limited by it.
 	Connectors *[]string `json:"connectors,omitempty"`
+	// Parent makes the agent a sub-agent of this one, by name in the same
+	// project. Only the daemon sets it, for an agent delegating a task
+	// (POST /v1/self/delegations): the routes that create an agent for the
+	// user or the project's chat clear it.
+	Parent string `json:"parent,omitempty"`
 }
 
 // QueueStatus is the agent queue: how many agents each project may run at

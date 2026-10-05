@@ -788,6 +788,64 @@ var migrations = []string{
 	// before this keeps the name it had as both.
 	`ALTER TABLE projects ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
 	`UPDATE projects SET display_name = name WHERE display_name = ''`,
+
+	// Sub-agents: the agent that started one, by name in the same project;
+	// '' for every agent the user or the project's chat made.
+	`ALTER TABLE agents ADD COLUMN parent TEXT NOT NULL DEFAULT ''`,
+	// A sub-agent's task, as its parent sees it: its status and what it came
+	// back with, kept after the sub-agent is retired so the parent can still
+	// read it. job is the job making it, for a create that fails before the
+	// agent exists.
+	`CREATE TABLE delegations (
+		id TEXT PRIMARY KEY,
+		project TEXT NOT NULL,
+		parent TEXT NOT NULL,
+		child TEXT NOT NULL,
+		title TEXT NOT NULL DEFAULT '',
+		task TEXT NOT NULL DEFAULT '',
+		ai TEXT NOT NULL DEFAULT '',
+		job TEXT NOT NULL DEFAULT '',
+		keep INTEGER NOT NULL DEFAULT 0,
+		status TEXT NOT NULL,
+		result TEXT NOT NULL DEFAULT '',
+		created_at INTEGER NOT NULL,
+		finished_at INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE INDEX delegations_parent ON delegations (project, parent)`,
+	`CREATE INDEX delegations_child ON delegations (project, child)`,
+	// Scheduled tasks: a recurring agent run of a project. next_run_at is
+	// when it is next due, kept so a run missed while the daemon was down
+	// is still due when it starts again.
+	`CREATE TABLE schedules (
+		id TEXT PRIMARY KEY,
+		project TEXT NOT NULL,
+		name TEXT NOT NULL,
+		cron TEXT NOT NULL,
+		task TEXT NOT NULL,
+		ai TEXT NOT NULL DEFAULT 'claude',
+		model TEXT NOT NULL DEFAULT '',
+		effort TEXT NOT NULL DEFAULT '',
+		size TEXT NOT NULL DEFAULT '',
+		outcome TEXT NOT NULL DEFAULT 'pr',
+		paused INTEGER NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		next_run_at INTEGER NOT NULL DEFAULT 0,
+		last_run_at INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE TABLE schedule_runs (
+		id TEXT PRIMARY KEY,
+		schedule_id TEXT NOT NULL,
+		project TEXT NOT NULL,
+		agent TEXT NOT NULL DEFAULT '',
+		job TEXT NOT NULL DEFAULT '',
+		trigger TEXT NOT NULL,
+		status TEXT NOT NULL,
+		result TEXT NOT NULL DEFAULT '',
+		started_at INTEGER NOT NULL,
+		finished_at INTEGER NOT NULL DEFAULT 0
+	)`,
+	`CREATE INDEX schedule_runs_schedule ON schedule_runs (schedule_id, started_at)`,
+	`CREATE INDEX schedule_runs_agent ON schedule_runs (project, agent)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1365,6 +1423,13 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 	if _, err := s.db.ExecContext(ctx, `DELETE FROM agent_memory_peaks WHERE project = ?`, name); err != nil {
 		return err
 	}
+	// Its schedules and what its agents delegated go with it: a project
+	// added again at the same path starts with none.
+	for _, table := range []string{"schedule_runs", "schedules", "delegations"} {
+		if _, err := s.db.ExecContext(ctx, `DELETE FROM `+table+` WHERE project = ?`, name); err != nil {
+			return err
+		}
+	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, name)
 	if err != nil {
 		return err
@@ -1865,6 +1930,9 @@ type Agent struct {
 	// "light", "normal" or "heavy", or "" for the project's learned peak, as
 	// "normal" is (agent.Reservation).
 	Size string
+	// Parent is the agent that started this one as its sub-agent, by name in
+	// the same project; "" when the user or the project's chat made it.
+	Parent string
 }
 
 // GetsConnector reports whether a project connector of that name reaches the
@@ -1905,7 +1973,7 @@ func (a Agent) IsHome() bool { return a.Project == HomeProject && a.Role == Role
 
 func (a Agent) Ref() string { return a.Project + "/" + a.Name }
 
-const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, size`
+const agentColumns = `project, name, instance, ai, autonomous, branch, base_ref, base_commit, worktree, status, created_at, source, title, claude_account, interface, role, github_account, finish_notice, id, connectors, size, parent`
 
 func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	if a.Interface == "" {
@@ -1922,8 +1990,8 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors, a.Size)
+		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors, a.Size, a.Parent)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
 	}
@@ -2137,7 +2205,7 @@ func (s *Store) queryAgents(ctx context.Context, clause string, args ...any) ([]
 		var created, pausedAt int64
 		var connectors sql.NullString
 		if err := rows.Scan(&a.Project, &a.Name, &a.Instance, &a.AI, &a.Autonomous, &a.Branch,
-			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors, &a.Size, &pausedAt); err != nil {
+			&a.BaseRef, &a.BaseCommit, &a.Worktree, &a.Status, &created, &a.Source, &a.Title, &a.ClaudeAccount, &a.Interface, &a.Role, &a.GitHubAccount, &a.FinishNotice, &a.ID, &connectors, &a.Size, &a.Parent, &pausedAt); err != nil {
 			return nil, err
 		}
 		if connectors.Valid {

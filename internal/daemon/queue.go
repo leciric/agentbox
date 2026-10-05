@@ -367,6 +367,7 @@ func (s *Server) enqueueAgent(ctx context.Context, req api.CreateAgentRequest, b
 		FinishNotice:  req.FinishNotice,
 		Size:          req.Size,
 		Task:          strings.TrimSpace(req.Task),
+		Parent:        req.Parent,
 	}, request)
 	if err != nil {
 		return api.Job{}, err

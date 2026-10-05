@@ -899,6 +899,7 @@ func toAPIAgent(st agent.Status) api.Agent {
 		State:         st.State,
 		QueuePosition: st.QueuePosition,
 		Size:          a.Size,
+		Parent:        a.Parent,
 		IP:            st.IP,
 		CreatedAt:     a.CreatedAt,
 	}
@@ -1026,6 +1027,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) error {
 // byLead says the project's chat asked for the agent, so it is waiting to hear
 // how its task went (D87).
 func (s *Server) createAgentFrom(w http.ResponseWriter, r *http.Request, req api.CreateAgentRequest, byLead bool) error {
+	req.Parent = "" // a sub-agent is only ever made by delegating (delegation.go)
 	j, err := s.createAgentJob(r.Context(), req, byLead)
 	if err != nil {
 		return err
@@ -1180,6 +1182,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			Size:         req.Size,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
+			Parent:       req.Parent,
 		})
 		if err != nil {
 			if byLead {

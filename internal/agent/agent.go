@@ -338,6 +338,9 @@ type CreateOptions struct {
 	// (Enqueue), rather than a new one: it keeps the name, title and branch
 	// it was queued with.
 	Queued bool
+	// Parent is the agent that started this one as its sub-agent, by name in
+	// the same project (internal/daemon/delegation.go).
+	Parent string
 }
 
 // Create builds an agent from the project's saved base, or from the base image.
@@ -466,6 +469,7 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		size:          size,
 		task:          opts.Task,
 		queued:        queued,
+		parent:        opts.Parent,
 	})
 }
 
@@ -544,6 +548,7 @@ type plan struct {
 	size          string       // see CreateOptions.Size
 	task          string       // what it is about to be asked to do; see CreateOptions.Task
 	queued        *state.Agent // the queued agent this makes, when it isn't a new one
+	parent        string       // see CreateOptions.Parent
 }
 
 // build creates an agent step by step. If a step fails, or ctx is cancelled,
@@ -585,6 +590,7 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		FinishNotice:  pl.finishNotice,
 		Connectors:    pl.connectors,
 		Size:          pl.size,
+		Parent:        pl.parent,
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
@@ -924,6 +930,16 @@ func (m *Manager) GitHubAccountFor(p state.Project, account string) (string, err
 // know a number the counter doesn't: the agents this project has now, past
 // agents its memory still mentions, worktree directories left on disk, and
 // local or remote agentbox/agent-* branches.
+// NextName reserves a project's next agent name, for a caller that must know
+// it before the agent is made: it is then passed as CreateOptions.Name.
+func (m *Manager) NextName(ctx context.Context, project string) (string, error) {
+	p, repo, err := m.project(ctx, project)
+	if err != nil {
+		return "", err
+	}
+	return m.nextName(ctx, p, repo)
+}
+
 func (m *Manager) nextName(ctx context.Context, p state.Project, repo gitrepo.Repo) (string, error) {
 	floor := 1
 	raise := func(name string) {
