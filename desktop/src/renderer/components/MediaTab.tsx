@@ -25,6 +25,7 @@ import { useDeferredValue, useEffect, useMemo, useState, type ComponentType, typ
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useSeeMedia } from '../lib/notifications';
 import { clock, describeAll, kindInfo, mediaKinds, mediaUrl, searchMedia } from '../lib/media';
 import { cn, errorMessage, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -59,7 +60,12 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
   });
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenIdState] = useState<string | null>(null);
+  const seeMedia = useSeeMedia();
+  const setOpenId = (id: string | null) => {
+    setOpenIdState(id);
+    seeMedia(id);
+  };
   const [noting, setNoting] = useState(false);
   const [deleting, setDeleting] = useState<T.MediaItem | null>(null);
   const [selecting, setSelecting] = useState(false);
@@ -486,7 +492,7 @@ export function MediaCard({
             {selecting ? (
               <Tick checked={selected === true} />
             ) : (
-              <Badge variant={kindVariant[item.kind]} className="bg-black/60 backdrop-blur">
+              <Badge variant={kindVariant[item.kind]} className="bg-black/60 backdrop-blur [:root[data-appearance=light]_&]:text-white">
                 <info.icon />
                 {info.one}
               </Badge>
@@ -494,14 +500,14 @@ export function MediaCard({
           </span>
           {label && (
             <span className="flex min-w-0 justify-end" data-media-agent={item.agentName}>
-              <Badge className="block min-w-0 truncate bg-black/70 backdrop-blur" title={label}>
+              <Badge className="block min-w-0 truncate bg-black/70 text-white/90 backdrop-blur" title={label}>
                 {label}
               </Badge>
             </span>
           )}
         </span>
         {item.kind === 'recording' && item.meta.duration ? (
-          <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-primary">{clock(item.meta.duration)}</span>
+          <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-white">{clock(item.meta.duration)}</span>
         ) : null}
       </div>
       <div className="px-3 py-2.5">
@@ -598,12 +604,16 @@ export function MediaViewer({
   onIndex,
   onClose,
   onDelete,
+  context,
 }: {
   items: T.MediaItem[];
   index: number;
   onIndex: (index: number) => void;
   onClose: () => void;
   onDelete: (item: T.MediaItem) => void;
+  // context is a strip under the header saying where the item came from
+  // (MediaPlace), for a viewer opened away from its agent's own Media tab.
+  context?: (item: T.MediaItem) => ReactNode;
 }) {
   const item = index >= 0 ? items[index] : undefined;
 
@@ -668,6 +678,7 @@ export function MediaViewer({
                 </Tip>
               </div>
             </div>
+            {context?.(item)}
             <div className="flex max-h-[76vh] min-h-[46vh] items-center justify-center overflow-auto bg-well">
               <ViewerBody item={item} />
             </div>

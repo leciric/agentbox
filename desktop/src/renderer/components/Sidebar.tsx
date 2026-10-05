@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, Images, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 import type { ComponentType, DragEvent, KeyboardEvent, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -286,6 +286,7 @@ export function Sidebar({
           Home
         </NavItem>
         <HomeChatItem active={view.kind === 'homeChat'} onClick={() => onSelect({ kind: 'homeChat' })} />
+        <MediaNavItem active={view.kind === 'media'} onClick={() => onSelect({ kind: 'media' })} />
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label="Projects">
@@ -614,6 +615,23 @@ function HomeChatItem({ active, onClick }: { active: boolean; onClick: () => voi
         <Tip label={toneLabel[tone]}>
           <span className={cn('ml-auto size-1.5 rounded-full', toneDot[tone])} data-home-chat={state} />
         </Tip>
+      )}
+    </NavItem>
+  );
+}
+
+// MediaNavItem opens the all-projects Media view, with how many screenshots
+// and recordings you were told about and haven't opened.
+function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => void }) {
+  const notices = useQuery({ queryKey: ['notifications'], queryFn: api.notifications });
+  const unseen = (notices.data ?? []).filter((n) => n.media && !n.media.removed && !n.seen).length;
+  return (
+    <NavItem icon={Images} active={active} onClick={onClick}>
+      Media
+      {unseen > 0 && (
+        <span className="ml-auto rounded-full bg-brand-500/15 px-1.5 text-[11px] tabular-nums text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" data-media-unseen={unseen}>
+          {unseen}
+        </span>
       )}
     </NavItem>
   );
