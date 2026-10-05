@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"agentbox/internal/agent"
+	"agentbox/internal/hostos"
 	"agentbox/internal/incus"
 	"agentbox/internal/state"
 	"agentbox/internal/testutil"
@@ -581,6 +582,35 @@ func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
 		}
 	}
 	return env
+}
+
+// In a VM made before /etc/agentbox/vm was, the front end's environment is
+// the only thing that tells agentbox it runs in the VM. The lead's is a fresh
+// one, with a HOME that holds no state.db, so its `agentbox mcp` took itself
+// for the Mac's front end and quit ("run agentbox vm init"), and the lead had
+// no AgentBox tools. It now gets what the front end told the daemon.
+func TestLeadKnowsItRunsInTheVM(t *testing.T) {
+	f := leadFixture(t)
+	a, err := f.m.EnsureLead(context.Background(), "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(hostos.Env, "darwin")
+	t.Setenv(hostos.HomeEnv, "/Users/someone")
+	env := leadEnv(t, f, a)
+	if env[hostos.Env] != "darwin" || env[hostos.HomeEnv] != "/Users/someone" {
+		t.Errorf("the lead's chat has %s=%q, %s=%q; want the daemon's", hostos.Env, env[hostos.Env], hostos.HomeEnv, env[hostos.HomeEnv])
+	}
+
+	// On a machine of its own there is nothing to say.
+	unsetenv(t, hostos.Env)
+	unsetenv(t, hostos.HomeEnv)
+	env = leadEnv(t, f, a)
+	for _, name := range []string{hostos.Env, hostos.HomeEnv} {
+		if v, ok := env[name]; ok {
+			t.Errorf("the lead's chat has %s=%q on a machine of its own", name, v)
+		}
+	}
 }
 
 // In the VM the lead's remote, git@github.com, needs an ssh key the VM's home
