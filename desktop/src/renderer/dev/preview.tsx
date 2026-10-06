@@ -381,6 +381,7 @@ const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'b
 if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
 if (queue) startNowBridge();
 if (queue === 'tasks') tasksBridge();
+if (settingsPage && !queue) settingsBridge();
 if (page) pageBridge();
 if (power) seedPower(queryClient, power);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
@@ -819,6 +820,23 @@ function startNowBridge(): void {
       queryClient.setQueryData(['agents'], next);
       return { status: 204, body: '', contentType: 'application/json' };
     }
+    return inner(method, path, body);
+  };
+}
+
+// settingsBridge answers what Settings polls and the dev bridge would answer
+// with a bare {}: a project's queue (its "Agents at once" row reads the
+// projects in it) and the phone's LAN status, off and unpaired.
+function settingsBridge(): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
+  const queue: T.QueueStatus = { enabled: false, budget: 0, reserve: 0, projects: [], queued: [], reserved: 0 };
+  const lan: T.LANStatus = { enabled: false, port: 7780, listening: false, urls: [], tunnel: { enabled: false, named: false, state: 'off', origin: 'http://localhost:7780' }, phones: [] };
+  bridge.request = async (method, path, body) => {
+    if (method === 'GET' && path.startsWith('/v1/queue')) return answer(queryClient.getQueryData(['queue', PROJECT]) ?? queue);
+    if (method === 'GET' && path === '/v1/lan') return answer(lan);
     return inner(method, path, body);
   };
 }
