@@ -203,10 +203,13 @@ func TestAdmitComfortableMargin(t *testing.T) {
 func TestWaitMessage(t *testing.T) {
 	t.Parallel()
 	holders := []Holder{{Project: "p", Reserved: 4 * gib}, {Project: "r", Reserved: 4 * gib, Using: 7 * gib}}
-	if got, want := WaitMessage(Verdict{Why: WaitMemory}, 18*gib, 8*gib, holders, 0), "queued: 2 agents in 2 projects reserve 11 of 18 GB; starts when ~8 GB is free"; got != want {
+	if got, want := WaitMessage(Verdict{Why: WaitMemory}, 18*gib, 8*gib, holders, 0, false), "queued: 2 agents in 2 projects reserve 11 of 18 GB; starts when ~8 GB is free"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	if got, want := WaitMessage(Verdict{Why: WaitSlot}, 0, 0, nil, 1), "queued: its project's 1 slot is taken; starts when one is free"; got != want {
+	if got, want := WaitMessage(Verdict{Why: WaitSlot}, 0, 0, nil, 1, false), "queued: its project's 1 slot is taken; starts when one is free"; got != want {
+		t.Errorf("got %q", got)
+	}
+	if got, want := WaitMessage(Verdict{Why: WaitSlot}, 0, 0, nil, 2, true), "queued: its project runs at most 2 agents at once (its Agents at once setting); starts when one stops"; got != want {
 		t.Errorf("got %q", got)
 	}
 }

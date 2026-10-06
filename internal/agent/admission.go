@@ -220,11 +220,15 @@ func Used(holders []Holder) int64 {
 }
 
 // WaitMessage says, in one line, why an agent that needs need waits, for its
-// verdict: "queued: 6 agents in 2 projects reserve 15 of 18 GB; starts when
+// verdict, slots its project's number of them and pinned whether the user
+// fixed that number: "queued: 6 agents in 2 projects reserve 15 of 18 GB; starts when
 // ~7 GB is free".
-func WaitMessage(v Verdict, capacity, need int64, holders []Holder, slots int) string {
+func WaitMessage(v Verdict, capacity, need int64, holders []Holder, slots int, pinned bool) string {
 	switch v.Why {
 	case WaitSlot:
+		if pinned {
+			return fmt.Sprintf("queued: its project runs at most %d %s at once (its Agents at once setting); starts when one stops", slots, plural(slots, "agent", "agents"))
+		}
 		return fmt.Sprintf("queued: its project's %d %s taken; starts when one is free", slots, plural(slots, "slot is", "slots are"))
 	case WaitBehind:
 		return fmt.Sprintf("queued: %s has waited longest for memory and starts first; this one starts after it", v.Behind)
