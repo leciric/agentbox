@@ -805,7 +805,7 @@ export const enUS = {
   'defaults.project.finishChatToast': 'An agent of {name} that finishes wakes its chat, which decides what happens next',
   'defaults.project.finishDescription': 'Whether the project’s chat is woken up when an agent finishes. Each wake-up uses tokens.',
   'defaults.project.finishDetails': 'Waking the chat uses tokens even when there’s nothing to decide. A finish that’s only recorded stays in the chat’s history, and it reads it the next time you write. A question from an agent wakes the chat either way, since the agent is waiting for the answer.',
-  'defaults.project.finishLead': 'Let the chat choose for each agent it creates (the default)',
+  'defaults.project.finishLead': 'Let the chat decide per agent (the default)',
   'defaults.project.finishChat': 'Tell the project chat, and let it decide',
   'defaults.project.finishOff': 'Only record it (doesn’t wake the chat, no tokens)',
   'defaults.newAgent.agents.title': 'Model for new agents',

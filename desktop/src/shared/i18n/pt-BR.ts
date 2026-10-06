@@ -806,7 +806,7 @@ export const ptBR: Messages = {
   'defaults.project.finishChatToast': 'Um agente de {name} que termina acorda o chat, que decide o que acontece depois',
   'defaults.project.finishDescription': 'Se o chat do projeto é acordado quando um agente termina. Cada vez que acorda gasta tokens.',
   'defaults.project.finishDetails': 'Acordar o chat gasta tokens mesmo quando não há nada a decidir. Um término só registrado fica no histórico do chat, e ele o lê na próxima vez que você escrever. Uma pergunta de um agente acorda o chat de qualquer jeito, já que o agente está esperando a resposta.',
-  'defaults.project.finishLead': 'Deixar o chat escolher para cada agente que ele cria (o padrão)',
+  'defaults.project.finishLead': 'Deixar o chat decidir por agente (o padrão)',
   'defaults.project.finishChat': 'Avisar o chat do projeto e deixar que ele decida',
   'defaults.project.finishOff': 'Só registrar (não acorda o chat, sem tokens)',
   'defaults.newAgent.agents.title': 'Modelo para novos agentes',
