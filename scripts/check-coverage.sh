@@ -14,7 +14,7 @@ profile=$(mktemp)
 packages=$(mktemp)
 trap 'rm -f "$profile" "$packages"' EXIT
 
-go test -coverprofile="$profile" -covermode=atomic ./... 2>&1 | tee "$packages"
+go test -coverprofile="$profile" -covermode=set ./... 2>&1 | tee "$packages"
 
 total=$(go tool cover -func="$profile" | awk '/^total:/ {gsub("%","",$3); print $3}')
 floor=$(tr -d '[:space:]' <.github/coverage-floor.txt)
