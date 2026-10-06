@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Image, Layers } from 'lucide-react';
+import { Image } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
@@ -11,6 +11,7 @@ import { humanBytes } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FilterChip, MediaCard, MediaSearch, MediaSelection, MediaViewer, NoMatch, toggled } from './MediaTab';
 import { EmptyState } from './ui/card';
+import { Select, SelectOption } from './ui/select';
 
 // ProjectMediaPanel is every agent's media in one stream, so you can see what
 // the whole project has shown without opening each agent. Each item is labelled
@@ -98,16 +99,18 @@ export function ProjectMediaPanel({ project }: { project: string }) {
           />
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-1" data-media-filters>
-        <FilterChip icon={Layers} active={!agent} count={items.length} onClick={() => setAgent('')}>
-          {t('project.media.allAgents')}
-        </FilterChip>
-        {[...agents].map(([name, { title, count, gone }]) => (
-          <FilterChip key={name} active={agent === name} count={count} onClick={() => setAgent(agent === name ? '' : name)}>
-            {title ? `${name} · ${title}` : name}
-            {gone && ` ${t('project.media.removed')}`}
-          </FilterChip>
-        ))}
+      <div data-media-filters>
+        <Select value={agent} onChange={setAgent} aria-label={t('project.media.agentFilter')} className="w-72">
+          <SelectOption value="">
+            {t('project.media.allAgents')} ({items.length})
+          </SelectOption>
+          {[...agents].map(([name, { title, count, gone }]) => (
+            <SelectOption key={name} value={name}>
+              {title ? `${name} · ${title}` : name}
+              {gone && ` ${t('project.media.removed')}`} ({count})
+            </SelectOption>
+          ))}
+        </Select>
       </div>
       <div className="flex flex-wrap items-center gap-1" data-media-kinds>
         <FilterChip active={!kind} count={items.length} onClick={() => setKind('')}>
