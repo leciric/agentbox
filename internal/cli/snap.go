@@ -97,27 +97,114 @@ func describeSnap(c snap.Capture) string {
 	return what
 }
 
-// newBrowserCookiesCmd imports a cookie export into a project. Like snap it
-// runs on the user's machine, where the export file is.
+// newBrowserCookiesCmd signs new agents' browsers in with the user's cookies,
+// either straight from an installed browser or from an export they made. Like
+// snap it runs on the user's machine.
 func newBrowserCookiesCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "browser-cookies",
-		Short: "Sign new agents' browsers in with cookies you export from your own browser",
-		Long: `Imports the cookies of the domains you pick from an export you made of your own
-browser: a Netscape cookies.txt, or the JSON a cookie extension (Cookie-Editor,
-EditThisCookie) or Playwright's storageState writes. AgentBox never reads a
-browser's own files.
+		Short: "Sign new agents' browsers in with cookies from your own browser",
+		Long: `Signs the browser of agents created from now on in to the sites you use, with
+cookies from your own browser. Pick one of your installed browsers to import
+every cookie of it (browsers / from-browser), or import the domains you pick
+from an export file (import): a Netscape cookies.txt, or the JSON a cookie
+extension (Cookie-Editor, EditThisCookie) or Playwright's storageState writes.
 
 The cookies are stored encrypted as a project secret, never shown again, and set
 into the Chromium of agents created after the import, the first time it starts.
 Importing again replaces them.
 
+  agentbox browser-cookies browsers pawly
+  agentbox browser-cookies from-browser pawly chrome:Default
   agentbox browser-cookies import pawly cookies.txt --domain github.com --domain linear.app
   agentbox browser-cookies status pawly
   agentbox browser-cookies remove pawly`,
 	}
-	cmd.AddCommand(newBrowserCookiesImportCmd(a), newBrowserCookiesStatusCmd(a), newBrowserCookiesRemoveCmd(a))
+	cmd.AddCommand(newBrowserCookiesBrowsersCmd(a), newBrowserCookiesFromBrowserCmd(a),
+		newBrowserCookiesImportCmd(a), newBrowserCookiesStatusCmd(a), newBrowserCookiesRemoveCmd(a))
 	return cmd
+}
+
+// browserRef is the short name a person types for a profile, browser:profile,
+// mapped to its opaque ID. The daemon's IDs are opaque, so the CLI lists them
+// under these names and translates.
+func newBrowserCookiesBrowsersCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "browsers <project>",
+		Short: "List the browsers installed on this computer, to import from",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			list, err := c.BrowserProfiles(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if len(list.Profiles) == 0 {
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No browser found on this computer.")
+				return nil
+			}
+			out := cmd.OutOrStdout()
+			for _, p := range list.Profiles {
+				_, _ = fmt.Fprintf(out, "  %-24s %s — %s\n", browserRef(p), p.BrowserName, p.Name)
+			}
+			_, _ = fmt.Fprintln(out, "\nImport one with: agentbox browser-cookies from-browser <project> <ref>")
+			return nil
+		},
+	}
+}
+
+func newBrowserCookiesFromBrowserCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "from-browser <project> <browser:profile>",
+		Short: "Import every cookie of one installed browser profile",
+		Long: `The ref is one from 'agentbox browser-cookies browsers'. A Chromium browser's
+cookies are sealed with a key in your OS keyring; this reads it where it can
+(a Linux or Mac host), so from inside AgentBox's VM a Chromium import may get
+only unsealed cookies — use the desktop app, which reads the key on the host.
+Firefox needs no key.`,
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			list, err := c.BrowserProfiles(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			var chosen *api.BrowserProfile
+			for i := range list.Profiles {
+				if browserRef(list.Profiles[i]) == args[1] {
+					chosen = &list.Profiles[i]
+					break
+				}
+			}
+			if chosen == nil {
+				return fmt.Errorf("no browser %q; run 'agentbox browser-cookies browsers %s' to see them", args[1], args[0])
+			}
+			secret := ""
+			if chosen.Keyring != "" {
+				secret = keyringSecret(chosen.Keyring)
+			}
+			info, err := c.ImportFromBrowser(cmd.Context(), args[0], chosen.ID, secret)
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Imported %d cookies for %d sites from %s into %s: agents created from now on get them in their browser.\n",
+				info.Cookies, len(info.Sites), info.Source, args[0])
+			return nil
+		},
+	}
+}
+
+// browserRef names a profile as browser:profileDir for a person to type.
+func browserRef(p api.BrowserProfile) string {
+	// The opaque ID is browser\x00goos\x00dir; its last field is the dir.
+	parts := strings.Split(p.ID, "\x00")
+	return p.Browser + ":" + parts[len(parts)-1]
 }
 
 func newBrowserCookiesImportCmd(a *app) *cobra.Command {
@@ -184,7 +271,11 @@ func newBrowserCookiesStatusCmd(a *app) *cobra.Command {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s has no imported browser cookies.\n", args[0])
 				return nil
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%d cookies of %s, imported %s from a %s export.\n", info.Cookies, strings.Join(info.Domains, ", "), info.ImportedAt.Local().Format(time.DateTime), info.Format)
+			source := info.Source
+			if source == "" {
+				source = "a " + info.Format + " export"
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%d cookies for %d sites, imported %s from %s.\n", info.Cookies, len(info.Sites), info.ImportedAt.Local().Format(time.DateTime), source)
 			return nil
 		},
 	}

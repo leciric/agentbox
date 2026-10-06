@@ -242,6 +242,9 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   onNotificationClick: (fn) => listen(noticeClickListeners, fn),
   copyText: (text) => void navigator.clipboard?.writeText(text),
   readText: () => navigator.clipboard?.readText() ?? Promise.resolve(''),
+  // The phone web app can't reach a host keyring, so browser-cookie import
+  // from an installed browser isn't offered there; this is never called.
+  browserKeyringSecret: () => Promise.resolve(''),
 };
 
 // installWebBridge makes the bridge the app uses, and follows the chosen
