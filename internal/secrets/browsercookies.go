@@ -21,14 +21,16 @@ const browserCookiesName = "browser-cookies"
 
 // MaxBrowserCookiesBytes bounds the sealed import, above what MaxValueLen
 // allows an environment variable: a few signed-in sites' cookies run to tens
-// of kilobytes.
-const MaxBrowserCookiesBytes = 2 << 20
+// of kilobytes, and a whole browser's to a few hundred.
+const MaxBrowserCookiesBytes = 8 << 20
 
-// BrowserCookies is a project's import: the domains the user picked, the
-// cookies of those domains, and when.
+// BrowserCookies is a project's import: the sites it covers, the cookies, and
+// when. Format names the kind of export for a file import; Source names the
+// browser and profile for a browser import. One of the two is set.
 type BrowserCookies struct {
 	Domains    []string              `json:"domains"`
-	Format     string                `json:"format"`
+	Format     string                `json:"format,omitempty"`
+	Source     string                `json:"source,omitempty"`
 	Cookies    []cookieimport.Cookie `json:"cookies"`
 	ImportedAt time.Time             `json:"importedAt"`
 }
@@ -39,14 +41,14 @@ func (s Store) SetBrowserCookies(ctx context.Context, project string, bc Browser
 		return err
 	}
 	if len(bc.Cookies) == 0 {
-		return errors.New("no cookies to import: pick domains the export has cookies for")
+		return errors.New("no cookies to import")
 	}
 	data, err := json.Marshal(bc)
 	if err != nil {
 		return err
 	}
 	if len(data) > MaxBrowserCookiesBytes {
-		return fmt.Errorf("the cookies of these domains are %d bytes, more than the %d an import may hold: pick fewer domains", len(data), MaxBrowserCookiesBytes)
+		return fmt.Errorf("the cookies are %d bytes, more than the %d an import may hold: import from a file with just the sites you need", len(data), MaxBrowserCookiesBytes)
 	}
 	sealed, err := s.seal(string(data))
 	if err != nil {

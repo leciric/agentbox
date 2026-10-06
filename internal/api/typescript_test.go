@@ -31,6 +31,7 @@ var tsTypes = []any{
 	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},
 	Secret{}, SetSecretRequest{},
 	BrowserCookies{}, BrowserCookiesPreviewRequest{}, BrowserCookiesPreview{}, CookieDomain{}, ImportBrowserCookiesRequest{},
+	BrowserProfile{}, BrowserProfiles{}, ImportFromBrowserRequest{},
 	SnapRequest{}, Snap{}, SnapSendRequest{},
 	Connector{}, SetConnectorRequest{}, ConnectResult{}, SelfConnector{}, ConnectorRequest{},
 	PullRequest{}, GitHubError{}, ProjectPullRequests{}, MergePullRequestRequest{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{},

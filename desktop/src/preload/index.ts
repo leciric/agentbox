@@ -281,6 +281,11 @@ const bridge = {
   // onNotificationClick gets its ID when it's clicked.
   notify: (notice: { id: string; title: string; body: string }): Promise<boolean> => ipcRenderer.invoke('notify:show', notice),
   onNotificationClick: (fn: (id: string) => void) => listen('notify:click', fn),
+  // The passphrase a Chromium browser seals its cookies with, read from the
+  // host's keyring (main/browserkeys.ts) for a browser-cookie import, since
+  // the daemon in the VM can't reach the keyring. '' when there's none to
+  // fetch. The value is passed straight to the import and never kept.
+  browserKeyringSecret: (keyring: string): Promise<string> => ipcRenderer.invoke('browserkeys:get', keyring),
   copyText: (text: string) => ipcRenderer.send('clipboard:write', text),
   // setLanguage tells the main process the app's language, for its dialogs.
   setLanguage: (tag: string) => ipcRenderer.send('app:language', tag),

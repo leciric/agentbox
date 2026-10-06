@@ -13,6 +13,7 @@ require (
 	github.com/lxc/incus/v7 v7.5.1
 	github.com/pkg/sftp v1.13.11
 	github.com/spf13/cobra v1.10.2
+	golang.org/x/crypto v0.57.0
 	golang.org/x/image v0.46.0
 	golang.org/x/mod v0.41.0
 	golang.org/x/net v0.59.0
@@ -71,7 +72,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.6 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	modernc.org/libc v1.77.1 // indirect

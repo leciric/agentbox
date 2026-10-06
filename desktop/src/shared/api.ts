@@ -893,8 +893,10 @@ export interface SetSecretRequest {
 export interface BrowserCookies {
   imported: boolean;
   domains: string[];
+  sites?: CookieDomain[];
   cookies: number;
   format?: string;
+  source?: string;
   importedAt?: string;
 }
 
@@ -916,6 +918,24 @@ export interface CookieDomain {
 export interface ImportBrowserCookiesRequest {
   export: string;
   domains: string[];
+}
+
+export interface BrowserProfile {
+  id: string;
+  browser: string;
+  browserName: string;
+  engine: string;
+  name: string;
+  keyring?: string;
+}
+
+export interface BrowserProfiles {
+  profiles: BrowserProfile[];
+}
+
+export interface ImportFromBrowserRequest {
+  profileId: string;
+  keyringSecret: string;
 }
 
 export interface SnapRequest {

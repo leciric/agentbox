@@ -32,17 +32,52 @@ type SetSecretRequest struct {
 }
 
 // BrowserCookies is a project's browser cookie import, as the app and the
-// command line see it: the domains, how many cookies and when, never a cookie.
-// The cookies come from an export the user made (cookies.txt, or a cookie
-// extension's or Playwright's JSON), are sealed as a project secret, and are
-// set into the Chromium of agents created after the import, the first time
-// it starts.
+// command line see it: how many cookies, the sites they cover and when, never
+// a cookie. The cookies come either from the user's own installed browser,
+// read and decrypted directly (Source names the browser and profile), or from
+// an export they made (cookies.txt, or a cookie extension's or Playwright's
+// JSON; Source is then empty and Format names the kind). Either way they are
+// sealed as a project secret and set into the Chromium of agents created after
+// the import, the first time it starts.
 type BrowserCookies struct {
-	Imported   bool       `json:"imported"`
-	Domains    []string   `json:"domains"`
-	Cookies    int        `json:"cookies"`
-	Format     string     `json:"format,omitempty"`
-	ImportedAt *time.Time `json:"importedAt,omitempty"`
+	Imported bool `json:"imported"`
+	// Domains is what was imported: the sites picked for a file export, or
+	// every site for a browser import. Sites is the per-site cookie count.
+	Domains    []string       `json:"domains"`
+	Sites      []CookieDomain `json:"sites,omitempty"`
+	Cookies    int            `json:"cookies"`
+	Format     string         `json:"format,omitempty"`
+	Source     string         `json:"source,omitempty"`
+	ImportedAt *time.Time     `json:"importedAt,omitempty"`
+}
+
+// BrowserProfile is one profile of a browser installed on the host, for the
+// user to import from. Keyring, when set, names the browser's entry in the
+// host keyring whose secret the desktop app must fetch (the Go daemon in the
+// VM can't reach it) and pass to the import.
+type BrowserProfile struct {
+	ID          string `json:"id"`
+	Browser     string `json:"browser"`
+	BrowserName string `json:"browserName"`
+	Engine      string `json:"engine"`
+	Name        string `json:"name"`
+	Keyring     string `json:"keyring,omitempty"`
+}
+
+// BrowserProfiles is the browsers found installed on the host.
+type BrowserProfiles struct {
+	Profiles []BrowserProfile `json:"profiles"`
+}
+
+// ImportFromBrowserRequest imports every cookie of one installed browser
+// profile. KeyringSecret is the browser's keyring passphrase, fetched on the
+// host by the desktop app for a Chromium profile with a Keyring; empty for
+// Firefox, or when it couldn't be fetched (then only unencrypted and
+// legacy-keyed cookies are read). The secret is used to decrypt and is never
+// stored or logged.
+type ImportFromBrowserRequest struct {
+	ProfileID     string `json:"profileId"`
+	KeyringSecret string `json:"keyringSecret"`
 }
 
 // BrowserCookiesPreviewRequest is an export to look into before importing it.

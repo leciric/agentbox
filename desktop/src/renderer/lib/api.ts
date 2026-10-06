@@ -200,6 +200,19 @@ export const api = {
   importBrowserCookies: (name: string, exported: string, domains: string[]) =>
     call<T.BrowserCookies>('PUT', `${project(name)}/browser-cookies`, { export: exported, domains } satisfies T.ImportBrowserCookiesRequest),
   removeBrowserCookies: (name: string) => call<void>('DELETE', `${project(name)}/browser-cookies`),
+  // The browsers installed on the host, to import cookies from directly
+  // (internal/cookieimport).
+  browserProfiles: (name: string) => call<T.BrowserProfiles>('GET', `${project(name)}/browser-cookies/profiles`),
+  // Import every cookie of one installed browser profile. For a Chromium
+  // profile the keyring passphrase is fetched on the host first (the daemon
+  // in the VM can't reach the keyring) and passed in; Firefox needs none.
+  importFromBrowser: async (name: string, profile: T.BrowserProfile) => {
+    const keyringSecret = profile.keyring ? await window.agentbox.browserKeyringSecret(profile.keyring) : '';
+    return call<T.BrowserCookies>('POST', `${project(name)}/browser-cookies/from-browser`, {
+      profileId: profile.id,
+      keyringSecret,
+    } satisfies T.ImportFromBrowserRequest);
+  },
 
   // SnapShots waiting for the composer (agentbox snap), and sending one.
   snaps: () => call<T.Snap[]>('GET', '/v1/snaps'),

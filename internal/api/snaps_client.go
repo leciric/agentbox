@@ -50,3 +50,16 @@ func (c *Client) ImportBrowserCookies(ctx context.Context, project, export strin
 func (c *Client) RemoveBrowserCookies(ctx context.Context, project string) error {
 	return c.do(ctx, http.MethodDelete, browserCookiesPath(project), nil, nil)
 }
+
+// BrowserProfiles lists the browsers installed on the host, to import from.
+func (c *Client) BrowserProfiles(ctx context.Context, project string) (BrowserProfiles, error) {
+	var out BrowserProfiles
+	return out, c.do(ctx, http.MethodGet, browserCookiesPath(project)+"/profiles", nil, &out)
+}
+
+// ImportFromBrowser imports every cookie of one installed browser profile.
+func (c *Client) ImportFromBrowser(ctx context.Context, project, profileID, keyringSecret string) (BrowserCookies, error) {
+	var out BrowserCookies
+	return out, c.do(ctx, http.MethodPost, browserCookiesPath(project)+"/from-browser",
+		ImportFromBrowserRequest{ProfileID: profileID, KeyringSecret: keyringSecret}, &out)
+}
