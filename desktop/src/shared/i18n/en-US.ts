@@ -729,6 +729,8 @@ export const enUS = {
   'defaults.project.homeFallback': 'AgentBox default (opus)',
   'defaults.project.modelDescription': 'What a new agent of this project starts on.',
   'defaults.project.modelDetails': 'The agents it already has keep the model they were made with. What you pick as you create an agent wins over this.',
+  'defaults.project.modelEnforced': 'Enforced in Settings: every agent is created on {model}, so this choice has no effect.',
+  'defaults.project.modelEnforcedLink': 'Open Settings → Models',
   'defaults.project.modelAria': 'Agents’ model',
   'defaults.project.modelMenu': 'Model for this project’s agents',
   'defaults.project.currently': 'Currently {home}',

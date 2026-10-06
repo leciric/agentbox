@@ -730,6 +730,8 @@ export const ptBR: Messages = {
   'defaults.project.homeFallback': 'Padrão do AgentBox (opus)',
   'defaults.project.modelDescription': 'Com o que um novo agente deste projeto começa.',
   'defaults.project.modelDetails': 'Os agentes que ele já tem mantêm o modelo com que foram criados. O que você escolhe ao criar um agente vale mais que isto.',
+  'defaults.project.modelEnforced': 'Imposto em Ajustes: todo agente é criado com {model}, então esta escolha não tem efeito.',
+  'defaults.project.modelEnforcedLink': 'Abrir Ajustes → Modelos',
   'defaults.project.modelAria': 'Modelo dos agentes',
   'defaults.project.modelMenu': 'Modelo dos agentes deste projeto',
   'defaults.project.currently': 'Agora: {home}',
