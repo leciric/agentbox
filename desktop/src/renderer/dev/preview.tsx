@@ -92,7 +92,7 @@
 //                           disk and memory the way the user's desktop froze
 //                           (io full 35%, memory full 19%); ?io=agent is
 //                           agent-12's Overview, its disk IO beside its CPU
-//   ?media=project|agent    a project's Media, 360 items across four agents
+//   ?media=project|agent|all  a project's Media, 360 items across fourteen agents; all, the all-projects view
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
 //   ?notify=bell|media|viewer|toast
@@ -177,6 +177,7 @@ import { GitHubAccountPicker } from '../components/ProjectAccounts';
 import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
 import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
+import { AllMediaView } from '../components/AllMediaView';
 import { ProjectSettings } from '../components/ProjectSettings';
 import { ProjectTasksPanel } from '../components/ProjectTasksPanel';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
@@ -200,7 +201,7 @@ import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
-import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 
@@ -322,7 +323,8 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: In
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
-if (media) seedMedia(queryClient);
+if (media === 'all') seedAllMedia(queryClient);
+else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
@@ -593,6 +595,14 @@ function Preview() {
     return (
       <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
         <ProjectMediaPanel project={PROJECT} />
+      </div>
+    );
+  }
+
+  if (media === 'all') {
+    return (
+      <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
+        <AllMediaView onSelect={() => {}} />
       </div>
     );
   }

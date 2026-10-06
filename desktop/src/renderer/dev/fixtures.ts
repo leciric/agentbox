@@ -430,6 +430,7 @@ export function mediaItems(count = 360): T.MediaItem[] {
     { name: 'agent-96', title: 'Fix the agent rail overflowing on wide text' },
     { name: 'agent-97', title: 'Long path agent' },
     { name: 'agent-99', title: 'PR agent' },
+    ...Array.from({ length: 10 }, (_, n) => ({ name: `agent-${100 + n}`, title: `Fixture agent number ${n + 1}` })),
   ];
   const kinds = ['screenshot', 'recording', 'note', 'report', 'log', 'file', 'screenshot', 'note'];
   const topics = ['checkout', 'sidebar-overflow', 'login-flow', 'settings-agents-defaults', 'media-gallery', 'release-dry-run', 'rail-folded', 'pull-requests'];
@@ -484,6 +485,16 @@ export function seedMedia(queryClient: QueryClient): void {
   devState.media = mediaItems();
   queryClient.setQueryData(['projectMedia', PROJECT], devState.media);
   queryClient.setQueryData(['media', `${PROJECT}/agent-99`], devState.media.filter((m) => m.agentName === 'agent-99'));
+}
+
+// seedAllMedia gives the all-projects Media view the same gallery's
+// screenshots and recordings, with every third item moved to a second project.
+export function seedAllMedia(queryClient: QueryClient): void {
+  const all = mediaItems(720)
+    .filter((m) => m.kind === 'screenshot' || m.kind === 'recording')
+    .map((m, i) => (i % 3 === 0 ? { ...m, agent: `organic/${m.agentName}` } : m));
+  setNotifications([], all);
+  queryClient.setQueryData(['allMedia', ['screenshot', 'recording']], all);
 }
 
 // pullRequests is a project's pull requests list, with a long GitHub login to

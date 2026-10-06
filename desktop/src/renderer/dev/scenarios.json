@@ -8,7 +8,7 @@
   },
   {
     "id": "pr-agent-dark",
-    "description": "agent-99 open, its row active: a long title, a long branch and a PR badge \u2014 dark, xl width (312px rail)",
+    "description": "agent-99 open, its row active: a long title, a long branch and a PR badge — dark, xl width (312px rail)",
     "query": "open=agent-99&theme=dark",
     "width": 1280,
     "height": 900
@@ -36,70 +36,70 @@
   },
   {
     "id": "mac-vm-setup-dark",
-    "description": "A Mac's first screen: AgentBox's Linux VM to set up \u2014 dark, xl width",
+    "description": "A Mac's first screen: AgentBox's Linux VM to set up — dark, xl width",
     "query": "vm=create&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "mac-vm-krunkit-dark",
-    "description": "A Mac's first screen on Apple Silicon with krunkit installed: the VM will give memory back \u2014 dark, xl width",
+    "description": "A Mac's first screen on Apple Silicon with krunkit installed: the VM will give memory back — dark, xl width",
     "query": "vm=krunkit&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "mac-vm-nokrunkit-light",
-    "description": "A Mac's first screen on Apple Silicon without krunkit: how to install it first \u2014 light, lg width",
+    "description": "A Mac's first screen on Apple Silicon without krunkit: how to install it first — light, lg width",
     "query": "vm=nokrunkit&theme=light",
     "width": 1024,
     "height": 800
   },
   {
     "id": "mac-vm-lima-light",
-    "description": "A Mac's first screen without Lima: brew install lima first \u2014 light, lg width",
+    "description": "A Mac's first screen without Lima: brew install lima first — light, lg width",
     "query": "vm=lima&theme=light",
     "width": 1024,
     "height": 800
   },
   {
     "id": "mac-vm-vz-dark",
-    "description": "A Mac's first screen with the experimental vz driver's VM made and not finished: no Lima needed \u2014 dark, lg width",
+    "description": "A Mac's first screen with the experimental vz driver's VM made and not finished: no Lima needed — dark, lg width",
     "query": "vm=vz&theme=dark",
     "width": 1024,
     "height": 800
   },
   {
     "id": "windows-wsl-setup-dark",
-    "description": "Windows' first screen: AgentBox's WSL distro to set up, while every attempt at the daemon fails \u2014 dark, xl width",
+    "description": "Windows' first screen: AgentBox's WSL distro to set up, while every attempt at the daemon fails — dark, xl width",
     "query": "wsl=create&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "windows-no-wsl-light",
-    "description": "Windows' first screen without WSL 2: wsl --install first \u2014 light, lg width",
+    "description": "Windows' first screen without WSL 2: wsl --install first — light, lg width",
     "query": "wsl=nowsl&theme=light",
     "width": 1024,
     "height": 800
   },
   {
     "id": "vm-resize-dark",
-    "description": "Settings' panel for the Mac VM's CPUs and memory \u2014 dark",
+    "description": "Settings' panel for the Mac VM's CPUs and memory — dark",
     "query": "vm=resize&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "vm-resize-light",
-    "description": "Settings' panel for the Mac VM's CPUs and memory \u2014 light",
+    "description": "Settings' panel for the Mac VM's CPUs and memory — light",
     "query": "vm=resize&theme=light",
     "width": 1280,
     "height": 900
   },
   {
     "id": "credential-agent-12-chat-dark",
-    "description": "agent-12's own chat, blocked in request_credential: the card under the spinning call \u2014 dark, 1280x800",
+    "description": "agent-12's own chat, blocked in request_credential: the card under the spinning call — dark, 1280x800",
     "query": "chat=agent-12&theme=dark",
     "width": 1280,
     "height": 800
@@ -113,7 +113,7 @@
   },
   {
     "id": "credential-project-chat-dark",
-    "description": "The project's chat, with the three credential requests its agents are waiting on, each under the agent that asked \u2014 dark, 1280x900",
+    "description": "The project's chat, with the three credential requests its agents are waiting on, each under the agent that asked — dark, 1280x900",
     "query": "chat=lead&theme=dark",
     "width": 1280,
     "height": 900
@@ -127,7 +127,7 @@
   },
   {
     "id": "chat-compaction-dark",
-    "description": "Compaction cards in a project chat: done, failed with a long error, and running with a held message \u2014 dark",
+    "description": "Compaction cards in a project chat: done, failed with a long error, and running with a held message — dark",
     "query": "chat=compaction&theme=dark",
     "width": 1280,
     "height": 900
@@ -141,70 +141,70 @@
   },
   {
     "id": "avatars-working-dark",
-    "description": "Avatars, mid-turn: bobbing, blinking now and then (Codex's cursor blinks) \u2014 each AI tool at 40px and blown up, dark",
+    "description": "Avatars, mid-turn: bobbing, blinking now and then (Codex's cursor blinks) — each AI tool at 40px and blown up, dark",
     "query": "avatars=working&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "settings-defaults-dark",
-    "description": "Settings' Lead and New agents defaults: a model and a context window each \u2014 dark",
+    "description": "Settings' Lead and New agents defaults: a model and a context window each — dark",
     "query": "defaults=1&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "setup-image-updating-dark",
-    "description": "Settings while the daemon updates the base image's agent tools in place: the image check updating, with its job's log \u2014 dark",
+    "description": "Settings while the daemon updates the base image's agent tools in place: the image check updating, with its job's log — dark",
     "query": "setup=updating&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "avatars-asking-dark",
-    "description": "Avatars, waiting on the user (a question, a permission, a credential request): waving, on an amber tile \u2014 each AI tool at 40px and blown up, dark",
+    "description": "Avatars, waiting on the user (a question, a permission, a credential request): waving, on an amber tile — each AI tool at 40px and blown up, dark",
     "query": "avatars=asking&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "avatars-idle-dark",
-    "description": "Avatars, machine up, nothing to do: still, a slow blink \u2014 each AI tool at 40px and blown up, dark",
+    "description": "Avatars, machine up, nothing to do: still, a slow blink — each AI tool at 40px and blown up, dark",
     "query": "avatars=idle&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "avatars-sleeping-dark",
-    "description": "Avatars, machine stopped: eyes shut, \"zzz\", greyed \u2014 each AI tool at 40px and blown up, dark",
+    "description": "Avatars, machine stopped: eyes shut, \"zzz\", greyed — each AI tool at 40px and blown up, dark",
     "query": "avatars=sleeping&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "avatars-error-dark",
-    "description": "Avatars, machine incomplete or missing, or the chat broke: X eyes, on a rose tile \u2014 each AI tool at 40px and blown up, dark",
+    "description": "Avatars, machine incomplete or missing, or the chat broke: X eyes, on a rose tile — each AI tool at 40px and blown up, dark",
     "query": "avatars=error&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "avatars-transition-dark",
-    "description": "The avatars walking from mood to mood on a timer, easing between poses (a still shot is its first mood, working) \u2014 dark",
+    "description": "The avatars walking from mood to mood on a timer, easing between poses (a still shot is its first mood, working) — dark",
     "query": "avatars=transition&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "avatars-all-dark",
-    "description": "Every avatar mood at the rail's 40px, beside a rail with an agent in each mood \u2014 dark",
+    "description": "Every avatar mood at the rail's 40px, beside a rail with an agent in each mood — dark",
     "query": "avatars=all&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "avatars-all-light",
-    "description": "Every avatar mood at 40px \u2014 light (OpenCode's mark takes its light colours)",
+    "description": "Every avatar mood at 40px — light (OpenCode's mark takes its light colours)",
     "query": "avatars=all&theme=light",
     "width": 1280,
     "height": 900
@@ -219,21 +219,21 @@
   },
   {
     "id": "rail-finished-closed-dark",
-    "description": "Working and waiting agents on top, the idle, paused and stopped ones folded into Finished at the bottom \u2014 dark, xl width",
+    "description": "Working and waiting agents on top, the idle, paused and stopped ones folded into Finished at the bottom — dark, xl width",
     "query": "theme=dark",
     "width": 1280,
     "height": 900
   },
   {
     "id": "rail-finished-open-light",
-    "description": "The Finished section opened, a long title in it, below the xl breakpoint (268px rail) \u2014 light",
+    "description": "The Finished section opened, a long title in it, below the xl breakpoint (268px rail) — light",
     "query": "finished=1&theme=light",
     "width": 1100,
     "height": 900
   },
   {
     "id": "rail-finished-folded-dark",
-    "description": "The folded rail: the finished agents' icons behind a count under a divider \u2014 dark",
+    "description": "The folded rail: the finished agents' icons behind a count under a divider — dark",
     "query": "folded=1&theme=dark",
     "width": 1280,
     "height": 900
@@ -352,6 +352,13 @@
     "height": 900
   },
   {
+    "id": "media-all-dark",
+    "description": "The all-projects Media: two projects, fourteen agents, as selects with counts — dark",
+    "query": "media=all&theme=dark",
+    "width": 900,
+    "height": 500
+  },
+  {
     "id": "media-project-search-dark",
     "description": "The same, searched for \"image\": the screenshots and nothing else",
     "query": "media=project&theme=dark",
@@ -457,7 +464,7 @@
   },
   {
     "id": "loading-dark",
-    "description": "The first launch before the daemon has answered: placeholder rows in the sidebar, Home and the rail, and no \"No agents yet\" \u2014 dark",
+    "description": "The first launch before the daemon has answered: placeholder rows in the sidebar, Home and the rail, and no \"No agents yet\" — dark",
     "query": "loading=hold&theme=dark",
     "width": 1440,
     "height": 900
@@ -744,7 +751,7 @@
   },
   {
     "id": "new-agent-dark",
-    "description": "The New agent dialog, with its Size picker under the Queue switch \u2014 dark",
+    "description": "The New agent dialog, with its Size picker under the Queue switch — dark",
     "query": "newagent=1&theme=dark",
     "width": 1100,
     "height": 900
