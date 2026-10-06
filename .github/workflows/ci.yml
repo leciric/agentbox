@@ -1,20 +1,133 @@
 name: CI
 
+# The repository is private, so every job's minutes are billed, each rounded
+# up to a whole minute, and macOS at 10x and Windows at 2x. So a PR runs only
+# what its changes can break: `changes` works out which of Go and the desktop
+# app a change touches, and the jobs for the other half skip. macOS and
+# Windows run on a push to main, or on a PR labelled ci:full. govulncheck runs
+# weekly, on main, and on a PR that changes go.mod or go.sum.
 on:
   push:
     branches: [main]
   pull_request:
+    # labeled, for ci:full: that run is macOS and Windows alone, since the
+    # PR's own run has done the rest.
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
+  pull-requests: read
 
+# A new push cancels the run it supersedes. Labelling has a group of its own,
+# so that adding ci:full doesn't cancel the PR's run, nor any other label it.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.event.action == 'labeled' && github.event.label.name || 'code' }}
   cancel-in-progress: true
 
 jobs:
-  go:
-    name: Go
+  # What a change touches, from the files GitHub lists for the PR or the push,
+  # and so which jobs run. Anything it can't tell runs everything.
+  #
+  # The PR title is checked here too, rather than in a job of its own (a job
+  # bills at least a minute). Squash merges use the PR title as the commit
+  # message, and release-please turns that commit history into CHANGELOG.md
+  # at release time (feat → Added, fix/perf → Fixed, refactor → Changed;
+  # test/ci/docs/chore don't show up at all): the title has to be a
+  # conventional commit on its own, independent of what the branch's commits
+  # look like, and it has to read like a changelog line, since it may end up
+  # as one verbatim.
+  changes:
+    name: Changes and PR title
+    if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full')
+    runs-on: ubuntu-24.04
+    outputs:
+      go: ${{ steps.paths.outputs.go }}
+      desktop: ${{ steps.paths.outputs.desktop }}
+      vuln: ${{ steps.paths.outputs.vuln }}
+      full: ${{ steps.paths.outputs.full }}
+    steps:
+      - name: Check the title is a conventional commit
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if [[ ! "$TITLE" =~ ^(feat|fix|refactor|docs|chore|test|perf|ci)(\(.+\))?!?:\ .+ ]]; then
+            echo "PR title isn't a conventional commit (feat|fix|refactor|docs|chore|test|perf|ci): $TITLE" >&2
+            exit 1
+          fi
+
+      # Go is everything but the desktop app and the prose, and the desktop
+      # app's api.ts is Go's too: TestTypeScriptTypesAreUpToDate reads it. The
+      # desktop app is desktop/ and the vnc.js its build writes into the Go
+      # tree. mise.toml and this file are both.
+      - name: Which halves the change touches
+        id: paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+        run: |
+          files=$(mktemp)
+          ok=true
+          case "$EVENT" in
+            pull_request)
+              gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' >"$files" || ok=false ;;
+            push)
+              if [[ "$BEFORE" =~ ^0+$ ]]; then
+                ok=false
+              else
+                compare=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BEFORE...$GITHUB_SHA") || ok=false
+                # The compare API lists at most 300 files.
+                if $ok && [ "$(jq '.files | length' <<<"$compare")" -lt 300 ]; then
+                  jq -r '.files[].filename' <<<"$compare" >"$files"
+                else
+                  ok=false
+                fi
+              fi ;;
+            *) ok=false ;;
+          esac
+          if ! $ok || [ ! -s "$files" ]; then
+            echo "Can't tell what changed: running everything"
+            go=true desktop=true vuln=true
+          else
+            sed 's/^/  /' "$files"
+            grep -qvE '^(desktop/|docs/|[^/]+\.md$|LICENSE$|\.github/(workflows/(release|nightly)\.yml|release-please-config\.json|\.release-please-manifest\.json)$)' "$files" \
+              || grep -qx 'desktop/src/shared/api.ts' "$files" && go=true || go=false
+            grep -qE '^(desktop/|internal/machinesweb/static/vnc\.js$|mise\.toml$|\.github/workflows/ci\.yml$)' "$files" && desktop=true || desktop=false
+            if [ "$EVENT" = push ]; then vuln=$go
+            else grep -qE '^go\.(mod|sum)$' "$files" && vuln=true || vuln=false; fi
+          fi
+          # macOS and Windows: on main, a PR labelled ci:full, or by hand.
+          # Labelling runs them whatever the change.
+          case "$EVENT/$ACTION" in
+            push/*) full=$go ;;
+            workflow_dispatch/*) full=true ;;
+            pull_request/labeled) full=true ;;
+            pull_request/*) [ "$FULL_LABEL" = true ] && full=$go || full=false ;;
+          esac
+          echo "go=$go desktop=$desktop vuln=$vuln full=$full"
+          { echo "go=$go"; echo "desktop=$desktop"; echo "vuln=$vuln"; echo "full=$full"; } >>"$GITHUB_OUTPUT"
+
+  # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
+  # below the floor in .github/coverage-floor.txt. This includes
+  # TestTypeScriptTypesAreUpToDate, which keeps desktop/src/shared/api.ts
+  # generated from internal/api.
+  #
+  # Caches are saved by main's runs only, keyed by commit, and restored by
+  # everyone from main's latest: a PR's run never saves one of its own, and
+  # the cache follows main rather than freezing at the first go.sum it saw.
+  # Test results are in the build cache, so a package no change reaches
+  # isn't tested again.
+  go-test:
+    name: Go tests and coverage
+    needs: changes
+    if: needs.changes.outputs.go == 'true' && github.event.action != 'labeled'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -25,17 +138,58 @@ jobs:
         with:
           install_args: go
 
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
             ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-${{ runner.os }}-
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-
 
       # TestRecordingsPlayInChromium encodes with a recording's own arguments
       # and checks the file with ffprobe; without them it skips.
       - run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends ffmpeg
+
+      - run: scripts/check-coverage.sh
+
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push'
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+
+  # Everything about the Go code but its tests, beside them so neither waits
+  # for the other: vet, golangci-lint, go mod tidy, and the builds for a Mac.
+  go-check:
+    name: Go vet, lint, tidy
+    needs: changes
+    if: needs.changes.outputs.go == 'true' && github.event.action != 'labeled'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-check-${{ runner.os }}-
+
+      - run: go mod tidy
+
+      - name: go.mod and go.sum must already be tidy
+        run: git diff --exit-code go.mod go.sum
 
       - run: go vet ./...
 
@@ -44,16 +198,99 @@ jobs:
       # tag at least keeps them compiling against the code they test.
       - run: go vet -tags integration ./...
 
-      - run: go test ./...
+      # Pinned to the version this repo's .golangci.yml was written and
+      # checked clean against. It caches its own analysis.
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
 
       # On a Mac, agentbox is the front end of AgentBox's Linux VM
       # (internal/hostvm), and the VM runs the arm64 Linux build: both have to
-      # keep compiling, whatever this runner is.
+      # keep compiling, whatever this runner is. Without cgo, which only the
+      # macOS job has, so the vz driver is checked there.
       - name: Build for a Mac and its VM
         run: |
           GOOS=darwin GOARCH=arm64 go vet ./cmd/agentbox ./internal/hostvm ./internal/paths
           GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
           GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
+
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push'
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+
+  # Weekly, on main, and on a PR that changes the modules: a vulnerability is
+  # news about a dependency, not about a change to this code.
+  vulncheck:
+    name: govulncheck
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || (needs.changes.result == 'success' && needs.changes.outputs.vuln == 'true' && github.event.action != 'labeled')) }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: go
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/go/pkg/mod
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-
+
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  desktop:
+    name: Desktop
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true' && github.event.action != 'labeled'
+    runs-on: ubuntu-24.04
+    env:
+      # Nothing here launches Electron — only lint, typecheck, test and
+      # bundle — so skip the ~100 MB runtime npm would otherwise fetch on
+      # install. The release workflow, which packages the AppImage, does not
+      # set this.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v4
+        with:
+          install_args: node
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - run: npm --prefix desktop ci --no-audit --no-fund
+
+      - run: npm --prefix desktop run lint
+
+      - run: npm --prefix desktop run typecheck
+
+      - run: npm --prefix desktop test
+
+      # The main process, the preload script and the renderer, into out/.
+      # Packaging the AppImage takes minutes and belongs to the release.
+      - run: npm --prefix desktop run build
+
+      # The live view of `agentbox machines serve` is the app's VNC client,
+      # bundled into the Go binary's page and committed: it must match.
+      - name: internal/machinesweb/static/vnc.js is up to date
+        run: |
+          npm --prefix desktop run build:machines-view
+          git diff --exit-code internal/machinesweb/static/vnc.js || {
+            echo "::error::Run npm --prefix desktop run build:machines-view and commit internal/machinesweb/static/vnc.js"
+            exit 1
+          }
 
   # The macOS agentbox, as a release builds it: with cgo, which the
   # experimental vz driver's bindings to Apple's Virtualization framework need
@@ -61,8 +298,11 @@ jobs:
   # signed with its entitlement. The unit tests run here too, and the vz
   # driver's own with a test binary signed the same way. The runner can't
   # boot a VM: what only a real Mac shows is in the vz driver's PR.
+  # At 10x a Linux minute, it runs on main and on a PR labelled ci:full.
   macos:
     name: Go on macOS
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -71,13 +311,15 @@ jobs:
         with:
           install_args: go
 
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: |
             ~/Library/Caches/go-build
             ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-${{ runner.os }}-
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-${{ runner.os }}-
 
       - name: Build the macOS agentbox, with cgo, and sign it
         env:
@@ -107,139 +349,13 @@ jobs:
           scripts/mac-sign.sh bin/chv.test
           AGENTBOX_TEST_SIGNED=1 bin/chv.test -test.run 'VZ' -test.v
 
-  lint:
-    name: Go lint
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: jdx/mise-action@v4
-        with:
-          install_args: go
-
-      # Pinned to the version this repo's .golangci.yml was written and
-      # checked clean against.
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.14.0
-
-  vulncheck:
-    name: govulncheck
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: jdx/mise-action@v4
-        with:
-          install_args: go
-
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-
-  mod-tidy:
-    name: go mod tidy
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: jdx/mise-action@v4
-        with:
-          install_args: go
-
-      - uses: actions/cache@v6
+      - uses: actions/cache/save@v6
+        if: github.event_name == 'push'
         with:
           path: |
-            ~/.cache/go-build
+            ~/Library/Caches/go-build
             ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-${{ runner.os }}-
-
-      - run: go mod tidy
-
-      - name: go.mod and go.sum must already be tidy
-        run: git diff --exit-code go.mod go.sum
-
-  coverage:
-    name: Go coverage
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: jdx/mise-action@v4
-        with:
-          install_args: go
-
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}
-          restore-keys: go-${{ runner.os }}-
-
-      - run: scripts/check-coverage.sh
-
-  desktop:
-    name: Desktop
-    runs-on: ubuntu-24.04
-    env:
-      # Nothing here launches Electron — only typecheck and bundle — so skip the
-      # ~100 MB runtime npm would otherwise fetch on install. The release
-      # workflow, which packages the AppImage, does not set this.
-      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: jdx/mise-action@v4
-        with:
-          install_args: node
-
-      - uses: actions/cache@v6
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
-
-      - run: npm --prefix desktop ci
-
-      - run: npm --prefix desktop run typecheck
-
-      - run: npm --prefix desktop test
-
-      # The main process, the preload script and the renderer, into out/.
-      # Packaging the AppImage takes minutes and belongs to the release.
-      - run: npm --prefix desktop run build
-
-      # The live view of `agentbox machines serve` is the app's VNC client,
-      # bundled into the Go binary's page and committed: it must match.
-      - name: internal/machinesweb/static/vnc.js is up to date
-        run: |
-          npm --prefix desktop run build:machines-view
-          git diff --exit-code internal/machinesweb/static/vnc.js || {
-            echo "::error::Run npm --prefix desktop run build:machines-view and commit internal/machinesweb/static/vnc.js"
-            exit 1
-          }
-
-  desktop-lint:
-    name: Desktop lint
-    runs-on: ubuntu-24.04
-    env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: jdx/mise-action@v4
-        with:
-          install_args: node
-
-      - uses: actions/cache@v6
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('desktop/package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
-
-      - run: npm --prefix desktop ci
-
-      - run: npm --prefix desktop run lint
+          key: go-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
 
   # The Windows front end (D94): agentbox.exe, which runs everything else in a
   # WSL distro, and the relay the app reaches the daemon through. Its tests
@@ -247,8 +363,11 @@ jobs:
   # real named pipe — which wine can't do, so this is the only place it runs.
   # GitHub's Windows runners have no nested virtualisation, so no WSL 2 and no
   # real distro: that part is checked by hand (see PR #94).
+  # At 2x a Linux minute, it runs on main and on a PR labelled ci:full.
   windows:
     name: Windows
+    needs: changes
+    if: needs.changes.outputs.full == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -270,23 +389,3 @@ jobs:
           wsl --status
           bin/agentbox.exe wsl status
         continue-on-error: true
-
-  # Squash merges use the PR title as the commit message, and release-please
-  # turns that commit history into CHANGELOG.md at release time (feat →
-  # Added, fix/perf → Fixed, refactor → Changed; test/ci/docs/chore don't show
-  # up at all): the title has to be a conventional commit on its own,
-  # independent of what the branch's commits look like, and it has to read
-  # like a changelog line, since it may end up as one verbatim.
-  pr-title:
-    name: PR title
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check the title is a conventional commit
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          if [[ ! "$TITLE" =~ ^(feat|fix|refactor|docs|chore|test|perf|ci)(\(.+\))?!?:\ .+ ]]; then
-            echo "PR title isn't a conventional commit (feat|fix|refactor|docs|chore|test|perf|ci): $TITLE" >&2
-            exit 1
-          fi
