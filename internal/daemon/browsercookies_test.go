@@ -86,7 +86,7 @@ func writeFirefoxFixture(t *testing.T, home string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.Exec(`CREATE TABLE moz_cookies (host TEXT, name TEXT, value TEXT, path TEXT,
 		expiry INTEGER, isSecure INTEGER, isHttpOnly INTEGER, sameSite INTEGER, originAttributes TEXT DEFAULT '')`); err != nil {
 		t.Fatal(err)

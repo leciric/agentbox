@@ -119,7 +119,7 @@ func readFirefox(db string, now time.Time) ([]Cookie, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading the Firefox cookies: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Cookie
 	for rows.Next() {
 		var (

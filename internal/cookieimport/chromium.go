@@ -91,7 +91,7 @@ func readChromium(db, keyringSecret, goos string, now time.Time) ([]Cookie, int,
 			return nil, 0, fmt.Errorf("reading the cookies: %w", err)
 		}
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Cookie
 	skipped := 0

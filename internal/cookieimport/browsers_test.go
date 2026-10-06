@@ -62,7 +62,7 @@ func writeChromiumProfile(t *testing.T, root string, metaVersion int, insert fun
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	stmts := []string{
 		`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)`,
 		`CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB,
@@ -205,7 +205,7 @@ func TestReadFirefoxProfile(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	conn.Close()
+	_ = conn.Close()
 
 	profiles := FindProfiles(home)
 	if len(profiles) != 1 || profiles[0].Engine != EngineFirefox || profiles[0].Name != "default-release" {
