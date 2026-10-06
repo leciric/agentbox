@@ -426,4 +426,4 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Upload the release and rewrite releases.json
-        run: KEEP_NIGHTLIES=$KEEP scripts/r2-publish.sh "$TAG"
+        run: scripts/r2-publish.sh "$TAG"
