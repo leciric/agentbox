@@ -108,6 +108,9 @@ A scenario is a URL (`?open=agent-99&theme=light`, see the comment atop `preview
 checks the ref out into a throwaway worktree (refs after #82 only). It uses `/usr/bin/chromium` when
 present, else `npx playwright install chromium` once.
 
+`--shots` is for overflow and before/after checks. Proof for a PR is a recording plus `agentbox media
+screenshot` of the preview in the agent's display, made by the desktop subagent.
+
 ## The agents' base image
 
 `agentbox image build` makes it on the user's machine from Debian and
