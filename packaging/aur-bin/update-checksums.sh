@@ -11,7 +11,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 version=${1:-$(awk -F= '/^pkgver=/{print $2}' PKGBUILD)}
-base="https://github.com/leciric/agentbox/releases/download/v$version"
+base="https://downloads.agentbox.linting.dev/releases/v$version"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -27,8 +27,10 @@ cli_sum=$(awk -v f="$cli" '$2==f{print $1}' "$tmp/SHA256SUMS")
 [ -n "$appimage_sum" ] || { echo "$appimage not found in $base/SHA256SUMS" >&2; exit 1; }
 [ -n "$cli_sum" ] || { echo "$cli not found in $base/SHA256SUMS" >&2; exit 1; }
 
-echo "==> Fetching LICENSE at v$version"
-license_sum=$(curl -fsSL "https://raw.githubusercontent.com/leciric/agentbox/v$version/LICENSE" | sha256sum | cut -d' ' -f1)
+# LICENSE is this directory's copy of the repository's, since the repository
+# is private: keep the two the same.
+cmp -s LICENSE ../../LICENSE || { echo "LICENSE differs from ../../LICENSE: copy it over" >&2; exit 1; }
+license_sum=$(sha256sum LICENSE | cut -d' ' -f1)
 
 python3 - "$version" "$appimage_sum" "$cli_sum" "$license_sum" <<'EOF'
 import re, sys

@@ -456,7 +456,7 @@ export const ptBR: Messages = {
   'settings.channel.stable': 'Estável',
   'settings.channel.nightly': 'Nightly',
   'settings.channel.description': 'Estável oferece só as versões lançadas. Nightly também oferece as builds feitas a cada dia com o que vem a seguir.',
-  'settings.channel.details': 'As nightlies são feitas a partir da próxima versão como ela está, e publicadas no GitHub como pré-lançamentos: servem para experimentar o que vem por aí e podem quebrar. Para vê-las, a verificação diária também pede ao GitHub a lista pública de versões, sem enviar mais do que qualquer acesso a uma página envia. Voltar para Estável oferece a última versão lançada, mesmo que a versão dela seja menor que a da nightly.',
+  'settings.channel.details': 'As nightlies são feitas a partir da próxima versão como ela está, e publicadas como pré-lançamentos: servem para experimentar o que vem por aí e podem quebrar. Para vê-las, a verificação diária também lê a lista pública de versões em downloads.agentbox.linting.dev, sem enviar mais do que qualquer acesso a uma página envia. Voltar para Estável oferece a última versão lançada, mesmo que a versão dela seja menor que a da nightly.',
   'settings.channel.backToStable': 'Esta é uma nightly. O AgentBox {version} é a última versão estável.',
   'settings.channel.getIt': 'Baixar',
   'settings.prWatch.description': 'Avisa um agente quando o pull request dele tem conflito, falha nas verificações ou recebe pedido de alterações.',

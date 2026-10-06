@@ -401,3 +401,29 @@ jobs:
               echo "Deleting $old"
               gh release delete "$old" -R "$GITHUB_REPOSITORY" --cleanup-tag --yes
             done
+
+  # The repository is private, so its releases answer nobody but its
+  # collaborators: users download from the Cloudflare R2 bucket
+  # agentbox-releases (https://downloads.agentbox.linting.dev), and the app
+  # checks for updates there (internal/update's DefaultReleasesURL). Its own
+  # job, so that a rerun after a failure here leaves GitHub's release alone.
+  # One at a time with the other workflow's, since both rewrite releases.json.
+  r2:
+    name: Copy to R2
+    needs: [resolve, publish]
+    if: always() && needs.publish.result == 'success' && needs.resolve.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: r2-releases
+      cancel-in-progress: false
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Upload the release and rewrite releases.json
+        run: KEEP_NIGHTLIES=$KEEP scripts/r2-publish.sh "$TAG"

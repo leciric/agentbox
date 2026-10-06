@@ -61,7 +61,7 @@ func TestUpdateCheckFindsANewerRelease(t *testing.T) {
 	})
 	status, _ := d.client.Update(ctx)
 	if !status.Enabled || status.Blocked != "" || status.Current != "0.16.0" || status.CheckedAt == nil ||
-		status.Available.Version != "0.17.0" || status.Available.URL != "https://github.com/leciric/agentbox/releases/tag/v0.17.0" {
+		status.Available.Version != "0.17.0" || status.Available.URL != "http://127.0.0.1:1/releases/v0.17.0/index.html" {
 		t.Errorf("Update() = %+v", status)
 	}
 
@@ -155,12 +155,12 @@ func TestUpdateCheckBlocked(t *testing.T) {
 	}
 }
 
-// fakeReleases stands in for GitHub's list of releases, with one nightly.
+// fakeReleases stands in for releases.json, the list of releases, with one nightly.
 func fakeReleases(t *testing.T, nightly string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`[{"tag_name":"v` + nightly + `","html_url":"https://github.com/leciric/agentbox/releases/tag/v` + nightly + `","prerelease":true},
-			{"tag_name":"v0.17.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.17.0"}]`))
+		_, _ = w.Write([]byte(`[{"tag_name":"v` + nightly + `","prerelease":true},
+			{"tag_name":"v0.17.0"}]`))
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL
@@ -214,7 +214,7 @@ func TestUpdateLinkLeadsToTheLatestRelease(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.8.0")
 	var releases sync.Mutex
-	list := `[{"tag_name":"v0.9.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.9.0"}]`
+	list := `[{"tag_name":"v0.9.0"}]`
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		releases.Lock()
 		defer releases.Unlock()
@@ -230,13 +230,13 @@ func TestUpdateLinkLeadsToTheLatestRelease(t *testing.T) {
 	})
 
 	releases.Lock()
-	list = `[{"tag_name":"v0.11.0-nightly.20260930.1","html_url":"nightly","prerelease":true},
-		{"tag_name":"v0.10.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.10.0"},
-		{"tag_name":"v0.9.1","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.9.1"},
-		{"tag_name":"v0.9.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.9.0"}]`
+	list = `[{"tag_name":"v0.11.0-nightly.20260930.1","prerelease":true},
+		{"tag_name":"v0.10.0"},
+		{"tag_name":"v0.9.1"},
+		{"tag_name":"v0.9.0"}]`
 	releases.Unlock()
 	got, err := d.client.LatestRelease(ctx)
-	if err != nil || got.Version != "0.10.0" || got.URL != "https://github.com/leciric/agentbox/releases/tag/v0.10.0" {
+	if err != nil || got.Version != "0.10.0" || got.URL != gh.URL+"/releases/v0.10.0/index.html" {
 		t.Fatalf("LatestRelease() = %+v, %v; want 0.10.0's page", got, err)
 	}
 	if status, _ := d.client.Update(ctx); status.Available == nil || status.Available.Version != "0.10.0" {

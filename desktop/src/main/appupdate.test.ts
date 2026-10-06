@@ -41,7 +41,7 @@ class FakeUpdater extends EventEmitter implements Updater {
   }
 }
 
-const release = { version: '0.12.0', url: 'https://github.com/leciric/agentbox/releases/tag/v0.12.0' };
+const release = { version: '0.12.0', url: 'https://downloads.agentbox.linting.dev/releases/v0.12.0/index.html' };
 
 function setup(version = '0.11.0') {
   const updater = new FakeUpdater();
@@ -56,7 +56,7 @@ test('it downloads the release the daemon names, from that release, and reports 
   assert.equal(updater.autoInstallOnAppQuit, false);
   const state = await updates.download(release);
   assert.deepEqual(state, { state: 'ready', version: '0.12.0' });
-  assert.deepEqual(updater.feeds, ['https://github.com/leciric/agentbox/releases/download/v0.12.0/']);
+  assert.deepEqual(updater.feeds, ['https://downloads.agentbox.linting.dev/releases/v0.12.0/']);
   assert.equal(updater.allowDowngrade, false);
   assert.deepEqual(published, [
     { state: 'downloading', version: '0.12.0', percent: 0 },
@@ -82,15 +82,15 @@ test('a nightly going back to the stable channel may install a lower version, no
 test('nightly releases are fetched from their own tag', async () => {
   const { updater, updates } = setup('0.12.0-nightly.20261001.3');
   updater.offered = '0.12.0-nightly.20261002.1';
-  const nightly = { version: '0.12.0-nightly.20261002.1', url: 'https://github.com/leciric/agentbox/releases/tag/v0.12.0-nightly.20261002.1' };
+  const nightly = { version: '0.12.0-nightly.20261002.1', url: 'https://downloads.agentbox.linting.dev/releases/v0.12.0-nightly.20261002.1/index.html' };
   assert.equal((await updates.download(nightly)).state, 'ready');
-  assert.deepEqual(updater.feeds, ['https://github.com/leciric/agentbox/releases/download/v0.12.0-nightly.20261002.1/']);
+  assert.deepEqual(updater.feeds, ['https://downloads.agentbox.linting.dev/releases/v0.12.0-nightly.20261002.1/']);
 });
 
 test('what it refuses or fails at ends failed, with why', async () => {
   const cases: [string, (u: FakeUpdater) => void, { version: string; url: string }, RegExp][] = [
     ['not a release page', () => {}, { version: '0.12.0', url: 'https://example.com/agentbox' }, /isn't a release page/],
-    ['already this version', () => {}, { version: '0.11.0', url: 'https://github.com/leciric/agentbox/releases/tag/v0.11.0' }, /already 0\.11\.0/],
+    ['already this version', () => {}, { version: '0.11.0', url: 'https://downloads.agentbox.linting.dev/releases/v0.11.0/index.html' }, /already 0\.11\.0/],
     ['not an AppImage', (u) => (u.active = false), release, /not an AppImage/],
     ['the feed offers another version', (u) => (u.offered = '0.12.1'), release, /offers 0\.12\.1, not 0\.12\.0/],
     ['the download fails', (u) => (u.downloadError = new Error('sha512 checksum mismatch')), release, /sha512 checksum mismatch/],

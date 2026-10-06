@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,9 +55,15 @@ func (s *Server) checkForUpdate(ctx context.Context) {
 		return
 	}
 	stable, err := update.Check(ctx, s.cfg.UpdateURL, update.NewRequest(install, Version))
+	// agentbox.linting.dev's link is to the release on GitHub, which the
+	// private repository closes to users: the bucket's page for the same
+	// version replaces it.
+	if err == nil && stable.Version != "" {
+		stable.URL = update.ReleasePage(s.cfg.ReleasesURL, "v"+strings.TrimPrefix(stable.Version, "v"))
+	}
 	// The usage stats go with the check, whatever it found (usagestats.go).
 	s.sendUsage(ctx, install)
-	// The nightly channel asks GitHub for the nightlies too, since
+	// The nightly channel asks the release list for the nightlies too, since
 	// agentbox.linting.dev only answers with stable releases. Either answer
 	// alone is still worth offering.
 	var nightly update.Latest
@@ -207,11 +214,11 @@ func (s *Server) getUpdate(w http.ResponseWriter, r *http.Request) error {
 }
 
 // getLatestRelease is where "Update available" leads: the chosen channel's
-// latest release as GitHub lists it at the moment it is clicked — on the
+// latest release as the release list has it at the moment it is clicked — on the
 // stable channel the newest release that isn't a prerelease. The link used to
 // be whatever the last daily check found, pinned to that version's page, and
 // with releases coming out several a day an app that checked in the morning
-// sent its user to a release two behind the latest all day. When GitHub can't
+// sent its user to a release two behind the latest all day. When the list can't
 // be reached, the last check's find is still better than nothing. A newer
 // release found here also becomes what the sidebar offers.
 func (s *Server) getLatestRelease(w http.ResponseWriter, r *http.Request) error {

@@ -389,3 +389,29 @@ jobs:
           gh release upload "$TAG" out/* --clobber
           gh release edit "$TAG" --draft=false
           gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | "  \(.name)  \(.size) bytes")'
+
+  # The repository is private, so its releases answer nobody but its
+  # collaborators: users download from the Cloudflare R2 bucket
+  # agentbox-releases (https://downloads.agentbox.linting.dev), and the app
+  # checks for updates there (internal/update's DefaultReleasesURL). Its own
+  # job, so that a rerun after a failure here leaves GitHub's release alone.
+  # One at a time with the other workflow's, since both rewrite releases.json.
+  r2:
+    name: Copy to R2
+    needs: [release, publish]
+    if: always() && needs.publish.result == 'success'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: r2-releases
+      cancel-in-progress: false
+    env:
+      TAG: ${{ needs.release.outputs.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Upload the release and rewrite releases.json
+        run: scripts/r2-publish.sh "$TAG"

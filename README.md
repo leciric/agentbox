@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/leciric/agentbox/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leciric/agentbox/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/leciric/agentbox/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/leciric/agentbox?sort=semver"></a>
+  <a href="https://downloads.agentbox.linting.dev/index.html"><img alt="Download" src="https://img.shields.io/badge/download-latest-blue"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
   <img alt="Platform: Linux x86_64" src="https://img.shields.io/badge/platform-Linux%20x86__64-informational">
 </p>
@@ -63,7 +63,7 @@ work on its own desktop, and review what it built before merging.
 ## Install
 
 AgentBox runs on **Linux, x86_64**. Download the latest release from
-[Releases](https://github.com/leciric/agentbox/releases/latest):
+[downloads.agentbox.linting.dev](https://downloads.agentbox.linting.dev/index.html):
 
 | File | What |
 |---|---|
@@ -128,7 +128,7 @@ just talk to them there. Both are newer than the Linux build and ship unsigned f
 right-click AgentBox in Applications and choose **Open** the first time; on Windows, the installer
 and antivirus may need an exception. Download `AgentBox-<version>-mac-arm64.dmg` or
 `-mac-x64.dmg`, or `AgentBox-<version>-x64-setup.exe` (installer) or `-x64-portable.exe`, from the
-same [Releases](https://github.com/leciric/agentbox/releases/latest) page.
+same [downloads](https://downloads.agentbox.linting.dev/index.html) page.
 
 On a Mac with Apple Silicon, install [krunkit](https://lima-vm.io/docs/config/vmtype/krunkit/)
 before setting AgentBox up, and the VM gives the memory its agents stop using back to your Mac:
@@ -166,7 +166,7 @@ build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
   running agent uses 1–2 GB), 4 cores and 30 GB of free disk; `/dev/kvm`, for AgentBox's VM.
 - An account for the AI tool you use: Claude Code, Codex or OpenCode.
 - The hub, for remote environments, lives in a separate repository that isn't public.
-- Each [release](https://github.com/leciric/agentbox/releases)'s notes list what it can't do yet
+- Each [release](https://downloads.agentbox.linting.dev/index.html)'s notes list what it can't do yet
   under **Known limitations**.
 
 ## Update check
@@ -174,10 +174,10 @@ build of your own needs signing for it: `scripts/mac-sign.sh bin/agentbox`.
 Once a day, and as it starts, the AgentBox daemon asks `agentbox.linting.dev` whether a newer
 release is out. When one is, the app shows **Update available** in its sidebar and
 `agentbox version` prints a link to the release. Clicking it opens your channel's latest release
-as GitHub lists it at that moment (the daemon reads the public list of releases,
-`GET https://api.github.com/repos/leciric/agentbox/releases`, with nothing added to it), so a
+as the list of releases has it at that moment (the daemon reads it,
+`GET https://downloads.agentbox.linting.dev/releases.json`, with nothing added to it), so a
 release made since the last check isn't missed. Nothing is downloaded or installed until you
-click it. In the AppImage, clicking it downloads that release's AppImage from GitHub (checked
+click it. In the AppImage, clicking it downloads that release's AppImage from `downloads.agentbox.linting.dev` (checked
 against the release's `latest-linux.yml`), puts it in place of the one you're running, and
 **Restart to update** restarts into it; the daemon is restarted on the new version too, the VM's
 included. Every other install (`.deb`, `.pacman`, Windows, the Mac) opens the release page, as
@@ -220,13 +220,13 @@ counts it never got are dropped after 31 days. Switch off **Share anonymous usag
 **Settings → General** to stop them and delete what wasn't sent yet; they are also off whenever
 the update check is.
 
-**Nightly builds** are built from the next release as it stands, and published as GitHub
+**Nightly builds** are built from the next release as it stands, and published as
 prereleases named `<next version>-nightly.<date>.<run>`, such as `0.11.0-nightly.20260929.12`.
 They are for trying what's coming, and are never marked as the latest release. To be offered them,
 pick **Nightly** under **Update channel** in **Settings → General**, or run
 `agentbox version --channel nightly`; a nightly build starts out on that channel, and shows
-**Nightly** in the app's sidebar. On the nightly channel the check also asks GitHub for its list of
-releases (`GET https://api.github.com/repos/leciric/agentbox/releases`, a public page, with nothing
+**Nightly** in the app's sidebar. On the nightly channel the check also asks for the list of
+releases (`GET https://downloads.agentbox.linting.dev/releases.json`, a public file, with nothing
 added to it), since `agentbox.linting.dev` only answers with stable releases. Going back to
 **Stable** offers the latest stable release, even though its version is lower than the nightly's.
 
