@@ -5,15 +5,11 @@
 # personalise.sh still make one.
 #
 # On the PR that changes it, not again when that PR lands on main: the build
-# is the same. A change to the package's tests alone doesn't run it. Weekly,
-# for what changes under it without a commit here: Debian, and the tools'
-# downloads.
+# is the same. A change to the package's tests alone doesn't run it.
 name: Base image
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '41 6 * * 1'
   pull_request:
     paths:
       - internal/image/**

@@ -98,7 +98,7 @@ touches Go (anything but `desktop/` and prose, plus `desktop/src/shared/api.ts`)
 
 Go caches are saved by `main`'s runs only and restored by PRs, so a PR's tests skip packages it
 doesn't reach. [Base image](.github/workflows/base-image.yml) runs on PRs that change
-`internal/image/` (its tests aside) and weekly.
+`internal/image/` (its tests aside), or by hand.
 
 ## Previewing the rail and the sidebar
 
@@ -136,7 +136,7 @@ holds software we may not redistribute (Claude Code) and GPL packages.
 - **Anything in `provision.sh`** means bumping `image.Version` in
   [`image.go`](internal/image/image.go), which makes Setup ask for a rebuild, as does turning an
   optional component on or off. The [Base image](.github/workflows/base-image.yml) workflow builds it
-  on every PR that changes `internal/image/`, and weekly.
+  on every PR that changes `internal/image/`.
 
 Agents' temporary files, including `t.TempDir()`, go to a tmpfs on `/t` (`TMPDIR`): a unix socket's
 path must stay under 107 bytes, and `/tmp` is where Incus mounts worktrees. `--dev-caches` fills the
