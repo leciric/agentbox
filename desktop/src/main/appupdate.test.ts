@@ -100,8 +100,6 @@ test('detectInstall: which installs update in place, and why the others open the
 test('assetName follows the names the release workflows publish', () => {
   assert.equal(assetName('mac', '0.12.0', 'arm64'), 'AgentBox-0.12.0-mac-arm64.zip');
   assert.equal(assetName('mac', '0.12.0-nightly.20261005.58', 'x64'), 'AgentBox-0.12.0-nightly.20261005.58-mac-x64.zip');
-  assert.equal(assetName('appimage', '0.12.0', 'x64'), 'AgentBox-0.12.0-x86_64.AppImage');
-  assert.equal(assetName('appimage', '0.12.0', 'arm64'), 'AgentBox-0.12.0-arm64.AppImage');
   assert.equal(assetName('nsis', '0.12.0', 'x64'), 'AgentBox-0.12.0-x64-setup.exe');
   assert.equal(assetName('portable', '0.12.0', 'x64'), 'AgentBox-0.12.0-x64-portable.exe');
 });
@@ -115,18 +113,20 @@ test('parseSums reads sha256sum and shasum output, text and binary mode', () => 
   assert.equal(sums.size, 2);
 });
 
-test('an AppImage is replaced in place, with progress, after its checksum matches', async () => {
+test('a portable .exe is replaced in place, with progress, after its checksum matches', async () => {
   const dir = tmp();
-  const image = join(dir, 'AgentBox-0.11.0-x86_64.AppImage');
+  const image = join(dir, 'AgentBox-0.11.0-x64-portable.exe');
   writeFileSync(image, 'old', { mode: 0o755 });
   const body = Buffer.alloc(3 << 20, 7); // a few progress reports' worth
-  const rel = release('0.12.0', { 'AgentBox-0.12.0-x86_64.AppImage': body, 'AgentBox-0.12.0-amd64.deb': 'deb' });
+  const rel = release('0.12.0', { 'AgentBox-0.12.0-x64-portable.exe': body, 'AgentBox-0.12.0-amd64.deb': 'deb' });
   const progress: AppUpdateProgress[] = [];
-  const next = await update({ release: rel, install: { kind: 'appimage', path: image }, arch: 'x64', tmp: join(dir, 'tmp'), fetch: fetcher, run: noRun, onProgress: (p) => progress.push(p) });
+  const next = await update({ release: rel, install: { kind: 'portable', path: image }, arch: 'x64', tmp: join(dir, 'tmp'), fetch: fetcher, run: noRun, onProgress: (p) => progress.push(p) });
   assert.deepEqual(next, { relaunch: image });
   assert.ok(readFileSync(image).equals(body));
   assert.equal(statSync(image).mode & 0o111, 0o111);
-  assert.deepEqual(readdirSync(dir).sort(), ['AgentBox-0.11.0-x86_64.AppImage']);
+  // The old one is renamed aside, to be removed at the next start.
+  assert.deepEqual(readdirSync(dir).filter((f) => !f.includes('.old-')), ['AgentBox-0.11.0-x64-portable.exe']);
+  assert.equal(readdirSync(dir).filter((f) => f.includes('.old-')).length, 1);
   const downloads = progress.filter((p) => p.phase === 'download');
   assert.ok(downloads.length > 1, 'the download reports progress as it goes');
   assert.deepEqual(downloads.at(-1), { phase: 'download', version: '0.12.0', received: body.length, total: body.length });
@@ -139,46 +139,54 @@ test('an AppImage is replaced in place, with progress, after its checksum matche
 
 test('a download that doesn\'t match SHA256SUMS is thrown away, and the app is left as it was', async () => {
   const dir = tmp();
-  const image = join(dir, 'AgentBox.AppImage');
+  const image = join(dir, 'AgentBox.exe');
   writeFileSync(image, 'old');
-  const rel = release('0.12.1', { 'AgentBox-0.12.1-x86_64.AppImage': 'tampered' }, { body: `${sha('the real one')}  AgentBox-0.12.1-x86_64.AppImage\n` });
+  const rel = release('0.12.1', { 'AgentBox-0.12.1-x64-portable.exe': 'tampered' }, { body: `${sha('the real one')}  AgentBox-0.12.1-x64-portable.exe\n` });
   await assert.rejects(
-    update({ release: rel, install: { kind: 'appimage', path: image }, arch: 'x64', tmp: join(dir, 'tmp'), fetch: fetcher, run: noRun, onProgress: () => {} }),
+    update({ release: rel, install: { kind: 'portable', path: image }, arch: 'x64', tmp: join(dir, 'tmp'), fetch: fetcher, run: noRun, onProgress: () => {} }),
     (err: UpdateError) => err.code === 'checksum',
   );
   assert.equal(readFileSync(image, 'utf8'), 'old');
-  assert.deepEqual(readdirSync(dir), ['AgentBox.AppImage']);
+  assert.deepEqual(readdirSync(dir), ['AgentBox.exe']);
   rmSync(dir, { recursive: true });
 });
 
 test('a download larger than the release lists is cut off', async () => {
   const dir = tmp();
-  const image = join(dir, 'AgentBox.AppImage');
+  const image = join(dir, 'AgentBox.exe');
   writeFileSync(image, 'old');
-  const rel = release('0.12.2', { 'AgentBox-0.12.2-x86_64.AppImage': 'a longer file than listed' });
+  const rel = release('0.12.2', { 'AgentBox-0.12.2-x64-portable.exe': 'a longer file than listed' });
   rel.assets![0].size = 4;
   await assert.rejects(
-    update({ release: rel, install: { kind: 'appimage', path: image }, arch: 'x64', tmp: join(dir, 'tmp'), fetch: fetcher, run: noRun, onProgress: () => {} }),
+    update({ release: rel, install: { kind: 'portable', path: image }, arch: 'x64', tmp: join(dir, 'tmp'), fetch: fetcher, run: noRun, onProgress: () => {} }),
     (err: UpdateError) => err.code === 'checksum',
   );
   assert.equal(readFileSync(image, 'utf8'), 'old');
-  assert.deepEqual(readdirSync(dir), ['AgentBox.AppImage']);
+  assert.deepEqual(readdirSync(dir), ['AgentBox.exe']);
   rmSync(dir, { recursive: true });
 });
 
+test('an AppImage is not updated here: electron-updater does it (appimageupdate.ts)', async () => {
+  const rel = release('0.12.6', {});
+  await assert.rejects(
+    update({ release: rel, install: { kind: 'appimage', path: '/nowhere/AgentBox.AppImage' }, arch: 'x64', tmp: '/nowhere', fetch: fetcher, run: noRun, onProgress: () => {} }),
+    (err: UpdateError) => err.code === 'unsupported',
+  );
+});
+
 test('what stops an update before anything is downloaded', async () => {
-  const install = { kind: 'appimage' as const, path: '/nowhere/AgentBox.AppImage' };
+  const install = { kind: 'portable' as const, path: '/nowhere/AgentBox.exe' };
   const go = (rel: Release, arch = 'x64') => update({ release: rel, install, arch, tmp: '/nowhere', fetch: fetcher, run: noRun, onProgress: () => {} });
   const code = (want: string) => (err: UpdateError) => err.code === want;
   // GitHub couldn't be reached: the daemon's last find has no files.
   await assert.rejects(go({ version: '0.12.3', url: 'page' }), code('noAssets'));
-  // No arm64 AppImage is published.
-  await assert.rejects(go(release('0.12.3', { 'AgentBox-0.12.3-x86_64.AppImage': 'x' }), 'arm64'), code('noBuild'));
+  // No arm64 portable .exe is published.
+  await assert.rejects(go(release('0.12.3', { 'AgentBox-0.12.3-x64-portable.exe': 'x' }), 'arm64'), code('noBuild'));
   // Listed nowhere: nothing to check it against.
-  await assert.rejects(go(release('0.12.4', { 'AgentBox-0.12.4-x86_64.AppImage': 'x' }, { body: '' })), code('noChecksum'));
+  await assert.rejects(go(release('0.12.4', { 'AgentBox-0.12.4-x64-portable.exe': 'x' }, { body: '' })), code('noChecksum'));
   // The asset itself is missing from the server.
-  const rel = release('0.12.5', { 'AgentBox-0.12.5-x86_64.AppImage': 'x' });
-  files.delete('/0.12.5/AgentBox-0.12.5-x86_64.AppImage');
+  const rel = release('0.12.5', { 'AgentBox-0.12.5-x64-portable.exe': 'x' });
+  files.delete('/0.12.5/AgentBox-0.12.5-x64-portable.exe');
   await assert.rejects(go(rel), code('download'));
 });
 

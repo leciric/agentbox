@@ -54,6 +54,29 @@ func TestResumeAfterLimitIsOnUntilItIsTurnedOff(t *testing.T) {
 	}
 }
 
+func TestContinueAfterRestartIsOnUntilItIsTurnedOff(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+
+	r := httptest.NewRequest(http.MethodGet, "/v1/settings", nil)
+	out, err := d.srv.currentSettings(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.ContinueAfterRestart {
+		t.Error("an installation that has never chosen doesn't continue agents after restarts")
+	}
+	if out, err := patchSettings(t, d, `{"continueAfterRestart":false}`); err != nil || out.ContinueAfterRestart {
+		t.Errorf("after turning it off: %+v, %v", out, err)
+	}
+	if out, err := patchSettings(t, d, `{"resumeAfterLimit":true}`); err != nil || out.ContinueAfterRestart {
+		t.Errorf("another setting turned it back on: %+v, %v", out, err)
+	}
+	if out, err := patchSettings(t, d, `{"continueAfterRestart":true}`); err != nil || !out.ContinueAfterRestart {
+		t.Errorf("after turning it back on: %+v, %v", out, err)
+	}
+}
+
 // TestClaudeMenuIsKnownOnceAnAdapterSentOne: the pinned models are always on
 // the menu, so the app can't tell from the choices alone that Claude Code
 // hasn't sent the account's own yet, and says so from this.

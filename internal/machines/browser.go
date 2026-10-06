@@ -173,7 +173,9 @@ func (c *mcpClient) call(method string, params any) (json.RawMessage, error) {
 			} `json:"error"`
 		}
 		if err := c.out.Decode(&m); err != nil {
-			return nil, fmt.Errorf("the browser's tools stopped: %w", err)
+			// A server that died after the request was written (it is only buffered
+			// by the pipe) ends the stream here, not at send: it stopped all the same.
+			return nil, fmt.Errorf("%s %w: %v", c.what, errStopped, err)
 		}
 		switch {
 		case m.Method != "" && len(m.ID) > 0:

@@ -32,6 +32,13 @@ export function rememberSection(id: string): void {
   localStorage.setItem(sectionKey, id);
 }
 
+// openSettingsSection takes the app to a section of Settings from anywhere in
+// it; App listens for the event.
+export const openSettingsEvent = 'agentbox:open-settings';
+export function openSettingsSection(id: string): void {
+  window.dispatchEvent(new CustomEvent(openSettingsEvent, { detail: id }));
+}
+
 export function SettingsPage({ sections, icons, error }: { sections: SettingSection[]; icons: SectionIcons; error?: string }) {
   const t = useT();
   const [stored, setStored] = useState(() => localStorage.getItem(sectionKey) ?? '');

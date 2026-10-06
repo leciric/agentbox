@@ -17,7 +17,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { Select, SelectOption, selectTrigger } from './ui/select';
 import type { SettingGroup, SettingSection } from '../lib/settingsSearch';
 import { ClaudeAccountPicker, ClaudeAccountsPicker, GitHubAccountPicker } from './ProjectAccounts';
-import { SettingGroups } from './SettingsPage';
+import { openSettingsSection, SettingGroups } from './SettingsPage';
 import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
 
@@ -266,6 +266,10 @@ function AgentModelPicker({ project }: { project: T.Project }) {
   // What Settings currently says, so "same as" isn't a promise you have to
   // leave the page to read.
   const home = settings.data?.defaultClaudeModel || t('defaults.project.homeFallback');
+  // With enforcement on, the lead creates every agent on Settings' model, so
+  // this project's own choice has no effect.
+  const enforced = settings.data?.enforceAgentDefaults === true;
+  const enforcedModel = home;
 
   return (
     <SettingRow
@@ -367,7 +371,16 @@ function AgentModelPicker({ project }: { project: T.Project }) {
           </MenuContent>
         </Menu>
       }
-    />
+    >
+      {enforced && (
+        <SettingNote tone="warning">
+          {t('defaults.project.modelEnforced', { model: enforcedModel })}{' '}
+          <button type="button" data-open-models className="underline underline-offset-2 hover:text-amber-200" onClick={() => openSettingsSection('models')}>
+            {t('defaults.project.modelEnforcedLink')}
+          </button>
+        </SettingNote>
+      )}
+    </SettingRow>
   );
 }
 

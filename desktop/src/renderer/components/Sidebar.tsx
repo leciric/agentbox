@@ -12,8 +12,8 @@ import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
 import { updateHint } from '../lib/appUpdate';
-import { useAppUpdate } from '../lib/useAppUpdate';
 import { buildLists, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
+import { useAppUpdate } from '../lib/useAppUpdate';
 import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { EnvironmentSwitcher } from './EnvironmentSwitcher';
@@ -398,7 +398,6 @@ export function Sidebar({
               {appUpdate.label ??
                 (isUpgrade(update.data.available.version, update.data.current) ? t('shell.sidebar.updateAvailable') : t('shell.sidebar.latestStable'))}
             </span>
-            <span className="ml-auto rounded-full bg-emerald-400/15 px-1.5 text-[10.5px] text-emerald-300">{update.data.available.version}</span>
           </NavItem>
         )}
         <NavItem icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>

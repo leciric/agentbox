@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -59,6 +60,9 @@ type testDaemon struct {
 	// gitHub is where the daemon's GitHub API root forwards to; setGitHub
 	// points it at a test's stub.
 	gitHub *atomic.Pointer[url.URL]
+	// stop stops the daemon as its cleanup would, for a test that starts
+	// another on the same root; the cleanup then does nothing more.
+	stop func()
 }
 
 // testConfig is what a test sets about its daemon and its fake incus. None of
@@ -190,20 +194,24 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- srv.Run(ctx) }()
-	t.Cleanup(func() {
-		cancel()
-		if err := <-done; err != nil {
-			t.Errorf("Run() = %v", err)
-		}
-		// A lead's chat still launching writes on after Run has returned.
-		srv.chat.Wait()
-	})
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			if err := <-done; err != nil {
+				t.Errorf("Run() = %v", err)
+			}
+			// A lead's chat still launching writes on after Run has returned.
+			srv.chat.Wait()
+		})
+	}
+	t.Cleanup(stop)
 	c := api.NewClient(p.Socket())
 	waitFor(t, "the daemon to answer", func() bool { return c.Ping(context.Background()) == nil })
 	// The sweeps' first passes are over nothing yet, and have to stay that
 	// way: one that ran late would find what the test had just made.
 	srv.firstSweeps.Wait()
-	return testDaemon{srv: srv, client: c, paths: p, root: root, instances: instances, gitHub: gitHub}
+	return testDaemon{srv: srv, client: c, paths: p, root: root, instances: instances, gitHub: gitHub, stop: stop}
 }
 
 // fixtureRepo is testutil.FixtureRepo under the daemon's root rather than a

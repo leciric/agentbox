@@ -12,6 +12,7 @@ import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, r
 import { EventStream } from './events';
 import { hostSetupStatus, onMac, runHostSetup, runVMMigration, stopVM, vmMigration, type HostSetupOptions } from './hostsetup';
 import { handleMedia, registerMediaScheme } from './media';
+import { registerBrowserKeys } from './browserkeys';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
@@ -34,6 +35,7 @@ const appLog = new AppLog(app.getPath('logs'));
 captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
 registerMediaScheme();
+registerBrowserKeys();
 enableWebGPU();
 enableShortcutPortal();
 

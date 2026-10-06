@@ -415,6 +415,38 @@ export function ResumeAfterLimit() {
   );
 }
 
+// ContinueAfterRestart decides whether the turns AgentBox's own restart cut
+// short — an update, a crash, a quit, a reboot — carry on when it starts
+// again (internal/daemon/restart.go). Like ResumeAfterLimit it is about work
+// already running, so it reaches every agent.
+export function ContinueAfterRestart() {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (continueAfterRestart: boolean) => api.updateSettings({ continueAfterRestart }),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <SettingRow
+      label={t('defaults.newAgent.continueLabel')}
+      description={t('defaults.newAgent.continueDescription')}
+      details={t('defaults.newAgent.continueDetails')}
+      control={
+        <Switch
+          data-continue-after-restart
+          aria-label={t('defaults.newAgent.continueLabel')}
+          disabled={save.isPending || settings.data === undefined}
+          checked={settings.data?.continueAfterRestart ?? true}
+          onCheckedChange={(next) => save.mutate(next)}
+        />
+      }
+    />
+  );
+}
+
 // DiskFloor is the disk guard's floor: the free space AgentBox keeps on every
 // disk it writes to (internal/agent/diskguard.go), the larger of a size and a
 // share of the disk. At it, new agents are refused and the agents writing the

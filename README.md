@@ -176,8 +176,12 @@ release is out. When one is, the app shows **Update available** in its sidebar a
 `agentbox version` prints a link to the release. Clicking it opens your channel's latest release
 as GitHub lists it at that moment (the daemon reads the public list of releases,
 `GET https://api.github.com/repos/leciric/agentbox/releases`, with nothing added to it), so a
-release made since the last check isn't missed. Nothing is downloaded or installed. The same
-request is how we count active installations.
+release made since the last check isn't missed. Nothing is downloaded or installed until you
+click it. In the AppImage, clicking it downloads that release's AppImage from GitHub (checked
+against the release's `latest-linux.yml`), puts it in place of the one you're running, and
+**Restart to update** restarts into it; the daemon is restarted on the new version too, the VM's
+included. Every other install (`.deb`, `.pacman`, Windows, the Mac) opens the release page, as
+does an AppImage whose update fails. The same request is how we count active installations.
 
 **What is sent** is one HTTPS request with four query parameters, and nothing else:
 

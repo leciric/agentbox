@@ -5,7 +5,9 @@ import { execFile, spawn } from 'node:child_process';
 import { accessSync, constants, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, ipcMain, net } from 'electron';
+import { AppImageUpdater } from 'electron-updater';
 import type { AppUpdateProgress, AppUpdateResult } from '../shared/appupdate.ts';
+import { AppUpdates } from './appimageupdate';
 import { cleanUp, detectInstall, update, UpdateError, type Release, type Run } from './appupdate';
 import { isLocal } from './connection';
 import { request } from './daemon';
@@ -82,6 +84,10 @@ async function start(onProgress: (p: AppUpdateProgress) => void): Promise<AppUpd
     if (res.status !== 200) return { ok: false, code: 'noRelease', detail: errorOf(res.body) };
     release = JSON.parse(res.body) as Release;
     if (release.version === app.getVersion()) return { ok: false, code: 'upToDate', detail: release.version, url: release.url };
+    if (install.kind === 'appimage') {
+      await updateAppImage(release, onProgress);
+      return { ok: true };
+    }
     const next = await update({
       release,
       install,
@@ -98,8 +104,8 @@ async function start(onProgress: (p: AppUpdateProgress) => void): Promise<AppUpd
       // running, installs, and starts the new one (--force-run).
       spawn(next.installer, ['--updated', '/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref();
     } else {
-      // The same arguments; for an AppImage, the AppImage itself rather than
-      // the binary inside its mount, which goes away as this one quits.
+      // The same arguments; for a portable .exe, the .exe itself rather than
+      // the binary it unpacked to.
       app.relaunch({ execPath: install.kind === 'mac' ? undefined : next.relaunch, args: process.argv.slice(1) });
     }
     setTimeout(() => app.quit(), 300); // for the window to show it's restarting
@@ -108,6 +114,29 @@ async function start(onProgress: (p: AppUpdateProgress) => void): Promise<AppUpd
     console.error('updating the app:', err);
     const code = err instanceof UpdateError ? err.code : 'install';
     return { ok: false, code, detail: err instanceof Error ? err.message : String(err), url: release?.url };
+  }
+}
+
+// updateAppImage updates a running AppImage with electron-updater
+// (appimageupdate.ts), which checks the download against the release's
+// latest-linux.yml and fetches only the blocks that changed, then quits,
+// swaps the new AppImage in and starts it. Its percent is reported as the
+// download's progress.
+async function updateAppImage(release: Release, onProgress: (p: AppUpdateProgress) => void): Promise<void> {
+  const version = release.version.replace(/^v/, '');
+  const updater = new AppImageUpdater();
+  updater.logger = console;
+  const updates = new AppUpdates(updater, app.getVersion(), (s) => {
+    if (s.state === 'downloading') onProgress({ phase: 'download', version, received: s.percent, total: 100 });
+  });
+  const downloaded = await updates.download(release);
+  if (downloaded.state === 'failed') throw new UpdateError('download', downloaded.error);
+  onProgress({ phase: 'restart', version });
+  restarting = true;
+  const installed = updates.install();
+  if (installed.state === 'failed') {
+    restarting = false;
+    throw new UpdateError('install', installed.error);
   }
 }
 

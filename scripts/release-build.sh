@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Builds a release, for the version in desktop/package.json: the AppImage, the
-# .deb and the .pacman (the app, with the command-line tool inside each), the
-# Windows installer and portable .exe (D94), the command-line tool alone (for
-# Linux on x86-64 and arm64, and for macOS, where it is the front end of
-# AgentBox's Linux VM), and their checksums, in desktop/dist/release/v<version>/.
+# Builds a release, for the version in desktop/package.json: the AppImage (and
+# latest-linux.yml, its update feed), the .deb and the .pacman (the app, with
+# the command-line tool inside each), the Windows installer and portable .exe
+# (D94), the command-line tool alone (for Linux on x86-64 and arm64, and for
+# macOS, where it is the front end of AgentBox's Linux VM), and their
+# checksums, in desktop/dist/release/v<version>/.
 # The Windows build runs on Linux, and needs wine for the installer's
 # uninstaller. The Mac app is built by the release workflow's macos job, on a
 # Mac, and never goes through this script; the macOS command-line tool is
@@ -121,13 +122,20 @@ build_linux() {
   cp "$root/desktop/dist/AgentBox-$version-x86_64.AppImage" "$out/"
   cp "$root/desktop/dist/AgentBox-$version-amd64.deb" "$out/"
   cp "$root/desktop/dist/AgentBox-$version-x64.pacman" "$out/"
+  # latest-linux.yml is the AppImage's update feed: the app updates itself in
+  # place from the release the daemon picks for its channel, reading this file
+  # from that release's assets (desktop/src/main/appupdate.ts) for the
+  # AppImage's name, size and sha512. Each release, nightly or stable, has its
+  # own, under the same name (detectUpdateChannel is off in package.json).
+  grep -qx "version: $version" "$root/desktop/dist/latest-linux.yml" || { echo "desktop/dist/latest-linux.yml isn't for $version" >&2; exit 1; }
+  cp "$root/desktop/dist/latest-linux.yml" "$out/"
   cp "$root/bin/agentbox" "$out/agentbox-$version-linux-amd64"
   # The command-line tool for a Mac is two files: the macOS agentbox, built
   # on a Mac (--mac-cli), and the Linux one it installs in the VM, which it
   # looks for beside itself as agentbox-linux (the README's "On a Mac"):
   # linux-arm64 for Apple silicon, linux-amd64 above for Intel.
   (cd "$root" && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "$ldflags" -o "$out/agentbox-$version-linux-arm64" ./cmd/agentbox)
-  chmod +x "$out"/*
+  chmod +x "$out"/AgentBox-* "$out"/agentbox-*
   "$out/agentbox-$version-linux-amd64" --version | grep -qx "agentbox version $version" || { echo "the binary isn't version $version" >&2; exit 1; }
 }
 

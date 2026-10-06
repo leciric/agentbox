@@ -295,6 +295,7 @@ func NewRootCmd() *cobra.Command {
 		newConsolidationCmd(a),
 		newConsolidationModelCmd(a),
 		newAutoStopCmd(a),
+		newContinueAfterRestartCmd(a),
 		newDockerCacheCmd(a),
 		newPackageCacheCmd(a),
 		newDiskCmd(a),

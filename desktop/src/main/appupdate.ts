@@ -9,8 +9,8 @@
 // daemon end up on the app's version.
 //
 // Nothing here needs a password. A Mac's .app is replaced by renaming it aside
-// and the new one into its place, in its own folder; an AppImage or a portable
-// .exe the same way, file for file; the Windows per-user installer installs
+// and the new one into its place, in its own folder; a portable .exe the same
+// way, file for file (an AppImage updates through appimageupdate.ts); the Windows per-user installer installs
 // without asking for admin rights. Anything else (a .deb or .pacman, an app
 // still on its disk image) opens the release page instead, as before.
 //
@@ -26,7 +26,7 @@
 // This file has no Electron in it, so that its tests can run in Node; the
 // main process's half (updater.ts) wires it to the window and restarts.
 import { createHash } from 'node:crypto';
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, chmodSync } from 'node:fs';
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { basename, dirname, join, win32 } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -104,12 +104,10 @@ export function detectInstall(m: Machine): { support: AppUpdateSupport; install?
 
 // assetName is the release's file for kind, as electron-builder names them
 // (desktop/package.json's artifactName): arch is Node's (process.arch).
-export function assetName(kind: InstallKind, version: string, arch: string): string {
+export function assetName(kind: Exclude<InstallKind, 'appimage'>, version: string, arch: string): string {
   switch (kind) {
     case 'mac':
       return `AgentBox-${version}-mac-${arch}.zip`;
-    case 'appimage':
-      return `AgentBox-${version}-${arch === 'x64' ? 'x86_64' : arch}.AppImage`;
     case 'nsis':
       return `AgentBox-${version}-${arch}-setup.exe`;
     case 'portable':
@@ -209,8 +207,12 @@ export interface UpdateOptions {
 // install, and answers what to start once the app has quit: the new app (the
 // same path as the old), or on Windows the installer that installs it.
 export async function update(o: UpdateOptions): Promise<{ relaunch: string } | { installer: string }> {
-  const { release, install } = o;
+  const { release, install: chosen } = o;
   const version = release.version;
+  // An AppImage updates through electron-updater (appimageupdate.ts), which
+  // downloads only what changed, not through here.
+  if (chosen.kind === 'appimage') throw new UpdateError('unsupported', 'an AppImage updates with electron-updater');
+  const install = { ...chosen, kind: chosen.kind };
   if (!release.assets?.length) throw new UpdateError('noAssets', `GitHub didn't list ${version}'s files`);
   const name = assetName(install.kind, version, o.arch);
   const asset = release.assets.find((a) => a.name === name);
@@ -243,18 +245,6 @@ export async function update(o: UpdateOptions): Promise<{ relaunch: string } | {
       rmSync(macStaging(install.path), { recursive: true, force: true });
       return { relaunch: install.path };
     }
-    case 'appimage':
-      o.onProgress({ phase: 'install', version });
-      chmodSync(dest, 0o755);
-      // One rename: the running AppImage is mounted from the old file, which
-      // stays until it exits.
-      try {
-        renameSync(dest, install.path);
-      } catch (err) {
-        rmSync(dest, { force: true });
-        throw new UpdateError('install', message(err));
-      }
-      return { relaunch: install.path };
     case 'portable':
       o.onProgress({ phase: 'install', version });
       // A running .exe can't be replaced, but it can be renamed: the old one
@@ -269,11 +259,10 @@ export async function update(o: UpdateOptions): Promise<{ relaunch: string } | {
 
 // downloadPath is where name downloads to: beside what it replaces, so that
 // putting it in place is a rename on the same disk, or for the installer in tmp.
-function downloadPath(install: Install, tmp: string, name: string): string {
+function downloadPath(install: Install & { kind: Exclude<InstallKind, 'appimage'> }, tmp: string, name: string): string {
   switch (install.kind) {
     case 'mac':
       return join(tmp, name);
-    case 'appimage':
     case 'portable':
       return join(dirname(install.path), `.${basename(install.path)}.update`);
     case 'nsis':

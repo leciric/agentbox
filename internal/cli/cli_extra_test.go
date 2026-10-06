@@ -737,6 +737,24 @@ func TestAutoStop(t *testing.T) {
 	}
 }
 
+func TestContinueAfterRestart(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	out, err := run(t, "", "continue-after-restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "continue agents after restarts: on")
+	out, err = run(t, "", "continue-after-restart", "off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "continue agents after restarts: off")
+	if _, err := run(t, "", "continue-after-restart", "maybe"); err == nil {
+		t.Error("continue-after-restart maybe was taken")
+	}
+}
+
 func TestDockerCache(t *testing.T) {
 	isolate(t)
 	startDaemon(t)
