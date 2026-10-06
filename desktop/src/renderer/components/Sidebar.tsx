@@ -11,8 +11,8 @@ import { t as tNow, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
-import { openLatestRelease } from '../lib/releaseLink';
 import { buildLists, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
+import { useAppUpdate } from '../lib/useAppUpdate';
 import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { EnvironmentSwitcher } from './EnvironmentSwitcher';
@@ -61,6 +61,7 @@ export function Sidebar({
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
   // Pushed by the daemon whenever it changes (EventUpdate); read once here.
   const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
+  const appUpdate = useAppUpdate(update.data?.available);
   // The app's own version says whether it is a nightly; the daemon's is the
   // fallback, for the web app, which has no build of its own to ask.
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
@@ -384,13 +385,25 @@ export function Sidebar({
       <div className="grid gap-0.5 border-t border-line p-2">
         {update.data?.available && (
           // What the daemon's daily check found (see the README's "Update
-          // check"). It links to the release rather than updating anything:
-          // how AgentBox was installed decides how it's updated.
-          <NavItem icon={CircleArrowUp} onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, update.data!.available!.url)}>
-            <span className="text-emerald-300" data-update-available={update.data.available.version}>
-              {isUpgrade(update.data.available.version, update.data.current) ? t('shell.sidebar.updateAvailable') : t('shell.sidebar.latestStable')}
+          // check"). In an AppImage, clicking it downloads the update and
+          // then restarts into it (main/appupdate.ts); anywhere else it opens
+          // the release, since how AgentBox was installed decides how it's
+          // updated.
+          <NavItem icon={CircleArrowUp} onClick={appUpdate.start}>
+            <span className="truncate text-emerald-300" data-update-available={update.data.available.version} data-app-update={appUpdate.state.state}>
+              {appUpdate.state.state === 'downloading'
+                ? t('appUpdate.downloading', { percent: appUpdate.state.percent })
+                : appUpdate.state.state === 'ready'
+                  ? t('appUpdate.restart')
+                  : appUpdate.state.state === 'installing'
+                    ? t('appUpdate.restarting')
+                    : isUpgrade(update.data.available.version, update.data.current)
+                      ? t('shell.sidebar.updateAvailable')
+                      : t('shell.sidebar.latestStable')}
             </span>
-            <span className="ml-auto rounded-full bg-emerald-400/15 px-1.5 text-[10.5px] text-emerald-300">{update.data.available.version}</span>
+            <span className="ml-auto rounded-full bg-emerald-400/15 px-1.5 text-[10.5px] text-emerald-300">
+              {appUpdate.state.state === 'idle' ? update.data.available.version : appUpdate.state.version}
+            </span>
           </NavItem>
         )}
         <NavItem icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>

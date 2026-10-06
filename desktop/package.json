@@ -46,6 +46,7 @@
     "diff": "^9.0.0",
     "electron": "^44.5.0",
     "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
     "esbuild": "^0.28.2",
     "kokoro-js": "^1.2.1",
     "lucide-react": "^1.49.0",
@@ -74,6 +75,14 @@
       "out/**",
       "package.json"
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "leciric",
+        "repo": "agentbox"
+      }
+    ],
+    "detectUpdateChannel": false,
     "mac": {
       "target": [
         "dmg",
