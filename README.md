@@ -177,11 +177,14 @@ release is out. When one is, the app shows **Update available** in its sidebar a
 as GitHub lists it at that moment (the daemon reads the public list of releases,
 `GET https://api.github.com/repos/leciric/agentbox/releases`, with nothing added to it), so a
 release made since the last check isn't missed. Nothing is downloaded or installed until you
-click it. In the AppImage, clicking it downloads that release's AppImage from GitHub (checked
-against the release's `latest-linux.yml`), puts it in place of the one you're running, and
-**Restart to update** restarts into it; the daemon is restarted on the new version too, the VM's
-included. Every other install (`.deb`, `.pacman`, Windows, the Mac) opens the release page, as
-does an AppImage whose update fails. The same request is how we count active installations.
+click it. Clicking it downloads that release's build for your machine from GitHub, checks it,
+puts it in place of the one you're running and restarts into it; the command-line tool and the
+daemon move to the new version too, the VM's included. The Mac's `.app`, the Windows installer's
+install and the portable `.exe` are checked against the release's `SHA256SUMS` (and a Mac app's
+code signature), the AppImage against its `latest-linux.yml`. An update waits while jobs are
+running. A `.deb` or `.pacman` (only root can replace them), a Mac app still on its disk image or
+in a folder you can't write to, and an update that fails open the release page instead.
+The same request is how we count active installations.
 
 **What is sent** is one HTTPS request with four query parameters, and nothing else:
 
