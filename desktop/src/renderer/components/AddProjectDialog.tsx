@@ -3,6 +3,7 @@ import { FolderGit2, FolderOpen, FolderPlus, LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import * as T from '../../shared/api';
 import { api, ApiError } from '../lib/api';
+import { t as translate, useT } from '../lib/i18n';
 import { joinPath, parentOf } from '../lib/paths';
 import { errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
@@ -28,6 +29,7 @@ export function AddProjectDialog({
   onAdded: (project: T.Project) => void;
   onOpenSetup: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const target = useQuery({ queryKey: ['target'], queryFn: () => window.agentbox.target.get(), staleTime: Infinity });
   // On a hub's environment, the repository is on that machine: this one's folder picker can't reach it.
@@ -114,10 +116,14 @@ export function AddProjectDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a project</DialogTitle>
+          <DialogTitle>{t('project.add.title')}</DialogTitle>
           <DialogDescription>
-            {creating ? 'A new' : 'A'} git repository on {remote ? <span className="text-secondary">{remote}</span> : 'this machine'}. Each agent works in its own worktree, on a branch named{' '}
-            <Code>agentbox/&lt;agent&gt;</Code> (a prefix you can change in the project's settings), and your checkout isn't touched.
+            {t.rich('project.add.description', {
+              kind: creating ? 'new' : 'existing',
+              where: remote ? <span className="text-secondary">{remote}</span> : t('project.add.thisMachine'),
+              code: (c) => <Code>{c}</Code>,
+              branch: 'agentbox/<agent>',
+            })}
           </DialogDescription>
         </DialogHeader>
         <Tabs
@@ -127,14 +133,14 @@ export function AddProjectDialog({
             add.reset();
           }}
         >
-          <TabsList aria-label="Where the repository comes from" className="w-full">
+          <TabsList aria-label={t('project.add.modeAria')} className="w-full">
             <TabsTrigger value="existing" className="flex-1">
               <FolderGit2 />
-              Existing repository
+              {t('project.add.existing')}
             </TabsTrigger>
             <TabsTrigger value="new" className="flex-1">
               <FolderPlus />
-              New repository
+              {t('project.add.new')}
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -147,7 +153,7 @@ export function AddProjectDialog({
         >
           {creating ? (
             <>
-              <Field label="Parent folder" htmlFor="project-parent">
+              <Field label={t('project.add.parentLabel')} htmlFor="project-parent">
                 <div className="flex gap-2">
                   <Input
                     id="project-parent"
@@ -159,22 +165,19 @@ export function AddProjectDialog({
                   {!remote && (
                     <Button onClick={() => void browse(setParent)}>
                       <FolderOpen />
-                      Browse…
+                      {t('project.add.browse')}
                     </Button>
                   )}
                 </div>
               </Field>
               <Field
-                label="Name"
+                label={t('project.add.nameLabel')}
                 htmlFor="project-folder-name"
                 hint={
                   newPath ? (
-                    <>
-                      AgentBox makes <Code>{newPath}</Code>, runs <Code>git init</Code> on <Code>main</Code> with an initial commit, and adds it. A
-                      repository that's already there is added as it is.
-                    </>
+                    t.rich('project.add.newHint', { code: (c) => <Code>{c}</Code>, path: newPath })
                   ) : (
-                    "The new folder's name, and the project's."
+                    t('project.add.newHintEmpty')
                   )
                 }
               >
@@ -182,7 +185,7 @@ export function AddProjectDialog({
               </Field>
             </>
           ) : (
-            <Field label="Repository folder" htmlFor="project-path">
+            <Field label={t('project.add.folderLabel')} htmlFor="project-path">
               <div className="flex gap-2">
                 <Input
                   id="project-path"
@@ -195,7 +198,7 @@ export function AddProjectDialog({
                 {!remote && (
                   <Button onClick={() => void browse(setPath)}>
                     <FolderOpen />
-                    Browse…
+                    {t('project.add.browse')}
                   </Button>
                 )}
               </div>
@@ -203,20 +206,18 @@ export function AddProjectDialog({
           )}
           {onWindowsDrive && (
             <Notice tone="info">
-              This folder is on a Windows drive, where git is slow from WSL. AgentBox copies it into its WSL distro, under{' '}
-              <Code>~/src</Code>, and adds the copy. Only what's committed is copied; the copy keeps its{' '}
-              <Code>origin</Code>, and the Windows folder becomes its <Code>windows</Code> remote.
+              {t.rich('project.add.windowsDrive', { code: (c) => <Code>{c}</Code> })}
             </Notice>
           )}
           {!creating && (
-            <Field label="Name" htmlFor="project-name" hint="Optional: anything you like, shown wherever the project is. Defaults to the folder's name.">
+            <Field label={t('project.add.nameLabel')} htmlFor="project-name" hint={t('project.add.nameHint')}>
               <Input id="project-name" placeholder="My App" value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
           )}
           {claudeAccounts.length > 1 && (
-            <Field label="Claude Code account" htmlFor="project-claude-account" hint="Which login this project's agents work as. Only new agents.">
+            <Field label={t('project.add.claudeAccountLabel')} htmlFor="project-claude-account" hint={t('project.add.claudeAccountHint')}>
               <Select id="project-claude-account" value={claudeAccount} onChange={setClaudeAccount}>
-                <SelectOption value="">Default{defaultOf(claudeAccounts) ? ` (${defaultOf(claudeAccounts)})` : ''}</SelectOption>
+                <SelectOption value="">{defaultOption(claudeAccounts)}</SelectOption>
                 {claudeAccounts.map((account) => (
                   <SelectOption key={account.name} value={account.name}>
                     {account.name}
@@ -227,12 +228,12 @@ export function AddProjectDialog({
           )}
           {githubAccounts.length > 1 && (
             <Field
-              label="GitHub account"
+              label={t('project.add.githubAccountLabel')}
               htmlFor="project-github-account"
-              hint="Which GitHub user its agents are, and whose pull requests the project reads."
+              hint={t('project.add.githubAccountHint')}
             >
               <Select id="project-github-account" value={githubAccount} onChange={setGitHubAccount}>
-                <SelectOption value="">Default{defaultOf(githubAccounts) ? ` (${defaultOf(githubAccounts)})` : ''}</SelectOption>
+                <SelectOption value="">{defaultOption(githubAccounts)}</SelectOption>
                 {githubAccounts.map((account) => (
                   <SelectOption key={account.name} value={account.name}>
                     {githubLabel(account)}
@@ -243,24 +244,25 @@ export function AddProjectDialog({
           )}
           {auth.data && githubAccounts.length === 0 && (
             <p className="text-xs text-subtle">
-              No GitHub account yet, so this project's agents get no GitHub token and its pull requests can't be read.{' '}
-              <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onOpenSetup}>
-                Add one in Settings
-              </button>
-              .
+              {t.rich('project.add.noGitHub', {
+                link: (c) => (
+                  <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onOpenSetup}>
+                    {c}
+                  </button>
+                ),
+              })}
             </p>
           )}
           {notEmpty ? (
             <Notice tone="info">
-              <Code>{newPath}</Code> already has files in it and no commits. AgentBox can make them the repository's initial commit, leaving out what a{' '}
-              <Code>.gitignore</Code> there leaves out: check nothing in it should stay out of git, like a <Code>.env</Code>, first.
+              {t.rich('project.add.notEmpty', { code: (c) => <Code>{c}</Code>, path: newPath })}
             </Notice>
           ) : (
             add.error && <Notice>{errorMessage(add.error)}</Notice>
           )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" disabled={!(creating ? newPath : path.trim()) || add.isPending}>
               {add.isPending && <LoaderCircle className="animate-spin" />}
@@ -275,16 +277,22 @@ export function AddProjectDialog({
 
 function submitLabel({ creating, notEmpty, onWindowsDrive, pending }: { creating: boolean; notEmpty: boolean; onWindowsDrive: boolean; pending: boolean }) {
   if (creating) {
-    if (notEmpty) return 'Commit files and add';
-    return pending ? 'Creating…' : 'Create and add';
+    if (notEmpty) return translate('project.add.commitAndAdd');
+    return pending ? translate('project.add.creating') : translate('project.add.createAndAdd');
   }
-  if (onWindowsDrive) return pending ? 'Copying into WSL…' : 'Copy and add';
-  return 'Add project';
+  if (onWindowsDrive) return pending ? translate('project.add.copying') : translate('project.add.copyAndAdd');
+  return translate('project.add.submit');
 }
 
 // windowsDrive is where WSL mounts Windows's drives, as the daemon's
 // checkProjectDisk has it.
 const windowsDrive = /^\/mnt\/[a-zA-Z](\/|$)/;
+
+// defaultOption words the account choice that follows the machine's default.
+function defaultOption(accounts: { name: string; default: boolean }[]): string {
+  const name = defaultOf(accounts);
+  return name ? translate('project.newAgent.defaultOption', { value: name }) : translate('common.default');
+}
 
 // defaultOf is the account a project gets when it picks none.
 function defaultOf(accounts: { name: string; default: boolean }[]): string | undefined {

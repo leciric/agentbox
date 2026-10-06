@@ -4,18 +4,21 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { androidViewPath, api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { clock } from '../lib/media';
 import { useVncView } from '../lib/useVncView';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/menu';
+import { stateLabel } from './state';
 import { Switch } from './ui/switch';
 import { Tip } from './ui/tooltip';
 
 // AndroidTab shows the agent's own Android emulator, shaped like the phone it
 // is. You can start it, capture it into Media, and tap and type on it.
 export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; onOpenMedia: () => void; onSetup: () => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const running = agent.state === 'running';
   const status = useQuery({
@@ -37,7 +40,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
   const { view, connected, paste } = useVncView(androidViewPath(agent.ref), booted, control);
 
   const setStatus = (next: T.AndroidStatus) => queryClient.setQueryData(['android', agent.ref], next);
-  const saved = (item: T.MediaItem) => toast(`Saved “${item.name}” to Media`, { action: { label: 'View', onClick: onOpenMedia } });
+  const saved = (item: T.MediaItem) => toast(t('agent.media.saved', { name: item.name }), { action: { label: t('agent.media.view'), onClick: onOpenMedia } });
   const start = useMutation({
     mutationFn: () => api.startAndroid(agent.ref),
     onMutate: () => {
@@ -81,30 +84,30 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
             'flex h-8 min-w-0 items-center gap-2 rounded-full border border-line-strong bg-well px-3 text-[12.5px]',
             booted ? 'text-secondary' : 'text-subtle',
           )}
-          aria-label="Device"
+          aria-label={t('agent.android.device')}
         >
           <span className={cn('size-1.5 shrink-0 rounded-full', booted ? 'bg-emerald-400 animate-glow' : starting ? 'bg-amber-400 animate-pulse' : 'bg-faint')} />
           <Smartphone className="size-3.5 shrink-0 text-subtle" />
-          <span className="truncate">{booted ? status.data?.device : starting ? 'Starting Android…' : 'Emulator off'}</span>
+          <span className="truncate">{booted ? status.data?.device : starting ? t('agent.android.starting') : t('agent.android.off')}</span>
         </span>
         <div className="flex-1" />
-        <Tip label="Take a screenshot of the device, kept in Media">
+        <Tip label={t('agent.android.screenshotTip')}>
           <Button size="sm" disabled={!booted || shot.isPending} onClick={() => shot.mutate()}>
             {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
-            Screenshot
+            {t('agent.browser.screenshot')}
           </Button>
         </Tip>
         {recordingHere ? (
           <Button size="sm" className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" disabled={record.isPending} onClick={() => record.mutate()}>
             {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" />}
             <span className="font-mono tabular-nums">{clock(elapsed)}</span>
-            Stop recording
+            {t('agent.browser.stopRecording')}
           </Button>
         ) : (
-          <Tip label={isRecording ? 'The browser screen is being recorded' : "Record the device's screen, kept in Media"}>
+          <Tip label={isRecording ? t('agent.android.browserRecording') : t('agent.android.recordTip')}>
             <Button size="sm" disabled={!booted || isRecording || record.isPending} onClick={() => record.mutate()}>
               {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgb(244_63_94/0.7)]" />}
-              Record
+              {t('agent.browser.record')}
             </Button>
           </Tip>
         )}
@@ -112,29 +115,29 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
         <label className={cn('flex items-center gap-2 rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
           <Switch id="android-control" checked={control} disabled={!connected} onCheckedChange={setControl} />
           <MousePointer2 className="size-3.5" />
-          Take control
+          {t('agent.browser.takeControl')}
         </label>
         <Menu>
           <MenuTrigger asChild>
-            <Button size="icon-sm" variant="ghost" aria-label="Emulator actions">
+            <Button size="icon-sm" variant="ghost" aria-label={t('agent.android.actions')}>
               <Ellipsis />
             </Button>
           </MenuTrigger>
           <MenuContent>
             <MenuItem icon={FileText} disabled={!booted} onSelect={() => logs.mutate()}>
-              Save the last 10 minutes of logcat
+              {t('agent.android.saveLogcat')}
             </MenuItem>
             <MenuItem icon={ClipboardPaste} disabled={!connected} onSelect={() => void paste()}>
-              Send your clipboard to the device
+              {t('agent.android.sendClipboard')}
             </MenuItem>
             <MenuSeparator />
             {status.data?.running ? (
               <MenuItem icon={Square} disabled={stop.isPending} onSelect={() => stop.mutate()}>
-                Stop emulator
+                {t('agent.android.stop')}
               </MenuItem>
             ) : (
               <MenuItem icon={Play} disabled={!running || !status.data?.available || starting} onSelect={() => start.mutate()}>
-                Start emulator
+                {t('agent.android.start')}
               </MenuItem>
             )}
           </MenuContent>
@@ -161,7 +164,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
               {!connected && (
                 <div className="absolute inset-0 flex items-center justify-center text-sm text-subtle">
                   <LoaderCircle className="mr-2 size-4 animate-spin" />
-                  Connecting…
+                  {t('agent.android.connecting')}
                 </div>
               )}
             </div>
@@ -177,38 +180,41 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
               </div>
               {!running ? (
                 <p className="text-sm text-tertiary">
-                  {agent.title || agent.name} is {agent.state}.
+                  {t('agent.view.isState', { name: agent.title || agent.name, state: stateLabel(agent.state) })}
                 </p>
               ) : starting ? (
                 <>
-                  <p className="text-sm text-secondary">Starting Android…</p>
+                  <p className="text-sm text-secondary">{t('agent.android.starting')}</p>
                   <p className="text-xs text-subtle">
-                    Booting a Pixel 7 on KVM. It usually takes about 20 seconds
-                    {startedAt ? ` (${Math.max(0, Math.round((now - startedAt) / 1000))} s so far)` : ''}.
+                    {startedAt
+                      ? t('agent.android.bootingSoFar', { seconds: Math.max(0, Math.round((now - startedAt) / 1000)) })
+                      : t('agent.android.booting')}
                   </p>
                 </>
               ) : status.data && !status.data.available ? (
                 <>
                   <p className="flex items-center gap-2 text-sm text-secondary">
                     <TriangleAlert className="size-4 text-amber-300" />
-                    This machine can't run Android emulators yet
+                    {t('agent.android.unavailable')}
                   </p>
                   <p className="text-xs leading-relaxed text-subtle">{status.data.problem}</p>
                   <Button className="mt-1" onClick={onSetup}>
                     <Wrench />
-                    Open Settings
+                    {t('agent.android.openSettings')}
                   </Button>
                 </>
               ) : (
                 <>
-                  <p className="text-sm text-secondary">{agent.name}'s Android emulator isn't running</p>
+                  <p className="text-sm text-secondary">{t('agent.android.notRunning', { name: agent.name })}</p>
                   <p className="text-xs leading-relaxed text-subtle">
-                    A Pixel 7{image ? ` on ${image.split(';')[1]?.replace('android-', 'API ')}` : ''}, with its own app data, on this agent's machine. It uses about 3
-                    GB of memory while it runs. The agent can start it too, with <Code>agentbox android start</Code>.
+                    {t.rich(image ? 'agent.android.explainApi' : 'agent.android.explain', {
+                      api: image?.split(';')[1]?.replace('android-', 'API ') ?? '',
+                      code: (c) => <Code>{c}</Code>,
+                    })}
                   </p>
                   <Button variant="primary" className="mt-1" disabled={!status.data} onClick={() => start.mutate()}>
                     <Play />
-                    Start emulator
+                    {t('agent.android.start')}
                   </Button>
                 </>
               )}
@@ -220,7 +226,7 @@ export function AndroidTab({ agent, onOpenMedia, onSetup }: { agent: T.Agent; on
       <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
         <span className="truncate font-mono text-[11px]">{booted ? status.data?.image : ''}</span>
         <span className="ml-auto shrink-0">
-          {!booted ? '' : control ? 'Your mouse and keyboard go to the device' : 'View only · turn on Take control to tap and type'}
+          {!booted ? '' : control ? t('agent.android.controlOn') : t('agent.android.viewOnly')}
         </span>
       </div>
     </div>

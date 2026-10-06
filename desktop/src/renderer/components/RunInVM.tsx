@@ -3,6 +3,7 @@ import { ArrowRight, Cpu, LoaderCircle, MemoryStick, Monitor } from 'lucide-reac
 import type { LinuxSetup } from '../../preload';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
+import { t, useT } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { laterKey, movePrompt } from '../lib/vmMove';
 import { rememberSection } from './SettingsPage';
@@ -27,9 +28,8 @@ import { Field, Input } from './ui/input';
 
 // The words for the VM, kept here so Setup, the prompt and Settings say the
 // same thing.
-const vmSummary =
-  "The daemon, Incus and every agent run in one Cloud Hypervisor VM. Agents get the VM's CPUs and memory, up to a cap, not all of your computer's, and the VM gives memory back when they stop. Your home folder is shared with it at the same path. No password, and nothing installed on your system.";
-const noKVM = "This machine has no /dev/kvm you can use. Turn on virtualization in your firmware settings, or add your user to the kvm group, then log in again.";
+const vmSummary = () => t('vm.run.summary');
+const noKVM = () => t('vm.run.noKVM');
 
 // LinuxVMSetup is a Linux machine's first screen, before AgentBox's VM is
 // made: there's no daemon until then, so the setup is the page, as a Mac's
@@ -37,6 +37,7 @@ const noKVM = "This machine has no /dev/kvm you can use. Turn on virtualization 
 // here, and streams what it prints; the daemon it starts is the app's to
 // connect to when it finishes.
 export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [lines, setLines] = useState<string[]>([]);
   const [form, setForm] = useState<VMSizeForm>(() => vmSizeDefaults(linux));
@@ -46,7 +47,7 @@ export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
     mutationFn: () => window.agentbox.hostSetup.run({ vm: true, ...sized }),
     onMutate: () => setLines([]),
     onSuccess: async () => {
-      toast("AgentBox's VM is ready", { description: 'Next, the Setup page builds the base image your agents are copied from.' });
+      toast(t('vm.setup.toast'), { description: t('vm.setup.toastDescription') });
       await queryClient.invalidateQueries();
     },
   });
@@ -55,10 +56,9 @@ export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
       <div className="flex items-start gap-3">
         <Monitor className="mt-0.5 size-5 shrink-0 text-brand-400" />
         <div className="grid min-w-0 gap-1">
-          <h2 className="text-[15px] font-medium text-primary">Set up AgentBox's VM</h2>
+          <h2 className="text-[15px] font-medium text-primary">{t('vm.run.setupTitle')}</h2>
           <p className="text-[13px] text-muted">
-            {vmSummary} The first setup downloads Debian and installs Incus in the VM, which takes a few minutes. It needs /dev/kvm and about 4 GiB of
-            memory to start.
+            {t('vm.run.setupIntro', { summary: vmSummary() })}
           </p>
         </div>
       </div>
@@ -68,18 +68,18 @@ export function LinuxVMSetup({ linux }: { linux: LinuxSetup }) {
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" disabled={run.isPending || !sized} onClick={() => run.mutate()} data-linux-vm-setup-run>
               {run.isPending ? <LoaderCircle className="animate-spin" /> : <Monitor />}
-              Set up the VM
+              {t('vm.run.setUp')}
             </Button>
-            <span className="text-xs text-subtle">{run.isPending ? 'Making the VM. This takes a few minutes the first time.' : 'No password needed'}</span>
+            <span className="text-xs text-subtle">{run.isPending ? t('vm.run.making') : t('vm.run.noPassword')}</span>
           </div>
         </>
       ) : (
-        <Notice tone="warning">{noKVM}</Notice>
+        <Notice tone="warning">{noKVM()}</Notice>
       )}
-      {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label="VM setup log" />}
+      {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.run.log')} />}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
       <div className="grid gap-2">
-        <p className="text-[13px] text-muted">Or in a terminal:</p>
+        <p className="text-[13px] text-muted">{t('vm.run.orTerminal')}</p>
         <CommandBox command={sized ? `agentbox vm init --cpus ${sized.cpus} --memory-cap ${sized.memoryCap}` : 'agentbox vm init'} />
       </div>
     </Panel>
@@ -114,6 +114,7 @@ export function vmSize(form: VMSizeForm, linux: LinuxSetup): { cpus: number; mem
 // VMSizeFields are the VM's CPUs and memory cap, under Setup's choice of the
 // VM, filled in with vm init's defaults. Settings changes them afterwards.
 export function VMSizeFields({ linux, form, disabled, onChange }: { linux: LinuxSetup; form: VMSizeForm; disabled?: boolean; onChange: (form: VMSizeForm) => void }) {
+  const t = useT();
   const cpus = Number(form.cpus);
   const cpusOk = Number.isInteger(cpus) && cpus >= 1 && cpus <= linux.cores;
   const memory = Number(form.memory);
@@ -122,9 +123,9 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
   return (
     <div className="grid gap-3 rounded-xl border border-line bg-surface-faint px-3.5 py-3 sm:grid-cols-2" data-vm-size-fields>
       <Field
-        label="CPUs"
+        label={t('vm.run.cpusLabel')}
         htmlFor="setup-vm-cpus"
-        hint={<span className={cn(!cpusOk && 'text-rose-300')}>{`1 to ${linux.cores}, this computer's cores. ${linux.defaultCpus} by default.`}</span>}
+        hint={<span className={cn(!cpusOk && 'text-rose-300')}>{t('vm.run.cpusHint', { max: linux.cores, default: linux.defaultCpus })}</span>}
       >
         <div className="relative">
           <Cpu className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
@@ -143,11 +144,11 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
         </div>
       </Field>
       <Field
-        label="Memory cap, in GiB"
+        label={t('vm.run.memoryLabel')}
         htmlFor="setup-vm-memory"
         hint={
           <span className={cn(!memoryOk && 'text-rose-300')}>
-            {`The most the VM may take, 4 to ${most}. It starts with 4 and takes more as agents need it. ${Math.round(linux.defaultMemoryCap / GiB)} by default.`}
+            {t('vm.run.memoryHint', { most, default: Math.round(linux.defaultMemoryCap / GiB) })}
           </span>
         }
       >
@@ -167,7 +168,7 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
           />
         </div>
       </Field>
-      <p className="text-xs text-subtle sm:col-span-2">You can change both later in Settings, while the VM runs.</p>
+      <p className="text-xs text-subtle sm:col-span-2">{t('vm.run.changeLater')}</p>
     </div>
   );
 }
@@ -178,28 +179,27 @@ export function VMSizeFields({ linux, form, disabled, onChange }: { linux: Linux
 // this is where the app runs it. action is the move itself, in the app
 // (VMMigrate); without it, command is the command, in a box to copy.
 export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: ReactNode; action?: ReactNode }) {
+  const t = useT();
   return (
     <Panel className="grid gap-3 p-4" data-move-to-vm>
       <div className="flex items-center gap-2">
         <Monitor className="size-4 text-brand-300" />
-        <h3 className="text-[14px] font-semibold text-primary">Move to a VM</h3>
+        <h3 className="text-[14px] font-semibold text-primary">{t('vm.run.moveTitle')}</h3>
       </div>
       <p className="text-[13px] leading-relaxed text-muted">
-        On Linux, AgentBox runs in a VM of its own now. This computer still runs agents directly on its own Incus, the way it was set up, and they
-        keep working there until you move. In the VM they get its CPUs and memory, up to a cap, so heavy agent work can't freeze your desktop. Your
-        projects stay where they are: your home folder is shared with the VM at the same path.
+        {t('vm.run.moveDescription')}
       </p>
       {action ? (
         action
       ) : kvm ? (
         <div className="grid gap-2">
           <p className="text-[13px] text-muted">
-            Run this in a terminal to move this installation into the VM. It needs no password.
+            {t('vm.run.moveCommand')}
           </p>
           {command}
         </div>
       ) : (
-        <Notice tone="warning">{noKVM}</Notice>
+        <Notice tone="warning">{noKVM()}</Notice>
       )}
     </Panel>
   );
@@ -210,6 +210,7 @@ export function MoveToVM({ kvm, command, action }: { kvm: boolean; command: Reac
 // Setup → Move to a VM, which runs `agentbox vm migrate`. Later puts it off
 // until the next update; Settings keeps the way to the move meanwhile.
 export function MovePrompt({ version, onOpen }: { version: string | undefined; onOpen: () => void }) {
+  const t = useT();
   const [later, setLater] = useState(() => localStorage.getItem(laterKey));
   const status = useQuery({
     queryKey: ['host-setup'],
@@ -239,29 +240,26 @@ export function MovePrompt({ version, onOpen }: { version: string | undefined; o
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Monitor className="size-4 text-brand-300" />
-            AgentBox runs in a VM on Linux now
+            {t('vm.run.promptTitle')}
           </DialogTitle>
           <DialogDescription>
             {started
-              ? 'A move into the VM stopped half-way. Nothing of this computer was removed, and carrying on picks up where it was.'
-              : "From this version, AgentBox runs your agents in a VM of its own, so heavy agent work can't freeze your desktop: they get the VM's CPUs and memory, up to a cap, instead of all of your computer's."}
+              ? t('vm.run.promptStarted')
+              : t('vm.run.promptAvailable')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2 text-[13px] leading-relaxed text-muted">
           <p>
-            This computer still runs agents directly on its own Incus, the way it was set up. Nothing changes until you move: they keep working
-            as they are.
+            {t('vm.run.promptStill')}
           </p>
           <p>
-            The move takes everything along: {projects} project{projects === 1 ? '' : 's'} and {agents} agent{agents === 1 ? '' : 's'}, with their
-            branches, worktrees and uncommitted changes, and your settings, accounts, chats and media. It takes a few minutes and needs no
-            password. Nothing is deleted: this computer's copy stays until you remove it.
+            {t('vm.run.promptTakes', { projects, agents })}
           </p>
-          {!kvm && <Notice tone="warning">{noKVM}</Notice>}
+          {!kvm && <Notice tone="warning">{noKVM()}</Notice>}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={putOff}>
-            Later
+            {t('vm.run.later')}
           </Button>
           <Button
             variant="primary"
@@ -272,7 +270,7 @@ export function MovePrompt({ version, onOpen }: { version: string | undefined; o
               onOpen();
             }}
           >
-            {started ? 'Carry on moving' : 'Move to the VM'}
+            {started ? t('vm.run.carryOn') : t('vm.run.moveToVM')}
             <ArrowRight />
           </Button>
         </DialogFooter>
@@ -281,5 +279,6 @@ export function MovePrompt({ version, onOpen }: { version: string | undefined; o
   );
 }
 
-// For the words a search in Settings finds the move by.
-export const moveToVMKeywords = `vm virtual machine cloud hypervisor kvm host migrate move freeze ${vmSummary}`;
+// moveToVMKeywords is the words a search in Settings finds the move by, in the
+// language of the moment.
+export const moveToVMKeywords = (): string => t('vm.run.keywords', { summary: vmSummary() });

@@ -10,6 +10,7 @@
 // its stdin closes.
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { t } from '../shared/i18n/index.ts';
 
 export const onWindows = process.platform === 'win32';
 
@@ -53,14 +54,14 @@ function spawnRelay(bin: string): Promise<string> {
       pipe = m[1];
       resolve(pipe);
     });
-    proc.on('error', (err) => reject(new Error(`couldn't run ${bin} relay: ${err.message}`)));
+    proc.on('error', (err) => reject(new Error(t('web.main.couldntRunRelay', { bin, error: err.message }))));
     proc.on('exit', (code) => {
       if (child === proc) {
         child = undefined;
         pipe = undefined;
       }
       const last = stderr.trim().split('\n').filter(Boolean).at(-1)?.replace(/^error: /, '');
-      reject(new Error(`the relay to AgentBox's WSL distro exited (${code ?? 'signal'})${last ? `: ${last}` : ''}`));
+      reject(new Error(`${t('web.main.relayExited', { code: code ?? t('web.main.exitSignal') })}${last ? `: ${last}` : ''}`));
     });
   });
 }

@@ -3,14 +3,15 @@
 // Settings to show.
 import { useSyncExternalStore } from 'react';
 import type { VoiceDevice, VoiceLanguage } from './models';
+import { t } from '../../../shared/i18n/index.ts';
 import { voiceSettings } from './settings';
-import type { WorkerReply, WorkerRequest } from './whisper.worker';
+import type { DeviceReason, WorkerReply, WorkerRequest } from './whisper.worker';
 
 export type WhisperState = {
   // device is unknown until the worker has looked; reason says why it isn't
   // WebGPU when it isn't.
   device?: VoiceDevice;
-  reason?: string;
+  reason?: DeviceReason;
   // adapter names the GPU WebGPU found, as it describes it.
   adapter?: string;
   // loading is a model being downloaded or started, with its bytes so far.
@@ -20,6 +21,22 @@ export type WhisperState = {
 };
 
 export type Transcript = { text: string; language: string; ms: { detect: number; transcribe: number } };
+
+// deviceReason is why Whisper isn't on WebGPU, in words.
+export function deviceReason(reason: DeviceReason | undefined): string {
+  switch (reason?.code) {
+    case 'unavailable':
+      return t('chat.voice.webgpuUnavailable');
+    case 'noGpu':
+      return t('chat.voice.webgpuNoGpu');
+    case 'software':
+      return t('chat.voice.webgpuSoftware');
+    case 'failed':
+      return t('chat.voice.webgpuFailed', { error: reason.error ?? '' });
+    default:
+      return '';
+  }
+}
 
 let worker: Worker | undefined;
 let state: WhisperState = {};
@@ -71,7 +88,7 @@ function start(): Worker {
         break;
     }
   };
-  worker.onerror = (event) => update({ loading: undefined, error: event.message || 'The speech-to-text worker failed to start.' });
+  worker.onerror = (event) => update({ loading: undefined, error: event.message || t('chat.voice.workerStart') });
   send({ type: 'probe' });
   return worker;
 }
@@ -104,7 +121,7 @@ export function transcribe(audio: Float32Array, language: VoiceLanguage = voiceS
 export function forgetWhisper() {
   worker?.terminate();
   worker = undefined;
-  for (const p of pending.values()) p.reject(new Error('Speech-to-text was stopped.'));
+  for (const p of pending.values()) p.reject(new Error(t('chat.voice.stopped')));
   pending.clear();
   files = new Map();
   update({ loading: undefined, ready: undefined, error: undefined });

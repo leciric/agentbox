@@ -107,6 +107,17 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 		// wait out its hour to act on it.
 		go s.sweepExpiredMedia(s.background(), time.Now())
 	}
+	if req.Language != nil {
+		want := strings.TrimSpace(*req.Language)
+		if want != "" {
+			if err := state.ValidLanguage(want); err != nil {
+				return err
+			}
+		}
+		if err := s.store.SetSetting(r.Context(), state.SettingLanguage, want); err != nil {
+			return err
+		}
+	}
 	if req.DiskFloorMin != nil || req.DiskFloorPercent != nil {
 		if err := s.setDiskFloor(r.Context(), req.DiskFloorMin, req.DiskFloorPercent); err != nil {
 			return err
@@ -378,6 +389,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	language, err := s.store.Language(r.Context())
+	if err != nil {
+		return api.Settings{}, err
+	}
 	diskFloor := s.diskFloor(r.Context())
 	autoStopIdle, idleTime, err := s.store.AutoStopIdle(r.Context())
 	if err != nil {
@@ -431,6 +446,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		ErrorReportsAsked: errorReports != "",
 		PRWatch:           prWatch,
 		MediaRetention:    mediaRetention,
+		Language:          language,
 
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,

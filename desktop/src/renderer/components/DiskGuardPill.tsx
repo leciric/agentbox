@@ -3,6 +3,7 @@ import { HardDrive, TriangleAlert } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { diskGuardView } from '../lib/diskGuard';
+import { useT } from '../lib/i18n';
 import { useVMPower } from '../lib/vm';
 import type * as T from '../../shared/api';
 import { cn, humanBytes } from '../lib/utils';
@@ -14,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 // paused the whole VM because the host's disk was nearly full. It has a fixed
 // label rather than a changing number, so it doesn't shift the bar around.
 export function DiskGuardPill({ onSelect }: { onSelect: (view: View) => void }) {
+  const t = useT();
   const vm = useVMPower().data;
   // The guard pushes every change as an event (lib/events.ts); the poll is
   // only for the free space shown in the popover.
@@ -49,18 +51,18 @@ export function DiskGuardPill({ onSelect }: { onSelect: (view: View) => void }) 
           {!vm?.pausedForDisk && disk.data && disk.data.disks.length > 0 && <DiskList disks={disk.data.disks} />}
           {!vm?.pausedForDisk && disk.data && disk.data.paused.length > 0 && (
             <div className="grid gap-1">
-              <span className="text-[12px] font-medium text-secondary">Paused for it</span>
+              <span className="text-[12px] font-medium text-secondary">{t('shell.diskPill.pausedForIt')}</span>
               <span className="font-mono text-[11.5px] text-muted">{disk.data.paused.join(', ')}</span>
             </div>
           )}
           <div className="flex items-center justify-between gap-3 border-t border-line pt-2.5">
-            <span className="text-[11.5px] text-faint">Nothing is stopped or deleted.</span>
+            <span className="text-[11.5px] text-faint">{t('shell.diskPill.nothingStopped')}</span>
             <button
               type="button"
               className="rounded-md px-2 py-1 text-[12px] font-medium text-brand-300 transition hover:bg-surface-raised"
               onClick={() => onSelect({ kind: 'settings' })}
             >
-              Disk floor settings
+              {t('shell.diskPill.settings')}
             </button>
           </div>
         </div>
@@ -87,6 +89,7 @@ function Advice({ text }: { text: string }) {
 }
 
 function DiskList({ disks }: { disks: T.DiskGuardDisk[] }) {
+  const t = useT();
   return (
     <div className="grid gap-2">
       {disks.map((d) => {
@@ -107,7 +110,7 @@ function DiskList({ disks }: { disks: T.DiskGuardDisk[] }) {
                   d.level === 'full' ? 'text-rose-300' : d.level === 'low' ? 'text-amber-300' : 'text-tertiary',
                 )}
               >
-                {humanBytes(d.free)} free
+                {t('shell.diskPill.free', { size: humanBytes(d.free) })}
               </span>
             </div>
             <span className="relative h-1.5 overflow-hidden rounded-full bg-surface-strong">
@@ -119,7 +122,7 @@ function DiskList({ disks }: { disks: T.DiskGuardDisk[] }) {
               <span className="absolute inset-y-0 w-px bg-rose-300/80" style={{ left: `${floorAt}%` }} />
             </span>
             <span className="text-[11px] text-faint">
-              keeps {humanBytes(d.floor)} free of {humanBytes(d.total)}
+              {t('shell.diskPill.keeps', { floor: humanBytes(d.floor), total: humanBytes(d.total) })}
             </span>
           </div>
         );

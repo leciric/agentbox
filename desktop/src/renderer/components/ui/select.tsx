@@ -1,5 +1,6 @@
 import { Check, ChevronsUpDown, Search } from 'lucide-react';
 import { Children, isValidElement, useMemo, useState, type ReactNode } from 'react';
+import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './menu';
 
@@ -55,7 +56,7 @@ export function Select({
   disabled,
   className,
   id,
-  placeholder = 'Select…',
+  placeholder,
   children,
   'aria-label': ariaLabel,
   ...rest
@@ -70,6 +71,7 @@ export function Select({
   'aria-label'?: string;
   [dataAttr: `data-${string}`]: boolean | string | undefined;
 }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const options = useMemo(() => collectOptions(children), [children]);
   const current = options.find((o) => o.value === value);
@@ -88,7 +90,7 @@ export function Select({
           {...rest}
           className={cn(selectTrigger, className)}
         >
-          <span className="min-w-0 flex-1 truncate">{current ? current.label : placeholder}</span>
+          <span className="min-w-0 flex-1 truncate">{current ? current.label : (placeholder ?? t('shell.ui.select'))}</span>
           <ChevronsUpDown className="size-3.5 shrink-0 text-subtle" />
         </button>
       </MenuTrigger>
@@ -98,11 +100,11 @@ export function Select({
             <Search className="size-3.5 shrink-0 text-subtle" />
             <input
               autoFocus
-              aria-label="Search"
+              aria-label={t('common.search')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
-              placeholder="Search"
+              placeholder={t('common.search')}
               className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
             />
           </div>
@@ -117,7 +119,7 @@ export function Select({
             {option.label}
           </MenuItem>
         ))}
-        {filtered.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">Nothing matches "{query.trim()}".</div>}
+        {filtered.length === 0 && <div className="px-2.5 py-3 text-center text-[12px] text-subtle">{t('shell.ui.noMatch', { query: query.trim() })}</div>}
       </MenuContent>
     </Menu>
   );

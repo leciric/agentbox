@@ -3,6 +3,7 @@ import { HardDrive, LoaderCircle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
+import { formatNumber, useT } from '../lib/i18n';
 import { errorMessage } from '../lib/utils';
 import { appendOutput, SetupLog } from './SettingsView';
 import { Button } from './ui/button';
@@ -20,6 +21,11 @@ function gib(bytes: number): string {
   return String(Math.round((bytes / GiB) * 10) / 10);
 }
 
+// gibText is the same for the screen, with the language's decimal mark.
+function gibText(bytes: number): string {
+  return formatNumber(Math.round((bytes / GiB) * 10) / 10);
+}
+
 // VMSwap is the swap of AgentBox's VM, next to its size: none by default, as
 // the VM always had, or a swapfile on the VM's own disk, made and turned on
 // while the VM runs and kept across its restarts (`agentbox vm swap`, run by
@@ -27,6 +33,7 @@ function gib(bytes: number): string {
 // disk under its floor, and says so here. While the VM is off there's
 // nothing to change it in.
 export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const size = swap?.size ?? 0;
   const [on, setOn] = useState(size > 0);
@@ -47,8 +54,8 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
     onMutate: () => setLines([]),
     onSuccess: async (_, gibs) => {
       setEdited(false);
-      toast(gibs === null ? "AgentBox's VM has no swap now" : `AgentBox's VM has ${gibs} GiB of swap now`, {
-        description: 'Every agent kept running.',
+      toast(gibs === null ? t('vm.swap.toastOff') : t('vm.swap.toastOn', { size: formatNumber(gibs) }), {
+        description: t('vm.swap.toastDescription'),
       });
       await queryClient.invalidateQueries({ queryKey: ['host-setup'] });
     },
@@ -61,7 +68,7 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
   const sizeOk = form.trim() !== '' && Number.isFinite(gibs) && gibs >= minGiB;
   const changed = on ? Math.abs(gibs * GiB - size) >= GiB / 20 : size > 0;
   const busy = apply.isPending;
-  const inUse = swap && swap.total > 0 ? `${gib(swap.used)} of ${gib(swap.total)} GiB in use` : null;
+  const inUse = swap && swap.total > 0 ? t('vm.swap.inUse', { used: gibText(swap.used), total: gibText(swap.total) }) : null;
 
   return (
     <Panel className="mt-3 grid gap-3 p-4" data-vm-swap>
@@ -69,22 +76,21 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <label htmlFor="vm-swap" className="text-[13px] font-medium text-primary">
-              Swap
+              {t('vm.swap.label')}
             </label>
             <div className="text-[12px] text-subtle" data-vm-swap-current>
-              {size > 0 ? `${gib(size)} GiB swapfile` : 'Off'}
+              {size > 0 ? t('vm.swap.current', { size: gibText(size) }) : t('common.off')}
               {running && inUse ? ` · ${inUse}` : ''}
             </div>
           </div>
           <p className="mt-0.5 text-[12px] leading-relaxed text-subtle">
-            A swapfile on the VM's disk, for agents that briefly need more memory than its cap. It's made while the VM runs, every agent
-            keeps running, and the VM keeps it across restarts. It takes its size of the disk, and must leave the disk floor free.
+            {t('vm.swap.description')}
           </p>
         </div>
         <Switch
           id="vm-swap"
           data-vm-swap-switch
-          aria-label="Give the VM swap"
+          aria-label={t('vm.swap.switch')}
           disabled={busy || !running}
           checked={on}
           onCheckedChange={(next) => {
@@ -98,7 +104,7 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
         />
       </div>
 
-      {!running && <p className="text-[12px] text-subtle">The VM is off: start it to change its swap.</p>}
+      {!running && <p className="text-[12px] text-subtle">{t('vm.swap.vmOff')}</p>}
 
       {running && on && (
         <form
@@ -109,9 +115,9 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
           }}
         >
           <Field
-            label="Size, in GiB"
+            label={t('vm.swap.sizeLabel')}
             htmlFor="vm-swap-size"
-            hint={sizeOk || form === '' ? undefined : <span className="text-rose-300">{`At least ${minGiB} GiB.`}</span>}
+            hint={sizeOk || form === '' ? undefined : <span className="text-rose-300">{t('vm.swap.atLeast', { min: formatNumber(minGiB) })}</span>}
           >
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative w-36">
@@ -135,14 +141,14 @@ export function VMSwap({ swap, running }: { swap?: T.VMSwap; running: boolean })
               </div>
               <Button type="submit" variant="primary" size="sm" disabled={busy || !changed || !sizeOk} data-vm-swap-apply>
                 {busy && <LoaderCircle className="animate-spin" />}
-                {busy ? 'Making it…' : size > 0 ? 'Resize the swapfile' : 'Make the swapfile'}
+                {busy ? t('vm.swap.making') : size > 0 ? t('vm.swap.resize') : t('vm.swap.make')}
               </Button>
             </div>
           </Field>
         </form>
       )}
 
-      {(lines.length > 0 || busy) && <SetupLog lines={lines} label="VM swap log" />}
+      {(lines.length > 0 || busy) && <SetupLog lines={lines} label={t('vm.swap.log')} />}
       {apply.error && <Notice>{errorMessage(apply.error)}</Notice>}
     </Panel>
   );

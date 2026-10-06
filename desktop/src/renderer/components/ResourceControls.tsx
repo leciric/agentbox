@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type { VMPower, VMPowerAction } from '../../preload';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatList, useT, type MessageKey } from '../lib/i18n';
 import {
   coresText,
   freed,
@@ -43,6 +44,7 @@ export interface FreeRun {
 // indicator, and the Free resources button, which turns into Start once
 // everything is off.
 export function ResourceControls({ agents }: { agents: T.Agent[] }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const vm = useVMPower().data ?? null;
   const [restorable, setRestorable] = useState(loadRestorable);
@@ -84,9 +86,9 @@ export function ResourceControls({ agents }: { agents: T.Agent[] }) {
         // A paused VM's daemon can't answer: wake it, so its agents are
         // stopped cleanly rather than cut off with it.
         if (vmBefore) await ensureVMRunning();
-        const job = await api.stopAgents(targets.map((t) => t.ref));
+        const job = await api.stopAgents(targets.map((target) => target.ref));
         const done = await finished(job.id);
-        if (done.status !== 'succeeded') throw new Error(done.error || 'Stopping the agents failed');
+        if (done.status !== 'succeeded') throw new Error(done.error || t('vm.free.stopFailed'));
         result = done.result as T.StopAgentsResult;
         const refs = result.stopped.map((a) => a.ref);
         saveRestorable(refs);
@@ -123,11 +125,9 @@ export function ResourceControls({ agents }: { agents: T.Agent[] }) {
       const failed = results.filter((r) => r.status === 'rejected').length;
       saveRestorable([]);
       setRestorable([]);
-      const what = [vm ? 'the VM' : null, refs.length ? `${refs.length - failed} ${refs.length - failed === 1 ? 'agent' : 'agents'}` : null]
-        .filter(Boolean)
-        .join(' and ');
-      if (failed) toast.error(`Started ${what}, but ${failed} wouldn't start`);
-      else if (what) toast.success(`Started ${what}`);
+      const what = formatList([vm ? t('vm.free.whatVM') : null, refs.length ? t('vm.free.whatAgents', { count: refs.length - failed }) : null].filter((x) => x !== null));
+      if (failed) toast.error(t('vm.free.startedWithFailures', { what, failed }));
+      else if (what) toast.success(t('vm.free.started', { what }));
       setOpen(false);
       setRun(null);
     } catch (err) {
@@ -198,19 +198,20 @@ function FreeButton({
   onStart: () => void;
   onShow: () => void;
 }) {
+  const t = useT();
   if (mode === 'idle') return null;
   if (mode === 'busy') {
     const stopping = run?.phase === 'stopping' || run?.phase === 'vm';
     const { done, total } = run ? progress(run.targets, now) : { done: 0, total: 0 };
     const label = stopping
       ? run.phase === 'vm'
-        ? 'Turning the VM off…'
-        : `Freeing ${done}/${total}…`
+        ? t('vm.free.busyVM')
+        : t('vm.free.busyFreeing', { done, total })
       : vm?.state === 'stopping'
-        ? 'Stopping…'
+        ? t('vm.free.busyStopping')
         : vm?.state === 'pausing'
-          ? 'Pausing…'
-          : 'Starting…';
+          ? t('vm.free.busyPausing')
+          : t('vm.free.busyStarting');
     return (
       <button
         type="button"
@@ -227,8 +228,7 @@ function FreeButton({
   }
   if (mode === 'start') {
     const count = vm ? restorable.length : restorable.filter((ref) => now.some((a) => a.ref === ref && a.state === 'stopped')).length;
-    const agentsText = count ? `the ${count === 1 ? 'agent' : `${count} agents`} Free resources stopped` : '';
-    const label = vm ? `Start the VM${agentsText ? ` and ${agentsText}` : ''}` : `Start ${agentsText}`;
+    const label = vm ? (count ? t('vm.free.startVMAgents', { count }) : t('vm.free.startVM')) : count ? t('vm.free.startAgents', { count }) : t('common.start');
     return (
       <Tip label={label}>
         <button
@@ -239,35 +239,35 @@ function FreeButton({
           data-free-mode="start"
         >
           <Play className="size-3.5" />
-          <span>Start</span>
+          <span>{t('common.start')}</span>
         </button>
       </Tip>
     );
   }
   const count = freeTargets(now).length;
-  const label = [count ? `Stop ${count} running ${count === 1 ? 'agent' : 'agents'}` : null, vm ? 'turn the VM off' : null].filter(Boolean).join(' and ');
+  const what = count ? (vm ? 'both' : 'agents') : 'vm';
   return (
-    <Tip label={`Free resources: ${label}, giving their memory and CPU back to your computer`}>
+    <Tip label={t('vm.free.tip', { what, count })}>
       <button
         type="button"
         className="flex items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary transition hover:border-rose-400/40 hover:bg-rose-400/10 hover:text-rose-200"
         onClick={onFree}
-        aria-label="Free resources"
+        aria-label={t('vm.free.button')}
         data-free-mode="free"
       >
         <Power className="size-3.5" />
-        <span className="hidden xl:inline">Free resources</span>
+        <span className="hidden xl:inline">{t('vm.free.button')}</span>
         {count > 0 && <span className="font-mono text-[11px] tabular-nums text-subtle">{count}</span>}
       </button>
     </Tip>
   );
 }
 
-const doingText: Record<FreeTarget['doing'], string> = {
-  working: 'Working',
-  asking: 'Needs you',
-  idle: 'Idle',
-  paused: 'Paused',
+const doingText: Record<FreeTarget['doing'], MessageKey> = {
+  working: 'vm.free.doing.working',
+  asking: 'vm.free.doing.asking',
+  idle: 'vm.free.doing.idle',
+  paused: 'vm.free.doing.paused',
 };
 const doingTone: Record<FreeTarget['doing'], string> = {
   working: 'bg-brand-400/15 text-brand-300 ring-brand-400/30',
@@ -293,36 +293,38 @@ export function FreeResourcesDialog({
   onStartAgain: () => void;
   starting: boolean;
 }) {
+  const t = useT();
   const { targets, vmBefore } = run;
   const count = targets.length;
-  const agentsWord = `${count} ${count === 1 ? 'agent' : 'agents'}`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md" data-free-phase={run.phase}>
         {run.phase === 'confirm' && (
           <>
             <DialogHeader>
-              <DialogTitle>Free resources?</DialogTitle>
+              <DialogTitle>{t('vm.free.confirmTitle')}</DialogTitle>
               <DialogDescription>
-                {count > 0 ? `This stops ${count === 1 ? 'the running agent' : `all ${agentsWord}`} that hold memory right now` : 'No agent is running'}
-                {vmBefore
-                  ? `${count > 0 ? ', then turns' : ': this turns'} AgentBox's VM off, handing its ${humanBytes(vmBefore.memoryGranted)} back to your computer.`
-                  : '.'}{' '}
-                {count > 0 && 'Their worktrees, branches and chats stay, and Start brings them back.'}
+                {count > 0
+                  ? vmBefore
+                    ? t('vm.free.confirmBoth', { count, memory: humanBytes(vmBefore.memoryGranted) })
+                    : t('vm.free.confirmAgents', { count })
+                  : vmBefore
+                    ? t('vm.free.confirmVM', { memory: humanBytes(vmBefore.memoryGranted) })
+                    : t('vm.free.confirmNone')}
               </DialogDescription>
             </DialogHeader>
             {whoText(targets) && (
               <Notice tone="warning">
-                <span className="font-medium">{whoText(targets)}.</span> Stopping cuts off what {count === 1 ? 'it was' : 'they were'} doing.
+                {t.rich('vm.free.cutOff', { who: whoText(targets), count, b: (c) => <span className="font-medium">{c}</span> })}
               </Notice>
             )}
             {count > 0 && (
-              <ul className="grid max-h-80 gap-1 overflow-y-auto rounded-xl border border-line bg-surface-faint p-1.5" aria-label="Agents to stop">
-                {targets.map((t) => (
-                  <li key={t.ref} className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-[13px]">
-                    <span className="min-w-0 truncate text-secondary">{t.label}</span>
-                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset', doingTone[t.doing])}>
-                      {doingText[t.doing]}
+              <ul className="grid max-h-80 gap-1 overflow-y-auto rounded-xl border border-line bg-surface-faint p-1.5" aria-label={t('vm.free.agentsToStop')}>
+                {targets.map((target) => (
+                  <li key={target.ref} className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-[13px]">
+                    <span className="min-w-0 truncate text-secondary">{target.label}</span>
+                    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset', doingTone[target.doing])}>
+                      {t(doingText[target.doing])}
                     </span>
                   </li>
                 ))}
@@ -330,11 +332,11 @@ export function FreeResourcesDialog({
             )}
             <DialogFooter>
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button variant="destructive" onClick={onConfirm} data-free-confirm>
                 <Power />
-                {count > 0 ? `Stop ${agentsWord}${vmBefore ? ' and the VM' : ''}` : 'Turn the VM off'}
+                {count > 0 ? t(vmBefore ? 'vm.free.stopAgentsVM' : 'vm.free.stopAgents', { count }) : t('vm.free.turnVMOff')}
               </Button>
             </DialogFooter>
           </>
@@ -347,12 +349,12 @@ export function FreeResourcesDialog({
         {run.phase === 'error' && (
           <>
             <DialogHeader>
-              <DialogTitle>Couldn't free resources</DialogTitle>
+              <DialogTitle>{t('vm.free.errorTitle')}</DialogTitle>
             </DialogHeader>
             <Notice>{run.error}</Notice>
             <DialogFooter>
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                Close
+                {t('common.close')}
               </Button>
             </DialogFooter>
           </>
@@ -363,6 +365,7 @@ export function FreeResourcesDialog({
 }
 
 function FreeProgress({ run, agents, onHide }: { run: FreeRun; agents: T.Agent[]; onHide: () => void }) {
+  const t = useT();
   const { done, total } = progress(run.targets, agents);
   const vmSteps = run.vmBefore ? 1 : 0;
   const steps = total + vmSteps;
@@ -371,11 +374,11 @@ function FreeProgress({ run, agents, onHide }: { run: FreeRun; agents: T.Agent[]
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Freeing resources…</DialogTitle>
+        <DialogTitle>{t('vm.free.progressTitle')}</DialogTitle>
         <DialogDescription>
           {run.phase === 'vm'
-            ? "Every agent is stopped. Turning AgentBox's VM off…"
-            : `${done} of ${total} ${total === 1 ? 'agent' : 'agents'} stopped, up to four at a time${run.vmBefore ? ", then AgentBox's VM" : ''}.`}
+            ? t('vm.free.progressVM')
+            : t('vm.free.progressAgents', { done, total, vm: run.vmBefore ? 'yes' : 'no' })}
         </DialogDescription>
       </DialogHeader>
       <div className="h-1.5 overflow-hidden rounded-full bg-surface-strong" role="progressbar" aria-valuenow={complete} aria-valuemax={steps}>
@@ -384,22 +387,22 @@ function FreeProgress({ run, agents, onHide }: { run: FreeRun; agents: T.Agent[]
           style={{ width: `${Math.max(percent, 3)}%` }}
         />
       </div>
-      <ul className="grid max-h-72 gap-0.5 overflow-y-auto" aria-label="Progress">
-        {run.targets.map((t) => {
-          const a = agents.find((x) => x.ref === t.ref);
+      <ul className="grid max-h-72 gap-0.5 overflow-y-auto" aria-label={t('vm.free.progress')}>
+        {run.targets.map((target) => {
+          const a = agents.find((x) => x.ref === target.ref);
           const stopped = run.phase === 'vm' || !a || a.state === 'stopped';
-          return <Step key={t.ref} done={stopped} label={t.label} detail={stopped ? 'Stopped' : 'Stopping…'} />;
+          return <Step key={target.ref} done={stopped} label={target.label} detail={stopped ? t('vm.free.stopped') : t('vm.free.stoppingStep')} />;
         })}
       </ul>
       {/* The VM's step stays in view below the list, however long it is. */}
       {run.vmBefore && (
         <ul className="-mt-3 border-t border-line pt-2">
-          <Step done={false} pending={run.phase !== 'vm'} label="AgentBox's VM" detail={run.phase === 'vm' ? 'Turning off…' : 'Once every agent has stopped'} />
+          <Step done={false} pending={run.phase !== 'vm'} label={t('vm.agentboxVM')} detail={run.phase === 'vm' ? t('vm.free.turningOff') : t('vm.free.afterAgents')} />
         </ul>
       )}
       <DialogFooter>
         <Button variant="ghost" onClick={onHide}>
-          Hide
+          {t('vm.free.hide')}
         </Button>
       </DialogFooter>
     </>
@@ -425,35 +428,36 @@ function Step({ done, pending, label, detail }: { done: boolean; pending?: boole
 }
 
 function FreeResult({ run, onClose, onStartAgain, starting }: { run: FreeRun; onClose: () => void; onStartAgain: () => void; starting: boolean }) {
+  const t = useT();
   const got = freed(run.result, run.vmBefore, !!run.vmStopped);
   const stopped = run.result?.stopped ?? [];
   const failed = run.result?.failed ?? [];
   return (
     <>
       <DialogHeader>
-        <DialogTitle>Resources freed</DialogTitle>
-        <DialogDescription>
-          {stopped.length ? `Stopped ${stopped.length} ${stopped.length === 1 ? 'agent' : 'agents'}` : 'No agent needed stopping'}
-          {run.vmStopped ? " and turned AgentBox's VM off" : ''}. Here's what your computer got back.
-        </DialogDescription>
+        <DialogTitle>{t('vm.free.resultTitle')}</DialogTitle>
+        <DialogDescription>{t('vm.free.resultDescription', { stopped: stopped.length, vm: run.vmStopped ? 'yes' : 'no' })}</DialogDescription>
       </DialogHeader>
       <div className="grid grid-cols-2 gap-2.5">
-        <Stat label="Memory returned" value={humanBytes(got.memory)} detail={got.vm ? `all the VM held` : 'RAM and swap the agents held'} />
-        <Stat label="CPU returned" value={coresText(got.cpu)} detail="what the agents were using" />
+        <Stat id="memory" label={t('vm.free.memoryReturned')} value={humanBytes(got.memory)} detail={got.vm ? t('vm.free.allTheVM') : t('vm.free.ramSwap')} />
+        <Stat id="cpu" label={t('vm.free.cpuReturned')} value={coresText(got.cpu)} detail={t('vm.free.agentsWereUsing')} />
       </div>
       {got.hostBefore !== undefined && got.hostAfter !== undefined && (
         <p className="text-[12.5px] text-muted">
-          Your computer's memory in use went from <span className="font-mono tabular-nums text-secondary">{humanBytes(got.hostBefore)}</span> to{' '}
-          <span className="font-mono tabular-nums text-secondary">{humanBytes(got.hostAfter)}</span>.
+          {t.rich('vm.free.hostMemory', {
+            before: humanBytes(got.hostBefore),
+            after: humanBytes(got.hostAfter),
+            mono: (c) => <span className="font-mono tabular-nums text-secondary">{c}</span>,
+          })}
         </p>
       )}
       {stopped.length > 0 && (
-        <ul className="grid max-h-64 gap-0.5 overflow-y-auto rounded-xl border border-line bg-surface-faint p-1.5" aria-label="Stopped agents">
+        <ul className="grid max-h-64 gap-0.5 overflow-y-auto rounded-xl border border-line bg-surface-faint p-1.5" aria-label={t('vm.free.stoppedAgents')}>
           {stopped.map((a) => (
             <li key={a.ref} className="flex min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-1 text-[12.5px]">
               <span className="min-w-0 truncate text-secondary">
                 {a.title || a.ref.split('/')[1]}
-                {a.working && <span className="ml-1.5 text-[11px] text-faint">was working</span>}
+                {a.working && <span className="ml-1.5 text-[11px] text-faint">{t('vm.free.wasWorking')}</span>}
               </span>
               <span className="shrink-0 font-mono text-[11px] tabular-nums text-faint">
                 {humanBytes(a.memory)} · {coresText(a.cpu)}
@@ -464,29 +468,28 @@ function FreeResult({ run, onClose, onStartAgain, starting }: { run: FreeRun; on
       )}
       {failed.length > 0 && (
         <Notice>
-          {failed.length === 1 ? "One agent didn't stop" : `${failed.length} agents didn't stop`}:{' '}
-          {failed.map((f) => `${f.title || f.ref}: ${f.error}`).join('; ')}
+          {t('vm.free.failed', { count: failed.length, errors: failed.map((f) => `${f.title || f.ref}: ${f.error}`).join('; ') })}
         </Notice>
       )}
-      {run.vmError && <Notice>The VM didn't turn off: {run.vmError}</Notice>}
+      {run.vmError && <Notice>{t('vm.free.vmFailed', { error: run.vmError })}</Notice>}
       <DialogFooter>
         {stopped.length > 0 && (
           <Button variant="ghost" onClick={onStartAgain} disabled={starting}>
             {starting ? <LoaderCircle className="animate-spin" /> : <Play />}
-            Start them again
+            {t('vm.free.startAgain')}
           </Button>
         )}
         <Button variant="primary" onClick={onClose}>
-          Done
+          {t('common.done')}
         </Button>
       </DialogFooter>
     </>
   );
 }
 
-function Stat({ label, value, detail }: { label: string; value: string; detail: string }) {
+function Stat({ id, label, value, detail }: { id: string; label: string; value: string; detail: string }) {
   return (
-    <div className="grid gap-0.5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-3.5 py-3" data-stat={label}>
+    <div className="grid gap-0.5 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.06] px-3.5 py-3" data-stat={id}>
       <span className="text-[11px] font-medium uppercase tracking-wider text-emerald-300">{label}</span>
       <span className="font-mono text-xl font-semibold tabular-nums text-emerald-200">{value}</span>
       <span className="text-[11px] text-muted">{detail}</span>
@@ -494,14 +497,14 @@ function Stat({ label, value, detail }: { label: string; value: string; detail: 
   );
 }
 
-const vmStateText: Record<VMPower['state'], string> = {
-  off: 'Off',
-  starting: 'Starting',
-  running: 'Running',
-  pausing: 'Pausing',
-  paused: 'Paused',
-  resuming: 'Resuming',
-  stopping: 'Stopping',
+const vmStateText: Record<VMPower['state'], MessageKey> = {
+  off: 'vm.state.off',
+  starting: 'vm.state.starting',
+  running: 'vm.state.running',
+  pausing: 'vm.state.pausing',
+  paused: 'vm.state.paused',
+  resuming: 'vm.state.resuming',
+  stopping: 'vm.state.stopping',
 };
 
 // VMIndicator is VM mode's pill: the VM's state and how much of its memory
@@ -509,6 +512,7 @@ const vmStateText: Record<VMPower['state'], string> = {
 // goes through Free resources (onStop), so the agents inside are stopped
 // cleanly and what that freed is shown, rather than cut off with the VM.
 export function VMIndicator({ vm, onStop }: { vm: VMPower; onStop: () => void }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const transitioning = busy || vmTransitions.includes(vm.state);
   const up = vm.state !== 'off' && vm.state !== 'starting';
@@ -539,12 +543,17 @@ export function VMIndicator({ vm, onStop }: { vm: VMPower; onStop: () => void })
         <button
           type="button"
           className="flex items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised"
-          aria-label={`AgentBox's VM: ${vmStateText[vm.state]}${up ? `, ${humanBytes(vm.memoryUsed)} of ${humanBytes(vm.memoryGranted)} in use` : ''}`}
+          aria-label={t('vm.indicator.aria', {
+            state: t(vmStateText[vm.state]),
+            up: up ? 'yes' : 'no',
+            used: humanBytes(vm.memoryUsed),
+            total: humanBytes(vm.memoryGranted),
+          })}
           data-vm-state={vm.state}
         >
           <span className={cn('size-1.5 rounded-full', dot)} />
           <span className="text-[11px] font-medium text-tertiary">VM</span>
-          <span className={cn('text-[11px] text-muted', up && 'hidden sm:inline')}>{vmStateText[vm.state]}</span>
+          <span className={cn('text-[11px] text-muted', up && 'hidden sm:inline')}>{t(vmStateText[vm.state])}</span>
           {up && (
             <>
               <span className="hidden w-36 whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary md:inline">
@@ -568,46 +577,46 @@ export function VMIndicator({ vm, onStop }: { vm: VMPower; onStop: () => void })
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-2 text-[13px] font-medium text-primary">
               <MonitorCog className="size-4 text-subtle" />
-              AgentBox's VM
+              {t('vm.agentboxVM')}
             </span>
             <span className="flex items-center gap-1.5 text-[12px] text-muted">
               <span className={cn('size-1.5 rounded-full', dot)} />
-              {vmStateText[vm.state]}
+              {t(vmStateText[vm.state])}
             </span>
           </div>
           <VMMemory vm={vm} />
           <p className="text-[11.5px] leading-relaxed text-muted">
-            {vm.cpus} virtual CPUs. The VM holds what's granted of your computer's memory, and can grow to its cap as agents need more.
-            {vm.state === 'paused' && ' Paused, it uses no CPU but keeps all its memory: stop it to give that back.'}
+            {t('vm.indicator.cpus', { cpus: vm.cpus })}
+            {vm.state === 'paused' && ` ${t('vm.indicator.pausedNote')}`}
           </p>
           {vm.error && <Notice className="text-[12px]">{vm.error}</Notice>}
           <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
             {transitioning ? (
               <Button size="sm" disabled>
                 <LoaderCircle className="animate-spin" />
-                {vmStateText[vm.state]}…
+                {t(vmStateText[vm.state])}…
               </Button>
             ) : vm.state === 'off' ? (
               <Button size="sm" variant="primary" onClick={() => void act('start')}>
                 <Play />
-                Start
+                {t('common.start')}
               </Button>
             ) : (
               <>
                 {vm.state === 'paused' ? (
                   <Button size="sm" onClick={() => void act('resume')}>
                     <Play />
-                    Resume
+                    {t('vm.indicator.resume')}
                   </Button>
                 ) : (
                   <Button size="sm" onClick={() => void act('pause')}>
                     <Pause />
-                    Pause
+                    {t('vm.indicator.pause')}
                   </Button>
                 )}
                 <Button size="sm" variant="danger" onClick={onStop}>
                   <Power />
-                  Stop…
+                  {t('common.stop')}…
                 </Button>
               </>
             )}
@@ -621,6 +630,7 @@ export function VMIndicator({ vm, onStop }: { vm: VMPower; onStop: () => void })
 // VMMemory is the VM's memory as one bar: the cap is the whole width, what
 // it's been granted a lighter fill, what's in use inside a solid one.
 function VMMemory({ vm }: { vm: VMPower }) {
+  const t = useT();
   const cap = Math.max(vm.memoryCap, vm.memoryGranted, 1);
   const granted = (vm.memoryGranted / cap) * 100;
   const used = (Math.min(vm.memoryUsed, vm.memoryGranted) / cap) * 100;
@@ -631,9 +641,9 @@ function VMMemory({ vm }: { vm: VMPower }) {
         <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-400 to-sky-400" style={{ width: `${used}%` }} />
       </div>
       <div className="grid grid-cols-3 gap-2 text-[11px]">
-        <Legend swatch="bg-gradient-to-r from-brand-400 to-sky-400" label="Used" value={humanBytes(vm.memoryUsed)} />
-        <Legend swatch="bg-brand-400/30" label="Granted" value={humanBytes(vm.memoryGranted)} />
-        <Legend swatch="bg-surface-strong" label="Cap" value={humanBytes(vm.memoryCap)} />
+        <Legend swatch="bg-gradient-to-r from-brand-400 to-sky-400" label={t('vm.indicator.used')} value={humanBytes(vm.memoryUsed)} />
+        <Legend swatch="bg-brand-400/30" label={t('vm.indicator.granted')} value={humanBytes(vm.memoryGranted)} />
+        <Legend swatch="bg-surface-strong" label={t('vm.indicator.cap')} value={humanBytes(vm.memoryCap)} />
       </div>
     </div>
   );

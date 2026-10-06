@@ -3,6 +3,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { diffLines } from 'diff';
 import type * as T from '../../shared/api';
+import { formatNumber, t } from '../../shared/i18n/index.ts';
 import { api } from './api.ts';
 
 export const chatKey = (ref: string) => ['chat', ref];
@@ -342,16 +343,16 @@ const folds = (it: T.ChatItem) => it.kind !== 'assistant' && !isNote(it) && !isA
 function foldLabel(user: T.ChatItem): string {
   const result = user.result!;
   const took = formatDuration((Date.parse(result.endedAt) - Date.parse(user.createdAt)) / 1000);
-  if (result.state === 'cancelled') return `Stopped after ${took}`;
-  if (result.state === 'failed') return `Failed after ${took}`;
-  return `Worked for ${took}`;
+  if (result.state === 'cancelled') return t('chat.fold.stopped', { time: took });
+  if (result.state === 'failed') return t('chat.fold.failed', { time: took });
+  return t('chat.fold.worked', { time: took });
 }
 
 export function formatDuration(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  if (s < 60) return t('chat.duration.seconds', { s: formatNumber(s) });
+  if (s < 3600) return t('chat.duration.minutes', { m: formatNumber(Math.floor(s / 60)), s: formatNumber(s % 60) });
+  return t('chat.duration.hours', { h: formatNumber(Math.floor(s / 3600)), m: formatNumber(Math.floor((s % 3600) / 60)) });
 }
 
 // Permission requests waiting for your answer, oldest first.
@@ -370,8 +371,6 @@ export function currentPlan(thread: T.ChatThread): T.ChatPlanEntry[] | undefined
 export function toolOf(thread: T.ChatThread, callId: string): T.ChatTool | undefined {
   return thread.items.findLast((it) => it.tool?.callId === callId)?.tool;
 }
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // workSummary describes a group of tool calls by what they did, like "Ran 3
 // commands, edited 1 file and read 2 files": what changed things first, as
@@ -415,20 +414,20 @@ export function workSummary(items: T.ChatItem[]): string {
     }
   }
   const actions = [
-    commands && `ran ${plural(commands, 'command')}`,
-    edited.size && `edited ${plural(edited.size, 'file')}`,
-    reads && `read ${plural(reads, 'file')}`,
-    searches && `searched ${searches === 1 ? 'once' : `${searches} times`}`,
-    fetches && `fetched ${plural(fetches, 'page')}`,
-    others && `used ${plural(others, 'tool')}`,
+    commands && t('chat.work.ran', { count: commands }),
+    edited.size && t('chat.work.edited', { count: edited.size }),
+    reads && t('chat.work.read', { count: reads }),
+    searches && t('chat.work.searched', { count: searches }),
+    fetches && t('chat.work.fetched', { count: fetches }),
+    others && t('chat.work.used', { count: others }),
   ].filter((part): part is string => !!part);
   const parts =
     actions.length > 0
       ? actions
-      : [thoughts && (thoughts === 1 ? 'thought' : `thought ${thoughts} times`), answers && `answered ${plural(answers, 'request')}`].filter(
+      : [thoughts && t('chat.work.thought', { count: thoughts }), answers && t('chat.work.answered', { count: answers })].filter(
           (part): part is string => !!part,
         );
-  const text = parts.length <= 1 ? (parts[0] ?? '') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`;
+  const text = parts.length <= 1 ? (parts[0] ?? '') : t('chat.work.join', { head: parts.slice(0, -1).join(t('chat.work.separator')), last: parts.at(-1)! });
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
@@ -436,37 +435,37 @@ const fileName = (path: string) => path.split('/').filter(Boolean).at(-1) ?? pat
 
 // entryLabel is what a work row says about a finished item.
 export function entryLabel(it: T.ChatItem): string {
-  if (it.kind === 'thought') return 'Thought';
+  if (it.kind === 'thought') return t('chat.work.thoughtDone');
   if (it.kind === 'permission') {
     const perm = it.permission!;
     const option = perm.options.find((o) => o.id === perm.outcome);
-    const verb = perm.outcome === 'cancelled' ? 'Cancelled' : option?.kind.startsWith('reject') ? 'Denied' : 'Allowed';
-    return `${verb}: ${perm.title}`;
+    const outcome = perm.outcome === 'cancelled' ? 'cancelled' : option?.kind.startsWith('reject') ? 'denied' : 'allowed';
+    return t('chat.work.permission', { outcome, title: perm.title });
   }
   const tool = it.tool!;
   if (tool.kind === 'execute' && tool.command) return tool.command;
-  return tool.title || tool.name || 'Tool call';
+  return tool.title || tool.name || t('chat.work.toolCall');
 }
 
 // liveLabel is what a work row says about an item while it happens.
 export function liveLabel(it: T.ChatItem): string {
-  if (it.kind === 'thought') return 'Thinking';
+  if (it.kind === 'thought') return t('chat.work.thinking');
   const tool = it.tool;
   if (!tool || !isActive(it)) return entryLabel(it);
   const path = tool.paths?.[0];
   switch (tool.kind) {
     case 'execute':
-      return `Running ${tool.command || tool.title}`;
+      return t('chat.work.running', { what: tool.command || tool.title });
     case 'edit':
-      return path ? `Editing ${fileName(path)}` : tool.title;
+      return path ? t('chat.work.editing', { name: fileName(path) }) : tool.title;
     case 'read':
-      return path ? `Reading ${fileName(path)}` : tool.title;
+      return path ? t('chat.work.reading', { name: fileName(path) }) : tool.title;
     case 'search':
-      return `Searching: ${tool.title}`;
+      return t('chat.work.searching', { what: tool.title });
     case 'fetch':
-      return `Fetching ${tool.title}`;
+      return t('chat.work.fetching', { what: tool.title });
   }
-  return tool.title || tool.name || 'Working';
+  return tool.title || tool.name || t('chat.work.working');
 }
 
 export interface ChangedFile {
@@ -510,8 +509,19 @@ export function changedFiles(items: T.ChatItem[]): ChangedFile[] {
 }
 
 export function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
-  if (n >= 1000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1_000_000) {
+    const digits = n % 1_000_000 === 0 ? 0 : 1;
+    return t('chat.tokens.millions', { n: formatNumber(n / 1_000_000, { minimumFractionDigits: digits, maximumFractionDigits: digits }) });
+  }
+  if (n >= 1000) return t('chat.tokens.thousands', { n: formatNumber(Math.round(n / 1000)) });
+  return formatNumber(n);
+}
+
+// contextBadge is a context window's size as a model picker's badge reads it,
+// "200K" or "1M" in every language: it names the model's variant.
+export function contextBadge(n: number): string {
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1000) return `${Math.round(n / 1000)}K`;
   return String(n);
 }
 

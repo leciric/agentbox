@@ -21,6 +21,7 @@ import { Streams } from './streams';
 import { learnMode, linuxVM } from './vmmode';
 import { allowMicrophone, enableWebGPU } from './voice';
 import { distro, linuxPath, windowsPath } from './wslpaths';
+import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
 
 guardStdio();
@@ -143,14 +144,14 @@ async function hubCall<T>(hub: string, method: string, path: string, token?: str
 
 function savedHub(url: string): SavedHub {
   const hub = savedHubs().find((h) => h.url === url);
-  if (!hub) throw new Error(`not signed in to ${url}`);
+  if (!hub) throw new Error(t('web.main.notSignedIn', { url }));
   return hub;
 }
 
 ipcMain.handle('hubs:list', () => savedHubs().map(({ url, email }) => ({ url, email })));
 ipcMain.handle('hubs:login', async (_event, url: string, email: string, password: string) => {
   url = url.trim().replace(/\/+$/, '');
-  if (!/^https?:\/\/[^/]+$/.test(url)) throw new Error(`${url} isn't a hub address: use https://hub.example.com`);
+  if (!/^https?:\/\/[^/]+$/.test(url)) throw new Error(t('web.main.notAHub', { url }));
   const session = await hubCall<{ token: string; user: { email: string } }>(url, 'POST', '/v1/auth/login', undefined, {
     email,
     password,
@@ -219,9 +220,12 @@ ipcMain.handle('vmmigrate:run', (_event, removeOld?: boolean) =>
 // the distro, where projects belong, and what it picks is given in Linux terms.
 // A folder on a Windows drive becomes /mnt/<drive>/..., which Add project then
 // offers to copy into the distro, since the daemon won't add it as it is.
+// The renderer says which language it speaks, for the dialogs opened here.
+ipcMain.on('app:language', (_event, tag: string) => setLanguage(tag));
+
 ipcMain.handle('dialog:directory', async () => {
   const options = {
-    title: 'Add a project',
+    title: t('main.addProject'),
     properties: ['openDirectory' as const],
     ...(onWindows ? { defaultPath: `\\\\wsl.localhost\\${distro}\\home` } : {}),
   };
@@ -230,7 +234,7 @@ ipcMain.handle('dialog:directory', async () => {
   const picked = result.filePaths[0];
   if (!onWindows) return picked;
   const path = linuxPath(picked);
-  if (!path) throw new Error(`${picked} isn't in AgentBox's WSL distro (${distro}): clone the project there, under \\\\wsl.localhost\\${distro}\\home`);
+  if (!path) throw new Error(t('main.notInDistro', { picked, distro }));
   return path;
 });
 // The daemon's paths are the distro's; Explorer opens them through \\wsl.localhost.
@@ -238,7 +242,7 @@ const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
-  if (!/^https?:\/\//.test(url)) throw new Error(`not a web address: ${url}`);
+  if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));

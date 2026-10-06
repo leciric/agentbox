@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
+import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { speak, stop, useReader } from '../../lib/voice/reader';
 import { replaying, toggleReplay } from '../../lib/voice/replay';
@@ -18,13 +19,16 @@ import { TurnMarker } from './TurnMarker';
 import { SubagentCard, WorkGroup } from './Work';
 
 export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; thread: T.ChatThread; onOpenAgent?: (ref: string) => void }) {
+  const t = useT();
   const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set());
   // An agent's turns end in checkpoints to roll back to or fork from; a
   // project's chat has no worktree of its own to put back.
   const checkpoints = useQuery({ queryKey: ['checkpoints', agent.ref], queryFn: () => api.checkpoints(agent.ref), enabled: !isProjectChat(agent.ref) });
   const byTurn = useMemo(() => new Map((checkpoints.data ?? []).filter((cp) => cp.kind === 'turn' && cp.turn).map((cp) => [cp.turn!, cp])), [checkpoints.data]);
   const latest = Math.max(0, ...Array.from(byTurn.values(), (cp) => cp.number));
-  const rows = useMemo(() => timelineRows(thread, openTurns, byTurn), [thread, openTurns, byTurn]);
+  // The fold rows' labels are text, so the rows are made again when the language changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => timelineRows(thread, openTurns, byTurn), [thread, openTurns, byTurn, t.lang]);
   const toggleTurn = useCallback(
     (turn: string) =>
       setOpenTurns((open) => {
@@ -34,7 +38,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
       }),
     [],
   );
-  const starting = thread.session.state === 'starting' ? thread.session.detail || `Starting ${aiLabel(agent.ai)}` : undefined;
+  const starting = thread.session.state === 'starting' ? thread.session.detail || t('chat.timeline.startingTool', { tool: aiLabel(agent.ai) }) : undefined;
   return (
     <div className="flex flex-col" data-chat-timeline>
       {rows.map((row) =>
@@ -50,6 +54,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
 
 const TimelineRow = memo(
   function TimelineRow({ row, chatRef, root, starting, onToggleTurn }: { row: Row; chatRef: string; root: string; starting?: string; onToggleTurn: (turn: string) => void }) {
+    const t = useT();
     switch (row.type) {
       case 'user':
         return (
@@ -97,12 +102,10 @@ const TimelineRow = memo(
         return (
           <div className="mb-3 border-b border-line pb-2 pt-1" data-chat-working>
             <div className="flex h-6 items-baseline px-1 text-sm tabular-nums text-subtle">
-              Working for&nbsp;
-              <Elapsed since={row.since} />
+              {t.rich('chat.timeline.working', { elapsed: <Elapsed since={row.since} /> })}
               {row.stalledSince && (
                 <span className="font-medium text-rose-300" data-chat-stalled>
-                  &nbsp;· stalled, no progress for&nbsp;
-                  <Elapsed since={row.stalledSince} />
+                  {t.rich('chat.timeline.stalled', { elapsed: <Elapsed since={row.stalledSince} /> })}
                 </span>
               )}
             </div>
@@ -114,7 +117,7 @@ const TimelineRow = memo(
             <span className="flex size-6 items-center justify-center text-subtle">
               <Brain className="size-4" strokeWidth={1.8} />
             </span>
-            <span className="chat-shine">{starting ?? 'Thinking'}</span>
+            <span className="chat-shine">{starting ?? t('chat.work.thinking')}</span>
           </div>
         );
       case 'note':
@@ -137,7 +140,7 @@ const TimelineRow = memo(
               {row.item.handoff && (
                 <details className="group/handoff mt-1" data-chat-handoff>
                   <summary className="flex cursor-default list-none items-center gap-1 text-[12px] text-subtle hover:text-tertiary">
-                    What the new session is told
+                    {t('chat.timeline.handoff')}
                     <ChevronRight className="size-3.5 transition-transform group-open/handoff:rotate-90" />
                   </summary>
                   <pre className="mt-1.5 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-raised p-2.5 font-mono text-[11.5px] text-tertiary">{row.item.handoff}</pre>
@@ -193,13 +196,13 @@ function sameRow(a: Row, b: Row): boolean {
 // Delivered says what became of a message sent while the tool was working. The
 // interesting one is "sent": the tool read it mid-work and it was the model,
 // not AgentBox, that decided what to do about it.
-const deliveries: Record<string, { label: string; className: string }> = {
-  waiting: { label: 'Sending…', className: 'text-subtle' },
-  sent: { label: 'Sent while working', className: 'text-subtle' },
-  deferred: { label: 'Waiting for this turn to end', className: 'text-amber-300/70' },
-  lost: { label: "Never reached the tool", className: 'text-rose-300/80' },
-  held: { label: 'Waiting for the compaction to finish', className: 'text-amber-300/70' },
-  waking: { label: 'Waiting for memory to start its machine', className: 'text-amber-300/70' },
+const deliveries: Record<string, { label: MessageKey; className: string }> = {
+  waiting: { label: 'chat.delivery.waiting', className: 'text-subtle' },
+  sent: { label: 'chat.delivery.sent', className: 'text-subtle' },
+  deferred: { label: 'chat.delivery.deferred', className: 'text-amber-300/70' },
+  lost: { label: 'chat.delivery.lost', className: 'text-rose-300/80' },
+  held: { label: 'chat.delivery.held', className: 'text-amber-300/70' },
+  waking: { label: 'chat.delivery.waking', className: 'text-amber-300/70' },
 };
 
 // CompactionCard is the chat saving its conversation to the project's memory
@@ -207,6 +210,7 @@ const deliveries: Record<string, { label: string; className: string }> = {
 // message that isn't answered yet has a reason on screen, and then says how it
 // went. The card's text is the daemon's, once it has ended.
 function CompactionCard({ item }: { item: T.ChatItem }) {
+  const t = useT();
   const c = item.compaction!;
   const waiting = c.waiting ?? 0;
   if (c.state === 'running') {
@@ -214,10 +218,10 @@ function CompactionCard({ item }: { item: T.ChatItem }) {
       <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px]" role="status" data-chat-item="compaction" data-chat-compaction="running">
         <LoaderCircle className="mt-0.5 size-4 shrink-0 animate-spin text-subtle" />
         <div className="min-w-0 leading-relaxed">
-          <p className="chat-shine">Compacting context — saving to project memory…</p>
+          <p className="chat-shine">{t('chat.compaction.running')}</p>
           {waiting > 0 && (
             <p className="break-words text-subtle">
-              {waiting === 1 ? 'Your message waits' : `Your ${waiting} messages wait`} for the fresh session, and goes in as soon as it starts.
+              {t('chat.compaction.waiting', { count: waiting })}
             </p>
           )}
         </div>
@@ -244,24 +248,26 @@ function CompactionCard({ item }: { item: T.ChatItem }) {
 }
 
 function Delivered({ item }: { item: T.ChatItem }) {
+  const t = useT();
   const delivery = item.delivery ? deliveries[item.delivery] : undefined;
   if (!delivery) return null;
   return (
     <span className={cn('pr-1 text-[11.5px]', delivery.className)} data-chat-delivery={item.delivery}>
-      {delivery.label}
+      {t(delivery.label)}
     </span>
   );
 }
 
 function Meta({ item, className, replay }: { item: T.ChatItem; className?: string; replay?: boolean }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   return (
     <div className={cn('flex items-center gap-1 text-xs tabular-nums text-faint opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100', className)}>
-      <Tip label={new Date(item.createdAt).toLocaleString()}>
-        <span>{new Date(item.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      <Tip label={formatDateTime(item.createdAt, { dateStyle: 'short', timeStyle: 'medium' })}>
+        <span>{formatTime(item.updatedAt, { hour: '2-digit', minute: '2-digit' })}</span>
       </Tip>
       <button
-        aria-label="Copy the message"
+        aria-label={t('chat.timeline.copyMessage')}
         className="flex size-6 items-center justify-center rounded-md transition hover:bg-surface-raised hover:text-tertiary"
         onClick={() => {
           window.agentbox.copyText(item.text ?? '');
@@ -279,13 +285,14 @@ function Meta({ item, className, replay }: { item: T.ChatItem; className?: strin
 // Replay reads a reply aloud again from the start (replay.ts), and stops it
 // while it does.
 function Replay({ item }: { item: T.ChatItem }) {
+  const t = useT();
   const { on } = useReadAloudSettings();
   const reader = useReader();
   if (!on) return null;
   const reading = replaying(reader, item.id);
   return (
     <button
-      aria-label={reading ? 'Stop reading the message' : 'Read the message aloud'}
+      aria-label={reading ? t('chat.timeline.stopReading') : t('chat.timeline.readAloud')}
       className={cn('flex size-6 items-center justify-center rounded-md transition hover:bg-surface-raised hover:text-tertiary', reading && 'text-brand-300')}
       data-chat-replay={reading ? 'reading' : 'idle'}
       onClick={() => toggleReplay({ speak, stop }, reader, item.id, item.text ?? '', fallbackLanguage())}
@@ -297,6 +304,7 @@ function Replay({ item }: { item: T.ChatItem }) {
 
 // Elapsed counts the seconds since a time, rewriting its own text rather than re-rendering.
 export function Elapsed({ since }: { since: string }) {
+  const t = useT();
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     const start = Date.parse(since);
@@ -306,6 +314,6 @@ export function Elapsed({ since }: { since: string }) {
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [since]);
+  }, [since, t]);
   return <span ref={ref} />;
 }

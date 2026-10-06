@@ -122,6 +122,7 @@ export interface Settings {
   errorReportsAsked: boolean;
   prWatch: boolean;
   mediaRetention: string;
+  language: string;
   defaultClaudeCompactWindow: number;
   diskFloorMin: number;
   diskFloorPercent: number;
@@ -157,6 +158,7 @@ export interface UpdateSettingsRequest {
   errorReports?: boolean;
   prWatch?: boolean;
   mediaRetention?: string;
+  language?: string;
   autoStopIdle?: boolean;
   dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
@@ -2021,6 +2023,7 @@ export const SetupOptional = "optional";
 export const SetupUpdating = "updating";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
+export const DefaultLanguage = "en-US";
 export const LeadName = "lead";
 export const HomeProject = "_home";
 export const AgentModelAuto = "auto";

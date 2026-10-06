@@ -7,6 +7,7 @@ import { Check, ChevronRight, Copy, FolderOpen, LoaderCircle } from 'lucide-reac
 import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatNumber, useT } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
@@ -21,6 +22,7 @@ async function draft(): Promise<T.ReportDraft> {
 }
 
 export function ReportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const t = useT();
   const [message, setMessage] = useState('');
   const [left, setLeft] = useState<Set<string>>(new Set());
   const report = useQuery({ queryKey: ['report-draft'], queryFn: draft, enabled: open, gcTime: 0, staleTime: 0, retry: false });
@@ -42,11 +44,11 @@ export function ReportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl" data-report-dialog>
         <DialogHeader>
-          <DialogTitle>{sent ? 'Report sent' : 'Report a problem'}</DialogTitle>
+          <DialogTitle>{sent ? t('shell.report.sentTitle') : t('shell.report.title')}</DialogTitle>
           <DialogDescription>
             {sent
-              ? 'Thank you. AgentBox’s developers have your report.'
-              : 'Tell AgentBox’s developers what went wrong. It goes to them with the parts below, which you can read in full and leave out. Tokens, keys, email addresses and home folders are taken out of all of it, your message too.'}
+              ? t('shell.report.sentBody')
+              : t('shell.report.body')}
           </DialogDescription>
         </DialogHeader>
         {sent ? (
@@ -54,36 +56,38 @@ export function ReportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
         ) : (
           <>
             <div className="grid gap-1.5">
-              <Label htmlFor="report-message">What happened, and what did you expect?</Label>
+              <Label htmlFor="report-message">{t('shell.report.messageLabel')}</Label>
               <Textarea
                 id="report-message"
                 autoFocus
                 maxLength={5000}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder="Creating an agent stopped at “Starting the machine” and never finished…"
+                placeholder={t('shell.report.placeholder')}
                 className="min-h-28"
               />
             </div>
             <div className="grid gap-2">
-              <p className="text-[13px] font-medium text-tertiary">What’s sent with it</p>
+              <p className="text-[13px] font-medium text-tertiary">{t('shell.report.sentWith')}</p>
               {report.isPending && (
                 <p className="flex items-center gap-2 text-[13px] text-subtle">
-                  <LoaderCircle className="size-4 animate-spin" /> Collecting the logs…
+                  <LoaderCircle className="size-4 animate-spin" /> {t('shell.report.collecting')}
                 </p>
               )}
               {report.error && (
                 <Notice>
-                  AgentBox’s daemon didn’t answer, and it’s what puts a report together and sends it: {errorMessage(report.error)}. The
-                  app’s own logs are in its logs folder.
+                  {t('shell.report.daemonSilent', { error: errorMessage(report.error) })}
                 </Notice>
               )}
               {report.data && (
                 <ul className="grid gap-1.5" data-report-sections>
                   <li className="rounded-lg border border-line bg-sunken px-3 py-2 text-[12px] text-subtle">
-                    Always: this installation’s random ID <span className="font-mono text-tertiary">{report.data.install}</span>, AgentBox{' '}
-                    {report.data.version}, {report.data.os}/{report.data.arch}. To{' '}
-                    <span className="font-mono text-tertiary">{report.data.endpoint}</span>.
+                    {t.rich('shell.report.always', {
+                      install: <span className="font-mono text-tertiary">{report.data.install}</span>,
+                      version: report.data.version,
+                      platform: `${report.data.os}/${report.data.arch}`,
+                      endpoint: <span className="font-mono text-tertiary">{report.data.endpoint}</span>,
+                    })}
                   </li>
                   {report.data.sections.map((s) => (
                     <SectionRow
@@ -109,17 +113,17 @@ export function ReportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
         <DialogFooter className="items-center">
           {!('web' in window.agentbox) && (
             <Button variant="ghost" className="mr-auto" onClick={() => void window.agentbox.report.openLogs()}>
-              <FolderOpen /> App logs
+              <FolderOpen /> {t('shell.report.appLogs')}
             </Button>
           )}
           {sent ? (
             <Button variant="primary" onClick={() => onOpenChange(false)}>
-              Done
+              {t('common.done')}
             </Button>
           ) : (
             <>
               <Button variant="ghost" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button
                 variant="primary"
@@ -128,7 +132,7 @@ export function ReportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 onClick={() => report.data && send.mutate(report.data)}
               >
                 {send.isPending && <LoaderCircle className="animate-spin" />}
-                Send report
+                {t('shell.report.send')}
               </Button>
             </>
           )}
@@ -141,6 +145,7 @@ export function ReportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 // SectionRow is one part of the report: its checkbox, and its whole text
 // behind a disclosure.
 function SectionRow({ section, included, onIncluded }: { section: T.ReportSection; included: boolean; onIncluded: (on: boolean) => void }) {
+  const t = useT();
   const [shown, setShown] = useState(false);
   const lines = section.content.split('\n').length;
   return (
@@ -148,7 +153,7 @@ function SectionRow({ section, included, onIncluded }: { section: T.ReportSectio
       <div className="flex items-center gap-3 px-3 py-2">
         <input
           type="checkbox"
-          aria-label={`Send ${section.title}`}
+          aria-label={t('shell.report.sendSection', { title: section.title })}
           checked={included}
           onChange={(e) => onIncluded(e.target.checked)}
           className="size-4 shrink-0 accent-brand-500"
@@ -162,7 +167,7 @@ function SectionRow({ section, included, onIncluded }: { section: T.ReportSectio
           <ChevronRight className={cn('size-4 shrink-0 text-subtle transition-transform', shown && 'rotate-90')} />
           <span className="min-w-0 truncate">{section.title}</span>
           <span className="ml-auto shrink-0 font-mono text-[11px] text-faint">
-            {lines} {lines === 1 ? 'line' : 'lines'} · {size(section.content.length)}
+            {t('shell.report.lines', { count: lines })} · {size(section.content.length)}
           </span>
         </button>
       </div>
@@ -176,10 +181,11 @@ function SectionRow({ section, included, onIncluded }: { section: T.ReportSectio
 }
 
 function SentReport({ id }: { id: string }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center gap-3 rounded-lg border border-line bg-sunken px-3 py-2 text-[13px]" data-report-sent>
-      <span className="text-subtle">Its ID, to quote if you write to us about it:</span>
+      <span className="text-subtle">{t('shell.report.idQuote')}</span>
       <span className="font-mono text-primary">{id}</span>
       <Button
         size="sm"
@@ -190,12 +196,12 @@ function SentReport({ id }: { id: string }) {
           setCopied(true);
         }}
       >
-        {copied ? <Check /> : <Copy />} {copied ? 'Copied' : 'Copy'}
+        {copied ? <Check /> : <Copy />} {copied ? t('common.copied') : t('common.copy')}
       </Button>
     </div>
   );
 }
 
 function size(n: number): string {
-  return n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`;
+  return n < 1024 ? `${n} B` : `${formatNumber(n / 1024, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} KB`;
 }

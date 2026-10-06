@@ -271,6 +271,8 @@ const bridge = {
   notify: (notice: { id: string; title: string; body: string }): Promise<boolean> => ipcRenderer.invoke('notify:show', notice),
   onNotificationClick: (fn: (id: string) => void) => listen('notify:click', fn),
   copyText: (text: string) => ipcRenderer.send('clipboard:write', text),
+  // setLanguage tells the main process the app's language, for its dialogs.
+  setLanguage: (tag: string) => ipcRenderer.send('app:language', tag),
   readText: (): Promise<string> => ipcRenderer.invoke('clipboard:read'),
 };
 

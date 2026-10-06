@@ -1,11 +1,12 @@
 import { LoaderCircle, Mic } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { toast } from 'sonner';
+import { useT } from '../../lib/i18n';
 import { silent } from '../../lib/voice/audio';
 import { formatMB, pickModel } from '../../lib/voice/models';
 import { record, type Recording } from '../../lib/voice/recorder';
 import { useVoiceSettings } from '../../lib/voice/settings';
-import { preloadWhisper, probeWhisper, transcribe, useWhisper, whisperState } from '../../lib/voice/whisper';
+import { deviceReason, preloadWhisper, probeWhisper, transcribe, useWhisper, whisperState } from '../../lib/voice/whisper';
 import { cn, errorMessage } from '../../lib/utils';
 import { Tip } from '../ui/tooltip';
 
@@ -21,6 +22,7 @@ const holdTime = 350;
 let warnedCPU = false;
 
 export function VoiceButton({ disabled, onText, scope }: { disabled: boolean; onText: (text: string) => void; scope: RefObject<HTMLElement | null> }) {
+  const t = useT();
   const settings = useVoiceSettings();
   const whisper = useWhisper();
   const [phase, setPhase] = useState<'idle' | 'starting' | 'listening' | 'transcribing'>('idle');
@@ -52,14 +54,14 @@ export function VoiceButton({ disabled, onText, scope }: { disabled: boolean; on
     try {
       const audio = await r.stop();
       if (silent(audio)) {
-        toast('Nothing heard', { description: 'Hold the button, or Ctrl+Space, while you talk.' });
+        toast(t('chat.voice.nothingHeard'), { description: t('chat.voice.nothingHeardHint') });
         return;
       }
       const { text } = await transcribe(audio);
       if (text) deliver.current(text);
-      else toast('Nothing heard');
+      else toast(t('chat.voice.nothingHeard'));
     } catch (err) {
-      toast.error(`Couldn’t transcribe: ${errorMessage(err)}`);
+      toast.error(t('chat.voice.transcribeFailed', { error: errorMessage(err) }));
     } finally {
       setPhase('idle');
     }
@@ -75,14 +77,14 @@ export function VoiceButton({ disabled, onText, scope }: { disabled: boolean; on
       recording.current = await record();
     } catch (err) {
       setPhase('idle');
-      toast.error(`Couldn’t use the microphone: ${errorMessage(err)}`);
+      toast.error(t('chat.voice.micFailed', { error: errorMessage(err) }));
       return;
     }
     setPhase('listening');
     const { device, reason } = whisperState();
     if (device === 'wasm' && !warnedCPU) {
       warnedCPU = true;
-      toast.warning(`No WebGPU: using ${pickModel(settings.model, 'wasm').label} on the CPU`, { description: `${reason ?? ''} Transcribing is slower and less accurate than on the GPU.`.trim() });
+      toast.warning(t('chat.voice.noWebGPU', { model: pickModel(settings.model, 'wasm').label }), { description: t('chat.voice.noWebGPUHint', { reason: deviceReason(reason) }).trim() });
     }
     if (stopRequested.current) void finish();
   };
@@ -131,34 +133,38 @@ export function VoiceButton({ disabled, onText, scope }: { disabled: boolean; on
   useEffect(() => () => recording.current?.cancel(), []);
 
   const model = pickModel(settings.model, whisper.device ?? 'webgpu');
-  const where = whisper.device === 'wasm' ? 'on the CPU' : whisper.device === 'webgpu' ? 'on the GPU' : '';
   const loading = whisper.loading;
   const percent = loading && loading.total ? Math.round((loading.loaded / loading.total) * 100) : undefined;
   const status =
     phase === 'listening'
-      ? `Listening… ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+      ? t('chat.voice.listening', { time: `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` })
       : phase === 'transcribing' && loading
-        ? `Downloading${percent !== undefined ? ` · ${percent}%` : '…'}`
+        ? percent !== undefined ? t('chat.voice.downloadingPercent', { percent }) : t('chat.voice.downloading')
         : phase === 'transcribing'
-          ? 'Transcribing…'
+          ? t('chat.voice.transcribing')
           : undefined;
   const label = disabled
-    ? 'Start the chat to talk to it'
-    : `Hold to talk, or hold Ctrl+Space · ${model.label} ${where}${whisper.device === 'wasm' ? ' (no WebGPU)' : ''}${whisper.ready !== model.id ? ` · ${formatMB(model.size[whisper.device ?? 'webgpu'])} download the first time` : ''}`;
+    ? t('chat.voice.disabled')
+    : t('chat.voice.hold', {
+        model: model.label,
+        device: whisper.device ?? 'unknown',
+        first: whisper.ready !== model.id ? 'yes' : 'no',
+        size: formatMB(model.size[whisper.device ?? 'webgpu']),
+      });
 
   return (
     <div className="flex shrink-0 items-center gap-1.5">
       {status && (
         <span className="max-w-48 truncate text-[11px] tabular-nums text-subtle" aria-live="polite">
           {status}
-          {phase !== 'listening' && whisper.device === 'wasm' && ' (CPU)'}
+          {phase !== 'listening' && whisper.device === 'wasm' && t('chat.voice.cpuSuffix')}
         </span>
       )}
       <Tip label={label}>
         <span className="shrink-0">
           <button
             type="button"
-            aria-label={phase === 'listening' ? 'Stop talking' : 'Talk'}
+            aria-label={phase === 'listening' ? t('chat.voice.stopTalking') : t('chat.voice.talk')}
             aria-pressed={phase === 'listening'}
             disabled={disabled || phase === 'transcribing'}
             onPointerDown={(event) => {

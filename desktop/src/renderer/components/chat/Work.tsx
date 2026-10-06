@@ -19,6 +19,7 @@ import {
 import { memo, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import { entryLabel, isActive, isWork, liveLabel, workSummary } from '../../lib/chat';
+import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 import { DiffView } from './ChangedFiles';
 import { Markdown } from './Markdown';
@@ -48,6 +49,7 @@ function iconOf(it: T.ChatItem): LucideIcon {
 // turn, a single call as it is, or several as one summary you can open.
 export const WorkGroup = memo(
   function WorkGroup({ items, live, root }: { items: T.ChatItem[]; live: boolean; root: string }) {
+    const t = useT();
     const [open, setOpen] = useState(false);
     const last = items[items.length - 1];
 
@@ -85,7 +87,7 @@ export const WorkGroup = memo(
             <Icon className="size-4" strokeWidth={1.8} />
           </span>
           <span className="min-w-0 truncate text-subtle group-hover/row:text-muted">{workSummary(items)}</span>
-          {failed && <CircleAlert className="size-3.5 shrink-0 text-rose-400/70" aria-label="A tool call failed" />}
+          {failed && <CircleAlert className="size-3.5 shrink-0 text-rose-400/70" aria-label={t('chat.work.toolFailed')} />}
           <ChevronRight className={cn('size-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
         </button>
         {open && <EntryList items={items} root={root} />}
@@ -106,6 +108,7 @@ function EntryList({ items, root }: { items: T.ChatItem[]; root: string }) {
 }
 
 function Entry({ item, root }: { item: T.ChatItem; root: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const detail = detailOf(item, root);
   const Icon = iconOf(item);
@@ -124,7 +127,7 @@ function Entry({ item, root }: { item: T.ChatItem; root: string }) {
         <span className={cn('min-w-0 truncate', failed ? 'text-rose-300/80' : 'text-subtle group-hover/row:text-muted', active && 'chat-shine')}>
           {active ? liveLabel(item) : entryLabel(item)}
         </span>
-        {item.tool?.status === 'stopped' && <span className="shrink-0 text-xs text-faint">stopped</span>}
+        {item.tool?.status === 'stopped' && <span className="shrink-0 text-xs text-faint">{t('chat.work.stopped')}</span>}
         {detail && <ChevronRight className={cn('size-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />}
       </button>
       {open && detail && <div className="mb-1.5 ml-7 mt-0.5 overflow-hidden rounded-lg border border-line-faint bg-sunken">{detail}</div>}
@@ -168,12 +171,13 @@ function detailOf(it: T.ChatItem, root: string): ReactNode {
 // report to the agent rather than to you.
 export const SubagentCard = memo(
   function SubagentCard({ item, children, root }: { item: T.ChatItem; children: T.ChatItem[]; root: string }) {
+    const t = useT();
     const [open, setOpen] = useState(false);
     const sub = item.subagent!;
     const running = sub.state === 'running';
     const work = children.filter(isWork);
     const current = running ? children.findLast((it) => isActive(it)) : undefined;
-    const summary = current ? liveLabel(current) : work.length > 0 ? workSummary(work) : running ? 'Starting' : 'Did nothing';
+    const summary = current ? liveLabel(current) : work.length > 0 ? workSummary(work) : running ? t('chat.subagent.starting') : t('chat.subagent.didNothing');
     return (
       <div className="pb-2" data-chat-subagent={sub.state}>
         <div className="rounded-xl border border-line-faint bg-surface-faint">
@@ -196,7 +200,7 @@ export const SubagentCard = memo(
             <div className="mx-2 mb-2 border-t border-line-faint pt-1.5">
               {sub.task && <p className="mb-1.5 whitespace-pre-wrap break-words px-1 text-[12.5px] leading-relaxed text-subtle">{sub.task}</p>}
               <div className="ml-3 border-l border-line pl-2.5">
-                {children.length === 0 && <p className="py-1 text-[12.5px] text-faint">Nothing yet.</p>}
+                {children.length === 0 && <p className="py-1 text-[12.5px] text-faint">{t('chat.subagent.nothingYet')}</p>}
                 {children.map((it) =>
                   it.kind === 'assistant' ? (
                     <div key={it.id} className="py-1 pl-1" data-chat-entry="subagent-message">
@@ -228,8 +232,9 @@ export const SubagentCard = memo(
 );
 
 function SubagentState({ state }: { state: string }) {
-  if (state === 'running') return <span className="mt-1 shrink-0 text-[11.5px] text-subtle">working</span>;
-  if (state === 'completed') return <Check className="mt-1 size-3.5 shrink-0 text-emerald-400/80" aria-label="Finished" />;
-  if (state === 'failed') return <CircleAlert className="mt-1 size-3.5 shrink-0 text-rose-400/80" aria-label="Failed" />;
-  return <span className="mt-1 shrink-0 text-[11.5px] text-faint">stopped</span>;
+  const t = useT();
+  if (state === 'running') return <span className="mt-1 shrink-0 text-[11.5px] text-subtle">{t('chat.subagent.working')}</span>;
+  if (state === 'completed') return <Check className="mt-1 size-3.5 shrink-0 text-emerald-400/80" aria-label={t('chat.subagent.finished')} />;
+  if (state === 'failed') return <CircleAlert className="mt-1 size-3.5 shrink-0 text-rose-400/80" aria-label={t('chat.subagent.failed')} />;
+  return <span className="mt-1 shrink-0 text-[11.5px] text-faint">{t('chat.work.stopped')}</span>;
 }

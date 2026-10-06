@@ -7,23 +7,30 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
 import type { View } from '../App.tsx';
 import { api } from './api.ts';
+import { formatDate, t } from '../../shared/i18n/index.ts';
 import { kindInfo } from './media.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 
 // What a finish's report status says the agent did.
-export const finishVerb: Record<string, string> = {
-  done: 'finished',
-  partial: 'finished part of it',
-  blocked: 'is blocked',
-  failed: 'failed',
-};
+export function finishVerb(status: string): string {
+  switch (status) {
+    case 'partial':
+      return t('shell.notice.verb.partial');
+    case 'blocked':
+      return t('shell.notice.verb.blocked');
+    case 'failed':
+      return t('shell.notice.verb.failed');
+    default:
+      return t('shell.notice.verb.done');
+  }
+}
 
 // noticeVerb is what the agent did, after its name: "saved a screenshot".
 export function noticeVerb(n: T.Notification): string {
-  if (n.kind === 'media') return `saved a ${kindInfo(n.media?.kind ?? '').one}`;
-  if (n.kind === 'question') return 'asks you';
-  return finishVerb[n.status ?? ''] ?? 'finished';
+  if (n.kind === 'media') return t('shell.notice.verb.media', { kind: kindInfo(n.media?.kind ?? '').one });
+  if (n.kind === 'question') return t('shell.notice.verb.question');
+  return finishVerb(n.status ?? '');
 }
 
 // noticeText is an OS notification's: its title names the agent, and its body
@@ -49,10 +56,10 @@ export function noticeView(n: T.Notification, agents: readonly T.Agent[] | undef
 export function dayLabel(iso: string, now = Date.now()): string {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
-  const t = new Date(iso).getTime();
-  if (t >= start.getTime()) return 'Today';
-  if (t >= start.getTime() - DAY) return 'Yesterday';
-  return new Date(iso).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  const at = new Date(iso).getTime();
+  if (at >= start.getTime()) return t('shell.notice.today');
+  if (at >= start.getTime() - DAY) return t('shell.notice.yesterday');
+  return formatDate(iso, { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 // byDay groups a newest-first list under dayLabel's headings, in order.

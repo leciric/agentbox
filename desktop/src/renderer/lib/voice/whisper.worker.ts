@@ -20,7 +20,7 @@ export type WorkerRequest =
   | { type: 'transcribe'; id: number; model: string; audio: Float32Array; language: VoiceLanguage };
 
 export type WorkerReply =
-  | { type: 'device'; device: VoiceDevice; reason?: string; adapter?: string }
+  | { type: 'device'; device: VoiceDevice; reason?: DeviceReason; adapter?: string }
   | { type: 'progress'; model: string; file: string; loaded: number; total: number }
   | { type: 'ready'; model: string; device: VoiceDevice; ms: number }
   | { type: 'result'; id: number; text: string; language: string; ms: { detect: number; transcribe: number } }
@@ -40,23 +40,27 @@ env.useWasmCache = false;
 
 // device is what this machine can run Whisper on, found once: WebGPU needs an
 // adapter, and our models want its shader-f16 feature for their fp16 encoder.
-let device: Promise<{ device: VoiceDevice; f16: boolean; reason?: string; adapter?: string }> | undefined;
+// DeviceReason says why it isn't WebGPU, as a code the page puts into words in
+// the app's language (whisper.ts's deviceReason): a worker can't know it.
+export type DeviceReason = { code: 'unavailable' | 'noGpu' | 'software' | 'failed'; error?: string };
+
+let device: Promise<{ device: VoiceDevice; f16: boolean; reason?: DeviceReason; adapter?: string }> | undefined;
 function findDevice() {
   device ??= (async () => {
     const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<{ features: Set<string>; info?: { vendor: string; architecture: string; description: string; isFallbackAdapter?: boolean } } | null> } }).gpu;
-    if (!gpu) return { device: 'wasm' as const, f16: false, reason: 'WebGPU isn’t available in this app.' };
+    if (!gpu) return { device: 'wasm' as const, f16: false, reason: { code: 'unavailable' } };
     try {
       const adapter = await gpu.requestAdapter();
-      if (!adapter) return { device: 'wasm' as const, f16: false, reason: 'WebGPU found no usable GPU.' };
+      if (!adapter) return { device: 'wasm' as const, f16: false, reason: { code: 'noGpu' } };
       const info = adapter.info;
       // SwiftShader is WebGPU emulated on the CPU, slower than WASM: what
       // Chromium hands out when it can't reach the real GPU.
       if (info?.isFallbackAdapter || /swiftshader/i.test(`${info?.vendor} ${info?.architecture} ${info?.description}`))
-        return { device: 'wasm' as const, f16: false, reason: 'WebGPU found only a software renderer, not the GPU.' };
+        return { device: 'wasm' as const, f16: false, reason: { code: 'software' } };
       const name = info && ([info.vendor, info.architecture].filter(Boolean).join(' ') || info.description);
       return { device: 'webgpu' as const, f16: adapter.features.has('shader-f16'), adapter: name || undefined };
     } catch (err) {
-      return { device: 'wasm' as const, f16: false, reason: `WebGPU failed: ${String(err)}` };
+      return { device: 'wasm' as const, f16: false, reason: { code: 'failed', error: String(err) } };
     }
   })();
   return device;

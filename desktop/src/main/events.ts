@@ -5,6 +5,7 @@ import type http from 'node:http';
 import { isLocal, requestOptions } from './connection';
 import { ensureDaemon } from './daemon';
 import { parseEvents } from './sse';
+import { t } from '../shared/i18n/index.ts';
 
 export interface ConnectionState {
   state: 'connecting' | 'connected' | 'disconnected';
@@ -79,7 +80,7 @@ export class EventStream {
         res.setEncoding('utf8');
         res.on('data', (chunk: string) => (body += chunk));
         res.on('end', () => {
-          let reason = `the event stream answered HTTP ${res.statusCode}`;
+          let reason = t('web.main.eventStreamHTTP', { status: res.statusCode ?? 0 });
           try {
             reason = JSON.parse(body).error ?? reason;
           } catch {
@@ -105,7 +106,7 @@ export class EventStream {
           }
         }
       });
-      res.on('end', () => retry(new Error('the daemon closed the event stream')));
+      res.on('end', () => retry(new Error(t('web.main.eventStreamClosed'))));
       res.on('error', retry);
     });
     req.on('error', retry);

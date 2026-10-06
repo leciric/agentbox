@@ -3,6 +3,7 @@ import { FlaskConical, LoaderCircle, MonitorCog } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { VMStatus } from '../../preload';
+import { useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { appendOutput, CommandBox, SetupLog } from './SettingsView';
 import { Badge } from './ui/badge';
@@ -14,9 +15,9 @@ type Driver = 'lima' | 'vz';
 // drivers are what can make the VM: Lima, the default, or Apple's
 // Virtualization framework run by AgentBox itself (`agentbox vm init --driver
 // vz`), which is experimental until it has been tried on a real Mac.
-const drivers: { driver: Driver; label: string; hint: string }[] = [
-  { driver: 'lima', label: 'Lima', hint: 'Recommended. Needs Lima from Homebrew.' },
-  { driver: 'vz', label: 'Apple Virtualization, without Lima', hint: 'AgentBox runs the VM itself. Not yet tried on a real Mac.' },
+const drivers: { driver: Driver; label: MessageKey | null; hint: MessageKey }[] = [
+  { driver: 'lima', label: null, hint: 'vm.setup.limaHint' },
+  { driver: 'vz', label: 'vm.setup.vzLabel', hint: 'vm.setup.vzHint' },
 ];
 
 // VMSetup is what a Mac shows while AgentBox's Linux VM isn't there to talk to.
@@ -27,6 +28,7 @@ const drivers: { driver: Driver; label: string; hint: string }[] = [
 // A VM that exists keeps the driver it was made with; a new one is Lima's
 // unless the experimental vz driver is chosen.
 export function VMSetup({ vm }: { vm: VMStatus }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [lines, setLines] = useState<string[]>([]);
   const [chosen, setChosen] = useState<Driver>('lima');
@@ -38,7 +40,7 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
     mutationFn: () => window.agentbox.hostSetup.run(vz ? { driver: 'vz' } : undefined),
     onMutate: () => setLines([]),
     onSuccess: async () => {
-      toast("AgentBox's VM is ready", { description: 'Next, the Setup page builds the base image your agents are copied from.' });
+      toast(t('vm.setup.toast'), { description: t('vm.setup.toastDescription') });
       await queryClient.invalidateQueries();
     },
   });
@@ -54,23 +56,21 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
         <MonitorCog className="mt-0.5 size-5 shrink-0 text-brand-400" />
         <div className="grid min-w-0 gap-1">
           <h2 className="flex flex-wrap items-center gap-2 text-[15px] font-medium text-primary">
-            Set up AgentBox's Linux VM
+            {t('vm.setup.title')}
             {vz && (
               <Badge variant="warning">
                 <FlaskConical />
-                Experimental
+                {t('vm.setup.experimental')}
               </Badge>
             )}
           </h2>
           <p className="text-[13px] text-muted">
-            On a Mac, AgentBox runs in a Linux VM: the daemon, Incus and every agent live there, and your home folder is shared with it at the same
-            path, so your projects and the agents' worktrees stay where your editor can open them. The first setup downloads Debian and installs
-            Incus, which takes a few minutes.
+            {t('vm.setup.description')}
           </p>
         </div>
       </div>
       {!vm.exists && (
-        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="What runs the VM">
+        <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label={t('vm.setup.whatRuns')}>
           {drivers.map((d) => (
             <button
               key={d.driver}
@@ -86,23 +86,22 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
               )}
             >
               <span className="flex flex-wrap items-center gap-2 text-[13px] font-medium text-primary">
-                {d.label}
-                {d.driver === 'vz' && <Badge variant="warning">Experimental</Badge>}
+                {d.label ? t(d.label) : 'Lima'}
+                {d.driver === 'vz' && <Badge variant="warning">{t('vm.setup.experimental')}</Badge>}
               </span>
-              <span className="text-[11px] text-subtle">{d.hint}</span>
+              <span className="text-[11px] text-subtle">{t(d.hint)}</span>
             </button>
           ))}
         </div>
       )}
       {vz && (
         <Notice tone="warning">
-          The vz driver is experimental: nobody has run it on a real Mac yet. Your VM's memory is its whole cap, and the Mac may not get back what
-          it gives up. To go back, agentbox vm delete --yes removes it, and every agent in it; your projects and worktrees stay.
+          {t('vm.setup.vzNotice')}
         </Notice>
       )}
       {noLima ? (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">The VM is made with Lima, which isn't installed. Install it with Homebrew, then come back:</p>
+          <p className="text-[13px] text-muted">{t('vm.setup.noLima')}</p>
           <CommandBox command="brew install lima" />
         </div>
       ) : (
@@ -111,18 +110,18 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="primary" disabled={run.isPending} onClick={() => run.mutate()}>
               {run.isPending ? <LoaderCircle className="animate-spin" /> : <MonitorCog />}
-              {vm.exists ? 'Finish setting up the VM' : 'Set up the VM'}
+              {vm.exists ? t('vm.setup.finish') : t('vm.setup.setUp')}
             </Button>
-            <span className="text-xs text-subtle">{run.isPending ? 'This takes a few minutes the first time.' : 'No password needed'}</span>
+            <span className="text-xs text-subtle">{run.isPending ? t('vm.setup.takesAWhile') : t('vm.setup.noPassword')}</span>
           </div>
         </>
       )}
-      {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label="VM setup log" />}
+      {(lines.length > 0 || run.isPending) && <SetupLog lines={lines} label={t('vm.setup.log')} />}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
       {!noLima && otherProblem && !run.isPending && !run.error && lines.length === 0 && <Notice tone="warning">{otherProblem}</Notice>}
       {!noLima && (
         <div className="grid gap-2">
-          <p className="text-[13px] text-muted">Or in a terminal:</p>
+          <p className="text-[13px] text-muted">{t('vm.setup.orTerminal')}</p>
           <CommandBox command={command} />
         </div>
       )}
@@ -135,24 +134,23 @@ export function VMSetup({ vm }: { vm: VMStatus }) {
 // Apple's Virtualization framework, Lima's default, it keeps whatever it has
 // used until it stops. Setup doesn't install krunkit itself: it says how.
 function KrunkitNote({ check }: { check: NonNullable<VMStatus['krunkit']> }) {
+  const t = useT();
   if (check.available)
     return (
       <p className="text-[13px] text-muted" data-krunkit="available">
-        krunkit is installed, so the VM is made with it and gives the memory its agents stop using back to your Mac.
+        {t('vm.setup.krunkitAvailable')}
       </p>
     );
   if (check.missing === 'driver')
     return (
       <p className="text-[13px] text-muted" data-krunkit="driver">
-        Your Lima has no krunkit driver (lima-driver-krunkit), so the VM is made with Apple's Virtualization framework and keeps the memory it
-        has used until it stops.
+        {t('vm.setup.krunkitDriver')}
       </p>
     );
   return (
     <div className="grid gap-2" data-krunkit="missing">
       <p className="text-[13px] text-muted">
-        Install krunkit first and the VM gives the memory its agents stop using back to your Mac. Without it, the VM is made with Apple's
-        Virtualization framework and keeps what it has used until it stops:
+        {t('vm.setup.krunkitMissing')}
       </p>
       <CommandBox command="brew tap slp/krun && brew trust slp/krun && brew install krunkit" />
     </div>

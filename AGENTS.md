@@ -50,6 +50,10 @@ AgentBox runs in a VM, and the `agentbox` on the user's machine is that VM's fro
 
 ## Conventions
 
+- **The app's text is translated** (`desktop/src/shared/i18n`): every user-visible string in the
+  desktop app is a key in `en-US.ts` and `pt-BR.ts`, shown with `useT()`/`t()` from
+  `renderer/lib/i18n.tsx`; `i18n.test.ts` and the typecheck fail when pt-BR lacks a key. A language
+  is a catalog file plus a line in `languages.ts`. The CLI, the brief and the chats stay in English.
 - **Migrations are appended, never edited**: `migrations` in
   [`internal/state/state.go`](internal/state/state.go), tracked with `PRAGMA user_version`.
 - **Decisions and features are explained in their pull request**: context, what was decided and
@@ -97,6 +101,7 @@ fixtures built to trigger that (`dev/fixtures.ts`); it isn't part of the app bui
 npm --prefix desktop run preview                                    # serve it, print the URL
 npm --prefix desktop run preview -- --shots out                     # screenshot every scenario in dev/scenarios.json
 npm --prefix desktop run preview -- --shots out --against HEAD~1    # and before/after against another commit
+npm --prefix desktop run preview -- --shots out --lang pt-BR           # in another language; overflow is reported
 ```
 
 A scenario is a URL (`?open=agent-99&theme=light`, see the comment atop `preview.tsx`). `--against`

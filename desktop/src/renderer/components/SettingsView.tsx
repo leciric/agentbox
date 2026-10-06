@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Languages,
   ArrowRight,
   Bot,
   Check,
@@ -35,8 +36,9 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
-import type * as T from "../../shared/api";
+import * as T from "../../shared/api";
 import { api } from "../lib/api";
+import { formatDate, formatList, languages, t, useT, type MessageKey } from "../lib/i18n";
 import { isNightly, isUpgrade } from "../lib/nightly";
 import { openLatestRelease } from "../lib/releaseLink";
 import type { SettingSection } from "../lib/settingsSearch";
@@ -124,24 +126,32 @@ const skippable = (check: T.SetupCheck) => !check.required;
 // descriptions say what each step is for, in one sentence. The daemon names a
 // check and says what's wrong with it; what it is *for* belongs here, with the
 // page that shows it.
-const descriptions: Record<string, string> = {
-  cli: "The agentbox command, for your terminal and scripts, and for the next step. Agents get their own copy.",
-  incus: "Runs each agent in its own Linux machine.",
-  host: "Lets agents write files in their worktrees as you.",
-  image:
-    "The machine every agent is copied from: Debian with Docker, Node.js, Claude Code, Chromium and ffmpeg. Downloaded ready-made and made this machine's; made here from scratch, in a few minutes, when the download fails or you ask for an optional component.",
-  storage:
-    "Where agents' machines live. On btrfs or zfs, making one is an instant snapshot; on any other driver, it's a copy of the whole base image.",
-  claude:
-    "AgentBox's own logins for agents. Your ~/.claude isn't shared with them.",
-  codex: "For agents that run Codex.",
-  opencode:
-    "For agents that run OpenCode. Its logins are provider API keys, and they decide which models an OpenCode agent can run.",
-  github:
-    "Tokens for agents, as GH_TOKEN, so gh works in them. AgentBox also uses the default one to show each agent’s pull request and whether its checks pass.",
-  android:
-    "KVM and an Android SDK with a system image, shared read-only with agents of Android projects.",
-  preview: "Opens agents' dev servers from your own browser.",
+const descriptions: Record<string, MessageKey> = {
+  cli: "settings.setup.desc.cli",
+  incus: "settings.setup.desc.incus",
+  host: "settings.setup.desc.host",
+  image: "settings.setup.desc.image",
+  storage: "settings.setup.desc.storage",
+  claude: "settings.setup.desc.claude",
+  codex: "settings.setup.desc.codex",
+  opencode: "settings.setup.desc.opencode",
+  github: "settings.setup.desc.github",
+  android: "settings.setup.desc.android",
+  preview: "settings.setup.desc.preview",
+};
+
+// checkTitles name the daemon's checks by id; one the app doesn't know keeps
+// the daemon's own title.
+const checkTitles: Record<string, MessageKey> = {
+  incus: "settings.setup.title.incus",
+  host: "settings.setup.title.host",
+  image: "settings.setup.title.image",
+  storage: "settings.setup.title.storage",
+  claude: "settings.setup.title.claude",
+  codex: "settings.setup.title.codex",
+  opencode: "settings.setup.title.opencode",
+  android: "settings.setup.title.android",
+  preview: "settings.setup.title.preview",
 };
 
 // The two groups the tabbed page sorts steps into, once the wizard is behind
@@ -163,11 +173,12 @@ function githubDetail(auth?: T.AuthStatus): string | undefined {
   if (!auth?.github) return undefined;
   if (auth.githubError) return auth.githubError;
   return auth.githubUser
-    ? `Agents use GitHub as ${auth.githubUser} by default`
-    : "AgentBox has its own login for agents";
+    ? t("settings.setup.githubAs", { user: auth.githubUser })
+    : t("settings.setup.githubOwn");
 }
 
 export function SettingsView({ onHome }: { onHome?: () => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const setup = useQuery({
     queryKey: ["setup"],
@@ -196,7 +207,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     mutationFn: () => window.agentbox.cli.install(),
     onSuccess: (status) => {
       queryClient.setQueryData(["cli"], status);
-      toast("Installed the agentbox command", { description: status.linkPath });
+      toast(t("settings.setup.cliInstalled"), { description: status.linkPath });
     },
   });
   const build = useMutation({
@@ -221,14 +232,14 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
   // The app's own steps, which the daemon knows nothing about.
   const cliStep: Step = {
     id: "cli",
-    title: "Command-line tool",
+    title: t("settings.setup.title.cli"),
     status: cliStatus,
     required: true,
     optional: false,
     detail: cli.data?.path
-      ? `${cli.data.path} (${cli.data.version ?? "unknown version"})`
-      : "agentbox isn't on your shell's PATH",
-    description: descriptions.cli,
+      ? `${cli.data.path} (${cli.data.version ?? t("settings.setup.unknownVersion")})`
+      : t("settings.setup.cliNotOnPath"),
+    description: t(descriptions.cli),
     body: (
       <div className="grid gap-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -242,23 +253,26 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
             ) : (
               <SquareTerminal />
             )}
-            Install command-line tool
+            {t("settings.setup.installCli")}
           </Button>
           <span className="text-xs text-subtle">
-            Links it as {cli.data?.linkPath ?? "~/.local/bin/agentbox"}
+            {t("settings.setup.linksAs", {
+              path: cli.data?.linkPath ?? "~/.local/bin/agentbox",
+            })}
           </span>
         </div>
         {cli.data?.linked && !cli.data.onPath && (
           <Notice tone="warning">
-            <Code>~/.local/bin</Code> isn't on your shell's PATH. Add{" "}
-            <Code>export PATH="$HOME/.local/bin:$PATH"</Code> to your shell
-            profile, then open a new terminal.
+            {t.rich("settings.setup.notOnPathNotice", {
+              code: (c) => <Code>{c}</Code>,
+            })}
           </Notice>
         )}
         {cli.data?.bundled === false && (
           <Notice tone="info">
-            This build of the app has no agentbox binary to install. Build it
-            with <Code>go build -o bin/agentbox ./cmd/agentbox</Code>.
+            {t.rich("settings.setup.noBinaryNotice", {
+              code: (c) => <Code>{c}</Code>,
+            })}
           </Notice>
         )}
         {install.error && <Notice>{errorMessage(install.error)}</Notice>}
@@ -267,12 +281,12 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
   };
   const githubStep: Step = {
     id: "github",
-    title: "GitHub for agents",
+    title: t("settings.setup.title.github"),
     status: auth.data?.github ? "ok" : "optional",
     required: false,
     optional: true,
     detail: githubDetail(auth.data),
-    description: descriptions.github,
+    description: t(descriptions.github),
     // The watch is asked here, once, on the first run: it is what an agent's
     // GitHub account is for once its pull request is open. On the Settings
     // page it has a place of its own, under Agents.
@@ -292,9 +306,9 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     ),
     host: (
       <p className="text-[13px] text-muted">
-        Host setup does this one too: use{" "}
-        <span className="text-secondary">Set up host</span> in the Incus step
-        above.
+        {t.rich("settings.setup.hostBody", {
+          b: (c) => <span className="text-secondary">{c}</span>,
+        })}
       </p>
     ),
     image: (
@@ -316,8 +330,8 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
               <RefreshCw />
             )}
             {statusOf("image") === "missing"
-              ? "Build base image"
-              : "Rebuild base image"}
+              ? t("settings.setup.buildImage")
+              : t("settings.setup.rebuildImage")}
           </Button>
         </div>
         <ImageDownloads image={setup.data?.image} />
@@ -347,15 +361,11 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
       <div className="grid gap-2">
         <p className="text-[13px] text-muted">
           {check("codex")?.fix === "agentbox image build --codex" ? (
-            <>
-              The base image was built without Codex. Make it again with Codex
-              in, then log in.
-            </>
+            t("settings.setup.codexNoImage")
           ) : (
-            <>
-              Run this in a terminal. It needs the Codex CLI on this machine:{" "}
-              <Code>npm install -g @openai/codex</Code>.
-            </>
+            t.rich("settings.setup.codexBody", {
+              code: (c) => <Code>{c}</Code>,
+            })
           )}
         </p>
         <CommandBox command={check("codex")?.fix ?? "agentbox auth codex"} />
@@ -365,15 +375,11 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
       <div className="grid gap-2">
         <p className="text-[13px] text-muted">
           {check("opencode")?.fix === "agentbox image build --opencode" ? (
-            <>
-              The base image was built without OpenCode. Make it again with
-              OpenCode in, then log in.
-            </>
+            t("settings.setup.opencodeNoImage")
           ) : (
-            <>
-              Run this in a terminal and pick a provider. It needs the OpenCode
-              CLI on this machine: <Code>npm install -g opencode-ai</Code>.
-            </>
+            t.rich("settings.setup.opencodeBody", {
+              code: (c) => <Code>{c}</Code>,
+            })
           )}
         </p>
         <CommandBox
@@ -384,9 +390,9 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     android: check("android")?.fix ? (
       <div className="grid gap-2">
         <p className="text-[13px] text-muted">
-          Install Android Studio, or the SDK command-line tools, then add the
-          emulator and a system image. AgentBox looks in{" "}
-          <Code>$ANDROID_HOME</Code> and <Code>~/Android/Sdk</Code>.
+          {t.rich("settings.setup.androidBody", {
+            code: (c) => <Code>{c}</Code>,
+          })}
         </p>
         <CommandBox command={check("android")!.fix!} />
       </div>
@@ -400,12 +406,12 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
   for (const c of setup.data?.checks ?? []) {
     steps.push({
       id: c.id,
-      title: c.title,
+      title: checkTitles[c.id] ? t(checkTitles[c.id]) : c.title,
       status: c.status as Status,
       required: c.required,
       optional: skippable(c),
       detail: c.detail,
-      description: descriptions[c.id] ?? "",
+      description: descriptions[c.id] ? t(descriptions[c.id]) : "",
       body:
         bodies[c.id] ?? (c.fix ? <CommandBox command={c.fix} /> : undefined),
     });
@@ -490,6 +496,7 @@ function SetupWizard({
   onSettings: () => void;
   onHome?: () => void;
 }) {
+  const t = useT();
   const blocked = steps.findIndex((s) => !s.optional && !usable(s.status));
   const ready = blocked === -1;
   // The last screen is the wizard's own: everything required is done.
@@ -509,11 +516,10 @@ function SetupWizard({
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-title">
-              Set up AgentBox
+              {t("settings.setup.heading")}
             </h1>
             <p className="mt-1 text-sm text-muted">
-              One step at a time. This page checks again every few seconds, so a
-              step you finish elsewhere ticks itself off.
+              {t("settings.setup.intro")}
             </p>
           </div>
           <Button
@@ -523,18 +529,18 @@ function SetupWizard({
             onClick={onSettings}
           >
             <ListChecks />
-            Show settings
+            {t("settings.setup.showSettings")}
           </Button>
         </div>
         {error && <Notice className="mt-4">{error}</Notice>}
 
         <div className="mt-6 grid gap-5 md:grid-cols-[13rem_minmax(0,1fr)]">
           <nav
-            aria-label="Setup steps"
+            aria-label={t("settings.setup.steps")}
             className="md:sticky md:top-0 md:self-start"
           >
             <p className="px-2 pb-2 text-[11px] uppercase tracking-wider text-faint">
-              {doneCount} of {steps.length} done
+              {t("settings.setup.progress", { done: doneCount, total: steps.length })}
             </p>
             <ol className="grid gap-0.5">
               {steps.map((s, i) => (
@@ -549,7 +555,7 @@ function SetupWizard({
               <RailItem
                 step={{
                   id: "done",
-                  title: "All set",
+                  title: t("settings.setup.allSet"),
                   description: "",
                   status: ready ? "ok" : "optional",
                   required: false,
@@ -572,21 +578,21 @@ function SetupWizard({
                 <>
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] tabular-nums text-faint">
-                      Step {at + 1} of {steps.length}
+                      {t("settings.setup.stepOf", { n: at + 1, total: steps.length })}
                     </span>
                     {step.optional ? (
                       step.status === "warn" ? (
-                        <Badge variant="warning">check</Badge>
+                        <Badge variant="warning">{t("settings.setup.badgeCheck")}</Badge>
                       ) : (
-                        <Badge>optional</Badge>
+                        <Badge>{t("settings.setup.badgeOptional")}</Badge>
                       )
                     ) : step.status === "updating" ? (
-                      <Badge>updating</Badge>
+                      <Badge>{t("settings.setup.badgeUpdating")}</Badge>
                     ) : (
                       step.status !== "ok" &&
                       step.status !== "checking" && (
                         <Badge variant="warning">
-                          {step.status === "outdated" ? "outdated" : "needed"}
+                          {step.status === "outdated" ? t("settings.setup.badgeOutdated") : t("settings.setup.badgeNeeded")}
                         </Badge>
                       )
                     )}
@@ -628,11 +634,11 @@ function SetupWizard({
                 onClick={() => setIndex(at - 1)}
               >
                 <ArrowLeft />
-                Back
+                {t("common.back")}
               </Button>
               {step?.optional && (
                 <Button variant="ghost" onClick={() => setIndex(at + 1)}>
-                  Skip for now
+                  {t("settings.setup.skip")}
                 </Button>
               )}
               {at < last && (
@@ -642,14 +648,13 @@ function SetupWizard({
                   disabled={stuck}
                   onClick={() => setIndex(at + 1)}
                 >
-                  Next
+                  {t("common.next")}
                   <ArrowRight />
                 </Button>
               )}
               {stuck && (
                 <span className="w-full text-xs text-subtle">
-                  AgentBox can't run agents without this one, so it waits here
-                  until it's done.
+                  {t("settings.setup.stuck")}
                 </span>
               )}
             </div>
@@ -717,6 +722,7 @@ function Finished({
   onHome?: () => void;
   onSettings: () => void;
 }) {
+  const t = useT();
   return (
     <div className="grid justify-items-center gap-3 py-6 text-center">
       <span className="flex size-12 items-center justify-center rounded-2xl border border-line-strong bg-overlay">
@@ -725,23 +731,23 @@ function Finished({
         />
       </span>
       <h2 className="text-lg font-semibold text-title">
-        {ready ? "Setup is complete" : "Almost there"}
+        {ready ? t("settings.setup.complete") : t("settings.setup.almost")}
       </h2>
       <p className="max-w-md text-sm leading-relaxed text-muted">
         {ready
-          ? "This machine has everything AgentBox needs. Add a project from the Home page, then create your first agent."
-          : "Go back through the steps above: something required is still missing."}
+          ? t("settings.setup.completeBody")
+          : t("settings.setup.almostBody")}
       </p>
       <div className="mt-1 flex flex-wrap justify-center gap-2">
         {onHome && (
           <Button variant="primary" disabled={!ready} onClick={onHome}>
-            Go to Home
+            {t("settings.setup.goHome")}
             <ArrowRight />
           </Button>
         )}
         <Button variant="secondary" onClick={onSettings}>
           <ListChecks />
-          Show settings
+          {t("settings.setup.showSettings")}
         </Button>
       </div>
     </div>
@@ -781,6 +787,7 @@ function InstalledSettings({
   agentbox: string;
   onWizard: () => void;
 }) {
+  const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const theme = useQuery({ queryKey: ["theme"], queryFn: api.theme });
   const update = useQuery({ queryKey: ["update"], queryFn: api.update, staleTime: Infinity });
@@ -847,52 +854,59 @@ function InstalledSettings({
   const sections: SettingSection[] = [
     {
       id: "general",
-      title: "General",
-      description: "How AgentBox looks on this machine, and how it keeps up to date.",
+      title: t("settings.section.general.title"),
+      description: t("settings.section.general.description"),
       scope: "installation",
       groups: [
         {
           id: "appearance",
-          title: "Appearance",
+          title: t("settings.group.appearance.title"),
           entries: [
             {
               id: "appearance",
-              label: "Appearance",
-              keywords: "theme dark light mode omarchy colours colors accent follow desktop",
+              label: t("settings.entry.appearance.label"),
+              keywords: t("settings.entry.appearance.keywords"),
               modified: theme.data ? theme.data.appearance !== "follow" : undefined,
               render: () => <Appearance />,
+            },
+            {
+              id: "language",
+              label: t("common.language"),
+              keywords: t("settings.languageKeywords"),
+              modified: changed((s) => s.language !== T.DefaultLanguage),
+              render: () => <LanguageSetting />,
             },
           ],
         },
         {
           id: "updates",
-          title: "Updates and privacy",
+          title: t("settings.group.updates.title"),
           entries: [
             {
               id: "update-check",
-              label: "Check for updates",
-              keywords: "update version release new daily telemetry privacy installations count",
+              label: t("settings.entry.update-check.label"),
+              keywords: t("settings.entry.update-check.keywords"),
               modified: changed((s) => !s.updateCheck),
               render: () => <UpdateCheck />,
             },
             {
               id: "update-channel",
-              label: "Update channel",
-              keywords: "update channel nightly stable beta prerelease preview version release",
+              label: t("settings.entry.update-channel.label"),
+              keywords: t("settings.entry.update-channel.keywords"),
               modified: update.data ? update.data.channel !== (update.data.nightly ? "nightly" : "stable") : undefined,
               render: () => <UpdateChannel />,
             },
             {
               id: "usage-stats",
-              label: "Share anonymous usage stats",
-              keywords: "telemetry analytics anonymous features privacy tracking",
+              label: t("settings.entry.usage-stats.label"),
+              keywords: t("settings.entry.usage-stats.keywords"),
               modified: changed((s) => !s.usageStats),
               render: () => <UsageStats />,
             },
             {
               id: "error-reports",
-              label: "Send error reports automatically",
-              keywords: "crash error report bug telemetry privacy automatic uncaught",
+              label: t("settings.entry.error-reports.label"),
+              keywords: t("settings.entry.error-reports.keywords"),
               modified: changed((s) => s.errorReports),
               render: () => <ErrorReportsSetting />,
             },
@@ -900,8 +914,8 @@ function InstalledSettings({
               ? [
                   {
                     id: "whats-new",
-                    label: "What's new",
-                    keywords: "changelog release notes version",
+                    label: t("settings.entry.whats-new.label"),
+                    keywords: t("settings.entry.whats-new.keywords"),
                     render: () => <WhatsNewRow version={info.version} />,
                   },
                 ]
@@ -910,12 +924,12 @@ function InstalledSettings({
         },
         {
           id: "help",
-          title: "Help",
+          title: t("settings.group.help.title"),
           entries: [
             {
               id: "report-problem",
-              label: "Report a problem",
-              keywords: "bug issue feedback report problem logs support help debug",
+              label: t("settings.entry.report-problem.label"),
+              keywords: t("settings.entry.report-problem.keywords"),
               render: () => <ReportProblemRow />,
             },
           ],
@@ -931,8 +945,8 @@ function InstalledSettings({
       ? [
           {
             id: "phone",
-            title: "Phone",
-            description: "Chatting from your phone's browser, on this computer's network.",
+            title: t("settings.section.phone.title"),
+            description: t("settings.section.phone.description"),
             scope: "installation" as const,
             groups: phoneGroups(),
           },
@@ -940,49 +954,47 @@ function InstalledSettings({
       : []),
     {
       id: "voice",
-      title: "Voice",
-      description: "Talking to chats and hearing them, on this machine.",
+      title: t("settings.section.voice.title"),
+      description: t("settings.section.voice.description"),
       scope: "installation",
       groups: [pushToTalkGroup(voice), readAloud],
     },
     {
       id: "models",
-      title: "Models",
-      description:
-        "What agents and each project's lead run on, and how long a chat gets before it compacts.",
+      title: t("settings.section.models.title"),
+      description: t("settings.section.models.description"),
       scope: "installation",
       groups: [
         {
           id: "new-agents",
-          title: "New agents",
-          description:
-            "Each can be overridden for a single agent as you create it, and a project can pick its own model.",
+          title: t("settings.group.new-agents.title"),
+          description: t("settings.group.new-agents.description"),
           entries: [
             {
               id: "agent-model",
-              label: "Model for new agents",
-              keywords: "claude code opus sonnet haiku fable default",
+              label: t("settings.entry.agent-model.label"),
+              keywords: t("settings.entry.agent-model.keywords"),
               modified: changed((s) => s.defaultClaudeModel !== ""),
               render: () => <DefaultModel role="agents" />,
             },
             {
               id: "agent-window",
-              label: "Context window for new agents",
-              keywords: "1m tokens compact context",
+              label: t("settings.entry.agent-window.label"),
+              keywords: t("settings.entry.agent-window.keywords"),
               modified: changed((s) => s.defaultAgentContextWindow !== ""),
               render: () => <DefaultContextWindow role="agents" />,
             },
             {
               id: "agent-effort",
-              label: "Effort for new agents",
-              keywords: "thinking reasoning effort high low",
+              label: t("settings.entry.agent-effort.label"),
+              keywords: t("settings.entry.agent-effort.keywords"),
               modified: changed((s) => s.defaultClaudeEffort !== ""),
               render: () => <NewAgentEffort />,
             },
             {
               id: "enforce",
-              label: "Enforce this model and context window",
-              keywords: "lead cheaper model ceiling limit create_agent",
+              label: t("settings.entry.enforce.label"),
+              keywords: t("settings.entry.enforce.keywords"),
               modified: changed((s) => s.enforceAgentDefaults),
               render: () => <EnforceAgentDefaults />,
             },
@@ -990,21 +1002,20 @@ function InstalledSettings({
         },
         {
           id: "lead",
-          title: "Lead",
-          description:
-            "Each project's chat, which plans the work and directs its agents. Its composer can still pick another model or window for one project, and what it picks there wins.",
+          title: t("settings.group.lead.title"),
+          description: t("settings.group.lead.description"),
           entries: [
             {
               id: "lead-model",
-              label: "Model for the lead",
-              keywords: "project chat claude opus sonnet default",
+              label: t("settings.entry.lead-model.label"),
+              keywords: t("settings.entry.lead-model.keywords"),
               modified: changed((s) => s.defaultLeadModel !== ""),
               render: () => <DefaultModel role="lead" />,
             },
             {
               id: "lead-window",
-              label: "Context window for the lead",
-              keywords: "project chat 1m tokens compact context",
+              label: t("settings.entry.lead-window.label"),
+              keywords: t("settings.entry.lead-window.keywords"),
               modified: changed((s) => s.defaultLeadContextWindow !== ""),
               render: () => <DefaultContextWindow role="lead" />,
             },
@@ -1012,21 +1023,20 @@ function InstalledSettings({
         },
         {
           id: "chats",
-          title: "Every chat",
-          description:
-            "These reach the chats you already have, as well as the next one.",
+          title: t("settings.group.chats.title"),
+          description: t("settings.group.chats.description"),
           entries: [
             {
               id: "compact",
-              label: "Compact chats at",
-              keywords: "context window tokens summarise summarize compaction cost codex",
+              label: t("settings.entry.compact.label"),
+              keywords: t("settings.entry.compact.keywords"),
               modified: changed((s) => s.claudeCompactWindow !== s.defaultClaudeCompactWindow),
               render: () => <CompactWindow />,
             },
             {
               id: "resume",
-              label: "Resume after a usage limit",
-              keywords: "rate limit usage spent five hour weekly wait carry on claude account",
+              label: t("settings.entry.resume.label"),
+              keywords: t("settings.entry.resume.keywords"),
               modified: changed((s) => !s.resumeAfterLimit),
               render: () => <ResumeAfterLimit />,
             },
@@ -1043,29 +1053,26 @@ function InstalledSettings({
         >
           <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-brand-300" />
           <span>
-            Tip: tell a project's lead a preference like "use only one agent at
-            a time" or "use Sonnet for small fixes". It remembers it, and
-            follows it every time it creates an agent.
+            {t("settings.models.tip")}
           </span>
         </p>
       ),
     },
     {
       id: "agents",
-      title: "Agents",
-      description:
-        "What happens to agents as they work: their pull requests, and when they're idle or gone.",
+      title: t("settings.section.agents.title"),
+      description: t("settings.section.agents.description"),
       scope: "installation",
       groups: [
         {
           id: "pulls",
-          title: "Pull requests",
-          description: "A project can turn this on or off for itself in its settings.",
+          title: t("settings.group.pulls.title"),
+          description: t("settings.group.pulls.description"),
           entries: [
             {
               id: "pr-watch",
-              label: "Watch agents' pull requests",
-              keywords: "pr github conflict checks ci fail review changes requested",
+              label: t("settings.entry.pr-watch.label"),
+              keywords: t("settings.entry.pr-watch.keywords"),
               modified: changed((s) => !s.prWatch),
               render: () => <PRWatch />,
             },
@@ -1073,27 +1080,27 @@ function InstalledSettings({
         },
         {
           id: "queue",
-          title: "Agent queue",
-          description: "A running limit per project, so agents wait their turn instead of all starting at once.",
+          title: t("settings.group.queue.title"),
+          description: t("settings.group.queue.description"),
           entries: [
             {
               id: "agent-queue",
-              label: "Agent queue",
-              keywords: "queue slots concurrency wait turn budget memory",
+              label: t("settings.entry.agent-queue.label"),
+              keywords: t("settings.entry.agent-queue.keywords"),
               modified: changed((s) => s.agentQueue),
               render: () => <AgentQueue />,
             },
             {
               id: "task-target",
-              label: "Tasks go to",
-              keywords: "tasks route lead agent split target",
+              label: t("settings.entry.task-target.label"),
+              keywords: t("settings.entry.task-target.keywords"),
               modified: changed((s) => s.taskTarget === "lead"),
               render: () => <TaskTarget />,
             },
             {
               id: "lead-recheck",
-              label: "Lead rechecks agents",
-              keywords: "lead recheck wake status queue idle retire minutes",
+              label: t("settings.entry.lead-recheck.label"),
+              keywords: t("settings.entry.lead-recheck.keywords"),
               modified: changed((s) => s.leadRecheck),
               render: () => <LeadRecheck />,
             },
@@ -1101,26 +1108,26 @@ function InstalledSettings({
         },
         {
           id: "lifecycle",
-          title: "Idle, stopped and removed agents",
+          title: t("settings.group.lifecycle.title"),
           entries: [
             {
               id: "auto-stop",
-              label: "Auto-stop idle agents",
-              keywords: "idle stop timeout inactive suspend sleep",
+              label: t("settings.entry.auto-stop.label"),
+              keywords: t("settings.entry.auto-stop.keywords"),
               modified: changed((s) => s.autoStopIdle),
               render: () => <AutoStopIdle />,
             },
             {
               id: "docker-prune",
-              label: "Free Docker space when an agent stops",
-              keywords: "docker prune images build cache disk space stop clean",
+              label: t("settings.entry.docker-prune.label"),
+              keywords: t("settings.entry.docker-prune.keywords"),
               modified: changed((s) => !s.dockerPruneOnStop),
               render: () => <DockerPruneOnStop />,
             },
             {
               id: "media-retention",
-              label: "Keep a removed agent's media for",
-              keywords: "media screenshots recordings reports retention purge delete disk",
+              label: t("settings.entry.media-retention.label"),
+              keywords: t("settings.entry.media-retention.keywords"),
               modified: changed((s) => s.mediaRetention !== "1d"),
               render: () => <MediaRetention />,
             },
@@ -1130,33 +1137,32 @@ function InstalledSettings({
     },
     {
       id: "resources",
-      title: "Resources",
-      description:
-        "What agents may take from this machine: the free space AgentBox keeps on your disks, the Docker images and package caches they share, and the size of its VM.",
+      title: t("settings.section.resources.title"),
+      description: t("settings.section.resources.description"),
       scope: "installation",
       groups: [
         {
           id: "disk",
-          title: "Disk",
+          title: t("settings.group.disk.title"),
           entries: [
             {
               id: "disk-floor",
-              label: "Keep free on every disk",
-              keywords: "disk space full floor free storage pool guard pause",
+              label: t("settings.entry.disk-floor.label"),
+              keywords: t("settings.entry.disk-floor.keywords"),
               modified: changed((s) => s.diskFloorMin !== 10 * 1024 ** 3 || s.diskFloorPercent !== 5),
               render: () => <DiskFloor />,
             },
             {
               id: "docker-image-cache",
-              label: "Share Docker images between agents",
-              keywords: "docker image cache registry mirror pull hub layers disk space shared",
+              label: t("settings.entry.docker-image-cache.label"),
+              keywords: t("settings.entry.docker-image-cache.keywords"),
               modified: changed((s) => !s.imageCache || s.imageCacheMaxBytes !== s.defaultImageCacheMaxBytes),
               render: () => <DockerImageCache />,
             },
             {
               id: "package-caches",
-              label: "Share package caches between agents",
-              keywords: "package cache pnpm npm yarn go modules pip uv playwright browsers corepack dependencies install disk space shared",
+              label: t("settings.entry.package-caches.label"),
+              keywords: t("settings.entry.package-caches.keywords"),
               modified: changed((s) => !s.packageCache || s.packageCacheMaxBytes !== s.defaultPackageCacheMaxBytes),
               render: () => <SharedPackageCaches />,
             },
@@ -1166,13 +1172,13 @@ function InstalledSettings({
           ? [
               {
                 id: "vm",
-                title: "AgentBox's Linux VM",
+                title: t("settings.group.vm.title"),
                 cards: true,
                 entries: [
                   {
                     id: "vm-size",
-                    label: "VM size",
-                    keywords: "mac lima cloud hypervisor cpus memory cap resize virtual machine",
+                    label: t("settings.entry.vm-size.label"),
+                    keywords: t("settings.entry.vm-size.keywords"),
                     render: () =>
                       chv ? (
                         <CHVSize vm={chv} busy={hostSetup.data?.resizing === true} />
@@ -1182,8 +1188,8 @@ function InstalledSettings({
                   },
                   {
                     id: "vm-swap",
-                    label: "VM swap",
-                    keywords: "swap swapfile memory disk virtual machine",
+                    label: t("settings.entry.vm-swap.label"),
+                    keywords: t("settings.entry.vm-swap.keywords"),
                     render: () =>
                       chv ? (
                         <VMSwap swap={chv.swap} running={chv.state === "running"} />
@@ -1199,21 +1205,20 @@ function InstalledSettings({
     },
     {
       id: "accounts",
-      title: "Accounts",
-      description:
-        "The logins agents use, kept by AgentBox. Each project picks which of them its agents get.",
+      title: t("settings.section.accounts.title"),
+      description: t("settings.section.accounts.description"),
       scope: "installation",
       attention: needsLook(accountSteps),
       groups: [
         {
           id: "ai",
-          title: "AI tools",
+          title: t("settings.group.ai.title"),
           cards: true,
           entries: aiSteps.map((step) => stepEntry(step, step.id === "claude")),
         },
         {
           id: "github",
-          title: "GitHub",
+          title: t("settings.group.github.title"),
           cards: true,
           entries: githubSteps.map((step) => stepEntry({ ...step, body: step.settingsBody ?? step.body }, true)),
         },
@@ -1221,9 +1226,8 @@ function InstalledSettings({
     },
     {
       id: "setup",
-      title: "Setup",
-      description:
-        "What AgentBox needs on this machine. Checked again every few seconds, so a step you finish elsewhere ticks itself off.",
+      title: t("settings.section.setup.title"),
+      description: t("settings.section.setup.description"),
       scope: "installation",
       attention: needsLook(machineSteps),
       header: (
@@ -1233,11 +1237,11 @@ function InstalledSettings({
               className="text-[13px] tabular-nums text-muted"
               data-setup-progress={`${done}/${total}`}
             >
-              {done} of {total} required ready
+              {t("settings.setup.requiredReady", { done, total })}
             </span>
             <Button variant="ghost" size="sm" className="ml-auto" onClick={onWizard}>
               <Wand />
-              Run setup again
+              {t("settings.setup.runAgain")}
             </Button>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-surface-raised">
@@ -1253,13 +1257,13 @@ function InstalledSettings({
           ? [
               {
                 id: "where",
-                title: "Where agents run",
+                title: t("settings.group.where.title"),
                 cards: true,
                 entries: [
                   {
                     id: "move-to-vm",
-                    label: "Move to a VM",
-                    keywords: `${moveToVMKeywords} old machines remove`,
+                    label: t("settings.entry.move-to-vm.label"),
+                    keywords: `${moveToVMKeywords()} ${t("settings.setup.moveKeywords")}`,
                     // Once moved, the machine is in VM mode: what's left is
                     // the move's result, and removing the old machines.
                     render: () =>
@@ -1279,7 +1283,7 @@ function InstalledSettings({
           : []),
         {
           id: "required",
-          title: "Required",
+          title: t("settings.group.required.title"),
           cards: true,
           entries: machineSteps
             .filter((step) => step.required)
@@ -1293,18 +1297,18 @@ function InstalledSettings({
         },
         {
           id: "optional",
-          title: "Optional",
+          title: t("settings.group.optional.title"),
           cards: true,
           entries: machineSteps.filter((step) => !step.required).map((step) => stepEntry(step)),
         },
         {
           id: "image",
-          title: "Base image",
+          title: t("settings.group.image.title"),
           entries: [
             {
               id: "opencode-image",
-              label: "OpenCode in the base image",
-              keywords: "opencode image build rebuild component tool",
+              label: t("settings.entry.opencode-image.label"),
+              keywords: t("settings.entry.opencode-image.keywords"),
               modified: setup.data ? setup.data.image.components.opencode : undefined,
               render: () => <OpenCodeInImage />,
             },
@@ -1344,6 +1348,7 @@ const sectionIcons: SectionIcons = {
 // lead's brief and create_agent's description say which, so keep this text in
 // step with lead.md.tmpl and chatSettingParams (internal/cli/mcp.go).
 function EnforceAgentDefaults() {
+  const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -1355,35 +1360,22 @@ function EnforceAgentDefaults() {
   const enforced = settings.data?.enforceAgentDefaults ?? false;
   return (
     <SettingRow
-      label="Enforce this model and context window"
+      label={t("settings.entry.enforce.label")}
       description={
         enforced
-          ? "The lead creates every agent with exactly this model and window."
-          : "The lead may pick a cheaper model for an easy task, never a dearer one."
+          ? t("settings.enforce.descriptionOn")
+          : t("settings.enforce.descriptionOff")
       }
       details={
         <>
-          {enforced ? (
-            <>
-              On: the lead creates every agent with exactly this model and
-              window, and is refused any other.
-            </>
-          ) : (
-            <>
-              Off: this model and window are the most the lead may use. It
-              keeps them for medium and hard tasks and picks a cheaper model
-              for easy ones, like Sonnet for small fixes or Haiku for
-              mechanical jobs, never anything above them.
-            </>
-          )}{" "}
-          Only for agents the lead creates: what you pick when you create one
-          yourself always wins.
+          {enforced ? t("settings.enforce.detailsOn") : t("settings.enforce.detailsOff")}{" "}
+          {t("settings.enforce.detailsNote")}
         </>
       }
       control={
         <Switch
           data-enforce-agent-defaults
-          aria-label="Enforce this model and context window"
+          aria-label={t("settings.entry.enforce.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={enforced}
           onCheckedChange={(next) => save.mutate(next)}
@@ -1400,6 +1392,7 @@ function EnforceAgentDefaults() {
 // development build, or AGENTBOX_NO_UPDATE_CHECK / DO_NOT_TRACK in the
 // daemon's environment — it says so, rather than a switch that does nothing.
 function UpdateCheck() {
+  const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const update = useQuery({
     queryKey: ["update"],
@@ -1417,37 +1410,30 @@ function UpdateCheck() {
   const blocked = update.data?.blocked;
   return (
     <SettingRow
-      label="Check for updates"
-      description="Once a day, asks agentbox.linting.dev whether a newer AgentBox is out."
-      details={
-        <>
-          It's also how installations are counted. It sends exactly four
-          things: a random ID made for this purpose, this version of AgentBox
-          {update.data?.current ? ` (${update.data.current})` : ""}, the
-          operating system and the processor architecture. Nothing about you,
-          your projects or your agents, and nothing else that identifies this
-          machine.
-        </>
-      }
+      label={t("settings.entry.update-check.label")}
+      description={t("settings.updateCheck.description")}
+      details={t("settings.updateCheck.details", {
+        version: update.data?.current ? ` (${update.data.current})` : "",
+      })}
       control={
         <Switch
           data-update-check
-          aria-label="Check for updates"
+          aria-label={t("settings.entry.update-check.label")}
           disabled={save.isPending || settings.data === undefined || !!blocked}
           checked={!blocked && (settings.data?.updateCheck ?? true)}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }
     >
-      {blocked && <SettingNote>Off, because {blocked}.</SettingNote>}
+      {blocked && <SettingNote>{t("settings.update.offBecause", { reason: blocked })}</SettingNote>}
       {available && isUpgrade(available.version, update.data!.current) && (
         <SettingNote>
-          AgentBox {available.version} is out.{" "}
+          {t("settings.updateCheck.isOut", { version: available.version })}{" "}
           <button
             className="rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
             onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, available.url)}
           >
-            See what's new
+            {t("settings.updateCheck.seeWhatsNew")}
           </button>
         </SettingNote>
       )}
@@ -1456,15 +1442,16 @@ function UpdateCheck() {
 }
 
 const channels = [
-  { value: "stable", label: "Stable", icon: CircleCheck },
-  { value: "nightly", label: "Nightly", icon: MoonStar },
-] as const;
+  { value: "stable", label: "settings.channel.stable", icon: CircleCheck },
+  { value: "nightly", label: "settings.channel.nightly", icon: MoonStar },
+] as const satisfies readonly { value: string; label: MessageKey; icon: unknown }[];
 
 // UpdateChannel picks what the update check offers: stable releases only, or
 // the nightly builds as well (internal/update's Offer). A nightly build starts
 // out on nightly. Going back to stable offers the latest stable release though
 // its version is lower, which the note says rather than calling it an update.
 function UpdateChannel() {
+  const t = useT();
   const update = useQuery({
     queryKey: ["update"],
     queryFn: api.update,
@@ -1488,14 +1475,14 @@ function UpdateChannel() {
   const backToStable = !!available && current === "stable" && !!update.data?.nightly && !isUpgrade(available.version, update.data.current);
   return (
     <SettingRow
-      label="Update channel"
-      description="Stable offers releases only. Nightly also offers the builds made each day from what's coming next."
-      details="Nightlies are built from the next release as it stands, and are published on GitHub as prereleases: they're for trying what's coming, and may break. To see them, the daily check also asks GitHub for its public list of releases, sending nothing more than any page request does. Going back to Stable offers the latest release, even though its version is lower than the nightly's."
+      label={t("settings.entry.update-channel.label")}
+      description={t("settings.channel.description")}
+      details={t("settings.channel.details")}
     >
       <div
         className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
         role="radiogroup"
-        aria-label="Update channel"
+        aria-label={t("settings.entry.update-channel.label")}
         data-update-channel={current}
       >
         {channels.map(({ value, label, icon: Icon }) => (
@@ -1514,19 +1501,19 @@ function UpdateChannel() {
             )}
           >
             <Icon className="size-[15px]" />
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
-      {update.data?.blocked && <SettingNote>Off, because {update.data.blocked}.</SettingNote>}
+      {update.data?.blocked && <SettingNote>{t("settings.update.offBecause", { reason: update.data.blocked })}</SettingNote>}
       {backToStable && (
         <SettingNote>
-          This is a nightly. AgentBox {available.version} is the latest stable release.{" "}
+          {t("settings.channel.backToStable", { version: available.version })}{" "}
           <button
             className="rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
             onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, available.url)}
           >
-            Get it
+            {t("settings.channel.getIt")}
           </button>
         </SettingNote>
       )}
@@ -1538,6 +1525,7 @@ function UpdateChannel() {
 // agent's open pull request, until it's merged or closed. A project can
 // override it from its own settings.
 export function PRWatch() {
+  const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -1550,23 +1538,15 @@ export function PRWatch() {
   });
   return (
     <SettingRow
-      label="Watch agents' pull requests"
+      label={t("settings.entry.pr-watch.label")}
       htmlFor="pr-watch"
-      description="Tells an agent when its pull request conflicts, fails its checks or gets changes requested."
-      details={
-        <>
-          Until each is merged or closed. AgentBox tells the agent that opened
-          it to fix it — starting it if it was stopped — and tells the
-          project's chat. It asks GitHub once per repository per look, with the
-          project's GitHub account: every 30 seconds while checks run, slowing
-          to every 15 minutes while nothing changes.
-        </>
-      }
+      description={t("settings.prWatch.description")}
+      details={t("settings.prWatch.details")}
       control={
         <Switch
           id="pr-watch"
           data-pr-watch
-          aria-label="Watch agents' pull requests"
+          aria-label={t("settings.entry.pr-watch.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.prWatch ?? true}
           onCheckedChange={(next) => save.mutate(next)}
@@ -1582,6 +1562,7 @@ export function PRWatch() {
 // "Update check" section. It can't be on while the check is off or blocked,
 // and says which, rather than a switch that does nothing.
 function UsageStats() {
+  const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const update = useQuery({
     queryKey: ["update"],
@@ -1599,18 +1580,13 @@ function UsageStats() {
   const checkOff = settings.data?.updateCheck === false;
   return (
     <SettingRow
-      label="Share anonymous usage stats"
-      description="With the update check, sends how many times each feature was used per day."
-      details={
-        <>
-          Like "agent.create.claude: 3", and nothing else: no names, paths,
-          repositories or anything you typed.
-        </>
-      }
+      label={t("settings.entry.usage-stats.label")}
+      description={t("settings.usageStats.description")}
+      details={t("settings.usageStats.details")}
       control={
         <Switch
           data-usage-stats
-          aria-label="Share anonymous usage stats"
+          aria-label={t("settings.entry.usage-stats.label")}
           disabled={
             save.isPending || settings.data === undefined || !!blocked || checkOff
           }
@@ -1621,7 +1597,7 @@ function UsageStats() {
     >
       {(blocked || checkOff) && (
         <SettingNote>
-          Off, because {blocked ?? "Check for updates is off"}.
+          {t("settings.update.offBecause", { reason: blocked ?? t("settings.usageStats.checkOff") })}
         </SettingNote>
       )}
     </SettingRow>
@@ -1632,6 +1608,7 @@ function UsageStats() {
 // error by itself (components/ErrorReports.tsx), which it offers the first
 // time one happens.
 function ErrorReportsSetting() {
+  const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -1641,19 +1618,13 @@ function ErrorReportsSetting() {
   });
   return (
     <SettingRow
-      label="Send error reports automatically"
-      description="When the app hits an error it didn't expect, sends AgentBox's developers a report of it."
-      details={
-        <>
-          The error, where in the app it happened, and the app's version and
-          OS, with tokens, emails and home folders taken out: no logs, and
-          nothing you typed.
-        </>
-      }
+      label={t("settings.entry.error-reports.label")}
+      description={t("settings.errorReports.description")}
+      details={t("settings.errorReports.details")}
       control={
         <Switch
           data-error-reports
-          aria-label="Send error reports automatically"
+          aria-label={t("settings.entry.error-reports.label")}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.errorReports ?? false}
           onCheckedChange={(next) => save.mutate(next)}
@@ -1665,14 +1636,15 @@ function ErrorReportsSetting() {
 
 // ReportProblemRow opens "Report a problem" (components/ReportDialog.tsx).
 function ReportProblemRow() {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <SettingRow
-      label="Report a problem"
-      description="Tell AgentBox's developers what went wrong, with the logs that help them find out why. You see all of it before it's sent."
+      label={t("settings.entry.report-problem.label")}
+      description={t("settings.reportProblem.description")}
       control={
         <Button variant="secondary" data-report-problem onClick={() => setOpen(true)}>
-          Report…
+          {t("settings.reportProblem.button")}
         </Button>
       }
     >
@@ -1684,18 +1656,65 @@ function ReportProblemRow() {
 // WhatsNewRow opens the same dialog App shows once after an update, so it can
 // be read again any time.
 function WhatsNewRow({ version }: { version: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   return (
     <SettingRow
-      label="What's new"
-      description="What changed in this version of AgentBox, and the ones before it."
+      label={t("settings.entry.whats-new.label")}
+      description={t("settings.whatsNew.description")}
       control={
         <Button variant="secondary" onClick={() => setOpen(true)}>
-          Show
+          {t("settings.whatsNew.show")}
         </Button>
       }
     >
       <WhatsNewDialog open={open} onOpenChange={setOpen} version={version} />
+    </SettingRow>
+  );
+}
+
+// LanguageSetting is the language the app speaks. Picking one retranslates the
+// whole window at once (main.tsx's Root follows the setting); the CLI, the
+// brief and the agents' chats stay in English, which the description says.
+function LanguageSetting() {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
+  const set = useMutation({
+    mutationFn: (language: string) => api.updateSettings({ language }),
+    onSuccess: (next) => queryClient.setQueryData(["settings"], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const current = settings.data?.language ?? t.lang;
+  return (
+    <SettingRow label={t("common.language")} description={t("common.languageDescription")}>
+      <div
+        className="inline-flex w-fit flex-wrap rounded-xl border border-line bg-rail p-0.5"
+        role="radiogroup"
+        aria-label={t("common.language")}
+        data-language-choice
+      >
+        {languages.map(({ tag, name }) => (
+          <button
+            key={tag}
+            role="radio"
+            lang={tag}
+            aria-checked={current === tag}
+            data-language={tag}
+            disabled={set.isPending || settings.data === undefined}
+            onClick={() => set.mutate(tag)}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50 disabled:opacity-50",
+              current === tag
+                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                : "text-muted hover:text-primary",
+            )}
+          >
+            <Languages className="size-[15px]" />
+            {name}
+          </button>
+        ))}
+      </div>
     </SettingRow>
   );
 }
@@ -1718,15 +1737,16 @@ function WhatsNewRow({ version }: { version: string }) {
 // disappearing and leaving someone wondering where the setting went.
 const appearances: {
   value: T.Theme["appearance"];
-  label: string;
+  label: MessageKey;
   icon: typeof Monitor;
 }[] = [
-  { value: "follow", label: "Follow desktop", icon: Monitor },
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
+  { value: "follow", label: "settings.appearance.follow", icon: Monitor },
+  { value: "light", label: "settings.appearance.light", icon: Sun },
+  { value: "dark", label: "settings.appearance.dark", icon: Moon },
 ];
 
 function Appearance() {
+  const t = useT();
   const queryClient = useQueryClient();
   const theme = useQuery({ queryKey: ["theme"], queryFn: api.theme });
   const set = useMutation({
@@ -1739,14 +1759,14 @@ function Appearance() {
   const found = theme.data?.available === true;
   return (
     <SettingRow
-      label="Appearance"
-      description="Follow this machine's Omarchy theme, or keep AgentBox's own colours, light or dark."
-      details="Following takes the colours from the Omarchy theme this machine is running — its accent and whether it is light or dark — for AgentBox's own window and for every agent's desktop, its dock and window decorations. Agents' browsers are left alone: a page an agent looks at renders the way it would anywhere else. Light and dark are AgentBox's own colours, one way round or the other, whatever the desktop is doing."
+      label={t("settings.entry.appearance.label")}
+      description={t("settings.appearance.description")}
+      details={t("settings.appearance.details")}
     >
       <div
         className="inline-flex w-fit rounded-xl border border-line bg-rail p-0.5"
         role="radiogroup"
-        aria-label="Appearance"
+        aria-label={t("settings.entry.appearance.label")}
         data-appearance-choice
       >
         {appearances.map(({ value, label, icon: Icon }) => (
@@ -1765,7 +1785,7 @@ function Appearance() {
             )}
           >
             <Icon className="size-[15px]" />
-            {label}
+            {t(label)}
           </button>
         ))}
       </div>
@@ -1779,19 +1799,24 @@ function Appearance() {
               aria-hidden
             />
             <span data-theme-name>
-              This machine is on{" "}
-              <span className="text-tertiary">
-                {theme.data.name || "a theme with no name"}
-              </span>
-              {current === "follow"
-                ? `, a ${theme.data.mode || "dark"} theme.`
-                : ", which AgentBox isn't wearing."}
+              {t.rich(
+                current === "follow"
+                  ? "settings.appearance.onThemeFollowing"
+                  : "settings.appearance.onThemeNot",
+                {
+                  name: (
+                    <span className="text-tertiary">
+                      {theme.data.name || t("settings.appearance.noName")}
+                    </span>
+                  ),
+                  mode: theme.data.mode === "light" ? "light" : "dark",
+                },
+              )}
             </span>
           </div>
         ) : (
           <SettingNote>
-            No Omarchy theme was found on this machine, so AgentBox is wearing
-            its own colours.
+            {t("settings.appearance.noTheme")}
           </SettingNote>
         ))}
     </SettingRow>
@@ -1803,8 +1828,8 @@ function Appearance() {
 function savedAtLabel(savedAt: string): string {
   const at = new Date(savedAt);
   if (!savedAt || Number.isNaN(at.getTime()) || at.getUTCFullYear() < 2000)
-    return "saved on an unknown date";
-  return `saved ${at.toLocaleDateString()}`;
+    return t("settings.accounts.savedUnknown");
+  return t("settings.accounts.savedOn", { date: formatDate(at, {}) });
 }
 
 // ClaudeAccounts lists the stored Claude Code logins and adds more. Agents use
@@ -1812,6 +1837,7 @@ function savedAtLabel(savedAt: string): string {
 // Anthropic no longer accepts is badged rejected, so a dead login shows here
 // rather than as a 401 inside an agent.
 export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const notDefault = (projects.data ?? []).filter((p) => p.claudeAccount);
@@ -1836,14 +1862,15 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
       setRenaming(null);
       const carried = [
         got.projects.length > 0 &&
-          `${got.projects.length} project${got.projects.length === 1 ? "" : "s"}`,
+          t("settings.accounts.nProjects", { count: got.projects.length }),
         got.agents.length > 0 &&
-          `${got.agents.length} agent${got.agents.length === 1 ? "" : "s"}`,
-      ].filter(Boolean);
-      toast(`Renamed "${got.old}" to "${got.name}"`, {
+          t("settings.accounts.nAgents", { count: got.agents.length }),
+      ].filter((x): x is string => !!x);
+      toast(t("settings.accounts.renamed", { old: got.old, name: got.name }), {
         description:
-          (carried.length > 0 ? `${carried.join(" and ")} moved with it. ` : "") +
-          "Agents on it keep the same token, so nothing needs a restart.",
+          (carried.length > 0
+            ? `${t("settings.accounts.movedWithIt", { what: formatList(carried) })} `
+            : "") + t("settings.accounts.sameToken"),
       });
       await Promise.all([
         refresh(),
@@ -1855,17 +1882,15 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
   const makeDefault = useMutation({
     mutationFn: (name: string) => api.setDefaultClaudeAccount(name),
     onSuccess: async (_, name) => {
-      toast(
-        `New agents use "${name}" unless their project picks another account`,
-      );
+      toast(t("settings.accounts.newAgentsUse", { name }));
       await refresh();
     },
   });
   const remove = useMutation({
     mutationFn: (name: string) => api.removeClaudeAccount(name),
     onSuccess: async (_, name) => {
-      toast(`Removed the Claude Code account "${name}"`, {
-        description: "Agents that already have its token keep working.",
+      toast(t("settings.accounts.removedClaude", { name }), {
+        description: t("settings.accounts.removedNote"),
       });
       await refresh();
     },
@@ -1876,13 +1901,13 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
     <div className="grid gap-3">
       {accounts.length > 0 && (
         <p className="text-[12.5px] text-subtle">
-          The default only reaches projects set to "Default".
+          {t("settings.accounts.defaultReaches")}
           {notDefault.length > 0 &&
-            ` The rest: ${notDefault.map((p) => p.name).join(", ")}.`}
+            ` ${t("settings.accounts.theRest", { names: notDefault.map((p) => p.name).join(", ") })}`}
         </p>
       )}
       {accounts.length > 0 && (
-        <ul className="grid gap-1.5" aria-label="Claude Code accounts">
+        <ul className="grid gap-1.5" aria-label={t("settings.accounts.claudeList")}>
           {accounts.map((acc) => (
             <li
               key={acc.name}
@@ -1901,7 +1926,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                   }}
                 >
                   <Input
-                    aria-label={`New name for ${acc.name}`}
+                    aria-label={t("settings.accounts.newNameFor", { name: acc.name })}
                     value={newName}
                     onChange={(event) => setNewName(event.target.value)}
                     onKeyDown={(event) => {
@@ -1916,7 +1941,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                     size="sm"
                     disabled={rename.isPending || newName.trim() === ""}
                   >
-                    Rename
+                    {t("common.rename")}
                   </Button>
                   <Button
                     type="button"
@@ -1925,7 +1950,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                     disabled={rename.isPending}
                     onClick={() => setRenaming(null)}
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </Button>
                 </form>
               ) : (
@@ -1933,11 +1958,11 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                   {acc.name}
                 </span>
               )}
-              {acc.default && <Badge variant="brand">default</Badge>}
+              {acc.default && <Badge variant="brand">{t("settings.accounts.badgeDefault")}</Badge>}
               {acc.valid === "rejected" && (
-                <Badge variant="danger">rejected</Badge>
+                <Badge variant="danger">{t("settings.accounts.badgeRejected")}</Badge>
               )}
-              {acc.valid === "valid" && <Badge variant="success">valid</Badge>}
+              {acc.valid === "valid" && <Badge variant="success">{t("settings.accounts.badgeValid")}</Badge>}
               <span className="truncate text-[11.5px] text-subtle">
                 {savedAtLabel(acc.savedAt)}
               </span>
@@ -1949,13 +1974,13 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                     disabled={makeDefault.isPending}
                     onClick={() => makeDefault.mutate(acc.name)}
                   >
-                    Make default
+                    {t("settings.accounts.makeDefault")}
                   </Button>
                 )}
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  aria-label={`Rename ${acc.name}`}
+                  aria-label={t("settings.accounts.renameAccount", { name: acc.name })}
                   disabled={rename.isPending}
                   onClick={() => startRename(acc.name)}
                 >
@@ -1964,7 +1989,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  aria-label={`Remove ${acc.name}`}
+                  aria-label={t("settings.accounts.removeAccount", { name: acc.name })}
                   disabled={remove.isPending}
                   onClick={() => remove.mutate(acc.name)}
                 >
@@ -1989,7 +2014,7 @@ export function ClaudeAccounts({ accounts }: { accounts: T.ClaudeAccount[] }) {
               pasting && "rotate-180",
             )}
           />
-          Paste a token instead
+          {t("settings.accounts.pasteToken")}
         </button>
         {pasting && <ClaudeTokenForm accounts={accounts} onSaved={refresh} />}
       </div>
@@ -2008,6 +2033,7 @@ function ClaudeLogin({
   accounts: T.ClaudeAccount[];
   onSaved: () => Promise<void>;
 }) {
+  const t = useT();
   const [account, setAccount] = useState("");
   const [job, setJob] = useState<string | null>(null);
   const [code, setCode] = useState("");
@@ -2072,13 +2098,11 @@ function ClaudeLogin({
       data-claude-login={login.data?.status ?? (job ? "running" : "idle")}
     >
       <p className="text-[13px] text-muted">
-        AgentBox runs <Code>claude setup-token</Code> for you and keeps the
-        token it mints. Add one account per Anthropic account you want agents to
-        use.
+        {t.rich("settings.claudeLogin.intro", { code: (c) => <Code>{c}</Code> })}
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <div className="grid gap-1.5">
-          <Label htmlFor="claude-login-account">Account</Label>
+          <Label htmlFor="claude-login-account">{t("settings.accounts.account")}</Label>
           <Input
             id="claude-login-account"
             placeholder={accounts.length === 0 ? "default" : "work"}
@@ -2098,7 +2122,7 @@ function ClaudeLogin({
           ) : (
             <LogIn />
           )}
-          {accounts.length === 0 ? "Log in to Claude Code" : "Add an account"}
+          {accounts.length === 0 ? t("settings.claudeLogin.logIn") : t("settings.claudeLogin.addAccount")}
         </Button>
         {running && (
           <Button
@@ -2106,7 +2130,7 @@ function ClaudeLogin({
             disabled={cancel.isPending}
             onClick={() => cancel.mutate()}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
         )}
       </div>
@@ -2124,16 +2148,16 @@ function ClaudeLogin({
             )}
             <span className="text-secondary">
               {login.data?.status === "succeeded"
-                ? `Saved the Claude Code account "${login.data.account}" for agents`
+                ? t("settings.claudeLogin.saved", { account: login.data.account })
                 : login.data?.status === "cancelled"
-                  ? "The login was cancelled"
+                  ? t("settings.claudeLogin.cancelled")
                   : login.data?.status === "failed"
-                    ? "The login failed"
+                    ? t("settings.claudeLogin.failed")
                     : url
-                      ? "Waiting for you to approve it in the browser…"
+                      ? t("settings.claudeLogin.waiting")
                       : codeUrl
-                        ? "Approve the sign-in page, then paste the code it gives you"
-                        : "Starting Claude Code…"}
+                        ? t("settings.claudeLogin.approveThenCode")
+                        : t("settings.claudeLogin.starting")}
             </span>
             {url && running && (
               <Button
@@ -2143,7 +2167,7 @@ function ClaudeLogin({
                 onClick={() => void window.agentbox.openExternal(url)}
               >
                 <ExternalLink />
-                Open the page again
+                {t("settings.claudeLogin.openAgain")}
               </Button>
             )}
           </div>
@@ -2156,24 +2180,25 @@ function ClaudeLogin({
               }}
             >
               <p className="text-xs text-subtle">
-                {url
-                  ? "If the page can't reach this machine, approve "
-                  : "Approve "}
-                <button
-                  type="button"
-                  className="text-brand-300 underline-offset-2 hover:underline"
-                  onClick={() => void window.agentbox.openExternal(codeUrl)}
-                >
-                  {url ? "this one" : "this page"}
-                </button>{" "}
-                {url
-                  ? "instead and paste the code it gives you."
-                  : "and paste the code it gives you."}
+                {t.rich(
+                  url ? "settings.claudeLogin.codeHintAlt" : "settings.claudeLogin.codeHint",
+                  {
+                    link: (c) => (
+                      <button
+                        type="button"
+                        className="text-brand-300 underline-offset-2 hover:underline"
+                        onClick={() => void window.agentbox.openExternal(codeUrl)}
+                      >
+                        {c}
+                      </button>
+                    ),
+                  },
+                )}
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Input
-                  aria-label="Code from the browser"
-                  placeholder="Code from the browser"
+                  aria-label={t("settings.claudeLogin.codePlaceholder")}
+                  placeholder={t("settings.claudeLogin.codePlaceholder")}
                   value={code}
                   onChange={(event) => setCode(event.target.value)}
                   className="w-64 font-mono"
@@ -2183,7 +2208,7 @@ function ClaudeLogin({
                   variant="secondary"
                   disabled={!code.trim() || sendCode.isPending}
                 >
-                  Send
+                  {t("settings.claudeLogin.send")}
                 </Button>
               </div>
             </form>
@@ -2195,7 +2220,9 @@ function ClaudeLogin({
             onDone={(finished) => {
               if (finished.status !== "succeeded") return;
               toast(
-                `Saved the Claude Code account "${login.data?.account ?? "default"}" for agents`,
+                t("settings.claudeLogin.saved", {
+                  account: login.data?.account ?? "default",
+                }),
               );
               setAccount("");
               void onSaved();
@@ -2217,13 +2244,16 @@ function ClaudeTokenForm({
   accounts: T.ClaudeAccount[];
   onSaved: () => Promise<void>;
 }) {
+  const t = useT();
   const [token, setToken] = useState("");
   const [account, setAccount] = useState("");
   const save = useMutation({
     mutationFn: () => api.saveClaudeToken(token, account.trim() || undefined),
     onSuccess: async () => {
       toast(
-        `Saved the Claude Code account "${account.trim() || "default"}" for agents`,
+        t("settings.claudeLogin.saved", {
+          account: account.trim() || "default",
+        }),
       );
       setToken("");
       setAccount("");
@@ -2239,12 +2269,11 @@ function ClaudeTokenForm({
       }}
     >
       <p className="text-[13px] text-muted">
-        Run <Code>claude setup-token</Code> in a terminal, then paste the token
-        it prints.
+        {t.rich("settings.claudeToken.intro", { code: (c) => <Code>{c}</Code> })}
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <div className="grid gap-1.5">
-          <Label htmlFor="claude-account-name">Account</Label>
+          <Label htmlFor="claude-account-name">{t("settings.accounts.account")}</Label>
           <Input
             id="claude-account-name"
             placeholder={accounts.length === 0 ? "default" : "work"}
@@ -2254,7 +2283,7 @@ function ClaudeTokenForm({
           />
         </div>
         <div className="grid min-w-48 flex-1 gap-1.5">
-          <Label htmlFor="claude-account-token">Token</Label>
+          <Label htmlFor="claude-account-token">{t("settings.accounts.token")}</Label>
           <Input
             id="claude-account-token"
             type="password"
@@ -2274,12 +2303,11 @@ function ClaudeTokenForm({
           ) : (
             <KeyRound />
           )}
-          Save
+          {t("common.save")}
         </Button>
       </div>
       <p className="text-xs text-subtle">
-        An empty account name saves it as “default”. A project picks its account
-        on its own page; agents of the other projects use the default one.
+        {t("settings.claudeToken.note")}
       </p>
       {save.error && <Notice>{errorMessage(save.error)}</Notice>}
     </form>
@@ -2290,6 +2318,7 @@ function ClaudeTokenForm({
 // the account it picked on its own page; agents of the other projects use the
 // default one.
 export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const notDefault = (projects.data ?? []).filter((p) => p.githubAccount);
@@ -2304,7 +2333,10 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
     mutationFn: () => api.saveGitHubToken(token, account.trim() || undefined),
     onSuccess: async (result) => {
       toast(
-        `Saved the GitHub account "${account.trim() || "default"}" for agents, as ${result.user}`,
+        t("settings.github.saved", {
+          account: account.trim() || "default",
+          user: result.user,
+        }),
       );
       setToken("");
       setAccount("");
@@ -2314,9 +2346,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   const makeDefault = useMutation({
     mutationFn: (name: string) => api.setDefaultGitHubAccount(name),
     onSuccess: async (_, name) => {
-      toast(
-        `New agents use "${name}" unless their project picks another account`,
-      );
+      toast(t("settings.accounts.newAgentsUse", { name }));
       await refresh();
     },
   });
@@ -2335,14 +2365,15 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
       setRenaming(null);
       const carried = [
         got.projects.length > 0 &&
-          `${got.projects.length} project${got.projects.length === 1 ? "" : "s"}`,
+          t("settings.accounts.nProjects", { count: got.projects.length }),
         got.agents.length > 0 &&
-          `${got.agents.length} agent${got.agents.length === 1 ? "" : "s"}`,
-      ].filter(Boolean);
-      toast(`Renamed "${got.old}" to "${got.name}"`, {
+          t("settings.accounts.nAgents", { count: got.agents.length }),
+      ].filter((x): x is string => !!x);
+      toast(t("settings.accounts.renamed", { old: got.old, name: got.name }), {
         description:
-          (carried.length > 0 ? `${carried.join(" and ")} moved with it. ` : "") +
-          "Agents that hold its token keep it, so nothing needs a restart.",
+          (carried.length > 0
+            ? `${t("settings.accounts.movedWithIt", { what: formatList(carried) })} `
+            : "") + t("settings.github.keepToken"),
       });
       // The Pull requests tab and the fleet name the account they read with.
       await Promise.all([
@@ -2356,8 +2387,8 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
   const remove = useMutation({
     mutationFn: (name: string) => api.removeGitHubAccount(name),
     onSuccess: async (_, name) => {
-      toast(`Removed the GitHub account "${name}"`, {
-        description: "Agents that already have its token keep working.",
+      toast(t("settings.github.removed", { name }), {
+        description: t("settings.accounts.removedNote"),
       });
       await refresh();
     },
@@ -2368,13 +2399,13 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
     <div className="grid gap-3">
       {accounts.length > 0 && (
         <p className="text-[12.5px] text-subtle">
-          The default only reaches projects set to "Default".
+          {t("settings.accounts.defaultReaches")}
           {notDefault.length > 0 &&
-            ` The rest: ${notDefault.map((p) => p.name).join(", ")}.`}
+            ` ${t("settings.accounts.theRest", { names: notDefault.map((p) => p.name).join(", ") })}`}
         </p>
       )}
       {accounts.length > 0 && (
-        <ul className="grid gap-1.5" aria-label="GitHub accounts">
+        <ul className="grid gap-1.5" aria-label={t("settings.github.list")}>
           {accounts.map((acc) => (
             <li
               key={acc.name}
@@ -2393,7 +2424,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                   }}
                 >
                   <Input
-                    aria-label={`New name for ${acc.name}`}
+                    aria-label={t("settings.accounts.newNameFor", { name: acc.name })}
                     value={newName}
                     onChange={(event) => setNewName(event.target.value)}
                     onKeyDown={(event) => {
@@ -2408,7 +2439,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                     size="sm"
                     disabled={rename.isPending || newName.trim() === ""}
                   >
-                    Rename
+                    {t("common.rename")}
                   </Button>
                   <Button
                     type="button"
@@ -2417,7 +2448,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                     disabled={rename.isPending}
                     onClick={() => setRenaming(null)}
                   >
-                    Cancel
+                    {t("common.cancel")}
                   </Button>
                 </form>
               ) : (
@@ -2430,7 +2461,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                   {acc.login}
                 </span>
               )}
-              {acc.default && <Badge variant="brand">default</Badge>}
+              {acc.default && <Badge variant="brand">{t("settings.accounts.badgeDefault")}</Badge>}
               <div className="ml-auto flex items-center gap-1">
                 {!acc.default && (
                   <Button
@@ -2439,13 +2470,13 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                     disabled={makeDefault.isPending}
                     onClick={() => makeDefault.mutate(acc.name)}
                   >
-                    Make default
+                    {t("settings.accounts.makeDefault")}
                   </Button>
                 )}
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  aria-label={`Rename ${acc.name}`}
+                  aria-label={t("settings.accounts.renameAccount", { name: acc.name })}
                   disabled={rename.isPending}
                   onClick={() => startRename(acc.name)}
                 >
@@ -2454,7 +2485,7 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
                 <Button
                   size="icon-sm"
                   variant="ghost"
-                  aria-label={`Remove ${acc.name}`}
+                  aria-label={t("settings.accounts.removeAccount", { name: acc.name })}
                   disabled={remove.isPending}
                   onClick={() => remove.mutate(acc.name)}
                 >
@@ -2473,12 +2504,11 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
         }}
       >
         <p className="text-[13px] text-muted">
-          Paste a token from <Code>gh auth token</Code>, or a personal access
-          token. Add one account per GitHub account you want agents to use.
+          {t.rich("settings.github.intro", { code: (c) => <Code>{c}</Code> })}
         </p>
         <div className="flex flex-wrap items-end gap-2">
           <div className="grid gap-1.5">
-            <Label htmlFor="github-account-name">Account</Label>
+            <Label htmlFor="github-account-name">{t("settings.accounts.account")}</Label>
             <Input
               id="github-account-name"
               placeholder={accounts.length === 0 ? "default" : "work"}
@@ -2488,11 +2518,11 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
             />
           </div>
           <div className="grid min-w-48 flex-1 gap-1.5">
-            <Label htmlFor="github-account-token">Token</Label>
+            <Label htmlFor="github-account-token">{t("settings.accounts.token")}</Label>
             <Input
               id="github-account-token"
               type="password"
-              placeholder="ghp_… or gho_…"
+              placeholder={t("settings.github.tokenPlaceholder")}
               value={token}
               onChange={(event) => setToken(event.target.value)}
               className="font-mono"
@@ -2508,13 +2538,11 @@ export function GitHubAccounts({ accounts }: { accounts: T.GitHubAccount[] }) {
             ) : (
               <KeyRound />
             )}
-            Save
+            {t("common.save")}
           </Button>
         </div>
         <p className="text-xs text-subtle">
-          An empty account name saves it as “default”. A project picks its
-          account on its own page; agents of the other projects use the default
-          one. Agents are told to read pull requests, not to push or merge.
+          {t("settings.github.note")}
         </p>
       </form>
       {error && <Notice>{errorMessage(error)}</Notice>}
@@ -2552,6 +2580,7 @@ function HostSetup({
   agentbox: string;
   onRun: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const status = useQuery({
     queryKey: ["host-setup"],
@@ -2577,13 +2606,13 @@ function HostSetup({
     },
     onSuccess: async (result) => {
       toast(
-        mac ? "AgentBox's VM is set up" : "This machine is set up for AgentBox",
+        mac ? t("settings.hostSetup.doneVM") : t("settings.hostSetup.doneHost"),
         {
           description: mac
-            ? "Incus, its storage and the user mapping are in place inside the VM."
+            ? t("settings.hostSetup.doneVMNote")
             : result.restarted
-              ? "Incus is installed, and you can use it in this session: no need to log out."
-              : "Incus is installed. The daemon keeps its running jobs and picks this up when they finish.",
+              ? t("settings.hostSetup.doneHostRestarted")
+              : t("settings.hostSetup.doneHostLater"),
         },
       );
       await queryClient.invalidateQueries({ queryKey: ["setup"] });
@@ -2602,10 +2631,7 @@ function HostSetup({
     return (
       <div className="grid gap-2" data-host-setup="moving">
         <p className="text-[13px] text-muted">
-          On Linux, AgentBox runs in a VM of its own now: Move to a VM, above,
-          takes this installation there. Until it moves, its agents keep
-          running on this computer's Incus. If this step needs fixing before
-          then, run it in a terminal:
+          {t("settings.hostSetup.moving")}
         </p>
         <CommandBox command={`sudo ${agentbox} host setup`} />
       </div>
@@ -2620,10 +2646,10 @@ function HostSetup({
     >
       <p className="text-[13px] text-muted">
         {mac
-          ? "Sets AgentBox's Linux VM up: Incus, its storage and network, and your user's mapping, inside the VM."
+          ? t("settings.hostSetup.introVM")
           : wsl
-            ? "Installs Incus in AgentBox's WSL distro and gives its user access to it. It needs no password."
-            : "Installs Incus and gives your user access to it, in this session too. It changes system files, so it asks for your password."}
+            ? t("settings.hostSetup.introWSL")
+            : t("settings.hostSetup.introHost")}
       </p>
       {!noDialog && (
         <div className="flex flex-wrap items-center gap-2">
@@ -2633,31 +2659,31 @@ function HostSetup({
             onClick={() => run.mutate()}
           >
             {busy ? <LoaderCircle className="animate-spin" /> : <ShieldCheck />}
-            {mac ? "Set up the VM" : "Set up host"}
+            {mac ? t("settings.hostSetup.setUpVM") : t("settings.hostSetup.setUpHost")}
           </Button>
           <span className="text-xs text-subtle">
             {busy
               ? mac
-                ? "Setting the VM up. This takes a few minutes the first time."
-                : "Installing Incus. This takes a few minutes."
+                ? t("settings.hostSetup.busyVM")
+                : t("settings.hostSetup.busyHost")
               : mac || wsl
-                ? "No password needed"
-                : "Your system asks for the password"}
+                ? t("settings.hostSetup.noPassword")
+                : t("settings.hostSetup.asksPassword")}
           </span>
         </div>
       )}
       {(lines.length > 0 || busy) && (
-        <SetupLog lines={lines} label="Host setup log" />
+        <SetupLog lines={lines} label={t("settings.hostSetup.log")} />
       )}
       {run.error && <Notice>{errorMessage(run.error)}</Notice>}
       {(noDialog || run.error) && (
         <div className="grid gap-2">
           <p className="text-[13px] text-muted">
             {noDialog
-              ? "This machine has no pkexec, so the app can't ask for your password. Run it in a terminal instead:"
+              ? t("settings.hostSetup.noPkexec")
               : mac || wsl
-                ? "Run it in a terminal instead:"
-                : "Run it in a terminal instead, with sudo:"}
+                ? t("settings.hostSetup.terminal")
+                : t("settings.hostSetup.terminalSudo")}
           </p>
           <CommandBox
             command={
@@ -2711,6 +2737,7 @@ export function SetupLog({ lines, label }: { lines: string[]; label: string }) {
 }
 
 export function CommandBox({ command }: { command: string }) {
+  const t = useT();
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center gap-2 rounded-xl border border-line-strong bg-well py-1.5 pl-3.5 pr-1.5 font-mono text-[12.5px] text-secondary">
@@ -2721,7 +2748,7 @@ export function CommandBox({ command }: { command: string }) {
       <Button
         size="icon-sm"
         variant="ghost"
-        aria-label="Copy the command"
+        aria-label={t("settings.commandBox.copy")}
         onClick={() => {
           window.agentbox.copyText(command);
           setCopied(true);
@@ -2741,9 +2768,10 @@ function ChecklistStep({
   step: Step;
   alwaysShow?: boolean;
 }) {
+  const t = useT();
   const ok = step.status === "ok";
   return (
-    <div className="min-w-0" data-setup-step={step.title} data-status={step.status}>
+    <div className="min-w-0" data-setup-step={step.id} data-status={step.status}>
       <Panel
         className={cn(
           "p-4 transition",
@@ -2765,17 +2793,17 @@ function ChecklistStep({
               </h3>
               {step.optional ? (
                 step.status === "warn" ? (
-                  <Badge variant="warning">check</Badge>
+                  <Badge variant="warning">{t("settings.setup.badgeCheck")}</Badge>
                 ) : (
-                  <Badge>optional</Badge>
+                  <Badge>{t("settings.setup.badgeOptional")}</Badge>
                 )
               ) : step.status === "updating" ? (
-                <Badge>updating</Badge>
+                <Badge>{t("settings.setup.badgeUpdating")}</Badge>
               ) : (
                 !ok &&
                 step.status !== "checking" && (
                   <Badge variant="warning">
-                    {step.status === "outdated" ? "outdated" : "needed"}
+                    {step.status === "outdated" ? t("settings.setup.badgeOutdated") : t("settings.setup.badgeNeeded")}
                   </Badge>
                 )
               )}

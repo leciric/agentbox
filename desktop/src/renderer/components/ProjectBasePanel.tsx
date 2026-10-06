@@ -14,6 +14,7 @@ import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatDate, t as translate, useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -44,6 +45,7 @@ If a note above this says AgentBox caught the machine up with its base image, th
 Don't change application code to make something pass; say so instead. When you're done, say what you updated and what everything is on now. The machine is then saved as the project's new base.`;
 
 export function ProjectBasePanel({ project, className, onOpenAgent }: { project: T.Project; className?: string; onOpenAgent: (ref: string) => void }) {
+  const t = useT();
   const name = project.name;
   const queryClient = useQueryClient();
   const base = useQuery({ queryKey: ['base', name], queryFn: () => api.base(name) });
@@ -63,13 +65,13 @@ export function ProjectBasePanel({ project, className, onOpenAgent }: { project:
   return (
     <Card
       className={className}
-      title="Project base"
+      title={t('project.base.title')}
       icon={Layers}
-      description="A photograph of one machine. Every new agent of this project is copied from it."
+      description={t('project.base.description')}
       action={
         <Menu>
           <MenuTrigger asChild>
-            <Button size="icon-sm" variant="ghost" aria-label="Project base actions">
+            <Button size="icon-sm" variant="ghost" aria-label={t('project.base.actions')}>
               <Ellipsis />
             </Button>
           </MenuTrigger>
@@ -77,24 +79,24 @@ export function ProjectBasePanel({ project, className, onOpenAgent }: { project:
             <MenuItem
               icon={Camera}
               disabled={mine.length === 0}
-              hint={mine.length === 0 ? 'no agents' : undefined}
+              hint={mine.length === 0 ? t('project.base.noAgents') : undefined}
               onSelect={() => setSaving(true)}
             >
-              Save from an agent…
+              {t('project.base.saveFromAgent')}
             </MenuItem>
             {previous && (
               <MenuItem icon={Trash2} onSelect={() => setDropping(true)}>
-                Drop what the last save kept
+                {t('project.base.dropKept')}
               </MenuItem>
             )}
             <MenuItem
               icon={RotateCcw}
               destructive
               disabled={!base.data}
-              hint={base.data ? undefined : 'no base'}
+              hint={base.data ? undefined : t('project.base.noBase')}
               onSelect={() => setRemoving(true)}
             >
-              Go back to the plain image
+              {t('project.base.backToPlain')}
             </MenuItem>
           </MenuContent>
         </Menu>
@@ -102,61 +104,60 @@ export function ProjectBasePanel({ project, className, onOpenAgent }: { project:
     >
       {base.data ? (
         <>
-          <Row label="Saved from" mono>
+          <Row label={t('project.base.savedFrom')} mono>
             {base.data.savedFrom}
           </Row>
-          <Row label="Saved">
+          <Row label={t('project.base.saved')}>
             <Age iso={base.data.savedAt} />
           </Row>
-          <Row label="Snapshot" mono>
+          <Row label={t('project.base.snapshot')} mono>
             <span className="truncate" title={base.data.snapshot}>
               {base.data.snapshot}
             </span>
           </Row>
-          <Row label="Base image" mono>
-            <span className="truncate" title={base.data.tools ? `agent tools ${base.data.tools}` : undefined}>
-              {base.data.image ?? 'not recorded'}
+          <Row label={t('project.base.baseImage')} mono>
+            <span className="truncate" title={base.data.tools ? t('project.base.agentTools', { tools: base.data.tools }) : undefined}>
+              {base.data.image ?? t('project.base.notRecorded')}
             </span>
           </Row>
           {base.data.behind && <BehindNotice behind={base.data.behind} />}
           {stale(base.data.savedAt) && (
             <Notice tone="warning" className="mt-3.5">
-              This base is {age(base.data.savedAt)}. Every agent of {name} starts from the machine as it was then, and spends its first minutes catching
-              up. Refresh it: start an agent from this base, let it update what has drifted, and save that machine.
+              {t('project.base.stale', { age: age(base.data.savedAt), name })}
             </Notice>
           )}
           {previous && (
             <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-line bg-surface-faint px-3.5 py-3">
               <p className="min-w-0 flex-1 text-[12.5px] leading-relaxed text-muted">
-                The base this one replaced — saved from <span className="font-mono text-[12px] text-tertiary">{previous.savedFrom}</span>,{' '}
-                {age(previous.savedAt)} — is still here, so the last save can be undone. It is the one step back there is: the next save drops it.
+                {t.rich('project.base.previous', {
+                  from: <span className="font-mono text-[12px] text-tertiary">{previous.savedFrom}</span>,
+                  age: age(previous.savedAt),
+                })}
               </p>
               <Button size="sm" variant="secondary" onClick={() => setReverting(true)}>
                 <RotateCcw />
-                Go back to it
+                {t('project.base.goBack')}
               </Button>
             </div>
           )}
         </>
       ) : (
         <p className="text-[13px] leading-relaxed text-muted">
-          None yet. New agents of {name} start from the plain base image{' '}
-          {image.data?.snapshot && <Code>{image.data.snapshot}</Code>} and set the project up themselves — installing dependencies and filling caches,
-          each one from cold. Once an agent has the project working, save its machine here and every agent after it starts from a copy of it.
+          {t.rich('project.base.none', { name, snapshot: image.data?.snapshot ? <Code>{image.data.snapshot}</Code> : '' })}
         </p>
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line-faint pt-3.5">
         <Button variant="primary" size="sm" onClick={() => setRefreshing(true)}>
           <RefreshCw />
-          {base.data ? 'Refresh the base' : 'Set the project up in an agent'}
+          {base.data ? t('project.base.refresh') : t('project.base.setUp')}
         </Button>
         <Button variant="secondary" size="sm" disabled={mine.length === 0} onClick={() => setSaving(true)}>
           <Camera />
-          Save from an agent…
+          {t('project.base.saveFromAgent')}
         </Button>
         <span className="text-xs leading-relaxed text-subtle">
-          {base.data ? 'Start from the last photograph, change what has drifted, take a new one.' : 'Nothing is merged: a save is a photograph of one machine.'}
+          {base.data ? t('project.base.refreshHint') : t('project.base.noMergeHint')}
         </span>
       </div>
 
@@ -174,62 +175,47 @@ export function ProjectBasePanel({ project, className, onOpenAgent }: { project:
       <ConfirmDialog
         open={reverting}
         onOpenChange={setReverting}
-        title="Go back to the base the last save replaced?"
+        title={t('project.base.revertTitle')}
         description={
-          previous ? (
-            <>
-              {name} goes back to the base saved from <Code>{previous.savedFrom}</Code>, and the one saved from <Code>{base.data?.savedFrom}</Code> is
-              deleted. Only agents created after this are affected — the ones you have keep the machines they were made from. Afterwards there is
-              nothing left to go back to.
-            </>
-          ) : undefined
+          previous
+            ? t.rich('project.base.revertDescription', { code: (c) => <Code>{c}</Code>, name, previous: previous.savedFrom, current: base.data?.savedFrom ?? '' })
+            : undefined
         }
-        confirmLabel="Go back to it"
+        confirmLabel={t('project.base.goBack')}
         onConfirm={async () => {
           const back = await api.revertBase(name);
           await refresh();
-          toast(`${name} is back on the base saved from ${back.savedFrom}`, { description: 'New agents are copied from it. There is nothing left to revert to.' });
+          toast(t('project.base.reverted', { name, from: back.savedFrom }), { description: t('project.base.revertedDetail') });
         }}
       />
       <ConfirmDialog
         open={dropping}
         onOpenChange={setDropping}
-        title="Drop the base the last save replaced?"
-        description={
-          <>
-            It gives back the disk it holds. The base your new agents are copied from doesn't change — you only lose the one step back, so the last save
-            can no longer be undone.
-          </>
-        }
-        confirmLabel="Drop it"
+        title={t('project.base.dropTitle')}
+        description={t('project.base.dropDescription')}
+        confirmLabel={t('project.base.dropConfirm')}
         destructive
         onConfirm={async () => {
           await api.removePreviousBase(name);
           await refresh();
-          toast(`Dropped the base ${name}'s last save replaced`);
+          toast(t('project.base.dropped', { name }));
         }}
       />
       <ConfirmDialog
         open={removing}
         onOpenChange={setRemoving}
-        title={`Go back to the plain base image for ${name}?`}
-        description={
-          <>
-            New agents of {name} start from the plain base image again, and set the project up themselves. The base and anything a save kept beside it
-            are deleted, and can't be brought back.
-          </>
-        }
-        confirmLabel="Go back to the plain image"
+        title={t('project.base.removeTitle', { name })}
+        description={t('project.base.removeDescription', { name })}
+        confirmLabel={t('project.base.backToPlain')}
         destructive
         onConfirm={async () => {
           await api.removeBase(name);
           await refresh();
-          toast(`${name} has no base: new agents start from the plain image`);
+          toast(t('project.base.removed', { name }));
         }}
       >
         <p className="text-[13px] leading-relaxed text-muted">
-          Nothing else is touched. The agents you have keep running on the machines they were made from, and the project's memory, its events, its
-          branches and its worktrees are left exactly as they are.
+          {t('project.base.removeNote')}
         </p>
       </ConfirmDialog>
     </Card>
@@ -254,6 +240,7 @@ function RefreshDialog({
   base: T.Base | null;
   onCreated: (ref: string) => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projectName = useProjectName(project);
   const [task, setTask] = useState(refreshTask);
@@ -264,7 +251,7 @@ function RefreshDialog({
     mutationFn: () =>
       api.createAgent({
         project,
-        title: title.trim() || (base ? 'Refresh the project base' : 'Set the project up'),
+        title: title.trim() || (base ? t('project.base.refreshDialog.title') : t('project.base.refreshDialog.defaultTitle')),
         ai: 'claude',
         interface: 'chat',
         autonomous: true,
@@ -308,11 +295,9 @@ function RefreshDialog({
     <Dialog open={open} onOpenChange={reset}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{base ? 'Refresh the project base' : `Set ${projectName} up in an agent`}</DialogTitle>
+          <DialogTitle>{base ? t('project.base.refreshDialog.title') : t('project.base.refreshDialog.titleNew', { project: projectName })}</DialogTitle>
           <DialogDescription>
-            {base
-              ? 'An agent started from the base as it is now, to bring it up to date. You save its machine when you are happy with it.'
-              : 'An agent to install what this project needs. You save its machine as the base when it works.'}
+            {base ? t('project.base.refreshDialog.description') : t('project.base.refreshDialog.descriptionNew')}
           </DialogDescription>
         </DialogHeader>
 
@@ -321,17 +306,16 @@ function RefreshDialog({
             <JobProgress jobId={job.id} onDone={(done) => void onDone(done)} />
             {made && (
               <Notice tone="info">
-                <Code>{made.ref}</Code> is on it. When its machine is the way you want the base to be, come back here and save from it — the base isn't
-                touched until you do.
+                {t.rich('project.base.refreshDialog.made', { code: (c) => <Code>{c}</Code>, ref: made.ref })}
               </Notice>
             )}
             <DialogFooter>
               <Button variant={made ? 'ghost' : 'secondary'} onClick={() => reset(false)}>
-                {done ? 'Close' : 'Keep running in background'}
+                {done ? t('common.close') : t('project.base.keepInBackground')}
               </Button>
               {made && (
                 <Button variant="primary" onClick={() => onCreated(made.ref)}>
-                  Open {made.name}
+                  {t('project.base.refreshDialog.open', { name: made.name })}
                 </Button>
               )}
             </DialogFooter>
@@ -347,34 +331,24 @@ function RefreshDialog({
             <Notice tone="info">
               {base ? (
                 <>
-                  It starts from the base saved from <Code>{base.savedFrom}</Code>, not from a clean machine — so it already has everything the base
-                  has, and only changes what has drifted. Two machine images can't be merged, so an agent that started clean would, the moment you saved
-                  from it, throw the rest away.
-                  {base.behind && (
-                    <>
-                      {' '}
-                      Before its task, AgentBox installs on its machine what the base image has that the base doesn't — the system packages and the agent
-                      tools — and tells it what it did.
-                    </>
-                  )}
+                  {t.rich('project.base.refreshDialog.fromBase', { code: (c) => <Code>{c}</Code>, from: base.savedFrom })}
+                  {base.behind && <> {t('project.base.refreshDialog.catchUp')}</>}
                 </>
               ) : (
-                <>
-                  {projectName} has no base yet, so this agent starts from the plain base image, like every other agent of the project does today.
-                </>
+                t('project.base.refreshDialog.noBase', { project: projectName })
               )}
             </Notice>
-            <Field label="What it works on" htmlFor="base-refresh-title" hint="A title for the sidebar.">
+            <Field label={t('project.base.refreshDialog.titleLabel')} htmlFor="base-refresh-title" hint={t('project.base.refreshDialog.titleHint')}>
               <Input
                 id="base-refresh-title"
                 autoFocus
                 maxLength={80}
-                placeholder={base ? 'Refresh the project base' : 'Set the project up'}
+                placeholder={base ? t('project.base.refreshDialog.title') : t('project.base.refreshDialog.defaultTitle')}
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
               />
             </Field>
-            <Field label="What it is told to do" htmlFor="base-refresh-task" hint="Sent as its first message. Edit it for what this project needs.">
+            <Field label={t('project.base.refreshDialog.taskLabel')} htmlFor="base-refresh-task" hint={t('project.base.refreshDialog.taskHint')}>
               <Textarea
                 id="base-refresh-task"
                 className="min-h-56 font-mono text-[12px]"
@@ -386,11 +360,11 @@ function RefreshDialog({
             {create.error && <Notice>{errorMessage(create.error)}</Notice>}
             <DialogFooter>
               <Button variant="ghost" onClick={() => reset(false)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" variant="primary" disabled={create.isPending || !task.trim()}>
                 {create.isPending && <LoaderCircle className="animate-spin" />}
-                Create the agent
+                {t('project.base.refreshDialog.create')}
               </Button>
             </DialogFooter>
           </form>
@@ -419,6 +393,7 @@ function SaveDialog({
   agents: T.Agent[];
   onSaved: () => void;
 }) {
+  const t = useT();
   const projectName = useProjectName(project);
   // The newest agent is the one a refresh just made, which is what this dialog
   // is usually opened for.
@@ -432,7 +407,7 @@ function SaveDialog({
   // kept base has been spent.
   const source = base && agents.find((a) => a.ref === base.savedFrom);
   const save = useMutation({
-    mutationFn: () => (chosen ? api.saveBase(project, chosen.name) : Promise.reject(new Error(`${project} has no agent to save from`))),
+    mutationFn: () => (chosen ? api.saveBase(project, chosen.name) : Promise.reject(new Error(t('project.base.saveDialog.noAgent', { project })))),
     onSuccess: setJob,
   });
 
@@ -458,18 +433,18 @@ function SaveDialog({
     <Dialog open={open} onOpenChange={reset}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>Save {chosen ? chosen.ref : 'an agent'} as the base</DialogTitle>
+          <DialogTitle>{chosen ? t('project.base.saveDialog.title', { ref: chosen.ref }) : t('project.base.saveDialog.titleNone')}</DialogTitle>
           <DialogDescription>
-            A photograph of that machine as it is now. The agent keeps running, and its worktree, logins and AI sessions are left out of the base.
+            {t('project.base.saveDialog.description')}
           </DialogDescription>
         </DialogHeader>
 
         {job ? (
           <>
             <JobProgress jobId={job.id} onDone={finished} />
-            {done?.status === 'succeeded' && <Notice tone="info">New agents of {projectName} are now copied from this machine.</Notice>}
+            {done?.status === 'succeeded' && <Notice tone="info">{t('project.base.saveDialog.done', { project: projectName })}</Notice>}
             <DialogFooter>
-              <Button onClick={() => reset(false)}>{done ? 'Close' : 'Keep running in background'}</Button>
+              <Button onClick={() => reset(false)}>{done ? t('common.close') : t('project.base.keepInBackground')}</Button>
             </DialogFooter>
           </>
         ) : (
@@ -481,9 +456,9 @@ function SaveDialog({
             }}
           >
             <Field
-              label="Save from"
+              label={t('project.base.saveDialog.fromLabel')}
               htmlFor="base-save-agent"
-              hint={chosen ? "Its machine becomes the base; its worktree doesn't." : `${projectName} has no agent yet: make one, set the project up in it, then save from it.`}
+              hint={chosen ? t('project.base.saveDialog.fromHint') : t('project.base.saveDialog.fromHintNone', { project: projectName })}
             >
               <Select id="base-save-agent" value={chosen?.name ?? ''} onChange={setAgent}>
                 {agents.map((a) => (
@@ -496,32 +471,30 @@ function SaveDialog({
             </Field>
             {base ? (
               <Notice tone="warning">
-                This replaces the base saved from <Code>{base.savedFrom}</Code>. Nothing is merged: whatever that base has and this machine doesn't, the
-                new base won't have either. The base it replaces is kept, so this one save can be undone — until the save after it, which drops it.
+                {t.rich('project.base.saveDialog.replaces', { code: (c) => <Code>{c}</Code>, from: base.savedFrom })}
               </Notice>
             ) : (
               <Notice tone="info">
-                {projectName} has no base yet, so this replaces nothing. From now on its new agents are copied from this machine instead of the plain image.
+                {t('project.base.saveDialog.replacesNothing', { project: projectName })}
               </Notice>
             )}
             {source && (
               <p className="flex items-start gap-2.5 text-[12.5px] leading-relaxed text-muted">
                 <TriangleAlert className="mt-px size-4 shrink-0 text-amber-300" />
                 <span>
-                  Keep <span className="font-mono text-[12px] text-tertiary">{source.ref}</span> alive until the new base has proved itself. Its machine
-                  still holds the old state, so you can save from it again — long after the kept base has been spent by another save.
+                  {t.rich('project.base.saveDialog.keepAlive', { ref: <span className="font-mono text-[12px] text-tertiary">{source.ref}</span> })}
                 </span>
               </p>
             )}
             {save.error && <Notice>{errorMessage(save.error)}</Notice>}
             <DialogFooter>
               <Button variant="ghost" onClick={() => reset(false)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" variant="primary" disabled={!chosen || save.isPending}>
                 {save.isPending && <LoaderCircle className="animate-spin" />}
                 <Camera />
-                Save as the base
+                {t('project.base.saveDialog.submit')}
               </Button>
             </DialogFooter>
           </form>
@@ -536,20 +509,20 @@ function SaveDialog({
 // often it is saved again, until a refresh catches it up: this is how the user
 // finds out that new agents of the project miss a fix the image already has.
 function BehindNotice({ behind }: { behind: T.BaseBehind }) {
+  const t = useT();
   const tools = behind.tools ?? [];
   const changes = behind.changes ?? [];
   const components = behind.components ?? [];
   return (
     <Notice tone="warning" className="mt-3.5">
-      <p>
-        The base image has moved on since this base was saved, and new agents of this project don't get what it added. Refresh the base to catch it
-        up: AgentBox installs these on the refresh agent's machine before its task.
-      </p>
+      <p>{t('project.base.behind.intro')}</p>
       <ul className="mt-2 grid list-disc gap-1 pl-4 text-[12.5px]">
         {behind.imageTo && (
           <li>
-            Image <span className="font-mono text-[12px]">{behind.imageFrom || 'not recorded'}</span> →{' '}
-            <span className="font-mono text-[12px]">{behind.imageTo}</span>
+            {t.rich('project.base.behind.image', {
+              from: <span className="font-mono text-[12px]">{behind.imageFrom || t('project.base.notRecorded')}</span>,
+              to: <span className="font-mono text-[12px]">{behind.imageTo}</span>,
+            })}
             {changes.length > 0 && (
               <ul className="mt-1 grid list-[circle] gap-0.5 pl-4">
                 {changes.map((c) => (
@@ -561,15 +534,15 @@ function BehindNotice({ behind }: { behind: T.BaseBehind }) {
             )}
           </li>
         )}
-        {components.length > 0 && <li>New in the image: {components.join(', ')}</li>}
-        {behind.toolsUnknown && <li>The agent tools this base has aren't recorded: the refresh installs every pinned one</li>}
+        {components.length > 0 && <li>{t('project.base.behind.components', { list: components.join(', ') })}</li>}
+        {behind.toolsUnknown && <li>{t('project.base.behind.toolsUnknown')}</li>}
         {tools.length > 0 && (
           <li>
-            Agent tools:{' '}
-            {tools.map((t, i) => (
-              <span key={t.name}>
+            {t('project.base.behind.tools')}{' '}
+            {tools.map((tool, i) => (
+              <span key={tool.name}>
                 {i > 0 && ', '}
-                <span className="font-mono text-[12px]">{t.name}</span> {toolMove(t)}
+                <span className="font-mono text-[12px]">{tool.name}</span> {toolMove(tool)}
               </span>
             ))}
           </li>
@@ -579,20 +552,21 @@ function BehindNotice({ behind }: { behind: T.BaseBehind }) {
   );
 }
 
-function toolMove(t: T.BaseToolChange): string {
-  if (!t.from) return `${t.to} (new)`;
-  if (!t.to) return `${t.from} (no longer pinned)`;
-  return `${t.from} → ${t.to}`;
+function toolMove(tool: T.BaseToolChange): string {
+  if (!tool.from) return translate('project.base.behind.toolNew', { to: tool.to });
+  if (!tool.to) return translate('project.base.behind.toolDropped', { from: tool.from });
+  return `${tool.from} → ${tool.to}`;
 }
 
 // Age says how old a base is in words as well as in a date, because the
 // problem this whole panel exists for is a base nobody noticed going stale:
 // "12 Sep 2025" is a fact and "a year old" is the fact you can act on.
 function Age({ iso }: { iso: string }) {
+  useT();
   const when = new Date(iso);
   return (
     <span className="flex flex-wrap items-baseline gap-x-2">
-      <span>{when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+      <span>{formatDate(when, { day: 'numeric', month: 'short', year: 'numeric' })}</span>
       <span className={cn('text-[12.5px]', stale(iso) ? 'text-amber-300' : 'text-subtle')}>{age(iso)}</span>
     </span>
   );
@@ -608,11 +582,11 @@ const stale = (iso: string, now = Date.now()): boolean => now - new Date(iso).ge
 
 function age(iso: string, now = Date.now()): string {
   const days = Math.max(0, Math.floor((now - new Date(iso).getTime()) / DAY));
-  if (days < 1) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 31) return `${days} days old`;
+  if (days < 1) return translate('project.base.age.today');
+  if (days === 1) return translate('project.base.age.yesterday');
+  if (days < 31) return translate('project.base.age.days', { count: days });
   const months = Math.round(days / 30.44);
-  if (days < 365) return `${months} months old`;
+  if (days < 365) return translate('project.base.age.months', { count: months });
   const years = Math.floor(days / 365);
-  return years === 1 ? 'over a year old' : `over ${years} years old`;
+  return translate('project.base.age.years', { count: years });
 }

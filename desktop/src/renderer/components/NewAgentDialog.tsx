@@ -8,6 +8,7 @@ import { projectLabel } from '../lib/projectName';
 import { branchSlug, branchSlugPattern, maxBranchSlugLen } from '../lib/branch';
 import { formatTokens } from '../lib/chat';
 import { choiceName } from '../lib/modelChoices';
+import { useT, type MessageKey } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { JobProgress } from './JobProgress';
 import { AIIcon, aiLabel } from './state';
@@ -74,18 +75,17 @@ const emptyForm: Form = {
   size: '',
 };
 
-const sizes = agentSizes();
-
-const tools = [
+// A label or hint that is a brand's name is shown as it is; the rest are keys.
+const tools: { ai: string; label?: string; labelKey?: MessageKey; hint?: string; hintKey?: MessageKey }[] = [
   { ai: 'claude', label: 'Claude Code', hint: 'Anthropic' },
   { ai: 'codex', label: 'Codex', hint: 'OpenAI' },
-  { ai: 'opencode', label: 'OpenCode', hint: 'Open source' },
-  { ai: 'none', label: 'Shell only', hint: 'No AI tool' },
+  { ai: 'opencode', label: 'OpenCode', hintKey: 'project.newAgent.tool.openSource' },
+  { ai: 'none', labelKey: 'project.newAgent.tool.shellOnly', hintKey: 'project.newAgent.tool.noAI' },
 ];
 
 const interfaces = [
-  { value: 'chat', label: 'Chat', icon: MessageSquare },
-  { value: 'cli', label: 'Terminal', icon: SquareTerminal },
+  { value: 'chat', label: 'project.newAgent.interface.chat', icon: MessageSquare },
+  { value: 'cli', label: 'project.newAgent.interface.terminal', icon: SquareTerminal },
 ] as const;
 
 // NewAgentDialog creates an agent and follows the create job. project is the
@@ -99,6 +99,8 @@ export function NewAgentDialog({
   onClose: () => void;
   onCreated: (ref: string) => void;
 }) {
+  const t = useT();
+  const sizes = agentSizes();
   const open = project !== null;
   const queryClient = useQueryClient();
   const [form, setForm] = useState<Form>(emptyForm);
@@ -227,11 +229,9 @@ export function NewAgentDialog({
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{job ? `Creating ${form.title.trim() || 'the agent'}` : 'New agent'}</DialogTitle>
+          <DialogTitle>{job ? (form.title.trim() ? t('project.newAgent.creatingTitled', { title: form.title.trim() }) : t('project.newAgent.creating')) : t('project.newAgent.title')}</DialogTitle>
           <DialogDescription>
-            {job
-              ? 'This keeps running in the daemon if you close this dialog.'
-              : 'Its own Linux machine, with a worktree and branch, a chat, a terminal and a browser.'}
+            {job ? t('project.newAgent.keepsRunning') : t('project.newAgent.description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -241,14 +241,14 @@ export function NewAgentDialog({
             {cancel.error && <Notice>{errorMessage(cancel.error)}</Notice>}
             <DialogFooter>
               {finished ? (
-                <Button onClick={onClose}>Close</Button>
+                <Button onClick={onClose}>{t('common.close')}</Button>
               ) : (
                 <>
                   <Button variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate(job.id)}>
                     {cancel.isPending && <LoaderCircle className="animate-spin" />}
-                    Cancel and roll back
+                    {t('project.newAgent.cancelRollback')}
                   </Button>
-                  <Button onClick={onClose}>Keep running in background</Button>
+                  <Button onClick={onClose}>{t('project.newAgent.keepInBackground')}</Button>
                 </>
               )}
             </DialogFooter>
@@ -261,12 +261,12 @@ export function NewAgentDialog({
               create.mutate();
             }}
           >
-            <Field label="What will it work on?" htmlFor="agent-title" hint="A title for the sidebar. Optional.">
+            <Field label={t('project.newAgent.workLabel')} htmlFor="agent-title" hint={t('project.newAgent.workHint')}>
               <Input
                 id="agent-title"
                 autoFocus
                 maxLength={80}
-                placeholder="Medication reminders"
+                placeholder={t('project.newAgent.workPlaceholder')}
                 value={form.title}
                 onChange={(event) => {
                   const title = event.target.value;
@@ -276,9 +276,9 @@ export function NewAgentDialog({
             </Field>
 
             <Field
-              label="Branch"
+              label={t('project.newAgent.branchLabel')}
               htmlFor="agent-branch"
-              hint="Named after the work, like fix-login-redirect. One that is taken gets -2."
+              hint={t('project.newAgent.branchHint')}
             >
               <div className="flex min-w-0 items-center gap-1.5">
                 {selected?.branchPrefix && <span className="shrink-0 font-mono text-[13px] text-subtle">{selected.branchPrefix}</span>}
@@ -287,7 +287,7 @@ export function NewAgentDialog({
                   className="min-w-0 font-mono text-[13px]"
                   maxLength={maxBranchSlugLen}
                   pattern={branchSlugPattern}
-                  title="Lowercase letters, digits and single hyphens"
+                  title={t('project.newAgent.branchPattern')}
                   placeholder="agent-NN"
                   value={form.branch}
                   onChange={(event) => setForm((f) => ({ ...f, branch: event.target.value, branchTouched: true }))}
@@ -295,7 +295,7 @@ export function NewAgentDialog({
               </div>
             </Field>
 
-            <Field label="Project" htmlFor="agent-project">
+            <Field label={t('project.newAgent.projectLabel')} htmlFor="agent-project">
               <Select id="agent-project" value={form.project} onChange={(value) => set('project', value)}>
                 {projects.data?.map((p) => (
                   <SelectOption key={p.name} value={p.name}>
@@ -307,14 +307,14 @@ export function NewAgentDialog({
 
             <SwitchRow
               id="agent-queue"
-              label="Queue"
-              hint={queueEnabled ? 'Start when a slot is free, rather than right away.' : 'Turn on Agent queue in Settings first.'}
+              label={t('project.newAgent.queueLabel')}
+              hint={queueEnabled ? t('project.newAgent.queueHint') : t('project.newAgent.queueOff')}
               checked={queueEnabled && form.queue}
               disabled={!queueEnabled}
               onChange={(value) => setForm((f) => ({ ...f, queue: value, queueTouched: true }))}
             />
 
-            <Field label="Size" htmlFor="agent-size" hint="What it reserves of the VM's memory: it waits in the queue until that much is free. Not a cap.">
+            <Field label={t('project.newAgent.sizeLabel')} htmlFor="agent-size" hint={t('project.newAgent.sizeHint')}>
               <Select id="agent-size" value={form.size} onChange={(value) => set('size', value)}>
                 {sizes.map((size) => (
                   <SelectOption key={size.value} value={size.value}>
@@ -325,8 +325,8 @@ export function NewAgentDialog({
             </Field>
 
             <div className="grid gap-1.5">
-              <Label>AI tool</Label>
-              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="AI tool">
+              <Label>{t('project.newAgent.aiTool')}</Label>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('project.newAgent.aiTool')}>
                 {tools.map((tool) => (
                   <button
                     key={tool.ai}
@@ -342,8 +342,8 @@ export function NewAgentDialog({
                   >
                     <AIIcon ai={tool.ai} className={cn('size-4 text-subtle', form.ai === tool.ai && 'text-brand-300')} />
                     <span className="grid">
-                      <span className="text-[13px] font-medium text-primary">{tool.label}</span>
-                      <span className="text-[11px] text-subtle">{tool.hint}</span>
+                      <span className="text-[13px] font-medium text-primary">{tool.labelKey ? t(tool.labelKey) : tool.label}</span>
+                      <span className="text-[11px] text-subtle">{tool.hintKey ? t(tool.hintKey) : tool.hint}</span>
                     </span>
                   </button>
                 ))}
@@ -352,8 +352,8 @@ export function NewAgentDialog({
 
             {form.ai !== 'none' && (
               <div className="grid gap-1.5">
-                <Label>Work with it in</Label>
-                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Interface">
+                <Label>{t('project.newAgent.workWith')}</Label>
+                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('project.newAgent.interfaceAria')}>
                   {interfaces.map((option) => (
                     <button
                       key={option.value}
@@ -369,9 +369,11 @@ export function NewAgentDialog({
                     >
                       <option.icon className={cn('size-4 shrink-0 text-subtle', form.iface === option.value && 'text-brand-300')} />
                       <span className="grid">
-                        <span className="text-[13px] font-medium text-primary">{option.label}</span>
+                        <span className="text-[13px] font-medium text-primary">{t(option.label)}</span>
                         <span className="text-[11px] text-subtle">
-                          {option.value === 'chat' ? 'Messages and approvals, in the app' : `${tools.find((t) => t.ai === form.ai)?.label}'s own command line`}
+                          {option.value === 'chat'
+                            ? t('project.newAgent.chatHint')
+                            : t('project.newAgent.cliHint', { tool: aiLabel(form.ai) })}
                         </span>
                       </span>
                     </button>
@@ -387,30 +389,26 @@ export function NewAgentDialog({
               onClick={() => setAdvanced((v) => !v)}
             >
               <ChevronRight className={cn('size-3.5 transition-transform', advanced && 'rotate-90')} />
-              More options
+              {t('project.newAgent.moreOptions')}
             </button>
             {advanced && (
               <div className="-mt-2 grid animate-slide-up gap-4 rounded-xl border border-line bg-surface-faint p-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Name" htmlFor="agent-name" hint="Default: agent-01, agent-02, …">
+                  <Field label={t('project.newAgent.nameLabel')} htmlFor="agent-name" hint={t('project.newAgent.nameHint')}>
                     <Input id="agent-name" className="font-mono text-[13px]" placeholder="agent-NN" value={form.name} onChange={(event) => set('name', event.target.value)} />
                   </Field>
-                  <Field label="Start from" htmlFor="agent-from" hint={selected ? `Default: ${selected.branch}` : undefined}>
+                  <Field label={t('project.newAgent.fromLabel')} htmlFor="agent-from" hint={selected ? t('project.newAgent.fromHint', { branch: selected.branch }) : undefined}>
                     <Input id="agent-from" className="font-mono text-[13px]" placeholder={selected?.branch ?? 'main'} value={form.from} onChange={(event) => set('from', event.target.value)} />
                   </Field>
                 </div>
                 {form.ai === 'opencode' && (
                   <Field
-                    label="Model"
+                    label={t('project.newAgent.modelLabel')}
                     htmlFor="agent-opencode-model"
-                    hint={
-                      openCodeModels.length
-                        ? "OpenCode's own provider/model ids, for the providers you have logged in to."
-                        : 'Log in with agentbox auth opencode, and OpenCode names the models its providers can run.'
-                    }
+                    hint={openCodeModels.length ? t('project.newAgent.openCodeModelHint') : t('project.newAgent.openCodeLoginHint')}
                   >
                     <Select id="agent-opencode-model" value={form.model} onChange={(value) => set('model', value)}>
-                      <SelectOption value="">Default (what OpenCode's own configuration names)</SelectOption>
+                      <SelectOption value="">{t('project.newAgent.openCodeDefault')}</SelectOption>
                       {openCodeModels.map((choice) => (
                         <SelectOption key={choice.value} value={choice.value}>
                           {choiceName(choice) || choice.value}
@@ -422,12 +420,12 @@ export function NewAgentDialog({
                 {form.ai === 'claude' && (
                   <div className="grid grid-cols-2 gap-4">
                     <Field
-                      label="Model"
+                      label={t('project.newAgent.modelLabel')}
                       htmlFor="agent-model"
-                      hint="Claude Code's own models for this account, plus a few AgentBox pins."
+                      hint={t('project.newAgent.claudeModelHint')}
                     >
                       <Select id="agent-model" value={form.model} onChange={(value) => set('model', value)}>
-                        <SelectOption value="">Default ({fallbackModel})</SelectOption>
+                        <SelectOption value="">{t('project.newAgent.defaultOption', { value: fallbackModel })}</SelectOption>
                         {modelChoices.map((choice) => (
                           <SelectOption key={choice.value} value={choice.value}>
                             {choiceName(choice) || choice.value}
@@ -435,9 +433,9 @@ export function NewAgentDialog({
                         ))}
                       </Select>
                     </Field>
-                    <Field label="Effort" htmlFor="agent-effort" hint="How hard it thinks. Some models have no effort levels.">
+                    <Field label={t('project.newAgent.effortLabel')} htmlFor="agent-effort" hint={t('project.newAgent.effortHint')}>
                       <Select id="agent-effort" value={form.effort} onChange={(value) => set('effort', value)}>
-                        <SelectOption value="">Default ({fallbackEffort})</SelectOption>
+                        <SelectOption value="">{t('project.newAgent.defaultOption', { value: fallbackEffort })}</SelectOption>
                         {effortChoices.map((choice) => (
                           <SelectOption key={choice.value} value={choice.value}>
                             {choiceName(choice) || choice.value}
@@ -449,15 +447,15 @@ export function NewAgentDialog({
                 )}
                 {form.ai === 'claude' && contextWindows.length > 1 && (
                   <Field
-                    label="Context window"
+                    label={t('project.newAgent.windowLabel')}
                     htmlFor="agent-context-window"
-                    hint="Where its chat compacts. Past the default, every step resends the whole conversation, so 1M costs up to five times as much per step late in a long task."
+                    hint={t('project.newAgent.windowHint')}
                   >
                     <Select id="agent-context-window" value={contextWindow} onChange={(value) => set('contextWindow', value)}>
-                      <SelectOption value="">Default ({formatTokens(defaultWindow)})</SelectOption>
+                      <SelectOption value="">{t('project.newAgent.defaultOption', { value: formatTokens(defaultWindow) })}</SelectOption>
                       {contextWindows.slice(1).map((n) => (
                         <SelectOption key={n} value={String(n)}>
-                          {formatTokens(n)}, the model's whole window
+                          {t('project.newAgent.windowWhole', { size: formatTokens(n) })}
                         </SelectOption>
                       ))}
                     </Select>
@@ -465,12 +463,16 @@ export function NewAgentDialog({
                 )}
                 {form.ai === 'claude' && accounts.length > 1 && (
                   <Field
-                    label="Claude Code account"
+                    label={t('project.newAgent.claudeAccountLabel')}
                     htmlFor="agent-claude-account"
-                    hint={selected?.claudeAccount ? `${selected.name} uses ${selected.claudeAccount}.` : `This machine's default is ${defaultAccount}.`}
+                    hint={
+                      selected?.claudeAccount
+                        ? t('project.newAgent.accountUses', { project: selected.name, account: selected.claudeAccount })
+                        : t('project.newAgent.accountDefault', { account: defaultAccount })
+                    }
                   >
                     <Select id="agent-claude-account" value={form.claudeAccount} onChange={(value) => set('claudeAccount', value)}>
-                      <SelectOption value="">{selected?.claudeAccount ? `The project's (${selected.claudeAccount})` : `Default (${defaultAccount})`}</SelectOption>
+                      <SelectOption value="">{selected?.claudeAccount ? t('project.newAgent.projectsAccount', { account: selected.claudeAccount }) : t('project.newAgent.defaultOption', { value: defaultAccount })}</SelectOption>
                       {accounts.map((account) => (
                         <SelectOption key={account.name} value={account.name}>
                           {account.name}
@@ -481,12 +483,16 @@ export function NewAgentDialog({
                 )}
                 {githubAccounts.length > 1 && (
                   <Field
-                    label="GitHub account"
+                    label={t('project.newAgent.githubAccountLabel')}
                     htmlFor="agent-github-account"
-                    hint={selected?.githubAccount ? `${selected.name} uses ${selected.githubAccount}.` : `This machine's default is ${defaultGitHubAccount}.`}
+                    hint={
+                      selected?.githubAccount
+                        ? t('project.newAgent.accountUses', { project: selected.name, account: selected.githubAccount })
+                        : t('project.newAgent.accountDefault', { account: defaultGitHubAccount })
+                    }
                   >
                     <Select id="agent-github-account" value={form.githubAccount} onChange={(value) => set('githubAccount', value)}>
-                      <SelectOption value="">{selected?.githubAccount ? `The project's (${selected.githubAccount})` : `Default (${defaultGitHubAccount})`}</SelectOption>
+                      <SelectOption value="">{selected?.githubAccount ? t('project.newAgent.projectsAccount', { account: selected.githubAccount }) : t('project.newAgent.defaultOption', { value: defaultGitHubAccount })}</SelectOption>
                       {githubAccounts.map((account) => (
                         <SelectOption key={account.name} value={account.name}>
                           {account.name}
@@ -496,20 +502,20 @@ export function NewAgentDialog({
                   </Field>
                 )}
                 <Field
-                  label="When it finishes"
+                  label={t('project.newAgent.finishLabel')}
                   htmlFor="agent-notify"
-                  hint="Only matters if the project's own setting is “let the agent decide”."
+                  hint={t('project.newAgent.finishHint')}
                 >
                   <Select id="agent-notify" value={form.notify} onChange={(value) => set('notify', value as Form['notify'])}>
-                    <SelectOption value="">Project setting</SelectOption>
-                    <SelectOption value="chat">Wake the chat</SelectOption>
-                    <SelectOption value="off">Only record it</SelectOption>
+                    <SelectOption value="">{t('project.newAgent.finishProject')}</SelectOption>
+                    <SelectOption value="chat">{t('project.newAgent.finishWake')}</SelectOption>
+                    <SelectOption value="off">{t('project.newAgent.finishRecord')}</SelectOption>
                   </Select>
                 </Field>
                 <SwitchRow
                   id="agent-autonomous"
-                  label="Autonomous"
-                  hint="Runs the AI tool without asking for permission. The agent's machine is its sandbox."
+                  label={t('project.newAgent.autonomousLabel')}
+                  hint={t('project.newAgent.autonomousHint')}
                   checked={form.autonomous}
                   disabled={form.ai === 'none'}
                   onChange={(value) => set('autonomous', value)}
@@ -517,8 +523,8 @@ export function NewAgentDialog({
                 {base.data && (
                   <SwitchRow
                     id="agent-clean"
-                    label="Skip the project base"
-                    hint={`Start from the plain base image instead of the base saved from ${base.data.savedFrom}.`}
+                    label={t('project.newAgent.cleanLabel')}
+                    hint={t('project.newAgent.cleanHint', { from: base.data.savedFrom })}
                     checked={form.clean}
                     onChange={(value) => set('clean', value)}
                   />
@@ -528,28 +534,28 @@ export function NewAgentDialog({
 
             {needsLogin && (
               <Notice tone="warning">
-                AgentBox has no {aiLabel(form.ai)} login yet. Add one in Settings → Accounts, or run <Code>agentbox auth {form.ai}</Code>.
+                {t.rich('project.newAgent.needsLogin', { tool: aiLabel(form.ai), code: (c) => <Code>{c}</Code>, command: `agentbox auth ${form.ai}` })}
               </Notice>
             )}
             {missingFromImage && (
               <Notice tone="warning">
-                The base image was built without OpenCode. Turn it on in Settings → Setup, or run <Code>agentbox image build --opencode</Code>.
+                {t.rich('project.newAgent.noOpenCode', { code: (c) => <Code>{c}</Code> })}
               </Notice>
             )}
             {image.data?.ready === false && (
               <Notice tone="warning">
-                The base image isn't built yet. Build it in Settings → Setup, or run <Code>agentbox image build</Code>.
+                {t.rich('project.newAgent.noImage', { code: (c) => <Code>{c}</Code> })}
               </Notice>
             )}
             {create.error && <Notice>{errorMessage(create.error)}</Notice>}
 
             <DialogFooter>
               <Button variant="ghost" onClick={onClose}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" variant="primary" disabled={!form.project || create.isPending}>
                 {create.isPending && <LoaderCircle className="animate-spin" />}
-                Create agent
+                {t('project.newAgent.create')}
               </Button>
             </DialogFooter>
           </form>

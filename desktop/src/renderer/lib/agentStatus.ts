@@ -5,26 +5,61 @@
 // at the other.
 import { useQuery } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
+import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { api } from './api.ts';
 
 export type StatusTone = 'urgent' | 'error' | 'live' | 'muted';
 
 export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
-  if (agent.chat === 'waiting') return { text: 'Needs you', tone: 'urgent' };
-  if (agent.state === 'incomplete') return { text: 'Needs attention', tone: 'error' };
-  if (agent.state === 'missing') return { text: 'Missing', tone: 'error' };
-  if (agent.state === 'queued') return { text: `Queued #${agent.queuePosition ?? '?'}`, tone: 'muted' };
-  if (agent.state === 'initializing') return { text: 'Initializing', tone: 'live' };
+  if (agent.chat === 'waiting') return { text: t('agent.status.needsYou'), tone: 'urgent' };
+  if (agent.state === 'incomplete') return { text: t('agent.status.needsAttention'), tone: 'error' };
+  if (agent.state === 'missing') return { text: t('agent.status.missing'), tone: 'error' };
+  if (agent.state === 'queued') return { text: t('agent.status.queued', { position: agent.queuePosition ?? '?' }), tone: 'muted' };
+  if (agent.state === 'initializing') return { text: t('agent.status.initializing'), tone: 'live' };
   // A stalled turn still says running: the daemon's stall watch found no
   // progress on it for long enough that it is stuck, not working.
-  if (agent.chat === 'running' && agent.stalledSince) return { text: 'Stalled', tone: 'error' };
-  if (agent.chat === 'running') return { text: 'Working', tone: 'live' };
+  if (agent.chat === 'running' && agent.stalledSince) return { text: t('agent.status.stalled'), tone: 'error' };
+  if (agent.chat === 'running') return { text: t('agent.status.working'), tone: 'live' };
   // The AI tool exited, mid-turn or not: nothing runs until somebody sends
   // it a message, which isn't the same as idle.
-  if (agent.state === 'running' && agent.chat === 'error') return { text: 'Chat stopped', tone: 'error' };
-  if (agent.state === 'running') return { text: agent.chat === 'starting' ? 'Starting' : 'Idle', tone: 'muted' };
-  if (agent.state === 'paused') return { text: 'Paused', tone: 'muted' };
-  return { text: 'Stopped', tone: 'muted' };
+  if (agent.state === 'running' && agent.chat === 'error') return { text: t('agent.status.chatStopped'), tone: 'error' };
+  if (agent.state === 'running') return { text: agent.chat === 'starting' ? t('agent.status.starting') : t('agent.status.idle'), tone: 'muted' };
+  if (agent.state === 'paused') return { text: t('agent.status.paused'), tone: 'muted' };
+  return { text: t('agent.status.stopped'), tone: 'muted' };
+}
+
+const prStates: Record<string, MessageKey> = {
+  draft: 'agent.pr.draft',
+  open: 'agent.pr.open',
+  merged: 'agent.pr.merged',
+  closed: 'agent.pr.closed',
+};
+const prChecks: Record<string, MessageKey> = {
+  passing: 'agent.pr.passing',
+  failing: 'agent.pr.failing',
+  pending: 'agent.pr.pending',
+};
+
+// prState is a pull request's state in words: draft, open, merged or closed.
+export function prState(pr: Pick<T.PullRequest, 'draft' | 'state'>): string {
+  const state = pr.draft ? 'draft' : pr.state;
+  return prStates[state] ? t(prStates[state]) : state;
+}
+
+// prChecks is what the pull request's checks add up to, in words.
+export function prChecksText(checks: string): string {
+  return prChecks[checks] ? t(prChecks[checks]) : checks;
+}
+
+// usageTip is an agent's sample of CPU, memory and disk, in full, for the
+// tooltip of the short form the rail and the switcher show.
+export function usageTip(sample: T.AgentUsage, humanBytes: (n: number) => string, humanRate: (n: number) => string): string {
+  return t('agent.usage.tip', {
+    cpu: sample.cpu.toFixed(0),
+    memory: humanBytes(sample.memory),
+    read: humanRate(sample.diskRead),
+    write: humanRate(sample.diskWrite),
+  });
 }
 
 // rank sorts the agents that need you first, then whatever's running, leaving

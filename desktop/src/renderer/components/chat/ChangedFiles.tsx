@@ -3,6 +3,7 @@ import { ChevronRight, FileCode2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type * as T from '../../../shared/api';
 import type { ChangedFile } from '../../lib/chat';
+import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 
 // relativePath shows a path inside the agent's worktree relative to it.
@@ -13,6 +14,7 @@ export function relativePath(path: string, root: string): string {
 // ChangedFiles is the card under a finished turn: the files its tool calls
 // edited, each with its diff.
 export function ChangedFiles({ files, root }: { files: ChangedFile[]; root: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [openFile, setOpenFile] = useState<string | null>(null);
   const added = files.reduce((n, f) => n + f.added, 0);
@@ -22,11 +24,11 @@ export function ChangedFiles({ files, root }: { files: ChangedFile[]; root: stri
       <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-surface-faint" aria-expanded={open} onClick={() => setOpen(!open)}>
         <ChevronRight className={cn('size-3.5 text-subtle transition-transform', open && 'rotate-90')} />
         <span className="font-medium text-secondary">
-          {files.length} changed {files.length === 1 ? 'file' : 'files'}
+          {t('chat.changedFiles.count', { count: files.length })}
         </span>
         <span className={cn('font-mono', added ? 'text-emerald-400' : 'text-faint')}>+{added}</span>
         <span className={cn('-ml-1 font-mono', removed ? 'text-rose-400' : 'text-faint')}>−{removed}</span>
-        {!open && <span className="text-subtle">Show files</span>}
+        {!open && <span className="text-subtle">{t('chat.changedFiles.show')}</span>}
       </button>
       {open && (
         <div className="border-t border-line-faint py-1">
@@ -66,6 +68,7 @@ interface Line {
 
 // DiffView shows an edit line by line, with long unchanged stretches folded.
 export function DiffView({ diff, className }: { diff: T.ChatDiff; className?: string }) {
+  const t = useT();
   const lines = useMemo(() => {
     const out: Line[] = [];
     const parts = diffLines(diff.oldText, diff.newText);
@@ -76,14 +79,14 @@ export function DiffView({ diff, className }: { diff: T.ChatDiff; className?: st
         const head = index === 0 ? [] : texts.slice(0, 3);
         const tail = index === parts.length - 1 ? [] : texts.slice(-3);
         for (const text of head) out.push({ text, sign });
-        out.push({ text: `${texts.length - head.length - tail.length} unchanged lines`, sign: '…' });
+        out.push({ text: t('chat.diff.unchanged', { count: texts.length - head.length - tail.length }), sign: '…' });
         for (const text of tail) out.push({ text, sign });
         return;
       }
       for (const text of texts) out.push({ text, sign });
     });
     return out;
-  }, [diff]);
+  }, [diff, t]);
   return (
     <pre className={cn('max-h-80 overflow-auto py-1.5 font-mono text-[11.5px] leading-[1.6]', className)} data-diff={diff.path}>
       {lines.map((line, i) => (
@@ -101,7 +104,7 @@ export function DiffView({ diff, className }: { diff: T.ChatDiff; className?: st
           {line.text}
         </div>
       ))}
-      {diff.truncated && <div className="px-3 pt-1 text-[10.5px] text-faint">The file was too long to show whole.</div>}
+      {diff.truncated && <div className="px-3 pt-1 text-[10.5px] text-faint">{t('chat.diff.truncated')}</div>}
     </pre>
   );
 }

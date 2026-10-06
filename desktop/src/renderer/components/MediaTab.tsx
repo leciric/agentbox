@@ -25,6 +25,7 @@ import { useDeferredValue, useEffect, useMemo, useState, type ComponentType, typ
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatDateTime, useT } from '../lib/i18n';
 import { useSeeMedia } from '../lib/notifications';
 import { clock, describeAll, kindInfo, mediaKinds, mediaUrl, searchMedia } from '../lib/media';
 import { cn, errorMessage, humanBytes, timeAgo, timeUntil } from '../lib/utils';
@@ -49,6 +50,7 @@ const kindVariant: Record<string, BadgeVariant> = {
 // MediaTab is the gallery of what shows an agent's work: screenshots,
 // recordings, reports, logs and notes, from the agent and from you.
 export function MediaTab({ agent }: { agent: T.Agent }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const running = agent.state === 'running';
   const media = useQuery({ queryKey: ['media', agent.ref], queryFn: () => api.media(agent.ref) });
@@ -71,7 +73,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
-  const saved = (item: T.MediaItem) => toast(`Saved “${item.name}”`);
+  const saved = (item: T.MediaItem) => toast(t('agent.mediaTab.saved', { name: item.name }));
   const shot = useMutation({ mutationFn: () => api.screenshot(agent.ref), onSuccess: saved });
   const isRecording = recording.data?.recording === true;
   const record = useMutation({
@@ -85,9 +87,9 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
   const exportAll = useMutation({
     mutationFn: () => api.exportMedia(agent.ref),
     onSuccess: (result) =>
-      toast(`Exported ${result.items} item${result.items === 1 ? '' : 's'}`, {
+      toast(t('agent.mediaTab.exported', { count: result.items }), {
         description: result.dir,
-        action: { label: 'Open folder', onClick: () => void window.agentbox.openPath(result.dir) },
+        action: { label: t('agent.mediaTab.openFolder'), onClick: () => void window.agentbox.openPath(result.dir) },
       }),
   });
 
@@ -111,9 +113,9 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filter media">
+        <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('agent.mediaTab.filter')}>
           <FilterChip active={filter === 'all'} count={items.length} onClick={() => setFilter('all')}>
-            All
+            {t('agent.mediaTab.all')}
           </FilterChip>
           {mediaKinds
             .filter((k) => counts.get(k.kind))
@@ -130,7 +132,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
             <>
               <Button size="sm" disabled={!running || shot.isPending} onClick={() => shot.mutate()}>
                 {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
-                Screenshot
+                {t('agent.browser.screenshot')}
               </Button>
               {isRecording ? (
                 <Button
@@ -140,34 +142,34 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
                   onClick={() => record.mutate()}
                 >
                   {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" />}
-                  Stop recording{recording.data?.input === 'desktop' ? ' with the keys and mouse' : ''}
+                  {recording.data?.input === 'desktop' ? t('agent.mediaTab.stopRecordingInput') : t('agent.browser.stopRecording')}
                 </Button>
               ) : (
                 <Menu>
                   <MenuTrigger asChild>
                     <Button size="sm" disabled={!running || record.isPending}>
                       {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500" />}
-                      Record
+                      {t('agent.browser.record')}
                     </Button>
                   </MenuTrigger>
                   <MenuContent>
                     <MenuItem icon={Circle} onSelect={() => record.mutate()}>
-                      Record the screen
+                      {t('agent.browser.recordScreen')}
                     </MenuItem>
                     <MenuItem icon={MousePointerClick} onSelect={() => record.mutate('desktop')}>
-                      Record with keys and mouse
+                      {t('agent.browser.recordInput')}
                     </MenuItem>
                   </MenuContent>
                 </Menu>
               )}
               <Button size="sm" onClick={() => setNoting(true)}>
                 <StickyNote />
-                Note
+                {t('agent.mediaTab.note')}
               </Button>
-              <Tip label="Copy everything into a folder with a README.md, for a pull request">
+              <Tip label={t('agent.mediaTab.exportTip')}>
                 <Button size="sm" variant="ghost" disabled={items.length === 0 || exportAll.isPending} onClick={() => exportAll.mutate()}>
                   {exportAll.isPending ? <LoaderCircle className="animate-spin" /> : <Download />}
-                  Export
+                  {t('agent.mediaTab.export')}
                 </Button>
               </Tip>
             </>
@@ -201,21 +203,21 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
         ) : items.length === 0 ? (
           <EmptyState
             icon={Images}
-            title="Nothing kept yet"
+            title={t('agent.mediaTab.emptyTitle')}
             action={
               <>
                 <Button variant="primary" disabled={!running || shot.isPending} onClick={() => shot.mutate()}>
                   <Camera />
-                  Take a screenshot
+                  {t('agent.mediaTab.takeScreenshot')}
                 </Button>
                 <Button disabled={!running || record.isPending} onClick={() => record.mutate()}>
                   <span className="size-2.5 rounded-full bg-rose-500" />
-                  Record the screen
+                  {t('agent.browser.recordScreen')}
                 </Button>
               </>
             }
           >
-            <p>Screenshots, recordings, test reports, logs and notes that show {agent.title || agent.name}'s work end up here. Agents add them themselves:</p>
+            <p>{t('agent.mediaTab.emptyBody', { name: agent.title || agent.name })}</p>
             <pre className="mt-4 rounded-xl border border-line bg-well p-3.5 text-left font-mono text-[12px] leading-relaxed text-muted">
               <span className="text-faint">$ </span>agentbox media screenshot --name checkout{'\n'}
               <span className="text-faint">$ </span>agentbox media record start --name demo{'\n'}
@@ -251,9 +253,9 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Delete “${deleting?.name}”?`}
-        description="It's removed from this agent's media for good."
-        confirmLabel="Delete"
+        title={t('agent.mediaTab.deleteTitle', { name: deleting?.name ?? '' })}
+        description={t('agent.mediaTab.deleteDescription')}
+        confirmLabel={t('common.delete')}
         destructive
         onConfirm={async () => {
           await api.deleteMedia(deleting!.id);
@@ -268,13 +270,14 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
 // "note") and a note's own words. Every word has to match; a "quoted phrase"
 // matches whole. Escape clears it.
 export function MediaSearch({ value, onChange, className }: { value: string; onChange: (value: string) => void; className?: string }) {
+  const t = useT();
   return (
     <div className={cn('relative flex w-56 min-w-0 max-w-full items-center', className)}>
       <Search className="pointer-events-none absolute left-2.5 size-3.5 text-subtle" />
       <Input
         type="search"
-        aria-label="Search media"
-        placeholder="Search names, types, notes"
+        aria-label={t('agent.mediaTab.search')}
+        placeholder={t('agent.mediaTab.searchPlaceholder')}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
@@ -286,7 +289,7 @@ export function MediaSearch({ value, onChange, className }: { value: string; onC
         className="h-7 min-w-0 pl-8 pr-7 text-[12.5px] [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
-        <button aria-label="Clear the search" onClick={() => onChange('')} className="absolute right-1.5 flex size-5 items-center justify-center rounded-md text-subtle hover:bg-surface hover:text-primary">
+        <button aria-label={t('agent.mediaTab.clearSearch')} onClick={() => onChange('')} className="absolute right-1.5 flex size-5 items-center justify-center rounded-md text-subtle hover:bg-surface hover:text-primary">
           <X className="size-3.5" />
         </button>
       )}
@@ -297,12 +300,13 @@ export function MediaSearch({ value, onChange, className }: { value: string; onC
 // NoMatch is what a gallery shows when its filters leave nothing, with the
 // search that did it, cut short rather than widening the column.
 export function NoMatch({ query, onClear }: { query: string; onClear: () => void }) {
+  const t = useT();
   return (
     <p className="flex min-w-0 items-center gap-2 px-1 text-[13px] text-subtle">
-      <span className="min-w-0 truncate">{query.trim() ? `Nothing matches “${query.trim()}”.` : 'Nothing matches that filter.'}</span>
+      <span className="min-w-0 truncate">{query.trim() ? t('agent.mediaTab.noMatchQuery', { query: query.trim() }) : t('agent.mediaTab.noMatch')}</span>
       {query.trim() && (
         <Button size="sm" variant="ghost" className="shrink-0" onClick={onClear}>
-          Clear the search
+          {t('agent.mediaTab.clearSearch')}
         </Button>
       )}
     </p>
@@ -343,6 +347,7 @@ export function MediaSelection({
   deleteMedia: (req: T.DeleteMediaRequest) => Promise<T.DeleteMediaResult>;
   onDeleted: () => Promise<unknown> | void;
 }) {
+  const t = useT();
   const [confirming, setConfirming] = useState<'selected' | 'all' | null>(null);
 
   // A filter that hides a ticked item unticks it, so "Delete selected" can
@@ -363,8 +368,8 @@ export function MediaSelection({
     onSelected(new Set());
     onSelecting(false);
     await onDeleted();
-    toast(`Deleted ${result.deleted} item${result.deleted === 1 ? '' : 's'}`, {
-      description: result.bytes > 0 ? `${humanBytes(result.bytes)} freed` : undefined,
+    toast(t('agent.mediaTab.deleted', { count: result.deleted }), {
+      description: result.bytes > 0 ? t('agent.mediaTab.freed', { size: humanBytes(result.bytes) }) : undefined,
     });
   };
 
@@ -373,14 +378,14 @@ export function MediaSelection({
       {selecting ? (
         <>
           <Button size="sm" variant="ghost" onClick={() => onSelected(new Set(allTicked ? [] : visible.map((item) => item.id)))}>
-            {allTicked ? 'Clear' : 'Select all'}
+            {allTicked ? t('agent.mediaTab.clear') : t('agent.mediaTab.selectAll')}
           </Button>
           <Button size="sm" variant="danger" disabled={chosen.length === 0} onClick={() => setConfirming('selected')}>
             <Trash />
-            Delete selected ({chosen.length})
+            {t('agent.mediaTab.deleteSelected', { count: chosen.length })}
           </Button>
           <Button size="sm" variant="danger" disabled={visible.length === 0} onClick={() => setConfirming('all')}>
-            Delete all
+            {t('agent.mediaTab.deleteAll')}
           </Button>
           <Button
             size="sm"
@@ -390,21 +395,21 @@ export function MediaSelection({
               onSelecting(false);
             }}
           >
-            Done
+            {t('common.done')}
           </Button>
         </>
       ) : (
         <Button size="sm" variant="ghost" disabled={visible.length === 0} onClick={() => onSelecting(true)}>
           <SquareCheck />
-          Select
+          {t('agent.mediaTab.select')}
         </Button>
       )}
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => !open && setConfirming(null)}
-        title={everything ? `Delete ${allLabel}?` : `Delete ${going.length} item${going.length === 1 ? '' : 's'}?`}
-        description={`${bytes > 0 ? `${humanBytes(bytes)} freed. ` : ''}They go for good, files and all.`}
-        confirmLabel="Delete"
+        title={everything ? t('agent.mediaTab.deleteAllTitle', { what: allLabel }) : t('agent.mediaTab.deleteSomeTitle', { count: going.length })}
+        description={bytes > 0 ? t('agent.mediaTab.goDescriptionSize', { size: humanBytes(bytes) }) : t('agent.mediaTab.goDescription')}
+        confirmLabel={t('common.delete')}
         destructive
         onConfirm={remove}
       />
@@ -469,6 +474,7 @@ export function MediaCard({
   selected?: boolean;
   onToggle?: () => void;
 }) {
+  const t = useT();
   const info = kindInfo(item.kind);
   return (
     <button
@@ -514,7 +520,7 @@ export function MediaCard({
         <div className="truncate text-[13px] font-medium text-primary">{item.name}</div>
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-subtle">
           {item.source === 'agent' ? <Bot className="size-3" /> : <User className="size-3" />}
-          <span>{item.source === 'agent' ? 'Agent' : 'You'}</span>
+          <span>{item.source === 'agent' ? t('agent.mediaTab.sourceAgent') : t('agent.mediaTab.sourceYou')}</span>
           <span>·</span>
           <span>{timeAgo(item.createdAt)}</span>
           {item.size > 0 && (
@@ -589,11 +595,12 @@ function IconTile({ icon: Icon }: { icon: ComponentType<{ className?: string }> 
 }
 
 function TestCounts({ tests }: { tests: T.TestCounts }) {
+  const t = useT();
   return (
     <span className="flex gap-1">
-      <Badge variant="success">{tests.passed} passed</Badge>
-      {tests.failed > 0 && <Badge variant="danger">{tests.failed} failed</Badge>}
-      {tests.skipped > 0 && <Badge>{tests.skipped} skipped</Badge>}
+      <Badge variant="success">{t('agent.mediaTab.passed', { count: tests.passed })}</Badge>
+      {tests.failed > 0 && <Badge variant="danger">{t('agent.mediaTab.failed', { count: tests.failed })}</Badge>}
+      {tests.skipped > 0 && <Badge>{t('agent.mediaTab.skipped', { count: tests.skipped })}</Badge>}
     </span>
   );
 }
@@ -615,6 +622,7 @@ export function MediaViewer({
   // (MediaPlace), for a viewer opened away from its agent's own Media tab.
   context?: (item: T.MediaItem) => ReactNode;
 }) {
+  const t = useT();
   const item = index >= 0 ? items[index] : undefined;
 
   useEffect(() => {
@@ -638,41 +646,41 @@ export function MediaViewer({
               <Badge variant={kindVariant[item.kind]}>{kindInfo(item.kind).one}</Badge>
               <DialogTitle className="truncate text-[15px]">{item.name}</DialogTitle>
               <span className="shrink-0 text-xs text-subtle">
-                {item.source === 'agent' ? 'from the agent' : 'from you'} · {new Date(item.createdAt).toLocaleString()}
-                {item.agentGone && <> · agent removed{item.expiresAt && <>, expires in {timeUntil(item.expiresAt)}</>}</>}
+                {item.source === 'agent' ? t('agent.mediaTab.fromAgent') : t('agent.mediaTab.fromYou')} · {formatDateTime(item.createdAt)}
+                {item.agentGone && (item.expiresAt ? t('agent.mediaTab.agentRemovedExpires', { time: timeUntil(item.expiresAt) }) : t('agent.mediaTab.agentRemoved'))}
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                <Tip label="Previous">
-                  <Button size="icon-sm" variant="ghost" aria-label="Previous" disabled={index === 0} onClick={() => onIndex(index - 1)}>
+                <Tip label={t('agent.mediaTab.previous')}>
+                  <Button size="icon-sm" variant="ghost" aria-label={t('agent.mediaTab.previous')} disabled={index === 0} onClick={() => onIndex(index - 1)}>
                     <ChevronLeft />
                   </Button>
                 </Tip>
-                <Tip label="Next">
-                  <Button size="icon-sm" variant="ghost" aria-label="Next" disabled={index === items.length - 1} onClick={() => onIndex(index + 1)}>
+                <Tip label={t('common.next')}>
+                  <Button size="icon-sm" variant="ghost" aria-label={t('common.next')} disabled={index === items.length - 1} onClick={() => onIndex(index + 1)}>
                     <ChevronRight />
                   </Button>
                 </Tip>
                 {item.path && (
                   <>
-                    <Tip label="Open with your default app">
+                    <Tip label={t('agent.mediaTab.openDefault')}>
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        aria-label="Open with your default app"
+                        aria-label={t('agent.mediaTab.openDefault')}
                         onClick={() => void window.agentbox.openPath(item.meta.entry ? `${item.path}/${item.meta.entry}` : item.path!)}
                       >
                         <ExternalLink />
                       </Button>
                     </Tip>
-                    <Tip label="Show in folder">
-                      <Button size="icon-sm" variant="ghost" aria-label="Show in folder" onClick={() => void window.agentbox.showItem(item.path!)}>
+                    <Tip label={t('agent.mediaTab.showInFolder')}>
+                      <Button size="icon-sm" variant="ghost" aria-label={t('agent.mediaTab.showInFolder')} onClick={() => void window.agentbox.showItem(item.path!)}>
                         <FolderOpen />
                       </Button>
                     </Tip>
                   </>
                 )}
-                <Tip label="Delete">
-                  <Button size="icon-sm" variant="danger" aria-label="Delete" onClick={() => onDelete(item)}>
+                <Tip label={t('common.delete')}>
+                  <Button size="icon-sm" variant="danger" aria-label={t('common.delete')} onClick={() => onDelete(item)}>
                     <Trash />
                   </Button>
                 </Tip>
@@ -701,6 +709,7 @@ export function MediaViewer({
 }
 
 function ViewerBody({ item }: { item: T.MediaItem }) {
+  const t = useT();
   const text = useMediaText(item, item.kind === 'log' || (item.kind === 'report' && !item.meta.entry) || item.kind === 'file', 1_000_000);
   switch (item.kind) {
     case 'screenshot':
@@ -717,18 +726,19 @@ function ViewerBody({ item }: { item: T.MediaItem }) {
   }
   return (
     <pre className="w-full self-start whitespace-pre-wrap break-all p-5 font-mono text-[12px] leading-relaxed text-tertiary">
-      {text.isPending ? 'Loading…' : text.error ? errorMessage(text.error) : text.data}
+      {text.isPending ? t('common.loading') : text.error ? errorMessage(text.error) : text.data}
     </pre>
   );
 }
 
 function NoteDialog({ agent, open, onOpenChange }: { agent: T.Agent; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const t = useT();
   const [text, setText] = useState('');
   const [name, setName] = useState('');
   const add = useMutation({
     mutationFn: () => api.addNote(agent.ref, { text, name: name.trim() || undefined }),
     onSuccess: (item) => {
-      toast(`Saved “${item.name}”`);
+      toast(t('agent.mediaTab.saved', { name: item.name }));
       setText('');
       setName('');
       onOpenChange(false);
@@ -738,8 +748,8 @@ function NoteDialog({ agent, open, onOpenChange }: { agent: T.Agent; open: boole
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a note</DialogTitle>
-          <DialogDescription>Keep a note with {agent.title || agent.name}'s media, like what you checked or what's left to do.</DialogDescription>
+          <DialogTitle>{t('agent.mediaTab.addNote')}</DialogTitle>
+          <DialogDescription>{t('agent.mediaTab.addNoteDescription', { name: agent.title || agent.name })}</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-4"
@@ -748,20 +758,20 @@ function NoteDialog({ agent, open, onOpenChange }: { agent: T.Agent; open: boole
             add.mutate();
           }}
         >
-          <Field label="Title" htmlFor="note-name" hint="Optional. Defaults to the first line.">
+          <Field label={t('agent.mediaTab.noteTitle')} htmlFor="note-name" hint={t('agent.mediaTab.noteTitleHint')}>
             <Input id="note-name" value={name} onChange={(event) => setName(event.target.value)} />
           </Field>
-          <Field label="Note" htmlFor="note-text">
+          <Field label={t('agent.mediaTab.note')} htmlFor="note-text">
             <Textarea id="note-text" autoFocus rows={6} value={text} onChange={(event) => setText(event.target.value)} />
           </Field>
           {add.error && <Notice>{errorMessage(add.error)}</Notice>}
           <DialogFooter>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" disabled={!text.trim() || add.isPending}>
               {add.isPending && <LoaderCircle className="animate-spin" />}
-              Save note
+              {t('agent.mediaTab.saveNote')}
             </Button>
           </DialogFooter>
         </form>

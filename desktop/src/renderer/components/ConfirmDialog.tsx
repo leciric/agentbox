@@ -1,5 +1,6 @@
 import { LoaderCircle } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { useT } from '../lib/i18n';
 import { errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
@@ -24,6 +25,7 @@ export function ConfirmDialog({
   onConfirm: () => Promise<unknown>;
   children?: ReactNode;
 }) {
+  const t = useT();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -54,7 +56,7 @@ export function ConfirmDialog({
         {error && <Notice>{error}</Notice>}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant={destructive ? 'destructive' : 'primary'} disabled={pending} onClick={() => void confirm()}>
             {pending && <LoaderCircle className="animate-spin" />}

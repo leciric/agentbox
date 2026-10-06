@@ -5,6 +5,7 @@ import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { api } from '../lib/api';
 import { RequestConnector } from '../lib/connectors';
+import { t, useT } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { ConnectorRequestCard } from './ConnectorRequestCard';
 import { Button } from './ui/button';
@@ -18,6 +19,7 @@ import { Input } from './ui/input';
 // variable a secret is in, or that you refused — and never the value, which
 // is the whole reason this is a card and not a question you answer in words.
 export function CredentialCard({ question }: { question: T.Question }) {
+  const t = useT();
   if (question.kind === RequestConnector) return <ConnectorRequestCard question={question} />;
   const waiting = question.status === 'pending' || question.status === 'escalated';
   return (
@@ -26,18 +28,16 @@ export function CredentialCard({ question }: { question: T.Question }) {
         <KeyRound className="size-3.5 shrink-0 text-amber-300/90" />
         <span className="min-w-0 break-words">
           {question.kind === A.CredentialSecret ? (
-            <>
-              Needs the secret <code className="font-mono text-[11.5px]">${question.secretName}</code>
-            </>
+            t.rich('chat.credential.needsSecret', { name: <code className="font-mono text-[11.5px]">${question.secretName}</code> })
           ) : (
-            'Needs a GitHub account'
+            t('chat.credential.needsGitHub')
           )}
         </span>
       </p>
       <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-tertiary [overflow-wrap:anywhere]">{question.question}</p>
       {question.status === 'cancelled' && (
         <p className="break-words text-[11px] text-faint" data-credential-cancelled>
-          Cancelled. {question.answer || 'Nobody answered in time; the agent carried on without it.'}
+          {t('chat.connector.cancelled')} {question.answer || t('chat.connector.nobodyAnswered')}
         </p>
       )}
       {waiting && <CredentialAnswer question={question} />}
@@ -59,13 +59,14 @@ export function waitingCredential(questions: T.Question[] | undefined, agent: st
 // it waits. It reads the project's questions under the rail's key, so an
 // answer from either place settles both.
 export function ChatCredentialCard({ agentRef }: { agentRef: string }) {
+  const t = useT();
   const [project, agent] = agentRef.split('/');
   const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project) });
   const question = waitingCredential(questions.data, agent);
   if (!question) return null;
   return (
     <div className="mb-3 max-w-xl rounded-xl border border-amber-400/25 bg-amber-400/[0.04] px-3.5 py-2.5" data-chat-credential={question.id}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-amber-300/90">Waiting on you</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.07em] text-amber-300/90">{t('chat.credential.waitingOnYou')}</p>
       <CredentialCard question={question} />
     </div>
   );
@@ -80,6 +81,7 @@ export function ChatCredentialCard({ agentRef }: { agentRef: string }) {
 // project's questions, never written into the chat, and what is typed in them
 // goes from here to the daemon: the lead reads neither the card nor the value.
 export function ProjectCredentialCards({ project }: { project: string }) {
+  const t = useT();
   const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project) });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   // One that settles while you look stays, saying how, until you close it:
@@ -112,16 +114,16 @@ export function ProjectCredentialCards({ project }: { project: string }) {
           >
             <div className="flex min-w-0 items-center gap-2">
               <p className={cn('shrink-0 text-[10px] font-semibold uppercase tracking-[0.07em]', isOpen(q) ? 'text-amber-300/90' : 'text-subtle')}>
-                {isOpen(q) ? 'Waiting on you' : q.status === 'answered' ? 'Answered' : 'Cancelled'}
+                {isOpen(q) ? t('chat.credential.waitingOnYou') : q.status === 'answered' ? t('chat.credential.answered') : t('chat.credential.cancelled')}
               </p>
               <p className="min-w-0 flex-1 truncate text-[11.5px] text-subtle" data-credential-asker={q.agent}>
-                <span className="font-mono text-secondary">{q.agent}</span> asks
+                {t.rich('chat.credential.asks', { agent: <span className="font-mono text-secondary">{q.agent}</span> })}
                 {asker?.title && <span className="text-faint"> · {asker.title}</span>}
               </p>
               {!isOpen(q) && (
                 <button
                   className="shrink-0 rounded p-0.5 text-faint transition hover:text-primary"
-                  aria-label="Close"
+                  aria-label={t('common.close')}
                   onClick={() => setClosed((prev) => new Set([...prev, q.id]))}
                 >
                   <X className="size-3.5" />
@@ -144,12 +146,13 @@ function isOpen(q: T.Question): boolean {
 // answeredLine says how a request was settled without repeating what the
 // agent was told, which is written for the agent.
 function answeredLine(q: T.Question): string {
-  if (q.answer?.startsWith('refused')) return 'You refused it.';
-  if (q.kind === RequestConnector) return 'The agent has the connector now.';
-  return q.kind === A.CredentialSecret ? `$${q.secretName} is saved for the project's agents.` : 'The agent has a GitHub account now.';
+  if (q.answer?.startsWith('refused')) return t('chat.credential.refusedLine');
+  if (q.kind === RequestConnector) return t('chat.credential.connectorLine');
+  return q.kind === A.CredentialSecret ? t('chat.credential.secretLine', { name: `$${q.secretName}` }) : t('chat.credential.githubLine');
 }
 
 function CredentialAnswer({ question }: { question: T.Question }) {
+  const t = useT();
   const [refusing, setRefusing] = useState(false);
   const [reason, setReason] = useState('');
   const queryClient = useQueryClient();
@@ -180,23 +183,23 @@ function CredentialAnswer({ question }: { question: T.Question }) {
         >
           <Input
             autoFocus
-            aria-label="Why you refuse"
+            aria-label={t('chat.connector.whyRefuse')}
             className="h-7 min-w-0 flex-1 text-[12px]"
-            placeholder="Why, for the agent (optional)"
+            placeholder={t('chat.connector.whyPlaceholder')}
             value={reason}
             onChange={(event) => setReason(event.target.value)}
           />
           <Button type="submit" size="sm" variant="danger" disabled={answer.isPending}>
-            Refuse
+            {t('chat.connector.refuse')}
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setRefusing(false)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
         </form>
       ) : (
         <Button size="sm" variant="ghost" className="justify-self-start text-subtle" onClick={() => setRefusing(true)}>
           <Ban />
-          Refuse
+          {t('chat.connector.refuse')}
         </Button>
       )}
       {answer.error && <p className="break-words text-[11px] text-rose-300">{errorMessage(answer.error)}</p>}
@@ -207,6 +210,7 @@ function CredentialAnswer({ question }: { question: T.Question }) {
 // SecretForm is the value, under the name the agent asked for. It is stored as
 // the project's Settings → Secrets stores it, so every agent of the project gets it.
 function SecretForm({ question, busy, onGive }: { question: T.Question; busy: boolean; onGive: (value: string) => void }) {
+  const t = useT();
   const [value, setValue] = useState('');
   return (
     <form
@@ -219,24 +223,24 @@ function SecretForm({ question, busy, onGive }: { question: T.Question; busy: bo
       <div className="flex min-w-0 items-center gap-1.5">
         <Input
           readOnly
-          aria-label="Secret name"
+          aria-label={t('chat.credential.secretName')}
           className="h-7 w-[42%] min-w-0 font-mono text-[11.5px] text-subtle"
           value={question.secretName ?? ''}
         />
         <Input
           type="password"
           autoComplete="off"
-          aria-label={`Value of ${question.secretName}`}
+          aria-label={t('chat.credential.valueOf', { name: question.secretName ?? '' })}
           className="h-7 min-w-0 flex-1 font-mono text-[11.5px]"
-          placeholder="Value"
+          placeholder={t('chat.credential.value')}
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
       </div>
-      <p className="text-[10.5px] leading-relaxed text-faint">Saved as a project secret. The agent is told the name, never the value.</p>
+      <p className="text-[10.5px] leading-relaxed text-faint">{t('chat.credential.secretHint')}</p>
       <Button type="submit" size="sm" variant="primary" className="justify-self-end" disabled={!value || busy}>
         {busy ? <LoaderCircle className="animate-spin" /> : <KeyRound />}
-        Save and give
+        {t('chat.connector.saveAndGive')}
       </Button>
     </form>
   );
@@ -246,6 +250,7 @@ function SecretForm({ question, busy, onGive }: { question: T.Question; busy: bo
 // the way agentbox auth github does: a token, checked against GitHub and
 // stored under a name. Either becomes the project's account and the agent's.
 function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string) => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const accounts = auth.data?.githubAccounts ?? [];
@@ -265,7 +270,7 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
   return (
     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
       {accounts.length > 0 && (
-        <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" aria-label="GitHub accounts">
+        <ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1" aria-label={t('chat.credential.githubAccounts')}>
           {accounts.map((acc) => (
             <li key={acc.name} className="min-w-0">
               <button
@@ -280,7 +285,7 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
               >
                 <span className="min-w-0 shrink truncate font-mono text-[11.5px] text-secondary">{acc.name}</span>
                 {acc.login && <span className="min-w-0 truncate text-[11px] text-subtle">{acc.login}</span>}
-                <span className="ml-auto shrink-0 text-[10.5px] text-faint">Give</span>
+                <span className="ml-auto shrink-0 text-[10.5px] text-faint">{t('chat.credential.give')}</span>
               </button>
             </li>
           ))}
@@ -297,29 +302,29 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
           <div className="flex min-w-0 items-center gap-1.5">
             <Input
               autoFocus
-              aria-label="Account name"
+              aria-label={t('chat.credential.accountName')}
               className="h-7 w-[38%] min-w-0 font-mono text-[11.5px]"
-              placeholder="name"
+              placeholder={t('chat.credential.namePlaceholder')}
               value={name}
               onChange={(event) => setName(event.target.value)}
             />
             <Input
               type="password"
               autoComplete="off"
-              aria-label="GitHub token"
+              aria-label={t('chat.credential.githubToken')}
               className="h-7 min-w-0 flex-1 font-mono text-[11.5px]"
-              placeholder="gh auth token, or a PAT"
+              placeholder={t('chat.credential.tokenPlaceholder')}
               value={token}
               onChange={(event) => setToken(event.target.value)}
             />
           </div>
           <div className="flex items-center justify-end gap-1.5">
             <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" size="sm" variant="primary" disabled={!name.trim() || !token.trim() || login.isPending || busy}>
               {login.isPending ? <LoaderCircle className="animate-spin" /> : <KeyRound />}
-              Log in and give
+              {t('chat.credential.logInAndGive')}
             </Button>
           </div>
           {login.error && <p className="break-words text-[11px] text-rose-300">{errorMessage(login.error)}</p>}
@@ -327,10 +332,10 @@ function GitHubForm({ busy, onGive }: { busy: boolean; onGive: (account: string)
       ) : (
         <Button size="sm" variant="ghost" className="justify-self-start" onClick={() => setAdding(true)}>
           <Plus />
-          Log in another account
+          {t('chat.credential.logInAnother')}
         </Button>
       )}
-      <p className="text-[10.5px] leading-relaxed text-faint">Becomes this project's GitHub account too. The agent is told which account, never the token.</p>
+      <p className="text-[10.5px] leading-relaxed text-faint">{t('chat.credential.githubHint')}</p>
     </div>
   );
 }

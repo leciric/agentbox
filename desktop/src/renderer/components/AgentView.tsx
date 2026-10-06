@@ -33,6 +33,7 @@ import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { waitingLine } from '../lib/agentSize';
 import { api, type AgentAction } from '../lib/api';
+import { useT, type MessageKey } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
@@ -57,12 +58,12 @@ import { Tip } from './ui/tooltip';
 
 // An agent's Settings tab: what it says about the agent's machine, code and AI
 // tool (OverviewTab), and the secrets and connectors only it gets.
-const agentSettingsSections: SettingsSection<AgentSection>[] = [
-  { id: 'machine', title: 'Machine', icon: Box },
-  { id: 'code', title: 'Code', icon: GitBranch },
-  { id: 'ai', title: 'AI tool', icon: SquareTerminal },
-  { id: 'secrets', title: 'Secrets', icon: KeyRound },
-  { id: 'connectors', title: 'Connectors', icon: Plug },
+const agentSettingsSections = (t: ReturnType<typeof useT>): SettingsSection<AgentSection>[] => [
+  { id: 'machine', title: t('agent.section.machine'), icon: Box },
+  { id: 'code', title: t('agent.section.code'), icon: GitBranch },
+  { id: 'ai', title: t('agent.section.ai'), icon: SquareTerminal },
+  { id: 'secrets', title: t('agent.section.secrets'), icon: KeyRound },
+  { id: 'connectors', title: t('agent.section.connectors'), icon: Plug },
 ];
 
 export function AgentView({
@@ -76,6 +77,7 @@ export function AgentView({
   onTab: (tab: AgentPlaceName) => void;
   onSelect: (view: View) => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const media = useQuery({ queryKey: ['media', agentRef], queryFn: () => api.media(agentRef) });
@@ -97,7 +99,7 @@ export function AgentView({
     mutationFn: (title: string) => api.updateAgent(agentRef, { title }),
     onSuccess: (updated) => {
       replace(updated);
-      toast(updated.title ? `Titled “${updated.title}”` : 'Title cleared');
+      toast(updated.title ? t('agent.view.titled', { title: updated.title }) : t('agent.view.titleCleared'));
     },
   });
 
@@ -105,7 +107,7 @@ export function AgentView({
     return (
       <div className="flex h-full items-center justify-center text-sm text-subtle">
         <LoaderCircle className="mr-2 size-4 animate-spin" />
-        Loading {agentRef}…
+        {t('agent.view.loading', { ref: agentRef })}
       </div>
     );
   }
@@ -133,29 +135,29 @@ export function AgentView({
         <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <StateBadge state={agent.state} />
-          <Chip icon={GitBranch} mono label="Branch">
+          <Chip icon={GitBranch} mono label={t('agent.view.branch')}>
             {agent.branch}
           </Chip>
-          <Chip icon={Hash} mono label="Agent name">
+          <Chip icon={Hash} mono label={t('agent.view.agentName')}>
             {agent.name}
           </Chip>
           {agent.ip && (
             <Chip
               icon={Network}
               mono
-              label="Copy the IP address"
+              label={t('agent.view.copyIp')}
               onClick={() => {
                 window.agentbox.copyText(agent.ip);
-                toast('Copied the IP address');
+                toast(t('agent.view.copiedIp'));
               }}
             >
               {agent.ip}
             </Chip>
           )}
-          <Chip icon={({ className }) => <AIIcon ai={agent.ai} className={className} />} label="AI tool">
+          <Chip icon={({ className }) => <AIIcon ai={agent.ai} className={className} />} label={t('agent.view.aiTool')}>
             {aiLabel(agent.ai)}
-            {chatty ? ' · chat' : ''}
-            {agent.autonomous ? ' · autonomous' : ''}
+            {chatty ? t('agent.view.chatSuffix') : ''}
+            {agent.autonomous ? t('agent.view.autonomousSuffix') : ''}
           </Chip>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -165,40 +167,40 @@ export function AgentView({
             return (
               <Button key={name} size="sm" variant={primary ? 'primary' : undefined} disabled={busy} onClick={() => run(name)}>
                 <Icon />
-                {label}
+                {t(label)}
               </Button>
             );
           })}
           <Menu>
             <MenuTrigger asChild>
-              <Button size="icon-sm" variant="ghost" aria-label="More actions">
+              <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')}>
                 <Ellipsis />
               </Button>
             </MenuTrigger>
             <MenuContent>
               <MenuItem icon={Pencil} onSelect={() => setEditingTitle(true)}>
-                Edit title
+                {t('agent.view.editTitle')}
               </MenuItem>
               <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
-                Open worktree folder
+                {t('agent.view.openWorktree')}
               </MenuItem>
               <MenuItem
                 icon={Copy}
                 onSelect={() => {
                   window.agentbox.copyText(agent.worktree);
-                  toast('Copied the worktree path');
+                  toast(t('agent.view.copiedWorktree'));
                 }}
               >
-                Copy worktree path
+                {t('agent.view.copyWorktree')}
               </MenuItem>
               <MenuItem
                 icon={SquareTerminal}
                 onSelect={() => {
                   window.agentbox.copyText(`agentbox shell ${agent.ref}`);
-                  toast('Copied', { description: `agentbox shell ${agent.ref}` });
+                  toast(t('common.copied'), { description: `agentbox shell ${agent.ref}` });
                 }}
               >
-                Copy shell command
+                {t('agent.view.copyShell')}
               </MenuItem>
               <MenuSeparator />
               <MenuItem
@@ -206,7 +208,7 @@ export function AgentView({
                 destructive
                 onSelect={() => setDestroying(true)}
               >
-                Destroy agent…
+                {t('agent.view.destroy')}
               </MenuItem>
             </MenuContent>
           </Menu>
@@ -224,42 +226,42 @@ export function AgentView({
             {chatty && (
               <TabsTrigger value="chat">
                 <MessageSquare />
-                Chat
+                {t('agent.tab.chat')}
                 {(agent.chat === 'running' || agent.chat === 'waiting') && (
                   <span
                     className={cn('size-1.5 rounded-full', agent.chat === 'waiting' ? 'bg-amber-400' : 'animate-pulse bg-sky-400')}
-                    aria-label={agent.chat === 'waiting' ? 'waiting for you' : 'working'}
+                    aria-label={agent.chat === 'waiting' ? t('agent.view.waitingForYou') : t('agent.view.working')}
                   />
                 )}
               </TabsTrigger>
             )}
             <TabsTrigger value="terminal">
               <SquareTerminal />
-              Terminal
+              {t('agent.tab.terminal')}
             </TabsTrigger>
             <TabsTrigger value="browser">
               <Monitor />
-              Desktop
+              {t('agent.tab.desktop')}
             </TabsTrigger>
             {hasAndroid && (
               <TabsTrigger value="android">
                 <Smartphone />
-                Android
-                {android.data?.booted && <span className="size-1.5 rounded-full bg-emerald-400" aria-label="running" />}
+                {t('agent.tab.android')}
+                {android.data?.booted && <span className="size-1.5 rounded-full bg-emerald-400" aria-label={t('agent.view.running')} />}
               </TabsTrigger>
             )}
             <TabsTrigger value="media">
               <Images />
-              Media
+              {t('agent.tab.media')}
               {mediaCount > 0 && <span className="rounded-full bg-brand-500/20 px-1.5 text-[10px] tabular-nums text-brand-200">{mediaCount}</span>}
             </TabsTrigger>
             <TabsTrigger value="settings">
               <SlidersHorizontal />
-              Settings
+              {t('agent.tab.settings')}
             </TabsTrigger>
             <TabsTrigger value="snapshots">
               <Camera />
-              Snapshots
+              {t('agent.tab.snapshots')}
             </TabsTrigger>
           </TabsList>
           {chatty && active === 'chat' && (
@@ -289,7 +291,7 @@ export function AgentView({
             <MediaTab agent={agent} />
           </TabsContent>
           <TabsContent value="settings" className="flex flex-col">
-            <SettingsSections label={`${agent.title || agent.name}'s settings`} sections={agentSettingsSections} value={place.section} onValueChange={onTab}>
+            <SettingsSections label={t('agent.view.settingsOf', { name: agent.title || agent.name })} sections={agentSettingsSections(t)} value={place.section} onValueChange={onTab}>
               {(place.section === 'machine' || place.section === 'code' || place.section === 'ai') && <OverviewTab agent={agent} section={place.section} />}
               {place.section === 'secrets' && <SecretsTab target={agent.ref} />}
               {place.section === 'connectors' && <ConnectorsTab target={agent.ref} />}
@@ -316,6 +318,7 @@ export function AgentView({
 // line and its task, read from the project's queue (GET /v1/queue), and the
 // ways out of it (AgentContextMenu offers the same from the rail).
 function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect: (view: View) => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projectName = useProjectName(agent.project);
   const queue = useQuery({ queryKey: ['queue', agent.project], queryFn: () => api.queue(agent.project) });
@@ -341,7 +344,7 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
   const remove = useMutation({
     mutationFn: () => api.removeQueued(agent.project, agent.name),
     onSuccess: () => {
-      toast('Removed from the queue');
+      toast(t('agent.queued.removed'));
       void invalidate();
       onSelect({ kind: 'project', project: agent.project });
     },
@@ -361,26 +364,29 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
         </span>
         <div className="grid max-w-md gap-1.5">
           <p className="text-[14px] font-medium text-primary">
-            Queued #{agent.queuePosition ?? entry?.position ?? '?'} — {waitingLine(agent.waiting ?? entry?.waiting) || `starts when one of ${projectName}'s slots is free`}
+            {t('agent.queued.title', {
+              position: agent.queuePosition ?? entry?.position ?? '?',
+              reason: waitingLine(agent.waiting ?? entry?.waiting) || t('agent.queued.slotFree', { project: projectName }),
+            })}
           </p>
           {entry?.task && <p className="text-[13px] leading-relaxed text-subtle">{entry.task}</p>}
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" disabled={startNow.isPending} onClick={() => startNow.mutate()}>
             <Play />
-            Start now
+            {t('agent.queued.startNow')}
           </Button>
           <Button variant="ghost" size="sm" disabled={moveToFront.isPending || agent.queuePosition === 1} onClick={() => moveToFront.mutate()}>
             <ArrowUpToLine />
-            Move to front
+            {t('agent.queued.moveToFront')}
           </Button>
           <Button variant="ghost" size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
             <CircleX />
-            Remove from queue
+            {t('agent.queued.remove')}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => onSelect({ kind: 'project', project: agent.project })}>
             <FolderGit2 />
-            Back to {projectName}
+            {t('agent.queued.back', { project: projectName })}
           </Button>
         </div>
       </div>
@@ -390,14 +396,15 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
 
 // The header's button for each lifecycle action lifecycleActions allows; the
 // one that brings the agent back is the primary.
-const lifecycleButton: Record<LifecycleAction, { icon: ComponentType; label: string; primary?: boolean }> = {
-  pause: { icon: Pause, label: 'Pause' },
-  resume: { icon: Play, label: 'Resume', primary: true },
-  start: { icon: Play, label: 'Start', primary: true },
-  stop: { icon: Square, label: 'Stop' },
+const lifecycleButton: Record<LifecycleAction, { icon: ComponentType; label: MessageKey; primary?: boolean }> = {
+  pause: { icon: Pause, label: 'agent.action.pause' },
+  resume: { icon: Play, label: 'agent.action.resume', primary: true },
+  start: { icon: Play, label: 'common.start', primary: true },
+  stop: { icon: Square, label: 'common.stop' },
 };
 
 function AgentTitle({ agent, editing, onEditing, onSave }: { agent: T.Agent; editing: boolean; onEditing: (editing: boolean) => void; onSave: (title: string) => void }) {
+  const t = useT();
   const [value, setValue] = useState(agent.title);
   const input = useRef<HTMLInputElement>(null);
 
@@ -416,10 +423,10 @@ function AgentTitle({ agent, editing, onEditing, onSave }: { agent: T.Agent; edi
     return (
       <input
         ref={input}
-        aria-label="Agent title"
+        aria-label={t('agent.view.agentTitle')}
         value={value}
         maxLength={80}
-        placeholder={`What is ${agent.name} working on?`}
+        placeholder={t('agent.view.titlePlaceholder', { name: agent.name })}
         onChange={(event) => setValue(event.target.value)}
         onBlur={() => finish(true)}
         onKeyDown={(event) => {
@@ -431,9 +438,9 @@ function AgentTitle({ agent, editing, onEditing, onSave }: { agent: T.Agent; edi
     );
   }
   return (
-    <button className="group flex min-w-0 max-w-64 shrink items-center gap-1.5 text-left" onClick={() => onEditing(true)} aria-label="Edit title">
+    <button className="group flex min-w-0 max-w-64 shrink items-center gap-1.5 text-left" onClick={() => onEditing(true)} aria-label={t('agent.view.editTitleLabel')}>
       <span className="truncate text-[15px] font-semibold tracking-tight text-title">{agent.title || agent.name}</span>
-      {!agent.title && <span className="hidden shrink-0 text-xs text-faint opacity-0 transition group-hover:opacity-100 sm:inline">Add a title</span>}
+      {!agent.title && <span className="hidden shrink-0 text-xs text-faint opacity-0 transition group-hover:opacity-100 sm:inline">{t('agent.view.addTitle')}</span>}
       <Pencil className="size-3.5 shrink-0 text-faint opacity-0 transition group-hover:opacity-100" />
     </button>
   );

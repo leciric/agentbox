@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 import { clock, kindInfo, mediaUrl } from '../lib/media';
 import { byDay, noticeVerb, useMarkSeen } from '../lib/notifications';
 import { projectLabel } from '../lib/projectName';
+import { useT } from '../lib/i18n';
 import { cn, timeAgo } from '../lib/utils';
 import { Button } from './ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -64,6 +65,7 @@ function useProjectNames(): (project: string) => string {
 }
 
 function NoticeRow({ notice, projectName, onOpen }: { notice: T.Notification; projectName: string; onOpen: () => void }) {
+  const t = useT();
   return (
     <button
       onClick={onOpen}
@@ -86,7 +88,7 @@ function NoticeRow({ notice, projectName, onOpen }: { notice: T.Notification; pr
           <span className="truncate">{notice.title || notice.agent}</span>
         </span>
       </span>
-      <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', notice.seen ? 'bg-transparent' : 'bg-brand-400')} aria-label={notice.seen ? undefined : 'Unseen'} />
+      <span className={cn('mt-1.5 size-2 shrink-0 rounded-full', notice.seen ? 'bg-transparent' : 'bg-brand-400')} aria-label={notice.seen ? undefined : t('shell.notice.unseen')} />
     </button>
   );
 }
@@ -95,6 +97,7 @@ function NoticeRow({ notice, projectName, onOpen }: { notice: T.Notification; pr
 // project, newest first, with a count of those you haven't seen. A row goes
 // where its notification went (App's openNotice).
 export function NotificationBell({ onOpen, onAllMedia, defaultOpen = false }: { onOpen: (n: T.Notification) => void; onAllMedia: () => void; defaultOpen?: boolean }) {
+  const t = useT();
   const [open, setOpen] = useState(defaultOpen);
   const notices = useQuery({ queryKey: ['notifications'], queryFn: api.notifications });
   const projectName = useProjectNames();
@@ -105,7 +108,7 @@ export function NotificationBell({ onOpen, onAllMedia, defaultOpen = false }: { 
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          aria-label={unseen ? `Notifications, ${unseen} new` : 'Notifications'}
+          aria-label={unseen ? t('shell.notice.bellNew', { count: unseen }) : t('shell.notice.bell')}
           data-bell
           className={cn(
             'relative flex size-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-faint text-muted transition hover:bg-surface-raised hover:text-primary',
@@ -123,17 +126,17 @@ export function NotificationBell({ onOpen, onAllMedia, defaultOpen = false }: { 
       {/* No focus on Mark all read when it opens: Enter would mark them all. */}
       <PopoverContent className="w-[min(420px,calc(100vw-2rem))] p-0" data-bell-history onOpenAutoFocus={(e) => e.preventDefault()}>
         <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <span className="text-[14px] font-medium text-title">Notifications</span>
-          {unseen > 0 && <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[11px] font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">{unseen} new</span>}
+          <span className="text-[14px] font-medium text-title">{t('shell.notice.bell')}</span>
+          {unseen > 0 && <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[11px] font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">{t('shell.notice.new', { count: unseen })}</span>}
           <Button size="sm" variant="ghost" className="ml-auto" disabled={unseen === 0} onClick={() => void markSeen({ all: true })}>
             <CheckCheck />
-            Mark all read
+            {t('shell.notice.markAllRead')}
           </Button>
         </div>
         <div className="max-h-[min(560px,70vh)] overflow-y-auto p-1.5">
           {list.length === 0 && (
             <div className="px-4 py-10 text-center text-[13px] text-muted">
-              {notices.isPending ? 'Loading…' : 'When an agent finishes, asks you something or keeps a screenshot or recording, it shows here.'}
+              {notices.isPending ? t('common.loading') : t('shell.notice.empty')}
             </div>
           )}
           {byDay(list, (n) => n.at).map(([day, group]) => (
@@ -154,7 +157,7 @@ export function NotificationBell({ onOpen, onAllMedia, defaultOpen = false }: { 
           ))}
         </div>
         <div className="flex items-center border-t border-line px-4 py-2 text-[12px] text-subtle">
-          Kept for 30 days
+          {t('shell.notice.kept')}
           <Button
             size="sm"
             variant="ghost"
@@ -165,7 +168,7 @@ export function NotificationBell({ onOpen, onAllMedia, defaultOpen = false }: { 
             }}
           >
             <Images />
-            All media
+            {t('shell.notice.allMedia')}
           </Button>
         </div>
       </PopoverContent>
@@ -176,6 +179,7 @@ export function NotificationBell({ onOpen, onAllMedia, defaultOpen = false }: { 
 // NoticeToast is a notification's in-app toast, the whole of which is the
 // link (sonner's toast.custom).
 export function NoticeToast({ notice, projectName, onOpen }: { notice: T.Notification; projectName: string; onOpen: () => void }) {
+  const t = useT();
   return (
     <button
       onClick={onOpen}
@@ -190,7 +194,7 @@ export function NoticeToast({ notice, projectName, onOpen }: { notice: T.Notific
         {notice.text && <span className="mt-0.5 block truncate text-[12px] text-muted">{notice.text}</span>}
         <span className="mt-1 block truncate text-[11px] text-subtle">{[projectName, notice.title].filter(Boolean).join(' · ')}</span>
       </span>
-      <span className="shrink-0 self-center text-[11.5px] font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">View</span>
+      <span className="shrink-0 self-center text-[11.5px] font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">{t('shell.app.view')}</span>
     </button>
   );
 }

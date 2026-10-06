@@ -4,6 +4,7 @@ import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { formatDateTime, useT } from '../lib/i18n';
 import { cn, errorMessage, humanBytes, humanRate, shortCommit, shortRate } from '../lib/utils';
 import { aiLabel, StateBadge } from './state';
 import { AgentTokensCard } from './TokensPanel';
@@ -15,6 +16,7 @@ import { Tip } from './ui/tooltip';
 // OverviewTab is what an agent's Settings tab says about its machine, its code
 // and its AI tool: one section of it at a time.
 export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; section?: 'machine' | 'code' | 'ai' }) {
+  const t = useT();
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage });
   const diff = useQuery({ queryKey: ['diff', agent.ref], queryFn: () => api.diffStat(agent.ref), refetchInterval: 10_000 });
   const events = useQuery({ queryKey: ['agentEvents', agent.project], queryFn: () => api.agentEvents(agent.project) });
@@ -32,7 +34,7 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
         {section === 'machine' && (
           <>
             <Panel className="p-5">
-              <Row label="State">
+              <Row label={t('agent.overview.state')}>
                 <StateBadge state={agent.state} />
                 {agent.state === 'stopped' && idleStop && <span className="text-tertiary ml-2 text-sm">{idleStop.summary}</span>}
                 {agent.state === 'stopped' && dockerPruned && (
@@ -41,46 +43,46 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
                   </span>
                 )}
               </Row>
-              <Row label="IP address" mono>
+              <Row label={t('agent.overview.ip')} mono>
                 {agent.ip || '—'}
               </Row>
-              <Row label="Preview" mono>
+              <Row label={t('agent.overview.preview')} mono>
                 <PreviewLink agent={agent} />
               </Row>
-              <Row label="Instance" mono>
+              <Row label={t('agent.overview.instance')} mono>
                 {agent.instance}
               </Row>
-              <Row label="Started from" mono>
+              <Row label={t('agent.overview.startedFrom')} mono>
                 {agent.source || '—'}
               </Row>
-              <Row label="Created">{new Date(agent.createdAt).toLocaleString()}</Row>
+              <Row label={t('agent.overview.created')}>{formatDateTime(agent.createdAt)}</Row>
               <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Metric
                   label="CPU"
                   value={mine ? `${cpu.toFixed(0)}%` : '—'}
                   fraction={cores ? Math.min(cpu / (cores * 100), 1) : undefined}
-                  hint={cores ? `100% is one core; it may use all ${cores} of the VM's` : '100% is one core'}
+                  hint={cores ? t('agent.overview.cpuHintCores', { cores }) : t('agent.overview.cpuHint')}
                 />
                 <Metric
-                  label="Memory"
+                  label={t('agent.overview.memory')}
                   value={mine ? humanBytes(mine.memory) : '—'}
                   fraction={memoryFraction}
-                  hint="It may take all the VM's memory"
+                  hint={t('agent.overview.memoryHint')}
                 />
                 <Metric
-                  label="Disk IO"
+                  label={t('agent.overview.diskIo')}
                   value={mine ? humanRate(mine.diskRead + mine.diskWrite) : '—'}
                   detail={
                     mine && (
                       <>
-                        <span className="block truncate">{shortRate(mine.diskRead)} read</span>
-                        <span className="block truncate">{shortRate(mine.diskWrite)} write</span>
+                        <span className="block truncate">{t('agent.overview.read', { rate: shortRate(mine.diskRead) })}</span>
+                        <span className="block truncate">{t('agent.overview.write', { rate: shortRate(mine.diskWrite) })}</span>
                       </>
                     )
                   }
-                  hint="What its machine reads from and writes to the host's disks"
+                  hint={t('agent.overview.diskIoHint')}
                 />
-                <Metric label="Processes" value={mine ? String(mine.processes) : '—'} />
+                <Metric label={t('agent.overview.processes')} value={mine ? String(mine.processes) : '—'} />
               </div>
             </Panel>
           </>
@@ -89,31 +91,31 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
         {section === 'code' && (
           <>
             <Panel className="p-5">
-              <Row label="Branch" mono>
+              <Row label={t('agent.view.branch')} mono>
                 {agent.branch}
               </Row>
-              <Row label="Based on" mono>
+              <Row label={t('agent.overview.basedOn')} mono>
                 {agent.baseRef} @ {shortCommit(agent.baseCommit)}
               </Row>
-              <Row label="Worktree" mono>
+              <Row label={t('agent.overview.worktree')} mono>
                 <span className="truncate" title={agent.worktree}>
                   {agent.worktree}
                 </span>
-                <Tip label="Copy the path">
+                <Tip label={t('agent.overview.copyPath')}>
                   <Button
                     variant="ghost"
                     size="icon-sm"
-                    aria-label="Copy the worktree path"
+                    aria-label={t('agent.view.copyWorktree')}
                     onClick={() => {
                       window.agentbox.copyText(agent.worktree);
-                      toast('Copied the worktree path');
+                      toast(t('agent.view.copiedWorktree'));
                     }}
                   >
                     <Copy />
                   </Button>
                 </Tip>
-                <Tip label="Open the folder">
-                  <Button variant="ghost" size="icon-sm" aria-label="Open the worktree folder" onClick={() => void window.agentbox.openPath(agent.worktree)}>
+                <Tip label={t('agent.overview.openFolder')}>
+                  <Button variant="ghost" size="icon-sm" aria-label={t('agent.view.openWorktree')} onClick={() => void window.agentbox.openPath(agent.worktree)}>
                     <FolderOpen />
                   </Button>
                 </Tip>
@@ -121,10 +123,10 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
               <div className="mt-4">
                 <div className="mb-2 flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-subtle">
                   <FileDiff className="size-3.5" />
-                  Changes since {agent.baseRef}
+                  {t('agent.overview.changesSince', { ref: agent.baseRef })}
                 </div>
-                <pre className="overflow-x-auto rounded-xl border border-line-faint bg-sunken p-3.5 font-mono text-[12px] leading-relaxed text-tertiary" aria-label="Diff summary">
-                  {diff.isPending ? 'Loading…' : diff.data?.trim() || 'No changes yet.'}
+                <pre className="overflow-x-auto rounded-xl border border-line-faint bg-sunken p-3.5 font-mono text-[12px] leading-relaxed text-tertiary" aria-label={t('agent.overview.diffSummary')}>
+                  {diff.isPending ? t('common.loading') : diff.data?.trim() || t('agent.overview.noChanges')}
                 </pre>
               </div>
             </Panel>
@@ -134,19 +136,19 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
         {section === 'ai' && (
           <>
             <Panel className="p-5">
-              <Row label="Tool">{aiLabel(agent.ai)}</Row>
+              <Row label={t('agent.overview.tool')}>{aiLabel(agent.ai)}</Row>
               {agent.ai !== 'none' && (
-                <Row label="Interface">
+                <Row label={t('agent.overview.interface')}>
                   <InterfacePicker agent={agent} />
                 </Row>
               )}
-              <Row label="Permissions">{agent.ai === 'none' ? '—' : agent.autonomous ? 'bypassed (autonomous)' : 'asks before acting'}</Row>
+              <Row label={t('agent.overview.permissions')}>{agent.ai === 'none' ? '—' : agent.autonomous ? t('agent.overview.bypassed') : t('agent.overview.asks')}</Row>
               {agent.ai === 'claude' && (
-                <Row label="Account">
+                <Row label={t('agent.overview.account')}>
                   <ClaudeAccountPicker agent={agent} />
                 </Row>
               )}
-              <Row label="Shell" mono>
+              <Row label={t('agent.overview.shell')} mono>
                 agentbox shell {agent.ref}
               </Row>
             </Panel>
@@ -161,14 +163,15 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
 // ClaudeAccountPicker moves a running agent to another stored Claude Code
 // account: its token is replaced, and Claude Code uses it the next time it starts.
 function ClaudeAccountPicker({ agent }: { agent: T.Agent }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const accounts = auth.data?.claudeAccounts ?? [];
   const pick = useMutation({
     mutationFn: (claudeAccount: string) => api.updateAgent(agent.ref, { claudeAccount }),
     onSuccess: async (updated) => {
-      toast(`${updated.ref} uses the Claude Code account "${updated.claudeAccount}"`, {
-        description: 'Claude Code picks the new token up the next time it starts.',
+      toast(t('agent.overview.accountChanged', { ref: updated.ref, account: updated.claudeAccount }), {
+        description: t('agent.overview.accountChangedNote'),
       });
       await queryClient.invalidateQueries({ queryKey: ['agents'] });
     },
@@ -180,7 +183,7 @@ function ClaudeAccountPicker({ agent }: { agent: T.Agent }) {
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-2">
       <Select
-        aria-label="Claude Code account"
+        aria-label={t('agent.overview.claudeAccount')}
         className="h-8 max-w-52"
         value={agent.claudeAccount}
         disabled={pick.isPending || agent.state !== 'running'}
@@ -192,7 +195,7 @@ function ClaudeAccountPicker({ agent }: { agent: T.Agent }) {
           </SelectOption>
         ))}
       </Select>
-      {agent.state !== 'running' && <span className="text-xs text-subtle">Start the agent to change it</span>}
+      {agent.state !== 'running' && <span className="text-xs text-subtle">{t('agent.overview.startToChange')}</span>}
       {pick.error && <span className="text-xs text-rose-300">{errorMessage(pick.error)}</span>}
     </span>
   );
@@ -200,22 +203,23 @@ function ClaudeAccountPicker({ agent }: { agent: T.Agent }) {
 
 // InterfacePicker switches between the chat and the AI tool's own command line.
 function InterfacePicker({ agent }: { agent: T.Agent }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const change = useMutation({
     mutationFn: (value: string) => api.updateAgent(agent.ref, { interface: value }),
     onSuccess: async (updated) => {
-      toast(updated.interface === 'chat' ? `${updated.ref} uses the chat` : `${updated.ref} uses ${aiLabel(updated.ai)}'s command line`, {
-        description: updated.interface === 'chat' ? 'Talk to it in the Chat tab.' : 'It runs in window 1 of the terminal.',
+      toast(updated.interface === 'chat' ? t('agent.overview.usesChat', { ref: updated.ref }) : t('agent.overview.usesCli', { ref: updated.ref, tool: aiLabel(updated.ai) }), {
+        description: updated.interface === 'chat' ? t('agent.overview.usesChatNote') : t('agent.overview.usesCliNote'),
       });
       await queryClient.invalidateQueries({ queryKey: ['agents'] });
     },
   });
   return (
     <span className="flex min-w-0 flex-wrap items-center gap-2">
-      <span className="inline-flex rounded-lg border border-line bg-rail p-0.5" role="radiogroup" aria-label="Interface">
+      <span className="inline-flex rounded-lg border border-line bg-rail p-0.5" role="radiogroup" aria-label={t('agent.overview.interface')}>
         {[
-          ['chat', 'Chat'],
-          ['cli', 'Terminal'],
+          ['chat', t('agent.tab.chat')],
+          ['cli', t('agent.tab.terminal')],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -252,15 +256,16 @@ function Metric({ label, value, detail, fraction, hint }: { label: string; value
 // PreviewLink opens a port of the agent in your own browser, through the
 // daemon's preview proxy.
 function PreviewLink({ agent }: { agent: T.Agent }) {
+  const t = useT();
   const preview = useQuery({ queryKey: ['preview'], queryFn: api.preview, staleTime: Infinity });
   const [port, setPort] = useState('3000');
   const addr = preview.data?.addr;
-  if (!addr) return <span className="text-subtle">{preview.isPending ? '…' : 'off'}</span>;
+  if (!addr) return <span className="text-subtle">{preview.isPending ? '…' : t('agent.overview.previewOff')}</span>;
   const url = `http://${port || '3000'}.${agent.name}.${agent.project}.localhost:${addr.split(':').pop()}`;
   return (
     <>
       <input
-        aria-label="Preview port"
+        aria-label={t('agent.overview.previewPort')}
         className="w-14 rounded-md border border-line-strong bg-well px-1.5 py-0.5 text-[12px] text-primary outline-none focus:border-brand-400/50"
         value={port}
         onChange={(event) => setPort(event.target.value.replace(/\D/g, '').slice(0, 5))}
@@ -268,8 +273,8 @@ function PreviewLink({ agent }: { agent: T.Agent }) {
       <span className="truncate text-muted" title={url} data-preview-url={url}>
         {url}
       </span>
-      <Tip label="Open in your browser">
-        <Button variant="ghost" size="icon-sm" aria-label="Open the preview in your browser" onClick={() => void window.agentbox.openExternal(url)}>
+      <Tip label={t('agent.overview.openInBrowser')}>
+        <Button variant="ghost" size="icon-sm" aria-label={t('agent.overview.openPreview')} onClick={() => void window.agentbox.openExternal(url)}>
           <ExternalLink />
         </Button>
       </Tip>

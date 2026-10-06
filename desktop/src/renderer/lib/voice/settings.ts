@@ -2,6 +2,7 @@
 // this machine's microphone and GPU, so they live in localStorage beside the
 // app's other local choices (see drafts.ts).
 import { useSyncExternalStore } from 'react';
+import type { MessageKey } from '../../../shared/i18n/index.ts';
 import { autoModel, type VoiceLanguage } from './models';
 import type { VoiceLanguage as ReadAloudLanguage } from './speakable.ts';
 
@@ -60,15 +61,15 @@ export type ReadAloudSettings = { on: boolean; voices: Record<ReadAloudLanguage,
 
 // Kokoro's voices, a few of each language: its best-rated English ones, and
 // all three Brazilian Portuguese.
-export const voices: { id: string; label: string; language: ReadAloudLanguage }[] = [
-  { id: 'af_heart', label: 'Heart — English (US), female', language: 'en' },
-  { id: 'af_bella', label: 'Bella — English (US), female', language: 'en' },
-  { id: 'am_michael', label: 'Michael — English (US), male', language: 'en' },
-  { id: 'bf_emma', label: 'Emma — English (UK), female', language: 'en' },
-  { id: 'bm_george', label: 'George — English (UK), male', language: 'en' },
-  { id: 'pf_dora', label: 'Dora — Português (Brasil), feminina', language: 'pt' },
-  { id: 'pm_alex', label: 'Alex — Português (Brasil), masculino', language: 'pt' },
-  { id: 'pm_santa', label: 'Santa — Português (Brasil), masculino', language: 'pt' },
+export const voices: { id: string; label: MessageKey; language: ReadAloudLanguage }[] = [
+  { id: 'af_heart', label: 'defaults.voice.v.af_heart', language: 'en' },
+  { id: 'af_bella', label: 'defaults.voice.v.af_bella', language: 'en' },
+  { id: 'am_michael', label: 'defaults.voice.v.am_michael', language: 'en' },
+  { id: 'bf_emma', label: 'defaults.voice.v.bf_emma', language: 'en' },
+  { id: 'bm_george', label: 'defaults.voice.v.bm_george', language: 'en' },
+  { id: 'pf_dora', label: 'defaults.voice.v.pf_dora', language: 'pt' },
+  { id: 'pm_alex', label: 'defaults.voice.v.pm_alex', language: 'pt' },
+  { id: 'pm_santa', label: 'defaults.voice.v.pm_santa', language: 'pt' },
 ];
 
 export const speeds = [0.8, 0.9, 1, 1.1, 1.25, 1.5];

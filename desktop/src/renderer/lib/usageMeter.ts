@@ -1,4 +1,5 @@
 import type * as T from '../../shared/api';
+import { t } from '../../shared/i18n/index.ts';
 import { projectLabel } from './projectName.ts';
 
 // MeterPick is what the top bar's usage meter shows: the AI tool, and the
@@ -9,7 +10,7 @@ export interface MeterPick {
   tool: string;
   reading?: T.ClaudeLimit;
   // whose is how the tooltip says why this account: "agentbox's account",
-  // "the machine's default account".
+  // t('vm.usageMeter.defaultAccount').
   whose: string;
 }
 
@@ -29,14 +30,14 @@ export interface MeterPick {
 export function pickMeter({ limits, project, agent }: { limits: T.ClaudeLimit[]; project?: T.Project; agent?: T.Agent }): MeterPick {
   const byAccount = (name: string, whose: string): MeterPick => {
     const reading = name ? limits.find((l) => l.account === name) : limits.find((l) => l.default);
-    return { tool: 'claude', reading, whose: name ? whose : "the machine's default account" };
+    return { tool: 'claude', reading, whose: name ? whose : t('vm.usageMeter.defaultAccount') };
   };
   if (agent && agent.ai !== 'none' && agent.ai !== '') {
-    const whose = `${agent.title || agent.name}'s account`;
+    const whose = t('vm.usageMeter.accountOf', { name: agent.title || agent.name });
     if (agent.ai !== 'claude') return { tool: agent.ai, whose };
     return byAccount(agent.claudeAccount, whose);
   }
-  if (project) return byAccount(project.claudeAccount, `${projectLabel(project)}'s account`);
+  if (project) return byAccount(project.claudeAccount, t('vm.usageMeter.accountOf', { name: projectLabel(project) }));
   return byAccount('', '');
 }
 

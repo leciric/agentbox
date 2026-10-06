@@ -419,6 +419,12 @@ type Settings struct {
 	// MediaRetention is how long a removed agent's media is kept before the
 	// daemon purges it: one of the MediaRetention values.
 	MediaRetention string `json:"mediaRetention"`
+	// Language is the language the desktop app speaks, a BCP 47 tag like
+	// "en-US" or "pt-BR": DefaultLanguage until somebody picks another. The
+	// daemon only keeps it; which languages exist is the app's to say, so a
+	// new one is a catalog there and nothing here. The CLI, the brief and the
+	// chats stay in English whatever it is.
+	Language string `json:"language"`
 	// DefaultClaudeCompactWindow is what ClaudeCompactWindow is when nobody
 	// chose, so a client can offer to go back to it.
 	DefaultClaudeCompactWindow int64 `json:"defaultClaudeCompactWindow"`
@@ -523,6 +529,9 @@ type UpdateSettingsRequest struct {
 	PRWatch *bool `json:"prWatch,omitempty"`
 	// MediaRetention is one of the MediaRetention values.
 	MediaRetention *string `json:"mediaRetention,omitempty"`
+	// Language sets Settings.Language: a language tag, "" going back to
+	// DefaultLanguage.
+	Language *string `json:"language,omitempty"`
 	// AutoStopIdle turns "auto-stop idle agents" on or off.
 	AutoStopIdle *bool `json:"autoStopIdle,omitempty"`
 	// DockerPruneOnStop turns freeing an agent's Docker space on stop on or
@@ -561,6 +570,9 @@ type UpdateSettingsRequest struct {
 	// ClearPackageCache empties them.
 	ClearPackageCache bool `json:"clearPackageCache,omitempty"`
 }
+
+// DefaultLanguage is Settings.Language when nobody chose one.
+const DefaultLanguage = "en-US"
 
 // How long a removed agent's media is kept (Settings.MediaRetention).
 // Immediately deletes it with the agent; forever never purges it.

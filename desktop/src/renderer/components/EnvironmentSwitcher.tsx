@@ -3,6 +3,7 @@ import { Check, ChevronsUpDown, Copy, Laptop, LoaderCircle, LogIn, LogOut, Plus,
 import { Fragment, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { EnvironmentTarget } from '../../preload';
+import { useT } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
@@ -19,12 +20,14 @@ function hostOf(url: string): string {
 }
 
 function OnlineDot({ online }: { online?: boolean }) {
-  return <span className={cn('size-2 shrink-0 rounded-full', online ? 'bg-emerald-400 animate-glow' : 'bg-faint')} aria-label={online ? 'online' : 'offline'} />;
+  const t = useT();
+  return <span className={cn('size-2 shrink-0 rounded-full', online ? 'bg-emerald-400 animate-glow' : 'bg-faint')} aria-label={online ? t('shell.env.online') : t('shell.env.offline')} />;
 }
 
 // EnvironmentSwitcher picks what the app manages: this machine, or an
 // environment on a hub you signed in to.
 export function EnvironmentSwitcher() {
+  const t = useT();
   // In a browser the hub serving the page is the only hub, and there's no machine of your own to manage.
   const web = 'web' in window.agentbox;
   const queryClient = useQueryClient();
@@ -44,7 +47,7 @@ export function EnvironmentSwitcher() {
 
   const select = useMutation({
     mutationFn: (next: EnvironmentTarget) => window.agentbox.target.set(next),
-    onError: (err) => toast('Couldn’t switch environments', { description: errorMessage(err) }),
+    onError: (err) => toast(t('shell.env.switchFailed'), { description: errorMessage(err) }),
   });
   const logout = useMutation({
     mutationFn: (url: string) => window.agentbox.hubs.logout(url),
@@ -68,27 +71,27 @@ export function EnvironmentSwitcher() {
               {remote ? <Server className="size-3.5" /> : <Laptop className="size-3.5" />}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium text-primary">{remote ? current.environmentName : 'This machine'}</span>
-              <span className="block truncate text-[11px] text-subtle">{remote ? hostOf(current.hub ?? '') : 'Local'}</span>
+              <span className="block truncate text-[13px] font-medium text-primary">{remote ? current.environmentName : t('shell.env.thisMachine')}</span>
+              <span className="block truncate text-[11px] text-subtle">{remote ? hostOf(current.hub ?? '') : t('shell.env.local')}</span>
             </span>
             {remote && <OnlineDot online={currentEnvironment?.online} />}
             <ChevronsUpDown className="size-3.5 shrink-0 text-subtle" />
           </button>
         </MenuTrigger>
         <MenuContent align="start" className="w-[256px]">
-          <MenuLabel>Environments</MenuLabel>
+          <MenuLabel>{t('shell.env.environments')}</MenuLabel>
           {!web && (
-            <MenuItem icon={Laptop} data-environment-option="local" onSelect={() => select.mutate({ kind: 'local' })} hint={!remote ? <Check className="size-3.5 text-brand-300" /> : 'Local'}>
-              This machine
+            <MenuItem icon={Laptop} data-environment-option="local" onSelect={() => select.mutate({ kind: 'local' })} hint={!remote ? <Check className="size-3.5 text-brand-300" /> : t('shell.env.local')}>
+              {t('shell.env.thisMachine')}
             </MenuItem>
           )}
           {hubs.data?.map((hub, i) => (
             <Fragment key={hub.url}>
               {(!web || i > 0) && <MenuSeparator />}
               <MenuLabel>{hostOf(hub.url)}</MenuLabel>
-              {environments[i]?.isPending && <div className="px-2.5 py-1.5 text-xs text-subtle">Loading…</div>}
+              {environments[i]?.isPending && <div className="px-2.5 py-1.5 text-xs text-subtle">{t('common.loading')}</div>}
               {environments[i]?.error && <div className="px-2.5 py-1.5 text-xs text-rose-300">{errorMessage(environments[i].error)}</div>}
-              {environments[i]?.data?.length === 0 && <div className="px-2.5 py-1.5 text-xs text-subtle">No environments yet</div>}
+              {environments[i]?.data?.length === 0 && <div className="px-2.5 py-1.5 text-xs text-subtle">{t('shell.env.none')}</div>}
               {environments[i]?.data?.map((env) => {
                 const selected = remote && current.hub === hub.url && current.environmentId === env.id;
                 return (
@@ -102,16 +105,16 @@ export function EnvironmentSwitcher() {
                   >
                     <span className="flex flex-col">
                       <span>{env.name}</span>
-                      <span className="text-[11px] text-subtle">{env.online ? `online${env.hostname ? ` · ${env.hostname}` : ''}` : 'offline'}</span>
+                      <span className="text-[11px] text-subtle">{env.online ? `${t('shell.env.online')}${env.hostname ? ` · ${env.hostname}` : ''}` : t('shell.env.offline')}</span>
                     </span>
                   </MenuItem>
                 );
               })}
               <MenuItem icon={Plus} onSelect={() => setAdding(hub.url)}>
-                Add an environment…
+                {t('shell.env.add')}
               </MenuItem>
               <MenuItem icon={LogOut} onSelect={() => logout.mutate(hub.url)} hint={hub.email}>
-                Sign out
+                {t('shell.env.signOut')}
               </MenuItem>
             </Fragment>
           ))}
@@ -119,7 +122,7 @@ export function EnvironmentSwitcher() {
             <>
               <MenuSeparator />
               <MenuItem icon={LogIn} onSelect={() => setConnecting(true)}>
-                Connect to a hub…
+                {t('shell.env.connect')}
               </MenuItem>
             </>
           )}
@@ -132,6 +135,7 @@ export function EnvironmentSwitcher() {
 }
 
 function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [url, setUrl] = useState('https://');
   const [email, setEmail] = useState('');
@@ -141,7 +145,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     onSuccess: async (account) => {
       setPassword('');
       await queryClient.invalidateQueries({ queryKey: ['hubs'] });
-      toast(`Signed in to ${hostOf(account.url)}`, { description: account.email });
+      toast(t('shell.env.signedIn', { host: hostOf(account.url) }), { description: account.email });
       onOpenChange(false);
     },
   });
@@ -157,9 +161,9 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Connect to a hub</DialogTitle>
+          <DialogTitle>{t('shell.env.connectTitle')}</DialogTitle>
           <DialogDescription>
-            A hub puts your environments in one place: a VPS, another PC, this one. Sign in with the account its owner created on it.
+            {t('shell.env.connectBody')}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -169,23 +173,23 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
             login.mutate();
           }}
         >
-          <Field label="Hub address" htmlFor="hub-url">
+          <Field label={t('shell.env.hubAddress')} htmlFor="hub-url">
             <Input id="hub-url" autoFocus className="font-mono text-[13px]" placeholder="https://hub.example.com" value={url} onChange={(event) => setUrl(event.target.value)} />
           </Field>
-          <Field label="Email" htmlFor="hub-email">
+          <Field label={t('shell.env.email')} htmlFor="hub-email">
             <Input id="hub-email" type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
           </Field>
-          <Field label="Password" htmlFor="hub-password">
+          <Field label={t('shell.env.password')} htmlFor="hub-password">
             <Input id="hub-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
           </Field>
           {login.error && <Notice>{errorMessage(login.error)}</Notice>}
           <DialogFooter>
             <Button variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" disabled={!/^https?:\/\/.+/.test(url.trim()) || !email.trim() || !password || login.isPending}>
               {login.isPending && <LoaderCircle className="animate-spin" />}
-              Sign in
+              {t('shell.env.signIn')}
             </Button>
           </DialogFooter>
         </form>
@@ -195,6 +199,7 @@ function ConnectHubDialog({ open, onOpenChange }: { open: boolean; onOpenChange:
 }
 
 function AddEnvironmentDialog({ hub, onClose }: { hub: string | null; onClose: () => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [copied, setCopied] = useState(false);
@@ -216,10 +221,9 @@ function AddEnvironmentDialog({ hub, onClose }: { hub: string | null; onClose: (
     <Dialog open={hub !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add an environment</DialogTitle>
+          <DialogTitle>{t('shell.env.addTitle')}</DialogTitle>
           <DialogDescription>
-            An environment is a machine running AgentBox, like a VPS. Name it, then run the command this gives you on that machine: it connects out to the hub, so
-            nothing on it has to be reachable.
+            {t('shell.env.addBody')}
           </DialogDescription>
         </DialogHeader>
         {!add.data ? (
@@ -230,24 +234,24 @@ function AddEnvironmentDialog({ hub, onClose }: { hub: string | null; onClose: (
               add.mutate();
             }}
           >
-            <Field label="Name" htmlFor="environment-name" hint="Lowercase letters, digits and dashes, like vps or home-pc.">
+            <Field label={t('shell.env.name')} htmlFor="environment-name" hint={t('shell.env.nameHint')}>
               <Input id="environment-name" autoFocus className="font-mono text-[13px]" placeholder="vps" value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
             {add.error && <Notice>{errorMessage(add.error)}</Notice>}
             <DialogFooter>
               <Button variant="ghost" onClick={onClose}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button type="submit" variant="primary" disabled={!name.trim() || add.isPending}>
                 {add.isPending && <LoaderCircle className="animate-spin" />}
-                Add environment
+                {t('shell.env.addButton')}
               </Button>
             </DialogFooter>
           </form>
         ) : (
           <div className="grid gap-3">
             <p className="text-[13px] text-tertiary">
-              On <span className="font-medium text-primary">{add.data.environment.name}</span>’s machine, run:
+              {t.rich('shell.env.runOn', { name: <span className="font-medium text-primary">{add.data.environment.name}</span> })}
             </p>
             <div className="flex items-start gap-2 rounded-xl border border-line-strong bg-well py-2 pl-3.5 pr-1.5 font-mono text-[12px] leading-relaxed text-secondary">
               <span className="select-none text-faint">$</span>
@@ -257,7 +261,7 @@ function AddEnvironmentDialog({ hub, onClose }: { hub: string | null; onClose: (
               <Button
                 size="icon-sm"
                 variant="ghost"
-                aria-label="Copy the command"
+                aria-label={t('shell.env.copyCommand')}
                 onClick={() => {
                   window.agentbox.copyText(command);
                   setCopied(true);
@@ -266,10 +270,10 @@ function AddEnvironmentDialog({ hub, onClose }: { hub: string | null; onClose: (
                 {copied ? <Check className="text-emerald-400" /> : <Copy />}
               </Button>
             </div>
-            <Notice tone="warning">The token isn’t shown again, and it lets a machine connect as {add.data.environment.name}: keep it private.</Notice>
+            <Notice tone="warning">{t('shell.env.tokenWarning', { name: add.data.environment.name })}</Notice>
             <DialogFooter>
               <Button variant="primary" onClick={onClose}>
-                Done
+                {t('common.done')}
               </Button>
             </DialogFooter>
           </div>

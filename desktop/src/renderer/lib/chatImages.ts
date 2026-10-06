@@ -3,6 +3,7 @@
 // renderer's half: reading what was pasted, dropped or picked into something
 // the daemon will take.
 import type * as T from '../../shared/api';
+import { t } from '../../shared/i18n/index.ts';
 
 // The daemon's limits, api.MaxChatImages and api.MaxChatImageBytes: 5 MiB of
 // base64 — what Anthropic's API takes in one image — as the file it decodes to.
@@ -36,7 +37,7 @@ export async function prepareImage(file: File): Promise<PendingImage> {
     if (blob.size <= maxImageBytes) break;
     blob = await reencode(file, edge, 'image/jpeg', quality);
   }
-  if (blob.size > maxImageBytes) throw new Error(`${file.name || 'The image'} is too big to send, even scaled down.`);
+  if (blob.size > maxImageBytes) throw new Error(t('chat.images.tooBig', { name: file.name || t('chat.images.theImage') }));
   return {
     key: `img-${++next}`,
     name: file.name || undefined,
@@ -50,12 +51,12 @@ export async function prepareImage(file: File): Promise<PendingImage> {
 // an edge of 1) and encodes it as type.
 async function reencode(file: Blob, edge: number, type: string, quality?: number): Promise<Blob> {
   const bitmap = await createImageBitmap(file).catch(() => {
-    throw new Error("That file isn't an image AgentBox can read.");
+    throw new Error(t('chat.images.unreadable'));
   });
   const scale = edge === 1 ? 1 : Math.min(1, edge / Math.max(bitmap.width, bitmap.height));
   const canvas = new OffscreenCanvas(Math.max(1, Math.round(bitmap.width * scale)), Math.max(1, Math.round(bitmap.height * scale)));
   const context = canvas.getContext('2d');
-  if (!context) throw new Error("Couldn't draw the image to resize it.");
+  if (!context) throw new Error(t('chat.images.draw'));
   if (type === 'image/jpeg') {
     // JPEG has no transparency: what was see-through becomes white, not black.
     context.fillStyle = '#fff';
@@ -70,7 +71,7 @@ function base64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
-    reader.onerror = () => reject(reader.error ?? new Error("Couldn't read the image."));
+    reader.onerror = () => reject(reader.error ?? new Error(t('chat.images.read')));
     reader.readAsDataURL(blob);
   });
 }

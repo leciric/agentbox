@@ -7,6 +7,7 @@ import { agentboxBin } from './cli';
 import { isLocal, requestOptions } from './connection';
 import { canUseIncus, vmInitDone } from './hostsetup';
 import { socketPath } from './paths';
+import { t } from '../shared/i18n/index.ts';
 import { NotListeningError, onWindows, relayRefused, startRelay } from './relay';
 import { linuxVM, vmState } from './vmmode';
 
@@ -92,7 +93,7 @@ export function ensureDaemon(): Promise<void> {
   // An environment on a hub runs its own daemon; there's nothing to start here.
   if (!isLocal()) return Promise.resolve();
   // Starting it now would boot a VM the app is about to stop.
-  if (quitting) return Promise.reject(new Error('AgentBox is quitting'));
+  if (quitting) return Promise.reject(new Error(t('web.main.quitting')));
   starting ??= start().finally(() => {
     starting = undefined;
   });
@@ -153,12 +154,12 @@ export async function stopHostDaemon(onOutput: (text: string) => void): Promise<
   if (!(await answers())) return;
   const jobs = JSON.parse((await request('GET', '/v1/jobs')).body) as { status: string }[];
   if (jobs.some((job) => job.status === 'running')) {
-    throw new Error("this machine's AgentBox daemon is running jobs: let them finish, then try again");
+    throw new Error(t('web.main.daemonRunningJobs'));
   }
   onOutput("$ agentbox daemon stop    # this machine's own daemon, for the VM's\n");
   await request('POST', '/v1/shutdown');
   for (let i = 0; i < 300 && (await answers()); i++) await new Promise((resolve) => setTimeout(resolve, 100));
-  if (await answers()) throw new Error("this machine's AgentBox daemon didn't stop");
+  if (await answers()) throw new Error(t('web.main.daemonDidntStop'));
 }
 
 // restart stops the running daemon and starts this app's own, unless it has
@@ -201,17 +202,17 @@ async function start(): Promise<void> {
   if (onWindows) await startRelay(bin);
   if (await answers()) return;
   if (process.env.AGENTBOX_NO_AUTOSTART) {
-    throw new Error(`the AgentBox daemon isn't running on ${socketPath}`);
+    throw new Error(t('web.main.daemonNotRunning', { socket: socketPath }));
   }
   const vm = linuxVM();
   if (vm) {
     const state = await vmState();
-    if (state === 'paused') throw new Error("AgentBox's VM is paused: resume it to carry on");
+    if (state === 'paused') throw new Error(t('web.main.vmPaused'));
     // Once the app has had a daemon, only the user brings the VM back: a VM
     // on its way down (Free resources, `agentbox vm stop`) is stopping, not
     // off, and `daemon start` would boot it again the moment it's off.
     if (reached && state !== 'running' && state !== 'starting') {
-      throw new Error(`AgentBox's VM is ${state === 'stopping' ? 'turning off' : state}: start it to carry on`);
+      throw new Error(t('web.main.vmNotRunning', { state }));
     }
   }
   // On Windows, agentbox.exe starts the daemon in AgentBox's WSL distro, which
@@ -221,7 +222,7 @@ async function start(): Promise<void> {
     execFile(bin, ['daemon', 'start'], { timeout, windowsHide: true }, (err, _stdout, stderr) => {
       if (!err) return resolve();
       const notFound = (err as NodeJS.ErrnoException).code === 'ENOENT';
-      reject(new Error(notFound ? `couldn't find ${bin}: install the command-line tool, or set AGENTBOX_BIN` : stderr.trim().replace(/^error: /, '') || err.message));
+      reject(new Error(notFound ? t('web.main.binaryNotFound', { bin }) : stderr.trim().replace(/^error: /, '') || err.message));
     });
   });
 }

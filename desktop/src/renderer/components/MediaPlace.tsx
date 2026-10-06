@@ -4,9 +4,11 @@ import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { projectLabel } from '../lib/projectName';
+import { useT, type MessageKey } from '../lib/i18n';
 import { cn, timeAgo } from '../lib/utils';
 import { Badge, type BadgeVariant } from './ui/badge';
 
+const prStates: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
 const prVariant: Record<string, BadgeVariant> = { open: 'success', merged: 'brand', closed: 'danger' };
 
 // MediaPlace is the strip under a media viewer's header that says where the
@@ -15,6 +17,7 @@ const prVariant: Record<string, BadgeVariant> = { open: 'success', merged: 'bran
 // the agent's pull request, each a link. fromNotice is when the notification
 // that opened it was made.
 export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; fromNotice?: string; onSelect: (view: View) => void }) {
+  const t = useT();
   const [project, name] = item.agent.split('/');
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const fleet = useQuery({ queryKey: ['fleet', project], queryFn: () => api.fleet(project), enabled: !item.agentGone });
@@ -28,7 +31,7 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
       <button
         className="flex min-w-0 max-w-[30%] items-center gap-1.5 rounded-md px-1.5 py-0.5 text-muted transition hover:bg-surface-raised hover:text-primary"
         onClick={() => onSelect({ kind: 'project', project })}
-        title={`Open ${projectName}`}
+        title={t('shell.mediaPlace.open', { name: projectName })}
       >
         <FolderGit2 className="size-3.5 shrink-0" />
         <span className="truncate">{projectName}</span>
@@ -37,13 +40,13 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
       {item.agentGone ? (
         <span className="flex min-w-0 max-w-[45%] items-center gap-1.5 px-1.5 py-0.5 text-muted">
           <span className="font-mono text-[12px]">{name}</span>
-          <span className="truncate">(agent removed)</span>
+          <span className="truncate">{t('shell.mediaPlace.agentRemoved')}</span>
         </span>
       ) : (
         <button
           className="flex min-w-0 max-w-[45%] items-center gap-1.5 rounded-md px-1.5 py-0.5 text-secondary transition hover:bg-surface-raised hover:text-primary"
           onClick={() => onSelect({ kind: 'agent', ref: item.agent, tab: 'chat' })}
-          title={`Open ${name}`}
+          title={t('shell.mediaPlace.open', { name })}
         >
           <span className="font-mono text-[12px]">{name}</span>
           {title && <span className="truncate text-muted">· {title}</span>}
@@ -58,12 +61,12 @@ export function MediaPlace({ item, fromNotice, onSelect }: { item: T.MediaItem; 
           <GitPullRequest className="size-3.5" />#{pr.number}
           {/* brand-300 is too faint on light surfaces. */}
           <Badge variant={variant} className={cn('ml-0.5', variant === 'brand' && '[:root[data-appearance=light]_&]:text-brand-600')}>
-            {pr.draft ? 'draft' : pr.state}
+            {pr.draft ? t('memory.pulls.draft') : prStates[pr.state] ? t(prStates[pr.state]) : pr.state}
           </Badge>
           <ExternalLink className="size-3 text-subtle" />
         </button>
       )}
-      {fromNotice && <span className="ml-auto shrink-0 text-[11.5px] text-subtle">From a notification · {timeAgo(fromNotice)}</span>}
+      {fromNotice && <span className="ml-auto shrink-0 text-[11.5px] text-subtle">{t('shell.mediaPlace.fromNotice', { when: timeAgo(fromNotice) })}</span>}
     </div>
   );
 }

@@ -4,6 +4,7 @@
 // disk is nearly full.
 import type { VMPower } from '../../preload';
 import type * as T from '../../shared/api';
+import { t } from '../../shared/i18n/index.ts';
 import { humanBytes } from './utils.ts';
 
 export interface DiskGuardView {
@@ -20,12 +21,12 @@ export interface DiskGuardView {
 // paused for the host's disk.
 export function diskGuardView(guard: T.DiskGuard | undefined, vm: VMPower | null | undefined): DiskGuardView | null {
   if (vm?.pausedForDisk) {
-    const free = vm.hostFree ? `only ${humanBytes(vm.hostFree)} free` : 'almost no space left';
+    const free = vm.hostFree ? t('shell.diskGuard.onlyFree', { size: humanBytes(vm.hostFree) }) : t('shell.diskGuard.almostNone');
     return {
       tone: 'full',
-      label: 'Disk full: VM paused',
-      title: "AgentBox's VM is paused: your disk is nearly full",
-      body: `The disk that holds the VM's disk images has ${free}. The VM is paused so none of its writes fails half done, and resumes by itself once there's room. Free some space on your computer.`,
+      label: t('shell.diskGuard.vmPausedLabel'),
+      title: t('shell.diskGuard.vmPausedTitle'),
+      body: t('shell.diskGuard.vmPausedBody', { free }),
       advice: '',
     };
   }
@@ -35,23 +36,23 @@ export function diskGuardView(guard: T.DiskGuard | undefined, vm: VMPower | null
   // The label names everything on the disk, which the popover's list shows:
   // the title and the body name only the disk.
   const disk = worst.label.split(', ')[0];
-  const where = `${disk} has ${humanBytes(worst.free)} free`;
+  const where = t('shell.diskGuard.where', { disk, free: humanBytes(worst.free) });
   const advice = worst.advice ?? '';
   if (guard.level === 'full') {
-    const paused = guard.paused.length > 0 ? ` ${guard.paused.length === 1 ? 'The agent writing the most is' : `${guard.paused.length} agents writing the most are`} paused until there's room.` : '';
+    const paused = guard.paused.length > 0 ? ` ${t('shell.diskGuard.pausedAgents', { count: guard.paused.length })}` : '';
     return {
       tone: 'full',
-      label: 'Disk full',
-      title: `${disk} is at its floor: new agents are refused`,
-      body: `${where}, under the ${humanBytes(worst.floor)} AgentBox keeps free so your disk never fills. New agents, forks, image builds and saved bases wait until there's room.${paused}${advice ? '' : " Destroy agents you're done with, or delete files."}`,
+      label: t('shell.diskGuard.fullLabel'),
+      title: t('shell.diskGuard.fullTitle', { disk }),
+      body: t('shell.diskGuard.fullBody', { where, floor: humanBytes(worst.floor), paused }) + (advice ? '' : ` ${t('shell.diskGuard.destroyHint')}`),
       advice,
     };
   }
   return {
     tone: 'low',
-    label: 'Disk low',
-    title: `${disk} is running low`,
-    body: `${where}. At ${humanBytes(worst.floor)} AgentBox stops making new agents and pauses the ones writing the most.`,
+    label: t('shell.diskGuard.lowLabel'),
+    title: t('shell.diskGuard.lowTitle', { disk }),
+    body: t('shell.diskGuard.lowBody', { where, floor: humanBytes(worst.floor) }),
     advice,
   };
 }

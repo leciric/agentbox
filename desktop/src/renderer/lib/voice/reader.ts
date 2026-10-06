@@ -4,6 +4,7 @@
 // the worker is still making for it.
 import { useSyncExternalStore } from 'react';
 import type { WorkerReply, WorkerRequest } from './kokoro.worker';
+import { t } from '../../../shared/i18n/index.ts';
 import { readAloudSettings } from './settings.ts';
 import type { VoiceLanguage } from './speakable.ts';
 
@@ -68,7 +69,7 @@ function start(): Worker {
     }
   };
   worker.onerror = (event) => {
-    set({ error: event.message || 'The voice could not start' });
+    set({ error: event.message || t('chat.voice.readerStart') });
     stop();
     worker?.terminate();
     worker = undefined;

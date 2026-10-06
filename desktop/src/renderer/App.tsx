@@ -29,6 +29,7 @@ import { WhatsNewDialog } from "./components/WhatsNewDialog";
 import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
 import { api } from "./lib/api";
+import { t as tNow, useT } from "./lib/i18n";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
@@ -46,6 +47,7 @@ export type View =
   | { kind: "agent"; ref: string; tab?: AgentPlaceName };
 
 export function App() {
+  const t = useT();
   const [view, setView] = useState<View>({ kind: "home" });
   const [tabs, setTabs] = useState<Record<string, AgentPlaceName>>({});
   const [addingProject, setAddingProject] = useState(false);
@@ -221,7 +223,7 @@ export function App() {
           agent: a.name,
           ref: a.ref,
           title: a.title,
-          text: `${aiLabel(a.ai)} asks for permission.`,
+          text: tNow("shell.app.asksPermission", { ai: aiLabel(a.ai) }),
           at: new Date().toISOString(),
         },
         open,
@@ -298,8 +300,9 @@ export function App() {
               connection.state === "disconnected" && (
                 <div className="px-4 pt-4 md:px-6">
                   <Notice>
-                    The AgentBox daemon isn't reachable: {connection.error}.
-                    Retrying…
+                    {t("shell.app.daemonUnreachable", {
+                      error: connection.error ?? "",
+                    })}
                   </Notice>
                 </div>
               )
@@ -388,9 +391,9 @@ export function App() {
       <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
-        title={`Delete “${deleting?.name}”?`}
-        description="It's removed from the agent's media for good."
-        confirmLabel="Delete"
+        title={t("agent.mediaTab.deleteTitle", { name: deleting?.name ?? "" })}
+        description={t("agent.mediaTab.deleteDescription")}
+        confirmLabel={t("common.delete")}
         destructive
         onConfirm={async () => {
           await api.deleteMedia(deleting!.id);

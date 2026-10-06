@@ -160,3 +160,30 @@ func TestOpusOffersItsWholeWindowInSettings(t *testing.T) {
 		t.Errorf("1M on Claude Code's default for the lead: %v", err)
 	}
 }
+
+// The app's language is kept by the daemon like any other setting: en-US until
+// somebody picks another, any well-formed tag accepted (the app owns the list),
+// and anything that can't be a tag refused without touching what's stored.
+func TestLanguageIsStoredAndChecked(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+
+	out, err := d.srv.currentSettings(httptest.NewRequest(http.MethodGet, "/v1/settings", nil))
+	if err != nil || out.Language != api.DefaultLanguage {
+		t.Fatalf("a fresh installation speaks %q, %v; want %q", out.Language, err, api.DefaultLanguage)
+	}
+	if out, err := patchSettings(t, d, `{"language":"pt-BR"}`); err != nil || out.Language != "pt-BR" {
+		t.Fatalf("after choosing pt-BR: %q, %v", out.Language, err)
+	}
+	for _, bad := range []string{"Portuguese", "pt_BR", "../x", "e"} {
+		if _, err := patchSettings(t, d, `{"language":"`+bad+`"}`); err == nil {
+			t.Errorf("%q was accepted as a language", bad)
+		}
+	}
+	if out, err := patchSettings(t, d, `{"prWatch":true}`); err != nil || out.Language != "pt-BR" {
+		t.Errorf("another setting changed the language: %q, %v", out.Language, err)
+	}
+	if out, err := patchSettings(t, d, `{"language":""}`); err != nil || out.Language != api.DefaultLanguage {
+		t.Errorf("clearing it: %q, %v; want the default", out.Language, err)
+	}
+}

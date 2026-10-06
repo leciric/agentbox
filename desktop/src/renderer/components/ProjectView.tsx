@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useT, type Translate } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { projectLabel } from '../lib/projectName';
 import { projectPlace, type ProjectPlaceName, type ProjectSection } from '../lib/tabs';
@@ -32,6 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 // AgentBox writes. The user writes them here, and the project's chat adds what
 // it learns, so nothing has to be explained to each new agent in turn.
 function ProjectNotes({ project, className }: { project: string; className?: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   // The lead writes here too, and so does anyone editing the file by hand:
   // poll while the tab is open, and keep what the user is typing either way.
@@ -47,47 +49,47 @@ function ProjectNotes({ project, className }: { project: string; className?: str
       setDraft(null);
       queryClient.setQueryData(['notes', project], updated);
       await queryClient.invalidateQueries({ queryKey: ['brief', project] });
-      toast(updated.text ? `Saved ${projectName}'s notes` : `Cleared ${projectName}'s notes`);
+      toast(updated.text ? t('project.notes.saved', { project: projectName }) : t('project.notes.cleared', { project: projectName }));
     },
   });
 
   return (
     <Card
       className={className}
-      title="Notes for agents"
+      title={t('project.notes.title')}
       icon={NotebookPen}
-      description="Folded into every agent's brief, so the project doesn't have to be explained to each one."
+      description={t('project.notes.description')}
       action={
         <>
           <Button variant="ghost" size="sm" disabled={!dirty || save.isPending} onClick={() => setDraft(null)}>
-            Revert
+            {t('project.notes.revert')}
           </Button>
           <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? 'Saving…' : 'Save'}
+            {save.isPending ? t('common.saving') : t('common.save')}
           </Button>
         </>
       }
     >
       <Textarea
-        aria-label="Notes for agents"
+        aria-label={t('project.notes.title')}
         className="min-h-44 font-mono text-[12.5px]"
         spellCheck={false}
         value={text}
-        placeholder={'What every agent should know: how to run it, the conventions it should keep, decisions you have made.\nMarkdown, and the shorter the better.'}
+        placeholder={t('project.notes.placeholder')}
         onChange={(event) => setDraft(event.target.value)}
       />
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-subtle">
         <span>
           {dirty
-            ? 'Unsaved changes'
+            ? t('project.notes.unsaved')
             : notes.data?.updatedAt
-              ? `Saved ${timeAgo(notes.data.updatedAt)}`
+              ? t('project.notes.savedAgo', { when: timeAgo(notes.data.updatedAt) })
               : notes.isPending
-                ? 'Loading…'
-                : 'No notes yet'}
+                ? t('common.loading')
+                : t('project.notes.none')}
         </span>
         <span>·</span>
-        <span>The project's chat writes here too, under a heading of its own; what you write is left alone.</span>
+        <span>{t('project.notes.leadWrites')}</span>
         {save.error && <span className="text-rose-300">{errorMessage(save.error)}</span>}
       </div>
     </Card>
@@ -98,17 +100,18 @@ function ProjectNotes({ project, className }: { project: string; className?: str
 // the page showed before is the Settings tab, beside what used to be tabs of
 // their own: memory, tokens, secrets and connectors. `where` is a tab or a
 // Settings section, by name (lib/tabs.ts).
-const projectSettingsSections: SettingsSection<ProjectSection>[] = [
-  { id: 'repository', title: 'Repository', icon: FolderGit2 },
-  { id: 'general', title: 'General', icon: SlidersHorizontal },
-  { id: 'brief', title: 'Notes and brief', icon: FileText },
-  { id: 'memory', title: 'Memory', icon: Brain },
-  { id: 'tokens', title: 'Tokens', icon: Coins },
-  { id: 'secrets', title: 'Secrets', icon: KeyRound },
-  { id: 'connectors', title: 'Connectors', icon: Plug },
+const projectSettingsSections = (t: Translate): SettingsSection<ProjectSection>[] => [
+  { id: 'repository', title: t('project.view.section.repository'), icon: FolderGit2 },
+  { id: 'general', title: t('project.view.section.general'), icon: SlidersHorizontal },
+  { id: 'brief', title: t('project.view.section.brief'), icon: FileText },
+  { id: 'memory', title: t('project.view.section.memory'), icon: Brain },
+  { id: 'tokens', title: t('project.view.section.tokens'), icon: Coins },
+  { id: 'secrets', title: t('project.view.section.secrets'), icon: KeyRound },
+  { id: 'connectors', title: t('project.view.section.connectors'), icon: Plug },
 ];
 
 export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name: string; tab?: ProjectPlaceName; onSelect: (view: View) => void; onNewAgent: () => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -128,8 +131,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
     mutationFn: () => api.retire(name, { how: 'stop' }),
     onSuccess: async (result) => {
       const freed = result.retired.length;
-      toast(freed === 0 ? 'Nothing to free' : `Stopped ${freed} finished agent${freed === 1 ? '' : 's'}`, {
-        description: freed === 0 ? 'No agent of this project is both finished and holding a machine.' : 'Their work stays on their branches. Start them again any time.',
+      toast(freed === 0 ? t('project.view.nothingToFree') : t('project.view.stopped', { count: freed }), {
+        description: freed === 0 ? t('project.view.nothingToFreeDetail') : t('project.view.stoppedDetail'),
       });
       await queryClient.invalidateQueries({ queryKey: ['fleet', name] });
       await queryClient.invalidateQueries({ queryKey: ['agents'] });
@@ -138,7 +141,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   });
 
   if (!project) {
-    return <div className="p-6 text-sm text-subtle">{projects.isPending ? 'Loading…' : `There's no project named ${name}.`}</div>;
+    return <div className="p-6 text-sm text-subtle">{projects.isPending ? t('common.loading') : t('project.view.noProject', { name })}</div>;
   }
 
   return (
@@ -155,23 +158,23 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           <div className="ml-auto flex gap-2">
             <Button onClick={onNewAgent}>
               <Plus />
-              New agent
+              {t('project.view.newAgent')}
             </Button>
             <Menu>
               <MenuTrigger asChild>
-                <Button size="icon" variant="ghost" aria-label="Project actions">
+                <Button size="icon" variant="ghost" aria-label={t('project.view.actions')}>
                   <Ellipsis />
                 </Button>
               </MenuTrigger>
               <MenuContent>
                 <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)}>
-                  Open the repository folder
+                  {t('project.view.openFolder')}
                 </MenuItem>
                 <MenuItem icon={Moon} disabled={mine.length === 0 || retire.isPending} onSelect={() => setFreeing(true)}>
-                  Free finished agents' machines
+                  {t('project.view.freeMachines')}
                 </MenuItem>
-                <MenuItem icon={Trash} destructive disabled={mine.length > 0} hint={mine.length > 0 ? 'has agents' : undefined} onSelect={() => setRemoving(true)}>
-                  Remove project
+                <MenuItem icon={Trash} destructive disabled={mine.length > 0} hint={mine.length > 0 ? t('project.view.hasAgents') : undefined} onSelect={() => setRemoving(true)}>
+                  {t('project.view.removeProject')}
                 </MenuItem>
               </MenuContent>
             </Menu>
@@ -184,23 +187,23 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           <TabsList className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
             <TabsTrigger value="chat">
               <MessagesSquare />
-              Chat
+              {t('project.view.tab.chat')}
             </TabsTrigger>
             <TabsTrigger value="tasks">
               <ListTodo />
-              Tasks
+              {t('project.view.tab.tasks')}
             </TabsTrigger>
             <TabsTrigger value="pulls">
               <GitPullRequest />
-              Pull requests
+              {t('project.view.tab.pulls')}
             </TabsTrigger>
             <TabsTrigger value="media">
               <Image />
-              Media
+              {t('project.view.tab.media')}
             </TabsTrigger>
             <TabsTrigger value="settings">
               <SlidersHorizontal />
-              Settings
+              {t('project.view.tab.settings')}
             </TabsTrigger>
           </TabsList>
           {tab === 'chat' && leadChat.data && (
@@ -235,20 +238,20 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
 
       <TabsContent value="settings" className="flex flex-col">
         <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
-          <SettingsSections label={`${name}'s settings`} sections={projectSettingsSections} value={section} onValueChange={setWhere}>
+          <SettingsSections label={t('project.view.settingsLabel', { name })} sections={projectSettingsSections(t)} value={section} onValueChange={setWhere}>
             {section === 'repository' && (
               <div className="mx-auto grid w-full max-w-3xl grid-cols-1 gap-6 px-4 py-6 md:px-8 md:py-7">
-                <Card title="Repository" icon={FolderGit2}>
-                  <Row label="Folder" mono>
+                <Card title={t('project.view.section.repository')} icon={FolderGit2}>
+                  <Row label={t('project.view.folder')} mono>
                     <span className="truncate" title={project.root}>
                       {project.root}
                     </span>
                   </Row>
-                  <Row label="New agents from" mono>
+                  <Row label={t('project.view.newAgentsFrom')} mono>
                     {project.branch}
                   </Row>
-                  <Row label="Env files" mono>
-                    {project.envFiles.length > 0 ? project.envFiles.join(', ') : 'none'}
+                  <Row label={t('project.view.envFiles')} mono>
+                    {project.envFiles.length > 0 ? project.envFiles.join(', ') : t('project.view.envNone')}
                   </Row>
                 </Card>
                 <ProjectBasePanel project={project} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
@@ -264,18 +267,18 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
                 <ProjectNotes project={name} />
                 <Card
                   className="mt-4"
-                  title="Agent brief"
+                  title={t('project.view.briefTitle')}
                   icon={FileText}
-                  description="What every agent is told about its machine, its branch and this project's notes. Agents set the project up themselves, the way a new developer would."
+                  description={t('project.view.briefDescription')}
                   action={
                     <Button variant="ghost" size="sm" onClick={() => setShowBrief((v) => !v)}>
-                      {showBrief ? 'Hide' : 'Show'}
+                      {showBrief ? t('project.view.hide') : t('project.view.show')}
                     </Button>
                   }
                 >
                   {showBrief && (
                     <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-line-faint bg-sunken p-4 font-mono text-[12px] leading-relaxed text-tertiary">
-                      {brief.data ?? 'Loading…'}
+                      {brief.data ?? t('common.loading')}
                     </pre>
                   )}
                 </Card>
@@ -296,9 +299,9 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       <ConfirmDialog
         open={removing}
         onOpenChange={setRemoving}
-        title={`Remove ${name}?`}
-        description="AgentBox forgets the project. The repository and its branches aren't touched."
-        confirmLabel="Remove"
+        title={t('project.view.removeTitle', { name })}
+        description={t('project.view.removeDescription')}
+        confirmLabel={t('common.remove')}
         destructive
         onConfirm={async () => {
           await api.removeProject(name);
@@ -309,9 +312,9 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
       <ConfirmDialog
         open={freeing}
         onOpenChange={setFreeing}
-        title="Free the finished agents' machines?"
-        description="Their machines are shut down, which frees the memory they hold. Nothing is lost: each agent's work stays on its branch, its worktree stays on disk, and starting it again takes seconds. Agents that are still working, or have uncommitted changes, are left alone."
-        confirmLabel="Free them"
+        title={t('project.view.freeTitle')}
+        description={t('project.view.freeDescription')}
+        confirmLabel={t('project.view.freeConfirm')}
         onConfirm={async () => {
           await retire.mutateAsync();
         }}

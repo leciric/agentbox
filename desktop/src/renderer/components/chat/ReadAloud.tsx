@@ -1,4 +1,5 @@
 import { LoaderCircle, SkipForward, Square, Volume2, VolumeOff } from 'lucide-react';
+import { useT } from '../../lib/i18n';
 import { skip, stop, unlock, useReader } from '../../lib/voice/reader';
 import { setReadAloud, useReadAloudSettings } from '../../lib/voice/settings';
 import { cn } from '../../lib/utils';
@@ -9,29 +10,30 @@ import { Tip } from '../ui/tooltip';
 // aloud as they come in (useReadAloud, in ChatTab). While it reads, skip and
 // stop sit beside it; the first time, it shows the voice downloading.
 export function ReadAloudControls() {
+  const t = useT();
   const { on } = useReadAloudSettings();
   const reader = useReader();
   const loading = on && reader.status === 'loading';
   const label = reader.error
-    ? `The voice failed: ${reader.error}`
+    ? t('chat.readAloud.failed', { error: reader.error })
     : loading
       ? reader.progress === undefined
-        ? 'Starting the voice'
-        : `Downloading the voice, ${Math.round(reader.progress * 100)}% — only the first time`
+        ? t('chat.readAloud.starting')
+        : t('chat.readAloud.downloading', { percent: Math.round(reader.progress * 100) })
       : on
-        ? 'Stop reading replies aloud'
-        : 'Read replies aloud';
+        ? t('chat.readAloud.turnOff')
+        : t('chat.readAloud.turnOn');
   return (
     <span className="flex items-center gap-0.5" data-read-aloud={on ? reader.status : 'off'}>
       {on && reader.status === 'speaking' && (
         <>
-          <Tip label="Skip this sentence">
-            <Button size="sm" variant="ghost" className="h-7 px-2" aria-label="Skip this sentence" onClick={skip}>
+          <Tip label={t('chat.readAloud.skip')}>
+            <Button size="sm" variant="ghost" className="h-7 px-2" aria-label={t('chat.readAloud.skip')} onClick={skip}>
               <SkipForward />
             </Button>
           </Tip>
-          <Tip label="Stop reading">
-            <Button size="sm" variant="ghost" className="h-7 px-2" aria-label="Stop reading" onClick={stop}>
+          <Tip label={t('chat.readAloud.stop')}>
+            <Button size="sm" variant="ghost" className="h-7 px-2" aria-label={t('chat.readAloud.stop')} onClick={stop}>
               <Square />
             </Button>
           </Tip>
@@ -42,7 +44,7 @@ export function ReadAloudControls() {
           size="sm"
           variant="ghost"
           className={cn('h-7 px-2', on && 'text-brand-300', reader.error && on && 'text-rose-400')}
-          aria-label={on ? 'Stop reading replies aloud' : 'Read replies aloud'}
+          aria-label={on ? t('chat.readAloud.turnOff') : t('chat.readAloud.turnOn')}
           aria-pressed={on}
           onClick={() => {
             if (!on) unlock();

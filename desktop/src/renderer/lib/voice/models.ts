@@ -5,6 +5,8 @@
 //
 // Pure data and choices, so they're tested without a browser.
 
+import type { MessageKey } from '../../../shared/i18n/index.ts';
+
 export type VoiceDevice = 'webgpu' | 'wasm';
 
 // The files each model loads, as transformers.js names its dtypes: on WebGPU
@@ -20,7 +22,8 @@ export type VoiceModel = {
   // take the few MB of config and tokenizer beside them).
   size: Record<VoiceDevice, number>;
   dtype: Record<VoiceDevice, Dtypes>;
-  note: string;
+  // note is the catalog key of what to know about the model.
+  note: MessageKey;
 };
 
 const gpu: Dtypes = { encoder_model: 'fp16', decoder_model_merged: 'q4' };
@@ -33,7 +36,7 @@ export const voiceModels: VoiceModel[] = [
     repo: 'onnx-community/whisper-large-v3-turbo',
     size: { webgpu: 1608, wasm: 1085 },
     dtype: { webgpu: gpu, wasm: cpu },
-    note: 'The most accurate, in Portuguese above all. Made for the GPU: on the CPU it takes about a minute a sentence.',
+    note: 'defaults.voice.note.whisper-large-v3-turbo',
   },
   {
     id: 'whisper-small',
@@ -41,7 +44,7 @@ export const voiceModels: VoiceModel[] = [
     repo: 'onnx-community/whisper-small',
     size: { webgpu: 410, wasm: 249 },
     dtype: { webgpu: gpu, wasm: cpu },
-    note: 'Good in English, fair in Portuguese. Quick on the GPU; some 20 seconds a sentence on the CPU.',
+    note: 'defaults.voice.note.whisper-small',
   },
   {
     id: 'whisper-base',
@@ -49,7 +52,7 @@ export const voiceModels: VoiceModel[] = [
     repo: 'onnx-community/whisper-base',
     size: { webgpu: 165, wasm: 77 },
     dtype: { webgpu: gpu, wasm: cpu },
-    note: 'The smallest and quickest, and the least accurate, in Portuguese above all. What Automatic uses on the CPU.',
+    note: 'defaults.voice.note.whisper-base',
   },
 ];
 

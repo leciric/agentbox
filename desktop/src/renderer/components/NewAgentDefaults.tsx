@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { formatTokens } from '../lib/chat';
+import { useT } from '../lib/i18n';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes, parseBytes } from '../lib/utils';
 import { JobProgress } from './JobProgress';
@@ -27,13 +28,14 @@ export type Role = 'agents' | 'lead';
 // which is what every lead ran on before it had a setting.
 const roles = {
   agents: {
-    title: 'Model for new agents',
-    about: 'What a new Claude Code agent starts on, in every project.',
-    more: "Agents you've already made keep the model they have. A project can pick its own in its settings, and what you pick as you create an agent wins over both.",
-    windowTitle: 'Context window for new agents',
-    windowAbout: "Where a new Claude Code agent's chat compacts.",
-    windowMore: "Agents you've already made keep the window they have.",
-    empty: { value: '', name: 'AgentBox default', description: 'Opus' },
+    title: 'defaults.newAgent.agents.title',
+    about: 'defaults.newAgent.agents.about',
+    more: 'defaults.newAgent.agents.more',
+    windowTitle: 'defaults.newAgent.agents.windowTitle',
+    windowAbout: 'defaults.newAgent.agents.windowAbout',
+    windowMore: 'defaults.newAgent.agents.windowMore',
+    emptyName: 'defaults.newAgent.agents.emptyName',
+    emptyDescription: 'defaults.newAgent.agents.emptyDescription',
     emptyModel: 'opus',
     model: (s: T.Settings) => s.defaultClaudeModel,
     window: (s: T.Settings) => s.defaultAgentContextWindow,
@@ -41,13 +43,14 @@ const roles = {
     saveWindow: (window: string): T.UpdateSettingsRequest => ({ defaultAgentContextWindow: window }),
   },
   lead: {
-    title: 'Model for the lead',
-    about: "What each project's chat runs on.",
-    more: 'Unless you pick another in its composer, which wins for that project. Leads you already have move to it the next time their chat starts.',
-    windowTitle: 'Context window for the lead',
-    windowAbout: "Where each project's chat compacts.",
-    windowMore: 'Unless you pick another in its composer. Applies from its next session.',
-    empty: { value: '', name: "Claude Code's default", description: 'Whatever Claude Code picks for the account' },
+    title: 'defaults.newAgent.lead.title',
+    about: 'defaults.newAgent.lead.about',
+    more: 'defaults.newAgent.lead.more',
+    windowTitle: 'defaults.newAgent.lead.windowTitle',
+    windowAbout: 'defaults.newAgent.lead.windowAbout',
+    windowMore: 'defaults.newAgent.lead.windowMore',
+    emptyName: 'defaults.newAgent.lead.emptyName',
+    emptyDescription: 'defaults.newAgent.lead.emptyDescription',
     emptyModel: 'default',
     model: (s: T.Settings) => s.defaultLeadModel,
     window: (s: T.Settings) => s.defaultLeadContextWindow,
@@ -81,7 +84,9 @@ function windowsFor(settings: T.Settings | undefined, role: Role): number[] {
 // plus AgentBox's own small pinned list — Fable, chief among them, marked
 // with a note since the account gates it (D69).
 export function DefaultModel({ role }: { role: Role }) {
+  const t = useT();
   const r = roles[role];
+  const empty = { value: '', name: t(r.emptyName), description: t(r.emptyDescription) };
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
@@ -104,21 +109,21 @@ export function DefaultModel({ role }: { role: Role }) {
   const missing = unavailableValue(choices, value);
   const groups = groupChoices(choices.filter((c) => matchesQuery(c, query)));
   const searchable = choices.length >= searchThreshold;
-  const label = !settings.data ? 'Loading…' : value === '' ? r.empty.name : (current && choiceName(current)) || value;
+  const label = !settings.data ? t('common.loading') : value === '' ? empty.name : (current && choiceName(current)) || value;
   const marker = role === 'agents' ? { 'data-default-model': true } : { 'data-lead-model': true };
 
   return (
     <SettingRow
-      label={r.title}
-      description={r.about}
-      details={r.more}
+      label={t(r.title)}
+      description={t(r.about)}
+      details={t(r.more)}
       control={
         <Menu onOpenChange={(open) => !open && setQuery('')}>
           <MenuTrigger asChild>
             <button
               {...marker}
               disabled={save.isPending || settings.data === undefined}
-              aria-label={r.title}
+              aria-label={t(r.title)}
               title={label}
               className={cn(selectTrigger, missing && 'text-amber-300')}
             >
@@ -128,26 +133,26 @@ export function DefaultModel({ role }: { role: Role }) {
             </button>
           </MenuTrigger>
           <MenuContent align="end" className="max-h-96 w-80 overflow-y-auto">
-            <MenuLabel>{r.title}</MenuLabel>
+            <MenuLabel>{t(r.title)}</MenuLabel>
             {searchable && (
               <div className="mb-1 flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
                 <Search className="size-3.5 shrink-0 text-subtle" />
                 <input
                   autoFocus
-                  aria-label="Search models"
+                  aria-label={t('defaults.newAgent.searchModels')}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
-                  placeholder="Search"
+                  placeholder={t('common.search')}
                   className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
                 />
               </div>
             )}
-            {matchesQuery(r.empty, query) && (
+            {matchesQuery(empty, query) && (
               <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
-                  <span>{r.empty.name}</span>
-                  <span className="text-[11px] text-subtle">{r.empty.description}</span>
+                  <span>{empty.name}</span>
+                  <span className="text-[11px] text-subtle">{empty.description}</span>
                 </span>
               </MenuItem>
             )}
@@ -160,9 +165,9 @@ export function DefaultModel({ role }: { role: Role }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">Off the menu</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
-                    <span className="text-[11px] text-subtle">Not on the menu Claude Code last advertised — either a model you named, or one this account has stopped offering.</span>
+                    <span className="text-[11px] text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
                 </MenuItem>
               </>
@@ -181,7 +186,7 @@ export function DefaultModel({ role }: { role: Role }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">Recommended</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
                       {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
@@ -192,7 +197,7 @@ export function DefaultModel({ role }: { role: Role }) {
             ))}
             {settings.data && !settings.data.claudeMenuKnown && (
               <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
-                Only AgentBox's own picks so far. Claude Code sends the models your account may use when a chat starts — open one, and they'll be here.
+                {t('defaults.newAgent.onlyOwnPicks')}
               </div>
             )}
             <ModelByName onPick={(model) => save.mutate(model)} disabled={save.isPending} />
@@ -208,6 +213,7 @@ export function DefaultModel({ role }: { role: Role }) {
 // model's whole window. A default model without a 1M window, like Haiku, has
 // nothing to choose, and the daemon refuses the pair anyway.
 export function DefaultContextWindow({ role }: { role: Role }) {
+  const t = useT();
   const r = roles[role];
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
@@ -224,30 +230,25 @@ export function DefaultContextWindow({ role }: { role: Role }) {
 
   return (
     <SettingRow
-      label={r.windowTitle}
+      label={t(r.windowTitle)}
       description={
         <>
-          {r.windowAbout}
-          {settings.data && !hasFull && ' This model has no 1M window.'}
+          {t(r.windowAbout)}
+          {settings.data && !hasFull && ` ${t('defaults.newAgent.noFullWindow')}`}
         </>
       }
-      details={
-        <>
-          {r.windowMore} Past the compact window every step resends the whole conversation, so 1M costs up to five times as much per step late in a long
-          task.
-        </>
-      }
+      details={`${t(r.windowMore)} ${t('defaults.newAgent.windowCost')}`}
       control={
         <Select
           data-default-window={role}
-          aria-label={r.windowTitle}
+          aria-label={t(r.windowTitle)}
           disabled={save.isPending || settings.data === undefined}
-          placeholder="Loading…"
+          placeholder={t('common.loading')}
           value={value}
           onChange={(next) => save.mutate(next)}
         >
-          <SelectOption value="">{standard ? formatTokens(standard) : 'The model\'s whole window'} (default)</SelectOption>
-          {(hasFull || value === fullWindow) && <SelectOption value={fullWindow}>1M, the model's whole window</SelectOption>}
+          <SelectOption value="">{t('defaults.newAgent.withDefault', { label: standard ? formatTokens(standard) : t('defaults.newAgent.wholeWindow') })}</SelectOption>
+          {(hasFull || value === fullWindow) && <SelectOption value={fullWindow}>{t('defaults.newAgent.fullWindow')}</SelectOption>}
         </Select>
       }
     />
@@ -264,6 +265,7 @@ export function DefaultContextWindow({ role }: { role: Role }) {
 // ones an adapter advertised (rememberChoices) — the levels differ per model,
 // and some models offer none at all, so an invented one would set nothing.
 export function NewAgentEffort() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -277,24 +279,24 @@ export function NewAgentEffort() {
 
   return (
     <SettingRow
-      label="Effort for new agents"
+      label={t('defaults.newAgent.effortLabel')}
       description={
         <>
-          How hard a new Claude Code agent thinks.
-          {settings.data && !settings.data.claudeMenuKnown && ' The levels are here once a Claude Code chat has started.'}
+          {t('defaults.newAgent.effortDescription')}
+          {settings.data && !settings.data.claudeMenuKnown && ` ${t('defaults.newAgent.effortLevelsLater')}`}
         </>
       }
-      details="Not every model has effort levels, and one that doesn't simply ignores this."
+      details={t('defaults.newAgent.effortDetails')}
 
       control={
         <Select
           data-default-effort
-          aria-label="Effort for new agents"
+          aria-label={t('defaults.newAgent.effortLabel')}
           disabled={save.isPending || settings.data === undefined}
           value={value}
           onChange={(next) => save.mutate(next)}
         >
-          <SelectOption value="">AgentBox default (high)</SelectOption>
+          <SelectOption value="">{t('defaults.newAgent.effortDefault')}</SelectOption>
           {choices.map((choice) => (
             <SelectOption key={choice.value} value={choice.value}>
               {choiceName(choice) || choice.value}
@@ -302,7 +304,7 @@ export function NewAgentEffort() {
           ))}
           {/* A level this account has stopped offering keeps its place, so the
               control never shows something else as though you had picked it. */}
-          {value !== '' && !choices.some((c) => c.value === value) && <SelectOption value={value}>{value} (unavailable)</SelectOption>}
+          {value !== '' && !choices.some((c) => c.value === value) && <SelectOption value={value}>{t('defaults.newAgent.unavailable', { value })}</SelectOption>}
         </Select>
       }
     />
@@ -386,6 +388,7 @@ function CommitInput({
 // unlike them it applies to the agents you already have, not only to the next
 // one: it is about what happens to work that is already running.
 export function ResumeAfterLimit() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -396,13 +399,13 @@ export function ResumeAfterLimit() {
 
   return (
     <SettingRow
-      label="Resume after a usage limit"
-      description="When the Claude account's usage runs out mid-turn, carry on where it left off once the limit resets."
-      details="Off, the turn stays failed until you send a message. Anything you do to the chat in the meantime — a message, stopping it, stopping the agent — calls the wait off. It reaches the agents you already have."
+      label={t('defaults.newAgent.resumeLabel')}
+      description={t('defaults.newAgent.resumeDescription')}
+      details={t('defaults.newAgent.resumeDetails')}
       control={
         <Switch
           data-resume-after-limit
-          aria-label="Resume after a usage limit"
+          aria-label={t('defaults.newAgent.resumeLabel')}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.resumeAfterLimit ?? true}
           onCheckedChange={(next) => save.mutate(next)}
@@ -417,6 +420,7 @@ export function ResumeAfterLimit() {
 // share of the disk. At it, new agents are refused and the agents writing the
 // most are paused until there's room; the top bar says when that's near.
 export function DiskFloor() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -432,23 +436,23 @@ export function DiskFloor() {
   const disabled = save.isPending || settings.isPending;
   return (
     <SettingRow
-      label="Keep free on every disk"
-      description="AgentBox never fills your disk: it keeps this much free on every disk it writes to."
-      details="That's the storage pool its agents' machines live on, the worktrees, its own data, and in its VM your disk that holds the VM's disk images, which grow as the VM writes. Nearing it, the top bar warns. At it, new agents, forks, image builds and saved bases are refused, queued agents wait, and the agents writing the most are paused, then resumed once there's room again. Nothing is ever stopped or deleted."
+      label={t('defaults.newAgent.diskLabel')}
+      description={t('defaults.newAgent.diskDescription')}
+      details={t('defaults.newAgent.diskDetails')}
     >
       <div className="grid max-w-md grid-cols-2 gap-3">
         <ResourceField
           id="disk-floor-min"
-          label="At least"
+          label={t('defaults.newAgent.atLeast')}
           placeholder="10GiB"
-          hint="Default 10GiB, 2GiB at the least, and never more than a quarter of a small disk."
+          hint={t('defaults.newAgent.atLeastHint')}
           value={min % 1024 ** 3 === 0 ? `${min / 1024 ** 3}GiB` : humanBytes(min).replace(' ', '')}
           disabled={disabled}
           onCommit={(value) => {
             if (value.trim() === '') return save.mutate({ diskFloorMin: 0 });
             const bytes = parseBytes(value);
             if (bytes === undefined) {
-              toast.error('A size like 10GiB');
+              toast.error(t('defaults.newAgent.sizeLike', { example: '10GiB' }));
               return;
             }
             save.mutate({ diskFloorMin: bytes });
@@ -456,16 +460,16 @@ export function DiskFloor() {
         />
         <ResourceField
           id="disk-floor-percent"
-          label="Or this share of the disk, if more"
+          label={t('defaults.newAgent.share')}
           placeholder="5%"
-          hint="Default 5%."
+          hint={t('defaults.newAgent.shareHint')}
           value={`${percent}%`}
           disabled={disabled}
           onCommit={(value) => {
             if (value.trim() === '') return save.mutate({ diskFloorPercent: -1 });
             const n = Number(value.replace('%', '').trim());
             if (!Number.isFinite(n) || n < 0) {
-              toast.error('A percentage like 5%');
+              toast.error(t('defaults.newAgent.percentLike', { example: '5%' }));
               return;
             }
             save.mutate({ diskFloorPercent: n });
@@ -490,13 +494,14 @@ function CacheHolds({
   onEmpty: () => void;
   [data: `data-${string}`]: boolean;
 }) {
+  const t = useT();
   return (
     <div className="grid content-start gap-1.5">
       <span className="text-[13px] font-medium text-tertiary" {...data}>
-        Holds {humanBytes(held)}
+        {t('defaults.newAgent.holds', { size: humanBytes(held) })}
       </span>
       <Button className="h-9" disabled={disabled || held === 0} onClick={onEmpty}>
-        Empty it
+        {t('defaults.newAgent.emptyIt')}
       </Button>
     </div>
   );
@@ -507,6 +512,7 @@ function CacheHolds({
 // AgentBox's VM rather than once per agent. Turning it off points agents back
 // at Docker Hub alone; the cap and the disk floor bound what it holds.
 export function DockerImageCache() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -520,20 +526,13 @@ export function DockerImageCache() {
   const disabled = save.isPending || settings.data === undefined;
   return (
     <SettingRow
-      label="Share Docker images between agents"
-      description="Agents' Docker pulls Docker Hub's images through one cache in AgentBox's VM, so each image is downloaded and stored once."
-      details={
-        <>
-          Images from other registries, like ghcr.io and quay.io, are pulled by each agent directly. When the cache can't
-          answer, Docker pulls from Docker Hub itself, so nothing breaks with it down or off. It reaches running agents at
-          once and the others as they start; the images read longest ago go first when it's full, and it never takes a
-          disk below what AgentBox keeps free.
-        </>
-      }
+      label={t('defaults.newAgent.imageCacheLabel')}
+      description={t('defaults.newAgent.imageCacheDescription')}
+      details={t('defaults.newAgent.imageCacheDetails')}
       control={
         <Switch
           data-image-cache
-          aria-label="Share Docker images between agents"
+          aria-label={t('defaults.newAgent.imageCacheLabel')}
           disabled={disabled}
           checked={on}
           onCheckedChange={(imageCache) => save.mutate({ imageCache })}
@@ -543,16 +542,16 @@ export function DockerImageCache() {
       <div className="grid max-w-md grid-cols-2 gap-3">
         <ResourceField
           id="image-cache-max"
-          label="Hold at most"
+          label={t('defaults.newAgent.holdAtMost')}
           placeholder="20GiB"
-          hint="Default 20GiB, 1GiB at the least."
+          hint={t('defaults.newAgent.holdHint')}
           value={max % 1024 ** 3 === 0 ? `${max / 1024 ** 3}GiB` : humanBytes(max).replace(' ', '')}
           disabled={disabled}
           onCommit={(value) => {
             if (value.trim() === '') return save.mutate({ imageCacheMaxBytes: 0 });
             const bytes = parseBytes(value);
             if (bytes === undefined) {
-              toast.error('A size like 20GiB');
+              toast.error(t('defaults.newAgent.sizeLike', { example: '20GiB' }));
               return;
             }
             save.mutate({ imageCacheMaxBytes: bytes });
@@ -570,6 +569,7 @@ export function DockerImageCache() {
 // agents, so a dependency is downloaded once. The cap and the disk floor bound
 // what they hold.
 export function SharedPackageCaches() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -583,19 +583,13 @@ export function SharedPackageCaches() {
   const disabled = save.isPending || settings.data === undefined;
   return (
     <SettingRow
-      label="Share package caches between agents"
-      description="pnpm, npm, Yarn, Go, pip, uv and Playwright's browsers download into caches in AgentBox's VM that every agent shares, so a new agent installs from what earlier ones fetched."
-      details={
-        <>
-          Only downloads go there: logins, tokens and .env files stay in each agent. Yarn 1 keeps a cache per agent, as
-          it can't share one safely. It reaches running agents at once and the others as they start; what was used
-          longest ago goes first when it's full, and it never takes a disk below what AgentBox keeps free.
-        </>
-      }
+      label={t('defaults.newAgent.pkgCacheLabel')}
+      description={t('defaults.newAgent.pkgCacheDescription')}
+      details={t('defaults.newAgent.pkgCacheDetails')}
       control={
         <Switch
           data-package-cache
-          aria-label="Share package caches between agents"
+          aria-label={t('defaults.newAgent.pkgCacheLabel')}
           disabled={disabled}
           checked={on}
           onCheckedChange={(packageCache) => save.mutate({ packageCache })}
@@ -605,16 +599,16 @@ export function SharedPackageCaches() {
       <div className="grid max-w-md grid-cols-2 gap-3">
         <ResourceField
           id="package-cache-max"
-          label="Hold at most"
+          label={t('defaults.newAgent.holdAtMost')}
           placeholder="20GiB"
-          hint="Default 20GiB, 1GiB at the least."
+          hint={t('defaults.newAgent.holdHint')}
           value={max % 1024 ** 3 === 0 ? `${max / 1024 ** 3}GiB` : humanBytes(max).replace(' ', '')}
           disabled={disabled}
           onCommit={(value) => {
             if (value.trim() === '') return save.mutate({ packageCacheMaxBytes: 0 });
             const bytes = parseBytes(value);
             if (bytes === undefined) {
-              toast.error('A size like 20GiB');
+              toast.error(t('defaults.newAgent.sizeLike', { example: '20GiB' }));
               return;
             }
             save.mutate({ packageCacheMaxBytes: bytes });
@@ -643,6 +637,7 @@ function idleTimeWords(seconds: number): string {
 // long as the idle time below. Off by default, so an agent left alone
 // overnight isn't stopped unless you asked for that.
 export function AutoStopIdle() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -657,13 +652,13 @@ export function AutoStopIdle() {
 
   return (
     <SettingRow
-      label="Auto-stop idle agents"
-      description="Stops an agent once nothing has happened on it for a while. Its worktree and branch stay."
-      details="Nothing means no chat turn, no job, no waiting question or credential request, no terminal input and no recording. It's the same as stopping it by hand, and applies to running and paused agents alike."
+      label={t('defaults.newAgent.idleLabel')}
+      description={t('defaults.newAgent.idleDescription')}
+      details={t('defaults.newAgent.idleDetails')}
       control={
         <Switch
           data-auto-stop-idle
-          aria-label="Auto-stop idle agents"
+          aria-label={t('defaults.newAgent.idleLabel')}
           disabled={save.isPending || settings.data === undefined}
           checked={on}
           onCheckedChange={(autoStopIdle) => save.mutate({ autoStopIdle })}
@@ -674,15 +669,14 @@ export function AutoStopIdle() {
         <div className="max-w-40">
           <Select
             data-idle-time
-            aria-label="Idle time"
+            aria-label={t('defaults.newAgent.idleTime')}
             disabled={save.isPending || settings.data === undefined}
             value={String(idleTime)}
             onChange={(next) => save.mutate({ idleTimeSeconds: Number(next) })}
           >
             {idleTimes.map((n) => (
               <SelectOption key={n} value={String(n)}>
-                {idleTimeWords(n)}
-                {n === fallback ? ' (default)' : ''}
+                {n === fallback ? t('defaults.newAgent.withDefault', { label: idleTimeWords(n) }) : idleTimeWords(n)}
               </SelectOption>
             ))}
             {!idleTimes.includes(idleTime) && <SelectOption value={String(idleTime)}>{idleTimeWords(idleTime)}</SelectOption>}
@@ -699,6 +693,7 @@ export function AutoStopIdle() {
 // default: a few stopped agents can otherwise hold tens of gigabytes of images
 // nobody will run again.
 export function DockerPruneOnStop() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -709,13 +704,13 @@ export function DockerPruneOnStop() {
 
   return (
     <SettingRow
-      label="Free Docker space when an agent stops"
-      description="Removes its Docker build cache and the images no container uses. Its volumes, and the databases in them, stay."
-      details="Whether you stop it, retire it, or it's stopped for being idle. It takes at most two minutes, and an agent whose Docker isn't running is stopped as it is. Images are pulled or built again the next time they're needed."
+      label={t('defaults.newAgent.pruneLabel')}
+      description={t('defaults.newAgent.pruneDescription')}
+      details={t('defaults.newAgent.pruneDetails')}
       control={
         <Switch
           data-docker-prune-on-stop
-          aria-label="Free Docker space when an agent stops"
+          aria-label={t('defaults.newAgent.pruneLabel')}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.dockerPruneOnStop ?? true}
           onCheckedChange={(next) => save.mutate(next)}
@@ -730,6 +725,7 @@ export function DockerPruneOnStop() {
 // project's own slots (its Overview settings) and New agent's Queue switch
 // take effect. Off by default, so nothing changes until you ask for it.
 export function AgentQueue() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -740,12 +736,12 @@ export function AgentQueue() {
 
   return (
     <SettingRow
-      label="Agent queue"
-      description="Let new agents wait for a free slot instead of all running at once. Off, every agent starts right away."
+      label={t('defaults.newAgent.queueLabel')}
+      description={t('defaults.newAgent.queueDescription')}
       control={
         <Switch
           data-agent-queue
-          aria-label="Agent queue"
+          aria-label={t('defaults.newAgent.queueLabel')}
           disabled={save.isPending || settings.data === undefined}
           checked={settings.data?.agentQueue ?? false}
           onCheckedChange={(agentQueue) => save.mutate(agentQueue)}
@@ -760,6 +756,7 @@ export function AgentQueue() {
 // it across several agents. A task can choose for itself on its row; until it
 // does, it goes where this says.
 export function TaskTarget() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -770,19 +767,19 @@ export function TaskTarget() {
 
   return (
     <SettingRow
-      label="Tasks go to"
-      description="Where a task from a project's Tasks tab goes when it starts. The lead can split one across several agents, and takes no slot. A task can choose otherwise on its own row."
+      label={t('defaults.newAgent.taskLabel')}
+      description={t('defaults.newAgent.taskDescription')}
       control={
         <Select
           data-task-target
-          aria-label="Tasks go to"
+          aria-label={t('defaults.newAgent.taskLabel')}
           disabled={save.isPending || settings.data === undefined}
-          placeholder="Loading…"
+          placeholder={t('common.loading')}
           value={settings.data?.taskTarget ?? ''}
           onChange={(next) => save.mutate(next)}
         >
-          <SelectOption value="agent">A new agent</SelectOption>
-          <SelectOption value="lead">The lead</SelectOption>
+          <SelectOption value="agent">{t('defaults.newAgent.taskAgent')}</SelectOption>
+          <SelectOption value="lead">{t('defaults.newAgent.taskLead')}</SelectOption>
         </Select>
       }
     />
@@ -798,6 +795,7 @@ const leadRecheckFallback = 20;
 // Off by default: it costs a turn only when there's something to act on, but
 // it's still a turn nobody asked for until you turn it on.
 export function LeadRecheck() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -812,12 +810,12 @@ export function LeadRecheck() {
 
   return (
     <SettingRow
-      label="Lead rechecks agents"
-      description="Every few minutes, wake each project's chat with a short status when agents are queued or one has sat idle, so it can retire finished agents. Costs a turn only when there's something to act on."
+      label={t('defaults.newAgent.recheckLabel')}
+      description={t('defaults.newAgent.recheckDescription')}
       control={
         <Switch
           data-lead-recheck
-          aria-label="Lead rechecks agents"
+          aria-label={t('defaults.newAgent.recheckLabel')}
           disabled={save.isPending || settings.data === undefined}
           checked={on}
           onCheckedChange={(leadRecheck) => save.mutate({ leadRecheck })}
@@ -830,7 +828,7 @@ export function LeadRecheck() {
             type="number"
             min={5}
             max={1440}
-            aria-label="Recheck every, in minutes"
+            aria-label={t('defaults.newAgent.recheckMinutes')}
             data-lead-recheck-minutes
             className="font-mono text-[13px]"
             disabled={save.isPending || settings.data === undefined}
@@ -842,7 +840,7 @@ export function LeadRecheck() {
               if (n !== minutes) save.mutate({ leadRecheckMinutes: n });
             }}
           />
-          <span className="text-[12.5px] text-subtle">minutes{minutes === leadRecheckFallback ? ' (default)' : ''}</span>
+          <span className="text-[12.5px] text-subtle">{minutes === leadRecheckFallback ? t('defaults.newAgent.minutesDefault') : t('defaults.newAgent.minutes')}</span>
         </div>
       )}
     </SettingRow>
@@ -863,6 +861,7 @@ const compactWindows = [100_000, 150_000, 200_000, 300_000, 500_000, 1_000_000];
 // times per step what one held at 200k does. Like the resume switch it
 // applies to agents you already have, from each chat's next session.
 export function CompactWindow() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -876,26 +875,26 @@ export function CompactWindow() {
 
   return (
     <SettingRow
-      label="Compact chats at"
-      description="How full a chat's context gets before it's summarised and carried on. Smaller spends less, larger forgets less."
-      details="For Claude Code and Codex; OpenCode has no such setting. Every step an agent takes sends its whole conversation again, so this decides what long work costs per step. Applies from each chat's next session, the lead's included."
+      label={t('defaults.newAgent.compactLabel')}
+      description={t('defaults.newAgent.compactDescription')}
+      details={t('defaults.newAgent.compactDetails')}
       control={
         <Select
           data-compact-window
-          aria-label="Compact chats at"
+          aria-label={t('defaults.newAgent.compactLabel')}
           disabled={save.isPending || settings.data === undefined}
           value={String(value)}
           onChange={(next) => save.mutate(Number(next))}
         >
           {compactWindows.map((n) => (
             <SelectOption key={n} value={String(n)}>
-              {formatTokens(n)} tokens{n === fallback ? ' (default)' : ''}
+              {n === fallback ? t('defaults.newAgent.withDefault', { label: t('defaults.newAgent.tokens', { count: formatTokens(n) }) }) : t('defaults.newAgent.tokens', { count: formatTokens(n) })}
             </SelectOption>
           ))}
           {/* A value set from the command line keeps its place, so the control
               never shows another one as though you had picked it. */}
-          {value !== 0 && !compactWindows.includes(value) && <SelectOption value={String(value)}>{formatTokens(value)} tokens</SelectOption>}
-          <SelectOption value="0">The model's whole window</SelectOption>
+          {value !== 0 && !compactWindows.includes(value) && <SelectOption value={String(value)}>{t('defaults.newAgent.tokens', { count: formatTokens(value) })}</SelectOption>}
+          <SelectOption value="0">{t('defaults.newAgent.wholeWindow')}</SelectOption>
         </Select>
       }
     />
@@ -905,18 +904,19 @@ export function CompactWindow() {
 // mediaRetentions are how long a removed agent's media can be kept, in the
 // order they are offered. The values are api.MediaRetention's.
 const mediaRetentions = [
-  { value: 'immediately', label: 'Delete it with the agent' },
-  { value: '1d', label: '1 day' },
-  { value: '7d', label: '7 days' },
-  { value: '30d', label: '30 days' },
-  { value: 'forever', label: 'Forever' },
-];
+  { value: 'immediately', label: 'defaults.newAgent.retention.immediately' },
+  { value: '1d', label: 'defaults.newAgent.retention.1d' },
+  { value: '7d', label: 'defaults.newAgent.retention.7d' },
+  { value: '30d', label: 'defaults.newAgent.retention.30d' },
+  { value: 'forever', label: 'defaults.newAgent.retention.forever' },
+] as const;
 
 // MediaRetention is how long an agent's screenshots, recordings and reports
 // outlive it. It belongs to the installation rather than to a project: it is
 // about this machine's disk, and every project's removed agents fill it the
 // same way — more so now that finished agents are removed on their own.
 export function MediaRetention() {
+  const t = useT();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queryClient = useQueryClient();
   const save = useMutation({
@@ -927,21 +927,20 @@ export function MediaRetention() {
 
   return (
     <SettingRow
-      label="Keep a removed agent's media for"
-      description="How long an agent's screenshots, recordings and reports outlive it."
-      details="They stay in the project's Media after the agent is destroyed — by you, or on its own once its pull request is merged or closed — and are purged when this runs out. An agent that still exists keeps all of its media."
+      label={t('defaults.newAgent.mediaLabel')}
+      description={t('defaults.newAgent.mediaDescription')}
+      details={t('defaults.newAgent.mediaDetails')}
       control={
         <Select
           data-media-retention
-          aria-label="Keep a removed agent's media for"
+          aria-label={t('defaults.newAgent.mediaLabel')}
           disabled={save.isPending || settings.data === undefined}
           value={settings.data?.mediaRetention ?? '1d'}
           onChange={(next) => save.mutate(next)}
         >
           {mediaRetentions.map((r) => (
             <SelectOption key={r.value} value={r.value}>
-              {r.label}
-              {r.value === '1d' ? ' (default)' : ''}
+              {r.value === '1d' ? t('defaults.newAgent.withDefault', { label: t(r.label) }) : t(r.label)}
             </SelectOption>
           ))}
         </Select>
@@ -959,6 +958,7 @@ export function MediaRetention() {
 // switch saves the choice and starts that build, and says so before it does.
 // Agents that already exist are copies and are left alone.
 export function OpenCodeInImage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup });
   const [job, setJob] = useState<string | null>(null);
@@ -973,13 +973,13 @@ export function OpenCodeInImage() {
 
   return (
     <SettingRow
-      label="OpenCode in the base image"
-      description="Adds OpenCode to the base image, so agents can be created on it."
-      details="The OpenCode CLI is its own chat adapter. About 120 MB, and turning it on rebuilds the image. Agents that already exist are unaffected."
+      label={t('defaults.newAgent.openCodeLabel')}
+      description={t('defaults.newAgent.openCodeDescription')}
+      details={t('defaults.newAgent.openCodeDetails')}
       control={
         <Switch
           data-image-opencode
-          aria-label="OpenCode in the base image"
+          aria-label={t('defaults.newAgent.openCodeLabel')}
           disabled={build.isPending || job !== null || setup.data === undefined}
           checked={wanted}
           onCheckedChange={(next) => build.mutate(next)}
@@ -987,7 +987,7 @@ export function OpenCodeInImage() {
       }
     >
       {wanted && !installed && job === null && (
-        <SettingNote tone="warning">The image doesn't have OpenCode yet: rebuild it under Base image above, or run agentbox image build.</SettingNote>
+        <SettingNote tone="warning">{t('defaults.newAgent.openCodeMissing')}</SettingNote>
       )}
       {job && <JobProgress jobId={job} onDone={() => void queryClient.invalidateQueries({ queryKey: ['setup'] })} />}
     </SettingRow>

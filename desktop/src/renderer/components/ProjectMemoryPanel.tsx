@@ -27,6 +27,7 @@ import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { formatTokens } from '../lib/chat';
 import { api } from '../lib/api';
+import { formatNumber, useT, type MessageKey, type Translate } from '../lib/i18n';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
 import { FilterChip } from './MediaTab';
@@ -51,6 +52,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 // events are the raw history nothing decided to keep, search reaches all
 // three at once, and reports are what an agent said as it finished.
 export function ProjectMemoryPanel({ project, onOpenMedia }: { project: string; onOpenMedia: () => void }) {
+  const t = useT();
   const [section, setSection] = useState<'tasks' | 'memories' | 'search' | 'events' | 'reports' | 'context'>('memories');
 
   return (
@@ -61,27 +63,27 @@ export function ProjectMemoryPanel({ project, onOpenMedia }: { project: string; 
         <TabsList>
           <TabsTrigger value="tasks">
             <ListTree />
-            Tasks
+            {t('memory.tab.tasks')}
           </TabsTrigger>
           <TabsTrigger value="memories">
             <Sparkles />
-            Memories
+            {t('memory.tab.memories')}
           </TabsTrigger>
           <TabsTrigger value="search">
             <SearchIcon />
-            Search
+            {t('memory.tab.search')}
           </TabsTrigger>
           <TabsTrigger value="events">
             <History />
-            Events
+            {t('memory.tab.events')}
           </TabsTrigger>
           <TabsTrigger value="reports">
             <FileText />
-            Reports
+            {t('memory.tab.reports')}
           </TabsTrigger>
           <TabsTrigger value="context">
             <Gauge />
-            Context
+            {t('memory.tab.context')}
           </TabsTrigger>
         </TabsList>
 
@@ -118,6 +120,7 @@ export function ProjectMemoryPanel({ project, onOpenMedia }: { project: string; 
 // overwritten by the next one, so it is shown as a fact rather than offered
 // as something to type into.
 function WorkingMemoryCard({ project }: { project: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const working = useQuery({ queryKey: ['memoryWorking', project], queryFn: () => api.memoryWorking(project) });
   const saved = working.data;
@@ -150,58 +153,58 @@ function WorkingMemoryCard({ project }: { project: string }) {
     onSuccess: (updated) => {
       setDraft(null);
       queryClient.setQueryData(['memoryWorking', project], updated);
-      toast('Working memory saved');
+      toast(t('memory.working.saved'));
     },
   });
 
   return (
     <Card
-      title="Working memory"
+      title={t('memory.working.title')}
       icon={Brain}
-      description="What the project is doing right now. The only thing here worth correcting by hand — a memory is written down instead of edited."
+      description={t('memory.working.description')}
       action={
         <>
           <Button variant="ghost" size="sm" disabled={!dirty || save.isPending} onClick={() => setDraft(null)}>
-            Revert
+            {t('memory.revert')}
           </Button>
           <Button size="sm" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? 'Saving…' : 'Save'}
+            {save.isPending ? t('common.saving') : t('common.save')}
           </Button>
         </>
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Goal" htmlFor="memory-goal">
+        <Field label={t('memory.working.goal')} htmlFor="memory-goal">
           <Input
             id="memory-goal"
-            placeholder="What this project is for right now"
+            placeholder={t('memory.working.goalPlaceholder')}
             value={fields.goal}
             onChange={(event) => setDraft({ ...fields, goal: event.target.value })}
           />
         </Field>
-        <Field label="Current task" htmlFor="memory-task">
+        <Field label={t('memory.working.currentTask')} htmlFor="memory-task">
           <Input
             id="memory-task"
-            placeholder="What's in flight"
+            placeholder={t('memory.working.currentTaskPlaceholder')}
             value={fields.currentTask}
             onChange={(event) => setDraft({ ...fields, currentTask: event.target.value })}
           />
         </Field>
       </div>
-      <Field label="Blockers" htmlFor="memory-blockers" hint="One per line." >
+      <Field label={t('memory.working.blockers')} htmlFor="memory-blockers" hint={t('memory.working.blockersHint')}>
         <Textarea
           id="memory-blockers"
           className="mt-1.5 min-h-16 font-mono text-[12.5px]"
-          placeholder={'Nothing is blocked'}
+          placeholder={t('memory.working.blockersPlaceholder')}
           value={fields.blockers}
           onChange={(event) => setDraft({ ...fields, blockers: event.target.value })}
         />
       </Field>
-      <Field label="Notes" htmlFor="memory-notes">
+      <Field label={t('memory.working.notes')} htmlFor="memory-notes">
         <Textarea
           id="memory-notes"
           className="mt-1.5 min-h-16"
-          placeholder="Anything else worth keeping in view"
+          placeholder={t('memory.working.notesPlaceholder')}
           value={fields.notes}
           onChange={(event) => setDraft({ ...fields, notes: event.target.value })}
         />
@@ -210,10 +213,10 @@ function WorkingMemoryCard({ project }: { project: string }) {
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line-faint pt-3">
         <span className="flex items-center gap-1.5 text-[11.5px] text-subtle">
           <Users className="size-3.5" />
-          Active agents
+          {t('memory.working.activeAgents')}
         </span>
         {(saved?.activeAgents ?? []).length === 0 ? (
-          <span className="text-[11.5px] text-faint">none</span>
+          <span className="text-[11.5px] text-faint">{t('memory.working.none')}</span>
         ) : (
           (saved?.activeAgents ?? []).map((name) => (
             <Badge key={name} variant="brand">
@@ -222,7 +225,13 @@ function WorkingMemoryCard({ project }: { project: string }) {
           ))
         )}
         <span className="ml-auto text-[11px] text-faint">
-          {dirty ? 'Unsaved changes' : working.isPending ? 'Loading…' : saved?.updatedAt ? `Saved ${timeAgo(saved.updatedAt)}` : 'Never set'}
+          {dirty
+            ? t('memory.working.unsaved')
+            : working.isPending
+              ? t('common.loading')
+              : saved?.updatedAt
+                ? t('memory.working.savedAgo', { when: timeAgo(saved.updatedAt) })
+                : t('memory.working.neverSet')}
         </span>
       </div>
       {save.error && <Notice className="mt-3">{errorMessage(save.error)}</Notice>}
@@ -243,12 +252,19 @@ function WorkingMemoryCard({ project }: { project: string }) {
 // belongs to an agent, which is the plan-curation split the daemon enforces
 // in taskPatch (internal/daemon/memory.go).
 export const taskStatuses = [A.TaskBlocked, A.TaskActive, A.TaskOpen, A.TaskDone, A.TaskAbandoned];
-export const taskStatusLabel: Record<string, string> = {
-  [A.TaskOpen]: 'Open',
-  [A.TaskActive]: 'Active',
-  [A.TaskBlocked]: 'Blocked',
-  [A.TaskDone]: 'Done',
-  [A.TaskAbandoned]: 'Abandoned',
+export const taskStatusLabel: Record<string, MessageKey> = {
+  [A.TaskOpen]: 'memory.status.open',
+  [A.TaskActive]: 'memory.status.active',
+  [A.TaskBlocked]: 'memory.status.blocked',
+  [A.TaskDone]: 'memory.status.done',
+  [A.TaskAbandoned]: 'memory.status.abandoned',
+};
+const taskStatusMark: Record<string, MessageKey> = {
+  [A.TaskOpen]: 'memory.status.markOpen',
+  [A.TaskActive]: 'memory.status.markActive',
+  [A.TaskBlocked]: 'memory.status.markBlocked',
+  [A.TaskDone]: 'memory.status.markDone',
+  [A.TaskAbandoned]: 'memory.status.markAbandoned',
 };
 export const taskStatusVariant: Record<string, BadgeVariant> = {
   [A.TaskOpen]: 'default',
@@ -293,6 +309,7 @@ export function visibleTasks(tasks: T.Task[], childrenOf: Map<string, T.Task[]>,
 }
 
 function TasksSection({ project }: { project: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const tasksQuery = useQuery({ queryKey: ['memoryTasks', project], queryFn: () => api.memoryTasks(project) });
   const agentsQuery = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -305,7 +322,7 @@ function TasksSection({ project }: { project: string }) {
   const { byId, childrenOf, roots } = taskTree(tasks);
   const visible = visibleTasks(tasks, childrenOf, showClosed);
   const closedCount = tasks.length - visibleTasks(tasks, childrenOf, false).size;
-  const visibleRoots = roots.filter((t) => visible.has(t.id));
+  const visibleRoots = roots.filter((root) => visible.has(root.id));
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['memoryTasks', project] });
 
@@ -324,9 +341,7 @@ function TasksSection({ project }: { project: string }) {
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[11.5px] text-subtle">
-          {visibleRoots.length === 0 && tasks.length === 0
-            ? 'Nothing planned yet'
-            : `${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+          {visibleRoots.length === 0 && tasks.length === 0 ? t('memory.plan.nothing') : t('memory.plan.count', { count: tasks.length })}
         </span>
         <div className="ml-auto flex items-center gap-2">
           {closedCount > 0 && (
@@ -335,26 +350,26 @@ function TasksSection({ project }: { project: string }) {
               className="text-[12px] text-subtle underline-offset-2 hover:text-tertiary hover:underline"
               onClick={() => setShowClosed((v) => !v)}
             >
-              {showClosed ? 'Hide done & abandoned' : `Show done & abandoned (${closedCount})`}
+              {showClosed ? t('memory.plan.hideClosed') : t('memory.plan.showClosed', { count: closedCount })}
             </button>
           )}
           <Button size="sm" onClick={() => setAdding({})}>
             <Plus />
-            Add task
+            {t('memory.plan.addTask')}
           </Button>
         </div>
       </div>
 
       {tasksQuery.error && <Notice>{errorMessage(tasksQuery.error)}</Notice>}
-      {tasksQuery.isPending && <p className="px-1 text-[13px] text-subtle">Loading…</p>}
+      {tasksQuery.isPending && <p className="px-1 text-[13px] text-subtle">{t('common.loading')}</p>}
       {!tasksQuery.isPending && tasks.length === 0 && (
         <Panel className="rounded-2xl">
-          <EmptyState icon={ListTree} title="No plan yet">
-            A task is work you have for the project, who's on it and what it's waiting on. The list is yours: nothing adds tasks to it on its own.
+          <EmptyState icon={ListTree} title={t('memory.plan.empty.title')}>
+            {t('memory.plan.empty.body')}
           </EmptyState>
         </Panel>
       )}
-      {tasks.length > 0 && visibleRoots.length === 0 && <p className="px-1 text-[13px] text-subtle">Everything is done or abandoned.</p>}
+      {tasks.length > 0 && visibleRoots.length === 0 && <p className="px-1 text-[13px] text-subtle">{t('memory.plan.allClosed')}</p>}
 
       <div className="grid gap-2">
         {visibleRoots.map((task) => (
@@ -416,13 +431,14 @@ function TaskRow({
   onLink: (id: string) => void;
   onUnlink: (taskId: string, dependsOnId: string) => void;
 }) {
-  const children = (childrenOf.get(task.id) ?? []).filter((t) => visible.has(t.id));
+  const t = useT();
+  const children = (childrenOf.get(task.id) ?? []).filter((child) => visible.has(child.id));
 
   return (
     <div className="grid gap-2">
       <div className="panel rounded-2xl px-4 py-3" data-task={task.id} data-task-status={task.status}>
         <div className="flex flex-wrap items-start gap-2">
-          <Badge variant={taskStatusVariant[task.status] ?? 'default'}>{taskStatusLabel[task.status] ?? task.status}</Badge>
+          <Badge variant={taskStatusVariant[task.status] ?? 'default'}>{taskStatusLabel[task.status] ? t(taskStatusLabel[task.status]) : task.status}</Badge>
           <h4 className="min-w-0 flex-1 text-[13.5px] font-medium text-primary">{task.goal}</h4>
           {task.agent && (
             <Badge variant="brand">
@@ -432,7 +448,7 @@ function TaskRow({
           )}
           <Menu>
             <MenuTrigger asChild>
-              <Button size="icon-sm" variant="ghost" aria-label="Task actions">
+              <Button size="icon-sm" variant="ghost" aria-label={t('memory.plan.actions')}>
                 <Ellipsis />
               </Button>
             </MenuTrigger>
@@ -441,15 +457,15 @@ function TaskRow({
                 .filter((status) => status !== task.status)
                 .map((status) => (
                   <MenuItem key={status} onSelect={() => onChangeStatus(task.id, status)}>
-                    Mark {taskStatusLabel[status].toLowerCase()}
+                    {t(taskStatusMark[status])}
                   </MenuItem>
                 ))}
               <MenuSeparator />
               <MenuItem icon={ListPlus} onSelect={() => onAddSubtask(task.id)}>
-                Add subtask…
+                {t('memory.plan.addSubtask')}
               </MenuItem>
               <MenuItem icon={Link2} onSelect={() => onLink(task.id)}>
-                Link a blocker…
+                {t('memory.plan.linkBlocker')}
               </MenuItem>
             </MenuContent>
           </Menu>
@@ -457,13 +473,13 @@ function TaskRow({
         {task.detail && <Markdown text={task.detail} className="mt-1.5 text-[12.5px] leading-relaxed text-muted" />}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-subtle">
           <span>{timeAgo(task.createdAt)}</span>
-          {task.updatedAt !== task.createdAt && <span>updated {timeAgo(task.updatedAt)}</span>}
+          {task.updatedAt !== task.createdAt && <span>{t('memory.updatedAgo', { when: timeAgo(task.updatedAt) })}</span>}
         </div>
         {task.dependsOn && task.dependsOn.length > 0 && (
           <div className="mt-2">
             <p className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.07em] text-faint">
               <TriangleAlert className="size-3 text-amber-400/80" />
-              Blocked on
+              {t('memory.plan.blockedOn')}
             </p>
             <ul className="mt-1 grid gap-1">
               {task.dependsOn.map((id) => {
@@ -471,13 +487,13 @@ function TaskRow({
                 return (
                   <li key={id} className="flex items-center gap-2 rounded-lg bg-amber-400/[0.04] px-2 py-1 text-[12px] text-amber-200/80">
                     <Badge variant={dep ? (taskStatusVariant[dep.status] ?? 'default') : 'default'}>
-                      {dep ? (taskStatusLabel[dep.status] ?? dep.status) : '?'}
+                      {dep ? (taskStatusLabel[dep.status] ? t(taskStatusLabel[dep.status]) : dep.status) : '?'}
                     </Badge>
                     <span className="min-w-0 flex-1 truncate">{dep?.goal ?? id}</span>
                     <button
                       type="button"
                       className="shrink-0 text-amber-300/60 hover:text-amber-100"
-                      aria-label="Remove blocker"
+                      aria-label={t('memory.plan.removeBlocker')}
                       onClick={() => onUnlink(task.id, id)}
                     >
                       <X className="size-3" />
@@ -527,6 +543,7 @@ function AddTaskDialog({
   defaultParentId?: string;
   onAdded: () => Promise<unknown>;
 }) {
+  const t = useT();
   const [goal, setGoal] = useState('');
   const [detail, setDetail] = useState('');
   const [status, setStatus] = useState(A.TaskOpen);
@@ -549,7 +566,7 @@ function AddTaskDialog({
       setAgent('');
       setParentId('');
       onOpenChange(false);
-      toast('Task added');
+      toast(t('memory.plan.added'));
       await onAdded();
     },
   });
@@ -565,8 +582,8 @@ function AddTaskDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a task</DialogTitle>
-          <DialogDescription>What is to be done, in a line somebody would recognise it by. Who's on it and what it waits on can follow.</DialogDescription>
+          <DialogTitle>{t('memory.plan.add.title')}</DialogTitle>
+          <DialogDescription>{t('memory.plan.add.description')}</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-4"
@@ -575,25 +592,25 @@ function AddTaskDialog({
             if (goal.trim()) add.mutate();
           }}
         >
-          <Field label="Goal" htmlFor="task-goal">
-            <Input id="task-goal" autoFocus value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="What is to be done" />
+          <Field label={t('memory.working.goal')} htmlFor="task-goal">
+            <Input id="task-goal" autoFocus value={goal} onChange={(event) => setGoal(event.target.value)} placeholder={t('memory.plan.add.goalPlaceholder')} />
           </Field>
-          <Field label="Detail" htmlFor="task-detail">
-            <Textarea id="task-detail" className="min-h-24" value={detail} onChange={(event) => setDetail(event.target.value)} placeholder="The brief behind the goal" />
+          <Field label={t('memory.plan.add.detail')} htmlFor="task-detail">
+            <Textarea id="task-detail" className="min-h-24" value={detail} onChange={(event) => setDetail(event.target.value)} placeholder={t('memory.plan.add.detailPlaceholder')} />
           </Field>
           <div className="grid gap-4 sm:grid-cols-3">
-            <Field label="Status" htmlFor="task-status">
+            <Field label={t('memory.plan.add.status')} htmlFor="task-status">
               <Select id="task-status" value={status} onChange={setStatus}>
                 {taskStatuses.map((s) => (
                   <SelectOption key={s} value={s}>
-                    {taskStatusLabel[s]}
+                    {t(taskStatusLabel[s])}
                   </SelectOption>
                 ))}
               </Select>
             </Field>
-            <Field label="Agent" htmlFor="task-agent">
+            <Field label={t('memory.plan.add.agent')} htmlFor="task-agent">
               <Select id="task-agent" value={agent} onChange={setAgent}>
-                <SelectOption value="">Unassigned</SelectOption>
+                <SelectOption value="">{t('memory.plan.add.unassigned')}</SelectOption>
                 {agents.map((name) => (
                   <SelectOption key={name} value={name}>
                     {name}
@@ -601,12 +618,12 @@ function AddTaskDialog({
                 ))}
               </Select>
             </Field>
-            <Field label="Parent" htmlFor="task-parent">
+            <Field label={t('memory.plan.add.parent')} htmlFor="task-parent">
               <Select id="task-parent" value={parentId} onChange={setParentId}>
-                <SelectOption value="">No parent</SelectOption>
-                {tasks.map((t) => (
-                  <SelectOption key={t.id} value={t.id}>
-                    {t.goal}
+                <SelectOption value="">{t('memory.plan.add.noParent')}</SelectOption>
+                {tasks.map((task) => (
+                  <SelectOption key={task.id} value={task.id}>
+                    {task.goal}
                   </SelectOption>
                 ))}
               </Select>
@@ -615,10 +632,10 @@ function AddTaskDialog({
           {add.error && <Notice>{errorMessage(add.error)}</Notice>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" disabled={!goal.trim() || add.isPending}>
-              {add.isPending ? 'Saving…' : 'Add task'}
+              {add.isPending ? t('common.saving') : t('memory.plan.addTask')}
             </Button>
           </DialogFooter>
         </form>
@@ -646,8 +663,9 @@ function LinkTaskDialog({
   tasks: T.Task[];
   onLinked: () => Promise<unknown>;
 }) {
+  const t = useT();
   const [dependsOnId, setDependsOnId] = useState('');
-  const options = tasks.filter((t) => t.id !== task?.id && !(task?.dependsOn ?? []).includes(t.id));
+  const options = tasks.filter((other) => other.id !== task?.id && !(task?.dependsOn ?? []).includes(other.id));
 
   const link = useMutation({
     mutationFn: () => api.linkTasks(project, { taskId: task!.id, dependsOnId } satisfies T.LinkTasksRequest),
@@ -671,8 +689,8 @@ function LinkTaskDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{task && `Block "${task.goal}" on…`}</DialogTitle>
-          <DialogDescription>{task?.goal} can't be finished until the task you pick here is.</DialogDescription>
+          <DialogTitle>{task && t('memory.plan.link.title', { goal: task.goal })}</DialogTitle>
+          <DialogDescription>{t('memory.plan.link.description', { goal: task?.goal ?? '' })}</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-4"
@@ -681,11 +699,11 @@ function LinkTaskDialog({
             if (dependsOnId) link.mutate();
           }}
         >
-          <Field label="Waiting on" htmlFor="task-depends-on">
-            <Select id="task-depends-on" value={dependsOnId} onChange={setDependsOnId} placeholder="Choose a task">
-              {options.map((t) => (
-                <SelectOption key={t.id} value={t.id}>
-                  {t.goal}
+          <Field label={t('memory.plan.link.waitingOn')} htmlFor="task-depends-on">
+            <Select id="task-depends-on" value={dependsOnId} onChange={setDependsOnId} placeholder={t('memory.plan.link.choose')}>
+              {options.map((other) => (
+                <SelectOption key={other.id} value={other.id}>
+                  {other.goal}
                 </SelectOption>
               ))}
             </Select>
@@ -693,10 +711,10 @@ function LinkTaskDialog({
           {link.error && <Notice>{errorMessage(link.error)}</Notice>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" disabled={!dependsOnId || link.isPending}>
-              {link.isPending ? 'Linking…' : 'Link'}
+              {link.isPending ? t('memory.plan.link.linking') : t('memory.plan.link.link')}
             </Button>
           </DialogFooter>
         </form>
@@ -708,12 +726,12 @@ function LinkTaskDialog({
 // --- Memories ---------------------------------------------------------------
 
 const allKinds = [A.MemoryKindProject, A.MemoryKindDecision, A.MemoryKindDiscovery, A.MemoryKindIssue, A.MemoryKindEpisodic];
-const kindLabel: Record<string, string> = {
-  [A.MemoryKindProject]: 'Project',
-  [A.MemoryKindDecision]: 'Decision',
-  [A.MemoryKindDiscovery]: 'Discovery',
-  [A.MemoryKindIssue]: 'Issue',
-  [A.MemoryKindEpisodic]: 'Episodic',
+const kindLabel: Record<string, MessageKey> = {
+  [A.MemoryKindProject]: 'memory.kind.project',
+  [A.MemoryKindDecision]: 'memory.kind.decision',
+  [A.MemoryKindDiscovery]: 'memory.kind.discovery',
+  [A.MemoryKindIssue]: 'memory.kind.issue',
+  [A.MemoryKindEpisodic]: 'memory.kind.episodic',
 };
 const kindVariant: Record<string, BadgeVariant> = {
   [A.MemoryKindProject]: 'info',
@@ -724,8 +742,9 @@ const kindVariant: Record<string, BadgeVariant> = {
 };
 
 function ImportanceDots({ value }: { value: number }) {
+  const t = useT();
   return (
-    <span className="flex items-center gap-0.5" title={`Importance ${value} of 5`}>
+    <span className="flex items-center gap-0.5" title={t('memory.memories.importanceOf', { value })}>
       {[1, 2, 3, 4, 5].map((n) => (
         <span key={n} className={cn('size-1.5 rounded-full', n <= value ? 'bg-brand-400' : 'bg-surface-strong')} />
       ))}
@@ -748,6 +767,7 @@ interface SupersededEntry {
 }
 
 function MemoriesSection({ project }: { project: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [kind, setKind] = useState('');
   const [showSuperseded, setShowSuperseded] = useState(false);
@@ -771,11 +791,11 @@ function MemoriesSection({ project }: { project: string }) {
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-1">
         <FilterChip active={!kind} count={items.length} onClick={() => setKind('')}>
-          All kinds
+          {t('memory.memories.allKinds')}
         </FilterChip>
         {allKinds.map((k) => (
           <FilterChip key={k} active={kind === k} count={items.filter((m) => m.kind === k).length} onClick={() => setKind(kind === k ? '' : k)}>
-            {kindLabel[k]}
+            {t(kindLabel[k])}
           </FilterChip>
         ))}
         <div className="ml-auto flex items-center gap-2">
@@ -785,7 +805,7 @@ function MemoriesSection({ project }: { project: string }) {
               className="text-[12px] text-subtle underline-offset-2 hover:text-tertiary hover:underline"
               onClick={() => setShowResolved((v) => !v)}
             >
-              {showResolved ? 'Hide resolved' : `Show resolved (${resolved.length})`}
+              {showResolved ? t('memory.memories.hideResolved') : t('memory.memories.showResolved', { count: resolved.length })}
             </button>
           )}
           {superseded.length > 0 && (
@@ -794,23 +814,22 @@ function MemoriesSection({ project }: { project: string }) {
               className="text-[12px] text-subtle underline-offset-2 hover:text-tertiary hover:underline"
               onClick={() => setShowSuperseded((v) => !v)}
             >
-              {showSuperseded ? 'Hide superseded' : `Show superseded (${superseded.length})`}
+              {showSuperseded ? t('memory.memories.hideSuperseded') : t('memory.memories.showSuperseded', { count: superseded.length })}
             </button>
           )}
           <Button size="sm" onClick={() => setAdding(true)}>
             <Plus />
-            Add memory
+            {t('memory.memories.add')}
           </Button>
         </div>
       </div>
 
       {memories.error && <Notice>{errorMessage(memories.error)}</Notice>}
-      {memories.isPending && <p className="px-1 text-[13px] text-subtle">Loading…</p>}
+      {memories.isPending && <p className="px-1 text-[13px] text-subtle">{t('common.loading')}</p>}
       {!memories.isPending && items.length === 0 && visibleSuperseded.length === 0 && visibleResolved.length === 0 && (
         <Panel className="rounded-2xl">
-          <EmptyState icon={Sparkles} title="Nothing remembered yet">
-            A memory is a judgement worth keeping — how the project works, why something was chosen, a thing that will bite you. Add one, or let the
-            project's chat write them as it goes.
+          <EmptyState icon={Sparkles} title={t('memory.memories.empty.title')}>
+            {t('memory.memories.empty.body')}
           </EmptyState>
         </Panel>
       )}
@@ -876,6 +895,7 @@ function MemoryRow({
   onSupersede?: () => void;
   onResolve?: () => void;
 }) {
+  const t = useT();
   const resolved = Boolean(memory.resolvedAt);
   const dimmed = Boolean(supersededBy) || resolved;
   return (
@@ -886,25 +906,25 @@ function MemoryRow({
       data-memory-resolved={resolved ? true : undefined}
     >
       <div className="flex flex-wrap items-start gap-2">
-        <Badge variant={kindVariant[memory.kind] ?? 'default'}>{kindLabel[memory.kind] ?? memory.kind}</Badge>
+        <Badge variant={kindVariant[memory.kind] ?? 'default'}>{kindLabel[memory.kind] ? t(kindLabel[memory.kind]) : memory.kind}</Badge>
         <h4 className="min-w-0 flex-1 text-[13.5px] font-medium text-primary">{memory.title}</h4>
         {resolved && (
           <Badge variant="success">
             <CircleCheck />
-            Resolved
+            {t('memory.memories.resolved')}
           </Badge>
         )}
         <ImportanceDots value={memory.importance} />
         {(onSupersede || onResolve) && (
           <Menu>
             <MenuTrigger asChild>
-              <Button size="icon-sm" variant="ghost" aria-label="Memory actions">
+              <Button size="icon-sm" variant="ghost" aria-label={t('memory.memories.actions')}>
                 <Ellipsis />
               </Button>
             </MenuTrigger>
             <MenuContent>
-              {onResolve && <MenuItem onSelect={onResolve}>Resolve…</MenuItem>}
-              {onSupersede && <MenuItem onSelect={onSupersede}>Supersede…</MenuItem>}
+              {onResolve && <MenuItem onSelect={onResolve}>{t('memory.memories.resolveMenu')}</MenuItem>}
+              {onSupersede && <MenuItem onSelect={onSupersede}>{t('memory.memories.supersedeMenu')}</MenuItem>}
             </MenuContent>
           </Menu>
         )}
@@ -912,10 +932,10 @@ function MemoryRow({
       {memory.content && <Markdown text={memory.content} className="mt-1.5 text-[12.5px] leading-relaxed text-muted" />}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-subtle">
         <span>{timeAgo(memory.createdAt)}</span>
-        {memory.updatedAt !== memory.createdAt && <span>updated {timeAgo(memory.updatedAt)}</span>}
-        {memory.supersedesId && <span className="font-mono text-faint">supersedes {memory.supersedesId}</span>}
-        {supersededBy && <span className="text-amber-300/80">superseded by “{supersededBy.title}”</span>}
-        {resolved && <span className="text-emerald-300/80">resolved: {memory.resolvedBy}</span>}
+        {memory.updatedAt !== memory.createdAt && <span>{t('memory.updatedAgo', { when: timeAgo(memory.updatedAt) })}</span>}
+        {memory.supersedesId && <span className="font-mono text-faint">{t('memory.memories.supersedes', { id: memory.supersedesId })}</span>}
+        {supersededBy && <span className="text-amber-300/80">{t('memory.memories.supersededBy', { title: supersededBy.title })}</span>}
+        {resolved && <span className="text-emerald-300/80">{t('memory.memories.resolvedBy', { why: memory.resolvedBy ?? '' })}</span>}
       </div>
     </div>
   );
@@ -939,12 +959,13 @@ function ResolveIssueDialog({
   onOpenChange: (open: boolean) => void;
   onResolved: (resolved: T.Memory) => Promise<unknown>;
 }) {
+  const t = useT();
   const [why, setWhy] = useState('');
   const resolve = useMutation({
     mutationFn: () => api.resolveMemory(project, { id: issue.id, why: why.trim() } satisfies T.ResolveMemoryRequest),
     onSuccess: async (updated) => {
       onOpenChange(false);
-      toast(`“${updated.title}” resolved`);
+      toast(t('memory.memories.resolvedToast', { title: updated.title }));
       await onResolved(updated);
     },
   });
@@ -953,11 +974,8 @@ function ResolveIssueDialog({
     <Dialog open onOpenChange={(next) => { if (!next) resolve.reset(); onOpenChange(next); }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Resolve “{issue.title}”</DialogTitle>
-          <DialogDescription>
-            Closes the issue with nothing to replace it — the bug was fixed, the flaky test was deleted, it stopped mattering. It stops coming back
-            from a list or a search, but stays readable by id.
-          </DialogDescription>
+          <DialogTitle>{t('memory.memories.resolve.title', { title: issue.title })}</DialogTitle>
+          <DialogDescription>{t('memory.memories.resolve.description')}</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-4"
@@ -966,23 +984,23 @@ function ResolveIssueDialog({
             if (why.trim()) resolve.mutate();
           }}
         >
-          <Field label="How it was resolved" htmlFor="resolve-why" hint="One line: what happened, not what to do next.">
+          <Field label={t('memory.memories.resolve.how')} htmlFor="resolve-why" hint={t('memory.memories.resolve.hint')}>
             <Textarea
               id="resolve-why"
               autoFocus
               className="min-h-20"
               value={why}
               onChange={(event) => setWhy(event.target.value)}
-              placeholder="What happened"
+              placeholder={t('memory.memories.resolve.placeholder')}
             />
           </Field>
           {resolve.error && <Notice>{errorMessage(resolve.error)}</Notice>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" disabled={!why.trim() || resolve.isPending}>
-              {resolve.isPending ? 'Resolving…' : 'Resolve'}
+              {resolve.isPending ? t('memory.memories.resolve.resolving') : t('memory.memories.resolve.resolve')}
             </Button>
           </DialogFooter>
         </form>
@@ -1009,6 +1027,7 @@ function AddMemoryDialog({
   prefillFrom?: T.Memory;
   onAdded: (created: T.Memory) => Promise<unknown>;
 }) {
+  const t = useT();
   const [kind, setKind] = useState(prefillFrom?.kind ?? supersedes?.kind ?? A.MemoryKindProject);
   const [title, setTitle] = useState(prefillFrom?.title ?? '');
   const [content, setContent] = useState(prefillFrom?.content ?? '');
@@ -1027,7 +1046,7 @@ function AddMemoryDialog({
       setContent('');
       setImportance('3');
       onOpenChange(false);
-      toast(supersedes ? `“${created.title}” supersedes “${supersedes.title}”` : `“${created.title}” remembered`);
+      toast(supersedes ? t('memory.memories.supersededToast', { title: created.title, old: supersedes.title }) : t('memory.memories.rememberedToast', { title: created.title }));
       await onAdded(created);
     },
   });
@@ -1042,11 +1061,9 @@ function AddMemoryDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{supersedes ? `Supersede “${supersedes.title}”` : 'Add a memory'}</DialogTitle>
+          <DialogTitle>{supersedes ? t('memory.memories.supersede.title', { title: supersedes.title }) : t('memory.memories.add.title')}</DialogTitle>
           <DialogDescription>
-            {supersedes
-              ? 'The old memory stays, but stops coming back from a list or a search — this is what replaces it.'
-              : "A judgement worth keeping: how the project works, why something was chosen, a thing that will bite you. Raw history belongs in an event, not here."}
+            {supersedes ? t('memory.memories.supersede.description') : t('memory.memories.add.description')}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -1057,38 +1074,38 @@ function AddMemoryDialog({
           }}
         >
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <Field label="Kind" htmlFor="memory-kind">
+            <Field label={t('memory.memories.add.kind')} htmlFor="memory-kind">
               <Select id="memory-kind" value={kind} onChange={setKind}>
                 {allKinds.map((k) => (
                   <SelectOption key={k} value={k}>
-                    {kindLabel[k]}
+                    {t(kindLabel[k])}
                   </SelectOption>
                 ))}
               </Select>
             </Field>
-            <Field label="Importance" htmlFor="memory-importance">
+            <Field label={t('memory.memories.add.importance')} htmlFor="memory-importance">
               <Select id="memory-importance" className="w-32" value={importance} onChange={setImportance}>
                 {[1, 2, 3, 4, 5].map((n) => (
                   <SelectOption key={n} value={String(n)}>
-                    {n} {n === 1 ? '(worth knowing)' : n === 5 ? '(essential)' : ''}
+                    {n === 1 ? t('memory.memories.add.worthKnowing', { n }) : n === 5 ? t('memory.memories.add.essential', { n }) : n}
                   </SelectOption>
                 ))}
               </Select>
             </Field>
           </div>
-          <Field label="Title" htmlFor="memory-title" hint="One line somebody can recognise it by in a list.">
-            <Input id="memory-title" autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What this is" />
+          <Field label={t('memory.memories.add.titleLabel')} htmlFor="memory-title" hint={t('memory.memories.add.titleHint')}>
+            <Input id="memory-title" autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t('memory.memories.add.titlePlaceholder')} />
           </Field>
-          <Field label="Content" htmlFor="memory-content">
-            <Textarea id="memory-content" className="min-h-28" value={content} onChange={(event) => setContent(event.target.value)} placeholder="The detail behind the title" />
+          <Field label={t('memory.memories.add.content')} htmlFor="memory-content">
+            <Textarea id="memory-content" className="min-h-28" value={content} onChange={(event) => setContent(event.target.value)} placeholder={t('memory.memories.add.contentPlaceholder')} />
           </Field>
           {add.error && <Notice>{errorMessage(add.error)}</Notice>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" variant="primary" disabled={!title.trim() || add.isPending}>
-              {add.isPending ? 'Saving…' : supersedes ? 'Supersede' : 'Remember'}
+              {add.isPending ? t('common.saving') : supersedes ? t('memory.memories.supersede.submit') : t('memory.memories.add.submit')}
             </Button>
           </DialogFooter>
         </form>
@@ -1104,6 +1121,7 @@ function AddMemoryDialog({
 // merged list because bm25 only ranks within one index — a memory's score
 // and an event's score aren't the same currency.
 function MemorySearchSection({ project }: { project: string }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const search = useMutation({
     mutationFn: (q: string) => api.searchMemory(project, { query: q } satisfies T.MemorySearchRequest),
@@ -1119,14 +1137,14 @@ function MemorySearchSection({ project }: { project: string }) {
         }}
       >
         <Input
-          aria-label="Search memory"
+          aria-label={t('memory.search.label')}
           className="flex-1"
-          placeholder="What do we know about…"
+          placeholder={t('memory.search.placeholder')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
         <Button type="submit" disabled={!query.trim() || search.isPending}>
-          {search.isPending ? 'Searching…' : 'Search'}
+          {search.isPending ? t('memory.search.searching') : t('common.search')}
           <SearchIcon />
         </Button>
       </form>
@@ -1135,17 +1153,17 @@ function MemorySearchSection({ project }: { project: string }) {
 
       {search.data && (
         <div className="grid gap-5">
-          <SearchGroup title="Memories" count={search.data.memories?.length ?? 0}>
+          <SearchGroup title={t('memory.tab.memories')} count={search.data.memories?.length ?? 0}>
             {(search.data.memories ?? []).map((memory) => (
               <MemoryRow key={memory.id} memory={memory} />
             ))}
           </SearchGroup>
-          <SearchGroup title="Events" count={search.data.events?.length ?? 0}>
+          <SearchGroup title={t('memory.tab.events')} count={search.data.events?.length ?? 0}>
             {(search.data.events ?? []).map((event) => (
               <EventRow key={event.id} event={event} />
             ))}
           </SearchGroup>
-          <SearchGroup title="Reports" count={search.data.reports?.length ?? 0}>
+          <SearchGroup title={t('memory.tab.reports')} count={search.data.reports?.length ?? 0}>
             {(search.data.reports ?? []).map((report) => (
               <ReportRow key={report.id} report={report} />
             ))}
@@ -1177,6 +1195,7 @@ const limitOptions = [50, 100, 200];
 // media, and the lead's conversation being folded in — append-only, and
 // newest first. It's the debugging view, so nothing here is summarised.
 function MemoryEventsSection({ project }: { project: string }) {
+  const t = useT();
   const [limit, setLimit] = useState(100);
   const [type, setType] = useState('');
   const [agent, setAgent] = useState('');
@@ -1196,7 +1215,7 @@ function MemoryEventsSection({ project }: { project: string }) {
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-1">
         <FilterChip active={!type} count={items.length} onClick={() => setType('')}>
-          All types
+          {t('memory.events.allTypes')}
         </FilterChip>
         {[...types].map(([name, count]) => (
           <FilterChip key={name} active={type === name} count={count} onClick={() => setType(type === name ? '' : name)}>
@@ -1207,11 +1226,11 @@ function MemoryEventsSection({ project }: { project: string }) {
       {agents.size > 1 && (
         <div className="flex flex-wrap items-center gap-1">
           <FilterChip active={!agent} count={items.length} onClick={() => setAgent('')}>
-            All agents
+            {t('memory.events.allAgents')}
           </FilterChip>
           {[...agents].map(([name, count]) => (
-            <FilterChip key={name || '(project)'} active={agent === name} count={count} onClick={() => setAgent(agent === name ? '' : name)}>
-              {name || '(project)'}
+            <FilterChip key={name || t('memory.events.projectName')} active={agent === name} count={count} onClick={() => setAgent(agent === name ? '' : name)}>
+              {name || t('memory.events.projectName')}
             </FilterChip>
           ))}
         </div>
@@ -1219,11 +1238,11 @@ function MemoryEventsSection({ project }: { project: string }) {
 
       <div className="flex items-center justify-between px-1">
         <span className="text-[11.5px] text-subtle">
-          Newest {items.length} event{items.length === 1 ? '' : 's'}
-          {items.length === limit && ` (of at most ${limit} — there may be more)`}
+          {t('memory.events.newest', { count: items.length })}
+          {items.length === limit && ` ${t('memory.events.atMost', { limit })}`}
         </span>
         <label className="flex items-center gap-2 text-[12px] text-subtle">
-          Show
+          {t('memory.events.show')}
           <Select className="h-7 w-24" value={String(limit)} onChange={(v) => setLimit(Number(v))}>
             {limitOptions.map((n) => (
               <SelectOption key={n} value={String(n)}>
@@ -1235,15 +1254,15 @@ function MemoryEventsSection({ project }: { project: string }) {
       </div>
 
       {events.error && <Notice>{errorMessage(events.error)}</Notice>}
-      {events.isPending && <p className="px-1 text-[13px] text-subtle">Loading…</p>}
+      {events.isPending && <p className="px-1 text-[13px] text-subtle">{t('common.loading')}</p>}
       {!events.isPending && items.length === 0 && (
         <Panel className="rounded-2xl">
-          <EmptyState icon={History} title="Nothing captured yet">
-            An agent being made or retired, a question, a merge, new media, and the lead's own conversation land here on their own — nothing to do to start it.
+          <EmptyState icon={History} title={t('memory.events.empty.title')}>
+            {t('memory.events.empty.body')}
           </EmptyState>
         </Panel>
       )}
-      {items.length > 0 && visible.length === 0 && <p className="px-1 text-[13px] text-subtle">Nothing matches that filter.</p>}
+      {items.length > 0 && visible.length === 0 && <p className="px-1 text-[13px] text-subtle">{t('memory.noMatch')}</p>}
 
       <div className="grid gap-2">
         {visible.map((event) => (
@@ -1255,6 +1274,7 @@ function MemoryEventsSection({ project }: { project: string }) {
 }
 
 function EventRow({ event }: { event: T.MemoryEvent }) {
+  const t = useT();
   const [expanded, setExpanded] = useState(false);
   const payload = payloadText(event.payload);
   return (
@@ -1266,7 +1286,7 @@ function EventRow({ event }: { event: T.MemoryEvent }) {
       </div>
       {payload && (
         <button type="button" className="mt-1.5 text-[11px] text-subtle hover:text-tertiary" onClick={() => setExpanded((v) => !v)}>
-          {expanded ? 'Hide payload' : 'Show payload'}
+          {expanded ? t('memory.events.hidePayload') : t('memory.events.showPayload')}
         </button>
       )}
       {expanded && payload && (
@@ -1290,6 +1310,13 @@ function payloadText(payload: unknown): string {
 
 // --- Reports & artifacts ------------------------------------------------------
 
+const reportStatusLabel: Record<string, MessageKey> = {
+  [A.ReportDone]: 'memory.report.done',
+  [A.ReportPartial]: 'memory.report.partial',
+  blocked: 'memory.report.blocked',
+  failed: 'memory.report.failed',
+};
+
 const statusVariant: Record<string, BadgeVariant> = {
   [A.ReportDone]: 'success',
   [A.ReportPartial]: 'warning',
@@ -1304,19 +1331,20 @@ const statusVariant: Record<string, BadgeVariant> = {
 // the "media" ones open in the Media tab, which already knows how to show
 // one, rather than this tab pretending it can open anything itself.
 function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpenMedia: () => void }) {
+  const t = useT();
   const reports = useQuery({ queryKey: ['memoryReports', project], queryFn: () => api.memoryReports(project) });
   const artifacts = useQuery({ queryKey: ['memoryArtifacts', project], queryFn: () => api.memoryArtifacts(project) });
 
   return (
     <div className="grid gap-6">
       <div className="grid gap-2">
-        <h3 className="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">Reports</h3>
+        <h3 className="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('memory.tab.reports')}</h3>
         {reports.error && <Notice>{errorMessage(reports.error)}</Notice>}
-        {reports.isPending && <p className="px-1 text-[13px] text-subtle">Loading…</p>}
+        {reports.isPending && <p className="px-1 text-[13px] text-subtle">{t('common.loading')}</p>}
         {!reports.isPending && (reports.data?.length ?? 0) === 0 && (
           <Panel className="rounded-2xl">
-            <EmptyState icon={FileText} title="No reports yet">
-              What an agent says as it finishes — a summary, its status, what it found and decided, and what's still open.
+            <EmptyState icon={FileText} title={t('memory.report.empty.title')}>
+              {t('memory.report.empty.body')}
             </EmptyState>
           </Panel>
         )}
@@ -1328,9 +1356,9 @@ function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpe
       </div>
 
       <div className="grid gap-2">
-        <h3 className="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">Artifacts</h3>
+        <h3 className="px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('memory.report.artifacts')}</h3>
         {artifacts.error && <Notice>{errorMessage(artifacts.error)}</Notice>}
-        {!artifacts.isPending && (artifacts.data?.length ?? 0) === 0 && <p className="px-1 text-[13px] text-subtle">Nothing recorded yet.</p>}
+        {!artifacts.isPending && (artifacts.data?.length ?? 0) === 0 && <p className="px-1 text-[13px] text-subtle">{t('memory.report.noArtifacts')}</p>}
         <div className="grid gap-2">
           {(artifacts.data ?? []).map((artifact) => (
             <ArtifactRow key={artifact.id} artifact={artifact} onOpenMedia={onOpenMedia} />
@@ -1342,18 +1370,19 @@ function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpe
 }
 
 function ReportRow({ report }: { report: T.AgentReport }) {
+  const t = useT();
   return (
     <div className="panel rounded-2xl px-4 py-3" data-report={report.id}>
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={statusVariant[report.status] ?? 'default'}>{report.status}</Badge>
+        <Badge variant={statusVariant[report.status] ?? 'default'}>{reportStatusLabel[report.status] ? t(reportStatusLabel[report.status]) : report.status}</Badge>
         <span className="text-[13px] font-medium text-primary">{report.agent}</span>
         {report.task && <span className="min-w-0 truncate text-[12px] text-subtle">— {report.task}</span>}
         <span className="ml-auto shrink-0 text-[11.5px] text-subtle">{timeAgo(report.createdAt)}</span>
       </div>
       <Markdown text={report.summary} className="mt-1.5 text-[12.5px] leading-relaxed text-tertiary" />
-      <ReportList label="Discoveries" items={report.discoveries} />
-      <ReportList label="Decisions" items={report.decisions} />
-      <ReportList label="Remaining issues" items={report.remainingIssues} tone="amber" />
+      <ReportList label={t('memory.report.discoveries')} items={report.discoveries} />
+      <ReportList label={t('memory.report.decisions')} items={report.decisions} />
+      <ReportList label={t('memory.report.remaining')} items={report.remainingIssues} tone="amber" />
     </div>
   );
 }
@@ -1376,6 +1405,7 @@ function ReportList({ label, items, tone }: { label: string; items?: string[]; t
 }
 
 function ArtifactRow({ artifact, onOpenMedia }: { artifact: T.MemoryArtifact; onOpenMedia: () => void }) {
+  const t = useT();
   const isURL = artifact.type === 'url' || /^https?:\/\//.test(artifact.path);
   const isMedia = artifact.type === 'media';
   return (
@@ -1389,12 +1419,12 @@ function ArtifactRow({ artifact, onOpenMedia }: { artifact: T.MemoryArtifact; on
       <span className="shrink-0 text-[11px] text-faint">{timeAgo(artifact.createdAt)}</span>
       {isMedia && (
         <Button size="sm" variant="ghost" onClick={onOpenMedia}>
-          Open in Media
+          {t('memory.report.openInMedia')}
         </Button>
       )}
       {isURL && !isMedia && (
         <Button size="sm" variant="ghost" onClick={() => void window.agentbox.openExternal(artifact.path)}>
-          Open
+          {t('common.open')}
         </Button>
       )}
     </div>
@@ -1422,10 +1452,10 @@ function ContextSection({ project }: { project: string }) {
   );
 }
 
-const contextForLabel: Record<string, string> = {
-  [A.ContextForLead]: 'the project chat',
-  [A.ContextForAgent]: 'a worker brief',
-  [A.ContextForTool]: 'a direct request',
+const contextForLabel: Record<string, MessageKey> = {
+  [A.ContextForLead]: 'memory.context.for.lead',
+  [A.ContextForAgent]: 'memory.context.for.agent',
+  [A.ContextForTool]: 'memory.context.for.tool',
 };
 
 // describeRatio turns Stats.Ratio into a sentence rather than a bare number.
@@ -1433,13 +1463,14 @@ const contextForLabel: Record<string, string> = {
 // the point of having a budget; at or above 1 a project that remembers almost
 // nothing costs more in headings and labels than the handful of rows it draws
 // from — the honest answer the builder gives rather than a bug.
-function describeRatio(ratio: number): string {
-  if (ratio >= 1) return `${ratio.toFixed(1)}× the size of what it drew from`;
+function describeRatio(ratio: number, t: Translate): string {
+  if (ratio >= 1) return t('memory.context.ratio.larger', { n: formatNumber(ratio, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) });
   const factor = Math.round(1 / Math.max(ratio, 0.001));
-  return factor >= 2 ? `${factor}× smaller than what it drew from` : `${Math.round(ratio * 100)}% of what it drew from`;
+  return factor >= 2 ? t('memory.context.ratio.smaller', { n: factor }) : t('memory.context.ratio.percent', { n: Math.round(ratio * 100) });
 }
 
 function ContextCostCard({ project, current }: { project: string; current?: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const stats = useQuery({ queryKey: ['memoryContextStats', project], queryFn: () => api.memoryContextStats(project) });
   const account = stats.data;
@@ -1454,7 +1485,7 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
     mutationFn: (contextBudget: number) => api.updateProject(project, { contextBudget }),
     onSuccess: async (updated) => {
       setDraft(null);
-      toast(`${updated.name}'s context budget is now ${formatTokens(updated.contextBudget)} tokens`);
+      toast(t('memory.context.budgetSaved', { name: updated.name, tokens: formatTokens(updated.contextBudget) }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -1462,17 +1493,16 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
 
   return (
     <Card
-      title="What memory costs"
+      title={t('memory.context.cost.title')}
       icon={Coins}
-      description="The compression ratio a build records: how large the project's memory is against how many tokens a built context actually spends. Estimated at about four bytes to a token — it undercounts code, file paths and identifiers, and non-Latin text more again, so read it as an order of magnitude, not a number a provider would agree with."
+      description={t('memory.context.cost.description')}
     >
       {stats.error && <Notice>{errorMessage(stats.error)}</Notice>}
-      {stats.isPending && <p className="text-[13px] text-subtle">Loading…</p>}
+      {stats.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
 
       {!stats.isPending && !latest && (
         <p className="text-[13px] leading-relaxed text-subtle">
-          Nothing has been built from this project's memory yet. The lead's recap, a worker's brief and the preview below all go through the same
-          builder, and this fills in the first time one of them runs.
+          {t('memory.context.cost.empty')}
         </p>
       )}
 
@@ -1480,10 +1510,14 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
         <div className="grid gap-3">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <div className="text-2xl font-semibold tracking-tight text-title">{describeRatio(latest.ratio)}</div>
+              <div className="text-2xl font-semibold tracking-tight text-title">{describeRatio(latest.ratio, t)}</div>
               <p className="mt-0.5 text-[12px] text-subtle">
-                Last build, for {contextForLabel[latest.for] ?? latest.for}: {formatTokens(latest.tokens)} of {formatTokens(latest.corpusTokens)} tokens
-                remembered · {timeAgo(latest.at)}
+                {t('memory.context.cost.last', {
+                  for: contextForLabel[latest.for] ? t(contextForLabel[latest.for]) : latest.for,
+                  tokens: formatTokens(latest.tokens),
+                  corpus: formatTokens(latest.corpusTokens),
+                  when: timeAgo(latest.at),
+                })}
               </p>
             </div>
             {trend.length >= 2 && <Sparkline values={trend} className="mb-1 shrink-0 text-brand-300" />}
@@ -1493,15 +1527,14 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
 
           {account && (
             <p className="text-[11.5px] text-faint">
-              {account.builds} build{account.builds === 1 ? '' : 's'} since the daemon started · {formatTokens(account.tokens)} tokens spent in total ·{' '}
-              {account.droppedRows} row{account.droppedRows === 1 ? '' : 's'} dropped to fit
+              {t('memory.context.cost.totals', { builds: account.builds, tokens: formatTokens(account.tokens), dropped: account.droppedRows })}
             </p>
           )}
         </div>
       )}
 
       <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-line-faint pt-3.5">
-        <Field label="Context budget" htmlFor="context-budget" hint="500 to 32,000 tokens — a build clamps rather than refuses. The same as agentbox context-budget.">
+        <Field label={t('memory.context.budget')} htmlFor="context-budget" hint={t('memory.context.budgetHint')}>
           <Input
             id="context-budget"
             type="number"
@@ -1514,11 +1547,11 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
           />
         </Field>
         <Button size="sm" disabled={!dirty || !Number(budgetValue) || save.isPending} onClick={() => save.mutate(Number(budgetValue))}>
-          {save.isPending ? 'Saving…' : 'Save'}
+          {save.isPending ? t('common.saving') : t('common.save')}
         </Button>
         {dirty && (
           <Button variant="ghost" size="sm" disabled={save.isPending} onClick={() => setDraft(null)}>
-            Revert
+            {t('memory.revert')}
           </Button>
         )}
         {save.error && <Notice className="w-full">{errorMessage(save.error)}</Notice>}
@@ -1532,6 +1565,7 @@ function ContextCostCard({ project, current }: { project: string; current?: T.Pr
 // in chat/Composer.tsx); a build over budget is clamped by the builder rather
 // than refused, so this can still read past 100%.
 function TokenMeter({ tokens, budget }: { tokens: number; budget: number }) {
+  const t = useT();
   if (!budget) return null;
   const fraction = tokens / budget;
   const over = fraction > 1;
@@ -1544,13 +1578,18 @@ function TokenMeter({ tokens, budget }: { tokens: number; budget: number }) {
         />
       </div>
       <p className="text-[11px] text-subtle">
-        {formatTokens(tokens)} of a {formatTokens(budget)}-token budget{over ? ' — over, and clamped' : ''}
+        {t(over ? 'memory.context.meterOver' : 'memory.context.meter', { tokens: formatTokens(tokens), budget: formatTokens(budget) })}
       </p>
     </div>
   );
 }
 
 // --- Consolidation ------------------------------------------------------------
+
+const passKindLabel: Record<string, MessageKey> = {
+  [A.ConsolidationMechanical]: 'memory.context.pass.mechanical',
+  [A.ConsolidationDistill]: 'memory.context.pass.distill',
+};
 
 const passKindVariant: Record<string, BadgeVariant> = {
   [A.ConsolidationMechanical]: 'default',
@@ -1563,43 +1602,42 @@ const passKindVariant: Record<string, BadgeVariant> = {
 // two apart and see that either is actually running; GET /consolidation
 // already bounds it to the last ten passes, so there's nothing here to page.
 function ConsolidationPassesCard({ project }: { project: string }) {
+  const t = useT();
   const consolidation = useQuery({ queryKey: ['memoryConsolidation', project], queryFn: () => api.memoryConsolidation(project) });
   const data = consolidation.data;
   const passes = data?.recent ?? [];
 
   return (
     <Card
-      title="Consolidation"
+      title={t('memory.context.consolidation.title')}
       icon={GitMerge}
-      description="What turns raw events into judgement: a free mechanical pass that merges exact duplicates and ages what nothing has referenced, and a distillation that spends the project's chat on the events since the last one."
+      description={t('memory.context.consolidation.description')}
     >
       {consolidation.error && <Notice>{errorMessage(consolidation.error)}</Notice>}
-      {consolidation.isPending && <p className="text-[13px] text-subtle">Loading…</p>}
+      {consolidation.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
 
       {data && (
         <div className="grid gap-3">
           <p className="text-[12.5px] leading-relaxed text-muted">
-            {data.events} event{data.events === 1 ? '' : 's'} recorded, {data.memories} live memor{data.memories === 1 ? 'y' : 'ies'}
-            {data.pending > 0 ? `, ${data.pending} pending since the watermark` : ''} ·{' '}
-            {data.setting > 0 ? `distills every ${data.setting} new events` : 'distillation is switched off for this project'}
+            {t('memory.context.consolidation.summary', { events: data.events, memories: data.memories, pending: data.pending, setting: data.setting })}
           </p>
 
           {passes.length === 0 ? (
-            <p className="text-[13px] text-subtle">No pass has run yet.</p>
+            <p className="text-[13px] text-subtle">{t('memory.context.consolidation.none')}</p>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-line-faint">
               <table className="w-full text-[12px]">
                 <thead>
                   <tr className="border-b border-line text-left text-[10.5px] uppercase tracking-[0.06em] text-subtle">
-                    <th className="py-1.5 pl-3 pr-2 font-medium">Pass</th>
-                    <th className="px-2 py-1.5 font-medium">When</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Read</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Written</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Superseded</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Resolved</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Decayed</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Duplicates</th>
-                    <th className="py-1.5 pl-2 pr-3 text-right font-medium">Cost</th>
+                    <th className="py-1.5 pl-3 pr-2 font-medium">{t('memory.context.col.pass')}</th>
+                    <th className="px-2 py-1.5 font-medium">{t('memory.context.col.when')}</th>
+                    <th className="px-2 py-1.5 text-right font-medium">{t('memory.context.col.read')}</th>
+                    <th className="px-2 py-1.5 text-right font-medium">{t('memory.context.col.written')}</th>
+                    <th className="px-2 py-1.5 text-right font-medium">{t('memory.context.col.superseded')}</th>
+                    <th className="px-2 py-1.5 text-right font-medium">{t('memory.context.col.resolved')}</th>
+                    <th className="px-2 py-1.5 text-right font-medium">{t('memory.context.col.decayed')}</th>
+                    <th className="px-2 py-1.5 text-right font-medium">{t('memory.context.col.duplicates')}</th>
+                    <th className="py-1.5 pl-2 pr-3 text-right font-medium">{t('memory.context.col.cost')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1617,10 +1655,11 @@ function ConsolidationPassesCard({ project }: { project: string }) {
 }
 
 function PassRow({ pass }: { pass: T.ConsolidationPass }) {
+  const t = useT();
   return (
     <tr className="border-t border-line-faint first:border-t-0" data-pass={pass.id} data-pass-kind={pass.kind}>
       <td className="py-1.5 pl-3 pr-2 align-top">
-        <Badge variant={passKindVariant[pass.kind] ?? 'default'}>{pass.kind}</Badge>
+        <Badge variant={passKindVariant[pass.kind] ?? 'default'}>{passKindLabel[pass.kind] ? t(passKindLabel[pass.kind]) : pass.kind}</Badge>
         {pass.error && <div className="mt-1 max-w-[13rem] text-[10.5px] leading-snug text-rose-300">{pass.error}</div>}
       </td>
       <td className="px-2 py-1.5 align-top whitespace-nowrap text-muted">{timeAgo(pass.at)}</td>
@@ -1632,15 +1671,15 @@ function PassRow({ pass }: { pass: T.ConsolidationPass }) {
       <td className="px-2 py-1.5 text-right align-top tabular-nums text-tertiary">{pass.duplicatesFound}</td>
       <td className="py-1.5 pl-2 pr-3 text-right align-top tabular-nums whitespace-nowrap text-muted">
         {pass.kind === A.ConsolidationMechanical ? (
-          <span className="text-faint">free</span>
+          <span className="text-faint">{t('memory.context.pass.free')}</span>
         ) : (
           <>
             {humanBytes(pass.inputBytes)} → {humanBytes(pass.outputBytes)}
             <div className="text-[10.5px] text-faint">
-              {pass.durationMs >= 1000 ? `${(pass.durationMs / 1000).toFixed(1)}s` : `${pass.durationMs}ms`}
+              {pass.durationMs >= 1000 ? `${formatNumber(pass.durationMs / 1000, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}s` : `${pass.durationMs}ms`}
               {/* Which model actually read the events (D78): a pass that isn't on the project's
                   consolidation model is one that fell back to the chat's own session. */}
-              {pass.model ? ` · ${pass.model}` : ' · the chat\u2019s model'}
+              {pass.model ? ` · ${pass.model}` : ` · ${t('memory.context.pass.chatModel')}`}
             </div>
           </>
         )}
@@ -1664,6 +1703,7 @@ function PassRow({ pass }: { pass: T.ConsolidationPass }) {
 // action here is supersede; a pair that genuinely isn't a duplicate stays
 // listed until a later pass's own comparison drops it or the score changes.
 function DuplicatePairsCard({ project }: { project: string }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const duplicates = useQuery({ queryKey: ['memoryDuplicates', project], queryFn: () => api.memoryDuplicates(project) });
   const pairs = duplicates.data ?? [];
@@ -1676,13 +1716,13 @@ function DuplicatePairsCard({ project }: { project: string }) {
 
   return (
     <Card
-      title="Duplicate pairs"
+      title={t('memory.context.dup.title')}
       icon={GitCompare}
-      description="What the free mechanical pass finds close enough in title to be the same memory, and leaves for a person to decide — merging two memories is a judgement, not a score."
+      description={t('memory.context.dup.description')}
     >
       {duplicates.error && <Notice>{errorMessage(duplicates.error)}</Notice>}
-      {duplicates.isPending && <p className="text-[13px] text-subtle">Loading…</p>}
-      {!duplicates.isPending && pairs.length === 0 && <p className="text-[13px] text-subtle">No candidates from the last mechanical pass.</p>}
+      {duplicates.isPending && <p className="text-[13px] text-subtle">{t('common.loading')}</p>}
+      {!duplicates.isPending && pairs.length === 0 && <p className="text-[13px] text-subtle">{t('memory.context.dup.none')}</p>}
 
       <div className="grid gap-3">
         {pairs.map((pair) => (
@@ -1708,12 +1748,13 @@ function DuplicatePairsCard({ project }: { project: string }) {
 }
 
 function DuplicatePairRow({ pair, onChoose }: { pair: T.MemoryDuplicate; onChoose: (keep: T.Memory, replace: T.Memory) => void }) {
+  const t = useT();
   return (
     <div className="panel rounded-2xl px-4 py-3" data-duplicate={`${pair.memory.id}-${pair.of.id}`}>
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-subtle">
-        <Badge variant={kindVariant[pair.memory.kind] ?? 'default'}>{kindLabel[pair.memory.kind] ?? pair.memory.kind}</Badge>
-        <span>{Math.round(pair.similarity * 100)}% alike in title</span>
-        <span className="ml-auto">found {timeAgo(pair.foundAt)}</span>
+        <Badge variant={kindVariant[pair.memory.kind] ?? 'default'}>{kindLabel[pair.memory.kind] ? t(kindLabel[pair.memory.kind]) : pair.memory.kind}</Badge>
+        <span>{t('memory.context.dup.alike', { percent: Math.round(pair.similarity * 100) })}</span>
+        <span className="ml-auto">{t('memory.context.dup.found', { when: timeAgo(pair.foundAt) })}</span>
       </div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
         <DuplicateSide memory={pair.memory} onKeep={() => onChoose(pair.memory, pair.of)} />
@@ -1724,6 +1765,7 @@ function DuplicatePairRow({ pair, onChoose }: { pair: T.MemoryDuplicate; onChoos
 }
 
 function DuplicateSide({ memory, onKeep }: { memory: T.Memory; onKeep: () => void }) {
+  const t = useT();
   return (
     <div className="grid gap-2 rounded-xl border border-line-faint bg-surface-faint p-3">
       <h4 className="text-[13px] font-medium text-primary">{memory.title}</h4>
@@ -1731,7 +1773,7 @@ function DuplicateSide({ memory, onKeep }: { memory: T.Memory; onKeep: () => voi
       <div className="flex items-center justify-between gap-2 text-[11px] text-subtle">
         <span>{timeAgo(memory.createdAt)}</span>
         <Button size="sm" variant="ghost" onClick={onKeep}>
-          Keep this, supersede the other
+          {t('memory.context.dup.keep')}
         </Button>
       </div>
     </div>
@@ -1746,6 +1788,7 @@ function DuplicateSide({ memory, onKeep }: { memory: T.Memory; onKeep: () => voi
 // (For: "tool"), so what it shows is real — including that it adds itself to
 // the build accounting above.
 function ContextPreviewCard({ project, budget }: { project: string; budget?: number }) {
+  const t = useT();
   const [query, setQuery] = useState('');
   const preview = useMutation({
     mutationFn: (q: string) => api.memoryContext(project, { query: q, for: A.ContextForTool } satisfies T.ContextRequest),
@@ -1755,9 +1798,9 @@ function ContextPreviewCard({ project, budget }: { project: string; budget?: num
 
   return (
     <Card
-      title="Preview a context"
+      title={t('memory.context.preview.title')}
       icon={FlaskConical}
-      description="What an agent would actually be told for a query, built the same way the lead's recap and every worker's brief are — without starting one."
+      description={t('memory.context.preview.description')}
     >
       <form
         className="flex gap-2"
@@ -1767,18 +1810,18 @@ function ContextPreviewCard({ project, budget }: { project: string; budget?: num
         }}
       >
         <Input
-          aria-label="Preview query"
+          aria-label={t('memory.context.preview.label')}
           className="flex-1"
-          placeholder="A task, a file, an error — empty asks for what the project says it's doing right now"
+          placeholder={t('memory.context.preview.placeholder')}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
         <Button type="submit" disabled={preview.isPending}>
-          {preview.isPending ? 'Building…' : 'Preview'}
+          {preview.isPending ? t('memory.context.preview.building') : t('memory.context.preview.preview')}
           <FlaskConical />
         </Button>
       </form>
-      {budget !== undefined && <p className="mt-2 text-[11.5px] text-subtle">Built against the current budget, {formatTokens(budget)} tokens.</p>}
+      {budget !== undefined && <p className="mt-2 text-[11.5px] text-subtle">{t('memory.context.preview.budget', { tokens: formatTokens(budget) })}</p>}
 
       {preview.error && <Notice className="mt-3">{errorMessage(preview.error)}</Notice>}
 
@@ -1786,22 +1829,25 @@ function ContextPreviewCard({ project, budget }: { project: string; budget?: num
         <div className="mt-4 grid gap-3">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
             <span>
-              <span className="text-primary">{formatTokens(preview.data.stats.tokens)}</span> of {formatTokens(preview.data.stats.budget)} tokens
+              {t.rich('memory.context.preview.tokens', {
+                used: <span className="text-primary">{formatTokens(preview.data.stats.tokens)}</span>,
+                budget: formatTokens(preview.data.stats.budget),
+              })}
             </span>
             <span>
-              {preview.data.stats.rows} of {preview.data.stats.consideredRows} rows kept ({preview.data.stats.droppedRows} dropped)
+              {t('memory.context.preview.rows', { rows: preview.data.stats.rows, considered: preview.data.stats.consideredRows, dropped: preview.data.stats.droppedRows })}
             </span>
-            <span>ratio {preview.data.stats.ratio.toFixed(2)}</span>
+            <span>{t('memory.context.preview.ratio', { ratio: formatNumber(preview.data.stats.ratio, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })}</span>
           </div>
           {preview.data.stats.truncated && (
-            <Notice tone="warning">Even what a build never drops overflowed the budget, so the text below is cut on a word boundary.</Notice>
+            <Notice tone="warning">{t('memory.context.preview.truncated')}</Notice>
           )}
-          {droppedSections.length > 0 && <p className="text-[11.5px] text-subtle">Given up to fit: {droppedSections.join(', ')}</p>}
+          {droppedSections.length > 0 && <p className="text-[11.5px] text-subtle">{t('memory.context.preview.dropped', { list: droppedSections.join(', ') })}</p>}
           {sections.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {sections.map((section) => (
                 <Badge key={section.kind}>
-                  {section.title} · {section.rows} row{section.rows === 1 ? '' : 's'} · {formatTokens(section.tokens)}
+                  {section.title} · {t('memory.context.preview.sectionRows', { count: section.rows })} · {formatTokens(section.tokens)}
                 </Badge>
               ))}
             </div>

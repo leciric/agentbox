@@ -7,6 +7,7 @@ import { ChevronRight, LoaderCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { ErrorReporter, errorReport, fromEvent, type UncaughtError } from '../lib/errorReports';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
@@ -60,6 +61,7 @@ export function ErrorReports() {
 // ErrorReportOffer asks, once, whether to send error reports from now on,
 // with the report this error would send to look at.
 export function ErrorReportOffer({ error, onClose }: { error: UncaughtError | null; onClose: () => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [shown, setShown] = useState(false);
   const [pending, setPending] = useState<'yes' | 'no' | null>(null);
@@ -86,12 +88,8 @@ export function ErrorReportOffer({ error, onClose }: { error: UncaughtError | nu
     <Dialog open={error !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent data-error-report-offer>
         <DialogHeader>
-          <DialogTitle>AgentBox ran into an error</DialogTitle>
-          <DialogDescription>
-            Send reports of errors like this to AgentBox’s developers automatically? Each has the error, where in the app it happened,
-            and the app’s version and OS, with tokens, emails and home folders taken out. No logs, and nothing you typed. You can change
-            this in Settings, General.
-          </DialogDescription>
+          <DialogTitle>{t('defaults.errorReports.title')}</DialogTitle>
+          <DialogDescription>{t('defaults.errorReports.description')}</DialogDescription>
         </DialogHeader>
         <div className="min-w-0 rounded-lg border border-line">
           <button
@@ -115,11 +113,11 @@ export function ErrorReportOffer({ error, onClose }: { error: UncaughtError | nu
         <DialogFooter>
           <Button variant="ghost" disabled={pending !== null} onClick={() => void choose(false)}>
             {pending === 'no' && <LoaderCircle className="animate-spin" />}
-            Don’t send
+            {t('defaults.errorReports.dontSend')}
           </Button>
           <Button variant="primary" disabled={pending !== null} onClick={() => void choose(true)}>
             {pending === 'yes' && <LoaderCircle className="animate-spin" />}
-            Send this one and future ones
+            {t('defaults.errorReports.sendAll')}
           </Button>
         </DialogFooter>
       </DialogContent>

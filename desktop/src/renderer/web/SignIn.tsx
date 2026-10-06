@@ -6,9 +6,11 @@ import { Logo } from '../components/Sidebar';
 import { Button } from '../components/ui/button';
 import { Notice } from '../components/ui/card';
 import { Field, Input } from '../components/ui/input';
+import { useT } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 
 export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boolean; onReady: () => void }) {
+  const t = useT();
   const [signedIn, setSignedIn] = useState(initiallySignedIn);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -67,28 +69,28 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
             }}
           >
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-title">Sign in</h1>
-              <p className="mt-1 text-[13px] text-muted">Your agents, on every machine connected to this hub.</p>
+              <h1 className="text-xl font-semibold tracking-tight text-title">{t('web.signIn.title')}</h1>
+              <p className="mt-1 text-[13px] text-muted">{t('web.signIn.subtitle')}</p>
             </div>
-            <Field label="Email" htmlFor="web-email">
+            <Field label={t('web.signIn.email')} htmlFor="web-email">
               <Input id="web-email" type="email" autoComplete="username" autoFocus value={email} onChange={(event) => setEmail(event.target.value)} />
             </Field>
-            <Field label="Password" htmlFor="web-password">
+            <Field label={t('web.signIn.password')} htmlFor="web-password">
               <Input id="web-password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
             </Field>
             {error && <Notice>{error}</Notice>}
             <Button type="submit" variant="primary" disabled={!email.trim() || !password || busy}>
               {busy && <LoaderCircle className="animate-spin" />}
-              Sign in
+              {t('web.signIn.title')}
             </Button>
           </form>
         ) : (
           <div className="grid gap-3">
-            <h1 className="text-xl font-semibold tracking-tight text-title">Environments</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-title">{t('web.signIn.environments')}</h1>
             {error && <Notice>{error}</Notice>}
-            {!environments && !error && <div className="text-[13px] text-subtle">Loading…</div>}
+            {!environments && !error && <div className="text-[13px] text-subtle">{t('common.loading')}</div>}
             {environments?.length === 0 && (
-              <Notice tone="info">No environments yet. Add one from the desktop app or with agentbox env add, then connect its machine.</Notice>
+              <Notice tone="info">{t.rich('web.signIn.noEnvironments', { code: (c) => <code className="font-mono">{c}</code> })}</Notice>
             )}
             {environments?.map((env) => (
               <button
@@ -104,7 +106,7 @@ export function SignIn({ signedIn: initiallySignedIn, onReady }: { signedIn: boo
                   <span className="block font-medium text-primary">{env.name}</span>
                   <span className="flex items-center gap-1.5 text-[12px] text-subtle">
                     <span className={cn('size-1.5 rounded-full', env.online ? 'bg-emerald-400' : 'bg-faint')} />
-                    {env.online ? `online${env.hostname ? ` · ${env.hostname}` : ''}` : 'offline'}
+                    {env.online ? (env.hostname ? t('web.signIn.onlineHost', { hostname: env.hostname }) : t('web.signIn.online')) : t('web.signIn.offline')}
                   </span>
                 </span>
                 <ArrowRight className="size-4 text-faint transition group-hover:translate-x-0.5 group-hover:text-tertiary" />

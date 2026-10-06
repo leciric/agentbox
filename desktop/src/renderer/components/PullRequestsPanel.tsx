@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, GitBranch, GitMerge, GitPullRequest, LoaderCircle, MessageSquare, User } from 'lucide-react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useT, type MessageKey } from '../lib/i18n';
 import { errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FilterChip } from './MediaTab';
@@ -15,7 +16,17 @@ import { Select, SelectOption } from './ui/select';
 
 type Filter = 'open' | 'closed' | 'all';
 
-const methodLabels: Record<string, string> = { merge: 'Merge commit', squash: 'Squash and merge', rebase: 'Rebase and merge' };
+const methodLabels: Record<string, MessageKey> = {
+  merge: 'memory.pulls.method.merge',
+  squash: 'memory.pulls.method.squash',
+  rebase: 'memory.pulls.method.rebase',
+};
+const stateLabels: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
+const checksLabels: Record<string, MessageKey> = {
+  passing: 'memory.pulls.checks.passing',
+  failing: 'memory.pulls.checks.failing',
+  pending: 'memory.pulls.checks.pending',
+};
 const allMethods = ['merge', 'squash', 'rebase'];
 
 // PullRequestsPanel lists a project repository's pull requests — every one
@@ -33,6 +44,7 @@ export function PullRequestsPanel({
   onSelect: (view: View) => void;
   onOpenAccount: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   // The daemon answers from its cache and re-reads GitHub behind the answer,
   // announcing what moved on the event stream, so this polls as a backstop
@@ -56,7 +68,7 @@ export function PullRequestsPanel({
       setFailed((f) => without(f, number));
     },
     onSuccess: async (pr) => {
-      toast(`Merged #${pr.number}`, { description: pr.title });
+      toast(t('memory.pulls.merged', { number: pr.number }), { description: pr.title });
       // The daemon answers with the list it had, this pull request marked
       // merged, and re-reads GitHub behind it; the list on screen stays
       // until that answer replaces it. The spinner lasts until then too, so
@@ -77,7 +89,7 @@ export function PullRequestsPanel({
 
   const data = pulls.data;
   if (!data) {
-    return <div className="p-6 text-sm text-subtle">{pulls.error ? 'Pull requests are unavailable.' : 'Loading…'}</div>;
+    return <div className="p-6 text-sm text-subtle">{pulls.error ? t('memory.pulls.unavailable') : t('common.loading')}</div>;
   }
 
   // Nothing to read, and the two reasons are different problems with
@@ -88,17 +100,16 @@ export function PullRequestsPanel({
     return (
       <div className="panel rounded-2xl">
         {data.noOrigin ? (
-          <EmptyState icon={GitPullRequest} title="This project has no origin remote">
-            Its checkout doesn’t push anywhere yet. Give it a GitHub <Code>origin</Code>, and AgentBox will read this repository’s pull requests.
+          <EmptyState icon={GitPullRequest} title={t('memory.pulls.noOrigin.title')}>
+            {t.rich('memory.pulls.noOrigin.body', { code: (c) => <Code>{c}</Code> })}
           </EmptyState>
         ) : data.nonGitHubRemote ? (
-          <EmptyState icon={GitPullRequest} title="This project’s origin isn’t on GitHub">
-            Its <Code>origin</Code> is <Code>{data.nonGitHubRemote}</Code>, which doesn’t resolve to a repository on github.com. Everything else about the project works;
-            pull requests are GitHub’s.
+          <EmptyState icon={GitPullRequest} title={t('memory.pulls.nonGitHub.title')}>
+            {t.rich('memory.pulls.nonGitHub.body', { code: (c) => <Code>{c}</Code>, remote: <Code>{data.nonGitHubRemote}</Code> })}
           </EmptyState>
         ) : (
-          <EmptyState icon={GitPullRequest} title="Not connected to GitHub">
-            AgentBox found no GitHub repository for this project, so there are no pull requests to read.
+          <EmptyState icon={GitPullRequest} title={t('memory.pulls.notConnected.title')}>
+            {t('memory.pulls.notConnected.body')}
           </EmptyState>
         )}
       </div>
@@ -123,7 +134,7 @@ export function PullRequestsPanel({
           <span className="font-mono text-muted">{data.github}</span>
           {data.githubAccount && (
             <>
-              <span>as</span>
+              <span>{t('memory.pulls.as')}</span>
               <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onOpenAccount}>
                 {githubAccountLabel(data.githubAccount, login)}
               </button>
@@ -137,7 +148,7 @@ export function PullRequestsPanel({
         </Notice>
       )}
       {data.canMergeKnown && !data.canMerge && (
-        <Notice tone="info">This GitHub token can read {data.github}, but can't merge into it. Merging needs a token with write access.</Notice>
+        <Notice tone="info">{t('memory.pulls.cannotMerge', { repo: data.github ?? '' })}</Notice>
       )}
 
       {prs.length === 0 ? (
@@ -147,14 +158,14 @@ export function PullRequestsPanel({
         !data.githubError && (
           <div className="panel rounded-2xl">
             {data.fetchedAt ? (
-              <EmptyState icon={GitPullRequest} title="No pull requests">
-                {data.github} has none open, closed or merged yet.
+              <EmptyState icon={GitPullRequest} title={t('memory.pulls.none.title')}>
+                {t('memory.pulls.none.body', { repo: data.github ?? '' })}
               </EmptyState>
             ) : (
               // Nothing has been read yet: an empty list here isn't an empty
               // repository, it's a repository nobody has asked about.
-              <EmptyState icon={GitPullRequest} title="Reading pull requests">
-                Asking GitHub what {data.github} has. They appear as soon as it answers.
+              <EmptyState icon={GitPullRequest} title={t('memory.pulls.reading.title')}>
+                {t('memory.pulls.reading.body', { repo: data.github ?? '' })}
               </EmptyState>
             )}
           </div>
@@ -163,21 +174,21 @@ export function PullRequestsPanel({
         <>
           <div className="flex flex-wrap items-center gap-1" data-pulls-filters>
             <FilterChip active={filter === 'open'} count={open.length} onClick={() => setFilter('open')}>
-              Open
+              {t('memory.pulls.filter.open')}
             </FilterChip>
             <FilterChip active={filter === 'closed'} count={others.length} onClick={() => setFilter('closed')}>
-              Closed &amp; merged
+              {t('memory.pulls.filter.closed')}
             </FilterChip>
             <FilterChip active={filter === 'all'} count={prs.length} onClick={() => setFilter('all')}>
-              All
+              {t('memory.pulls.filter.all')}
             </FilterChip>
             <span className="ml-auto pr-1 text-[11.5px] text-faint" data-pulls-age>
-              {data.refreshing ? 'Reading GitHub…' : data.fetchedAt ? `Read ${timeAgo(data.fetchedAt)}` : ''}
+              {data.refreshing ? t('memory.pulls.refreshing') : data.fetchedAt ? t('memory.pulls.readAgo', { when: timeAgo(data.fetchedAt) }) : ''}
             </span>
           </div>
 
           {visible.length === 0 ? (
-            <p className="px-1 text-[13px] text-subtle">Nothing matches that filter.</p>
+            <p className="px-1 text-[13px] text-subtle">{t('memory.pulls.noMatch')}</p>
           ) : (
             <div className="flex flex-col gap-2">
               {visible.map((pr) => {
@@ -205,28 +216,31 @@ export function PullRequestsPanel({
       <ConfirmDialog
         open={merging !== null}
         onOpenChange={(open) => !open && setMerging(null)}
-        title={`Merge #${merging?.number}?`}
+        title={t('memory.pulls.confirm.title', { number: merging?.number ?? 0 })}
         description={
           merging && (
             <>
-              &ldquo;{merging.title}&rdquo; merges <span className="font-mono text-tertiary">{merging.headBranch}</span> into{' '}
-              <span className="font-mono text-tertiary">{merging.baseBranch}</span>.
-              {merging.checks === 'failing' && ' Its checks are failing.'}
-              {merging.checks === 'pending' && ' Its checks are still running.'}
+              {t.rich('memory.pulls.confirm.body', {
+                title: merging.title,
+                head: <span className="font-mono text-tertiary">{merging.headBranch}</span>,
+                base: <span className="font-mono text-tertiary">{merging.baseBranch}</span>,
+              })}
+              {merging.checks === 'failing' && ` ${t('memory.pulls.confirm.failing')}`}
+              {merging.checks === 'pending' && ` ${t('memory.pulls.confirm.pending')}`}
             </>
           )
         }
-        confirmLabel="Merge"
+        confirmLabel={t('memory.pulls.merge')}
         onConfirm={async () => {
           if (merging) merge.mutate({ number: merging.number, method });
         }}
       >
         <label className="grid gap-1.5 text-[13px] text-tertiary">
-          Merge method
+          {t('memory.pulls.method')}
           <Select value={method} onChange={setMethod}>
             {methods.map((m) => (
               <SelectOption key={m} value={m}>
-                {methodLabels[m] ?? m}
+                {methodLabels[m] ? t(methodLabels[m]) : m}
               </SelectOption>
             ))}
           </Select>
@@ -239,45 +253,21 @@ export function PullRequestsPanel({
 // GitHubErrorFix is what to do about it, in the same sentence: the two fixes
 // are somewhere in this app, so they are links rather than advice.
 function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubError; onOpenAccount: () => void; onOpenSetup: () => void }) {
-  const another = (
-    <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onOpenAccount}>
-      Pick another account for this project
+  const t = useT();
+  const link = (onClick: () => void) => (c: ReactNode) => (
+    <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onClick}>
+      {c}
     </button>
   );
-  const setup = (
-    <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onOpenSetup}>
-      add one in Settings
-    </button>
-  );
+  const another = link(onOpenAccount);
+  const setup = link(onOpenSetup);
   switch (err.kind) {
     case T.GitHubNoAccess:
-      return (
-        <>
-          {another}, or {setup}.
-        </>
-      );
+      return <>{t.rich('memory.pulls.fix.another', { another, setup })}</>;
     case T.GitHubNoAccount:
-      return err.account ? (
-        <>
-          {another}, or {setup}.
-        </>
-      ) : (
-        <>
-          <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onOpenSetup}>
-            Add one in Settings
-          </button>
-          .
-        </>
-      );
+      return err.account ? <>{t.rich('memory.pulls.fix.another', { another, setup })}</> : <>{t.rich('memory.pulls.fix.add', { setup })}</>;
     case T.GitHubBadToken:
-      return (
-        <>
-          <button type="button" className="font-medium text-brand-300 hover:underline" onClick={onOpenSetup}>
-            Save its token again in Settings
-          </button>
-          , or {another}.
-        </>
-      );
+      return <>{t.rich('memory.pulls.fix.badToken', { another, setup })}</>;
     default:
       return null;
   }
@@ -307,6 +297,7 @@ function PullRequestRow({
   onOpenAgent?: () => void;
   onMerge: () => void;
 }) {
+  const t = useT();
   return (
     <div className="panel rounded-2xl px-4 py-3.5" data-pull-request={pr.number}>
       <div className="flex flex-wrap items-start gap-3">
@@ -321,10 +312,18 @@ function PullRequestRow({
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          {pr.draft ? <Badge>draft</Badge> : <Badge variant={stateVariants[pr.state] ?? 'default'}>{pr.state}</Badge>}
-          {pr.checks && <Badge variant={checksVariants[pr.checks] ?? 'default'}>checks {pr.checks}</Badge>}
-          {pr.conflict && <Badge variant={checksVariants.failing}>conflicts</Badge>}
-          {pr.review === 'changes_requested' && <Badge variant={checksVariants.pending}>changes requested</Badge>}
+          {pr.draft ? (
+            <Badge>{t('memory.pulls.draft')}</Badge>
+          ) : (
+            <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>
+          )}
+          {pr.checks && (
+            <Badge variant={checksVariants[pr.checks] ?? 'default'}>
+              {t('memory.pulls.checks', { state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks })}
+            </Badge>
+          )}
+          {pr.conflict && <Badge variant={checksVariants.failing}>{t('memory.pulls.conflicts')}</Badge>}
+          {pr.review === 'changes_requested' && <Badge variant={checksVariants.pending}>{t('memory.pulls.changesRequested')}</Badge>}
         </div>
       </div>
       <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-muted">
@@ -348,24 +347,24 @@ function PullRequestRow({
         {(pr.comments ?? 0) > 0 && (
           <span className="flex items-center gap-1.5">
             <MessageSquare className="size-3.5" />
-            {pr.comments} comment{pr.comments === 1 ? '' : 's'}
+            {t('memory.pulls.comments', { count: pr.comments ?? 0 })}
           </span>
         )}
         {onOpenAgent && (
           <button type="button" onClick={onOpenAgent} className="font-medium text-brand-300 hover:underline">
-            {pr.agent}&apos;s agent
+            {t('memory.pulls.agentOf', { name: pr.agent ?? '' })}
           </button>
         )}
         <span className="ml-auto text-faint">{pr.updatedAt && timeAgo(pr.updatedAt)}</span>
         {canMerge && (
           <Button size="sm" variant="ghost" disabled={mergeRunning} onClick={onMerge} data-merge-running={mergeRunning || undefined}>
             {mergeRunning ? <LoaderCircle className="size-3.5 animate-spin" /> : <GitMerge className="size-3.5" />}
-            Merge
+            {t('memory.pulls.merge')}
           </Button>
         )}
       </div>
       {mergeError && (
-        <Notice className="mt-2.5">Merge failed: {mergeError}</Notice>
+        <Notice className="mt-2.5">{t('memory.pulls.mergeFailed', { error: mergeError })}</Notice>
       )}
     </div>
   );

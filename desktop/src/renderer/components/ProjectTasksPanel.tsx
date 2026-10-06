@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import {
   leadOwner,
   type TaskList,
@@ -56,6 +57,7 @@ export function ProjectTasksPanel({
   onSelect: (view: View) => void;
   onOpenChat: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const tasksQuery = useQuery({ queryKey: ['memoryTasks', project], queryFn: () => api.memoryTasks(project) });
   // Refetching every few seconds keeps the slot count and each task's queue
@@ -98,7 +100,7 @@ export function ProjectTasksPanel({
 
   // Only a task waiting for its agent moves in the queue: one waiting for the
   // lead keeps its place behind the agents queued before it.
-  const agentQueue = lanes.queue.filter((t) => !t.leadQueuedAt);
+  const agentQueue = lanes.queue.filter((q) => !q.leadQueuedAt);
   const row = (task: T.Task, index?: number) => {
     const agent = task.agent ? agentsByName.get(task.agent) : undefined;
     const moveIndex = agentQueue.indexOf(task);
@@ -134,13 +136,13 @@ export function ProjectTasksPanel({
       ) : (
         settings.data && (
           <p className="px-1 text-[12px] text-subtle">
-            Agent queue is off: a task's Start {target === 'lead' ? 'sends it to the lead' : 'makes its agent'} right away. Turn the queue on in Settings to queue tasks instead.
+            {t('memory.tasks.queueOff', { target: target === 'lead' ? 'lead' : 'agent' })}
           </p>
         )
       )}
       {settings.data && (
         <p className="-mt-3 px-1 text-[12px] text-subtle" data-task-target={target}>
-          Tasks go to {target === 'lead' ? "the project's lead, which can split one across several agents" : 'a new agent each'}, unless a task says otherwise. Change it in Settings.
+          {t('memory.tasks.goTo', { target: target === 'lead' ? 'lead' : 'agent' })}
         </p>
       )}
 
@@ -152,9 +154,9 @@ export function ProjectTasksPanel({
         }}
       >
         <Textarea
-          aria-label="New task"
+          aria-label={t('memory.tasks.new')}
           className="min-h-20"
-          placeholder="What needs doing? The first line is the goal; anything after it is the brief."
+          placeholder={t('memory.tasks.placeholder')}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
         />
@@ -162,7 +164,7 @@ export function ProjectTasksPanel({
           {addTask.error && <Notice className="mr-auto">{errorMessage(addTask.error)}</Notice>}
           <Button type="submit" variant="primary" size="sm" disabled={!prompt.split('\n')[0].trim() || addTask.isPending}>
             {addTask.isPending ? <LoaderCircle className="animate-spin" /> : <Plus />}
-            Add to backlog
+            {t('memory.tasks.addToBacklog')}
           </Button>
         </div>
       </form>
@@ -170,47 +172,47 @@ export function ProjectTasksPanel({
       {tasksQuery.error && <Notice>{errorMessage(tasksQuery.error)}</Notice>}
       {!tasksQuery.isPending && total === 0 && (
         <Panel className="rounded-2xl">
-          <EmptyState icon={ListTodo} title="No tasks yet">
-            This list is yours: write the next thing to do above. Nothing adds tasks here on its own.
+          <EmptyState icon={ListTodo} title={t('memory.tasks.empty.title')}>
+            {t('memory.tasks.empty.body')}
           </EmptyState>
         </Panel>
       )}
 
       {total > 0 && <ListChoice list={list} counts={counts} onChange={setList} />}
 
-      {list === 'open' && total > 0 && counts.open === 0 && <p className="px-1 text-[12px] text-faint">Nothing left to do. Write the next task above.</p>}
+      {list === 'open' && total > 0 && counts.open === 0 && <p className="px-1 text-[12px] text-faint">{t('memory.tasks.nothingLeft')}</p>}
       {list === 'open' && queueOn && (lanes.queue.length > 0 || total > 0) && (
-        <Lane title="Queue" count={lanes.queue.length} hint="Starts in this order as slots free up.">
-          {lanes.queue.length === 0 ? <p className="px-1 text-[12px] text-faint">Nothing queued. Move a backlog task to the queue to hand it to an agent.</p> : lanes.queue.map((t, i) => row(t, i))}
+        <Lane id="queue" title={t('memory.tasks.lane.queue')} count={lanes.queue.length} hint={t('memory.tasks.lane.queueHint')}>
+          {lanes.queue.length === 0 ? <p className="px-1 text-[12px] text-faint">{t('memory.tasks.lane.queueEmpty')}</p> : lanes.queue.map((q, i) => row(q, i))}
         </Lane>
       )}
       {list === 'open' && !queueOn && lanes.queue.length > 0 && (
-        <Lane title="Queue" count={lanes.queue.length} hint="Left from when the agent queue was on: these start at once.">
-          {lanes.queue.map((t, i) => row(t, i))}
+        <Lane id="queue" title={t('memory.tasks.lane.queue')} count={lanes.queue.length} hint={t('memory.tasks.lane.queueStale')}>
+          {lanes.queue.map((q, i) => row(q, i))}
         </Lane>
       )}
       {list === 'open' && lanes.running.length > 0 && (
-        <Lane title="In progress" count={lanes.running.length}>
-          {lanes.running.map((t) => row(t))}
+        <Lane id="in progress" title={t('memory.tasks.lane.running')} count={lanes.running.length}>
+          {lanes.running.map((q) => row(q))}
         </Lane>
       )}
       {list === 'open' && lanes.backlog.length > 0 && (
-        <Lane title="Backlog" count={lanes.backlog.length}>
-          {lanes.backlog.map((t) => row(t))}
+        <Lane id="backlog" title={t('memory.tasks.lane.backlog')} count={lanes.backlog.length}>
+          {lanes.backlog.map((q) => row(q))}
         </Lane>
       )}
       {list === 'done' && total > 0 && (
         <section className="grid gap-2" data-task-lane="done">
           {lanes.done.length === 0 ? (
-            <p className="px-1 text-[12px] text-faint">Nothing done yet. Mark a task done from its row, or it moves here when its agent's pull request merges.</p>
+            <p className="px-1 text-[12px] text-faint">{t('memory.tasks.doneEmpty')}</p>
           ) : (
-            lanes.done.map((t) => (
+            lanes.done.map((d) => (
               <DoneRow
-                key={t.id}
-                task={t}
+                key={d.id}
+                task={d}
                 busy={act.isPending}
-                onReopen={() => act.mutate(() => actions.reopen(t))}
-                onDelete={() => act.mutate(() => actions.remove(t))}
+                onReopen={() => act.mutate(() => actions.reopen(d))}
+                onDelete={() => act.mutate(() => actions.remove(d))}
               />
             ))
           )}
@@ -222,8 +224,9 @@ export function ProjectTasksPanel({
 
 // ListChoice is the tab's Open | Done switch, each with its count.
 function ListChoice({ list, counts, onChange }: { list: TaskList; counts: Record<TaskList, number>; onChange: (list: TaskList) => void }) {
+  const t = useT();
   return (
-    <div role="tablist" aria-label="Tasks" className="inline-flex justify-self-start rounded-lg border border-line bg-surface-faint p-0.5">
+    <div role="tablist" aria-label={t('memory.tasks.title')} className="inline-flex justify-self-start rounded-lg border border-line bg-surface-faint p-0.5">
       {(['open', 'done'] as const).map((option) => (
         <button
           key={option}
@@ -236,7 +239,7 @@ function ListChoice({ list, counts, onChange }: { list: TaskList; counts: Record
             list === option ? 'bg-surface-strong text-primary shadow-sm' : 'text-subtle hover:text-secondary',
           )}
         >
-          {option === 'open' ? 'Open' : 'Done'}
+          {option === 'open' ? t('common.open') : t('common.done')}
           <span className="text-[11.5px] font-normal text-faint tabular-nums">{counts[option]}</span>
         </button>
       ))}
@@ -248,6 +251,7 @@ function ListChoice({ list, counts, onChange }: { list: TaskList; counts: Record
 // implemented by a merged pull request, or abandoned — and when, with Reopen
 // to put it back in the backlog.
 function DoneRow({ task, busy, onReopen, onDelete }: { task: T.Task; busy: boolean; onReopen: () => void; onDelete: () => void }) {
+  const t = useT();
   const outcome = taskOutcome(task);
   const [confirmDelete, setConfirmDelete] = useState(false);
   return (
@@ -259,17 +263,17 @@ function DoneRow({ task, busy, onReopen, onDelete }: { task: T.Task; busy: boole
           {outcome.kind === 'implemented' ? (
             <>
               <GitMerge className="size-3 text-brand-300" />
-              <span className="text-tertiary">Implemented in</span>
+              <span className="text-tertiary">{t('memory.tasks.implementedIn')}</span>
               <a href={outcome.url} target="_blank" rel="noreferrer" className="text-tertiary underline underline-offset-2 hover:text-primary">
                 #{outcome.number}
               </a>
             </>
           ) : outcome.kind === 'abandoned' ? (
-            <span className="text-tertiary">Abandoned</span>
+            <span className="text-tertiary">{t('memory.tasks.abandoned')}</span>
           ) : (
             <>
               <Check className="size-3" />
-              <span className="text-tertiary">Done by hand</span>
+              <span className="text-tertiary">{t('memory.tasks.doneByHand')}</span>
             </>
           )}
           <span>· {timeAgo(task.closedAt ?? task.updatedAt)}</span>
@@ -278,19 +282,19 @@ function DoneRow({ task, busy, onReopen, onDelete }: { task: T.Task; busy: boole
       <div className="flex shrink-0 items-center gap-1.5">
         <Button size="sm" variant="ghost" disabled={busy} onClick={onReopen}>
           <RotateCcw />
-          Reopen
+          {t('memory.tasks.reopen')}
         </Button>
         {confirmDelete ? (
           <>
             <Button size="sm" variant="danger" disabled={busy} onClick={onDelete}>
-              Delete
+              {t('common.delete')}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Keep
+              {t('memory.tasks.keep')}
             </Button>
           </>
         ) : (
-          <Button size="icon-sm" variant="ghost" aria-label={`Delete “${task.goal}”`} disabled={busy} onClick={() => setConfirmDelete(true)}>
+          <Button size="icon-sm" variant="ghost" aria-label={t('memory.tasks.deleteTask', { goal: task.goal })} disabled={busy} onClick={() => setConfirmDelete(true)}>
             <Trash2 />
           </Button>
         )}
@@ -299,9 +303,9 @@ function DoneRow({ task, busy, onReopen, onDelete }: { task: T.Task; busy: boole
   );
 }
 
-function Lane({ title, count, hint, children }: { title: string; count: number; hint?: string; children: ReactNode }) {
+function Lane({ id, title, count, hint, children }: { id: string; title: string; count: number; hint?: string; children: ReactNode }) {
   return (
-    <section className="grid gap-2" data-task-lane={title.toLowerCase()}>
+    <section className="grid gap-2" data-task-lane={id}>
       <div className="flex items-baseline gap-2 px-1">
         <h3 className="text-[12.5px] font-semibold text-secondary">{title}</h3>
         <span className="text-[11.5px] text-faint">{count}</span>
@@ -317,20 +321,23 @@ function Lane({ title, count, hint, children }: { title: string; count: number; 
 // one is estimated to cost, learned from this project's own agents once it
 // has run any, else the installation's memory limit.
 function SlotsStrip({ slots, loading }: { slots: T.ProjectSlots | undefined; loading: boolean }) {
+  const t = useT();
   if (!slots) {
-    return <p className="px-1 text-[12px] text-subtle">{loading ? 'Loading the queue…' : ''}</p>;
+    return <p className="px-1 text-[12px] text-subtle">{loading ? t('memory.tasks.loadingQueue') : ''}</p>;
   }
   const auto = slots.pinned === 0;
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[12.5px] text-secondary">
       <span className="font-medium text-primary">
-        {slots.running} of {slots.slots} slot{slots.slots === 1 ? '' : 's'} in use
+        {t('memory.tasks.slotsInUse', { running: slots.running, count: slots.slots })}
       </span>
       <span className="text-subtle">·</span>
-      <span>{slots.queued} queued</span>
+      <span>{t('memory.tasks.queuedCount', { count: slots.queued })}</span>
       <span className="text-subtle">·</span>
       <span className="text-subtle">
-        {auto ? `auto, ~${humanBytes(slots.peak)} per agent${slots.peakLearned ? '' : ' (from the memory limit)'}` : `fixed at ${slots.slots}`}
+        {auto
+          ? t(slots.peakLearned ? 'memory.tasks.autoLearned' : 'memory.tasks.autoLimit', { size: humanBytes(slots.peak) })
+          : t('memory.tasks.fixed', { count: slots.slots })}
       </span>
     </div>
   );
@@ -339,8 +346,9 @@ function SlotsStrip({ slots, loading }: { slots: T.ProjectSlots | undefined; loa
 // LaneChoice is a task's Backlog | Queue switch: two buttons, the current one
 // pressed.
 function LaneChoice({ lane, disabled, onChange, goal }: { lane: 'backlog' | 'queue'; disabled: boolean; onChange: (lane: 'backlog' | 'queue') => void; goal: string }) {
+  const t = useT();
   return (
-    <div role="radiogroup" aria-label={`Where “${goal}” waits`} className="inline-flex rounded-lg border border-line bg-surface-faint p-0.5">
+    <div role="radiogroup" aria-label={t('memory.tasks.waits', { goal })} className="inline-flex rounded-lg border border-line bg-surface-faint p-0.5">
       {(['backlog', 'queue'] as const).map((option) => (
         <button
           key={option}
@@ -354,7 +362,7 @@ function LaneChoice({ lane, disabled, onChange, goal }: { lane: 'backlog' | 'que
             lane === option ? 'bg-surface-strong text-primary shadow-sm' : 'text-subtle hover:text-secondary',
           )}
         >
-          {option === 'backlog' ? 'Backlog' : 'Queue'}
+          {option === 'backlog' ? t('memory.tasks.lane.backlog') : t('memory.tasks.lane.queue')}
         </button>
       ))}
     </div>
@@ -379,18 +387,19 @@ function RouteChoice({
   disabled: boolean;
   onChange: (route: '' | TaskTarget) => void;
 }) {
+  const t = useT();
   const value = route === 'agent' || route === 'lead' ? route : '';
   return (
     <Select
-      aria-label={`Where “${goal}” goes`}
+      aria-label={t('memory.tasks.goes', { goal })}
       data-task-route={value || 'follow'}
       data-task-target={target}
       className="h-8 w-auto text-[12px]"
       value={value} disabled={disabled} onChange={(next) => next !== value && onChange(next as '' | TaskTarget)}
     >
-      <SelectOption value="">Follow setting ({defaultTarget === 'lead' ? 'the lead' : 'a new agent'})</SelectOption>
-      <SelectOption value="agent">A new agent</SelectOption>
-      <SelectOption value="lead">The lead</SelectOption>
+      <SelectOption value="">{t('memory.tasks.route.follow', { target: defaultTarget })}</SelectOption>
+      <SelectOption value="agent">{t('memory.tasks.route.agent')}</SelectOption>
+      <SelectOption value="lead">{t('memory.tasks.route.lead')}</SelectOption>
     </Select>
   );
 }
@@ -434,6 +443,7 @@ function TaskRow({
   onDone: () => void;
   onOpenAgent: (ref: string) => void;
 }) {
+  const t = useT();
   const lane = taskLane(task, agent);
   const [editing, setEditing] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -452,13 +462,13 @@ function TaskRow({
           );
         }}
       >
-        <Textarea aria-label={`Edit “${task.goal}”`} className="min-h-20" value={editing} onChange={(event) => setEditing(event.target.value)} autoFocus />
+        <Textarea aria-label={t('memory.tasks.editTask', { goal: task.goal })} className="min-h-20" value={editing} onChange={(event) => setEditing(event.target.value)} autoFocus />
         <div className="flex justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button type="submit" size="sm" variant="primary" disabled={busy || !editing.split('\n')[0].trim()}>
-            Save
+            {t('common.save')}
           </Button>
         </div>
       </form>
@@ -473,13 +483,13 @@ function TaskRow({
         {task.detail && <p className="mt-1 line-clamp-2 whitespace-pre-line text-[12px] text-subtle">{task.detail}</p>}
         <p className="mt-1 text-[11px] text-faint">
           {timeAgo(task.createdAt)}
-          {lane === 'queue' && task.leadQueuedAt && ' · for the lead'}
+          {lane === 'queue' && task.leadQueuedAt && ` · ${t('memory.tasks.forLead')}`}
           {lane === 'running' && task.agent === leadOwner && (
             <>
               {' · '}
               <button type="button" className="inline-flex items-center gap-1 text-tertiary underline-offset-2 hover:text-primary hover:underline" onClick={onOpenChat}>
                 <MessagesSquare className="size-3" />
-                lead
+                {t('memory.tasks.leadLink')}
               </button>
             </>
           )}
@@ -497,10 +507,10 @@ function TaskRow({
         {lane === 'backlog' && <RouteChoice route={task.route} target={target} defaultTarget={defaultTarget} goal={task.goal} disabled={busy} onChange={onRoute} />}
         {lane === 'queue' && queueIndex !== undefined && (
           <>
-            <Button size="icon-sm" variant="ghost" aria-label={`Move “${task.goal}” up`} disabled={busy || queueIndex === 0} onClick={() => onMove(queueIndex)}>
+            <Button size="icon-sm" variant="ghost" aria-label={t('memory.tasks.moveUp', { goal: task.goal })} disabled={busy || queueIndex === 0} onClick={() => onMove(queueIndex)}>
               <ArrowUp />
             </Button>
-            <Button size="icon-sm" variant="ghost" aria-label={`Move “${task.goal}” down`} disabled={busy || queueIndex >= queueLength - 1} onClick={() => onMove(queueIndex + 2)}>
+            <Button size="icon-sm" variant="ghost" aria-label={t('memory.tasks.moveDown', { goal: task.goal })} disabled={busy || queueIndex >= queueLength - 1} onClick={() => onMove(queueIndex + 2)}>
               <ArrowDown />
             </Button>
           </>
@@ -508,35 +518,35 @@ function TaskRow({
         {(lane === 'backlog' || lane === 'queue') && queueOn && <LaneChoice lane={lane} goal={task.goal} disabled={busy} onChange={onLane} />}
         {lane === 'queue' && !queueOn && (
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => onLane('backlog')}>
-            Back to backlog
+            {t('memory.tasks.backToBacklog')}
           </Button>
         )}
         {lane === 'backlog' && !queueOn && (
           <Button size="sm" variant="ghost" disabled={busy} onClick={onStart}>
             <Play />
-            Start
+            {t('common.start')}
           </Button>
         )}
         {lane !== 'done' && (
           <Button size="sm" variant="ghost" disabled={busy} onClick={onDone}>
             <Check />
-            Done
+            {t('common.done')}
           </Button>
         )}
-        <Button size="icon-sm" variant="ghost" aria-label={`Edit “${task.goal}”`} disabled={busy} onClick={() => setEditing(taskText(task))}>
+        <Button size="icon-sm" variant="ghost" aria-label={t('memory.tasks.editTask', { goal: task.goal })} disabled={busy} onClick={() => setEditing(taskText(task))}>
           <Pencil />
         </Button>
         {confirmDelete ? (
           <>
             <Button size="sm" variant="danger" disabled={busy} onClick={onDelete}>
-              Delete
+              {t('common.delete')}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
-              Keep
+              {t('memory.tasks.keep')}
             </Button>
           </>
         ) : (
-          <Button size="icon-sm" variant="ghost" aria-label={`Delete “${task.goal}”`} disabled={busy} onClick={() => setConfirmDelete(true)}>
+          <Button size="icon-sm" variant="ghost" aria-label={t('memory.tasks.deleteTask', { goal: task.goal })} disabled={busy} onClick={() => setConfirmDelete(true)}>
             <Trash2 />
           </Button>
         )}

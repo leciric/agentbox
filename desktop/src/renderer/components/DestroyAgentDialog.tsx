@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { disposeTerminal } from '../lib/terminals';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Code } from './ui/card';
@@ -22,6 +23,7 @@ export function DestroyAgentDialog({
   onOpenChange: (open: boolean) => void;
   onDestroyed?: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [force, setForce] = useState(false);
   const [deleteBranch, setDeleteBranch] = useState(false);
@@ -41,9 +43,9 @@ export function DestroyAgentDialog({
     <ConfirmDialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`Destroy ${agent.title || agent.ref}?`}
-      description="Deletes the machine, its snapshots and the worktree. The branch is deleted too once it's merged or pushed; otherwise its commits stay on it. Media stays in the project's media view for as long as Settings keeps it, unless you delete it now."
-      confirmLabel="Destroy"
+      title={t('agent.destroy.title', { name: agent.title || agent.ref })}
+      description={t('agent.destroy.description')}
+      confirmLabel={t('agent.destroy.confirm')}
       destructive
       onConfirm={async () => {
         await api.destroyAgent(agent.ref, force, deleteBranch, deleteMedia);
@@ -57,19 +59,19 @@ export function DestroyAgentDialog({
         <div className="flex items-center gap-3">
           <Switch id={`destroy-force-${agent.ref}`} checked={force} onCheckedChange={setForce} />
           <Label htmlFor={`destroy-force-${agent.ref}`} className="font-normal">
-            Discard uncommitted changes
+            {t('agent.destroy.discard')}
           </Label>
         </div>
         <div className="flex items-center gap-3">
           <Switch id={`destroy-branch-${agent.ref}`} checked={deleteBranch} onCheckedChange={setDeleteBranch} />
           <Label htmlFor={`destroy-branch-${agent.ref}`} className="font-normal">
-            Delete the branch <Code>{agent.branch}</Code> even if it isn't merged or pushed
+            {t.rich('agent.destroy.deleteBranch', { branch: <Code>{agent.branch}</Code> })}
           </Label>
         </div>
         <div className="flex items-center gap-3">
           <Switch id={`destroy-media-${agent.ref}`} checked={deleteMedia} onCheckedChange={setDeleteMedia} />
           <Label htmlFor={`destroy-media-${agent.ref}`} className="font-normal">
-            Also delete its media, instead of keeping it in the project's media view
+            {t('agent.destroy.deleteMedia')}
           </Label>
         </div>
       </div>

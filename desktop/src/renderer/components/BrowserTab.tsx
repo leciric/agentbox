@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api, browserViewPath } from '../lib/api';
+import { useT } from '../lib/i18n';
 import { clock } from '../lib/media';
 import { useVncView } from '../lib/useVncView';
 import { cn, errorMessage } from '../lib/utils';
 import { Button } from './ui/button';
 import { Code, Notice } from './ui/card';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/menu';
+import { stateLabel } from './state';
 import { Switch } from './ui/switch';
 import { Tip } from './ui/tooltip';
 
@@ -19,6 +21,7 @@ import { Tip } from './ui/tooltip';
 // itself, by the agent or by you with Take control. The browser is not a
 // condition for any of it — a desktop with no browser on it still shows.
 export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia: () => void }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const running = agent.state === 'running';
   const status = useQuery({ queryKey: ['browser', agent.ref], queryFn: () => api.browser(agent.ref), enabled: running, refetchInterval: 3_000 });
@@ -37,7 +40,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
   const isRecording = recording.data?.recording === true;
 
   const setStatus = (next: T.BrowserStatus) => queryClient.setQueryData(['browser', agent.ref], next);
-  const saved = (item: T.MediaItem) => toast(`Saved “${item.name}” to Media`, { action: { label: 'View', onClick: onOpenMedia } });
+  const saved = (item: T.MediaItem) => toast(t('agent.media.saved', { name: item.name }), { action: { label: t('agent.media.view'), onClick: onOpenMedia } });
   const start = useMutation({ mutationFn: () => api.browserAction(agent.ref, 'start'), onSuccess: setStatus });
   const stop = useMutation({ mutationFn: () => api.browserAction(agent.ref, 'stop'), onSuccess: setStatus });
   const shot = useMutation({ mutationFn: (req: T.ScreenshotRequest | void) => api.screenshot(agent.ref, req ?? {}), onSuccess: saved });
@@ -69,43 +72,43 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
             'flex h-8 min-w-0 max-w-[45%] shrink items-center gap-2 rounded-full border border-line-strong bg-well px-3 text-[12.5px]',
             browserUp ? 'text-secondary' : 'text-subtle',
           )}
-          aria-label="Browser"
+          aria-label={t('agent.browser.browser')}
         >
           <span className={cn('size-1.5 shrink-0 rounded-full', browserUp ? 'animate-glow bg-emerald-400' : 'bg-faint')} />
           <Globe className="size-3.5 shrink-0 text-subtle" />
           <span className="truncate">
-            {browserUp ? page?.title || page?.url || 'No page open' : desktopUp ? 'No browser' : 'Desktop off'}
+            {browserUp ? page?.title || page?.url || t('agent.browser.noPage') : desktopUp ? t('agent.browser.noBrowser') : t('agent.browser.desktopOff')}
           </span>
         </span>
         <div className="flex-1" />
-        <Tip label="Take a screenshot of the page, kept in Media">
+        <Tip label={t('agent.browser.screenshotTip')}>
           <Button size="sm" disabled={!browserUp || shot.isPending} onClick={() => shot.mutate()}>
             {shot.isPending ? <LoaderCircle className="animate-spin" /> : <Camera />}
-            Screenshot
+            {t('agent.browser.screenshot')}
           </Button>
         </Tip>
         {isRecording ? (
           <Button size="sm" className="border-rose-400/30 bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" disabled={record.isPending} onClick={() => record.mutate()}>
             {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2 animate-pulse rounded-[3px] bg-rose-400" />}
             <span className="font-mono tabular-nums">{clock(elapsed)}</span>
-            Stop recording
+            {t('agent.browser.stopRecording')}
           </Button>
         ) : (
           <Menu>
-            <Tip label="Record the desktop, kept in Media">
+            <Tip label={t('agent.browser.recordTip')}>
               <MenuTrigger asChild>
                 <Button size="sm" disabled={!desktopUp || record.isPending}>
                   {record.isPending ? <LoaderCircle className="animate-spin" /> : <span className="size-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgb(244_63_94/0.7)]" />}
-                  Record
+                  {t('agent.browser.record')}
                 </Button>
               </MenuTrigger>
             </Tip>
             <MenuContent>
               <MenuItem icon={Circle} onSelect={() => record.mutate()}>
-                Record the screen
+                {t('agent.browser.recordScreen')}
               </MenuItem>
               <MenuItem icon={MousePointerClick} onSelect={() => record.mutate('desktop')}>
-                Record with keys and mouse
+                {t('agent.browser.recordInput')}
               </MenuItem>
             </MenuContent>
           </Menu>
@@ -115,37 +118,37 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         <label className={cn('flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-1.5 py-1 text-[13px] text-tertiary', control && 'text-brand-200')}>
           <Switch id="browser-control" checked={control} disabled={!connected} onCheckedChange={setControl} />
           <MousePointer2 className="size-3.5" />
-          Take control
+          {t('agent.browser.takeControl')}
         </label>
         <Menu>
           <MenuTrigger asChild>
-            <Button size="icon-sm" variant="ghost" aria-label="Desktop actions">
+            <Button size="icon-sm" variant="ghost" aria-label={t('agent.browser.actions')}>
               <Ellipsis />
             </Button>
           </MenuTrigger>
           <MenuContent>
             <MenuItem icon={Camera} disabled={!browserUp} onSelect={() => shot.mutate({ fullPage: true, name: 'full page' })}>
-              Full-page screenshot
+              {t('agent.browser.fullPage')}
             </MenuItem>
             <MenuItem icon={Monitor} disabled={!desktopUp} onSelect={() => shot.mutate({ target: 'display', name: 'screen' })}>
-              Screenshot of the whole screen
+              {t('agent.browser.wholeScreen')}
             </MenuItem>
             <MenuItem icon={ClipboardPaste} disabled={!connected} onSelect={() => void paste()}>
-              Send your clipboard to the desktop
+              {t('agent.browser.sendClipboard')}
             </MenuItem>
             <MenuSeparator />
             {desktopUp && !browserUp && (
               <MenuItem icon={Play} onSelect={() => start.mutate()}>
-                Start the browser on it
+                {t('agent.browser.startBrowser')}
               </MenuItem>
             )}
             {desktopUp ? (
               <MenuItem icon={Square} onSelect={() => stop.mutate()}>
-                Stop desktop
+                {t('agent.browser.stopDesktop')}
               </MenuItem>
             ) : (
               <MenuItem icon={Play} disabled={!running} onSelect={() => start.mutate()}>
-                Start desktop
+                {t('agent.browser.startDesktop')}
               </MenuItem>
             )}
           </MenuContent>
@@ -168,16 +171,15 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
                 <Monitor className="size-5 text-muted" />
               </div>
               <p className="text-sm text-tertiary">
-                {running ? `${agent.name}'s desktop isn't running.` : `${agent.title || agent.name} is ${agent.state}.`}
+                {running ? t('agent.browser.notRunning', { name: agent.name }) : t('agent.view.isState', { name: agent.title || agent.name, state: stateLabel(agent.state) })}
               </p>
               <p className="text-xs leading-relaxed text-subtle">
-                It starts with the agent. Start it here, or let the agent run <Code>agentbox browser start</Code>. It's the agent's own display, with
-                Chromium, a file manager and a terminal on it.
+                {t.rich('agent.browser.explain', { code: (c) => <Code>{c}</Code> })}
               </p>
               {running && (
                 <Button variant="primary" className="mt-1" disabled={start.isPending} onClick={() => start.mutate()}>
                   {start.isPending ? <LoaderCircle className="animate-spin" /> : <Play />}
-                  Start desktop
+                  {t('agent.browser.startDesktop')}
                 </Button>
               )}
             </div>
@@ -186,7 +188,7 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
         {desktopUp && !connected && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-subtle">
             <LoaderCircle className="mr-2 size-4 animate-spin" />
-            Connecting to the display…
+            {t('agent.browser.connecting')}
           </div>
         )}
         {control && connected && <div className="pointer-events-none absolute inset-0 rounded-b-2xl ring-2 ring-inset ring-brand-400/40" />}
@@ -195,11 +197,11 @@ export function BrowserTab({ agent, onOpenMedia }: { agent: T.Agent; onOpenMedia
       <div className="flex h-8 shrink-0 items-center gap-3 border-t border-line px-4 text-xs text-subtle">
         {isRecording && (
           <span className="shrink-0 text-rose-300">
-            Recording{recording.data?.input === 'desktop' ? ' with the keys and mouse' : ''}
+            {recording.data?.input === 'desktop' ? t('agent.browser.recordingInput') : t('agent.browser.recording')}
           </span>
         )}
         <span className="ml-auto shrink-0">
-          {!desktopUp ? '' : control ? "Your mouse and keyboard go to the agent's desktop" : 'View only · turn on Take control to click and type'}
+          {!desktopUp ? '' : control ? t('agent.browser.controlOn') : t('agent.browser.viewOnly')}
         </span>
       </div>
     </div>

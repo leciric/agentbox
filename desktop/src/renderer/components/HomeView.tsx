@@ -4,6 +4,7 @@ import type { ComponentType, ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { formatList, formatNumber, useT } from '../lib/i18n';
 import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
@@ -14,6 +15,7 @@ import { Panel } from './ui/card';
 import { Skeleton } from './ui/skeleton';
 
 export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: () => void }) {
+  const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage });
@@ -37,11 +39,10 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-title">Home</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-title">{t('shell.home.title')}</h1>
             {counted ? (
               <p className="mt-1 text-sm text-muted">
-                {running} of {all.length} agent{all.length === 1 ? '' : 's'} running, across {projects.data.length} project
-                {projects.data.length === 1 ? '' : 's'}
+                {t('shell.home.summary', { running, total: all.length, projects: projects.data.length })}
               </p>
             ) : (
               <Skeleton className="mt-2 h-3.5 w-64" />
@@ -50,11 +51,11 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
           <div className="ml-auto flex gap-2">
             <Button onClick={onAddProject}>
               <FolderPlus />
-              Add project
+              {t('shell.home.addProject')}
             </Button>
             <Button variant="ghost" onClick={onNewAgent}>
               <Plus />
-              New agent
+              {t('shell.home.newAgent')}
             </Button>
           </div>
         </div>
@@ -67,9 +68,9 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
             onClick={() => onSelect({ kind: 'settings' })}
           >
             <TriangleAlert className="size-4 text-amber-300" />
-            <span className="text-[13px] text-amber-50">Something AgentBox needs isn't set up yet.</span>
+            <span className="text-[13px] text-amber-50">{t('shell.home.setupPending')}</span>
             <span className="ml-auto flex items-center gap-1 text-[13px] font-medium text-amber-200">
-              Open Settings <ArrowRight className="size-3.5" />
+              {t('shell.home.openSettings')} <ArrowRight className="size-3.5" />
             </span>
           </button>
         )}
@@ -80,24 +81,24 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
             not the window's: five across only where each still fits its value. */}
         <div className="@container mt-6">
           <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @5xl:grid-cols-5">
-            <Stat label="Agents running" value={agents.data ? String(running) : '—'} detail={agents.data ? `of ${all.length}` : ''} />
-            <Stat label="Host CPU, whole machine" value={host ? `${host.cpu.toFixed(0)}%` : '—'} detail={host ? `of all ${host.cores} cores` : ''} fraction={host ? host.cpu / 100 : undefined} />
+            <Stat label={t('shell.home.agentsRunning')} value={agents.data ? String(running) : '—'} detail={agents.data ? t('shell.home.ofCount', { count: all.length }) : ''} />
+            <Stat label={t('shell.home.hostCpu')} value={host ? `${formatNumber(host.cpu, { maximumFractionDigits: 0 })}%` : '—'} detail={host ? t('shell.home.ofCores', { count: host.cores }) : ''} fraction={host ? host.cpu / 100 : undefined} />
             <Stat
-              label="Host memory"
+              label={t('shell.home.hostMemory')}
               value={host ? humanBytes(host.memUsed) : '—'}
-              detail={host ? `of ${humanBytes(host.memTotal)}` : ''}
+              detail={host ? t('shell.home.ofSize', { size: humanBytes(host.memTotal) }) : ''}
               fraction={host ? host.memUsed / host.memTotal : undefined}
               note={pressure && <Stalled percent={pressure.memoryFull} on="memory" />}
             />
             <Stat
-              label="Host disk IO"
+              label={t('shell.home.hostDisk')}
               value={host ? shortRate(host.diskRead + host.diskWrite) : '—'}
               detail=""
               note={
                 host && (
                   <>
-                    <span className="block truncate" title={`${humanRate(host.diskRead)} read, ${humanRate(host.diskWrite)} write`}>
-                      {shortRate(host.diskRead)} read · {shortRate(host.diskWrite)} write
+                    <span className="block truncate" title={t('shell.home.diskTitle', { read: humanRate(host.diskRead), write: humanRate(host.diskWrite) })}>
+                      {t('shell.home.diskNote', { read: shortRate(host.diskRead), write: shortRate(host.diskWrite) })}
                     </span>
                     {pressure && <Stalled percent={pressure.ioFull} on="disk" />}
                   </>
@@ -105,21 +106,21 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
               }
             />
             <Stat
-              label="Storage pool"
+              label={t('shell.home.pool')}
               value={host?.poolTotal ? humanBytes(host.poolUsed) : '—'}
-              detail={host?.poolTotal ? `of ${humanBytes(host.poolTotal)}` : ''}
+              detail={host?.poolTotal ? t('shell.home.ofSize', { size: humanBytes(host.poolTotal) }) : ''}
               fraction={host?.poolTotal ? host.poolUsed / host.poolTotal : undefined}
             />
           </div>
         </div>
 
         <SectionTitle>
-          Agents
+          {t('shell.home.agents')}
           {all.length > 0 && <span className="ml-1.5 rounded-full bg-surface-raised px-1.5 text-[10.5px] normal-case tracking-normal text-subtle">{all.length}</span>}
         </SectionTitle>
         <AllAgentsPanel onSelect={onSelect} onNewAgent={onNewAgent} />
 
-        <SectionTitle>Recent jobs</SectionTitle>
+        <SectionTitle>{t('shell.home.recentJobs')}</SectionTitle>
         <Panel className="divide-y divide-line-faint overflow-hidden" aria-busy={!jobs.data}>
           {!jobs.data &&
             ['w-40', 'w-28', 'w-36'].map((width) => (
@@ -137,7 +138,7 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
               <span className="ml-auto text-xs text-subtle">{timeAgo(job.createdAt)}</span>
             </div>
           ))}
-          {jobs.data?.length === 0 && <div className="px-4 py-6 text-center text-[13px] text-subtle">Nothing has run yet.</div>}
+          {jobs.data?.length === 0 && <div className="px-4 py-6 text-center text-[13px] text-subtle">{t('shell.home.noJobs')}</div>}
         </Panel>
       </div>
     </div>
@@ -185,15 +186,16 @@ function StatusSummary({ agents, className }: { agents: T.Agent[]; className?: s
 // seconds nothing on the host could run for waiting on it (PSI's "full
 // avg10"), rose past stallPressure, which is when the desktop freezes.
 function Stalled({ percent, on }: { percent: number; on: 'disk' | 'memory' }) {
+  const t = useT();
   const stalled = percent > stallPressure;
   return (
     <span
       className={cn('block', stalled ? 'font-medium text-rose-300' : 'text-subtle')}
-      title={`For ${percent.toFixed(1)}% of the last 10 seconds, nothing on the host could run while it waited on ${on}. Past ${stallPressure}%, the desktop starts to freeze.`}
+      title={t('shell.home.stalledTitle', { percent: formatNumber(percent, { minimumFractionDigits: 1, maximumFractionDigits: 1 }), on, limit: stallPressure })}
       data-stalled={stalled || undefined}
     >
       {stalled && <TriangleAlert className="-mt-px mr-1 inline size-3" />}
-      {percent.toFixed(0)}% stalled on {on}
+      {t('shell.home.stalled', { percent: formatNumber(percent, { maximumFractionDigits: 0 }), on })}
     </span>
   );
 }
@@ -202,19 +204,23 @@ function Stalled({ percent, on }: { percent: number; on: 'disk' | 'memory' }) {
 // on disk or memory, and which agent is reading and writing the most — the
 // first one to look at, or to stop.
 function StallBanner({ usage, agents, onSelect, className }: { usage: T.Usage; agents: T.Agent[]; onSelect: (view: View) => void; className?: string }) {
+  const t = useT();
   const p = usage.host.pressure!;
   const heaviest = [...usage.agents].sort((a, b) => b.diskRead + b.diskWrite - (a.diskRead + a.diskWrite))[0];
   const heaviestAgent = heaviest && agents.find((a) => a.ref === heaviest.ref);
-  const causes = [p.ioFull > stallPressure && `${p.ioFull.toFixed(0)}% waiting on disk`, p.memoryFull > stallPressure && `${p.memoryFull.toFixed(0)}% waiting on memory`].filter(Boolean);
+  const causes = [
+    p.ioFull > stallPressure && t('shell.home.waitingOn', { percent: formatNumber(p.ioFull, { maximumFractionDigits: 0 }), on: 'disk' }),
+    p.memoryFull > stallPressure && t('shell.home.waitingOn', { percent: formatNumber(p.memoryFull, { maximumFractionDigits: 0 }), on: 'memory' }),
+  ].filter(Boolean) as string[];
   return (
     <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl border border-rose-400/25 bg-rose-400/[0.07] px-4 py-3', className)} data-stall-banner>
       <TriangleAlert className="size-4 shrink-0 text-rose-300" />
       <span className="min-w-0 flex-1 text-[13px] text-primary">
-        <span className="font-medium">The host is stalling.</span> Over the last 10 seconds nothing could run for {causes.join(' and ')}, which is when the desktop freezes.
+        {t.rich('shell.home.stallBanner', { b: (c) => <span className="font-medium">{c}</span>, causes: formatList(causes) })}
       </span>
       {heaviest && heaviest.diskRead + heaviest.diskWrite > 0 && (
         <button className="flex shrink-0 items-center gap-1 text-[13px] font-medium text-rose-200 transition hover:text-rose-100" onClick={() => onSelect({ kind: 'agent', ref: heaviest.ref })}>
-          <span className="max-w-72 truncate">Busiest on disk: {heaviestAgent?.title || heaviest.ref}</span>
+          <span className="max-w-72 truncate">{t('shell.home.busiest', { agent: heaviestAgent?.title || heaviest.ref })}</span>
           <span className="font-mono text-[12px] tabular-nums">{humanRate(heaviest.diskRead + heaviest.diskWrite)}</span>
           <ArrowRight className="size-3.5" />
         </button>
@@ -242,42 +248,42 @@ function Stat({ label, value, detail, fraction, note }: { label: string; value: 
 }
 
 function Welcome({ onAddProject, onSetup, setupReady }: { onAddProject: () => void; onSetup: () => void; setupReady?: boolean }) {
+  const t = useT();
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-5xl px-5 pb-12 pt-10 md:px-10 md:pt-16">
         <div className="animate-slide-up">
           <Badge variant="brand">
             <Sparkles />
-            Isolated machines for AI coding agents
+            {t('shell.home.tagline')}
           </Badge>
-          <h1 className="text-gradient mt-5 max-w-3xl text-4xl font-semibold leading-[1.08] tracking-tight md:text-5xl">Welcome to AgentBox</h1>
+          <h1 className="text-gradient mt-5 max-w-3xl text-4xl font-semibold leading-[1.08] tracking-tight md:text-5xl">{t('shell.home.welcome')}</h1>
           <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-muted">
-            Every agent gets its own Linux machine: a worktree on its own branch, a terminal, a real browser you can watch and take over, and a place for the
-            screenshots and recordings that show its work. Run several side by side.
+            {t('shell.home.intro')}
           </p>
           <div className="mt-8 flex flex-wrap gap-2">
             <Button variant="primary" size="lg" onClick={onAddProject}>
               <FolderPlus />
-              Add project
+              {t('shell.home.addProject')}
             </Button>
             <Button size="lg" onClick={onSetup}>
               {setupReady === false ? <TriangleAlert className="text-amber-300" /> : <Wrench />}
-              {setupReady === false ? 'Finish setup' : 'Check setup'}
+              {setupReady === false ? t('shell.home.finishSetup') : t('shell.home.checkSetup')}
             </Button>
           </div>
         </div>
         <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2 md:mt-14 lg:grid-cols-4">
-          <Feature icon={SquareTerminal} title="Terminal">
-            Claude Code, Codex or OpenCode in its own tmux session, still there when you come back.
+          <Feature icon={SquareTerminal} title={t('shell.home.featTerminal')}>
+            {t('shell.home.featTerminalBody')}
           </Feature>
-          <Feature icon={Monitor} title="Desktop">
-            Chromium on the agent's own display. Watch it work, then take over.
+          <Feature icon={Monitor} title={t('shell.home.featDesktop')}>
+            {t('shell.home.featDesktopBody')}
           </Feature>
-          <Feature icon={Camera} title="Media">
-            Screenshots, recordings and test reports the agent keeps as proof.
+          <Feature icon={Camera} title={t('shell.home.featMedia')}>
+            {t('shell.home.featMediaBody')}
           </Feature>
-          <Feature icon={Layers} title="Snapshots">
-            Save the whole machine, restore it, or fork a new agent from it.
+          <Feature icon={Layers} title={t('shell.home.featSnapshots')}>
+            {t('shell.home.featSnapshotsBody')}
           </Feature>
         </div>
       </div>

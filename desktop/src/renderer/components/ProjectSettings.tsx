@@ -6,6 +6,7 @@ import type * as T from '../../shared/api';
 import { AgentModelAuto } from '../../shared/api';
 import { agentSizes } from '../lib/agentSize';
 import { api } from '../lib/api';
+import { t, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
 import { cn, errorMessage, humanBytes } from '../lib/utils';
@@ -36,12 +37,12 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
   return [
     {
       id: 'name',
-      title: 'Project',
+      title: t('defaults.project.groupProject'),
       entries: [
         {
           id: 'name',
-          label: 'Name',
-          keywords: 'project name rename title display',
+          label: t('defaults.project.nameLabel'),
+          keywords: t('defaults.project.nameKeywords'),
           // Keyed on the saved name, so a save (or another client's) starts the draft over.
           render: () => <ProjectNameField key={name} project={project} />,
         },
@@ -49,27 +50,27 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     },
     {
       id: 'agents',
-      title: 'New agents',
-      description: `What ${name} gives the agents it creates. Agents it already has keep what they were made with.`,
+      title: t('defaults.project.groupAgents'),
+      description: t('defaults.project.groupAgentsDescription', { name }),
       entries: [
         {
           id: 'model',
-          label: 'Model',
-          keywords: 'agents model claude opus sonnet haiku fable auto lead picks per task',
+          label: t('defaults.project.modelLabel'),
+          keywords: t('defaults.project.modelKeywords'),
           modified: project.agentModel !== '',
           render: () => <AgentModelPicker project={project} />,
         },
         {
           id: 'size',
-          label: 'Size',
-          keywords: 'agents size memory reserve light normal heavy auto lead picks queue',
+          label: t('defaults.project.sizeLabel'),
+          keywords: t('defaults.project.sizeKeywords'),
           modified: project.agentSize !== '',
           render: () => <AgentSizePicker project={project} />,
         },
         {
           id: 'branch-prefix',
-          label: 'Branch prefix',
-          keywords: 'git branch name prefix agentbox/ slug',
+          label: t('defaults.project.prefixLabel'),
+          keywords: t('defaults.project.prefixKeywords'),
           advanced: true,
           modified: project.branchPrefix !== 'agentbox/',
           // Keyed on the saved value, so a save (or another client's) starts the draft over.
@@ -79,20 +80,20 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     },
     {
       id: 'queue',
-      title: 'Agent queue',
-      description: `How many of ${name}'s agents may run at once, and what a new one does when there's no room.`,
+      title: t('defaults.project.groupQueue'),
+      description: t('defaults.project.groupQueueDescription', { name }),
       entries: [
         {
           id: 'slots',
-          label: 'Agents at once',
-          keywords: 'queue slots concurrency budget memory auto fixed at once running',
+          label: t('defaults.project.slotsLabel'),
+          keywords: t('defaults.project.slotsKeywords'),
           modified: project.slots !== 0,
           render: () => <SlotsSetting project={project} />,
         },
         {
           id: 'always-queue',
-          label: 'Always queue new agents',
-          keywords: 'queue new agents default start immediately slot free',
+          label: t('defaults.project.alwaysQueueLabel'),
+          keywords: t('defaults.project.alwaysQueueKeywords'),
           modified: project.alwaysQueue,
           render: () => <AlwaysQueueToggle project={project} />,
         },
@@ -100,27 +101,27 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     },
     {
       id: 'accounts',
-      title: 'Accounts',
-      description: 'The logins its new agents get, from the ones stored under Accounts.',
+      title: t('defaults.project.groupAccounts'),
+      description: t('defaults.project.groupAccountsDescription'),
       entries: [
         {
           id: 'claude-account',
-          label: 'Claude Code account',
-          keywords: 'claude login token anthropic subscription',
+          label: t('defaults.project.claudeAccountLabel'),
+          keywords: t('defaults.project.claudeAccountKeywords'),
           modified: project.claudeAccount !== '',
           render: () => <ClaudeAccountPicker project={project} />,
         },
         {
           id: 'claude-accounts',
-          label: 'Allowed accounts',
-          keywords: 'claude code accounts allow list which logins',
+          label: t('defaults.project.allowedLabel'),
+          keywords: t('defaults.project.allowedKeywords'),
           modified: project.claudeAccounts.length > 0,
           render: () => <ClaudeAccountsPicker project={project} />,
         },
         {
           id: 'github-account',
-          label: 'GitHub account',
-          keywords: 'github login token gh_token push pull requests',
+          label: t('defaults.project.githubAccountLabel'),
+          keywords: t('defaults.project.githubAccountKeywords'),
           modified: project.githubAccount !== '',
           render: () => <GitHubAccountPicker project={project} />,
         },
@@ -128,13 +129,13 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     },
     {
       id: 'repository',
-      title: 'Repository',
-      description: "How AgentBox keeps the project's base branch.",
+      title: t('defaults.project.groupRepo'),
+      description: t('defaults.project.groupRepoDescription'),
       entries: [
         {
           id: 'sync-base',
-          label: 'Keep main up to date with origin',
-          keywords: 'git fetch fast-forward main origin base branch sync stale up to date',
+          label: t('defaults.project.syncLabel'),
+          keywords: t('defaults.project.syncKeywords'),
           modified: !project.syncBase,
           render: () => <SyncBaseToggle project={project} />,
         },
@@ -142,20 +143,20 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     },
     {
       id: 'pulls',
-      title: 'Pull requests',
-      description: 'What its agents do with their branches once the work is done.',
+      title: t('defaults.project.groupPulls'),
+      description: t('defaults.project.groupPullsDescription'),
       entries: [
         {
           id: 'agent-prs',
-          label: 'Agents push and open pull requests',
-          keywords: 'push pr github publish branch retire',
+          label: t('defaults.project.agentPRsLabel'),
+          keywords: t('defaults.project.agentPRsKeywords'),
           modified: project.agentPRs,
           render: () => <AgentPRsToggle project={project} />,
         },
         {
           id: 'pr-watch',
-          label: "Watch agents' pull requests",
-          keywords: 'pr watch conflict checks ci fail review changes requested github',
+          label: t('defaults.project.prWatchLabel'),
+          keywords: t('defaults.project.prWatchKeywords'),
           modified: project.prWatch !== '',
           render: () => <PRWatchPicker project={project} />,
         },
@@ -163,20 +164,20 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     },
     {
       id: 'chat',
-      title: 'Project chat',
-      description: `How much the ${name} chat does on its own.`,
+      title: t('defaults.project.groupChat'),
+      description: t('defaults.project.groupChatDescription', { name }),
       entries: [
         {
           id: 'autonomy',
-          label: 'Makes product decisions itself',
-          keywords: 'autonomy lead chat decides asks product calls',
+          label: t('defaults.project.autonomyLabel'),
+          keywords: t('defaults.project.autonomyKeywords'),
           modified: project.autonomy === 'on',
           render: () => <AutonomyToggle project={project} />,
         },
         {
           id: 'finish-notices',
-          label: 'When an agent finishes',
-          keywords: 'finish notices wake chat lead turn tokens record',
+          label: t('defaults.project.finishLabel'),
+          keywords: t('defaults.project.finishKeywords'),
           modified: project.finishNotices !== 'lead',
           render: () => <FinishNoticesPicker project={project} />,
         },
@@ -184,12 +185,12 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
     },
     {
       id: 'testing',
-      title: 'Testing AgentBox itself',
+      title: t('defaults.project.groupTesting'),
       entries: [
         {
           id: 'nesting',
-          label: 'Nesting: agents run their own Incus',
-          keywords: 'nesting incus containers testing agentbox itself isolation',
+          label: t('defaults.project.nestingLabel'),
+          keywords: t('defaults.project.nestingKeywords'),
           advanced: true,
           modified: project.nesting,
           render: () => <NestingToggle project={project} />,
@@ -204,7 +205,7 @@ export function projectSection(project: T.Project): SettingSection {
   return {
     id: `project:${project.name}`,
     title: projectLabel(project),
-    description: 'What this project gives its agents, and how much its chat does on its own. Every other project keeps its own.',
+    description: t('defaults.project.sectionDescription'),
     scope: 'project',
     groups: projectSettingGroups(project),
   };
@@ -212,6 +213,7 @@ export function projectSection(project: T.Project): SettingSection {
 
 // ProjectSettings is the same groups, on the project's Overview.
 export function ProjectSettings({ project }: { project: T.Project }) {
+  useT();
   return (
     <div className="grid gap-8">
       <SettingGroups groups={projectSettingGroups(project)} />
@@ -221,9 +223,9 @@ export function ProjectSettings({ project }: { project: T.Project }) {
 
 // The empty stored value: this project follows the model chosen for new agents
 // in Settings, which is what every project does until you change it.
-const homeDefault = { value: '', name: 'Same as Settings', description: 'The model new agents start on, in every project' };
+const homeDefaultOf = () => ({ value: '', name: t('defaults.project.sameAsSettings'), description: t('defaults.project.sameAsSettingsDescription') });
 // Not a model: the project's chat chooses one for each agent it creates.
-const auto = { value: AgentModelAuto, name: 'Auto: the lead picks per task', description: 'The lead never picks Fable unless you ask for it.' };
+const autoModelOf = () => ({ value: AgentModelAuto, name: t('defaults.project.autoName'), description: t('defaults.project.autoDescription') });
 
 // AgentModelPicker chooses the model this project's new agents are created on.
 // Agents that already exist keep the model they have.
@@ -234,6 +236,9 @@ const auto = { value: AgentModelAuto, name: 'Auto: the lead picks per task', des
 // decisions.md), so there's something worth offering even before any chat has
 // run.
 function AgentModelPicker({ project }: { project: T.Project }) {
+  const t = useT();
+  const homeDefault = homeDefaultOf();
+  const auto = autoModelOf();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const [query, setQuery] = useState('');
@@ -257,23 +262,23 @@ function AgentModelPicker({ project }: { project: T.Project }) {
   const missing = value === AgentModelAuto ? undefined : unavailableValue(choices, value);
   const groups = groupChoices(choices.filter((c) => matchesQuery(c, query)));
   const searchable = choices.length >= searchThreshold;
-  const label = !settings.data ? 'Loading…' : value === '' ? homeDefault.name : value === AgentModelAuto ? auto.name : (picked && choiceName(picked)) || value;
+  const label = !settings.data ? t('common.loading') : value === '' ? homeDefault.name : value === AgentModelAuto ? auto.name : (picked && choiceName(picked)) || value;
   // What Settings currently says, so "same as" isn't a promise you have to
   // leave the page to read.
-  const home = settings.data?.defaultClaudeModel || 'AgentBox default (opus)';
+  const home = settings.data?.defaultClaudeModel || t('defaults.project.homeFallback');
 
   return (
     <SettingRow
-      label="Model"
-      description={value === AgentModelAuto ? auto.description : 'What a new agent of this project starts on.'}
-      details="The agents it already has keep the model they were made with. What you pick as you create an agent wins over this."
+      label={t('defaults.project.modelLabel')}
+      description={value === AgentModelAuto ? auto.description : t('defaults.project.modelDescription')}
+      details={t('defaults.project.modelDetails')}
       control={
         <Menu onOpenChange={(open) => !open && setQuery('')}>
           <MenuTrigger asChild>
             <button
               data-project-model
               disabled={save.isPending || settings.data === undefined}
-              aria-label="Agents' model"
+              aria-label={t('defaults.project.modelAria')}
               title={label}
               className={cn(selectTrigger, missing && 'text-amber-300')}
             >
@@ -283,17 +288,17 @@ function AgentModelPicker({ project }: { project: T.Project }) {
             </button>
           </MenuTrigger>
           <MenuContent align="start" className="max-h-96 w-80 overflow-y-auto">
-            <MenuLabel>Model for this project's agents</MenuLabel>
+            <MenuLabel>{t('defaults.project.modelMenu')}</MenuLabel>
             {searchable && (
               <div className="mb-1 flex items-center gap-2 rounded-lg bg-surface px-2.5 py-1.5">
                 <Search className="size-3.5 shrink-0 text-subtle" />
                 <input
                   autoFocus
-                  aria-label="Search models"
+                  aria-label={t('defaults.newAgent.searchModels')}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.stopPropagation()}
-                  placeholder="Search"
+                  placeholder={t('common.search')}
                   className="w-full bg-transparent text-[13px] text-primary placeholder:text-faint focus:outline-none"
                 />
               </div>
@@ -302,7 +307,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
               <MenuItem onSelect={() => save.mutate('')} hint={value === '' ? <Check className="size-3.5 text-brand-300" /> : undefined}>
                 <span className="grid">
                   <span>{homeDefault.name}</span>
-                  <span className="text-[11px] text-subtle">Currently {home}</span>
+                  <span className="text-[11px] text-subtle">{t('defaults.project.currently', { home })}</span>
                 </span>
               </MenuItem>
             )}
@@ -323,9 +328,9 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                   <span className="grid">
                     <span className="flex items-center gap-1.5 text-amber-200">
                       {missing}
-                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">Off the menu</span>
+                      <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-amber-300">{t('defaults.newAgent.offMenu')}</span>
                     </span>
-                    <span className="text-[11px] text-subtle">Not on the menu Claude Code last advertised — either a model you named, or one this account has stopped offering.</span>
+                    <span className="text-[11px] text-subtle">{t('defaults.newAgent.offMenuNote')}</span>
                   </span>
                 </MenuItem>
               </>
@@ -344,7 +349,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
                       <span className="flex items-center gap-1.5">
                         {choiceName(choice)}
                         {isRecommended(choice) && (
-                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">Recommended</span>
+                          <span className="shrink-0 rounded-full bg-brand-400/15 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-brand-300">{t('defaults.newAgent.recommended')}</span>
                         )}
                       </span>
                       {choice.description && <span className="text-[11px] text-subtle">{choice.description}</span>}
@@ -355,7 +360,7 @@ function AgentModelPicker({ project }: { project: T.Project }) {
             ))}
             {choices.length === 0 && (
               <div className="px-2.5 py-3 text-[12px] leading-relaxed text-subtle">
-                No model menu yet. Claude Code sends the models your account may use when a chat starts — open one, and they'll be here.
+                {t('defaults.project.noMenu')}
               </div>
             )}
             <ModelByName onPick={(model) => save.mutate(model)} disabled={save.isPending} />
@@ -369,19 +374,20 @@ function AgentModelPicker({ project }: { project: T.Project }) {
 // describeAgentModel says what was just chosen, in the words the setting means.
 function describeAgentModel(project: T.Project): string {
   if (project.agentModel === AgentModelAuto) {
-    return `The ${projectLabel(project)} chat picks a model for each agent it creates`;
+    return t('defaults.project.describeAuto', { name: projectLabel(project) });
   }
   if (project.agentModel === '') {
-    return `New agents of ${projectLabel(project)} use the model chosen in Settings`;
+    return t('defaults.project.describeHome', { name: projectLabel(project) });
   }
-  return `New agents of ${projectLabel(project)} start on ${project.agentModel}`;
+  return t('defaults.project.describeModel', { name: projectLabel(project), model: project.agentModel });
 }
 
 // queueOffNote is the one-line pointer shown under a queue control once the
 // installation has Agent queue turned off (Settings → Agents): the project's
 // own slots and always-queue don't do anything until it is.
 function QueueOffNote() {
-  return <SettingNote tone="warning">Turn on Agent queue in Settings to change how many of this project's agents run at once.</SettingNote>;
+  const t = useT();
+  return <SettingNote tone="warning">{t('defaults.project.queueOff')}</SettingNote>;
 }
 
 // SlotsSetting chooses how many of this project's agents may run at once: 0
@@ -395,6 +401,7 @@ function QueueOffNote() {
 // setting is off — the slot maths still runs and is worth seeing, but
 // changing it here would do nothing until that's on.
 function SlotsSetting({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queue = useQuery({ queryKey: ['queue', project.name], queryFn: () => api.queue(project.name), refetchInterval: 5_000 });
@@ -404,7 +411,7 @@ function SlotsSetting({ project }: { project: T.Project }) {
   const save = useMutation({
     mutationFn: (slots: number) => api.updateProject(project.name, { slots }),
     onSuccess: async (updated) => {
-      toast(updated.slots === 0 ? `${updated.name} shares slots automatically again` : `${updated.name} now runs up to ${updated.slots} agent${updated.slots === 1 ? '' : 's'} at once`);
+      toast(updated.slots === 0 ? t('defaults.project.slotsAutoToast', { name: updated.name }) : t('defaults.project.slotsFixedToast', { name: updated.name, count: updated.slots }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
       await queryClient.invalidateQueries({ queryKey: ['queue', updated.name] });
     },
@@ -412,17 +419,22 @@ function SlotsSetting({ project }: { project: T.Project }) {
   });
 
   const auto = project.slots === 0;
-  const perAgent = mine ? `~${humanBytes(mine.peak)} per agent${mine.peakLearned ? ', learned' : ', from the memory limit'}` : undefined;
   const disabled = save.isPending || !queueOn;
 
   return (
     <SettingRow
-      label="Agents at once"
-      description={auto ? (mine ? `Auto: currently ${mine.slots}${perAgent ? `, ${perAgent}` : ''}.` : 'Auto: split fairly with other projects, by memory.') : `Up to ${project.slots} of this project's agents run at once; the rest queue.`}
-      details="Whatever doesn't fit queues instead of starting, and starts as soon as a slot frees up. Auto gives every active project at least one slot and splits what's left of the VM's memory by how much memory each project's agents actually use, least-memory projects first."
+      label={t('defaults.project.slotsLabel')}
+      description={
+        auto
+          ? mine
+            ? t('defaults.project.slotsAutoNow', { slots: mine.slots, size: humanBytes(mine.peak), learned: mine.peakLearned ? 'yes' : 'no' })
+            : t('defaults.project.slotsAuto')
+          : t('defaults.project.slotsUpTo', { count: project.slots })
+      }
+      details={t('defaults.project.slotsDetails')}
       control={
         <Select
-          aria-label="Agents at once"
+          aria-label={t('defaults.project.slotsLabel')}
           disabled={disabled}
           value={auto ? 'auto' : 'fixed'}
           onChange={(value) => {
@@ -430,8 +442,8 @@ function SlotsSetting({ project }: { project: T.Project }) {
             else save.mutate(Number(fixed) || 1);
           }}
         >
-          <SelectOption value="auto">Auto</SelectOption>
-          <SelectOption value="fixed">Fixed number</SelectOption>
+          <SelectOption value="auto">{t('defaults.project.auto')}</SelectOption>
+          <SelectOption value="fixed">{t('defaults.project.fixed')}</SelectOption>
         </Select>
       }
     >
@@ -442,7 +454,7 @@ function SlotsSetting({ project }: { project: T.Project }) {
             type="number"
             min={1}
             max={64}
-            aria-label="Fixed number of agents at once"
+            aria-label={t('defaults.project.fixedAria')}
             className="w-24 font-mono text-[13px]"
             value={fixed}
             disabled={disabled}
@@ -453,14 +465,16 @@ function SlotsSetting({ project }: { project: T.Project }) {
               if (n !== project.slots) save.mutate(n);
             }}
           />
-          {mine && <SettingNote>currently {mine.slots}</SettingNote>}
+          {mine && <SettingNote>{t('defaults.project.currentlySlots', { slots: mine.slots })}</SettingNote>}
         </div>
       )}
       {mine && (
         <div className="mt-3 grid gap-2">
           <p className="text-[12.5px] text-secondary">
-            Slot size: <span className="font-medium text-primary">{humanBytes(mine.peak)} per agent</span>
-            {mine.peakLearned ? ', learned from its latest agents' : ', from the memory limit — nothing measured yet'}
+            {t.rich(mine.peakLearned ? 'defaults.project.slotSizeLearned' : 'defaults.project.slotSizeLimit', {
+              strong: (c) => <span className="font-medium text-primary">{c}</span>,
+              size: humanBytes(mine.peak),
+            })}
           </p>
           <SlotAgentsTable agents={mine.agents} />
         </div>
@@ -474,15 +488,16 @@ function SlotsSetting({ project }: { project: T.Project }) {
 // each has reached (what "learned" learns from). cpu is a percentage of one
 // core (100 = one core busy).
 function SlotAgentsTable({ agents }: { agents: T.SlotAgent[] }) {
-  if (agents.length === 0) return <p className="text-[12px] text-subtle">No agents running.</p>;
+  const t = useT();
+  if (agents.length === 0) return <p className="text-[12px] text-subtle">{t('defaults.project.noAgentsRunning')}</p>;
   return (
     <div className="overflow-hidden rounded-lg border border-line-faint">
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-left text-[10.5px] uppercase tracking-wide text-faint">
-            <th className="px-2.5 py-1.5 font-medium">Agent</th>
-            <th className="px-2.5 py-1.5 font-medium">Memory now / peak</th>
-            <th className="px-2.5 py-1.5 font-medium">CPU now / peak</th>
+            <th className="px-2.5 py-1.5 font-medium">{t('defaults.project.colAgent')}</th>
+            <th className="px-2.5 py-1.5 font-medium">{t('defaults.project.colMemory')}</th>
+            <th className="px-2.5 py-1.5 font-medium">{t('defaults.project.colCpu')}</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-line-faint">
@@ -513,13 +528,14 @@ function SlotAgentsTable({ agents }: { agents: T.SlotAgent[] }) {
 // one agent. Disabled, with the same pointer, while the installation's Agent
 // queue setting is off.
 function AlwaysQueueToggle({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const queueOn = settings.data?.agentQueue ?? false;
   const save = useMutation({
     mutationFn: (alwaysQueue: boolean) => api.updateProject(project.name, { alwaysQueue }),
     onSuccess: async (updated) => {
-      toast(updated.alwaysQueue ? `New agents of ${updated.name} queue by default` : `New agents of ${updated.name} start right away by default`);
+      toast(updated.alwaysQueue ? t('defaults.project.alwaysQueueOnToast', { name: updated.name }) : t('defaults.project.alwaysQueueOffToast', { name: updated.name }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -527,10 +543,10 @@ function AlwaysQueueToggle({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Always queue new agents"
+      label={t('defaults.project.alwaysQueueLabel')}
       htmlFor="project-always-queue"
-      description={project.alwaysQueue ? 'A new agent queues until a slot is free, unless you turn it off in New agent.' : 'A new agent starts right away, unless you queue it in New agent.'}
-      details="Either way, New agent's own Queue switch wins for the one agent you're making."
+      description={project.alwaysQueue ? t('defaults.project.alwaysQueueOnDescription') : t('defaults.project.alwaysQueueOffDescription')}
+      details={t('defaults.project.alwaysQueueDetails')}
       control={
         <Switch
           id="project-always-queue"
@@ -551,13 +567,15 @@ function AlwaysQueueToggle({ project }: { project: T.Project }) {
 // or waits in the queue. Auto leaves it to the chat, agent by agent; a size
 // here wins over the chat's.
 function AgentSizePicker({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
+  const projectSizes = agentSizes(true);
   const save = useMutation({
     mutationFn: (agentSize: string) => api.updateProject(project.name, { agentSize }),
     onSuccess: async (updated) => {
-      const size = projectSizes.find((s) => s.value === updated.agentSize);
-      const label = projectLabel(updated);
-      toast(updated.agentSize ? `${label}'s chat creates ${size?.label.toLowerCase()} agents` : `${label}'s chat picks each agent's size`);
+      const size = agentSizes(true).find((s) => s.value === updated.agentSize);
+      const name = projectLabel(updated);
+      toast(updated.agentSize ? t('defaults.project.sizeToast', { name, size: (size?.label ?? updated.agentSize).toLowerCase() }) : t('defaults.project.sizeAutoToast', { name }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -566,10 +584,10 @@ function AgentSizePicker({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Size"
+      label={t('defaults.project.sizeLabel')}
       htmlFor="project-agent-size"
       description={picked.tip}
-      details="What an agent reserves of the VM's memory, shared with every project's agents: one that doesn't fit waits in the queue. Not a cap: an agent may use more while there's memory to spare. What you pick in New agent wins over this."
+      details={t('defaults.project.sizeDetails')}
       control={
         <Select id="project-agent-size" data-project-agent-size value={project.agentSize} disabled={save.isPending} onChange={(value) => save.mutate(value)}>
           {projectSizes.map((size) => (
@@ -583,8 +601,6 @@ function AgentSizePicker({ project }: { project: T.Project }) {
   );
 }
 
-const projectSizes = agentSizes(true);
-
 // BranchPrefixField sets what this project's new agents' branches start with,
 // before the slug named after its work: agentbox/ unless you change it, which in a
 // repository shared with others keeps your agents' branches out of theirs.
@@ -592,12 +608,13 @@ const projectSizes = agentSizes(true);
 // turns an empty field back into the default. The daemon checks it against
 // git's rules and says what's wrong (CheckBranchPrefix in internal/gitrepo).
 function BranchPrefixField({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(project.branchPrefix);
   const save = useMutation({
     mutationFn: (branchPrefix: string) => api.updateProject(project.name, { branchPrefix }),
     onSuccess: async (updated) => {
-      toast(`New agents of ${projectLabel(updated)} branch as ${updated.branchPrefix}<their work>`);
+      toast(t('defaults.project.prefixToast', { name: projectLabel(updated), branch: `${updated.branchPrefix}<${t('defaults.project.theirWork')}>` }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
@@ -605,14 +622,13 @@ function BranchPrefixField({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Branch prefix"
+      label={t('defaults.project.prefixLabel')}
       htmlFor="project-branch-prefix"
-      description={
-        <>
-          What its agents' branches start with, like <code className="break-all font-mono text-tertiary">{draft}fix-login-redirect</code>.
-        </>
-      }
-      details="A new agent works on a branch named after its work. In a repository shared with others, a prefix keeps your agents' branches out of theirs. Empty means no prefix. Agents that already exist keep their branches."
+      description={t.rich('defaults.project.prefixDescription', {
+        code: (c) => <code className="break-all font-mono text-tertiary">{c}</code>,
+        example: `${draft}fix-login-redirect`,
+      })}
+      details={t('defaults.project.prefixDetails')}
     >
       <form
         className="grid gap-1.5"
@@ -634,7 +650,7 @@ function BranchPrefixField({ project }: { project: T.Project }) {
               id="project-branch-prefix"
               data-project-branch-prefix
               className="pl-9 font-mono text-[12.5px]"
-              placeholder="no prefix"
+              placeholder={t('defaults.project.noPrefix')}
               spellCheck={false}
               value={draft}
               disabled={save.isPending}
@@ -648,10 +664,10 @@ function BranchPrefixField({ project }: { project: T.Project }) {
             <>
               <Button type="submit" variant="primary" size="sm" disabled={save.isPending}>
                 {save.isPending && <LoaderCircle className="animate-spin" />}
-                Save
+                {t('common.save')}
               </Button>
               <Button variant="ghost" size="sm" disabled={save.isPending} onClick={() => (setDraft(project.branchPrefix), save.reset())}>
-                Cancel
+                {t('common.cancel')}
               </Button>
             </>
           )}
@@ -666,12 +682,13 @@ function BranchPrefixField({ project }: { project: T.Project }) {
 // (the slug in its agents' branches, machines and URLs) stays what it was made
 // with, so nothing on disk moves.
 function ProjectNameField({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState(projectLabel(project));
   const save = useMutation({
     mutationFn: (displayName: string) => api.updateProject(project.name, { displayName }),
     onSuccess: async (updated) => {
-      toast(`Renamed to ${projectLabel(updated)}`);
+      toast(t('defaults.project.renamedToast', { name: projectLabel(updated) }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
@@ -679,13 +696,9 @@ function ProjectNameField({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Name"
+      label={t('defaults.project.nameLabel')}
       htmlFor="project-name"
-      description={
-        <>
-          Anything you like. Its id, <code className="break-all font-mono text-tertiary">{project.name}</code>, stays as it is in branches and machines.
-        </>
-      }
+      description={t.rich('defaults.project.nameDescription', { code: (c) => <code className="break-all font-mono text-tertiary">{c}</code>, id: project.name })}
     >
       <form
         className="grid gap-1.5"
@@ -716,10 +729,10 @@ function ProjectNameField({ project }: { project: T.Project }) {
             <>
               <Button type="submit" variant="primary" size="sm" disabled={save.isPending || draft.trim() === ''}>
                 {save.isPending && <LoaderCircle className="animate-spin" />}
-                Save
+                {t('common.save')}
               </Button>
               <Button variant="ghost" size="sm" disabled={save.isPending} onClick={() => (setDraft(projectLabel(project)), save.reset())}>
-                Cancel
+                {t('common.cancel')}
               </Button>
             </>
           )}
@@ -734,6 +747,7 @@ function ProjectNameField({ project }: { project: T.Project }) {
 // reachable only from the command line (agentbox autonomy) until this card,
 // and it belongs beside the model: both say what the chat may do for you.
 function AutonomyToggle({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const acts = project.autonomy === 'on';
   const save = useMutation({
@@ -741,8 +755,8 @@ function AutonomyToggle({ project }: { project: T.Project }) {
     onSuccess: async (updated) => {
       toast(
         updated.autonomy === 'on'
-          ? `The ${updated.name} chat acts on what it decides, and tells you`
-          : `The ${updated.name} chat proposes product decisions, and does the routine itself`,
+          ? t('defaults.project.autonomyOnToast', { name: updated.name })
+          : t('defaults.project.autonomyOffToast', { name: updated.name }),
       );
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
@@ -751,14 +765,10 @@ function AutonomyToggle({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Makes product decisions itself"
+      label={t('defaults.project.autonomyLabel')}
       htmlFor="project-autonomy"
-      description={
-        acts
-          ? 'It makes product calls itself — designs, the next piece of work — and tells you what it did.'
-          : 'It asks you about product decisions and anything costly.'
-      }
-      details="Either way it does the routine itself: it retires merged agents, answers agents and starts the obvious next one."
+      description={acts ? t('defaults.project.autonomyOnDescription') : t('defaults.project.autonomyOffDescription')}
+      details={t('defaults.project.autonomyDetails')}
       control={
         <Switch
           id="project-autonomy"
@@ -776,11 +786,12 @@ function AutonomyToggle({ project }: { project: T.Project }) {
 // their own pull request when they finish, and tells the lead to stop doing it
 // for them. Off by default: a push publishes, with the user's GitHub token.
 function AgentPRsToggle({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: (agentPRs: boolean) => api.updateProject(project.name, { agentPRs }),
     onSuccess: async (updated) => {
-      toast(updated.agentPRs ? `${updated.name}'s agents now open their own pull requests` : `${updated.name}'s agents no longer push`);
+      toast(updated.agentPRs ? t('defaults.project.agentPRsOnToast', { name: updated.name }) : t('defaults.project.agentPRsOffToast', { name: updated.name }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -788,18 +799,10 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Agents push and open pull requests"
+      label={t('defaults.project.agentPRsLabel')}
       htmlFor="project-agent-prs"
-      description={
-        project.agentPRs
-          ? 'An agent pushes its branch and opens a pull request when it finishes.'
-          : "Agents commit on their branch and don't push: you or the project's chat push it and open the pull request."
-      }
-      details={
-        project.agentPRs
-          ? 'The chat retires it once the pull request is open. An agent never pushes to the base branch, merges or closes anything. A push publishes, with the project\'s GitHub account.'
-          : 'On, an agent pushes its branch and opens its own pull request when it finishes, with the project\'s GitHub account, and the chat stops doing it for it. Off by default, since a push publishes.'
-      }
+      description={project.agentPRs ? t('defaults.project.agentPRsOnDescription') : t('defaults.project.agentPRsOffDescription')}
+      details={project.agentPRs ? t('defaults.project.agentPRsOnDetails') : t('defaults.project.agentPRsOffDetails')}
       control={
         <Switch
           id="project-agent-prs"
@@ -819,11 +822,12 @@ function AgentPRsToggle({ project }: { project: T.Project }) {
 // default, since an agent made from a stale main starts without what was
 // merged since.
 function SyncBaseToggle({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: (syncBase: boolean) => api.updateProject(project.name, { syncBase }),
     onSuccess: async (updated) => {
-      toast(updated.syncBase ? `${updated.name}'s main now follows its remote` : `AgentBox no longer moves ${updated.name}'s main`);
+      toast(updated.syncBase ? t('defaults.project.syncOnToast', { name: updated.name }) : t('defaults.project.syncOffToast', { name: updated.name }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -831,18 +835,10 @@ function SyncBaseToggle({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Keep main up to date with origin"
+      label={t('defaults.project.syncLabel')}
       htmlFor="project-sync-base"
-      description={
-        project.syncBase
-          ? "AgentBox fetches every few minutes and fast-forwards main when it's behind origin."
-          : "AgentBox doesn't fetch or move main."
-      }
-      details={
-        project.syncBase
-          ? 'It also fetches before it creates an agent. It never touches a main with commits of its own, and moves a checked-out main only when nothing in it is changed.'
-          : "A new agent still starts from origin's main, as last fetched, when yours is behind it. On by default, since an agent made from a stale main starts without what was merged since."
-      }
+      description={project.syncBase ? t('defaults.project.syncOnDescription') : t('defaults.project.syncOffDescription')}
+      details={project.syncBase ? t('defaults.project.syncOnDetails') : t('defaults.project.syncOffDetails')}
       control={
         <Switch
           id="project-sync-base"
@@ -862,13 +858,14 @@ function SyncBaseToggle({ project }: { project: T.Project }) {
 // Off by default, and only offered once the base image is built with Incus,
 // since that's what it needs to nest.
 function NestingToggle({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup });
   const hasIncus = setup.data?.image.components.incus === true;
   const save = useMutation({
     mutationFn: (nesting: boolean) => api.updateProject(project.name, { nesting }),
     onSuccess: async (updated) => {
-      toast(updated.nesting ? `${updated.name}'s agents now run their own Incus` : `${updated.name}'s agents no longer run their own Incus`);
+      toast(updated.nesting ? t('defaults.project.nestingOnToast', { name: updated.name }) : t('defaults.project.nestingOffToast', { name: updated.name }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -876,14 +873,10 @@ function NestingToggle({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Nesting: agents run their own Incus"
+      label={t('defaults.project.nestingLabel')}
       htmlFor="project-nesting"
-      description={
-        hasIncus || project.nesting
-          ? 'A new agent gets a real Incus daemon of its own, to test AgentBox itself.'
-          : 'Build the base image with Incus first: agentbox image build --incus.'
-      }
-      details="For a project whose agents work on AgentBox: they can test the features that touch agent machines — image builds, devices, networking — for real. It costs isolation: the agent can make and run containers of its own."
+      description={hasIncus || project.nesting ? t('defaults.project.nestingDescription') : t('defaults.project.nestingNeedsIncus')}
+      details={t('defaults.project.nestingDetails')}
       control={
         <Switch
           id="project-nesting"
@@ -901,12 +894,13 @@ function NestingToggle({ project }: { project: T.Project }) {
 // project, or follows it (the empty value). The daemon says what that comes
 // to, so following it can say whether it's on.
 function PRWatchPicker({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const pick = useMutation({
     mutationFn: (prWatch: string) => api.updateProject(project.name, { prWatch }),
     onSuccess: async (updated) => {
-      toast(updated.prWatching ? `AgentBox watches ${updated.name}'s agents' pull requests` : `AgentBox no longer watches ${updated.name}'s agents' pull requests`);
+      toast(updated.prWatching ? t('defaults.project.prWatchOnToast', { name: updated.name }) : t('defaults.project.prWatchOffToast', { name: updated.name }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
@@ -914,21 +908,21 @@ function PRWatchPicker({ project }: { project: T.Project }) {
 
   return (
     <SettingRow
-      label="Watch agents' pull requests"
-      description="Tells an agent when its pull request conflicts, fails its checks or gets changes requested."
-      details="Until each is merged or closed. AgentBox tells the agent to fix it, starting it if it was stopped, and tells the chat. One request to GitHub per look, however many pull requests. Left as in Settings, it follows the setting there."
+      label={t('defaults.project.prWatchLabel')}
+      description={t('defaults.project.prWatchDescription')}
+      details={t('defaults.project.prWatchDetails')}
     >
       <Select
         data-project-pr-watch
-        aria-label="Watch agents' pull requests"
+        aria-label={t('defaults.project.prWatchLabel')}
         disabled={pick.isPending}
         className="sm:max-w-sm"
         value={project.prWatch}
         onChange={(value) => pick.mutate(value)}
       >
-        <SelectOption value="">{settings.data ? `As in Settings (${settings.data.prWatch ? 'on' : 'off'})` : 'As in Settings'}</SelectOption>
-        <SelectOption value="on">On for this project</SelectOption>
-        <SelectOption value="off">Off for this project</SelectOption>
+        <SelectOption value="">{settings.data ? t('defaults.project.asInSettingsState', { on: settings.data.prWatch ? 'yes' : 'no' }) : t('defaults.project.asInSettings')}</SelectOption>
+        <SelectOption value="on">{t('defaults.project.onForProject')}</SelectOption>
+        <SelectOption value="off">{t('defaults.project.offForProject')}</SelectOption>
       </Select>
     </SettingRow>
   );
@@ -944,37 +938,37 @@ function PRWatchPicker({ project }: { project: T.Project }) {
 // Questions are deliberately not part of this: an agent that asks is blocked
 // until somebody answers, so its question always wakes the chat.
 function FinishNoticesPicker({ project }: { project: T.Project }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const pick = useMutation({
     mutationFn: (finishNotices: string) => api.updateProject(project.name, { finishNotices }),
     onSuccess: async (updated) => {
-      toast(
-        {
-          off: `An agent of ${updated.name} that finishes is only recorded in its chat`,
-          lead: `An agent of ${updated.name} that finishes wakes its chat unless it was told not to when it was created`,
-        }[updated.finishNotices] ?? `An agent of ${updated.name} that finishes wakes its chat, which decides what happens next`,
-      );
+      const toastKeys: Record<string, MessageKey> = {
+        off: 'defaults.project.finishOffToast',
+        lead: 'defaults.project.finishLeadToast',
+      };
+      toast(t(toastKeys[updated.finishNotices] ?? 'defaults.project.finishChatToast', { name: updated.name }));
       await queryClient.invalidateQueries({ queryKey: ['projects'] });
     },
   });
 
   return (
     <SettingRow
-      label="When an agent finishes"
-      description="Whether a finished agent wakes the chat, which costs it a turn."
-      details="Telling the chat costs it a turn, even when the agent left nothing to decide. Recorded finishes are still in its history, and it reads them the next time you write. A question from an agent wakes it either way — the agent is blocked on the answer."
+      label={t('defaults.project.finishLabel')}
+      description={t('defaults.project.finishDescription')}
+      details={t('defaults.project.finishDetails')}
     >
       <Select
         data-finish-notices
-        aria-label="When an agent finishes"
+        aria-label={t('defaults.project.finishLabel')}
         disabled={pick.isPending}
         className="sm:max-w-sm"
         value={project.finishNotices}
         onChange={(value) => pick.mutate(value)}
       >
-        <SelectOption value="lead">Let the agent that finished decide (the default)</SelectOption>
-        <SelectOption value="chat">Tell the project chat, and let it decide</SelectOption>
-        <SelectOption value="off">Only record it (no chat turn, no tokens)</SelectOption>
+        <SelectOption value="lead">{t('defaults.project.finishLead')}</SelectOption>
+        <SelectOption value="chat">{t('defaults.project.finishChat')}</SelectOption>
+        <SelectOption value="off">{t('defaults.project.finishOff')}</SelectOption>
       </Select>
       {pick.error && <SettingNote tone="error">{errorMessage(pick.error)}</SettingNote>}
     </SettingRow>

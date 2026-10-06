@@ -5,6 +5,9 @@
 //
 //   npm run preview                          serve it, print the URL, stay running
 //   npm run preview -- --shots out           capture every scenario into out/*.png, then exit
+//   npm run preview -- --shots out --lang pt-BR
+//                                             every scenario in another language, whose
+//                                             strings are longer than English's
 //   npm run preview -- --shots out --against HEAD~1
 //                                             also capture --against's ref, from a throwaway
 //                                             git worktree, into out/before/*.png, and the
@@ -30,10 +33,11 @@ const repoRoot = join(desktopDir, '..');
 const scenarios = JSON.parse(readFileSync(join(desktopDir, 'src/renderer/dev/scenarios.json'), 'utf8'));
 
 function parseArgs(argv) {
-  const args = { shots: null, against: null };
+  const args = { shots: null, against: null, lang: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--shots') args.shots = argv[++i];
     else if (argv[i] === '--against') args.against = argv[++i];
+    else if (argv[i] === '--lang') args.lang = argv[++i];
     else throw new Error(`Unknown argument: ${argv[i]}`);
   }
   return args;
@@ -107,7 +111,26 @@ function removeWorktree(desktop) {
   execFileSync('git', ['worktree', 'remove', dirname(desktop), '--force'], { cwd: repoRoot, stdio: 'inherit' });
 }
 
-async function capture(baseUrl, outDir) {
+// overflowing lists what sticks out of the page's fixed-width columns — the
+// rail and the sidebar are <aside>s — so a shot that breaks one says so
+// without anybody having to spot it in the picture.
+function overflowing() {
+  const found = [];
+  for (const aside of document.querySelectorAll('aside')) {
+    const box = aside.getBoundingClientRect();
+    if (box.width === 0) continue;
+    for (const el of aside.querySelectorAll('*')) {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || (r.right <= box.right + 1 && r.left >= box.left - 1)) continue;
+      // Only the outermost element that sticks out, not each of its children.
+      if (el.parentElement && found.some((f) => f.el.contains(el))) continue;
+      found.push({ el, text: (el.textContent ?? '').trim().slice(0, 60), by: Math.round(Math.max(r.right - box.right, box.left - r.left)) });
+    }
+  }
+  return found.map(({ text, by }) => `${by}px: ${text || '(no text)'}`);
+}
+
+async function capture(baseUrl, outDir, lang) {
   const { chromium } = await import('playwright');
   mkdirSync(outDir, { recursive: true });
   const systemChromium = '/usr/bin/chromium';
@@ -115,7 +138,7 @@ async function capture(baseUrl, outDir) {
   try {
     for (const s of scenarios) {
       const page = await browser.newPage({ viewport: { width: s.width, height: s.height }, reducedMotion: s.reducedMotion ?? 'no-preference' });
-      await page.goto(`${baseUrl}/dev/preview.html?${s.query}`, { waitUntil: 'networkidle' });
+      await page.goto(`${baseUrl}/dev/preview.html?${s.query}${lang ? `&lang=${lang}` : ''}`, { waitUntil: 'networkidle' });
       // A scenario can hover an element, to show its tooltip.
       if (s.hover) {
         await page.hover(s.hover, { timeout: 3_000 }).catch(() => {});
@@ -135,8 +158,10 @@ async function capture(baseUrl, outDir) {
       // Animations (the avatars') are stopped at their start, so a shot is the
       // same every time and a before/after diff shows changes, not timing.
       await page.screenshot({ path: join(outDir, `${s.id}.png`), animations: 'disabled' });
+      const over = await page.evaluate(overflowing);
       await page.close();
       console.log(`  ${s.id}.png — ${s.description}`);
+      for (const o of over) console.log(`    overflows the column by ${o}`);
     }
   } finally {
     await browser.close();
@@ -156,13 +181,13 @@ async function main() {
 
   if (!args.against) {
     console.log(`Capturing ${scenarios.length} scenarios into ${args.shots}/`);
-    await capture(server.url, args.shots);
+    await capture(server.url, args.shots, args.lang);
     await stopVite(server.proc);
     return;
   }
 
   console.log(`Capturing the working tree into ${args.shots}/after/`);
-  await capture(server.url, join(args.shots, 'after'));
+  await capture(server.url, join(args.shots, 'after'), args.lang);
   await stopVite(server.proc);
 
   console.log(`Checking out ${args.against} into a throwaway worktree…`);
@@ -171,7 +196,7 @@ async function main() {
     const beforePort = await freePort();
     const beforeServer = await startVite(beforeDesktop, beforePort);
     console.log(`Capturing ${args.against} into ${args.shots}/before/`);
-    await capture(beforeServer.url, join(args.shots, 'before'));
+    await capture(beforeServer.url, join(args.shots, 'before'), args.lang);
     await stopVite(beforeServer.proc);
   } finally {
     rmSync(join(beforeDesktop, 'node_modules'), { force: true }); // the symlink, not its target

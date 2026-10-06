@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { chatKey, fetchThread } from '../lib/chat';
+import { prChecksText, prState } from '../lib/agentStatus';
+import { t as tt, useT } from '../lib/i18n';
 import { choiceName } from '../lib/modelChoices';
 import { humanTokens, tps, usd } from '../lib/tokens';
 import { humanBytes, timeAgo } from '../lib/utils';
@@ -15,6 +17,7 @@ import { aiLabel, StateBadge } from './state';
 // in, so every place an agent is listed can show the same card without
 // carrying that data around itself.
 export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullRequest }) {
+  const t = useT();
   const [project, name] = agent.ref.split('/');
   // The chat's own query, read the way the chat reads it: its latest page.
   const queryClient = useQueryClient();
@@ -45,19 +48,19 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
       </div>
       {agent.title && <span className="-mt-1.5 min-w-0 truncate font-mono text-[11px] text-faint">{agent.name}</span>}
       <div className="grid min-w-0 gap-1">
-        <Row label="AI tool" value={aiLabel(agent.ai)} />
-        {model && <Row label="Model" value={model} />}
-        {effort && <Row label="Effort" value={effort} />}
-        {session?.contextSize ? <Row label="Context" value={`${humanTokens(session.contextUsed ?? 0)} of ${humanTokens(session.contextSize)}`} /> : null}
-        <Row label="Avg TPS" value={mine ? tps(mine.avgTPS ?? 0) : '—'} />
-        <Row label="Claude account" value={agent.claudeAccount || '—'} />
-        <Row label="GitHub account" value={agent.githubAccount || '—'} />
-        <Row label="Branch" value={agent.branch} mono />
-        <Row label="Uptime" value={timeAgo(agent.createdAt)} />
-        <Row label="Machine disk" value={diskSize(disk.data?.machine, disk.isPending)} />
-        <Row label="Worktree on host" value={diskSize(disk.data?.worktree, disk.isPending)} />
-        <Row label="Tokens" value={mine ? `${humanTokens(mine.total)} · ${usd(mine.costUSD)}` : '0'} />
-        {pr && <Row label="Pull request" value={prSummary(pr)} />}
+        <Row label={t('agent.info.aiTool')} value={aiLabel(agent.ai)} />
+        {model && <Row label={t('agent.info.model')} value={model} />}
+        {effort && <Row label={t('agent.info.effort')} value={effort} />}
+        {session?.contextSize ? <Row label={t('agent.info.context')} value={t('agent.info.contextOf', { used: humanTokens(session.contextUsed ?? 0), size: humanTokens(session.contextSize) })} /> : null}
+        <Row label={t('agent.info.avgTps')} value={mine ? tps(mine.avgTPS ?? 0) : '—'} />
+        <Row label={t('agent.info.claudeAccount')} value={agent.claudeAccount || '—'} />
+        <Row label={t('agent.info.githubAccount')} value={agent.githubAccount || '—'} />
+        <Row label={t('agent.info.branch')} value={agent.branch} mono />
+        <Row label={t('agent.info.uptime')} value={timeAgo(agent.createdAt)} />
+        <Row label={t('agent.info.machineDisk')} value={diskSize(disk.data?.machine, disk.isPending)} />
+        <Row label={t('agent.info.worktreeDisk')} value={diskSize(disk.data?.worktree, disk.isPending)} />
+        <Row label={t('agent.info.tokens')} value={mine ? `${humanTokens(mine.total)} · ${usd(mine.costUSD)}` : '0'} />
+        {pr && <Row label={t('agent.info.pullRequest')} value={prSummary(pr)} />}
       </div>
     </div>
   );
@@ -82,9 +85,9 @@ function Row({ label, value, mono }: { label: string; value: ReactNode; mono?: b
 // prSummary is the pull request in a line: its state, and what the watch found
 // wrong with it when it found something.
 function prSummary(pr: T.PullRequest): string {
-  const parts = [`#${pr.number} ${pr.draft ? 'draft' : pr.state}`];
-  if (pr.checks) parts.push(`checks ${pr.checks}`);
-  if (pr.conflict) parts.push('conflicts');
-  if (pr.review === 'changes_requested') parts.push('changes requested');
+  const parts = [`#${pr.number} ${prState(pr)}`];
+  if (pr.checks) parts.push(tt('agent.pr.checks', { checks: prChecksText(pr.checks) }));
+  if (pr.conflict) parts.push(tt('agent.pr.conflicts'));
+  if (pr.review === 'changes_requested') parts.push(tt('agent.pr.changesRequested'));
   return parts.join(', ');
 }

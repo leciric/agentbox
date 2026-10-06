@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"time"
@@ -146,6 +147,9 @@ const (
 	// project, and it replaced projects.media_retention_days, which is no
 	// longer read.
 	SettingMediaRetention = "media_retention"
+	// SettingLanguage is the language tag the desktop app speaks
+	// (Settings.Language). Empty means api.DefaultLanguage.
+	SettingLanguage = "language"
 	// SettingInstallID is the random UUID the update check sends, so the
 	// server can count installations without anything that identifies the
 	// machine. Made on the first check or problem report, so an installation
@@ -315,6 +319,28 @@ func (s *Store) MediaRetention(ctx context.Context) (string, error) {
 		return DefaultMediaRetention, nil
 	}
 	return value, nil
+}
+
+// Language reads SettingLanguage, api.DefaultLanguage when it was never set.
+func (s *Store) Language(ctx context.Context) (string, error) {
+	value, err := s.Setting(ctx, SettingLanguage)
+	if err != nil || value == "" {
+		return api.DefaultLanguage, err
+	}
+	return value, nil
+}
+
+// languageTag is the shape of a language tag the app may store: a language
+// and an optional region or script, "pt", "pt-BR", "zh-Hant". The daemon
+// checks the shape only, never a list: the app owns which languages exist.
+var languageTag = regexp.MustCompile(`^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$`)
+
+// ValidLanguage refuses what can't be a language tag.
+func ValidLanguage(tag string) error {
+	if !languageTag.MatchString(tag) || len(tag) > 35 {
+		return fmt.Errorf("%q isn't a language tag like en-US or pt-BR", tag)
+	}
+	return nil
 }
 
 // MediaRetentionPeriod is how long a retention choice keeps media after its

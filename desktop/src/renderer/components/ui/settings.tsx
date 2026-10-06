@@ -1,5 +1,6 @@
 import { useState, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '../../lib/utils';
+import { useT } from '../../lib/i18n';
 import { Panel } from './card';
 
 // The one shape every setting in the app takes, on Settings and on a project's
@@ -58,6 +59,7 @@ export function SettingRow({
   control?: ReactNode;
   children?: ReactNode;
 } & Omit<HTMLAttributes<HTMLDivElement>, 'children'>) {
+  const t = useT();
   const Label = htmlFor ? 'label' : 'div';
   const [more, setMore] = useState(false);
   return (
@@ -80,7 +82,7 @@ export function SettingRow({
                     onClick={() => setMore((open) => !open)}
                     className="rounded text-tertiary underline decoration-line-strong underline-offset-2 transition hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
                   >
-                    {more ? 'Less' : 'More'}
+                    {more ? t('settings.row.less') : t('settings.row.more')}
                   </button>
                 </>
               )}

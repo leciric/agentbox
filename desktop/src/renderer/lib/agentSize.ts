@@ -4,6 +4,8 @@
 // reservation, not a cap: an agent may use more while the VM has memory to
 // spare.
 
+import { t } from '../../shared/i18n/index.ts';
+
 export interface AgentSize {
   value: string; // "" is auto
   label: string;
@@ -16,12 +18,12 @@ export function agentSizes(leadDecides = false): AgentSize[] {
   return [
     {
       value: '',
-      label: 'Auto',
-      tip: leadDecides ? 'The chat picks a size for each agent it creates.' : "Normal: reserves what this project's tests and builds have needed.",
+      label: t('agent.size.auto'),
+      tip: leadDecides ? t('agent.size.autoLead') : t('agent.size.autoNormal'),
     },
-    { value: 'light', label: 'Light', tip: 'Reserves ~2 GB: reading, reviews and small edits.' },
-    { value: 'normal', label: 'Normal', tip: "Reserves what this project's tests and builds have needed." },
-    { value: 'heavy', label: 'Heavy', tip: 'Reserves ~8 GB while it runs tests or records: recordings, Android, big builds.' },
+    { value: 'light', label: t('agent.size.light'), tip: t('agent.size.lightTip') },
+    { value: 'normal', label: t('agent.size.normal'), tip: t('agent.size.normalTip') },
+    { value: 'heavy', label: t('agent.size.heavy'), tip: t('agent.size.heavyTip') },
   ];
 }
 
