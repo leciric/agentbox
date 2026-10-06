@@ -1683,6 +1683,13 @@ export function installDevBridge(): void {
     setLanguage: () => {},
     openPath: async () => '',
     showItem: async () => {},
+    appUpdate: {
+      supported: async () => false,
+      state: async () => ({ state: 'idle' as const }),
+      download: async () => ({ state: 'idle' as const }),
+      install: async () => ({ state: 'idle' as const }),
+      onState: () => () => {},
+    },
     openExternal: async () => {},
     notify: async () => false,
     onNotificationClick: () => () => {},

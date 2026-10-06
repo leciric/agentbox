@@ -41,6 +41,7 @@ import { api } from "../lib/api";
 import { formatDate, formatList, languages, t, useT, type MessageKey } from "../lib/i18n";
 import { isNightly, isUpgrade } from "../lib/nightly";
 import { openLatestRelease } from "../lib/releaseLink";
+import { useAppUpdate } from "../lib/useAppUpdate";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
@@ -1435,9 +1436,35 @@ function UpdateCheck() {
           >
             {t("settings.updateCheck.seeWhatsNew")}
           </button>
+          <AppUpdateAction available={available} />
         </SettingNote>
       )}
     </SettingRow>
+  );
+}
+
+// AppUpdateAction updates the app in place from Settings, where it can (an
+// AppImage, main/appupdate.ts): the same as the sidebar's "Update available",
+// with the download's progress and, when it failed, why.
+function AppUpdateAction({ available }: { available: T.UpdateAvailable }) {
+  const t = useT();
+  const { state, supported, start } = useAppUpdate(available);
+  if (!supported) return null;
+  const link = "rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50";
+  return (
+    <span data-app-update={state.state}>
+      {" · "}
+      {state.state === "downloading" ? (
+        t("appUpdate.downloading", { percent: state.percent })
+      ) : state.state === "installing" ? (
+        t("appUpdate.restarting")
+      ) : (
+        <button className={link} onClick={start}>
+          {state.state === "ready" ? t("appUpdate.restart") : t("appUpdate.updateNow")}
+        </button>
+      )}
+      {state.state === "failed" && <span className="block text-rose-300">{t("appUpdate.failedBecause", { error: state.error })}</span>}
+    </span>
   );
 }
 
@@ -1515,6 +1542,7 @@ function UpdateChannel() {
           >
             {t("settings.channel.getIt")}
           </button>
+          <AppUpdateAction available={available} />
         </SettingNote>
       )}
     </SettingRow>

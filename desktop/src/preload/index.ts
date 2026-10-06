@@ -2,6 +2,7 @@
 // streams, relayed by the main process, plus the command-line tool, a folder
 // picker, links and the clipboard.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import type { AppUpdateState } from '../shared/appUpdate';
 import type * as T from '../shared/api';
 
 export interface ApiResponse {
@@ -266,6 +267,16 @@ const bridge = {
   openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
+  // Updating the app in place (main/appupdate.ts): supported only in an
+  // AppImage; download fetches the release the daemon reports, install
+  // restarts into it.
+  appUpdate: {
+    supported: (): Promise<boolean> => ipcRenderer.invoke('appUpdate:supported'),
+    state: (): Promise<AppUpdateState> => ipcRenderer.invoke('appUpdate:state'),
+    download: (release: { version: string; url: string }): Promise<AppUpdateState> => ipcRenderer.invoke('appUpdate:download', release),
+    install: (): Promise<AppUpdateState> => ipcRenderer.invoke('appUpdate:install'),
+    onState: (fn: (state: AppUpdateState) => void) => listen('appUpdate:state', fn),
+  },
   // An OS notification, shown only while the window isn't in front (main/notify.ts);
   // onNotificationClick gets its ID when it's clicked.
   notify: (notice: { id: string; title: string; body: string }): Promise<boolean> => ipcRenderer.invoke('notify:show', notice),
