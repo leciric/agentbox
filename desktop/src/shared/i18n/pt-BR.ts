@@ -1816,6 +1816,8 @@ export const ptBR: Messages = {
   'agent.mediaTab.goDescription': 'Eles somem de vez, com os arquivos.',
   'agent.mediaTab.sourceAgent': 'Agente',
   'agent.mediaTab.sourceYou': 'Você',
+  'agent.mediaTab.unplayable': 'Não pode ser reproduzida',
+  'agent.mediaTab.unplayableBody': 'O arquivo desta gravação está incompleto ou danificado, provavelmente porque a gravação foi interrompida antes de terminar. Outro reprodutor ainda pode mostrar o que há nele.',
   'agent.mediaTab.passed': '{count} passaram',
   'agent.mediaTab.failed': '{count} falharam',
   'agent.mediaTab.skipped': '{count} ignorados',

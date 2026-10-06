@@ -1815,6 +1815,8 @@ export const enUS = {
   'agent.mediaTab.goDescription': 'They go for good, files and all.',
   'agent.mediaTab.sourceAgent': 'Agent',
   'agent.mediaTab.sourceYou': 'You',
+  'agent.mediaTab.unplayable': 'Can’t be played',
+  'agent.mediaTab.unplayableBody': 'This recording’s file is incomplete or damaged, probably because the recording was cut off before it finished. Another player may still show what’s there.',
   'agent.mediaTab.passed': '{count} passed',
   'agent.mediaTab.failed': '{count} failed',
   'agent.mediaTab.skipped': '{count} skipped',
