@@ -37,6 +37,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, Input, Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 import { Tip } from './ui/tooltip';
+import { ZoomableImage } from './ZoomableImage';
 
 const kindVariant: Record<string, BadgeVariant> = {
   screenshot: 'brand',
@@ -713,7 +714,7 @@ function ViewerBody({ item }: { item: T.MediaItem }) {
   const text = useMediaText(item, item.kind === 'log' || (item.kind === 'report' && !item.meta.entry) || item.kind === 'file', 1_000_000);
   switch (item.kind) {
     case 'screenshot':
-      return <img src={mediaUrl(item)} alt={item.name} className="max-h-[76vh] w-auto max-w-full object-contain" />;
+      return <ZoomableImage key={item.id} src={mediaUrl(item)} alt={item.name} />;
     case 'recording':
       return <video key={item.id} src={mediaUrl(item)} controls autoPlay className="max-h-[76vh] w-full bg-black" />;
     case 'note':
