@@ -195,6 +195,11 @@ jobs:
             go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}-
             go-check-${{ runner.os }}-
 
+      - name: TEMP slowest tests
+        run: |
+          go test -count=1 -json ./internal/agent ./internal/daemon > /tmp/t.json || true
+          jq -r 'select(.Action=="pass" and .Test!=null) | "\(.Elapsed) \(.Package) \(.Test)"' /tmp/t.json | sort -rn | head -25
+
       - run: go mod tidy
 
       - name: go.mod and go.sum must already be tidy
