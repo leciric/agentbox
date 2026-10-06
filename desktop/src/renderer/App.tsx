@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
+import { openSettingsEvent, rememberSection } from "./components/SettingsPage";
 import { ErrorReports } from "./components/ErrorReports";
 import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
@@ -109,6 +110,20 @@ export function App() {
     setView(next);
     setNavOpen(false);
   };
+
+  // A link from inside a page to a section of Settings (openSettingsSection):
+  // remember the section and remount Settings so it opens there.
+  const [settingsVisit, setSettingsVisit] = useState(0);
+  useEffect(() => {
+    const open = (e: Event) => {
+      rememberSection((e as CustomEvent<string>).detail);
+      setSettingsVisit((n) => n + 1);
+      setView({ kind: "settings" });
+      setNavOpen(false);
+    };
+    window.addEventListener(openSettingsEvent, open);
+    return () => window.removeEventListener(openSettingsEvent, open);
+  }, []);
 
   // Leave an agent's view once the agent is gone, destroyed here or from the CLI.
   useEffect(() => {
@@ -237,7 +252,9 @@ export function App() {
       ? view.ref
       : view.kind === "project"
         ? `project:${view.project}:${view.tab ?? ""}`
-        : view.kind;
+        : view.kind === "settings"
+          ? `settings:${settingsVisit}`
+          : view.kind;
 
   return (
     <div className="flex h-full">

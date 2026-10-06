@@ -56,6 +56,8 @@
 //                           accounts, machine) or at a project's settings
 //                           (project:<name>), against fixtures the dev bridge
 //                           saves (fixtures.ts)
+//   ?enforce=1              with ?settings=project:<name>: "Enforce this model" on, so the
+//                           project's model picker warns that Settings' model wins
 //   ?usage=1                the top bar's usage meter against two Claude
 //                           accounts: on Home (the default account), on a
 //                           project that uses the other one, on a Claude
@@ -328,6 +330,7 @@ else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
+if (params.get('enforce') === '1') { queryClient.setQueryData(['queue', PROJECT], { projects: [] }); seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
 // ?page= shows whole pages, and their sections ask for what no other
