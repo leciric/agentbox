@@ -126,6 +126,7 @@
       ]
     },
     "pacman": {
+      "compression": "zstd",
       "depends": [
         "c-ares",
         "ffmpeg",
