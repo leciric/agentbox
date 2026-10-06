@@ -384,6 +384,9 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.refreshConnectors(ctx) })
 	loops.Go(func() { s.dropMovedData(ctx, moved) })
 	s.runCtx = ctx
+	// The turns the last daemon left running carry on (restart.go), once the
+	// API that their chats' tools call back is up.
+	loops.Go(func() { s.continueTurns(ctx) })
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
 	// are moved on in the background, while agents go on being made from it.

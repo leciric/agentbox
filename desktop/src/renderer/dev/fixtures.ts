@@ -1055,6 +1055,7 @@ let defaultsSettings = {
   openCodeModelChoices: [],
   openCodeReady: false,
   resumeAfterLimit: true,
+  continueAfterRestart: true,
   claudeCompactWindow: 200_000,
   updateCheck: true,
   usageStats: true,
@@ -1106,6 +1107,7 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   for (const key of [
     'defaultClaudeEffort',
     'resumeAfterLimit',
+    'continueAfterRestart',
     'claudeCompactWindow',
     'updateCheck',
     'usageStats',

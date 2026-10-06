@@ -115,6 +115,7 @@ export interface Settings {
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
   resumeAfterLimit: boolean;
+  continueAfterRestart: boolean;
   claudeCompactWindow: number;
   updateCheck: boolean;
   usageStats: boolean;
@@ -151,6 +152,7 @@ export interface UpdateSettingsRequest {
   defaultLeadContextWindow?: string;
   defaultClaudeEffort?: string;
   resumeAfterLimit?: boolean;
+  continueAfterRestart?: boolean;
   claudeCompactWindow?: number;
   updateCheck?: boolean;
   updateChannel?: string;

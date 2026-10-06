@@ -147,6 +147,9 @@ func removeChat(ctx context.Context, db *sql.DB, project, agent string) error {
 	if _, err := db.ExecContext(ctx, `DELETE FROM chat_items WHERE project = ? AND agent = ?`, project, agent); err != nil {
 		return err
 	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM running_turns WHERE project = ? AND agent = ?`, project, agent); err != nil {
+		return err
+	}
 	_, err := db.ExecContext(ctx, `DELETE FROM chats WHERE project = ? AND agent = ?`, project, agent)
 	return err
 }

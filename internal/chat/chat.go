@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -120,6 +121,10 @@ type Manager struct {
 
 	mu    sync.Mutex
 	convs map[string]*conversation
+	// closing is set once Close has begun: the turns ending from then on
+	// were cut short by AgentBox stopping.
+	closing  atomic.Bool
+	closedCh chan struct{} // closed with it; see closed
 	// background tracks every goroutine a conversation spawns: the one that
 	// launches and reads an adapter, and the shorter-lived ones a turn spawns
 	// as it starts and ends (prompt, drainOutbox, and the hooks a finished or
@@ -480,11 +485,18 @@ func (c *conversation) startTurn(text string, images []api.ChatImage) *api.ChatI
 // beginTurn starts the turn that it heads, with text and images as its prompt.
 // The conversation is locked and no turn is running.
 func (c *conversation) beginTurn(it *api.ChatItem, text string, images []api.ChatImage) {
+	c.beginResumedTurn(it, text, images, 0)
+}
+
+// beginResumedTurn is beginTurn for a turn that carries on one AgentBox's
+// restart cut short, for the resumes-th time (restart.go); 0 for any other.
+func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []api.ChatImage, resumes int) {
 	// Whatever the turn was waiting for, it is running now: a pending resume
 	// has been overtaken, and the limit isn't what the session is doing.
 	c.endLimit()
-	t := &turn{id: it.ID, text: text, images: images, startedAt: it.CreatedAt, progressAt: it.CreatedAt}
+	t := &turn{id: it.ID, text: text, images: images, startedAt: it.CreatedAt, progressAt: it.CreatedAt, resumes: resumes}
 	c.turn = t
+	c.recordTurn(t)
 	c.tools, c.plan, c.open, c.openMessage = map[string]*api.ChatItem{}, nil, nil, ""
 	started := it.CreatedAt
 	c.session.TurnStartedAt = &started
@@ -1030,6 +1042,7 @@ func (m *Manager) Stop(ref, reason string) {
 	defer c.mu.Unlock()
 	c.loseOutbox(reason + ".")
 	c.clearLimit()
+	c.dropResume()
 	if t := c.turn; t != nil {
 		t.cancelled = true
 		c.finishTurn(t, nil, errors.New(reason))
@@ -1086,7 +1099,18 @@ func (m *Manager) State(ref string) string {
 
 // Close ends every session and stores what hasn't been, for the daemon's shutdown.
 func (m *Manager) Close() {
+	// The turns this stops are AgentBox's doing, not the chats': they stay
+	// recorded as running, for the next daemon to carry on (restart.go).
+	m.closing.Store(true)
 	m.mu.Lock()
+	if m.closedCh == nil {
+		m.closedCh = make(chan struct{})
+	}
+	select {
+	case <-m.closedCh:
+	default:
+		close(m.closedCh)
+	}
 	convs := slices.Collect(maps.Values(m.convs))
 	m.mu.Unlock()
 	var wg sync.WaitGroup
@@ -1151,6 +1175,9 @@ type conversation struct {
 	// tool has them. drainOutbox empties it; draining says that it's running.
 	outbox   []*outgoing
 	draining bool
+	// heldResume is a turn to carry on after AgentBox restarted, held until
+	// the agent's machine can start (HoldResume, restart.go).
+	heldResume *state.RunningTurn
 	// resumeTimer is the pending "carry on once the usage limit resets"
 	// wake-up, resumeGen names it so a timer that fires late does nothing, and
 	// resumeTry counts the waits this stretch of limit has already had. See
@@ -1212,6 +1239,9 @@ type turn struct {
 	// or the turn began, or somebody last answered it: the clock the daemon's
 	// stall watch reads (Progress).
 	progressAt time.Time
+	// resumes is how many times AgentBox's restarts have carried this turn's
+	// work on, counting this one (restart.go).
+	resumes int
 }
 
 // generationMS is how long a turn took to generate: from its first to its
@@ -1613,7 +1643,16 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.images = init.AgentCapabilities.PromptCapabilities.Image
 	c.setImageSupport(ad.images)
 	if resumeErr != nil && len(c.items) > 0 {
-		c.add("notice", c.lastTurn()).Text = fmt.Sprintf("This is a new %s session, which doesn't remember the conversation above: the earlier session couldn't be resumed (%v).", tool, explain(resumeErr))
+		it := c.add("notice", c.lastTurn())
+		if c.turn != nil && c.turn.resumes > 0 && c.stored.Handoff == "" {
+			// Carrying on a turn a restart cut short (restart.go): a session
+			// that doesn't remember it can't, unless it is told what it was.
+			c.stored.Handoff = c.handoffBefore(tool)
+			it.Handoff = c.stored.Handoff
+			it.Text = fmt.Sprintf("This is a new %s session: the earlier one couldn't be resumed (%v), so it is told the conversation above.", tool, explain(resumeErr))
+		} else {
+			it.Text = fmt.Sprintf("This is a new %s session, which doesn't remember the conversation above: the earlier session couldn't be resumed (%v).", tool, explain(resumeErr))
+		}
 	}
 	if c.stored.SessionID != resp.SessionID {
 		c.stored.SessionID = resp.SessionID
@@ -1930,6 +1969,7 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		// the next one starts its backoff from the beginning.
 		c.clearLimit()
 	}
+	c.unrecordTurn(t, err)
 	if user := c.byID[t.id]; user != nil {
 		user.Result = result
 		c.touch(user)
