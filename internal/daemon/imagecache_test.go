@@ -22,7 +22,7 @@ func TestImageCacheSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out.ImageCache || out.ImageCacheMaxBytes != state.DefaultImageCacheMax || out.DefaultImageCacheMaxBytes != state.DefaultImageCacheMax || out.ImageCacheBytes != 0 {
+	if !out.ImageCache || out.ImageCacheMaxBytes != out.DefaultImageCacheMaxBytes || out.DefaultImageCacheMaxBytes > state.DefaultImageCacheMax || out.ImageCacheBytes != 0 {
 		t.Errorf("a fresh installation's cache: %+v", out)
 	}
 
@@ -41,7 +41,7 @@ func TestImageCacheSettings(t *testing.T) {
 	if _, err := patchSettings(t, d, `{"imageCacheMaxBytes":1000}`); err == nil {
 		t.Error("a cap under 1 GiB was taken")
 	}
-	if out, err := patchSettings(t, d, `{"imageCacheMaxBytes":0}`); err != nil || out.ImageCacheMaxBytes != state.DefaultImageCacheMax {
+	if out, err := patchSettings(t, d, `{"imageCacheMaxBytes":0}`); err != nil || out.ImageCacheMaxBytes != out.DefaultImageCacheMaxBytes {
 		t.Errorf("0 didn't go back to the default: %d, %v", out.ImageCacheMaxBytes, err)
 	}
 	if out, err := patchSettings(t, d, `{"clearImageCache":true}`); err != nil || out.ImageCacheBytes != 0 {

@@ -63,6 +63,10 @@ are running get it at once; a shell already open keeps what it had.`,
 			if err != nil {
 				return err
 			}
+			if req.PackageCacheMaxBytes != nil && *req.PackageCacheMaxBytes > settings.PackageCacheMaxBytes {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s is more than the package caches' disk can hold above the space AgentBox keeps free: capped at %s\n",
+					agent.HumanBytes(*req.PackageCacheMaxBytes), agent.HumanBytes(settings.PackageCacheMaxBytes))
+			}
 			state := "off: each agent downloads into caches of its own"
 			if settings.PackageCache {
 				state = "on"

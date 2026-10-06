@@ -414,14 +414,16 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	imageCache, imageCacheMax, err := s.store.ImageCache(r.Context())
+	imageCache, imageCacheChosen, err := s.store.ImageCache(r.Context())
 	if err != nil {
 		return api.Settings{}, err
 	}
-	packageCache, packageCacheMax, err := s.store.PackageCache(r.Context())
+	imageCacheMax, imageCacheDefault := s.cacheMax(r.Context(), s.cfg.Paths.ImageCache(), imageCacheChosen, state.DefaultImageCacheMax)
+	packageCache, packageCacheChosen, err := s.store.PackageCache(r.Context())
 	if err != nil {
 		return api.Settings{}, err
 	}
+	packageCacheMax, packageCacheDefault := s.cacheMax(r.Context(), s.cfg.Paths.PackageCache(), packageCacheChosen, state.DefaultPackageCacheMax)
 	return api.Settings{
 		DefaultClaudeModel:        model,
 		DefaultAgentContextWindow: agentWindow,
@@ -464,12 +466,12 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		ImageCache:                imageCache,
 		ImageCacheMaxBytes:        imageCacheMax,
-		DefaultImageCacheMaxBytes: state.DefaultImageCacheMax,
+		DefaultImageCacheMaxBytes: imageCacheDefault,
 		ImageCacheBytes:           s.imageCache.Size(),
 
 		PackageCache:                packageCache,
 		PackageCacheMaxBytes:        packageCacheMax,
-		DefaultPackageCacheMaxBytes: state.DefaultPackageCacheMax,
+		DefaultPackageCacheMaxBytes: packageCacheDefault,
 		PackageCacheBytes:           s.packageCache.Size(),
 	}, nil
 }

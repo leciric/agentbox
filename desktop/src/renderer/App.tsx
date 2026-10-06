@@ -8,6 +8,14 @@ import { ErrorReports } from "./components/ErrorReports";
 import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
 import { HomeView } from "./components/HomeView";
+import { AllMediaView } from "./components/AllMediaView";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { MediaPlace } from "./components/MediaPlace";
+import { MediaViewer } from "./components/MediaTab";
+import { NoticeToast } from "./components/Notifications";
+import { markSeen as markNoticesSeen, noticeText, noticeView } from "./lib/notifications";
+import { projectLabel } from "./lib/projectName";
+import type * as T from "../shared/api";
 import { JobsView } from "./components/JobsView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { ProjectView } from "./components/ProjectView";
@@ -23,10 +31,9 @@ import { Notice } from "./components/ui/card";
 import { api } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
 import { resetChatEvents } from "./lib/chat";
-import { onMedia, useConnection } from "./lib/events";
+import { onNotification, useConnection } from "./lib/events";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { setupCard } from "./lib/setup";
-import { kindInfo } from "./lib/media";
 import { useHostTheme } from "./lib/theme";
 import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
 
@@ -34,6 +41,7 @@ export type View =
   | { kind: "home" }
   | { kind: "homeChat" }
   | { kind: "jobs" }
+  | { kind: "media" }
   | { kind: "settings" }
   | { kind: "project"; project: string; tab?: ProjectPlaceName }
   | { kind: "agent"; ref: string; tab?: AgentPlaceName };
@@ -113,28 +121,76 @@ export function App() {
     }
   }, [agents.data, view]);
 
-  // Tell you when an agent keeps something in its media.
+  // A media item opened from a notification, in a viewer over its agent's
+  // Media tab, with where it came from.
+  const [viewing, setViewing] = useState<{ ref: string; id: string; from: string; at: string } | null>(null);
+  const viewingMedia = useQuery({
+    queryKey: ["media", viewing?.ref],
+    queryFn: () => api.media(viewing!.ref),
+    enabled: viewing !== null,
+  });
+  const viewingItems = viewingMedia.data ?? [];
+  const [deleting, setDeleting] = useState<T.MediaItem | null>(null);
+  const viewingIndex = viewing ? viewingItems.findIndex((m) => m.id === viewing.id) : -1;
+
+  // openNotice goes where a notification points, from its toast, its OS
+  // notification or the bell, and marks it seen.
+  const openNotice = (n: T.Notification) => {
+    void markNoticesSeen(queryClient, { ids: [n.id] });
+    const next = noticeView(n, agents.data);
+    select(next);
+    if (n.media && !n.media.removed && next.kind === "agent")
+      setViewing({ ref: n.ref, id: n.media.id, from: n.media.id, at: n.at });
+  };
+  const openNoticeRef = useRef(openNotice);
+  openNoticeRef.current = openNotice;
+
+  // toastNotice shows one in the app, the whole toast a link, and in the OS
+  // while the window isn't in front (the bridge decides).
+  const toastNotice = (n: T.Notification, onOpen: () => void) => {
+    const projects = queryClient.getQueryData<T.Project[]>(["projects"]);
+    const projectName = projectLabel(n.project, projects);
+    toast.custom(
+      (id) => (
+        <NoticeToast
+          notice={n}
+          projectName={projectName}
+          onOpen={() => {
+            toast.dismiss(id);
+            onOpen();
+          }}
+        />
+      ),
+      // Long enough to reach with the pointer: the toast is the way in.
+      { id: n.id, duration: 10_000 },
+    );
+    void window.agentbox.notify({ id: n.id, ...noticeText(n, projectName) });
+  };
+  const waiting = useRef(new Map<string, () => void>());
+
+  // Tell you when an agent finishes, asks you something or keeps a
+  // screenshot or recording, in any project.
   useEffect(
     () =>
-      onMedia((item) => {
-        if (item.removed || item.source !== "agent") return;
-        const agent = agents.data?.find((a) => a.ref === item.agent);
-        toast(
-          tNow("shell.app.savedMedia", {
-            agent: agent?.title || item.agent,
-            kind: kindInfo(item.kind).one,
-          }),
-          {
-            description: item.name,
-            action: {
-              label: tNow("shell.app.view"),
-              onClick: () =>
-                select({ kind: "agent", ref: item.agent, tab: "media" }),
-            },
-          },
-        );
+      onNotification((n) =>
+        toastNotice(n, () => openNoticeRef.current(n)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  // An OS notification clicked: the window is in front again, go there.
+  useEffect(
+    () =>
+      window.agentbox.onNotificationClick((id) => {
+        toast.dismiss(id);
+        const local = waiting.current.get(id);
+        if (local) return local();
+        const n = queryClient
+          .getQueryData<T.Notification[]>(["notifications"])
+          ?.find((x) => x.id === id);
+        if (n) openNoticeRef.current(n);
       }),
-    [agents.data],
+    [queryClient],
   );
 
   // Tell you when an agent's AI tool waits for your answer while you look elsewhere.
@@ -151,13 +207,27 @@ export function App() {
         (view.kind === "agent" && view.ref === a.ref)
       )
         continue;
-      toast(tNow("shell.app.waitingForYou", { agent: a.title || a.ref }), {
-        description: tNow("shell.app.asksPermission", { ai: aiLabel(a.ai) }),
-        action: {
-          label: tNow("common.open"),
-          onClick: () => select({ kind: "agent", ref: a.ref, tab: "chat" }),
+      // Not one the daemon keeps: the agent's own chat says it's waiting
+      // until it isn't, so it needs no history.
+      const id = `waiting:${a.ref}:${Date.now()}`;
+      const open = () => {
+        waiting.current.delete(id);
+        select({ kind: "agent", ref: a.ref, tab: "chat" });
+      };
+      waiting.current.set(id, open);
+      toastNotice(
+        {
+          id,
+          kind: "question",
+          project: a.project,
+          agent: a.name,
+          ref: a.ref,
+          title: a.title,
+          text: tNow("shell.app.asksPermission", { ai: aiLabel(a.ai) }),
+          at: new Date().toISOString(),
         },
-      });
+        open,
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.data]);
@@ -207,6 +277,7 @@ export function App() {
           onSelect={select}
           onOpenNav={() => setNavOpen(true)}
           onNewAgent={setNewAgentProject}
+          onOpenNotice={openNotice}
         />
         <div className="flex min-h-0 min-w-0 flex-1">
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -247,6 +318,7 @@ export function App() {
                 )}
                 {view.kind === "homeChat" && <HomeChatPanel />}
                 {view.kind === "jobs" && <JobsView />}
+                {view.kind === "media" && <AllMediaView onSelect={select} />}
                 {view.kind === "settings" && (
                   <SettingsView onHome={() => select({ kind: "home" })} />
                 )}
@@ -295,6 +367,38 @@ export function App() {
         project={newAgentProject}
         onClose={() => setNewAgentProject(null)}
         onCreated={(ref) => select({ kind: "agent", ref })}
+      />
+      <MediaViewer
+        items={viewingItems}
+        index={viewingIndex}
+        onIndex={(i) =>
+          viewingItems[i] &&
+          setViewing((v) => v && { ...v, id: viewingItems[i].id })
+        }
+        onClose={() => setViewing(null)}
+        onDelete={setDeleting}
+        context={(item) => (
+          <MediaPlace
+            item={item}
+            fromNotice={item.id === viewing?.from ? viewing.at : undefined}
+            onSelect={(next) => {
+              setViewing(null);
+              select(next);
+            }}
+          />
+        )}
+      />
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title={t("agent.mediaTab.deleteTitle", { name: deleting?.name ?? "" })}
+        description={t("agent.mediaTab.deleteDescription")}
+        confirmLabel={t("common.delete")}
+        destructive
+        onConfirm={async () => {
+          await api.deleteMedia(deleting!.id);
+          setViewing(null);
+        }}
       />
       <ErrorReports />
       <SnapComposer

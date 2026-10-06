@@ -306,43 +306,93 @@ func (s *Server) saveDiskGuardPaused(ctx context.Context, refs []string) {
 }
 
 // measureDisks measures every disk the guard watches, each file system once,
-// its label naming everything of AgentBox's on it.
+// its label naming everything of AgentBox's on it and its advice what frees
+// it (diskAdvice).
 func (s *Server) measureDisks(ctx context.Context) []agent.DiskSpace {
 	var spaces []agent.DiskSpace
+	byID := map[string]int{}
+	inVM := hostos.InVM()
 	if used, total, err := s.manager(nil).Incus.PoolSpace(ctx, "default"); err == nil && total > 0 {
-		spaces = append(spaces, agent.DiskSpace{Label: "Storage pool", Free: max(total-used, 0), Total: total})
+		label, advice := "storage pool", adviceAgents
+		if inVM {
+			label = "the agents' disk"
+			if hostos.VMDisks() != "" {
+				advice = adviceGrowPool
+			}
+		}
+		spaces = append(spaces, agent.DiskSpace{Label: label, Free: max(total-used, 0), Total: total, Advice: []string{advice}})
+		// AgentBox's data moved onto it (moveDataToPool) is measured with it.
+		if _, _, id, ok := diskSpace(poolDataMount); ok && isMountpoint(poolDataMount) {
+			byID[id] = 0
+		}
 	}
-	type dir struct{ label, path string }
+	type dir struct{ label, path, advice string }
 	var dirs []dir
 	if disks := hostos.VMDisks(); disks != "" && onSharedFS(existingParent(disks)) {
-		dirs = append(dirs, dir{"the VM's disk images", disks})
+		dirs = append(dirs, dir{"the VM's disk images", disks, adviceComputer})
 	} else if home := hostos.Home(); home != "" && onSharedFS(home) {
 		// A front end from before VMDisksEnv: the disk images are in the
 		// host's home, unless the host moved its data directory away.
-		dirs = append(dirs, dir{"the VM's disk images", home})
+		dirs = append(dirs, dir{"the VM's disk images", home, adviceComputer})
 	}
-	dirs = append(dirs, dir{"worktrees", s.cfg.Paths.Worktrees()}, dir{"media", s.cfg.Paths.Media()}, dir{"AgentBox's data", s.cfg.Paths.Data})
-	if _, err := os.Stat("/var/lib/incus"); err == nil && !hostos.InVM() {
-		dirs = append(dirs, dir{"Incus", "/var/lib/incus"})
+	data := dir{"AgentBox's data", s.cfg.Paths.Data, ""}
+	if inVM && !onSharedFS(existingParent(s.cfg.Paths.Data)) {
+		data = dir{"the VM's system disk", s.cfg.Paths.Data, adviceSystemDisk}
+		if _, err := os.Stat(poolDevice); err == nil && !isMountpoint(poolDataMount) {
+			data.advice = adviceSystemDiskMove
+		}
 	}
-	byID := map[string]int{}
+	dirs = append(dirs,
+		dir{"worktrees", s.cfg.Paths.Worktrees(), adviceAgents},
+		dir{"media", s.cfg.Paths.Media(), adviceMedia},
+		data,
+		// Wherever they are: with the data, or on the agents' disk.
+		dir{"the shared caches", s.cfg.Paths.PackageCache(), adviceCaches},
+		dir{"the shared caches", s.cfg.Paths.ImageCache(), adviceCaches},
+	)
+	if _, err := os.Stat("/var/lib/incus"); err == nil && !inVM {
+		dirs = append(dirs, dir{"Incus", "/var/lib/incus", adviceAgents})
+	}
 	for _, d := range dirs {
 		free, total, id, ok := diskSpace(existingParent(d.path))
 		if !ok || total <= 0 {
 			continue
 		}
 		if i, ok := byID[id]; ok {
-			spaces[i].Label += ", " + d.label
+			if !strings.Contains(spaces[i].Label, d.label) {
+				spaces[i].Label += ", " + d.label
+			}
+			if d.advice != "" && !slices.Contains(spaces[i].Advice, d.advice) {
+				spaces[i].Advice = append(spaces[i].Advice, d.advice)
+			}
 			continue
 		}
 		byID[id] = len(spaces)
-		spaces = append(spaces, agent.DiskSpace{Label: d.label, Path: filepath.Clean(d.path), Free: free, Total: total})
+		space := agent.DiskSpace{Label: d.label, Path: filepath.Clean(d.path), Free: free, Total: total}
+		if d.advice != "" {
+			space.Advice = []string{d.advice}
+		}
+		spaces = append(spaces, space)
 	}
 	for i := range spaces {
 		spaces[i].Label = capitalize(spaces[i].Label)
 	}
 	return spaces
 }
+
+// What frees each disk, or gives it room, in a sentence each, for the "Disk
+// low" popover: measureDisks gives a disk those of everything on it.
+const (
+	adviceGrowPool   = "Make it bigger in Settings, AgentBox's Linux VM, VM size, or with `agentbox vm resize --disk <size>`."
+	adviceAgents     = "Destroy agents you're done with."
+	adviceCaches     = "`agentbox package-cache --clear` and `agentbox docker-cache --clear` empty the shared caches, which fill again as agents need them."
+	adviceMedia      = "Delete media you no longer need, or shorten how long it's kept in Settings."
+	adviceComputer   = "It's your computer's disk: free some space on it."
+	adviceSystemDisk = "It holds the VM's system and AgentBox's state, and can't be made bigger."
+	// adviceSystemDiskMove is adviceSystemDisk while AgentBox's data hasn't
+	// moved to the agents' disk (moveDataToPool), which a daemon start does.
+	adviceSystemDiskMove = adviceSystemDisk + " Restart AgentBox to move its caches and tools to the agents' disk."
+)
 
 func capitalize(s string) string {
 	if s == "" {
@@ -357,7 +407,7 @@ func toAPIDiskGuard(st agent.DiskStatus) api.DiskGuard {
 		out.Level = api.DiskOK
 	}
 	for _, d := range st.Disks {
-		out.Disks = append(out.Disks, api.DiskGuardDisk{Label: d.Label, Path: d.Path, Free: d.Free, Total: d.Total, Floor: d.Floor, Level: d.Level})
+		out.Disks = append(out.Disks, api.DiskGuardDisk{Label: d.Label, Path: d.Path, Free: d.Free, Total: d.Total, Floor: d.Floor, Level: d.Level, Advice: strings.Join(d.Advice, " ")})
 	}
 	out.Message = st.Summary()
 	return out

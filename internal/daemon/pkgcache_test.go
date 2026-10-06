@@ -21,7 +21,7 @@ func TestPackageCacheSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !out.PackageCache || out.PackageCacheMaxBytes != state.DefaultPackageCacheMax || out.DefaultPackageCacheMaxBytes != state.DefaultPackageCacheMax {
+	if !out.PackageCache || out.PackageCacheMaxBytes != out.DefaultPackageCacheMaxBytes || out.DefaultPackageCacheMaxBytes > state.DefaultPackageCacheMax {
 		t.Errorf("a fresh installation's caches: %+v", out)
 	}
 
@@ -39,7 +39,7 @@ func TestPackageCacheSettings(t *testing.T) {
 	if _, err := patchSettings(t, d, `{"packageCacheMaxBytes":1000}`); err == nil {
 		t.Error("a cap under 1 GiB was taken")
 	}
-	if out, err := patchSettings(t, d, `{"packageCacheMaxBytes":0}`); err != nil || out.PackageCacheMaxBytes != state.DefaultPackageCacheMax {
+	if out, err := patchSettings(t, d, `{"packageCacheMaxBytes":0}`); err != nil || out.PackageCacheMaxBytes != out.DefaultPackageCacheMaxBytes {
 		t.Errorf("0 didn't go back to the default: %d, %v", out.PackageCacheMaxBytes, err)
 	}
 	if out, err := patchSettings(t, d, `{"clearPackageCache":true}`); err != nil || out.PackageCacheBytes != 0 {

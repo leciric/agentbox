@@ -152,10 +152,20 @@ func (a *app) launchDaemon(cmd *cobra.Command, c *api.Client) error {
 	if err := a.startDaemon(); err != nil {
 		return fmt.Errorf("starting the AgentBox daemon: %w", err)
 	}
+	said := false
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
 		if c.Ping(cmd.Context()) == nil {
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Started the AgentBox daemon (log: %s)\n", a.paths.DaemonLog())
 			return nil
+		}
+		// One moving data before it listens (in a VM, onto the agents' disk)
+		// is waited for as long as it says it's at it.
+		if what, at := daemon.StartingSince(a.paths.Data); what != "" && time.Since(at) < 10*time.Second {
+			if !said {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%s…\n", what)
+				said = true
+			}
+			deadline = time.Now().Add(10 * time.Second)
 		}
 	}
 	return fmt.Errorf("the AgentBox daemon didn't start: see %s", a.paths.DaemonLog())

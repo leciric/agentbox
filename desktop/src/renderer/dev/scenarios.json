@@ -322,6 +322,14 @@
     "height": 120
   },
   {
+    "id": "disk-low-popover-dark",
+    "description": "The top bar's Disk low pill in VM mode with its popover open: the agents' disk near its floor, named, with what grows it (Settings, agentbox vm resize --disk) and what can be cleared — dark",
+    "query": "meters=disklow&theme=dark",
+    "width": 1280,
+    "height": 700,
+    "click": "[data-disk-level=\"low\"]"
+  },
+  {
     "id": "disk-meter-unmeasured-dark",
     "description": "The top bar's disk meter in VM mode with nothing allocated yet: — / 120 GiB and an empty bar, never 0 B — dark",
     "query": "meters=disk-unmeasured&theme=dark",
@@ -739,6 +747,62 @@
     "description": "The New agent dialog, with its Size picker under the Queue switch \u2014 dark",
     "query": "newagent=1&theme=dark",
     "width": 1100,
+    "height": 900
+  },
+  {
+    "id": "notify-bell-dark",
+    "description": "The top bar's bell open on its history: finishes, questions and new media from every project, unseen ones marked — dark",
+    "query": "notify=bell&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "notify-bell-light",
+    "description": "The top bar's bell open on its history: finishes, questions and new media from every project, unseen ones marked — light",
+    "query": "notify=bell&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "notify-media-dark",
+    "description": "The all-projects Media view: every agent's screenshots and recordings by day, filters for project, agent, kind and unseen — dark",
+    "query": "notify=media&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "notify-media-light",
+    "description": "The all-projects Media view: every agent's screenshots and recordings by day, filters for project, agent, kind and unseen — light",
+    "query": "notify=media&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "notify-viewer-dark",
+    "description": "A media notification clicked: its agent's Media, the item open in a viewer with links to the project, the agent and its PR — dark",
+    "query": "notify=viewer&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "notify-viewer-light",
+    "description": "A media notification clicked: its agent's Media, the item open in a viewer with links to the project, the agent and its PR — light",
+    "query": "notify=viewer&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "notify-toast-dark",
+    "description": "An in-app toast about new media, the whole of it a link to the item — dark",
+    "query": "notify=toast&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "notify-toast-light",
+    "description": "An in-app toast about new media, the whole of it a link to the item — light",
+    "query": "notify=toast&theme=light",
+    "width": 1440,
     "height": 900
   }
 ]

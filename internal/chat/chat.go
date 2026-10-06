@@ -191,6 +191,12 @@ func (m *Manager) conversation(a state.Agent) (*conversation, error) {
 	// project's chat is first read before its lead exists, with no worktree yet,
 	// and the first message is what creates it; an agent can also change its
 	// Claude Code account between turns.
+	if c.loaded && c.agent.Status == state.AgentQueued && a.Status != state.AgentQueued && c.adapter == nil {
+		// Read while the agent was queued, before creation saved its chat
+		// options (model, effort, window, mode): that copy is empty, and a
+		// session started from it would run on the tool's default model.
+		c.loaded, c.items, c.byID = false, nil, map[string]*api.ChatItem{}
+	}
 	c.agent = a
 	if err := c.load(); err != nil {
 		c.mu.Unlock()

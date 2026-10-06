@@ -159,6 +159,9 @@ func (s *Server) media(action string, agentOf func(*http.Request) (state.Agent, 
 			return err
 		}
 		s.events.publish(api.EventMedia, toAPIMedia(item, m.MediaPath(item)))
+		if source == "agent" {
+			s.notifyMedia(ctx, a, toAPIMedia(item, m.MediaPath(item)))
+		}
 		if art, ok := s.captureArtifact(ctx, a.Project, a.Name, "media", "/v1/media/"+item.ID, map[string]any{
 			"mediaId": item.ID, "kind": item.Kind, "name": item.Name, "mime": item.Mime, "size": item.Size, "source": item.Source,
 		}); ok {

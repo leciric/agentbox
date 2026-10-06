@@ -14,6 +14,7 @@ import { useVMPower } from '../lib/vm';
 import { bytesOf, cn, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { DiskGuardPill } from './DiskGuardPill';
+import { NotificationBell } from './Notifications';
 import { ResourceControls } from './ResourceControls';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
@@ -23,11 +24,15 @@ export function TopBar({
   onSelect,
   onOpenNav,
   onNewAgent,
+  onOpenNotice,
 }: {
   view: View;
   onSelect: (view: View) => void;
   onOpenNav: () => void;
   onNewAgent: (project: string) => void;
+  // onOpenNotice goes where a notification in the bell points; without it
+  // there's no bell.
+  onOpenNotice?: (notice: T.Notification) => void;
 }) {
   const t = useT();
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage });
@@ -48,6 +53,9 @@ export function TopBar({
       break;
     case 'jobs':
       crumbs.push({ label: t('shell.nav.jobs') });
+      break;
+    case 'media':
+      crumbs.push({ label: t('shell.nav.media') });
       break;
     case 'settings':
       crumbs.push({ label: t('common.settings') });
@@ -91,6 +99,7 @@ export function TopBar({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {onOpenNotice && <NotificationBell onOpen={onOpenNotice} onAllMedia={() => onSelect({ kind: 'media' })} />}
         {setup.data && !setup.data.ready && view.kind !== 'settings' && (
           <button
             className="flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200 ring-1 ring-inset ring-amber-400/25 transition hover:bg-amber-400/15"

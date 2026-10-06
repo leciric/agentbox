@@ -214,17 +214,18 @@ const (
 	SettingPackageCacheMax = "package_cache_max"
 )
 
-// DefaultPackageCacheMax is the shared package caches' cap when nobody chose:
-// a few projects' dependencies, Go modules and Playwright browsers.
+// DefaultPackageCacheMax is the shared package caches' cap when nobody chose,
+// on a disk big enough for it: a few projects' dependencies, Go modules and
+// Playwright browsers.
 const DefaultPackageCacheMax int64 = 20 << 30
 
 // PackageCache reads the shared package caches' settings: whether they're
-// on, and their cap in bytes.
+// on, and the cap chosen for them in bytes, 0 when nobody chose. The daemon
+// fits it to their disk (daemon.fitCacheMax).
 func (s *Store) PackageCache(ctx context.Context) (on bool, maxBytes int64, err error) {
 	if on, err = s.FlagOn(ctx, SettingPackageCache); err != nil {
 		return false, 0, err
 	}
-	maxBytes = DefaultPackageCacheMax
 	raw, err := s.Setting(ctx, SettingPackageCacheMax)
 	if err != nil {
 		return false, 0, err
@@ -235,18 +236,18 @@ func (s *Store) PackageCache(ctx context.Context) (on bool, maxBytes int64, err 
 	return on, maxBytes, nil
 }
 
-// DefaultImageCacheMax is the shared image cache's cap when nobody chose: a
-// handful of development stacks' images, a fraction of what agents pulling
+// DefaultImageCacheMax is the shared image cache's cap when nobody chose, on
+// a disk big enough for it: a handful of development stacks' images, a fraction of what agents pulling
 // their own copies used to take.
 const DefaultImageCacheMax int64 = 20 << 30
 
 // ImageCache reads the shared image cache's settings: whether it's on, and
-// its cap in bytes.
+// the cap chosen for it in bytes, 0 when nobody chose. The daemon fits it to
+// its disk (daemon.fitCacheMax).
 func (s *Store) ImageCache(ctx context.Context) (on bool, maxBytes int64, err error) {
 	if on, err = s.FlagOn(ctx, SettingImageCache); err != nil {
 		return false, 0, err
 	}
-	maxBytes = DefaultImageCacheMax
 	raw, err := s.Setting(ctx, SettingImageCacheMax)
 	if err != nil {
 		return false, 0, err

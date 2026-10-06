@@ -350,6 +350,29 @@ func (c *Client) Retire(ctx context.Context, project string, req RetireRequest) 
 
 // ProjectMedia is every agent's media for a project, newest first. An empty
 // agent or kind means all of them.
+// AllMedia is every project's media, newest first, of the given kinds (all
+// of them when none are given).
+func (c *Client) AllMedia(ctx context.Context, kinds ...string) ([]MediaItem, error) {
+	path := "/v1/media"
+	if len(kinds) > 0 {
+		path += "?" + url.Values{"kind": {strings.Join(kinds, ",")}}.Encode()
+	}
+	var out []MediaItem
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// Notifications is the app's history of what agents did, newest first.
+func (c *Client) Notifications(ctx context.Context) ([]Notification, error) {
+	var out []Notification
+	return out, c.do(ctx, http.MethodGet, "/v1/notifications", nil, &out)
+}
+
+// SeeNotifications marks notifications seen.
+func (c *Client) SeeNotifications(ctx context.Context, req SeeNotificationsRequest) (SeeNotificationsResult, error) {
+	var out SeeNotificationsResult
+	return out, c.do(ctx, http.MethodPost, "/v1/notifications/seen", req, &out)
+}
+
 func (c *Client) ProjectMedia(ctx context.Context, project, agent, kind string) ([]MediaItem, error) {
 	q := url.Values{}
 	if agent != "" {

@@ -76,6 +76,8 @@
 //                           shot, since state here comes from the URL alone
 //   ?meters=disk-unmeasured the disk meter in VM mode before its images are
 //                           measured: — / 120 GiB
+//   ?meters=disklow         the "Disk low" pill, for the VM's agents' disk near
+//                           its floor; click it for the popover and its advice
 //   ?nightly=1              a nightly build, on the nightly channel with a newer
 //                           nightly out: the sidebar's starry header and badge,
 //                           and with ?settings=general the Update channel row
@@ -93,6 +95,10 @@
 //   ?media=project|agent    a project's Media, 360 items across four agents
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
+//   ?notify=bell|media|viewer|toast
+//                           a mock of clickable notifications, the top bar's
+//                           bell and its history, the all-projects Media view
+//                           and the viewer a notification opens (notifications.tsx)
 //   ?power=host|host-start  the top bar's resource controls in host mode:
 //                           agents running (Free resources), or every one
 //                           stopped by it, with Start to bring them back
@@ -196,6 +202,8 @@ import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
 
+import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
+
 installDevBridge();
 
 const params = new URLSearchParams(location.search);
@@ -216,6 +224,7 @@ const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const usage = params.get('usage') === '1';
 const pulls = params.get('pulls') === '1';
+const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
 const meters = params.get('meters'); // "cpu" | "disk" | "disk-unmeasured" | "pool" | null
@@ -314,6 +323,7 @@ seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media) seedMedia(queryClient);
+if (notify) seedNotifications(queryClient, mockMedia());
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (params.get('nightly') === '1') seedNightly(queryClient);
@@ -339,6 +349,27 @@ if (meters) {
   queryClient.setQueryData(['claudeLimits'], []);
   seedMeterUsage(queryClient);
   if (meters === 'disk' || meters === 'disk-unmeasured') seedVMDisk(queryClient, meters === 'disk-unmeasured');
+  if (meters === 'disklow') {
+    queryClient.setQueryData(['disk'], {
+      level: 'low',
+      paused: [],
+      since: '',
+      message: '',
+      disks: [
+        {
+          label: "The agents' disk, the shared caches",
+          free: 14.2 * GiB,
+          total: 100 * GiB,
+          floor: 10 * GiB,
+          level: 'low',
+          advice:
+            "Make it bigger in Settings, AgentBox's Linux VM, VM size, or with `agentbox vm resize --disk <size>`. Destroy agents you're done with. `agentbox package-cache --clear` and `agentbox docker-cache --clear` empty the shared caches, which fill again as agents need them.",
+        },
+        { label: "The VM's system disk", path: '/home/lint.linux/.local/share/agentbox', free: 15.1 * GiB, total: 19.6 * GiB, floor: 1 * GiB, level: 'ok', advice: "It holds the VM's system and AgentBox's state, and can't be made bigger." },
+        { label: 'Worktrees, media', path: '/home/lint/.local/share/agentbox/worktrees', free: 420 * GiB, total: 931 * GiB, floor: 10 * GiB, level: 'ok' },
+      ],
+    } satisfies T.DiskGuard);
+  }
 }
 
 const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
@@ -514,6 +545,7 @@ function Preview() {
   if (github) return <GitHubPreview />;
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
+  if (notify) return <NotificationsPreview scenario={notify} />;
   if (newAgent) return <NewAgentDialog project={PROJECT} onClose={() => {}} onCreated={() => {}} />;
 
   if (power) {

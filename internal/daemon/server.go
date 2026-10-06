@@ -326,6 +326,7 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	defer unlock()
+	moved := s.moveDataToPool(ctx)
 
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -381,6 +382,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.watchDisk(ctx) })
 	loops.Go(func() { s.watchPackageCache(ctx) })
 	loops.Go(func() { s.refreshConnectors(ctx) })
+	loops.Go(func() { s.dropMovedData(ctx, moved) })
 	s.runCtx = ctx
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
@@ -693,6 +695,9 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/media/{id}", s.mediaItem)
 	h("GET /v1/media/{id}/file", s.mediaFile)
 	h("DELETE /v1/media/{id}", s.deleteMedia)
+	h("GET /v1/media", s.allMedia)
+	h("GET /v1/notifications", s.notifications)
+	h("POST /v1/notifications/seen", s.seeNotifications)
 
 	h("GET /v1/usage", s.usage)
 	h("GET /v1/usage/disk", s.diskUsage)

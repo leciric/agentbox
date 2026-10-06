@@ -15,6 +15,7 @@ import { handleMedia, registerMediaScheme } from './media';
 import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
+import { showNotice, type OSNotice } from './notify';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
 import { learnMode, linuxVM } from './vmmode';
@@ -244,6 +245,7 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
+ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
 
