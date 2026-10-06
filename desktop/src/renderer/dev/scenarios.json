@@ -435,6 +435,62 @@
     ]
   },
   {
+    "id": "settings-general-whole-dark",
+    "description": "Settings open at General, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=general&theme=dark",
+    "width": 1280,
+    "height": 1500
+  },
+  {
+    "id": "settings-phone-whole-dark",
+    "description": "Settings open at Phone, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=phone&theme=dark",
+    "width": 1280,
+    "height": 1100
+  },
+  {
+    "id": "settings-voice-whole-dark",
+    "description": "Settings open at Voice, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=voice&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "settings-models-whole-dark",
+    "description": "Settings open at Models, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=models&theme=dark",
+    "width": 1280,
+    "height": 2000
+  },
+  {
+    "id": "settings-agents-whole-dark",
+    "description": "Settings open at Agents, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=agents&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "settings-resources-whole-dark",
+    "description": "Settings open at Resources, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=resources&theme=dark",
+    "width": 1280,
+    "height": 1900
+  },
+  {
+    "id": "settings-accounts-whole-dark",
+    "description": "Settings open at Accounts, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=accounts&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "settings-project-whole-dark",
+    "description": "Settings open at a project's own settings, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 1280,
+    "height": 2300
+  },
+  {
     "id": "io-home-stalling-dark",
     "description": "Home and the rail with disk IO, on a host stalling on disk and memory (io full 35%, memory full 19%) — dark",
     "query": "io=stalling&theme=dark",
