@@ -274,6 +274,12 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      # This workflow runs on pull_request, which sets GITHUB_BASE_REF, and
+      # electron-builder takes that for a pull request's build and signs
+      # nothing, not even ad hoc: the app kept Electron's own signature, which
+      # doesn't verify ("code has no resources but signature indicates they
+      # must be present"), so the app's in-place update refused every nightly.
+      CSC_FOR_PULL_REQUEST: 'true'
     steps:
       - uses: actions/checkout@v7
         with:

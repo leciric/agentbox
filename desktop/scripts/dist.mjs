@@ -20,8 +20,8 @@
 //   npm run dist -- --mac [--arm64] [--x64]
 //   npm run dist -- --win
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { arch as hostArch } from 'node:os';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { arch as hostArch, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -66,5 +66,12 @@ if (args.includes('--win')) {
     goBuild('agentbox', { GOOS: 'darwin', GOARCH: goArch[a], CGO_ENABLED: '1' });
     goBuild('agentbox-linux', { GOOS: 'linux', GOARCH: goArch[a], CGO_ENABLED: '0' });
     run('npx', ['electron-builder', '--mac', 'dmg', 'zip', `--${a}`, '--publish', 'never', ...identityArgs]);
+    // Unpack the .zip and check its signature the way the app's in-place
+    // update does (src/main/appupdate.ts), which refuses an app whose
+    // signature doesn't verify: better the build fails than every update to it.
+    const check = mkdtempSync(join(tmpdir(), 'agentbox-zip-'));
+    run('ditto', ['-x', '-k', join(root, 'dist', `AgentBox-${version}-mac-${a}.zip`), check]);
+    run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', join(check, 'AgentBox.app')]);
+    rmSync(check, { recursive: true, force: true });
   }
 }
