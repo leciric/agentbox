@@ -304,7 +304,7 @@
     "query": "meters=cpu&theme=dark",
     "width": 1280,
     "height": 900,
-    "click": "[aria-label^=\"Host CPU\"]"
+    "click": "[data-meter=cpu]"
   },
   {
     "id": "disk-popover-fixtures-dark",
@@ -312,7 +312,7 @@
     "query": "meters=disk&theme=dark",
     "width": 1280,
     "height": 900,
-    "click": "[aria-label^=\"AgentBox's VM takes\"]"
+    "click": "[data-meter=disk]"
   },
   {
     "id": "disk-meter-dark",
@@ -334,7 +334,7 @@
     "query": "meters=pool&theme=dark",
     "width": 1280,
     "height": 900,
-    "click": "[aria-label^=\"Agents' disk\"]"
+    "click": "[data-meter=disk]"
   },
   {
     "id": "media-project-dark",
@@ -481,7 +481,7 @@
     "query": "power=host&theme=dark",
     "width": 1280,
     "height": 820,
-    "click": "[aria-label=\"Free resources\"]"
+    "click": "[data-free-mode=free]"
   },
   {
     "id": "power-confirm-vm-dark",
@@ -489,7 +489,7 @@
     "query": "power=running&theme=dark",
     "width": 1280,
     "height": 820,
-    "click": "[aria-label=\"Free resources\"]"
+    "click": "[data-free-mode=free]"
   },
   {
     "id": "power-progress-dark",

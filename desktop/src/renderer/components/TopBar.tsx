@@ -174,6 +174,7 @@ function DiskMeter({ host, vmDisk }: { host?: T.HostUsage; vmDisk?: T.VMDisk }) 
         <button
           type="button"
           className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised lg:flex"
+          data-meter="disk"
           aria-label={
             vmDisk
               ? t('shell.top.vmTakes', { used: knownBytes(used), size: humanBytes(size) })
@@ -360,6 +361,7 @@ function CPUMeter({ host, onSelect }: { host: T.HostUsage; onSelect: (view: View
         <button
           type="button"
           className="hidden items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised sm:flex"
+          data-meter="cpu"
           aria-label={t('shell.top.cpuLabel', { text, detail })}
         >
           <Cpu className="size-3.5 text-subtle" />
