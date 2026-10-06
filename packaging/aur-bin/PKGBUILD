@@ -1,8 +1,8 @@
 # Maintainer: Leandro Ciric <leandro@linting.dev>
 #
 # Installs the released AgentBox desktop app and command-line tool from
-# github.com/leciric/agentbox's GitHub releases: no Go, Node or Electron
-# build here, unlike ../aur, which builds this checkout.
+# downloads.agentbox.linting.dev, where every release is published: no Go,
+# Node or Electron build here, unlike ../aur, which builds this checkout.
 #
 #   cd packaging/aur-bin && makepkg -si
 #
@@ -57,9 +57,9 @@ optdepends=(
 )
 options=('!strip')
 source=(
-  "AgentBox-$pkgver-$CARCH.AppImage::https://github.com/leciric/agentbox/releases/download/v$pkgver/AgentBox-$pkgver-x86_64.AppImage"
-  "agentbox-$pkgver-linux-amd64::https://github.com/leciric/agentbox/releases/download/v$pkgver/agentbox-$pkgver-linux-amd64"
-  "LICENSE-$pkgver::https://raw.githubusercontent.com/leciric/agentbox/v$pkgver/LICENSE"
+  "AgentBox-$pkgver-$CARCH.AppImage::https://downloads.agentbox.linting.dev/releases/v$pkgver/AgentBox-$pkgver-x86_64.AppImage"
+  "agentbox-$pkgver-linux-amd64::https://downloads.agentbox.linting.dev/releases/v$pkgver/agentbox-$pkgver-linux-amd64"
+  "LICENSE"
   "agentbox-desktop.desktop"
   "agentbox-desktop.sh"
   "agentbox-desktop.png"
@@ -99,5 +99,5 @@ package() {
     "$pkgdir/usr/share/icons/hicolor/512x512/apps/agentbox-desktop.png"
   install -Dm644 agentbox-desktop.svg \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/agentbox-desktop.svg"
-  install -Dm644 "LICENSE-$pkgver" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

@@ -21,4 +21,4 @@ Bugs in the AI tools themselves (Claude Code, Codex, OpenCode) belong to their o
 
 ## Supported versions
 
-Only the [latest release](https://github.com/leciric/agentbox/releases/latest) gets security fixes.
+Only the [latest release](https://downloads.agentbox.linting.dev/index.html) gets security fixes.

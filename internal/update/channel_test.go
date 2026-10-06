@@ -74,31 +74,45 @@ func TestOffer(t *testing.T) {
 func TestLatestReleasePicksTheNewestReleaseOrNightly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`[
-			{"tag_name":"v0.12.0-nightly.20261001.9","html_url":"draft","draft":true},
-			{"tag_name":"image-99","html_url":"image"},
-			{"tag_name":"v0.11.0-nightly.20260929.12","html_url":"n12","prerelease":true},
-			{"tag_name":"v0.11.0-nightly.20260930.2","html_url":"n2","prerelease":true},
-			{"tag_name":"v0.10.1","html_url":"a prerelease without the nightly name","prerelease":true},
-			{"tag_name":"v0.10.0","html_url":"stable"},
-			{"tag_name":"v0.9.1","html_url":"older"},
-			{"tag_name":"v0.11.0-rc.1","html_url":"rc"}
+			{"tag_name":"v0.12.0-nightly.20261001.9","draft":true},
+			{"tag_name":"image-99"},
+			{"tag_name":"v0.11.0-nightly.20260929.12","prerelease":true},
+			{"tag_name":"v0.11.0-nightly.20260930.2","prerelease":true},
+			{"tag_name":"v0.10.1","prerelease":true},
+			{"tag_name":"v0.10.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.10.0"},
+			{"tag_name":"v0.9.1"},
+			{"tag_name":"v0.11.0-rc.1"}
 		]`))
 	}))
 	defer srv.Close()
-	got, err := LatestRelease(context.Background(), srv.URL, ChannelNightly)
+	list := srv.URL + "/releases.json"
+	got, err := LatestRelease(context.Background(), list, ChannelNightly)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != "0.11.0-nightly.20260930.2" || got.URL != "n2" {
-		t.Errorf("LatestRelease(nightly) = %+v", got)
+	if want := srv.URL + "/releases/v0.11.0-nightly.20260930.2/index.html"; got.Version != "0.11.0-nightly.20260930.2" || got.URL != want {
+		t.Errorf("LatestRelease(nightly) = %+v, want its page %s", got, want)
 	}
 	// The stable channel's latest is the newest release that isn't a
-	// prerelease, however many nightlies came after it.
-	got, err = LatestRelease(context.Background(), srv.URL, ChannelStable)
+	// prerelease, however many nightlies came after it. Its page is the
+	// bucket's, never GitHub's, which the private repository closes to users.
+	got, err = LatestRelease(context.Background(), list, ChannelStable)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != "0.10.0" || got.URL != "stable" {
-		t.Errorf("LatestRelease(stable) = %+v", got)
+	if want := srv.URL + "/releases/v0.10.0/index.html"; got.Version != "0.10.0" || got.URL != want {
+		t.Errorf("LatestRelease(stable) = %+v, want its page %s", got, want)
+	}
+}
+
+func TestReleasePageIsBesideTheList(t *testing.T) {
+	for _, tc := range []struct{ base, want string }{
+		{"", "https://downloads.agentbox.linting.dev/releases/v0.11.0/index.html"},
+		{"https://example.com/agentbox/releases.json?x=1", "https://example.com/agentbox/releases/v0.11.0/index.html"},
+		{"http://127.0.0.1:8080", "http://127.0.0.1:8080/releases/v0.11.0/index.html"},
+	} {
+		if got := ReleasePage(tc.base, "v0.11.0"); got != tc.want {
+			t.Errorf("ReleasePage(%q) = %q, want %q", tc.base, got, tc.want)
+		}
 	}
 }

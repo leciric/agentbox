@@ -1720,8 +1720,8 @@ const nightlyVersion = '0.11.0-nightly.20260929.12';
 function nightlyStatus(current: string, channel: string): T.UpdateStatus {
   const available =
     channel === 'nightly'
-      ? { version: '0.11.0-nightly.20260930.13', url: 'https://github.com/leciric/agentbox/releases/tag/v0.11.0-nightly.20260930.13' }
-      : { version: '0.10.0', url: 'https://github.com/leciric/agentbox/releases/tag/v0.10.0' };
+      ? { version: '0.11.0-nightly.20260930.13', url: 'https://downloads.agentbox.linting.dev/releases/v0.11.0-nightly.20260930.13/index.html' }
+      : { version: '0.10.0', url: 'https://downloads.agentbox.linting.dev/releases/v0.10.0/index.html' };
   return { current, enabled: true, channel, nightly: true, available, checkedAt: new Date().toISOString() };
 }
 export function seedNightly(queryClient: QueryClient): void {

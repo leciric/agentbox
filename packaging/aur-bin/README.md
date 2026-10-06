@@ -2,7 +2,7 @@
 
 A PKGBUILD that installs `agentbox-bin`, a real AUR submission: it downloads the
 `AgentBox-<version>-x86_64.AppImage` and `agentbox-<version>-linux-amd64` assets from a
-[GitHub release](https://github.com/leciric/agentbox/releases) and checks them against the
+release at [downloads.agentbox.linting.dev](https://downloads.agentbox.linting.dev/index.html) and checks them against the
 release's own `SHA256SUMS`, instead of building from source like [`../aur`](../aur).
 
 ## Build and install
@@ -19,7 +19,7 @@ launcher, so the two packages conflict and provide `agentbox` for each other.
 
 ## Updating for a new release
 
-`pkgver`'s two download sums (the AppImage and the CLI binary) and the `LICENSE` sum are release
+`pkgver`'s two download sums (the AppImage and the CLI binary) are release
 build artifacts and can't be known before a release is published. After tagging and publishing a
 release:
 

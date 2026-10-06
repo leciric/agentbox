@@ -455,7 +455,7 @@ export const enUS = {
   'settings.channel.stable': 'Stable',
   'settings.channel.nightly': 'Nightly',
   'settings.channel.description': 'Stable offers releases only. Nightly also offers the builds made each day from what\'s coming next.',
-  'settings.channel.details': 'Nightlies are built from the next release as it stands, and are published on GitHub as prereleases: they\'re for trying what\'s coming, and may break. To see them, the daily check also asks GitHub for its public list of releases, sending nothing more than any page request does. Going back to Stable offers the latest release, even though its version is lower than the nightly\'s.',
+  'settings.channel.details': 'Nightlies are built from the next release as it stands, and are published as prereleases: they\'re for trying what\'s coming, and may break. To see them, the daily check also reads the public list of releases at downloads.agentbox.linting.dev, sending nothing more than any page request does. Going back to Stable offers the latest release, even though its version is lower than the nightly\'s.',
   'settings.channel.backToStable': 'This is a nightly. AgentBox {version} is the latest stable release.',
   'settings.channel.getIt': 'Get it',
   'settings.prWatch.description': 'Tells an agent when its pull request conflicts, fails its checks or gets changes requested.',
