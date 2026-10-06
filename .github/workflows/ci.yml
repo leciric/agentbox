@@ -155,7 +155,7 @@ jobs:
       - run: scripts/check-coverage.sh
 
       - uses: actions/cache/save@v6
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'pull_request' # TEMP: measure warm
         with:
           path: |
             ~/.cache/go-build
@@ -215,7 +215,7 @@ jobs:
           GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/agentbox
 
       - uses: actions/cache/save@v6
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'pull_request' # TEMP: measure warm
         with:
           path: |
             ~/.cache/go-build
@@ -350,7 +350,7 @@ jobs:
           AGENTBOX_TEST_SIGNED=1 bin/chv.test -test.run 'VZ' -test.v
 
       - uses: actions/cache/save@v6
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || github.event_name == 'pull_request' # TEMP: measure warm
         with:
           path: |
             ~/Library/Caches/go-build
