@@ -41,6 +41,8 @@ import { api } from "../lib/api";
 import { formatDate, formatList, languages, t, useT, type MessageKey } from "../lib/i18n";
 import { isNightly, isUpgrade } from "../lib/nightly";
 import { openLatestRelease } from "../lib/releaseLink";
+import { updateHint } from "../lib/appUpdate";
+import { useAppUpdate } from "../lib/useAppUpdate";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
@@ -1473,6 +1475,7 @@ function UpdateChannel() {
   const current = update.data?.channel;
   const available = update.data?.available;
   const backToStable = !!available && current === "stable" && !!update.data?.nightly && !isUpgrade(available.version, update.data.current);
+  const appUpdate = useAppUpdate();
   return (
     <SettingRow
       label={t("settings.entry.update-channel.label")}
@@ -1511,9 +1514,11 @@ function UpdateChannel() {
           {t("settings.channel.backToStable", { version: available.version })}{" "}
           <button
             className="rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
-            onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, available.url)}
+            title={updateHint(appUpdate.support, available.version)}
+            disabled={appUpdate.updating}
+            onClick={() => void appUpdate.start(available.url)}
           >
-            {t("settings.channel.getIt")}
+            {appUpdate.label ?? t("settings.channel.getIt")}
           </button>
         </SettingNote>
       )}

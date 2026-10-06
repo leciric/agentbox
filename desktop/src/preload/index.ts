@@ -3,6 +3,7 @@
 // picker, links and the clipboard.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type * as T from '../shared/api';
+import type { AppUpdateProgress, AppUpdateResult, AppUpdateSupport } from '../shared/appupdate';
 
 export interface ApiResponse {
   status: number;
@@ -252,6 +253,13 @@ const bridge = {
     `agentbox-media://media/${encodeURIComponent(id)}${path ? '/' + path.split('/').map(encodeURIComponent).join('/') : ''}`,
   // chatImageUrl is where the renderer loads a picture sent in a chat, given
   // its daemon path (.../chat/images/<id>); main/media.ts serves it too.
+  // Updating the app in place (main/updater.ts): whether this install can,
+  // and the update itself, which restarts the app when it succeeds.
+  appUpdate: {
+    support: (): Promise<AppUpdateSupport> => ipcRenderer.invoke('appUpdate:support'),
+    start: (): Promise<AppUpdateResult> => ipcRenderer.invoke('appUpdate:start'),
+    onProgress: (fn: (progress: AppUpdateProgress) => void) => listen('appUpdate:progress', fn),
+  },
   chatImageUrl: (path: string): string => `agentbox-media://api${path}`,
   // Problem reports: the app's own sections of one (main/applog.ts), a
   // window's uncaught error to keep with them, the main process's uncaught

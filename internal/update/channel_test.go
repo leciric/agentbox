@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -77,7 +78,9 @@ func TestLatestReleasePicksTheNewestReleaseOrNightly(t *testing.T) {
 			{"tag_name":"v0.12.0-nightly.20261001.9","html_url":"draft","draft":true},
 			{"tag_name":"image-99","html_url":"image"},
 			{"tag_name":"v0.11.0-nightly.20260929.12","html_url":"n12","prerelease":true},
-			{"tag_name":"v0.11.0-nightly.20260930.2","html_url":"n2","prerelease":true},
+			{"tag_name":"v0.11.0-nightly.20260930.2","html_url":"n2","prerelease":true,"assets":[
+				{"name":"AgentBox-0.11.0-nightly.20260930.2-mac-arm64.zip","browser_download_url":"https://example.com/n2.zip","size":42},
+				{"name":"SHA256SUMS","browser_download_url":"https://example.com/sums","size":7}]},
 			{"tag_name":"v0.10.1","html_url":"a prerelease without the nightly name","prerelease":true},
 			{"tag_name":"v0.10.0","html_url":"stable"},
 			{"tag_name":"v0.9.1","html_url":"older"},
@@ -92,13 +95,18 @@ func TestLatestReleasePicksTheNewestReleaseOrNightly(t *testing.T) {
 	if got.Version != "0.11.0-nightly.20260930.2" || got.URL != "n2" {
 		t.Errorf("LatestRelease(nightly) = %+v", got)
 	}
+	// With the files the app updates itself from.
+	want := []Asset{{"AgentBox-0.11.0-nightly.20260930.2-mac-arm64.zip", "https://example.com/n2.zip", 42}, {"SHA256SUMS", "https://example.com/sums", 7}}
+	if !reflect.DeepEqual(got.Assets, want) {
+		t.Errorf("LatestRelease(nightly).Assets = %+v, want %+v", got.Assets, want)
+	}
 	// The stable channel's latest is the newest release that isn't a
 	// prerelease, however many nightlies came after it.
 	got, err = LatestRelease(context.Background(), srv.URL, ChannelStable)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Version != "0.10.0" || got.URL != "stable" {
+	if got.Version != "0.10.0" || got.URL != "stable" || got.Assets != nil {
 		t.Errorf("LatestRelease(stable) = %+v", got)
 	}
 }

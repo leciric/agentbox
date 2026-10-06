@@ -1,7 +1,7 @@
 // The Electron main process. It holds no AgentBox logic: it proxies API calls,
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
-// hubs, and installs the command-line tool.
+// hubs, installs the command-line tool, and updates the app (updater.ts).
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +18,7 @@ import { guardStdio } from './stdio';
 import { showNotice, type OSNotice } from './notify';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
+import { installAppUpdates, restartingForUpdate } from './updater';
 import { learnMode, linuxVM } from './vmmode';
 import { allowMicrophone, enableWebGPU } from './voice';
 import { distro, linuxPath, windowsPath } from './wslpaths';
@@ -248,6 +249,7 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
+installAppUpdates(send);
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -304,7 +306,8 @@ const vmStopTimeout = 60_000;
 let vmStop: 'pending' | 'stopping' | 'done' = onMac && !process.env.AGENTBOX_NO_AUTOSTART ? 'pending' : 'done';
 
 app.on('before-quit', (event) => {
-  if (vmStop === 'done') return;
+  // Restarting into a new version (updater.ts): the VM stays up for it.
+  if (vmStop === 'done' || restartingForUpdate()) return;
   event.preventDefault();
   if (vmStop === 'stopping') return;
   vmStop = 'stopping';

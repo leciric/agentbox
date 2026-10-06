@@ -591,6 +591,18 @@ export interface UpdateAvailable {
   url: string;
 }
 
+export interface UpdateRelease {
+  version: string;
+  url: string;
+  assets?: ReleaseAsset[];
+}
+
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+  size: number;
+}
+
 export interface IncusStatus {
   answering: boolean;
   since?: string;

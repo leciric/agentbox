@@ -1673,6 +1673,7 @@ export function installDevBridge(): void {
     stream: { open: async () => 0, write: () => {}, close: () => {}, onOpened: () => () => {}, onData: () => () => {}, onExited: () => () => {} },
     cli: { status: async () => devState.cli ?? {}, install: async () => ({}) },
     hostSetup: { status: async () => devState.hostSetup ?? {}, run: async () => ({ restarted: false }), onOutput: () => () => {}, budget: async () => {} },
+    appUpdate: { support: async () => ({ inPlace: true, kind: 'mac' }), start: async () => ({ ok: true }), onProgress: () => () => {} },
     vmMigrate: { status: async () => devState.migration ?? null, run: async () => {}, removeOld: async () => {}, onOutput: () => () => {} },
     vm: fakeVM(),
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },

@@ -153,6 +153,12 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     run: unavailable('web.bridge.hostSetup'),
     onOutput: () => () => {},
   },
+  // A phone has no app to update.
+  appUpdate: {
+    support: () => Promise.resolve({ inPlace: false, reason: 'unknown' }),
+    start: () => Promise.resolve({ ok: false, code: 'unsupported', detail: 'unknown' }),
+    onProgress: () => () => {},
+  },
   vmMigrate: {
     status: () => Promise.resolve(null),
     run: unavailable('web.bridge.vmMigrate'),

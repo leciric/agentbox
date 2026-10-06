@@ -693,8 +693,8 @@ func (c *Client) Update(ctx context.Context) (UpdateStatus, error) {
 }
 
 // LatestRelease is the update channel's latest release, as GitHub lists it now.
-func (c *Client) LatestRelease(ctx context.Context) (UpdateAvailable, error) {
-	var out UpdateAvailable
+func (c *Client) LatestRelease(ctx context.Context) (UpdateRelease, error) {
+	var out UpdateRelease
 	return out, c.do(ctx, http.MethodGet, "/v1/update/release", nil, &out)
 }
 

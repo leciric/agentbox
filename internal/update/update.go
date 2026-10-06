@@ -35,10 +35,20 @@ const Timeout = 5 * time.Second
 // Interval is how often a running daemon asks again.
 const Interval = 24 * time.Hour
 
-// Latest is the server's answer.
+// Latest is the server's answer. Only GitHub's release list (LatestRelease)
+// says what files a release has; agentbox.linting.dev's answer has none.
 type Latest struct {
-	Version string `json:"version"`
-	URL     string `json:"url"`
+	Version string  `json:"version"`
+	URL     string  `json:"url"`
+	Assets  []Asset `json:"assets,omitempty"`
+}
+
+// Asset is one file of a release: the app's packages, the command-line tool,
+// and the SHA256SUMS they are checked against.
+type Asset struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+	Size int64  `json:"size"`
 }
 
 // Request is everything a check sends.
