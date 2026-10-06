@@ -110,6 +110,12 @@ const (
 	// choice. On until somebody turns it off, so it is read with FlagOn rather
 	// than Flag.
 	SettingResumeAfterLimit = "resume_after_limit"
+	// SettingContinueAfterRestart says whether the chats AgentBox stopped in
+	// the middle of a turn — an update, a crash, a quit, a reboot — carry
+	// that turn on when the daemon starts again (running_turns). Like
+	// SettingResumeAfterLimit it is the installation's and on until turned
+	// off, read with FlagOn.
+	SettingContinueAfterRestart = "continue_after_restart"
 	// SettingClaudeCompactWindow is how full a chat's context may get before
 	// its AI tool compacts it (D83), as a count of tokens. Empty means
 	// DefaultClaudeCompactWindow and "0" means the model's whole window. Named

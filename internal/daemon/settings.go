@@ -83,6 +83,12 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	if req.ContinueAfterRestart != nil {
+		// A flag too, on until turned off. Read once, as the daemon starts.
+		if err := s.store.SetFlag(r.Context(), state.SettingContinueAfterRestart, *req.ContinueAfterRestart); err != nil {
+			return err
+		}
+	}
 	if req.ClaudeCompactWindow != nil {
 		// Stored as a count, and checked against the bounds Claude Code holds
 		// its own variable to: past them, it would clamp or ignore the value
@@ -348,6 +354,10 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
+	continueAfterRestart, err := s.store.FlagOn(r.Context(), state.SettingContinueAfterRestart)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	updateCheck, err := s.store.FlagOn(r.Context(), state.SettingUpdateCheck)
 	if err != nil {
 		return api.Settings{}, err
@@ -439,14 +449,15 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,
 
-		ResumeAfterLimit:  resumeAfterLimit,
-		UpdateCheck:       updateCheck,
-		UsageStats:        usageStats,
-		ErrorReports:      errorReports == "1",
-		ErrorReportsAsked: errorReports != "",
-		PRWatch:           prWatch,
-		MediaRetention:    mediaRetention,
-		Language:          language,
+		ResumeAfterLimit:     resumeAfterLimit,
+		ContinueAfterRestart: continueAfterRestart,
+		UpdateCheck:          updateCheck,
+		UsageStats:           usageStats,
+		ErrorReports:         errorReports == "1",
+		ErrorReportsAsked:    errorReports != "",
+		PRWatch:              prWatch,
+		MediaRetention:       mediaRetention,
+		Language:             language,
 
 		ClaudeCompactWindow:        compactWindow,
 		DefaultClaudeCompactWindow: state.DefaultClaudeCompactWindow,

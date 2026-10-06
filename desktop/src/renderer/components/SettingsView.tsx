@@ -62,6 +62,7 @@ import {
   NewAgentEffort,
   OpenCodeInImage,
   ResumeAfterLimit,
+  ContinueAfterRestart,
   TaskTarget,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
@@ -1039,6 +1040,13 @@ function InstalledSettings({
               keywords: t("settings.entry.resume.keywords"),
               modified: changed((s) => !s.resumeAfterLimit),
               render: () => <ResumeAfterLimit />,
+            },
+            {
+              id: "continue-after-restart",
+              label: t("settings.entry.continueAfterRestart.label"),
+              keywords: t("settings.entry.continueAfterRestart.keywords"),
+              modified: changed((s) => !s.continueAfterRestart),
+              render: () => <ContinueAfterRestart />,
             },
           ],
         },

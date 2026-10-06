@@ -827,6 +827,22 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX notifications_by_time ON notifications (created_at)`,
 	`CREATE INDEX notifications_by_media ON notifications (media_id) WHERE media_id != ''`,
+
+	// The chats with a turn running, one row each, written as the turn starts
+	// and removed once it ends on its own: what a daemon that stopped mid-turn
+	// (an update, a crash, a quit, a reboot) finds on its next start, to carry
+	// those turns on ("Continue agents after restarts"). resumes counts how
+	// many times the turn has already been carried on, so a crash loop stops.
+	`CREATE TABLE running_turns (
+		project    TEXT NOT NULL,
+		agent      TEXT NOT NULL,
+		kind       TEXT NOT NULL,
+		turn       TEXT NOT NULL,
+		prompt     TEXT NOT NULL,
+		started_at INTEGER NOT NULL,
+		resumes    INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (project, agent)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

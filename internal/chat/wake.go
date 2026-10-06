@@ -52,6 +52,9 @@ func (m *Manager) Release(a state.Agent) error {
 		return err
 	}
 	defer c.mu.Unlock()
+	if c.turn == nil && c.compaction == nil && c.releaseResume() {
+		return nil // the turn it starts hands the outbox over when it ends
+	}
 	if c.turn != nil || c.compaction != nil || len(c.outbox) == 0 {
 		return nil // what runs hands the outbox over when it ends
 	}

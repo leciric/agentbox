@@ -388,6 +388,11 @@ type Settings struct {
 	// unless it was turned off, and unlike the settings above it applies to
 	// every agent that already exists, not only to the next one.
 	ResumeAfterLimit bool `json:"resumeAfterLimit"`
+	// ContinueAfterRestart says whether the agents and chats that AgentBox
+	// stopped mid-turn — an update, a crash, a quit, a reboot — start again
+	// and carry on with that turn when it starts again. On unless it was
+	// turned off.
+	ContinueAfterRestart bool `json:"continueAfterRestart"`
 	// ClaudeCompactWindow is how many tokens of context a Claude Code or Codex
 	// chat holds before its tool compacts it (D83); 0 is the model's whole
 	// window. OpenCode has no equivalent to set: its own compaction settings
@@ -512,6 +517,8 @@ type UpdateSettingsRequest struct {
 	// ResumeAfterLimit turns the automatic resume after a Claude usage limit
 	// on or off, for every agent.
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
+	// ContinueAfterRestart turns "Continue agents after restarts" on or off.
+	ContinueAfterRestart *bool `json:"continueAfterRestart,omitempty"`
 	// ClaudeCompactWindow is 0 for the model's whole window, or between
 	// 100000 and 1000000 tokens.
 	ClaudeCompactWindow *int64 `json:"claudeCompactWindow,omitempty"`
