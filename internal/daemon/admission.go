@@ -16,7 +16,9 @@ import (
 // checked against the VM's memory before its machine starts: one that fits
 // starts now, as it always did, and one that doesn't joins its project's
 // queue, whatever the create or the project's AlwaysQueue asked, and starts
-// from there when it fits. The queue loop (queue.go) starts queued agents
+// from there when it fits. A project pinned to a number of slots is capped by
+// it the same way: with the agent queue on, a create beyond its slots queues
+// whatever it asked, and starts when one frees (agent.Waiter.AnySlot). The queue loop (queue.go) starts queued agents
 // the same way, in the order they joined across every project, and this is
 // what it works from.
 //
@@ -48,8 +50,10 @@ type admission struct {
 	instances map[string]string
 	waiting   []agent.Waiter
 	verdicts  map[string]agent.Verdict
-	// slots is each project's number of slots, for a wait on them.
-	slots map[string]int
+	// slots is each project's number of slots, for a wait on them, and
+	// pinned the projects whose number the user fixed.
+	slots  map[string]int
+	pinned map[string]bool
 	// queued are the queued agents, by ref.
 	queued map[string]state.QueuedAgent
 	// waking are the stopped agents waiting for memory to start their
@@ -70,7 +74,7 @@ func (a admission) message(ref string) string {
 			need, project = w.Need, w.Project
 		}
 	}
-	msg := agent.WaitMessage(v, a.capacity, need, a.holders, a.slots[project])
+	msg := agent.WaitMessage(v, a.capacity, need, a.holders, a.slots[project], a.pinned[project])
 	if a.waking[ref] {
 		return wakeMessage(msg)
 	}
@@ -123,6 +127,7 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 		total:     total,
 		instances: map[string]string{},
 		slots:     map[string]int{},
+		pinned:    map[string]bool{},
 		queued:    map[string]state.QueuedAgent{},
 		waking:    map[string]bool{},
 	}
@@ -169,10 +174,18 @@ func (s *Server) planAdmission(ctx context.Context, extra *agent.Waiter) (admiss
 	if status.Enabled {
 		free = map[string]int{}
 	}
+	// What takes a slot is what holds memory: running agents, those being
+	// started from the queue, and creates still making their machines,
+	// which status.Projects' Running doesn't count yet.
+	taken := map[string]int{}
+	for _, h := range out.holders {
+		taken[h.Project]++
+	}
 	for _, p := range status.Projects {
 		out.slots[p.Project] = p.Slots
+		out.pinned[p.Project] = p.Pinned > 0
 		if free != nil {
-			free[p.Project] = p.Slots - p.Running
+			free[p.Project] = p.Slots - taken[p.Project]
 		}
 	}
 	for _, q := range joinOrder(queue) {
@@ -238,10 +251,12 @@ func joinOrder(queue []state.QueuedAgent) []state.QueuedAgent {
 }
 
 // admitCreate decides whether a create that didn't ask to queue may start
-// its machine now. When it may, its reservation is held until done is
-// called, which the create's job does when it ends; when it may not, it
-// says why, and the create joins the queue instead.
-func (s *Server) admitCreate(ctx context.Context, req api.CreateAgentRequest) (done func(), wait string, err error) {
+// its machine now: when the VM has its memory and, in a project pinned to a
+// number of slots (pinned), one of them is free. When it may, its
+// reservation is held until done is called, which the create's job does when
+// it ends; when it may not, it says why, and the create joins the queue
+// instead.
+func (s *Server) admitCreate(ctx context.Context, req api.CreateAgentRequest, pinned bool) (done func(), wait string, err error) {
 	shape, err := newShapes(s, ctx).of(req.Project)
 	if err != nil {
 		return nil, "", err
@@ -250,7 +265,7 @@ func (s *Server) admitCreate(ctx context.Context, req api.CreateAgentRequest) (d
 	s.queueMu.Lock()
 	defer s.queueMu.Unlock()
 	const ref = "(new)"
-	plan, err := s.planAdmission(ctx, &agent.Waiter{Ref: ref, Project: req.Project, Need: reserved, Since: time.Now(), AnySlot: true})
+	plan, err := s.planAdmission(ctx, &agent.Waiter{Ref: ref, Project: req.Project, Need: reserved, Since: time.Now(), AnySlot: !pinned})
 	if err != nil {
 		return nil, "", err
 	}

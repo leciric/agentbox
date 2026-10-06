@@ -371,7 +371,9 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"it gets its name and branch at once, and its machine and task when one of the project's slots is free " +
 					"(you're told in one line when it starts). Use it for work that can wait, so agents don't all compete for " +
 					"memory at once. Left out, the project's own setting decides, which is to start now unless the user " +
-					"chose to always queue."},
+					"chose to always queue. False doesn't get past the queue: an agent the VM has no memory for, or one " +
+					"beyond the number of agents at once the user fixed for this project, queues whatever this says, " +
+					"and the result says why."},
 				"size": sizeParam,
 				"notify": choiceOf("what a genuine finish does to your chat: \"chat\" to be told and woken when this agent finishes, "+
 					"\"off\" to only have the finish recorded — for a small, mechanical job you don't need to react to. This only "+

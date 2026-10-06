@@ -191,6 +191,79 @@ func TestACreateThatDoesntFitQueues(t *testing.T) {
 	waitFor(t, "the second create's memory back", func() bool { return pending() == 1 })
 }
 
+// A project pinned to a number of agents at once is capped by it: with the
+// queue on, a create beyond it queues whatever it asked, though the VM has
+// the memory, and starts once a slot frees. A create still making its
+// machine holds its slot.
+func TestAPinnedProjectCapsCreates(t *testing.T) {
+	t.Parallel()
+	started := make(chan string, 4)
+	d := startTestDaemon(t, t.TempDir(), recordingIncus, testConfig{instances: "[]", queue: func(s *Server) {
+		s.queueEvery = 0
+		s.slotBudget = func(context.Context) (int64, error) { return 64 * gib, nil }
+		s.projectPeak = func(context.Context, string) (int64, bool, error) { return 2 * gib, true, nil }
+		s.projectShape = func(context.Context, string) (agent.Shape, error) {
+			return agent.Shape{Baseline: 2 * gib, Burst: gib}, nil
+		}
+		s.queueStart = func(_ context.Context, q state.QueuedAgent) error { started <- q.Ref(); return nil }
+	}})
+	ctx := context.Background()
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{AgentQueue: ptr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{Slots: ptr(1)}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none", Queue: ptr(false)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Kind != "create" {
+		t.Fatalf("the first create, into a free slot, started a %q job", first.Kind)
+	}
+	// Asked not to queue, and with memory to spare, the second still does.
+	job, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none", Queue: ptr(false)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Kind != "queue" {
+		t.Fatalf("a create beyond the project's one slot started a %q job", job.Kind)
+	}
+	var ag api.Agent
+	if err := json.Unmarshal(doneJob(t, d, job.ID).Result, &ag); err != nil {
+		t.Fatal(err)
+	}
+	want := "queued: its project runs at most 1 agent at once (its Agents at once setting); starts when one stops"
+	if ag.State != state.AgentQueued || ag.Waiting != want {
+		t.Errorf("the agent = %s, waiting %q; want queued, %q", ag.State, ag.Waiting, want)
+	}
+	select {
+	case ref := <-started:
+		t.Fatalf("%s started with the project's slot taken", ref)
+	default:
+	}
+
+	// The first create ends without a machine: its slot frees, and the
+	// queued agent starts into it.
+	if _, err := d.client.CancelJob(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	doneJob(t, d, first.ID)
+	d.srv.admitQueued(ctx)
+	select {
+	case ref := <-started:
+		if ref != ag.Ref {
+			t.Errorf("started %s, want %s", ref, ag.Ref)
+		}
+	default:
+		t.Fatal("the queued agent didn't start once the slot was free")
+	}
+}
+
 // Reproduces the live bug: an unleased heavy phase (a build with no
 // `agentbox heavy`) grows past its baseline while another agent's burst
 // stays within the pool under a lease, yet the pool's floor — held back

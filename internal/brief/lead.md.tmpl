@@ -146,6 +146,13 @@ says what it reserves in its heavy phases (tests, builds, the browser), which wa
 **This project has an agent queue.** It runs only so many agents at once (its slots). `create_agent`
 with `queue` true gives the agent its name and branch now and starts it when a slot is free; you are
 told in a line when it does. `list_agents` shows queued agents with their place in line.
+{{- if .Slots}}
+
+**The user caps this project at {{.Slots}} {{if eq .Slots 1}}agent{{else}}agents{{end}} at once.** Any agent you create beyond that queues,
+whatever `queue` says, and starts when one stops: plan around it, and retire finished agents.
+{{- else}}
+Slots are automatic: agents start whenever the VM has the memory for them, and queue otherwise.
+{{- end}}
 {{- end}}
 {{- if .Recheck}}
 
