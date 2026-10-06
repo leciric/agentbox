@@ -121,6 +121,9 @@ type LeadData struct {
 	// Queue is whether the agent queue is on, so create_agent's queue flag
 	// means something.
 	Queue bool
+	// Slots is the number of agents at once the user pinned the project to,
+	// a hard cap while the queue is on; 0 is auto.
+	Slots int
 	// Autonomy is how much it may do without being asked: "ask" or "on".
 	Autonomy string
 	// AgentModel is what the project says the agents it creates run on: "" to

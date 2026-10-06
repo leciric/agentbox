@@ -148,6 +148,7 @@
 //                           row: Auto's slot size and the running agents its
 //                           peak is learned from, memory and CPU now and at
 //                           their peak
+//   ?queue=settings-fixed   The same, with agentbox pinned to 2 agents at once
 //   ?queue=organic-alone    organic's Settings at the slots row, alone: two
 //   ?queue=organic-busy     organic's Settings beside a busy agentbox: one
 //   ?queue=off              Like busy, but with the installation's Agent
@@ -240,7 +241,7 @@ const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
-const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'organic-alone' | 'organic-busy' | 'off' | null
+const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'settings-fixed' | 'organic-alone' | 'organic-busy' | 'off' | null
 // Whose Settings ?queue=settings and the organic ones show.
 const queueSettingsProject = queue?.startsWith('organic-') ? 'organic' : PROJECT;
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
@@ -377,8 +378,12 @@ if (meters) {
   }
 }
 
-const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
+const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'settings-fixed': 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
 if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
+if (queue === 'settings-fixed') {
+  queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, slots: 2 } : p)));
+  queryClient.setQueryData<T.QueueStatus>(['queue', PROJECT], (q) => q && { ...q, projects: q.projects.map((p) => (p.project === PROJECT ? { ...p, slots: 2, pinned: 2 } : p)) });
+}
 if (queue) startNowBridge();
 if (queue === 'tasks') tasksBridge();
 if (settingsPage && !queue) settingsBridge();
@@ -587,7 +592,7 @@ function Preview() {
     );
   }
 
-  if (queue === 'settings' || queue === 'organic-alone' || queue === 'organic-busy') {
+  if (queue === 'settings' || queue === 'settings-fixed' || queue === 'organic-alone' || queue === 'organic-busy') {
     return (
       <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }}>
         <QueueSettingsPreview />

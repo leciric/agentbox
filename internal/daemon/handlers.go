@@ -1114,13 +1114,14 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 		return api.Job{}, err
 	}
 	// Whatever it asked, an agent the VM has no memory for waits for it in
-	// the queue (admission.go).
-	done, wait, err := s.admitCreate(ctx, req)
+	// the queue (admission.go), and so does one beyond the number of agents
+	// its project is pinned to.
+	done, wait, err := s.admitCreate(ctx, req, p.Slots > 0)
 	if err != nil {
 		return api.Job{}, err
 	}
 	if done == nil {
-		s.logf("agent queue: %s waits for memory: %s", req.Project, wait)
+		s.logf("agent queue: %s waits: %s", req.Project, wait)
 		return s.enqueueAgent(ctx, req, byLead)
 	}
 	create := s.createJob(req, byLead, "")

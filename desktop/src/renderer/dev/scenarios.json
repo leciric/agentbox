@@ -729,6 +729,13 @@
     "height": 1100
   },
   {
+    "id": "queue-settings-fixed-dark",
+    "description": "agentbox's Settings, at the slots row, pinned to 2 agents at once: the hard cap and what happens to agents beyond it — dark",
+    "query": "queue=settings-fixed&theme=dark",
+    "width": 900,
+    "height": 1100
+  },
+  {
     "id": "queue-off-light",
     "description": "Agent queue off in Settings: the rail's already-queued agents still show Queued #N, but the queue UI otherwise steps out of the way — light",
     "query": "queue=off&finished=1&theme=light",
