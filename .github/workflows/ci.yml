@@ -152,6 +152,15 @@ jobs:
       # and checks the file with ffprobe; without them it skips.
       - run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends ffmpeg
 
+      # The tests' temporary files, their SQLite databases first, on a tmpfs,
+      # as in an agent's machine: on disk, every fsync waits, and the slow
+      # packages take minutes rather than seconds.
+      - name: Temporary files in memory
+        run: |
+          sudo mkdir -p /t
+          sudo mount -t tmpfs -o size=8g,mode=1777 tmpfs /t
+          echo TMPDIR=/t >>"$GITHUB_ENV"
+
       - run: scripts/check-coverage.sh
 
       - uses: actions/cache/save@v6
