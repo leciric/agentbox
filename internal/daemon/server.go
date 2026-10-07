@@ -376,6 +376,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.runQueue(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
+	loops.Go(func() { s.watchUsage(ctx, realUsageClock()) })
 	loops.Go(func() { s.watchStalls(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
