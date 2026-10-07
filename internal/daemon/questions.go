@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -362,6 +363,14 @@ func resolveFinishStartsTurn(projectFinishNotices, agentFinishNotice string) boo
 // with what it was asked, rather than merely pausing for breath: cancelled,
 // failed, and a turn cut short by a limit or a refusal (see stopNotes in
 // package chat) all need a nudge to continue, not a reaction from the lead.
+// backgroundNotice tells the lead that an agent ended its turn with work still
+// running in the background, so it isn't finished.
+func backgroundNotice(a state.Agent, background []string) string {
+	return fmt.Sprintf("[AgentBox: %s (%s) ended its turn but isn't finished: it is waiting on background work it left running (%s)."+
+		" It carries on by itself when that ends, and you will hear when it finishes. Nothing to do now.]",
+		a.Name, titleOrNone(a.Title), strings.Join(background, "; "))
+}
+
 func finishedTask(result api.ChatTurnResult) bool {
 	return result.State == "completed" && (result.StopReason == "" || result.StopReason == "end_turn")
 }
@@ -374,6 +383,14 @@ func finishedTask(result api.ChatTurnResult) bool {
 // may not need at all, rather than as the only way to learn what happened.
 func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, result api.ChatTurnResult) {
 	if a.IsLead() || !finishedTask(result) {
+		return
+	}
+	if len(result.Background) > 0 {
+		// It ended its turn on work it left running — a CI run it watches, a
+		// monitor — and the session wakes when that ends: that turn is the
+		// finish. The lead hears now that it is waiting, and still waits:
+		// leadWaits stays set, so the finish that follows is news it acts on.
+		s.tellLead(ctx, a.Project, backgroundNotice(a, result.Background), false)
 		return
 	}
 	changes, pr := changesOf(a), s.prFor(ctx, a)

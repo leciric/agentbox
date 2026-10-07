@@ -172,6 +172,8 @@ function indexOf(items: T.ChatItem[], id: string): number {
 // what's happening now.
 export type Row =
   | { type: 'user'; key: string; item: T.ChatItem }
+  | { type: 'woken'; key: string; item: T.ChatItem }
+  | { type: 'background'; key: string; tasks: string[] }
   | { type: 'assistant'; key: string; item: T.ChatItem; final: boolean }
   | { type: 'work'; key: string; items: T.ChatItem[]; live: boolean }
   | { type: 'fold'; key: string; turn: string; label: string; open: boolean }
@@ -279,7 +281,10 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
     const hidden = settled ? body.filter(folds).length : 0;
     const open = hidden === 0 || openTurns.has(turn.id);
 
-    if (user && !isSilent(user)) rows.push({ type: 'user', key: user.id, item: user });
+    // A woken turn has no message at its head: the AI tool's session started
+    // it, because work it left running in the background ended.
+    if (user?.woken) rows.push({ type: 'woken', key: user.id, item: user });
+    else if (user && !isSilent(user)) rows.push({ type: 'user', key: user.id, item: user });
     if (running) rows.push({ type: 'working', key: `working:${turn.id}`, since: user.createdAt, stalledSince: thread.session?.stalledSince });
     if (hidden > 0) rows.push({ type: 'fold', key: `fold:${turn.id}`, turn: turn.id, label: foldLabel(user!), open });
 
@@ -332,6 +337,9 @@ export function timelineRows(thread: T.ChatThread, openTurns: ReadonlySet<string
       if (checkpoint) rows.push({ type: 'turn', key: `turn:${turn.id}`, checkpoint });
     }
   }
+  // Between turns, what the session still has running: its end wakes it.
+  const background = thread.session?.background ?? [];
+  if (background.length > 0 && !thread.session?.turnStartedAt) rows.push({ type: 'background', key: 'background', tasks: background });
   return rows;
 }
 

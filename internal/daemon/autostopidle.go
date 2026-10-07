@@ -121,7 +121,7 @@ func (s *Server) autoStopIdleSince(ctx context.Context, m *agent.Manager, st age
 	if waitingQuestion {
 		return time.Time{}, true
 	}
-	if chat := s.chat.State(st.Ref()); chat == api.ChatRunning || chat == api.ChatWaiting || chat == api.ChatStarting {
+	if s.chatBusy(st.Ref()) {
 		return time.Time{}, true
 	}
 	if running, last, err := s.store.JobActivityFor(ctx, st.Ref()); err == nil {

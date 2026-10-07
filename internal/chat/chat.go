@@ -494,6 +494,10 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []
 	// Whatever the turn was waiting for, it is running now: a pending resume
 	// has been overtaken, and the limit isn't what the session is doing.
 	c.endLimit()
+	if c.adapter != nil {
+		// Tasks that end from here on end during this turn, which reads them.
+		c.adapter.woke = nil
+	}
 	t := &turn{id: it.ID, text: text, images: images, startedAt: it.CreatedAt, progressAt: it.CreatedAt, resumes: resumes}
 	c.turn = t
 	c.recordTurn(t)
@@ -744,7 +748,14 @@ func (m *Manager) Cancel(a state.Agent) (api.ChatSession, error) {
 	t.cancelled = true
 	c.cancelPending()
 	ad := c.adapter
-	if ad != nil && ad.ready {
+	if t.woken {
+		// No prompt call answers a turn the session started by itself, and
+		// the adapter may not end one it is told to cancel: it ends here.
+		if ad != nil && ad.ready {
+			_ = ad.conn.Notify(acp.MethodSessionCancel, acp.CancelNotification{SessionID: ad.sessionID})
+		}
+		c.finishTurn(t, &acp.PromptResponse{StopReason: "cancelled"}, nil)
+	} else if ad != nil && ad.ready {
 		// The turn ends when the tool answers the prompt, as cancelled.
 		if err := ad.conn.Notify(acp.MethodSessionCancel, acp.CancelNotification{SessionID: ad.sessionID}); err != nil {
 			c.finishTurn(t, nil, err)
@@ -1242,6 +1253,9 @@ type turn struct {
 	// resumes is how many times AgentBox's restarts have carried this turn's
 	// work on, counting this one (restart.go).
 	resumes int
+	// woken is a turn the session started by itself, with no prompt of
+	// AgentBox's to answer (background.go).
+	woken bool
 }
 
 // generationMS is how long a turn took to generate: from its first to its
@@ -1286,6 +1300,10 @@ type adapter struct {
 	// tried is the value each setting was last sent while the session was
 	// being set up (applyChoices).
 	tried map[string]string
+	// tasks are its background commands and monitors, by async task id, and
+	// woke what of them ended since the last turn began (background.go).
+	tasks map[string]*bgTask
+	woke  []string
 }
 
 // sessionAgent is the agent as its running session knows it: with the Claude
@@ -1423,6 +1441,7 @@ func (c *conversation) stopAdapter() {
 		go ad.proc.Stop()
 	}
 	c.session.Detail, c.session.Error = "", ""
+	c.adapterGone(errAdapterStopped)
 	c.session.State = c.stateNow()
 	c.markSession()
 }
@@ -1515,6 +1534,7 @@ func (c *conversation) run(ad *adapter) {
 		msg += ": " + line
 	}
 	c.session.Detail, c.session.Error = "", msg
+	c.adapterGone(errors.New(msg))
 	c.session.State = c.stateNow()
 	c.markSession()
 	c.flush(true)
@@ -1969,7 +1989,13 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		// the next one starts its backoff from the beginning.
 		c.clearLimit()
 	}
-	c.unrecordTurn(t, err)
+	if !t.woken {
+		c.unrecordTurn(t, err)
+	}
+	if c.adapter != nil && !t.cancelled {
+		// Work the turn left running: until it ends, the agent isn't done.
+		result.Background = c.adapter.background()
+	}
 	if user := c.byID[t.id]; user != nil {
 		user.Result = result
 		c.touch(user)
@@ -2058,6 +2084,11 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	// Whatever it is, and whichever session it's for — a subagent's own
 	// updates are the turn's too — the adapter is alive and getting on.
 	c.progressed()
+	if strings.HasPrefix(u.SessionUpdate, "async_task_") {
+		// The adapter's, whichever of its sessions started it.
+		c.taskUpdate(h.ad, u)
+		return
+	}
 	if h.ad.sessionID != "" && n.SessionID != h.ad.sessionID {
 		// Another session is one of this adapter's subagents, or nothing to
 		// do with this chat. A subagent is recorded whether or not a turn is
@@ -2127,6 +2158,11 @@ func (h handler) Notify(method string, params json.RawMessage) {
 		if u.Cost != nil && c.turn == nil && !c.rolling && !h.ad.replaying {
 			c.book(h.ad, state.TokensBackground, newID(), nil, 0)
 		}
+		// And the result that ends a turn the session started by itself
+		// (background.go), which has no prompt call to answer.
+		if t := c.turn; u.Cost != nil && t != nil && t.woken && !h.ad.replaying {
+			c.endWoken(h.ad, t)
+		}
 		if rl := u.Meta.RateLimit; rl != nil && c.m.Limits != nil && !h.ad.replaying {
 			agent, limit := c.sessionAgent(h.ad), *rl
 			c.m.background.Go(func() { c.m.Limits(agent, limit) })
@@ -2141,6 +2177,9 @@ func (h handler) Notify(method string, params json.RawMessage) {
 	if c.capture != nil && c.turn == nil && !h.ad.replaying && u.SessionUpdate == "agent_message_chunk" {
 		c.capture.WriteString(u.Text())
 		return
+	}
+	if c.wakes(h.ad, u) {
+		c.wake(h.ad)
 	}
 	if h.ad.replaying || c.turn == nil {
 		return

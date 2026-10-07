@@ -1376,6 +1376,7 @@ export interface ChatSession {
   limitedUntil?: string;
   resumeAt?: string;
   noImages?: boolean;
+  background?: string[];
 }
 
 export interface ChatOption {
@@ -1409,6 +1410,7 @@ export interface ChatItem {
   text?: string;
   images?: ChatImage[];
   delivery?: string;
+  woken?: boolean;
   hidden?: boolean;
   streaming?: boolean;
   tool?: ChatTool;
@@ -1477,6 +1479,7 @@ export interface ChatTurnResult {
   state: string;
   stopReason?: string;
   endedAt: string;
+  background?: string[];
 }
 
 export interface ChatMessageRequest {

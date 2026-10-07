@@ -195,6 +195,26 @@ test('timelineRows turns a settled turn with tool calls into a fold and a work r
   assert.deepEqual(kinds, ['user', 'fold', 'assistant']);
 });
 
+test('timelineRows heads a turn the session woke for with what woke it, not a message', () => {
+  const asked = item({ kind: 'user', text: 'watch CI', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const promise = item({ kind: 'assistant', turn: asked.id, text: "I'll report when it finishes." });
+  const woken = item({ kind: 'user', woken: true, text: 'Watch CI run 42', result: { state: 'completed', endedAt: '2026-01-01T00:05:00Z' } as T.ChatTurnResult });
+  const report = item({ kind: 'assistant', turn: woken.id, text: 'CI passed.' });
+  const rows = timelineRows(thread([asked, promise, woken, report]), new Set());
+  assert.deepEqual(
+    rows.map((r) => r.type),
+    ['user', 'assistant', 'woken', 'assistant'],
+  );
+});
+
+test('timelineRows says what the session waits on between turns, and not while one runs', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const waiting = { ...thread([user]), session: { background: ['Watch CI run 42'] } as T.ChatSession };
+  assert.deepEqual(timelineRows(waiting, new Set()).at(-1), { type: 'background', key: 'background', tasks: ['Watch CI run 42'] });
+  const running = { ...waiting, session: { ...waiting.session, turnStartedAt: '2026-01-01T00:02:00Z' } };
+  assert.ok(!timelineRows(running, new Set()).some((r) => r.type === 'background'));
+});
+
 test('timelineRows keeps every message of a settled turn in view, folding only the work', () => {
   const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
   const first = item({ kind: 'assistant', turn: user.id, text: 'Creating agent-12 for it.' });

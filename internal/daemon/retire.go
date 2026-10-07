@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"agentbox/internal/agent"
@@ -24,8 +25,7 @@ import (
 // nothing, and whether retiring it now would lose anything.
 func (s *Server) idleOf(ctx context.Context, st agent.Status, changes api.AgentChanges) (busy, idle bool, last *time.Time, advice api.RetireAdvice) {
 	advice.Branch = st.Branch
-	chat := s.chat.State(st.Ref())
-	busy = chat == api.ChatRunning || chat == api.ChatWaiting || chat == api.ChatStarting
+	busy = s.chatBusy(st.Ref())
 
 	if item, ok, err := s.store.LastChatItem(ctx, st.Project, st.Name); err == nil && ok {
 		var stored struct {
@@ -41,7 +41,7 @@ func (s *Server) idleOf(ctx context.Context, st agent.Status, changes api.AgentC
 	idle = !busy && st.State == "running"
 	switch {
 	case busy:
-		advice.Reason = "it is still working"
+		advice.Reason = s.busyReason(st.Ref())
 	case st.State != "running":
 		advice.Reason = "its machine is already " + st.State
 	}
@@ -54,6 +54,32 @@ func (s *Server) idleOf(ctx context.Context, st agent.Status, changes api.AgentC
 	return busy, idle, last, advice
 }
 
+// chatWorking says whether an agent's chat is in a turn, starting one, or
+// waiting on somebody's answer.
+func (s *Server) chatWorking(ref string) bool {
+	chat := s.chat.State(ref)
+	return chat == api.ChatRunning || chat == api.ChatWaiting || chat == api.ChatStarting
+}
+
+// chatBusy says whether an agent's chat is working: in a turn, or between
+// turns with background work running — a command, a monitor — whose end
+// wakes its session again (chat/background.go). An agent whose chat is busy
+// hasn't finished, and nothing that retires idle agents may stop it.
+func (s *Server) chatBusy(ref string) bool {
+	return s.chatWorking(ref) || len(s.chat.Background(ref)) > 0
+}
+
+const stillWorking = "it is still working"
+
+// busyReason says why a busy agent is: working, or waiting on background work.
+func (s *Server) busyReason(ref string) string {
+	if bg := s.chat.Background(ref); len(bg) > 0 && !s.chatWorking(ref) {
+		return "it is waiting on background work it left running (" + strings.Join(bg, "; ") +
+			"), and carries on when that ends; force retires it anyway"
+	}
+	return stillWorking
+}
+
 // skipReason says why an agent shouldn't be retired this way, or "" to go
 // ahead. What counts depends on how: pausing or stopping a machine that isn't
 // running does nothing, while destroying one still frees its worktree.
@@ -63,7 +89,7 @@ func skipReason(req api.RetireRequest, st agent.Status, busy bool, last *time.Ti
 	// A sweep never interrupts an agent that is working. Stopping one that is
 	// takes naming it and meaning it.
 	case busy && (!named || !req.Force):
-		return "it is still working"
+		return stillWorking
 	case !advice.Safe && !req.Force:
 		return advice.Reason
 	case req.How != api.RetireDestroy && st.State != "running":
@@ -118,7 +144,10 @@ func (s *Server) retire(w http.ResponseWriter, r *http.Request) error {
 		who := api.RetiredAgent{Name: st.Name, Title: st.Title, Branch: st.Branch}
 		changes := changesOf(st.Agent)
 		busy, _, last, advice := s.idleOf(ctx, st, changes)
-		if who.Reason = skipReason(req, st, busy, last, advice, idleFor); who.Reason != "" {
+		if who.Reason = skipReason(req, st, busy, last, advice, idleFor); who.Reason == stillWorking {
+			who.Reason = s.busyReason(st.Ref())
+		}
+		if who.Reason != "" {
 			out.Skipped = append(out.Skipped, who)
 			continue
 		}

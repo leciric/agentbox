@@ -284,7 +284,12 @@ func Handoff(items []*api.ChatItem, intro string) string {
 	blocks := make([]string, len(turns))
 	for i, t := range turns {
 		var b strings.Builder
-		fmt.Fprintf(&b, "### Turn %d\n\nUser: %s\n", i+1, headText(strings.TrimSpace(t.user.Text), 4000))
+		if t.user.Woken {
+			// Nobody wrote it: the session started it, when background work ended.
+			fmt.Fprintf(&b, "### Turn %d\n\nNo message: background work you had left running ended (%s), and you carried on by yourself.\n", i+1, headText(strings.ReplaceAll(cmp(strings.TrimSpace(t.user.Text), "a background task"), "\n", ", "), 1000))
+		} else {
+			fmt.Fprintf(&b, "### Turn %d\n\nUser: %s\n", i+1, headText(strings.TrimSpace(t.user.Text), 4000))
+		}
 		for _, aside := range t.asides {
 			fmt.Fprintf(&b, "\nUser, while you worked: %s\n", headText(strings.TrimSpace(aside), 2000))
 		}

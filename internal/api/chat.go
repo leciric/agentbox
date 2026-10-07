@@ -50,6 +50,11 @@ type ChatSession struct {
 	// attach any. Until an adapter of this tool has started once there is
 	// nothing to go on, and images are allowed.
 	NoImages bool `json:"noImages,omitempty"`
+	// Background is what the session has running in the background now,
+	// outside any turn: its background commands and monitors, by
+	// description (claude-agent-acp's async tasks). The session wakes by
+	// itself when one finishes, so a chat with any is still working.
+	Background []string `json:"background,omitempty"`
 }
 
 const (
@@ -97,6 +102,11 @@ type ChatItem struct {
 	Images []ChatImage `json:"images,omitempty"`
 	// Delivery, on an aside, is how that message reached the AI tool.
 	Delivery string `json:"delivery,omitempty"`
+	// Woken, on a user item, marks a turn nobody prompted: the AI tool's
+	// session started it by itself, because a background task or a monitor it
+	// left running finished or spoke. The item's Text then names the tasks
+	// that woke it, when the tool said, and is not a message anybody sent.
+	Woken bool `json:"woken,omitempty"`
 	// Hidden marks an item the AI tool has to read but nobody wants to: the
 	// prose AgentBox writes a lead when one of its agents finishes or asks,
 	// and the turn that prose starts. The app leaves these out of the
@@ -213,6 +223,10 @@ type ChatTurnResult struct {
 	State      string    `json:"state"`                // completed, cancelled or failed
 	StopReason string    `json:"stopReason,omitempty"` // the AI tool's reason, like end_turn or max_tokens
 	EndedAt    time.Time `json:"endedAt"`
+	// Background is what the session left running when the turn ended: its
+	// background tasks and monitors, by description. A turn that ends with
+	// any isn't the agent finishing; their end wakes the session again.
+	Background []string `json:"background,omitempty"`
 }
 
 // TellResult is what became of a message the lead sent one of its agents:
