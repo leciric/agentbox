@@ -67,16 +67,21 @@ func (s *Server) sendUsage(ctx context.Context, install string) {
 		return
 	}
 	s.recordHeartbeat(ctx)
+	s.sendPendingUsage(ctx, install, time.Now())
+}
+
+// sendPendingUsage is the sending itself, for the check and for the usage
+// loop (watchUsage), which have already seen the stats are on.
+func (s *Server) sendPendingUsage(ctx context.Context, install string, now time.Time) {
 	s.updates.sending.Lock()
 	defer s.updates.sending.Unlock()
-	now := time.Now()
 	if err := s.store.ForgetFeatureUsage(ctx, usageDay(now.AddDate(0, 0, -update.MaxUsageDays))); err != nil {
 		return
 	}
 	req := update.NewRequest(install, Version)
 	// The events go on their own: a server that doesn't take them yet
 	// mustn't hold the counts back.
-	defer s.sendEvents(ctx, req)
+	defer func() { _ = s.sendEvents(ctx, req) }()
 	report, err := s.pendingDays(ctx, now)
 	if err != nil || len(report) == 0 {
 		return
@@ -193,4 +198,11 @@ func indentJSON(v any) string {
 		return ""
 	}
 	return string(b)
+}
+
+// sendEventsOnly sends the events waiting, with the same lock as sendUsage.
+func (s *Server) sendEventsOnly(ctx context.Context, install string) error {
+	s.updates.sending.Lock()
+	defer s.updates.sending.Unlock()
+	return s.sendEvents(ctx, update.NewRequest(install, Version))
 }

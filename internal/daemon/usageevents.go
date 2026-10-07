@@ -528,20 +528,21 @@ func (s *Server) pendingEvents(ctx context.Context) ([]update.UsageEvent, int64,
 
 // sendEvents sends what events are waiting, a report at a time, and forgets
 // each once the server has it, or refused it: a server that refuses an event
-// will refuse it again. Anything else stops here and is tried with the next
-// check.
-func (s *Server) sendEvents(ctx context.Context, req update.Request) {
+// will refuse it again. Anything else stops here with its error, and what is
+// left is tried again (the usage loop backs off between tries).
+func (s *Server) sendEvents(ctx context.Context, req update.Request) error {
 	_ = s.store.ForgetUsageEvents(ctx, 0, usageDay(time.Now().AddDate(0, 0, -update.MaxUsageDays)))
 	for range 20 {
 		events, last, err := s.pendingEvents(ctx)
 		if err != nil || len(events) == 0 {
-			return
+			return err
 		}
 		if err := update.SendEvents(ctx, s.cfg.UpdateURL, req, events); err != nil && !errors.Is(err, update.ErrRefused) {
-			return
+			return err
 		}
 		if err := s.store.ForgetUsageEvents(ctx, last, ""); err != nil {
-			return
+			return err
 		}
 	}
+	return nil
 }

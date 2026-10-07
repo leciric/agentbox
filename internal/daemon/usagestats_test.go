@@ -101,7 +101,7 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.16.0")
 	var fake fakeUsage
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
 	ctx := context.Background()
 	// The daemon checks as it starts: what's counted below goes with the
 	// check this test makes, not that one.
@@ -127,7 +127,7 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 	}
 	_ = d.srv.store.CountFeature(ctx, usageDay(time.Now().AddDate(0, 0, -40)), api.FeatureAgentDestroy)
 
-	d.srv.checkForUpdate(ctx)
+	d.sendNow(t)
 	reports := fake.sent()
 	if len(reports) != 1 {
 		t.Fatalf("sent %d reports, want 1", len(reports))
@@ -147,7 +147,7 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 		t.Errorf("after sending, kept %v %v", left, counts)
 	}
 	// Nothing new to send, nothing sent.
-	d.srv.checkForUpdate(ctx)
+	d.sendNow(t)
 	if n := len(fake.sent()); n != 1 {
 		t.Errorf("sent %d reports with nothing to send", n)
 	}
@@ -167,7 +167,7 @@ func TestUsageStatsFollowTheUpdateCheck(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.16.0")
 	var fake fakeUsage
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
 	ctx := context.Background()
 
 	_ = postFeature(d, api.FeatureMemoryView)

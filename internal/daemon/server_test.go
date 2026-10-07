@@ -152,13 +152,14 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	// "dev" build, which never checks; the ones about the check change the
 	// version and give the daemon a fake server.
 	srv, err := New(Config{
-		Paths:       p,
-		Incus:       incus.Client{Bin: bin},
-		User:        image.User{Name: "dev", UID: 1000, GID: 1000},
-		UpdateURL:   cmp.Or(tc.updateURL, "http://127.0.0.1:1"),
-		ReleasesURL: cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
-		PreviewAddr: cmp.Or(tc.previewAddr, "off"),
-		GitHubAPI:   gh.URL,
+		Paths:            p,
+		Incus:            incus.Client{Bin: bin},
+		User:             image.User{Name: "dev", UID: 1000, GID: 1000},
+		UpdateURL:        cmp.Or(tc.updateURL, "http://127.0.0.1:1"),
+		ReleasesURL:      cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
+		UpdateStartDelay: -1,
+		PreviewAddr:      cmp.Or(tc.previewAddr, "off"),
+		GitHubAPI:        gh.URL,
 		// Every fake connector server listens on loopback.
 		ConnectorsLoopback: true,
 	})

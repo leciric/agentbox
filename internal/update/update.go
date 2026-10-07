@@ -44,8 +44,14 @@ func Endpoint(base string) (*url.URL, error) {
 // silently, as no news.
 const Timeout = 5 * time.Second
 
-// Interval is how often a running daemon asks again.
-const Interval = 24 * time.Hour
+// Interval is how often a running daemon looks for a newer release: a plain
+// GET of the release list, which the CDN caches, so it costs the server
+// nothing. The ping that counts the install (Check) goes once a UTC day.
+const Interval = time.Hour
+
+// StartDelay is how long after the daemon starts the first check waits, so
+// the check doesn't compete with start-up.
+const StartDelay = 15 * time.Second
 
 // Latest is the server's answer.
 type Latest struct {

@@ -63,7 +63,7 @@ func TestReportDraftAndSend(t *testing.T) {
 	}
 	t.Setenv(report.VMLogEnv, vmLog)
 	var fake fakeReports
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
 	if err := os.WriteFile(d.paths.DaemonLog(), []byte("started\nGITHUB_TOKEN=ghp_0123456789abcdefABCDEF0123456789abcd in "+home+"/x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestReportDraftAndSend(t *testing.T) {
 func TestErrorReportsWaitForTheUser(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	var fake fakeReports
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
 	errReport := api.ReportRequest{Kind: api.ReportKindError, Message: "TypeError: x is undefined", Sections: []api.ReportSection{{ID: "error", Title: "The error", Content: "at App.tsx:1"}}}
 	var sent api.ReportSent
 

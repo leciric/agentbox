@@ -45,12 +45,15 @@ type Config struct {
 	User   image.User
 	Binary string    // copied into agents for the in-agent API; empty skips the copy
 	Log    io.Writer // the daemon's own log; nil discards it
-	// UpdateURL is where the daily update check asks; empty is
+	// UpdateURL is where the daily install ping asks; empty is
 	// update.DefaultURL.
 	UpdateURL string
 	// ReleasesURL is where the nightly channel looks for nightlies; empty is
 	// update.DefaultReleasesURL.
 	ReleasesURL string
+	// UpdateStartDelay is how long after start the first update check waits:
+	// update.StartDelay when zero, none when negative (tests).
+	UpdateStartDelay time.Duration
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string
@@ -87,7 +90,7 @@ type Server struct {
 	files   *filesCache      // each agent's worktree file listing, served briefly stale
 	disks   *agentDiskCache  // each agent's machine and worktree sizes, for its info card
 	themes  *omarchy.Watcher // the desktop theme this machine is running, if any
-	updates updates          // what the daily update check last found
+	updates updates          // what the hourly update check last found
 	stop    context.CancelFunc
 	incus   *incusWatch // whether Incus answers, and what to do when it doesn't
 	disk    *diskWatch  // the disk guard: a floor of free space on every disk AgentBox writes to
@@ -376,6 +379,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.runQueue(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
+	loops.Go(func() { s.watchUsage(ctx, realUsageClock()) })
 	loops.Go(func() { s.watchStalls(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
