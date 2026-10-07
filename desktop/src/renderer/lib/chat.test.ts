@@ -6,6 +6,7 @@ import type * as T from '../../shared/api';
 import { api } from './api.ts';
 import {
   applyChatEvent,
+  asleep,
   changedFiles,
   chatKey,
   contextHint,
@@ -417,4 +418,13 @@ test('a chat cleared meanwhile is read again whole, not kept', async (t) => {
     next.items.map((it) => it.id),
     ['u100', 'a100'],
   );
+});
+
+test('asleep is a stopped or paused agent, whose chat stays readable and wakes it on send', () => {
+  assert.equal(asleep({ ref: 'p/a', state: 'stopped' }), 'stopped');
+  assert.equal(asleep({ ref: 'p/a', state: 'paused' }), 'paused');
+  for (const state of ['running', 'queued', 'initializing', 'incomplete', 'missing']) assert.equal(asleep({ ref: 'p/a', state }), undefined, state);
+  // A project's chat has no machine to start.
+  assert.equal(asleep({ ref: 'p', state: 'stopped' }), undefined);
+  assert.equal(asleep({ ref: 'p/lead', state: 'stopped' }), undefined);
 });
