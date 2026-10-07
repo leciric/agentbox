@@ -597,8 +597,8 @@ func (d *Distro) StartDaemon(ctx context.Context) error {
 	if d.daemonAnswers(ctx, 0) {
 		return nil
 	}
-	cmd := d.command(context.Background(), d.execArgs(false, "~", "sh", "-c",
-		`mkdir -p "$(dirname "`+daemonLog+`")" && exec agentbox daemon >>"`+daemonLog+`" 2>&1`)...)
+	cmd := d.command(context.Background(), d.execArgs(false, "~", append([]string{"sh", "-c",
+		`mkdir -p "$(dirname "` + daemonLog + `")" && exec env "$@" agentbox daemon >>"` + daemonLog + `" 2>&1`, "sh"}, d.daemonEnv()...)...)...)
 	cmd, err := startDetached(cmd)
 	if err != nil {
 		return fmt.Errorf("starting the daemon in %s: %w", d.Name, err)
@@ -610,6 +610,20 @@ func (d *Distro) StartDaemon(ctx context.Context) error {
 	}
 	_, _ = fmt.Fprintf(d.Log, "Started the AgentBox daemon in %s\n", d.Name)
 	return nil
+}
+
+// daemonEnv is what the daemon is told about Windows: where the install ID
+// is kept (hostos.InstallIDFileEnv), beside the distro's directory rather than
+// in it, so a new distro is still the same install.
+func (d *Distro) daemonEnv() []string {
+	if d.Dir == "" {
+		return nil
+	}
+	file, ok := LinuxPath(filepath.Join(filepath.Dir(d.Dir), "install-id"), d.Name)
+	if !ok {
+		return nil
+	}
+	return []string{hostos.InstallIDFileEnv + "=" + file}
 }
 
 // daemonAnswers asks the distro's agentbox whether the daemon answers, waiting

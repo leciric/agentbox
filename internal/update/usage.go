@@ -2,7 +2,6 @@ package update
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,7 +34,7 @@ const MaxUsageDays = 31
 // UsageURL is where usage goes: "usage" beside the update check's URL (base,
 // or DefaultURL when empty), so AGENTBOX_UPDATE_URL moves both.
 func UsageURL(base string) (string, error) {
-	u, err := url.Parse(cmp.Or(base, DefaultURL))
+	u, err := Endpoint(base)
 	if err != nil {
 		return "", err
 	}

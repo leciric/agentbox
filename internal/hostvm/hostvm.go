@@ -696,6 +696,10 @@ func (v *VM) vmEnv() []string {
 		"AGENTBOX_WORKTREES=" + v.Paths.Worktrees(),
 		"AGENTBOX_MEDIA=" + v.Paths.Media(),
 	}
+	// The install ID is kept on the host, so a VM made again is the same install.
+	if file := v.installIDFile(); file != "" {
+		env = append(env, hostos.InstallIDFileEnv+"="+file)
+	}
 	if v.CHV != nil {
 		env = append(env, fmt.Sprintf("%s=%d", vmMemoryCapEnv, v.CHV.Config.MemoryCap))
 		env = append(env, report.VMLogEnv+"="+v.CHV.Layout.Log())
@@ -711,6 +715,20 @@ func (v *VM) vmEnv() []string {
 // androidSDKEnvName is what the VM's daemon looks for the Android SDK in first
 // (android.Candidates).
 const androidSDKEnvName = "AGENTBOX_ANDROID_SDK"
+
+// installIDFile is where the host keeps the install ID (hostos.InstallIDFileEnv):
+// in its AgentBox config, which the VM sees at the same path when it's in the
+// shared home. "" when it isn't.
+func (v *VM) installIDFile() string {
+	file := filepath.Join(v.Paths.Config, "install-id")
+	if v.Home == "" || v.Paths.Config == "" {
+		return ""
+	}
+	if rel, err := filepath.Rel(v.Home, file); err != nil || !filepath.IsLocal(rel) {
+		return ""
+	}
+	return file
+}
 
 // androidSDKEnv tells a Cloud Hypervisor VM's agentbox where the host's
 // Android SDK is: found here, with the host's settings (ANDROID_HOME and the
