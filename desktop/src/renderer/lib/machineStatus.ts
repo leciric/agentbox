@@ -24,7 +24,10 @@ export interface MachineStatus {
   // granted, and on Lima/WSL where the two are equal), or this computer's
   // memory in host mode. cap is the most the VM can grow to, 0 in host mode.
   // Null while it isn't known.
-  memory: { used: number; total: number; cap: number; percent: number } | null;
+  // percent is of total; capPercent is of the cap (of total in host mode),
+  // which is what "tight" is measured against: the VM grows toward its cap
+  // on demand, so being near what's granted isn't tight.
+  memory: { used: number; total: number; cap: number; percent: number; capPercent: number } | null;
 }
 
 // memoryFull is the share of memory past which the top bar calls it tight,
@@ -41,7 +44,7 @@ export function machineStatus(vm: VMPower | null, connection: ConnectionState, h
   }
   if (connection.state === 'disconnected') return of('offline', 'bad');
   if (connection.state === 'connecting') return of('connecting', 'busy');
-  if (memory && memory.percent > memoryFull) return of('memory', 'warn');
+  if (memory && memory.capPercent > memoryFull) return of('memory', 'warn');
   return of('running', 'ok');
 }
 
@@ -49,5 +52,6 @@ function memoryOf(vm: VMPower | null, host?: T.HostUsage): MachineStatus['memory
   const cap = vm ? Math.max(vm.memoryCap, vm.memoryGranted) : 0;
   const [used, total] = vm ? [vm.memoryUsed, vm.memoryGranted > 0 ? vm.memoryGranted : cap] : [host?.memUsed ?? 0, host?.memTotal ?? 0];
   if (total <= 0 || (vm && vm.state !== 'running')) return null;
-  return { used, total, cap, percent: Math.max(0, Math.min(1, used / total)) * 100 };
+  const share = (of: number) => Math.max(0, Math.min(1, used / of)) * 100;
+  return { used, total, cap, percent: share(total), capPercent: share(cap > 0 ? cap : total) };
 }

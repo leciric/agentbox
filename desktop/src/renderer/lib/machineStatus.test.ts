@@ -21,16 +21,17 @@ test("a running VM's memory is what's in use against what it's been granted, wit
   const s = machineStatus(vm('running', 8 * GiB), connected);
   assert.equal(s.kind, 'running');
   assert.equal(s.tone, 'ok');
-  assert.deepEqual(s.memory, { used: 8 * GiB, total: 12 * GiB, cap: 16 * GiB, percent: (8 / 12) * 100 });
+  assert.deepEqual(s.memory, { used: 8 * GiB, total: 12 * GiB, cap: 16 * GiB, percent: (8 / 12) * 100, capPercent: 50 });
 });
 
-test('memory past 85% of what is granted is tight', () => {
-  assert.equal(machineStatus(vm('running', 11 * GiB), connected).kind, 'memory');
-  assert.equal(machineStatus(vm('running', 10 * GiB), connected).kind, 'running');
+test('memory past 85% of the cap is tight, however close to what is granted', () => {
+  assert.equal(machineStatus(vm('running', 14 * GiB), connected).kind, 'memory');
+  assert.equal(machineStatus(vm('running', 13 * GiB), connected).kind, 'running');
+  assert.ok((machineStatus(vm('running', 11.5 * GiB), connected).memory?.percent ?? 0) > 90);
 });
 
 test('with nothing granted the cap is the total, as on WSL where they are equal', () => {
-  assert.deepEqual(machineStatus(vm('running', 4 * GiB, { memoryGranted: 0 }), connected).memory, { used: 4 * GiB, total: 16 * GiB, cap: 16 * GiB, percent: 25 });
+  assert.deepEqual(machineStatus(vm('running', 4 * GiB, { memoryGranted: 0 }), connected).memory, { used: 4 * GiB, total: 16 * GiB, cap: 16 * GiB, percent: 25, capPercent: 25 });
   assert.equal(machineStatus(vm('running', 4 * GiB, { memoryGranted: 16 * GiB }), connected).memory?.total, 16 * GiB);
 });
 
