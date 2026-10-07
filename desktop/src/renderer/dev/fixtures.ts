@@ -134,6 +134,9 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
+    // Its turn ended on a CI watch it left running in the background: awaiting,
+    // not idle, and kept out of Finished until the watch ends and it reports.
+    agent({ ref: `${PROJECT}/agent-41`, title: 'Watch CI on the release branch', chat: 'ready', background: ['Watch CI run 42'] }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
     // Its turn still running, but the stall watch found no progress on it for
@@ -585,6 +588,51 @@ export function agent12Chat(): T.ChatThread {
 // leadChat is the project's chat, where you talk to the lead, a little after
 // it told agent-12 to push again: the credential cards come after it, drawn
 // from the project's questions rather than written into the conversation.
+// awaitingChat is agent-41's conversation: a turn that ended on a promise,
+// with the watch it started still running (ChatSession.background).
+export function awaitingChat(): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  return {
+    agent: `${PROJECT}/agent-41`,
+    seq: 1,
+    session: { state: 'ready', tool: 'claude', options: [], commands: [], background: ['Watch CI run 42'] },
+    items: [
+      {
+        id: 'w1',
+        turn: 'w1',
+        kind: 'user',
+        text: 'Push the release branch and tell me when CI is green.',
+        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(60_000), background: ['Watch CI run 42'] },
+        createdAt: at(90_000),
+        updatedAt: at(60_000),
+      },
+      { id: 'w2', turn: 'w1', kind: 'assistant', text: "Pushed. CI is running; I'll report when it finishes.", createdAt: at(61_000), updatedAt: at(61_000) },
+    ],
+  };
+}
+
+// untrackedChat is agent-97's (OpenCode): its tool reports no background work.
+export function untrackedChat(): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  return {
+    agent: `${PROJECT}/agent-97`,
+    seq: 1,
+    session: { state: 'ready', tool: 'opencode', options: [], commands: [] },
+    items: [
+      {
+        id: 'o1',
+        turn: 'o1',
+        kind: 'user',
+        text: 'Run the migration and watch it.',
+        result: { state: 'completed', stopReason: 'end_turn', endedAt: at(60_000) },
+        createdAt: at(90_000),
+        updatedAt: at(60_000),
+      },
+      { id: 'o2', turn: 'o1', kind: 'assistant', text: 'The migration is running in the background.', createdAt: at(61_000), updatedAt: at(61_000) },
+    ],
+  };
+}
+
 export function leadChat(): T.ChatThread {
   const at = (ago: number) => new Date(Date.now() - ago).toISOString();
   return {
@@ -771,6 +819,8 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
   queryClient.setQueryData(['questions', PROJECT], data.questions);
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], leadChat());
   queryClient.setQueryData(['chat', `${PROJECT}/agent-99`], agent99Chat());
+  queryClient.setQueryData(['chat', `${PROJECT}/agent-41`], awaitingChat());
+  queryClient.setQueryData(['chat', `${PROJECT}/agent-97`], untrackedChat());
   queryClient.setQueryData(['tokens', PROJECT, 'agent-99', 'all'], agent99Tokens());
   // Every agent's disk, as the info card asks for it: the machine's root disk
   // and the worktree, apart from agent-92, whose machine is gone, so Incus has
@@ -1637,8 +1687,10 @@ export function installDevBridge(): void {
         return { status: 200, body: JSON.stringify(devState.media), contentType: 'application/json' };
       if (method === 'GET' && devState.media && path === `/v1/agents/${PROJECT}/agent-99/media`)
         return { status: 200, body: JSON.stringify(devState.media.filter((m) => m.agentName === 'agent-99')), contentType: 'application/json' };
-      if (method === 'GET' && devState.notifications && path === '/v1/notifications')
-        return { status: 200, body: JSON.stringify(devState.notifications), contentType: 'application/json' };
+      // Outside the ?notify= scenarios the bell is empty: what fell through to
+      // here instead wasn't a list, and the sidebar's Media count threw on it.
+      if (method === 'GET' && path === '/v1/notifications')
+        return { status: 200, body: JSON.stringify(devState.notifications ?? []), contentType: 'application/json' };
       if (method === 'GET' && devState.allMedia && path.startsWith('/v1/media?'))
         return { status: 200, body: JSON.stringify(devState.allMedia), contentType: 'application/json' };
       if (method === 'POST' && devState.notifications && path === '/v1/notifications/seen')

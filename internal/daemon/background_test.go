@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agentbox/internal/acp"
+	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
 	"agentbox/internal/state"
@@ -200,4 +201,58 @@ func countNotices(th api.ChatThread) int {
 		}
 	}
 	return n
+}
+
+// The transitions an agent goes through when its turn ends on background
+// work: awaiting (not idle, not finished, no finish event) while the work
+// runs; working when its end wakes the session; finished and idle once the
+// follow-up turn ends with nothing left running.
+func TestAwaitingUntilFollowUpEnds(t *testing.T) {
+	t.Parallel()
+	d, a := newAutoStopIdleTest(t, "Running", time.Now())
+	a.AI = "claude"
+	tool := watchInBackground(t, d, a)
+	ctx := context.Background()
+	status := agent.Status{Agent: a, State: "running"}
+	finishes := func() int {
+		events, err := d.srv.store.AgentEvents(ctx, a.Project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, raw := range events {
+			var ev api.AgentEvent
+			if json.Unmarshal(raw.Data, &ev) == nil && ev.Kind == api.AgentFinished {
+				n++
+			}
+		}
+		return n
+	}
+
+	// Awaiting.
+	info := d.srv.agentInfo(status)
+	if info.Chat != api.ChatReady || len(info.Background) != 1 || info.Background[0] != "Watch CI run 42" {
+		t.Fatalf("an agent waiting on its watch is %q with background %q", info.Chat, info.Background)
+	}
+	if busy, idle, _, _ := d.srv.idleOf(ctx, status, api.AgentChanges{}); !busy || idle {
+		t.Errorf("an awaiting agent is busy %t, idle %t", busy, idle)
+	}
+	if n := finishes(); n != 0 {
+		t.Errorf("%d finish event(s) for an agent that is awaiting", n)
+	}
+
+	// The watch ends and wakes it.
+	tool.finish()
+	tool.say(`{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"CI passed."}}`)
+	waitFor(t, "the woken turn", func() bool { return d.srv.chat.State(a.Ref()) == api.ChatRunning })
+	if info := d.srv.agentInfo(status); len(info.Background) != 0 {
+		t.Errorf("the ended watch is still listed: %q", info.Background)
+	}
+
+	// Its follow-up ends: finished, idle.
+	tool.say(`{"sessionUpdate":"usage_update","used":2,"size":200000,"cost":{"amount":0.1,"currency":"USD"}}`)
+	waitFor(t, "the follow-up's finish", func() bool { return finishes() == 1 })
+	if busy, idle, _, _ := d.srv.idleOf(ctx, status, api.AgentChanges{}); busy || !idle {
+		t.Errorf("after its follow-up, the agent is busy %t, idle %t", busy, idle)
+	}
 }

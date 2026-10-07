@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { avatarMood, chatLabel, isAsking, projectTone, rank, settled, summarizeStatus } from './agentStatus.ts';
+import { avatarMood, awaiting, chatLabel, isAsking, projectTone, rank, settled, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
 const queuedAgent = (position: number): T.Agent => ({ state: 'queued', queuePosition: position }) as T.Agent;
@@ -125,4 +125,19 @@ test('summarizeStatus orders groups by urgency, not by first appearance', () => 
     items.map((i) => i.text),
     ['Needs you', 'Working', 'Paused'],
   );
+});
+
+test('a turn that ended on background work is Awaiting, kept out of Finished, until the work ends', () => {
+  const waiting = { ...agent('running', 'ready'), background: ['Watch CI run 42'] } as T.Agent;
+  assert.deepEqual(chatLabel(waiting), { text: 'Awaiting', tone: 'live' });
+  assert.ok(awaiting(waiting));
+  assert.ok(!settled(waiting), 'an awaiting agent went into Finished');
+  // The work ends and wakes it: Working, whatever is still listed.
+  assert.deepEqual(chatLabel({ ...waiting, chat: 'running' }), { text: 'Working', tone: 'live' });
+  // Its follow-up turn ends with nothing pending: Idle, and Finished.
+  const done = { ...waiting, background: undefined };
+  assert.deepEqual(chatLabel(done), { text: 'Idle', tone: 'muted' });
+  assert.ok(settled(done));
+  // A stopped machine has nothing running, whatever it last said.
+  assert.equal(chatLabel({ ...waiting, state: 'stopped' }).text, 'Stopped');
 });

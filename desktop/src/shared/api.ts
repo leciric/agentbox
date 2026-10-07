@@ -196,6 +196,7 @@ export interface Agent {
   interface: string;
   chat?: string;
   stalledSince?: string;
+  background?: string[];
   state: string;
   queuePosition?: number;
   waiting?: string;
@@ -1100,6 +1101,7 @@ export interface FleetAgent {
   interface: string;
   chat?: string;
   stalledSince?: string;
+  background?: string[];
   state: string;
   queuePosition?: number;
   waiting?: string;

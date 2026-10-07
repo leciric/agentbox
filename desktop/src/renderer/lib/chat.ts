@@ -99,9 +99,12 @@ export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void 
 
   if (ev.session) {
     const { state, stalledSince } = ev.session;
+    // What it left running between turns, which makes a ready chat awaiting.
+    const background = ev.session.background?.length ? ev.session.background : undefined;
+    const sameWork = (a: T.Agent) => (a.background ?? []).join('\n') === (background ?? []).join('\n');
     queryClient.setQueryData<T.Agent[]>(['agents'], (agents) =>
-      agents?.some((a) => a.ref === ev.agent && (a.chat !== state || a.stalledSince !== stalledSince))
-        ? agents.map((a) => (a.ref === ev.agent ? { ...a, chat: state, stalledSince } : a))
+      agents?.some((a) => a.ref === ev.agent && (a.chat !== state || a.stalledSince !== stalledSince || !sameWork(a)))
+        ? agents.map((a) => (a.ref === ev.agent ? { ...a, chat: state, stalledSince, background } : a))
         : agents,
     );
     // The lead isn't in the agents list: its state is on the project's chat,

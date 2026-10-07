@@ -315,6 +315,22 @@ test('an event for an item of a page not read yet waits for that page', () => {
   assert.equal(queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.at(-1)!.id, 'new');
 });
 
+test('a session event carries what the agent left running onto the agents list, and its end off it', () => {
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-awaiting';
+  queryClient.setQueryData<T.Agent[]>(['agents'], [{ ref, state: 'running', chat: 'running' } as T.Agent]);
+  const session = (state: string, background?: string[]) => ({ state, background }) as T.ChatSession;
+  applyChatEvent(queryClient, { agent: ref, seq: 1, session: session('ready', ['Watch CI run 42']) });
+  let a = queryClient.getQueryData<T.Agent[]>(['agents'])![0];
+  assert.equal(a.chat, 'ready');
+  assert.deepEqual(a.background, ['Watch CI run 42']);
+  applyChatEvent(queryClient, { agent: ref, seq: 2, session: session('running') });
+  applyChatEvent(queryClient, { agent: ref, seq: 3, session: session('ready') });
+  a = queryClient.getQueryData<T.Agent[]>(['agents'])![0];
+  assert.equal(a.chat, 'ready');
+  assert.equal(a.background, undefined);
+});
+
 test('a rollback drops what came after its turn, and refreshes the checkpoints', () => {
   const queryClient = new QueryClient();
   const ref = 'p/agent-rolled';
