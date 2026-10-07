@@ -275,6 +275,9 @@ func (s *Server) plugAgentSockets(ctx context.Context) bool {
 			m.EnsureImageCache(ctx, a)
 			// And the same for the shared package caches.
 			m.EnsurePackageCache(ctx, a)
+			// And /t's cap, so one already running stops growing its tmpfs
+			// into the VM's memory without waiting for a restart.
+			m.CapTmp(ctx, a)
 		})
 	}
 	wg.Wait()
