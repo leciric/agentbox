@@ -193,7 +193,7 @@ A security problem doesn't belong in a public issue: contact the maintainer priv
 ## License
 
 AgentBox is source-available under the [Functional Source License, FSL-1.1-MIT](LICENSE), and
-your contribution is offered under it too. (Releases up to 0.12 were MIT.)
+your contribution is offered under it too.
 
 ### Contributor agreement
 

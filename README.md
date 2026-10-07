@@ -285,6 +285,6 @@ Thanks to everyone who has contributed to AgentBox, in order of their first cont
 
 AgentBox is source-available under the [Functional Source License, FSL-1.1-MIT](LICENSE): free to use,
 including inside a company; you may not sell it or offer it as a competing product or service; each
-version becomes MIT two years after its release. Releases up to 0.12 were MIT.
+version becomes MIT two years after its release.
 
 Copyright 2026 Leandro Ciric.
