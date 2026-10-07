@@ -874,5 +874,47 @@
     "query": "notify=toast&theme=light",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "topbar-a-dark",
+    "description": "Top bar redesign, option A: every state with its popovers open — dark",
+    "query": "topbar=a&theme=dark",
+    "width": 1340,
+    "height": 900
+  },
+  {
+    "id": "topbar-a-light",
+    "description": "Top bar redesign, option A: every state with its popovers open — light",
+    "query": "topbar=a&theme=light",
+    "width": 1340,
+    "height": 900
+  },
+  {
+    "id": "topbar-b-dark",
+    "description": "Top bar redesign, option B: every state with its popovers open — dark",
+    "query": "topbar=b&theme=dark",
+    "width": 1340,
+    "height": 900
+  },
+  {
+    "id": "topbar-b-light",
+    "description": "Top bar redesign, option B: every state with its popovers open — light",
+    "query": "topbar=b&theme=light",
+    "width": 1340,
+    "height": 900
+  },
+  {
+    "id": "topbar-c-dark",
+    "description": "Top bar redesign, option C: every state with its popovers open — dark",
+    "query": "topbar=c&theme=dark",
+    "width": 1340,
+    "height": 900
+  },
+  {
+    "id": "topbar-c-light",
+    "description": "Top bar redesign, option C: every state with its popovers open — light",
+    "query": "topbar=c&theme=light",
+    "width": 1340,
+    "height": 900
   }
 ]

@@ -58,6 +58,8 @@
 //                           saves (fixtures.ts)
 //   ?enforce=1              with ?settings=project:<name>: "Enforce this model" on, so the
 //                           project's model picker warns that Settings' model wins
+//   ?topbar=a|b|c           mock-ups of a redesigned top bar (topbarDesigns.tsx),
+//                           every state with its popovers drawn open
 //   ?usage=1                the top bar's usage meter against two Claude
 //                           accounts: on Home (the default account), on a
 //                           project that uses the other one, on a Claude
@@ -192,6 +194,7 @@ import { Sidebar } from '../components/Sidebar';
 import { FreeResourcesDialog, type FreeRun } from '../components/ResourceControls';
 import { NewAgentDialog } from '../components/NewAgentDialog';
 import { TopBar } from '../components/TopBar';
+import { TopbarDesigns } from './topbarDesigns';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { MovePrompt } from '../components/RunInVM';
@@ -227,6 +230,7 @@ const moodState: Record<Mood, string> = { working: 'running', asking: 'running',
 const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const usage = params.get('usage') === '1';
+const topbar = params.get('topbar');
 const pulls = params.get('pulls') === '1';
 const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
@@ -553,6 +557,7 @@ function PagePreview({ at }: { at: string }) {
 }
 
 function Preview() {
+  if (topbar) return <TopbarDesigns option={topbar} />;
   if (github) return <GitHubPreview />;
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
