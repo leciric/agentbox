@@ -1,5 +1,5 @@
 // eSpeak NG, the phonemizer Kokoro reads from, fetched when a voice is first
-// used rather than shipped with the app: it is GPL-3.0, and AgentBox is MIT.
+// used rather than shipped with the app: it is GPL-3.0, and AgentBox is not GPL.
 // kokoro-js imports it as the npm package "phonemizer", an eSpeak NG build of
 // its own with English only; vite.config.mts points that import here instead,
 // so nothing of eSpeak NG is bundled, and Portuguese is there too.

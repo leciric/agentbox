@@ -14,7 +14,7 @@ pkgrel=1
 pkgdesc='Isolated machines for AI coding agents'
 arch=('x86_64')
 url='https://github.com/leciric/agentbox'
-license=('MIT')
+license=('custom:FSL-1.1-MIT')
 depends=(
   'alsa-lib'
   'at-spi2-atk'
