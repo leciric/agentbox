@@ -91,7 +91,6 @@ export function TopBar({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
-        {onOpenNotice && <NotificationBell onOpen={onOpenNotice} onAllMedia={() => onSelect({ kind: 'media' })} />}
         {setup.data && !setup.data.ready && view.kind !== 'settings' && (
           <button
             className="flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200 ring-1 ring-inset ring-amber-400/25 transition hover:bg-amber-400/15"
@@ -104,6 +103,7 @@ export function TopBar({
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />
+        {onOpenNotice && <NotificationBell onOpen={onOpenNotice} onAllMedia={() => onSelect({ kind: 'media' })} />}
       </div>
     </header>
   );

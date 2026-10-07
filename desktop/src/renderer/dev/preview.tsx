@@ -210,7 +210,7 @@ import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
-import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
+import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 
@@ -397,6 +397,8 @@ if (settingsPage && !queue) settingsBridge();
 if (page) pageBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
+// The top bar's bell, empty: the ?notify= scenarios show it full.
+if (power || meters) setNotifications([], []);
 localStorage.setItem('agentbox.topbar.detailed', topbar === 'detailed' ? '1' : '0');
 const conn = params.get('conn');
 seedConnection(
@@ -579,7 +581,7 @@ function Preview() {
   if (power) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }} data-preview-power={power}>
-        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
         {seededRun && <SeededFreeRun run={seededRun} />}
       </div>
     );
@@ -588,7 +590,7 @@ function Preview() {
   if (meters) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
-        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
       </div>
     );
   }
