@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -66,12 +67,12 @@ func TestNextUsageReport(t *testing.T) {
 	}
 }
 
-func TestUsageIsSentAfterMidnightAndEventsEveryFewHours(t *testing.T) {
+func TestUsageIsSentAfterMidnightAndEventsEveryFifteenMinutes(t *testing.T) {
 	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.16.0")
 	var fake fakeUsage
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
 	ctx := context.Background()
 	waitFor(t, "the check as the daemon starts", func() bool {
 		status, err := d.client.Update(ctx)
@@ -92,8 +93,16 @@ func TestUsageIsSentAfterMidnightAndEventsEveryFewHours(t *testing.T) {
 	_ = d.srv.store.CountFeature(ctx, "2026-10-07", api.FeatureAgentCreateClaude)
 	d.srv.recordEvent(eventHeartbeat, heartbeatEvent{})
 
-	// Four hours on, only events go out, and today's count stays.
-	clock.advance(start.Add(4 * time.Hour))
+	// A server that's down: the events wait, and the retry comes a minute on.
+	fake.answerEvents(http.StatusServiceUnavailable)
+	at := start.Add(15 * time.Minute)
+	clock.advance(at)
+	waitFor(t, "the loop to wait", func() bool { return clock.waiting() == 1 })
+	if n := pendingUsage(t, d).EventsWaiting; n != 1 {
+		t.Fatalf("after a 503, %d waiting, want 1", n)
+	}
+	fake.answerEvents(http.StatusOK)
+	clock.advance(at.Add(time.Minute))
 	waitFor(t, "events", func() bool { return len(fake.sentEvents()[eventHeartbeat]) == 1 })
 	if n := len(fake.sent()); n != checks {
 		t.Errorf("sent %d usage reports before midnight, want none", n)

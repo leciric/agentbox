@@ -81,7 +81,7 @@ func (s *Server) sendPendingUsage(ctx context.Context, install string, now time.
 	req := update.NewRequest(install, Version)
 	// The events go on their own: a server that doesn't take them yet
 	// mustn't hold the counts back.
-	defer s.sendEvents(ctx, req)
+	defer func() { _ = s.sendEvents(ctx, req) }()
 	report, err := s.pendingDays(ctx, now)
 	if err != nil || len(report) == 0 {
 		return
@@ -201,8 +201,8 @@ func indentJSON(v any) string {
 }
 
 // sendEventsOnly sends the events waiting, with the same lock as sendUsage.
-func (s *Server) sendEventsOnly(ctx context.Context, install string) {
+func (s *Server) sendEventsOnly(ctx context.Context, install string) error {
 	s.updates.sending.Lock()
 	defer s.updates.sending.Unlock()
-	s.sendEvents(ctx, update.NewRequest(install, Version))
+	return s.sendEvents(ctx, update.NewRequest(install, Version))
 }

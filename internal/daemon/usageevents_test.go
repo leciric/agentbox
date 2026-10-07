@@ -107,7 +107,7 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.16.0")
 	var fake fakeUsage
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
 	ctx := context.Background()
 	waitFor(t, "the check as the daemon starts", func() bool {
 		status, err := d.client.Update(ctx)
@@ -147,7 +147,7 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	}
 
 	// The day's heartbeat was sent: the next check sends only what's new.
-	d.srv.checkForUpdate(ctx)
+	d.sendNow(t)
 	sent := fake.sentEvents()
 	if len(sent[eventHeartbeat]) != 1 || len(sent[eventTurn]) != 1 || len(sent[eventError]) != 1 {
 		t.Fatalf("sent = %v", sent)
@@ -174,12 +174,12 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	// them would refuse them again, so they go.
 	fake.answerEvents(http.StatusServiceUnavailable)
 	d.srv.recordError(errAuthFailed, "claude")
-	d.srv.checkForUpdate(ctx)
+	d.sendNow(t)
 	if n := pendingUsage(t, d).EventsWaiting; n != 1 {
 		t.Errorf("after a 503, %d waiting, want 1", n)
 	}
 	fake.answerEvents(http.StatusBadRequest)
-	d.srv.checkForUpdate(ctx)
+	d.sendNow(t)
 	if n := pendingUsage(t, d).EventsWaiting; n != 0 {
 		t.Errorf("after a 400, %d waiting, want 0", n)
 	}

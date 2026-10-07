@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,9 +29,11 @@ type fakeLatest struct {
 func (f *fakeLatest) start(t *testing.T, version string) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		f.queries = append(f.queries, r.URL.Query())
-		f.mu.Unlock()
+		if r.Method == http.MethodGet { // the pings, not the usage reports
+			f.mu.Lock()
+			f.queries = append(f.queries, r.URL.Query())
+			f.mu.Unlock()
+		}
 		_, _ = w.Write([]byte(`{"version":"` + version + `","url":"https://github.com/leciric/agentbox/releases/tag/v` + version + `"}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -55,7 +59,8 @@ func TestUpdateCheckFindsANewerRelease(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.16.0")
 	var fake fakeLatest
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0")})
+	releases := fakeStable(t, "0.16.0", "0.17.0")
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0"), releasesURL: releases})
 	ctx := context.Background()
 
 	waitFor(t, "the check as the daemon starts", func() bool {
@@ -64,7 +69,7 @@ func TestUpdateCheckFindsANewerRelease(t *testing.T) {
 	})
 	status, _ := d.client.Update(ctx)
 	if !status.Enabled || status.Blocked != "" || status.Current != "0.16.0" || status.CheckedAt == nil ||
-		status.Available.Version != "0.17.0" || status.Available.URL != "http://127.0.0.1:1/releases/v0.17.0/index.html" {
+		status.Available.Version != "0.17.0" || status.Available.URL != releases+"/releases/v0.17.0/index.html" {
 		t.Errorf("Update() = %+v", status)
 	}
 
@@ -91,7 +96,8 @@ func TestUpdateCheckFindsANewerRelease(t *testing.T) {
 		t.Error("a check went out with the setting off")
 	}
 
-	// Turning it back on asks at once, with the same install ID.
+	// Turning it back on looks again at once, but the install was counted
+	// today: the ping goes once a UTC day, with the same install ID.
 	if _, err := patchSettings(t, d, `{"updateCheck": true}`); err != nil {
 		t.Fatal(err)
 	}
@@ -99,11 +105,11 @@ func TestUpdateCheckFindsANewerRelease(t *testing.T) {
 		status, err := d.client.Update(ctx)
 		return err == nil && status.Available != nil
 	})
-	fake.mu.Lock()
-	last := fake.queries[len(fake.queries)-1]
-	fake.mu.Unlock()
-	if last.Get("install") != id {
-		t.Errorf("install ID changed: %q, then %q", id, last.Get("install"))
+	if fake.count() != before {
+		t.Errorf("%d pings went out after turning it on, want none more today", fake.count()-before)
+	}
+	if got, _ := d.srv.installID(ctx); got != id {
+		t.Errorf("install ID changed: %q, then %q", id, got)
 	}
 }
 
@@ -112,7 +118,7 @@ func TestUpdateCheckIsQuietWhenCurrent(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.17.0")
 	var fake fakeLatest
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0")})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0"), releasesURL: fakeStable(t, "0.17.0")})
 	ctx := context.Background()
 	waitFor(t, "the check as the daemon starts", func() bool {
 		status, err := d.client.Update(ctx)
@@ -156,6 +162,31 @@ func TestUpdateCheckBlocked(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fakeStable stands in for releases.json with these stable releases.
+func fakeStable(t *testing.T, versions ...string) string {
+	t.Helper()
+	var list []string
+	for _, v := range versions {
+		list = append(list, `{"tag_name":"v`+v+`"}`)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("[" + strings.Join(list, ",") + "]"))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// sendNow is what the daily ping does about usage: send what is pending.
+func (d testDaemon) sendNow(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	install, err := d.srv.installID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.srv.sendUsage(ctx, install)
 }
 
 // fakeReleases stands in for releases.json, the list of releases, with one nightly.
@@ -290,5 +321,50 @@ func TestInstallIDKeptOnTheHost(t *testing.T) {
 	}
 	if again, _ := other.srv.installID(ctx); again != id {
 		t.Errorf("the ID changed from %q to %q", id, again)
+	}
+}
+
+// TestPingGoesOnceADayAndChecksReadTheBucket: the checks read the release
+// list, as often as they like; the ping that counts the install goes once per
+// UTC day, and tries again with the next check when it failed.
+func TestPingGoesOnceADayAndChecksReadTheBucket(t *testing.T) {
+	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
+	t.Setenv("DO_NOT_TRACK", "")
+	asVersion(t, "0.16.0")
+	var fake fakeLatest
+	var lists atomic.Int32
+	list := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		lists.Add(1)
+		_, _ = w.Write([]byte(`[{"tag_name":"v0.17.0"}]`))
+	}))
+	t.Cleanup(list.Close)
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t, "0.17.0"), releasesURL: list.URL})
+	ctx := context.Background()
+	waitFor(t, "the first check", func() bool { return lists.Load() == 1 })
+	if fake.count() != 1 {
+		t.Fatalf("%d pings at start, want 1", fake.count())
+	}
+	for range 3 {
+		d.srv.checkForUpdate(ctx)
+	}
+	if lists.Load() != 4 || fake.count() != 1 {
+		t.Errorf("after 3 more checks: %d list reads, %d pings; want 4 and 1", lists.Load(), fake.count())
+	}
+	// A new UTC day pings again.
+	if err := d.srv.store.SetSetting(ctx, settingUpdatePing, "2000-01-01"); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.checkForUpdate(ctx)
+	if fake.count() != 2 {
+		t.Errorf("%d pings on a new day, want 2", fake.count())
+	}
+}
+
+func TestUsageRetryBacksOff(t *testing.T) {
+	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 15 * time.Minute, 15 * time.Minute}
+	for i, w := range want {
+		if got := usageRetry(i + 1); got != w {
+			t.Errorf("usageRetry(%d) = %v, want %v", i+1, got, w)
+		}
 	}
 }
