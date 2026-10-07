@@ -5,7 +5,7 @@ import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import type * as T from '../../shared/api';
-import { limitTone, windowNow } from '../lib/tokens';
+import { limitTone, windowLeft, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
 import { cn, timeAgo, timeUntil } from '../lib/utils';
@@ -134,6 +134,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   if (!account || !five) return null;
   const fiveNow = windowNow(five, clock);
   const weekNow = week ? windowNow(week, clock) : null;
+  const fiveLeft = fiveNow === null ? null : windowLeft(five.resetsAt, clock);
   const tone = limitTone(Math.max(fiveNow ?? 0, weekNow ?? 0));
   const percent = (now: number | null) => (now === null ? '—' : `${Math.round(Math.max(0, Math.min(1, now)) * 100)}%`);
   return (
@@ -148,7 +149,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
           aria-label={t('shell.top.claudeLabel', {
             account: account.account,
             five: percent(fiveNow),
-            left: timeUntil(five.resetsAt, clock),
+            left: fiveLeft ?? timeUntil(five.resetsAt, clock),
             week: week ? percent(weekNow) : 'none',
           })}
           data-claude-meter={fiveNow === null ? 'reset' : Math.round(fiveNow * 100)}
@@ -156,7 +157,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
         >
           <ClaudeMark />
           <span className="text-[12px] font-medium text-primary">Claude</span>
-          <span className="text-[11px] text-muted">{t('shell.top.fiveHourShort')}</span>
+          <span className="text-[11px] text-muted">{fiveLeft ?? t('shell.top.fiveHourShort')}</span>
           <span className={cn('font-mono text-[11px] font-semibold tabular-nums', limitText(fiveNow))}>{percent(fiveNow)}</span>
           {week && (
             <span className="hidden items-center gap-1.5 md:flex">
@@ -180,7 +181,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
           ))}
           {fiveNow !== null && fiveNow > 0.85 && (
             <span className="rounded-lg bg-rose-400/10 px-2.5 py-2 text-[11.5px] leading-relaxed text-rose-200 ring-1 ring-inset ring-rose-400/25">
-              {t('shell.top.claudeAtLimit', { left: timeUntil(five.resetsAt, clock) })}
+              {t('shell.top.claudeAtLimit', { left: fiveLeft ?? timeUntil(five.resetsAt, clock) })}
             </span>
           )}
           <OtherAccounts limits={limits.data ?? []} shown={account.account} clock={clock} />
@@ -211,7 +212,7 @@ function LimitRow({ window: w, clock }: { window: T.ClaudeLimitWindow; clock: nu
           ) : (
             <>
               <span className={cn('font-semibold', limitText(now))}>{t('shell.top.percentUsed', { percent: Math.round(percent) })}</span>
-              <span className="text-faint"> · {t('shell.top.resetsIn', { left: timeUntil(w.resetsAt, clock) })}</span>
+              <span className="text-faint"> · {t('shell.top.resetsIn', { left: (w.name === 'five_hour' && windowLeft(w.resetsAt, clock)) || timeUntil(w.resetsAt, clock) })}</span>
             </>
           )}
         </span>
