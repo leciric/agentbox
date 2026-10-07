@@ -22,6 +22,9 @@ type updates struct {
 	available *api.UpdateAvailable
 	checkedAt *time.Time
 	now       chan struct{} // pokes the loop to check at once, when the setting is turned on
+	// sending holds one usage report at a time (sendUsage): two checks at
+	// once would both read the days not sent yet, and send them twice.
+	sending sync.Mutex
 }
 
 // watchUpdates checks for a newer AgentBox as the daemon starts and every
