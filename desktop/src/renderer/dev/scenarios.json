@@ -301,7 +301,7 @@
   {
     "id": "cpu-popover-fixtures-dark",
     "description": "The top bar's \"Host CPU\" popover open, against a CPU-capped agent, a plain one and a paused one — dark",
-    "query": "meters=cpu&theme=dark",
+    "query": "meters=cpu&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 900,
     "click": "[data-meter=cpu]"
@@ -309,7 +309,7 @@
   {
     "id": "disk-popover-fixtures-dark",
     "description": "The top bar's disk meter in VM mode, against the user's VM as measured: 24.2 GiB of 120 GiB on the host's disk, with its popover open breaking it down by disk image, the host's side and the agents' pool — dark",
-    "query": "meters=disk&theme=dark",
+    "query": "meters=disk&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 900,
     "click": "[data-meter=disk]"
@@ -317,7 +317,7 @@
   {
     "id": "disk-meter-dark",
     "description": "The top bar's disk meter in VM mode beside the CPU meter, closed: 24 / 120 GiB, the user's VM as measured — dark",
-    "query": "meters=disk&theme=dark",
+    "query": "meters=disk&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 120
   },
@@ -332,14 +332,14 @@
   {
     "id": "disk-meter-unmeasured-dark",
     "description": "The top bar's disk meter in VM mode with nothing allocated yet: — / 120 GiB and an empty bar, never 0 B — dark",
-    "query": "meters=disk-unmeasured&theme=dark",
+    "query": "meters=disk-unmeasured&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 120
   },
   {
     "id": "pool-popover-fixtures-dark",
     "description": "The top bar's \"Agents' disk\" meter in host mode, the storage pool's used/size, with its popover open breaking it down by machine, base, worktree and media — dark",
-    "query": "meters=pool&theme=dark",
+    "query": "meters=pool&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 900,
     "click": "[data-meter=disk]"
@@ -549,7 +549,7 @@
   {
     "id": "power-confirm-dark",
     "description": "Free resources' confirmation in host mode: who is working, who waits on you, long titles — dark",
-    "query": "power=host&theme=dark",
+    "query": "power=host&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 820,
     "click": "[data-free-mode=free]"
@@ -572,7 +572,7 @@
   {
     "id": "power-confirm-vm-dark",
     "description": "Free resources' confirmation in VM mode, which turns the VM off too — dark",
-    "query": "power=running&theme=dark",
+    "query": "power=running&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 820,
     "click": "[data-free-mode=free]"
@@ -903,5 +903,115 @@
     "query": "chat=untracked&open=agent-97&finished=1&theme=dark",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "topbar-status-dark",
+    "description": "The top bar: the Claude chip (5h and week) and the VM as one status bubble, its popover open — dark",
+    "query": "power=running&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-status-light",
+    "description": "Same as topbar-status-dark — light",
+    "query": "power=running&theme=light",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-claude-dark",
+    "description": "The Claude chip's popover: the account, both windows, the other account — dark",
+    "query": "power=running&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-claude-meter]"
+  },
+  {
+    "id": "topbar-claude-near-dark",
+    "description": "The Claude chip at 92% of its 5-hour window, popover open with the at-the-limit warning — dark",
+    "query": "power=running&claude=near&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-claude-meter]"
+  },
+  {
+    "id": "topbar-memory-tight-dark",
+    "description": "VM memory past 85%: the bubble turns amber and \"Free up memory\" shows in the bar — dark",
+    "query": "power=running&mem=tight&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-offline-dark",
+    "description": "The VM up but the daemon unreachable: \"Reconnecting to AgentBox…\", popover open — dark",
+    "query": "power=running&conn=disconnected&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-starting-dark",
+    "description": "The VM starting: the bubble says so and Start is busy — dark",
+    "query": "power=starting&conn=connecting&theme=dark",
+    "width": 1280,
+    "height": 720
+  },
+  {
+    "id": "topbar-off-dark",
+    "description": "The VM off after freeing memory: \"VM off\" and Start, popover open — dark",
+    "query": "power=off&conn=disconnected&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-host-dark",
+    "description": "Host mode (installs from before the VM): \"AgentBox running\", popover open — dark",
+    "query": "power=host&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-detailed-dark",
+    "description": "Settings' \"Detailed top bar\": the strip with VM, memory, CPU and disk, and Shut down; the VM segment open — dark",
+    "query": "power=running&topbar=detailed&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine] button"
+  },
+  {
+    "id": "topbar-detailed-light",
+    "description": "Same as topbar-detailed-dark — light",
+    "query": "power=running&topbar=detailed&theme=light",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine] button"
+  },
+  {
+    "id": "topbar-detailed-memory-dark",
+    "description": "The detailed strip's memory segment open: the VM's memory bar and its agents by memory, VM memory tight — dark",
+    "query": "power=running&topbar=detailed&mem=tight&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-meter=memory]"
+  },
+  {
+    "id": "topbar-detailed-offline-dark",
+    "description": "The detailed strip with the daemon unreachable: the numbers give way to \"Reconnecting…\" — dark",
+    "query": "power=running&topbar=detailed&conn=disconnected&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine] button"
+  },
+  {
+    "id": "topbar-narrow-dark",
+    "description": "The top bar at 760px: the bubble keeps its dot, the Claude chip drops its week — dark",
+    "query": "power=running&theme=dark",
+    "width": 760,
+    "height": 300
   }
 ]

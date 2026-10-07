@@ -14,8 +14,10 @@ import {
   LoaderCircle,
   Lock,
   LockOpen,
+  Moon,
   PencilLine,
   PencilRuler,
+  Play,
   Search,
   ShieldAlert,
   Sparkles,
@@ -46,7 +48,21 @@ import { voiceSettings } from '../../lib/voice/settings';
 // onPhone is the app on a phone paired with the daemon (web/bridge.ts's lan).
 const onPhone = (window.agentbox as { lan?: boolean } | undefined)?.lan === true;
 
-export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; thread?: T.ChatThread; disabled: boolean; onSent: () => void }) {
+// asleep is set while the agent's machine is stopped or paused: the composer
+// says so, with the button that starts it, and a message sent wakes it.
+export function Composer({
+  agent,
+  thread,
+  disabled,
+  asleep,
+  onSent,
+}: {
+  agent: T.Agent;
+  thread?: T.ChatThread;
+  disabled: boolean;
+  asleep?: { state: 'stopped' | 'paused'; starting: boolean; onStart: () => void };
+  onSent: () => void;
+}) {
   const t = useT();
   const [text, setText] = useState(() => getDraft(agent.ref));
   const [dismissed, setDismissed] = useState<string | null>(null);
@@ -262,6 +278,8 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
 
   const placeholder = disabled
     ? t('chat.composer.startToChat', { name: agent.name })
+    : asleep
+      ? t('chat.composer.wakeToChat', { state: asleep.state, name: agent.name })
     : held
       ? t('chat.composer.held')
       : requests.length > 0
@@ -273,7 +291,22 @@ export function Composer({ agent, thread, disabled, onSent }: { agent: T.Agent; 
   return (
     <div className="relative" data-chat-composer>
       {plan && <TasksBadge plan={plan} />}
-      {requests.length > 0 && thread ? (
+      {asleep ? (
+        <Attached tone="neutral">
+          <div className="flex items-center gap-2 text-[12.5px]" data-chat-asleep={asleep.state}>
+            {asleep.starting || send.isPending ? <LoaderCircle className="size-3.5 shrink-0 animate-spin text-muted" /> : <Moon className="size-3.5 shrink-0 text-muted" />}
+            <p className="min-w-0 flex-1 break-words leading-relaxed text-tertiary">{t('chat.composer.asleep', { state: asleep.state, name: agent.name })}</p>
+            <button
+              className="flex h-6 shrink-0 items-center gap-1 rounded-md bg-brand-500/90 px-2.5 text-[12px] font-medium text-white transition hover:bg-brand-500 disabled:opacity-60"
+              disabled={asleep.starting || send.isPending}
+              onClick={asleep.onStart}
+            >
+              <Play className="size-3" />
+              {t('chat.composer.wake', { state: asleep.state })}
+            </button>
+          </div>
+        </Attached>
+      ) : requests.length > 0 && thread ? (
         <PermissionBanner agent={agent} thread={thread} request={requests[0]} count={requests.length} />
       ) : cacheCard ? (
         <CacheCard

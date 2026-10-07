@@ -13,9 +13,9 @@ import {
   freeTargets,
   loadRestorable,
   progress,
+  restartable,
   saveRestorable,
   vmHeld,
-  vmTransitions,
   whoText,
   type FreeTarget,
 } from '../lib/freeResources';
@@ -24,7 +24,6 @@ import { actOnVM, ensureVMRunning, useVMPower } from '../lib/vm';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tip } from './ui/tooltip';
 
 // FreeRun is one Free resources, from its confirmation to what it freed. It
@@ -41,10 +40,12 @@ export interface FreeRun {
   error?: string;
 }
 
-// ResourceControls is the top bar's resource controls: in VM mode the VM's
-// indicator, and the Free resources button, which turns into Start once
-// everything is off.
-export function ResourceControls({ agents }: { agents: T.Agent[] }) {
+// useFreeResources is the top bar's one click that gives memory back — every
+// running agent stopped and, in VM mode, the VM turned off — and Start, the
+// one click back. It keeps the run, so closing its dialog while the agents
+// stop only hides it: the bar keeps showing the progress. The bar draws the
+// buttons (FreeButton, VMActions) and must render dialog.
+export function useFreeResources(agents: T.Agent[]) {
   const t = useT();
   const queryClient = useQueryClient();
   const vm = useVMPower().data ?? null;
@@ -52,9 +53,9 @@ export function ResourceControls({ agents }: { agents: T.Agent[] }) {
   const [run, setRun] = useState<FreeRun | null>(null);
   const [open, setOpen] = useState(false);
   const [starting, setStarting] = useState(false);
-  // While Free resources runs, the VM is on its way off, whatever it's doing
+  // While a run goes, the VM is on its way off, whatever it's doing
   // meanwhile: a paused one is resumed first, so its agents stop cleanly, and
-  // the pill says Stopping throughout rather than Paused, then Resuming.
+  // the bar says Stopping throughout rather than Paused, then Resuming.
   const running = run?.phase === 'stopping' || run?.phase === 'vm';
   // While agents stop, the list is what the progress counts: events move it,
   // and this covers a stream that's reconnecting.
@@ -65,7 +66,7 @@ export function ResourceControls({ agents }: { agents: T.Agent[] }) {
     enabled: running,
   });
   const now = live.data ?? agents;
-  const mode = running ? 'busy' : freeMode(now, vm, restorable);
+  const mode = starting || running ? 'busy' : freeMode(now, vm, restorable);
 
   const begin = () => {
     if (!running) setRun({ phase: 'confirm', targets: freeTargets(now), vmBefore: vm });
@@ -116,8 +117,8 @@ export function ResourceControls({ agents }: { agents: T.Agent[] }) {
     await refresh();
   };
 
-  // start is the one click back: the VM, then the agents Free resources
-  // stopped. Any one of them that won't start is said, not fatal.
+  // start is the one click back: the VM, then the agents a run stopped. Any
+  // one of them that won't start is said, not fatal.
   const start = async (refs: string[]) => {
     setStarting(true);
     try {
@@ -138,37 +139,46 @@ export function ResourceControls({ agents }: { agents: T.Agent[] }) {
       await refresh();
     }
   };
+  const back = vm ? restorable : restartable(now, restorable);
 
-  return (
-    <>
-      {vm && <VMIndicator vm={running && vm.state !== 'off' ? { ...vm, state: 'stopping' } : vm} onStop={begin} />}
-      <FreeButton
-        mode={starting ? 'busy' : mode}
-        vm={vm}
+  return {
+    vm: running && vm && vm.state !== 'off' ? { ...vm, state: 'stopping' as const } : vm,
+    mode,
+    run,
+    now,
+    // targets is how many agents a run would stop; back, how many Start
+    // brings back.
+    targets: freeTargets(now).length,
+    back: back.length,
+    begin,
+    startBack: () => void start(back),
+    show: () => setOpen(true),
+    dialog: run && (
+      <FreeResourcesDialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          // A run that's over is forgotten once its result is closed.
+          if (!next && (run.phase === 'confirm' || run.phase === 'done' || run.phase === 'error')) setRun(null);
+        }}
         run={run}
-        now={now}
-        restorable={restorable}
-        onFree={begin}
-        onStart={() => void start(vm ? restorable : restorable.filter((ref) => now.some((a) => a.ref === ref && a.state === 'stopped')))}
-        onShow={() => setOpen(true)}
+        agents={now}
+        onConfirm={() => void confirm()}
+        onStartAgain={() => void start(run.result?.stopped.map((a) => a.ref) ?? [])}
+        starting={starting}
       />
-      {run && (
-        <FreeResourcesDialog
-          open={open}
-          onOpenChange={(next) => {
-            setOpen(next);
-            // A run that's over is forgotten once its result is closed.
-            if (!next && (run.phase === 'confirm' || run.phase === 'done' || run.phase === 'error')) setRun(null);
-          }}
-          run={run}
-          agents={now}
-          onConfirm={() => void confirm()}
-          onStartAgain={() => void start(run.result?.stopped.map((a) => a.ref) ?? [])}
-          starting={starting}
-        />
-      )}
-    </>
-  );
+    ),
+  };
+}
+
+export type FreeResources = ReturnType<typeof useFreeResources>;
+
+// freeLabel is what the action is called: in VM mode it turns the VM off as
+// well, which the bar's strip says plainly as Shut down; the status bubble
+// says what it's for.
+export function freeLabel(t: ReturnType<typeof useT>, free: FreeResources, style: 'shutDown' | 'freeMemory'): string {
+  if (!free.vm) return t('vm.free.stopAll');
+  return style === 'shutDown' ? t('vm.free.shutDown') : t('vm.free.freeMemory');
 }
 
 // finished waits for a job to end, the way JobProgress follows one.
@@ -180,30 +190,15 @@ async function finished(id: string): Promise<T.Job> {
   }
 }
 
-function FreeButton({
-  mode,
-  vm,
-  run,
-  now,
-  restorable,
-  onFree,
-  onStart,
-  onShow,
-}: {
-  mode: ReturnType<typeof freeMode>;
-  vm: VMPower | null;
-  run: FreeRun | null;
-  now: T.Agent[];
-  restorable: string[];
-  onFree: () => void;
-  onStart: () => void;
-  onShow: () => void;
-}) {
+// FreeButton is the action in the bar itself: Start once everything is off,
+// the run's progress while it goes, and otherwise the action, named by style.
+export function FreeButton({ free, style }: { free: FreeResources; style: 'shutDown' | 'freeMemory' }) {
   const t = useT();
+  const { mode, run, vm } = free;
   if (mode === 'idle') return null;
   if (mode === 'busy') {
     const stopping = run?.phase === 'stopping' || run?.phase === 'vm';
-    const { done, total } = run ? progress(run.targets, now) : { done: 0, total: 0 };
+    const { done, total } = run ? progress(run.targets, free.now) : { done: 0, total: 0 };
     const label = stopping
       ? run.phase === 'vm'
         ? t('vm.free.busyVM')
@@ -217,25 +212,25 @@ function FreeButton({
       <button
         type="button"
         className="flex items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs text-muted transition hover:bg-surface-raised"
-        onClick={stopping ? onShow : undefined}
+        onClick={stopping ? free.show : undefined}
         disabled={!stopping}
         aria-label={label}
         data-free-mode="busy"
       >
         <LoaderCircle className="size-3.5 animate-spin" />
-        <span className="font-medium tabular-nums">{label}</span>
+        <span className="whitespace-nowrap font-medium tabular-nums">{label}</span>
       </button>
     );
   }
   if (mode === 'start') {
-    const count = vm ? restorable.length : restorable.filter((ref) => now.some((a) => a.ref === ref && a.state === 'stopped')).length;
+    const count = free.back;
     const label = vm ? (count ? t('vm.free.startVMAgents', { count }) : t('vm.free.startVM')) : count ? t('vm.free.startAgents', { count }) : t('common.start');
     return (
       <Tip label={label}>
         <button
           type="button"
           className="flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-200 ring-1 ring-inset ring-emerald-400/30 transition hover:bg-emerald-400/15"
-          onClick={onStart}
+          onClick={free.startBack}
           aria-label={label}
           data-free-mode="start"
         >
@@ -245,20 +240,24 @@ function FreeButton({
       </Tip>
     );
   }
-  const count = freeTargets(now).length;
-  const what = count ? (vm ? 'both' : 'agents') : 'vm';
+  const count = free.targets;
+  const label = freeLabel(t, free, style);
   return (
-    <Tip label={t('vm.free.tip', { what, count })}>
+    <Tip label={t('vm.free.tip', { what: count ? (vm ? 'both' : 'agents') : 'vm', count })}>
       <button
         type="button"
-        className="flex items-center gap-1.5 rounded-full border border-line bg-surface-faint px-2.5 py-1 text-xs font-medium text-secondary transition hover:border-rose-400/40 hover:bg-rose-400/10 hover:text-rose-200"
-        onClick={onFree}
-        aria-label={t('vm.free.button')}
+        className={cn(
+          'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition',
+          style === 'freeMemory'
+            ? 'bg-amber-400/15 text-amber-100 ring-1 ring-inset ring-amber-400/35 hover:bg-amber-400/20'
+            : 'border border-line bg-surface-faint text-secondary hover:border-rose-400/40 hover:bg-rose-400/10 hover:text-rose-200',
+        )}
+        onClick={free.begin}
+        aria-label={label}
         data-free-mode="free"
       >
         <Power className="size-3.5" />
-        <span className="hidden xl:inline">{t('vm.free.button')}</span>
-        {count > 0 && <span className="font-mono text-[11px] tabular-nums text-subtle">{count}</span>}
+        <span className="hidden whitespace-nowrap sm:inline">{style === 'freeMemory' ? `${label}…` : label}</span>
       </button>
     </Tip>
   );
@@ -498,7 +497,7 @@ function Stat({ id, label, value, detail }: { id: string; label: string; value: 
   );
 }
 
-const vmStateText: Record<VMPower['state'], MessageKey> = {
+export const vmStateText: Record<VMPower['state'], MessageKey> = {
   off: 'vm.state.off',
   starting: 'vm.state.starting',
   running: 'vm.state.running',
@@ -508,17 +507,57 @@ const vmStateText: Record<VMPower['state'], MessageKey> = {
   stopping: 'vm.state.stopping',
 };
 
-// VMIndicator is VM mode's pill: the VM's state and how much of its memory
-// is in use, opening a popover with the details and its controls. Stopping
-// goes through Free resources (onStop), so the agents inside are stopped
-// cleanly and what that freed is shown, rather than cut off with the VM. On
-// Windows it's AgentBox's WSL distro, which WSL can't pause.
-export function VMIndicator({ vm, onStop }: { vm: VMPower; onStop: () => void }) {
+// VMPanel is AgentBox's VM (on Windows, its WSL distro) in a popover: its
+// state, its memory, and its controls.
+export function VMPanel({ vm, free }: { vm: VMPower; free: FreeResources }) {
   const t = useT();
   const wsl = vm.driver === 'wsl';
+  return (
+    <div className="grid gap-3" data-vm-popover>
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-2 text-[13px] font-medium text-primary">
+          <MonitorCog className="size-4 text-subtle" />
+          {wsl ? t('vm.wslPower.title') : t('vm.agentboxVM')}
+        </span>
+        <span className="flex items-center gap-1.5 text-[12px] text-muted">
+          <span className={cn('size-1.5 rounded-full', vmDot(vm))} />
+          {t(vmStateText[vm.state])}
+        </span>
+      </div>
+      {wsl ? <WSLMemory vm={vm} /> : <VMMemory vm={vm} />}
+      <p className="text-[11.5px] leading-relaxed text-muted">
+        {wsl ? t('vm.wslPower.cpus', { cpus: vm.cpus }) : t('vm.indicator.cpus', { cpus: vm.cpus })}
+        {vm.state === 'paused' && ` ${t('vm.indicator.pausedNote')}`}
+      </p>
+      {vm.error && <Notice className="text-[12px]">{vm.error}</Notice>}
+      <VMActions free={free} style="shutDown" />
+    </div>
+  );
+}
+
+export function vmDot(vm: VMPower): string {
+  return vm.error && vm.state === 'off'
+    ? 'bg-rose-400'
+    : vm.state === 'running'
+      ? 'bg-emerald-400 animate-glow'
+      : vm.state === 'paused'
+        ? 'bg-amber-400'
+        : vm.state === 'off'
+          ? 'bg-faint'
+          : 'bg-brand-400 animate-pulse';
+}
+
+// VMActions is the machine's controls, under a line saying what the action
+// does: Start (with the agents a run stopped) when it's off; otherwise Pause
+// or Resume for a VM (not a WSL distro, which WSL can't pause), and the action
+// that gives its memory back. Stopping always goes through that action, so the
+// agents inside are stopped cleanly and what that freed is shown, rather than
+// cut off with the VM.
+export function VMActions({ free, style }: { free: FreeResources; style: 'shutDown' | 'freeMemory' }) {
+  const t = useT();
+  const vm = free.vm;
+  const wsl = vm?.driver === 'wsl';
   const [busy, setBusy] = useState(false);
-  const transitioning = busy || vmTransitions.includes(vm.state);
-  const up = vm.state !== 'off' && vm.state !== 'starting';
   const act = async (action: VMPowerAction) => {
     setBusy(true);
     try {
@@ -529,111 +568,57 @@ export function VMIndicator({ vm, onStop }: { vm: VMPower; onStop: () => void })
       setBusy(false);
     }
   };
-  const percent = vm.memoryGranted > 0 ? Math.min(1, vm.memoryUsed / vm.memoryGranted) * 100 : 0;
-  const dot =
-    vm.error && vm.state === 'off'
-      ? 'bg-rose-400'
-      : vm.state === 'running'
-        ? 'bg-emerald-400 animate-glow'
-        : vm.state === 'paused'
-          ? 'bg-amber-400'
-          : vm.state === 'off'
-            ? 'bg-faint'
-            : 'bg-brand-400 animate-pulse';
+  const label = freeLabel(t, free, style);
+  const off = free.mode === 'start' || vm?.state === 'off';
+  if (!vm && free.mode === 'idle') return null;
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-full border border-line bg-surface-faint py-1 pl-2 pr-2.5 transition hover:bg-surface-raised"
-          aria-label={t(wsl ? 'vm.wslPower.aria' : 'vm.indicator.aria', {
-            state: t(vmStateText[vm.state]),
-            up: up ? 'yes' : 'no',
-            used: humanBytes(vm.memoryUsed),
-            total: humanBytes(vm.memoryGranted),
-          })}
-          data-vm-state={vm.state}
-          data-vm-driver={vm.driver}
-        >
-          <span className={cn('size-1.5 rounded-full', dot)} />
-          <span className="text-[11px] font-medium text-tertiary">{wsl ? 'WSL' : 'VM'}</span>
-          <span className={cn('text-[11px] text-muted', up && 'hidden sm:inline')}>{t(vmStateText[vm.state])}</span>
-          {up && (
-            <>
-              <span className="hidden w-36 whitespace-nowrap font-mono text-[11px] tabular-nums text-tertiary md:inline">
-                {humanBytes(vm.memoryUsed)}/{humanBytes(vm.memoryGranted)}
-              </span>
-              <span className="hidden h-1 w-8 overflow-hidden rounded-full bg-surface-strong md:block">
-                <span
-                  className={cn(
-                    'block h-full rounded-full',
-                    percent > 85 ? 'bg-rose-400' : percent > 65 ? 'bg-amber-400' : 'bg-gradient-to-r from-brand-400 to-sky-400',
-                  )}
-                  style={{ width: `${Math.max(percent, 4)}%` }}
-                />
-              </span>
-            </>
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-80">
-        <div className="grid gap-3" data-vm-popover>
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-2 text-[13px] font-medium text-primary">
-              <MonitorCog className="size-4 text-subtle" />
-              {wsl ? t('vm.wslPower.title') : t('vm.agentboxVM')}
-            </span>
-            <span className="flex items-center gap-1.5 text-[12px] text-muted">
-              <span className={cn('size-1.5 rounded-full', dot)} />
-              {t(vmStateText[vm.state])}
-            </span>
-          </div>
-          {wsl ? <WSLMemory vm={vm} /> : <VMMemory vm={vm} />}
-          <p className="text-[11.5px] leading-relaxed text-muted">
-            {wsl ? t('vm.wslPower.cpus', { cpus: vm.cpus }) : t('vm.indicator.cpus', { cpus: vm.cpus })}
-            {vm.state === 'paused' && ` ${t('vm.indicator.pausedNote')}`}
-          </p>
-          {vm.error && <Notice className="text-[12px]">{vm.error}</Notice>}
-          <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-            {transitioning ? (
-              <Button size="sm" disabled>
-                <LoaderCircle className="animate-spin" />
-                {t(vmStateText[vm.state])}…
-              </Button>
-            ) : vm.state === 'off' ? (
-              <Button size="sm" variant="primary" onClick={() => void act('start')}>
+    <div className="grid gap-2 border-t border-line pt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {busy || free.mode === 'busy' ? (
+          <Button size="sm" disabled>
+            <LoaderCircle className="animate-spin" />
+            {vm ? `${t(vmStateText[vm.state])}…` : t('vm.free.busyStopping')}
+          </Button>
+        ) : off ? (
+          <Button size="sm" variant="primary" onClick={free.startBack} data-free-mode="start">
+            <Play />
+            {vm ? (free.back ? t('vm.free.startVMShort', { count: free.back }) : t('vm.free.startVM')) : t('vm.free.startAgents', { count: free.back })}
+          </Button>
+        ) : (
+          <>
+            {vm?.state === 'paused' ? (
+              <Button size="sm" onClick={() => void act('resume')}>
                 <Play />
-                {t('common.start')}
+                {t('vm.indicator.resume')}
               </Button>
             ) : (
-              <>
-                {wsl ? null : vm.state === 'paused' ? (
-                  <Button size="sm" onClick={() => void act('resume')}>
-                    <Play />
-                    {t('vm.indicator.resume')}
-                  </Button>
-                ) : (
-                  <Button size="sm" onClick={() => void act('pause')}>
-                    <Pause />
-                    {t('vm.indicator.pause')}
-                  </Button>
-                )}
-                <Button size="sm" variant="danger" onClick={onStop}>
-                  <Power />
-                  {t('common.stop')}…
+              vm &&
+              !wsl && (
+                <Button size="sm" onClick={() => void act('pause')}>
+                  <Pause />
+                  {t('vm.indicator.pause')}
                 </Button>
-              </>
+              )
             )}
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+            <Button size="sm" variant="danger" onClick={free.begin} data-free-mode="free">
+              <Power />
+              {label}…
+            </Button>
+          </>
+        )}
+      </div>
+      {!off && free.mode !== 'busy' && (
+        <span className="text-[11px] leading-relaxed text-faint">
+          {vm && !wsl && t('vm.free.pauseExplained')} {t('vm.free.explained', { count: free.targets, vm: vm ? 'yes' : 'no' })}
+        </span>
+      )}
+    </div>
   );
 }
 
 // VMMemory is the VM's memory as one bar: the cap is the whole width, what
 // it's been granted a lighter fill, what's in use inside a solid one.
-function VMMemory({ vm }: { vm: VMPower }) {
+export function VMMemory({ vm }: { vm: VMPower }) {
   const t = useT();
   const cap = Math.max(vm.memoryCap, vm.memoryGranted, 1);
   const granted = (vm.memoryGranted / cap) * 100;

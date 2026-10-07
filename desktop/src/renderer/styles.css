@@ -260,6 +260,8 @@
   --color-brand-400: var(--ab-brand-400);
   --color-brand-500: var(--ab-brand-500);
   --color-brand-600: var(--ab-brand-600);
+  /* Claude's own orange, for the top bar's Claude usage: told apart from the machine's meters. */
+  --color-claude: #d97757;
   --color-ink: var(--ab-ink);
   --color-indigo-500: var(--ab-brand-mid);
   --color-indigo-600: var(--ab-brand-deep);

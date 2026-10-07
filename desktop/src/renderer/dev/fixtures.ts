@@ -585,6 +585,28 @@ export function agent12Chat(): T.ChatThread {
   };
 }
 
+// asleepChat is a conversation stored for an agent whose machine is now
+// stopped or paused: several finished turns, long enough to scroll, read from
+// the database without its AI tool running.
+export function asleepChat(ref: string): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const turns: [string, string][] = [
+    ['Add a dark mode toggle to the Settings page, saved in localStorage.', 'Added a toggle under Appearance in `SettingsView.tsx`, saved as `agentbox.theme`. The page follows it at once, without a reload.'],
+    ['Does it follow the system theme by default?', 'Yes: with nothing saved it reads `prefers-color-scheme`, and keeps following it while the app is open. Picking Light or Dark pins it.'],
+    ['Write a test for the saved value.', 'Added `theme.test.ts`: it saves Dark, reloads the setting and checks the page is dark, then clears it and checks the system theme wins again. `npm test` passes, 355 tests.'],
+    ['Commit it and open a pull request.', 'Committed on `agentbox/dark-mode-toggle` and opened PR #214, "feat: a dark mode toggle in Settings", with a screenshot of both themes. CI is green.'],
+  ];
+  const items: T.ChatItem[] = turns.flatMap(([ask, reply], i) => {
+    const ago = (turns.length - i) * 600_000;
+    const turn = `s${i}`;
+    return [
+      { id: `${turn}u`, turn, kind: 'user', text: ask, result: { state: 'completed', stopReason: 'end_turn', endedAt: at(ago - 60_000) }, createdAt: at(ago), updatedAt: at(ago) },
+      { id: `${turn}a`, turn, kind: 'assistant', text: reply, createdAt: at(ago - 60_000), updatedAt: at(ago - 60_000) },
+    ];
+  });
+  return { agent: ref, seq: 1, session: { state: 'off', tool: 'claude', options: [], commands: [] }, items };
+}
+
 // leadChat is the project's chat, where you talk to the lead, a little after
 // it told agent-12 to push again: the credential cards come after it, drawn
 // from the project's questions rather than written into the conversation.
@@ -903,11 +925,13 @@ function stopAgents(refs: string[]) {
 // agents running (host) or with every one stopped by Free resources and
 // Start to bring them back (host-start); or in VM mode with the VM in a
 // state: running, paused, off, starting or stopping; or on Windows with
-// AgentBox's WSL distro running or stopped (wsl-running, wsl-off).
-export function seedPower(queryClient: QueryClient, power: string): void {
+// AgentBox's WSL distro running or stopped (wsl-running, wsl-off). tight puts
+// the VM's memory (or the host's) past the top bar's 85%; near puts the Claude
+// account's five-hour window at 92%.
+export function seedPower(queryClient: QueryClient, power: string, { tight = false, near = false } = {}): void {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 38, cores: 16, memUsed: 21 * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
-  queryClient.setQueryData(['claudeLimits'], []);
+  queryClient.setQueryData(['usage'], { host: { cpu: 38, cores: 16, memUsed: (tight ? 29 : 21) * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
+  queryClient.setQueryData(['claudeLimits'], claudeLimits(near));
   localStorage.removeItem('agentbox.freed');
   if (power === 'host') {
     devState.vmPower = null;
@@ -924,9 +948,19 @@ export function seedPower(queryClient: QueryClient, power: string): void {
   const wsl = power.startsWith('wsl-');
   const state = power.replace(/^wsl-/, '') as VMPowerState;
   const up = state !== 'off' && state !== 'starting';
+  const pool = { size: 100 * GiB, allocated: Math.round(18.4 * GiB) };
+  const root = { size: 20 * GiB, allocated: Math.round(5.8 * GiB) };
+  const disk: T.VMDisk = { size: pool.size + root.size, allocated: pool.allocated + root.allocated, pool, root, hostFree: 310 * GiB };
   devState.vmPower = wsl
-    ? { state, memoryUsed: up ? 6.5 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: up ? 16 * GiB : 0, cpus: up ? 8 : 0, driver: 'wsl' }
-    : { state, memoryUsed: up ? 11.3 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: 24 * GiB, cpus: 12 };
+    ? { state, memoryUsed: up ? (tight ? 14.5 : 6.5) * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: up ? 16 * GiB : 0, cpus: up ? 8 : 0, driver: 'wsl' }
+    : {
+        state,
+        memoryUsed: up ? (tight ? 21.9 : 11.3) * GiB : 0,
+        memoryGranted: up ? (tight ? 23 : 16) * GiB : 0,
+        memoryCap: 24 * GiB,
+        cpus: 12,
+        ...(up ? { disk, hostFree: disk.hostFree } : {}),
+      };
   if (state === 'off') {
     const agents = (devState.agents ?? []).map((a) => (a.state === 'running' || a.state === 'paused' ? { ...a, state: 'stopped', chat: 'off' } : a));
     localStorage.setItem('agentbox.freed', JSON.stringify(freeTargets(devState.agents ?? []).map((t) => t.ref)));
@@ -934,6 +968,35 @@ export function seedPower(queryClient: QueryClient, power: string): void {
     queryClient.setQueryData(['agents'], agents);
   }
   queryClient.setQueryData(['vmPower'], devState.vmPower);
+}
+
+// claudeLimits is two Claude accounts' latest readings: the default
+// "personal", its five-hour window a third used (near: 92%, 47 minutes to
+// go) and its week a fifth; and "work".
+export function claudeLimits(near = false): T.ClaudeLimit[] {
+  const at = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+  return [
+    {
+      account: 'personal',
+      default: true,
+      at: at(-2),
+      status: 'allowed',
+      windows: [
+        { name: 'five_hour', label: '5-hour', utilization: near ? 0.92 : 0.38, resetsAt: at(near ? 47 : 192) },
+        { name: 'seven_day', label: 'Weekly', utilization: near ? 0.71 : 0.22, resetsAt: at(near ? 27 * 60 : 102 * 60) },
+      ],
+    },
+    {
+      account: 'work',
+      default: false,
+      at: at(-40),
+      status: 'allowed',
+      windows: [
+        { name: 'five_hour', label: '5-hour', utilization: 0.12, resetsAt: at(130) },
+        { name: 'seven_day', label: 'Weekly', utilization: 0.4, resetsAt: at(50 * 60) },
+      ],
+    },
+  ];
 }
 
 // freeRun is a Free resources in one of its phases (?free=), against the
@@ -1702,6 +1765,8 @@ export function installDevBridge(): void {
         devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, state: 'running', chat: 'ready' } : a));
         return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
       }
+      // No bell history unless a scenario sets one: the Sidebar counts it, and {} isn't a list.
+      if (method === 'GET' && path === '/v1/notifications') return { status: 200, body: '[]', contentType: 'application/json' };
       // No checkpoints: Timeline filters what it gets, and {} isn't a list.
       if (method === 'GET' && path.endsWith('/checkpoints')) return { status: 200, body: '[]', contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/agents' && devState.agents) return { status: 200, body: JSON.stringify(devState.agents), contentType: 'application/json' };
