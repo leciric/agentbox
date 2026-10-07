@@ -35,10 +35,10 @@ func Main(args []string, version string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	var root *cobra.Command
-	switch {
-	case args[0] == "relay":
+	switch args[0] {
+	case "relay":
 		root = newRelayCmd()
-	case args[0] == "vm":
+	case "vm":
 		root = newVMCmd()
 	default:
 		root = newWSLCmd(version)
