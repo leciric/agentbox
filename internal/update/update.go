@@ -12,12 +12,14 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"runtime"
 	"strings"
+	"testing"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -27,6 +29,16 @@ import (
 
 // DefaultURL is where the check goes unless AGENTBOX_UPDATE_URL says otherwise.
 const DefaultURL = "https://agentbox.linting.dev/api/v1/latest"
+
+// Endpoint is base, or DefaultURL when base is empty. Never DefaultURL in a
+// test binary: a test that forgot its fake server would count a made-up
+// install, with a version never released, on the real server.
+func Endpoint(base string) (*url.URL, error) {
+	if base == "" && testing.Testing() {
+		return nil, errors.New("a test reached for " + DefaultURL + ": give it a fake server")
+	}
+	return url.Parse(cmp.Or(base, DefaultURL))
+}
 
 // Timeout bounds one check. Anything slower is treated like any other failure:
 // silently, as no news.
@@ -61,7 +73,7 @@ func NewRequest(install, version string) Request {
 func Check(ctx context.Context, base string, req Request) (Latest, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
-	u, err := url.Parse(cmp.Or(base, DefaultURL))
+	u, err := Endpoint(base)
 	if err != nil {
 		return Latest{}, err
 	}

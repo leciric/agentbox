@@ -191,7 +191,9 @@ GET https://agentbox.linting.dev/api/v1/latest?install=<uuid>&version=0.1.0&os=l
 
 - `install`: a random UUID, made the first time the check runs and kept in AgentBox's own database
   (`state.db`). It is derived from nothing, so it can't be traced back to you or the machine. It
-  only lets repeated checks from one installation be counted once.
+  only lets repeated checks from one installation be counted once. When AgentBox runs in a VM or a
+  WSL2 distro, a copy is kept on your computer too (`~/.config/agentbox/install-id`, or
+  `%LOCALAPPDATA%\AgentBox\install-id` on Windows), so a VM made again is still the same install.
 - `version`: the version of AgentBox.
 - `os` and `arch`: the operating system and processor architecture, such as `linux` and `amd64`.
   On a Mac or on Windows, where the daemon runs in a Linux VM or WSL2 distro, `os` is `darwin` or

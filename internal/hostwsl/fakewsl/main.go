@@ -225,8 +225,12 @@ func execute(command []string) int {
 			fmt.Fprintf(os.Stderr, "note: %s isn't in the distro, so this runs in your Linux home folder\n", command[4])
 		}
 		return execute(command[5:])
-	case command[0] == "sh" && len(command) == 3 && strings.Contains(command[2], "exec agentbox daemon"):
-		// Distro.StartDaemon: the daemon, until wsl.exe is killed.
+	case command[0] == "sh" && len(command) >= 4 && strings.Contains(command[2], `exec env "$@" agentbox daemon`):
+		// Distro.StartDaemon: the daemon, until wsl.exe is killed. The
+		// variables it was given are kept in daemon-env, for the test to read.
+		if err := os.WriteFile(filepath.Join(root(), "daemon-env"), []byte(strings.Join(command[4:], "\n")), 0o644); err != nil {
+			return fail("%v", err)
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		if err := serve(ctx, os.Getenv("FAKEWSL_SOCKET")); err != nil {

@@ -14,7 +14,6 @@ package report
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -158,7 +157,7 @@ type Payload struct {
 // URL is where reports go: "reports" beside the update check's URL (base, or
 // update.DefaultURL when empty), so AGENTBOX_UPDATE_URL moves all three.
 func URL(base string) (string, error) {
-	u, err := url.Parse(cmp.Or(base, update.DefaultURL))
+	u, err := update.Endpoint(base)
 	if err != nil {
 		return "", err
 	}

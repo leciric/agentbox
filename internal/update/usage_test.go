@@ -6,12 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 func TestUsageURLSitsBesideTheCheck(t *testing.T) {
 	for base, want := range map[string]string{
-		"":                                   "https://agentbox.linting.dev/api/v1/usage",
+		DefaultURL:                           "https://agentbox.linting.dev/api/v1/usage",
 		"http://127.0.0.1:9/api/v1/latest":   "http://127.0.0.1:9/api/v1/usage",
 		"http://127.0.0.1:9/api/v1/latest?x": "http://127.0.0.1:9/api/v1/usage",
 		"http://127.0.0.1:9":                 "http://127.0.0.1:9/usage",
@@ -19,6 +20,17 @@ func TestUsageURLSitsBesideTheCheck(t *testing.T) {
 		if got, err := UsageURL(base); err != nil || got != want {
 			t.Errorf("UsageURL(%q) = %q, %v; want %q", base, got, err, want)
 		}
+	}
+}
+
+// TestTestsNeverReachTheRealServer: in a test binary, an empty base, which is
+// DefaultURL everywhere else, is refused before anything is sent.
+func TestTestsNeverReachTheRealServer(t *testing.T) {
+	if _, err := Check(context.Background(), "", NewRequest("5b0c7d4e-1111-4222-8333-944455556666", "0.16.0")); err == nil || !strings.Contains(err.Error(), "fake server") {
+		t.Errorf("Check with no URL = %v", err)
+	}
+	if err := SendUsage(context.Background(), "", NewRequest("id", "0.16.0"), nil); err == nil || !strings.Contains(err.Error(), "fake server") {
+		t.Errorf("SendUsage with no URL = %v", err)
 	}
 }
 

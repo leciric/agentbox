@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"agentbox/internal/api"
+	"agentbox/internal/update"
 )
 
 func TestCleanRedactsCutsAndDrops(t *testing.T) {
@@ -94,7 +95,7 @@ func TestTailFile(t *testing.T) {
 
 func TestURL(t *testing.T) {
 	for base, want := range map[string]string{
-		"":                                    "https://agentbox.linting.dev/api/v1/reports",
+		update.DefaultURL:                     "https://agentbox.linting.dev/api/v1/reports",
 		"http://127.0.0.1:8788/api/v1/latest": "http://127.0.0.1:8788/api/v1/reports",
 	} {
 		if got, err := URL(base); err != nil || got != want {

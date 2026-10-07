@@ -2,7 +2,6 @@ package update
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -74,7 +73,7 @@ func UsageURL(base string) (string, error) { return besideCheck(base, "usage") }
 func EventsURL(base string) (string, error) { return besideCheck(base, "events") }
 
 func besideCheck(base, name string) (string, error) {
-	u, err := url.Parse(cmp.Or(base, DefaultURL))
+	u, err := Endpoint(base)
 	if err != nil {
 		return "", err
 	}
