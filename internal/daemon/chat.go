@@ -46,6 +46,7 @@ func (s *Server) prepareChatModel(ctx context.Context, a state.Agent, model stri
 func (s *Server) agentInfo(st agent.Status) api.Agent {
 	info := toAPIAgent(st)
 	info.Chat = s.chat.State(info.Ref)
+	info.Background = s.chat.Background(info.Ref)
 	if info.State == state.AgentQueued {
 		info.Waiting = s.waitingFor(info.Ref)
 	}

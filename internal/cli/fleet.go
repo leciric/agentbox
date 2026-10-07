@@ -144,6 +144,10 @@ func agentDoing(a api.Agent) string {
 	if a.StalledSince != nil {
 		return "stalled, no progress since " + ago(*a.StalledSince)
 	}
+	if a.Chat == api.ChatReady && len(a.Background) > 0 {
+		// Its turn ended, but not its work: the work's end wakes it.
+		return "awaiting background work (" + strings.Join(a.Background, "; ") + ")"
+	}
 	return chatDoing(a.Chat)
 }
 

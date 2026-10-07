@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, LoaderCircle, MessageSquarePlus } from 'lucide-react';
+import { ArrowDown, EyeOff, LoaderCircle, MessageSquarePlus } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
@@ -315,20 +315,37 @@ const statusStyles: Record<string, { dot: string; label: MessageKey }> = {
   ready: { dot: 'bg-emerald-400', label: 'chat.status.ready' },
   running: { dot: 'bg-sky-400 animate-pulse', label: 'chat.status.running' },
   waiting: { dot: 'bg-amber-400 animate-pulse', label: 'chat.status.waiting' },
+  // Ready, with work it left running in the background: not the session's own
+  // state, but what a ready session with ChatSession.background is.
+  awaiting: { dot: 'bg-violet-400 animate-pulse', label: 'chat.status.awaiting' },
   error: { dot: 'bg-rose-400', label: 'chat.status.error' },
 };
 
 function SessionStatus({ agent, session }: { agent: T.Agent; session?: T.ChatSession }) {
   const t = useT();
-  const state = session?.state ?? 'off';
+  const background = session?.background ?? [];
+  const state = session?.state === 'ready' && background.length > 0 ? 'awaiting' : (session?.state ?? 'off');
   const style = statusStyles[state] ?? statusStyles.off;
   const tool = aiLabel(agent.ai);
+  const tip = state === 'awaiting' ? t('chat.status.awaitingTip', { tasks: background.join(', ') }) : session?.error || session?.detail || session?.adapter || t('chat.status.adapter', { tool });
   return (
-    <Tip label={session?.error || session?.detail || session?.adapter || t('chat.status.adapter', { tool })}>
-      <span className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted" data-chat-state={state}>
-        {state === 'starting' ? <LoaderCircle className="size-3 animate-spin text-muted" /> : <span className={cn('size-1.5 shrink-0 rounded-full', style.dot)} />}
-        <span className="hidden truncate sm:inline">{t(style.label, { tool })}</span>
-      </span>
-    </Tip>
+    <>
+      <Tip label={tip}>
+        <span className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted" data-chat-state={state}>
+          {state === 'starting' ? <LoaderCircle className="size-3 animate-spin text-muted" /> : <span className={cn('size-1.5 shrink-0 rounded-full', style.dot)} />}
+          <span className="hidden truncate sm:inline">{t(style.label, { tool })}</span>
+        </span>
+      </Tip>
+      {/* Only Claude Code's adapter reports background tasks: elsewhere an
+          agent waiting on one reads as finished, and never wakes for it. */}
+      {(agent.ai === 'codex' || agent.ai === 'opencode') && (
+        <Tip label={t('chat.background.untrackedTip', { tool })}>
+          <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-amber-300/80" data-chat-background-untracked>
+            <EyeOff className="size-3.5 shrink-0" />
+            <span className="hidden truncate lg:inline">{t('chat.background.untracked')}</span>
+          </span>
+        </Tip>
+      )}
+    </>
   );
 }

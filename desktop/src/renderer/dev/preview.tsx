@@ -27,6 +27,10 @@
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?readAloud=1            read aloud on: replies' hover rows get their speaker
+//   ?chat=awaiting          agent-41's chat: its turn ended on a CI watch still
+//                           running, so its header and its rail row say Awaiting
+//   ?chat=untracked         agent-97's (OpenCode) chat, whose header warns that
+//                           background work isn't tracked there
 //   ?chat=stopped|paused    a stopped (or paused) agent's stored conversation,
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
@@ -210,7 +214,7 @@ import { laterKey } from '../lib/vmMove';
 import { VMSize } from '../components/VMSize';
 import { connectEvents, seedConnection } from '../lib/events';
 import { applyLanguage, useLanguage } from '../lib/i18n';
-import { ChatTab } from '../components/chat/ChatTab';
+import { ChatHeaderControls, ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
@@ -746,6 +750,14 @@ function Preview() {
         ) : chat === 'compaction' ? (
           <div style={{ maxWidth: 720 }}>
             <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={compactionThread()} />
+          </div>
+        ) : chat === 'awaiting' || chat === 'untracked' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            {/* The status and actions AgentView puts in its tab bar. */}
+            <div className="flex h-11 items-center justify-end gap-3 border-b border-line px-4">
+              <ChatHeaderControls agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} />
+            </div>
+            <ChatTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} starting={false} autoStart={false} onStart={() => {}} />
           </div>
         ) : chat === 'lead' ? (
           <div style={{ height: '100%', margin: -24 }}>

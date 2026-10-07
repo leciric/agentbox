@@ -891,6 +891,20 @@
     "height": 900
   },
   {
+    "id": "awaiting-dark",
+    "description": "agent-41's turn ended on a CI watch still running: Awaiting in its rail row and its chat header, not in Finished — dark",
+    "query": "chat=awaiting&open=agent-41&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "untracked-dark",
+    "description": "agent-97 (OpenCode): its chat header warns that background work isn't tracked — dark",
+    "query": "chat=untracked&open=agent-97&finished=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
     "id": "topbar-status-dark",
     "description": "The top bar: the Claude chip (5h and week) and the VM as one status bubble, its popover open — dark",
     "query": "power=running&theme=dark",

@@ -196,6 +196,26 @@ test('timelineRows turns a settled turn with tool calls into a fold and a work r
   assert.deepEqual(kinds, ['user', 'fold', 'assistant']);
 });
 
+test('timelineRows heads a turn the session woke for with what woke it, not a message', () => {
+  const asked = item({ kind: 'user', text: 'watch CI', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const promise = item({ kind: 'assistant', turn: asked.id, text: "I'll report when it finishes." });
+  const woken = item({ kind: 'user', woken: true, text: 'Watch CI run 42', result: { state: 'completed', endedAt: '2026-01-01T00:05:00Z' } as T.ChatTurnResult });
+  const report = item({ kind: 'assistant', turn: woken.id, text: 'CI passed.' });
+  const rows = timelineRows(thread([asked, promise, woken, report]), new Set());
+  assert.deepEqual(
+    rows.map((r) => r.type),
+    ['user', 'assistant', 'woken', 'assistant'],
+  );
+});
+
+test('timelineRows says what the session waits on between turns, and not while one runs', () => {
+  const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
+  const waiting = { ...thread([user]), session: { background: ['Watch CI run 42'] } as T.ChatSession };
+  assert.deepEqual(timelineRows(waiting, new Set()).at(-1), { type: 'background', key: 'background', tasks: ['Watch CI run 42'] });
+  const running = { ...waiting, session: { ...waiting.session, turnStartedAt: '2026-01-01T00:02:00Z' } };
+  assert.ok(!timelineRows(running, new Set()).some((r) => r.type === 'background'));
+});
+
 test('timelineRows keeps every message of a settled turn in view, folding only the work', () => {
   const user = item({ kind: 'user', result: { state: 'completed', endedAt: '2026-01-01T00:01:00Z' } as T.ChatTurnResult });
   const first = item({ kind: 'assistant', turn: user.id, text: 'Creating agent-12 for it.' });
@@ -294,6 +314,22 @@ test('an event for an item of a page not read yet waits for that page', () => {
   const fresh = item({ id: 'new', kind: 'assistant', turn: 'u5', createdAt: '2026-01-02T00:00:00Z' });
   applyChatEvent(queryClient, { agent: ref, seq: 3, item: fresh });
   assert.equal(queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.at(-1)!.id, 'new');
+});
+
+test('a session event carries what the agent left running onto the agents list, and its end off it', () => {
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-awaiting';
+  queryClient.setQueryData<T.Agent[]>(['agents'], [{ ref, state: 'running', chat: 'running' } as T.Agent]);
+  const session = (state: string, background?: string[]) => ({ state, background }) as T.ChatSession;
+  applyChatEvent(queryClient, { agent: ref, seq: 1, session: session('ready', ['Watch CI run 42']) });
+  let a = queryClient.getQueryData<T.Agent[]>(['agents'])![0];
+  assert.equal(a.chat, 'ready');
+  assert.deepEqual(a.background, ['Watch CI run 42']);
+  applyChatEvent(queryClient, { agent: ref, seq: 2, session: session('running') });
+  applyChatEvent(queryClient, { agent: ref, seq: 3, session: session('ready') });
+  a = queryClient.getQueryData<T.Agent[]>(['agents'])![0];
+  assert.equal(a.chat, 'ready');
+  assert.equal(a.background, undefined);
 });
 
 test('a rollback drops what came after its turn, and refreshes the checkpoints', () => {

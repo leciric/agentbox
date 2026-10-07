@@ -617,6 +617,11 @@ type Agent struct {
 	// (ChatSession.StalledSince): its chat still says running, but nothing
 	// has come of it since then.
 	StalledSince *time.Time `json:"stalledSince,omitempty"`
+	// Background is what its chat left running when its last turn ended — a
+	// background command, a monitor — by description (ChatSession.Background).
+	// While any runs, an agent whose chat is ready is awaiting, not idle: the
+	// work's end wakes it, and it hasn't finished.
+	Background []string `json:"background,omitempty"`
 	State        string     `json:"state"` // running, stopped, paused, initializing, incomplete, missing or queued
 	// QueuePosition is a queued agent's place in its project's queue, 1 for
 	// the next to start; absent for any other agent.

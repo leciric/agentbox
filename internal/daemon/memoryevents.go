@@ -181,6 +181,10 @@ func (s *Server) captureLeadTurn(ev api.ChatEvent) {
 		return
 	}
 	userMessage := truncateRunes(ev.Item.Text, 500)
+	if ev.Item.Woken {
+		// A turn nobody asked for: background work ending woke the session.
+		userMessage = "(no message: background work it had left running ended: " + truncateRunes(ev.Item.Text, 400) + ")"
+	}
 	// Off this call's own stack: Publish fires while the conversation's lock
 	// is held, and LastMessage would deadlock taking it again.
 	go func() {

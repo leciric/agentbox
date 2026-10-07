@@ -144,6 +144,7 @@ type Server struct {
 	leadCaches   map[string]*leadCache    // leads' prompt caches and their cards, by project (cachecard.go)
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
+	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
 	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
 	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
@@ -241,6 +242,7 @@ func New(cfg Config) (*Server, error) {
 		claudeLogins:     map[string]*claudeLogin{},
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
+		toldWaiting:      map[string]bool{},
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),

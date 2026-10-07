@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -362,6 +363,30 @@ func resolveFinishStartsTurn(projectFinishNotices, agentFinishNotice string) boo
 // with what it was asked, rather than merely pausing for breath: cancelled,
 // failed, and a turn cut short by a limit or a refusal (see stopNotes in
 // package chat) all need a nudge to continue, not a reaction from the lead.
+// markToldWaiting records whether a's chat knows it waits on background work,
+// and reports whether that changed.
+func (s *Server) markToldWaiting(a state.Agent, told bool) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.toldWaiting[a.Ref()] == told {
+		return false
+	}
+	if told {
+		s.toldWaiting[a.Ref()] = true
+	} else {
+		delete(s.toldWaiting, a.Ref())
+	}
+	return true
+}
+
+// backgroundNotice tells the lead that an agent ended its turn with work still
+// running in the background, so it isn't finished.
+func backgroundNotice(a state.Agent, background []string) string {
+	return fmt.Sprintf("[AgentBox: %s (%s) ended its turn but isn't finished: it is waiting on background work it left running (%s)."+
+		" It carries on by itself when that ends, and you will hear when it finishes. Nothing to do now.]",
+		a.Name, titleOrNone(a.Title), strings.Join(background, "; "))
+}
+
 func finishedTask(result api.ChatTurnResult) bool {
 	return result.State == "completed" && (result.StopReason == "" || result.StopReason == "end_turn")
 }
@@ -376,6 +401,19 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, result 
 	if a.IsLead() || !finishedTask(result) {
 		return
 	}
+	if len(result.Background) > 0 {
+		// It ended its turn on work it left running — a CI run it watches, a
+		// monitor — and the session wakes when that ends: that turn is the
+		// finish. The lead hears now that it is waiting, and still waits:
+		// leadWaits stays set, so the finish that follows is news it acts on.
+		// Once: a monitor wakes the session at every line it prints, and
+		// each of those turns ends waiting too.
+		if s.markToldWaiting(a, true) {
+			s.tellLead(ctx, a.Project, backgroundNotice(a, result.Background), false)
+		}
+		return
+	}
+	s.markToldWaiting(a, false)
 	changes, pr := changesOf(a), s.prFor(ctx, a)
 	// An agent that finished has often just pushed: the watch looks now.
 	s.prWatch.poke(a.Project)

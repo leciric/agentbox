@@ -60,11 +60,15 @@ type ClientCapabilities struct {
 // SubagentSessionsMeta is ClientCapabilities.Meta saying the client shows
 // subagents as sessions of their own: claude-agent-acp's "nativeSubagentSessions"
 // capability, in the extension namespace it reads it from
-// (clientSupportsAirCapability in its air-extension.js).
+// (clientSupportsAirCapability in its air-extension.js). It also declares
+// "asyncTasks", which has the adapter report the session's background
+// commands and monitors as async_task_* updates, from the moment one is
+// backgrounded to its end: how AgentBox knows a session still has work
+// running after its turn ended.
 func SubagentSessionsMeta() map[string]any {
 	return map[string]any{"jetbrains": map[string]any{"air": map[string]any{
 		"version":      1,
-		"capabilities": []string{"nativeSubagentSessions"},
+		"capabilities": []string{"nativeSubagentSessions", "asyncTasks"},
 	}}}
 }
 
@@ -351,6 +355,16 @@ type SessionUpdate struct {
 	Task              string `json:"task,omitempty"`
 	State             string `json:"state,omitempty"` // completed, failed, disconnected or cancelled
 
+	// async_task_spawned (with Name, Description and TaskType),
+	// async_task_state_update (with State: running, paused, completed,
+	// failed or stopped, and Summary) and async_task_progress: a background
+	// command or monitor of claude-agent-acp's (its async-tasks.js), sent to a
+	// client that declares the asyncTasks capability.
+	AsyncTaskID string `json:"asyncTaskId,omitempty"`
+	Description string `json:"description,omitempty"`
+	TaskType    string `json:"taskType,omitempty"`
+	Summary     string `json:"summary,omitempty"`
+
 	// usage_update: the context window, and — on the update that follows a
 	// model result — what the session has cost so far (see Cost)
 	Used int64 `json:"used,omitempty"`
@@ -370,6 +384,12 @@ type SessionUpdate struct {
 		// RateLimit rides on a usage_update when the provider's response
 		// carried the account's limits (claude-agent-acp only).
 		RateLimit *RateLimit `json:"_claude/rateLimit,omitempty"`
+		// Origin rides on the usage_update of a result the session made by
+		// itself, saying what started it: "task-notification" when a
+		// background task finishing woke it (claude-agent-acp only).
+		Origin *struct {
+			Kind string `json:"kind"`
+		} `json:"_claude/origin,omitempty"`
 	} `json:"_meta"`
 }
 

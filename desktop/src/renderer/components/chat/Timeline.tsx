@@ -1,4 +1,4 @@
-import { Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Info, LoaderCircle, Square, Volume2 } from 'lucide-react';
+import { AlarmClock, Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle, Square, Volume2 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
@@ -111,6 +111,22 @@ const TimelineRow = memo(
             </div>
           </div>
         );
+      case 'woken':
+        return (
+          <div className="mb-3 flex items-center gap-2 px-1 pt-1 text-sm text-subtle" data-chat-woken>
+            <AlarmClock className="size-4 shrink-0" />
+            <span className="min-w-0 break-words">
+              {row.item.text ? t('chat.timeline.wokenBy', { task: row.item.text.split('\n').join(', ') }) : t('chat.timeline.woken')}
+            </span>
+          </div>
+        );
+      case 'background':
+        return (
+          <div className="mb-3 flex items-center gap-2 px-1 text-sm text-subtle" data-chat-background>
+            <Hourglass className="size-4 shrink-0" />
+            <span className="min-w-0 break-words">{t('chat.timeline.background', { tasks: row.tasks.join(', ') })}</span>
+          </div>
+        );
       case 'thinking':
         return (
           <div className="flex min-h-7 items-center gap-1.5 px-0.5 pb-2 text-sm" data-chat-thinking>
@@ -162,6 +178,7 @@ function sameRow(a: Row, b: Row): boolean {
   if (a.type !== b.type || a.key !== b.key) return false;
   switch (a.type) {
     case 'user':
+    case 'woken':
     case 'note':
     case 'compaction':
     case 'credential':
@@ -182,6 +199,10 @@ function sameRow(a: Row, b: Row): boolean {
       return a.since === (b as typeof a).since && a.stalledSince === (b as typeof a).stalledSince;
     case 'thinking':
       return true;
+    case 'background': {
+      const other = b as typeof a;
+      return a.tasks.length === other.tasks.length && a.tasks.every((task, i) => task === other.tasks[i]);
+    }
     case 'turn':
       return a.checkpoint === (b as typeof a).checkpoint;
     case 'changes': {
