@@ -312,6 +312,7 @@ function linuxBeforeSetupBridge(kvm: boolean): void {
 }
 
 const chat = params.get('chat');
+const asleepRef = `${PROJECT}/asleep`;
 const fixtures = buildFixtures();
 if (github) {
   // Two GitHub accounts, and a project that picked the second one while it
@@ -330,6 +331,8 @@ const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${cha
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
+// Before the first render, so the chat reads it rather than the dev bridge.
+if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media === 'all') seedAllMedia(queryClient);
 else if (media) seedMedia(queryClient);
@@ -719,7 +722,7 @@ function Preview() {
           </div>
         ) : chat === 'stopped' || chat === 'paused' ? (
           <div style={{ height: '100%', margin: -24 }}>
-            <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-97`)!} />
+            <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
           </div>
         ) : chat === 'compaction' ? (
           <div style={{ maxWidth: 720 }}>
@@ -785,20 +788,18 @@ function Preview() {
 // AsleepChatPreview wakes its agent the way the daemon does: Start, or a
 // message sent, runs it after a moment, and the message joins the chat.
 function AsleepChatPreview({ state: initial, agent }: { state: 'stopped' | 'paused'; agent: T.Agent }) {
-  const ref = `${PROJECT}/asleep`;
   const [state, setState] = useState<string>(initial);
   const [starting, setStarting] = useState(false);
   useEffect(() => {
-    queryClient.setQueryData(['chat', ref], asleepChat(ref));
     api.sendChat = async (_ref, text) => {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       setState('running');
       const now = new Date().toISOString();
       const item: T.ChatItem = { id: `sent-${now}`, turn: `sent-${now}`, kind: 'user', text, createdAt: now, updatedAt: now };
-      queryClient.setQueryData<T.ChatThread>(['chat', ref], (thread) => thread && { ...thread, items: [...thread.items, item] });
+      queryClient.setQueryData<T.ChatThread>(['chat', asleepRef], (thread) => thread && { ...thread, items: [...thread.items, item] });
       return item;
     };
-  }, [ref]);
+  }, []);
   const onStart = () => {
     setStarting(true);
     setTimeout(() => {
@@ -806,7 +807,7 @@ function AsleepChatPreview({ state: initial, agent }: { state: 'stopped' | 'paus
       setState('running');
     }, 1500);
   };
-  return <ChatTab agent={{ ...agent, ref, name: 'agent-97', title: 'Add a dark mode toggle', state }} starting={starting} autoStart={false} onStart={onStart} />;
+  return <ChatTab agent={{ ...agent, ref: asleepRef, name: 'agent-97', title: 'Add a dark mode toggle', state }} starting={starting} autoStart={false} onStart={onStart} />;
 }
 
 function QueueSettingsPreview() {
