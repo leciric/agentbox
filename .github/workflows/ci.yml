@@ -43,6 +43,7 @@ jobs:
     name: Changes and PR title
     if: github.event_name != 'schedule' && (github.event.action != 'labeled' || github.event.label.name == 'ci:full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       go: ${{ steps.paths.outputs.go }}
       desktop: ${{ steps.paths.outputs.desktop }}
@@ -129,6 +130,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true' && github.event.action != 'labeled'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -150,7 +152,8 @@ jobs:
 
       # TestRecordingsPlayInChromium encodes with a recording's own arguments
       # and checks the file with ffprobe; without them it skips.
-      - run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends ffmpeg
+      - timeout-minutes: 5
+        run: sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -q && sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -q --no-install-recommends ffmpeg
 
       # The tests' temporary files, their SQLite databases first, on a tmpfs,
       # as in an agent's machine: on disk, every fsync waits, and the slow
@@ -178,6 +181,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true' && github.event.action != 'labeled'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -238,6 +242,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && (github.event_name == 'schedule' || (needs.changes.result == 'success' && needs.changes.outputs.vuln == 'true' && github.event.action != 'labeled')) }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -260,6 +265,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.desktop == 'true' && github.event.action != 'labeled'
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     env:
       # Nothing here launches Electron — only lint, typecheck, test and
       # bundle — so skip the ~100 MB runtime npm would otherwise fetch on
@@ -313,6 +319,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.full == 'true'
     runs-on: macos-15
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
 
@@ -378,6 +385,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.full == 'true'
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
