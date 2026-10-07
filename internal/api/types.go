@@ -622,7 +622,7 @@ type Agent struct {
 	// While any runs, an agent whose chat is ready is awaiting, not idle: the
 	// work's end wakes it, and it hasn't finished.
 	Background []string `json:"background,omitempty"`
-	State        string     `json:"state"` // running, stopped, paused, initializing, incomplete, missing or queued
+	State      string   `json:"state"` // running, stopped, paused, initializing, incomplete, missing or queued
 	// QueuePosition is a queued agent's place in its project's queue, 1 for
 	// the next to start; absent for any other agent.
 	QueuePosition int `json:"queuePosition,omitempty"`
@@ -2292,8 +2292,12 @@ type RemoteConnectRequest struct {
 
 // The features anonymous usage stats count (Settings.UsageStats). A key names
 // what was used and nothing about what it was used on: no names, paths,
-// repositories, models or text ever go into one, which is why they are a
-// fixed list rather than made up where they are counted. The daemon counts
+// repositories or text ever go into one, which is why they are a fixed list
+// rather than made up where they are counted. The model, effort and context
+// keys are the one exception, still from fixed lists: a prefix below, the AI
+// tool, and a value matched against the daemon's own list of known models,
+// efforts and windows (internal/daemon/usagemodels.go), anything else
+// "other", like turn.model.claude.opus_5_5 or agent.create.context.claude.1m. The daemon counts
 // the first group at its own chokepoints; the app counts the second, the ones
 // only it can see, through POST /v1/usage-stats/{feature}, which takes nothing
 // but a key on this list. The keys go to agentbox.linting.dev as they are, so
@@ -2314,6 +2318,12 @@ const (
 	FeatureLeadTurnClaude      = "lead.turn.claude"
 	FeatureLeadTurnCodex       = "lead.turn.codex"
 	FeatureLeadTurnOpenCode    = "lead.turn.opencode"
+	FeatureAgentCreateModel    = "agent.create.model"
+	FeatureAgentCreateEffort   = "agent.create.effort"
+	FeatureAgentCreateContext  = "agent.create.context"
+	FeatureTurnModel           = "turn.model"
+	FeatureTurnEffort          = "turn.effort"
+	FeatureTurnContext         = "turn.context"
 	FeatureChatModel           = "chat.model.change"
 	FeatureChatEffort          = "chat.effort.change"
 	FeatureChatWindow          = "chat.window.change"
@@ -2352,6 +2362,22 @@ const (
 	FeatureMenuOpenPullRequest = "menu.agent.open_pr"
 	FeatureMenuDestroy         = "menu.agent.destroy"
 )
+
+// UsageStatsPending is GET /v1/usage-stats/pending: exactly what the next
+// update check would send, for Settings to show. Usage and Events are the
+// JSON bodies as they would be posted, "" when nothing waits.
+type UsageStatsPending struct {
+	// On is whether anything is counted and sent at all (Settings.UsageStats,
+	// and nothing blocking the update check).
+	On        bool   `json:"on"`
+	UsageURL  string `json:"usageUrl"`
+	Usage     string `json:"usage"`
+	EventsURL string `json:"eventsUrl"`
+	Events    string `json:"events"`
+	// EventsWaiting is every event not sent yet, of which Events holds the
+	// first report's worth.
+	EventsWaiting int `json:"eventsWaiting"`
+}
 
 // AppFeatures are the keys the app may count through the API.
 var AppFeatures = []string{

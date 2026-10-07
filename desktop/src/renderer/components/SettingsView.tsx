@@ -47,6 +47,7 @@ import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
+import { UsageSentDialog } from "./UsageSentDialog";
 import { WhatsNewDialog } from "./WhatsNewDialog";
 import {
   AgentQueue,
@@ -1602,9 +1603,10 @@ export function PRWatch() {
 }
 
 // UsageStats rides on the update check: the same request's day, carrying how
-// many times each feature was used (internal/daemon/usagestats.go). Its one
-// line is the whole of what it sends; keep it in step with the README's
-// "Update check" section. It can't be on while the check is off or blocked,
+// many times each feature was used (internal/daemon/usagestats.go), and the
+// anonymous events (usageevents.go). Its lines say what it sends, and "See
+// what's sent" shows it exactly; keep them in step with the README's "Update
+// check" section. It can't be on while the check is off or blocked,
 // and says which, rather than a switch that does nothing.
 function UsageStats() {
   const t = useT();
@@ -1621,6 +1623,7 @@ function UsageStats() {
     onError: (err) => toast.error(errorMessage(err)),
   });
 
+  const [seeing, setSeeing] = useState(false);
   const blocked = update.data?.blocked;
   const checkOff = settings.data?.updateCheck === false;
   return (
@@ -1645,6 +1648,12 @@ function UsageStats() {
           {t("settings.update.offBecause", { reason: blocked ?? t("settings.usageStats.checkOff") })}
         </SettingNote>
       )}
+      <div>
+        <Button variant="ghost" size="sm" data-usage-see onClick={() => setSeeing(true)}>
+          {t("settings.usageStats.see")}
+        </Button>
+      </div>
+      <UsageSentDialog open={seeing} onOpenChange={setSeeing} />
     </SettingRow>
   );
 }

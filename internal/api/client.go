@@ -692,6 +692,13 @@ func (c *Client) Update(ctx context.Context) (UpdateStatus, error) {
 	return status, c.do(ctx, http.MethodGet, "/v1/update", nil, &status)
 }
 
+// UsageStatsPending is what the next update check would send of the
+// anonymous usage stats, exactly.
+func (c *Client) UsageStatsPending(ctx context.Context) (UsageStatsPending, error) {
+	var out UsageStatsPending
+	return out, c.do(ctx, http.MethodGet, "/v1/usage-stats/pending", nil, &out)
+}
+
 // LatestRelease is the update channel's latest release, as the release list has it now.
 func (c *Client) LatestRelease(ctx context.Context) (UpdateAvailable, error) {
 	var out UpdateAvailable

@@ -843,6 +843,18 @@ var migrations = []string{
 		resumes    INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (project, agent)
 	)`,
+
+	// The anonymous usage events not sent yet (SettingUsageStats), oldest
+	// first: one row per event, with an id of its own so the server can tell
+	// a retry from a new one. props is a JSON object of fixed fields
+	// (internal/daemon/usageevents.go), never anything typed or named.
+	`CREATE TABLE usage_events (
+		seq   INTEGER PRIMARY KEY AUTOINCREMENT,
+		id    TEXT NOT NULL,
+		day   TEXT NOT NULL,
+		name  TEXT NOT NULL,
+		props TEXT NOT NULL
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

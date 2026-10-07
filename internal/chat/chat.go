@@ -93,6 +93,10 @@ type Manager struct {
 	// checkpoint the worktree. Off the lock, in a goroutine of its own: by
 	// then the turn may have been rolled back, which Turn tells.
 	TurnEnded func(a state.Agent, turn string)
+	// TurnFinished, when set, is called after any turn ends, a lead's too,
+	// with what the anonymous usage stats count about it (TurnStats). Off the
+	// lock, in a goroutine of its own.
+	TurnFinished func(a state.Agent, stats TurnStats)
 	// AuthFailed, when set, is called when a turn failed because the agent's
 	// AI tool was refused by its provider: an expired or revoked login. The
 	// daemon marks the account rejected, so a dead token is named where it is
@@ -1256,6 +1260,8 @@ type turn struct {
 	// woken is a turn the session started by itself, with no prompt of
 	// AgentBox's to answer (background.go).
 	woken bool
+	// subagents is whether the turn started any subagent (subagents.go).
+	subagents bool
 }
 
 // generationMS is how long a turn took to generate: from its first to its
@@ -2017,6 +2023,10 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	if c.m.Finished != nil && !c.agent.IsLead() {
 		agent, res := c.agent, *result
 		c.m.background.Go(func() { c.m.Finished(agent, res) })
+	}
+	if c.m.TurnFinished != nil {
+		agent, stats := c.agent, c.turnStats(t, res, result.State)
+		c.m.background.Go(func() { c.m.TurnFinished(agent, stats) })
 	}
 	if c.m.TurnEnded != nil && !c.agent.IsLead() {
 		agent, turn := c.agent, t.id

@@ -101,6 +101,7 @@ export const api = {
   update: () => call<T.UpdateStatus>('GET', '/v1/update'),
   latestRelease: () => call<T.UpdateAvailable>('GET', '/v1/update/release'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
+  usageStatsPending: () => call<T.UsageStatsPending>('GET', '/v1/usage-stats/pending'),
   countFeature: (feature: string) => call<void>('POST', `/v1/usage-stats/${encodeURIComponent(feature)}`),
   reportDraft: (req: T.ReportDraftRequest) => call<T.ReportDraft>('POST', '/v1/reports/draft', req),
   sendReport: (req: T.ReportRequest) => call<T.ReportSent>('POST', '/v1/reports', req),

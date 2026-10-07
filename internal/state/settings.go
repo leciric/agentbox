@@ -589,6 +589,12 @@ func (s *Store) SetSetting(ctx context.Context, key, value string) error {
 	return err
 }
 
+// DeleteSetting forgets key, which then reads as "".
+func (s *Store) DeleteSetting(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, key)
+	return err
+}
+
 // Appearance reads SettingAppearance: api.AppearanceFollow, AppearanceLight or
 // AppearanceDark. Anything else — never written, or the "1" this setting used
 // to be stored as — is following, which is the default. See the constant for

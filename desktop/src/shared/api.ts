@@ -1295,6 +1295,15 @@ export interface RemoteConnectRequest {
   token: string;
 }
 
+export interface UsageStatsPending {
+  on: boolean;
+  usageUrl: string;
+  usage: string;
+  eventsUrl: string;
+  events: string;
+  eventsWaiting: number;
+}
+
 export interface LANStatus {
   enabled: boolean;
   port: number;
