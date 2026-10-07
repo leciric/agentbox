@@ -18,9 +18,17 @@
 // A tool without `vm power` (every one before VM mode) is host mode. The mode
 // is asked once and kept, until a setup run switches the machine to a VM.
 //
+// On Windows the "VM" is AgentBox's WSL distro: agentbox.exe answers `vm
+// power`, `vm start` and `vm stop` itself (internal/hostwsl/power.go), with
+// driver "wsl", and can't pause it. Once Free resources has stopped it, the
+// app leaves it stopped until the user starts it (wslStoppedByUser, daemon.ts)
+// or the app next starts. An agentbox.exe from before then forwards `vm power`
+// to the distro, which says {"mode":"host"}, and shows nothing.
+//
 // AGENTBOX_FAKE_VM=1 stands a made-up VM in for the real one, to see the top
-// bar's VM controls working in `npm start` before VM mode exists; the daemon
-// stays up whatever the fake VM's state says.
+// bar's VM controls working in `npm start` before VM mode exists, and
+// AGENTBOX_FAKE_VM=wsl a WSL distro; the daemon stays up whatever the fake
+// VM's state says.
 import { execFile } from 'node:child_process';
 import { ipcMain } from 'electron';
 import type { VMPower, VMPowerAction, VMPowerState } from '../preload';
@@ -30,15 +38,26 @@ import { agentboxBin } from './cli';
 import { linuxVM } from './vmmode';
 
 const onLinux = process.platform === 'linux';
+const onWindows = process.platform === 'win32';
 
 // mode is what the tool said about VM mode: unknown until it has answered.
 // Only a VM the tool has already reported can be shown as broken; a tool that
 // fails before ever answering (none installed, one from before VM mode) is
 // host mode, so a normal Linux install never shows a VM it doesn't have.
-let mode: 'unknown' | 'host' | 'vm' = onLinux ? 'unknown' : 'host';
+let mode: 'unknown' | 'host' | 'vm' = onLinux || onWindows ? 'unknown' : 'host';
 // pending is the action in flight, if any: while it runs, the state is the
 // transition it makes (starting, stopping…), whatever the tool last said.
 let pending: VMPowerAction | undefined;
+// stoppedByUser is a WSL distro this app stopped (Free resources), until it
+// starts it again.
+let stoppedByUser = false;
+
+// wslStoppedByUser reports whether the user stopped AgentBox's WSL distro from
+// this app, which the app then doesn't start again on its own to reach the
+// daemon (daemon.ts), as it doesn't a Linux VM.
+export function wslStoppedByUser(): boolean {
+  return onWindows && stoppedByUser;
+}
 
 const transition: Record<VMPowerAction, VMPowerState> = {
   start: 'starting',
@@ -76,7 +95,14 @@ export async function actOnVM(action: VMPowerAction): Promise<VMPower> {
   if (pending) throw new Error(t('web.main.vmAlreadyChanging', { state: transition[pending] }));
   pending = action;
   try {
-    await run(['vm', action]);
+    // Set before it stops, so the daemon going away isn't taken for one to
+    // start again; a stop that failed leaves it as it was.
+    if (action === 'stop') stoppedByUser = true;
+    await run(['vm', action]).catch((err: unknown) => {
+      if (action === 'stop') stoppedByUser = false;
+      throw err;
+    });
+    if (action === 'start') stoppedByUser = false;
   } finally {
     pending = undefined;
   }
@@ -89,7 +115,9 @@ export async function actOnVM(action: VMPowerAction): Promise<VMPower> {
 // home, measured on the host, for the top bar's disk popover.
 export async function vmDisk(): Promise<VMHomeDisk | null> {
   if (process.env.AGENTBOX_FAKE_VM) return { worktrees: 5.1 * 1024 ** 3, media: 0.5 * 1024 ** 3 };
-  if (mode !== 'vm') return null;
+  // WSL's worktrees and media are on the distro's disk, and asking would
+  // start a stopped distro.
+  if (mode !== 'vm' || onWindows) return null;
   return JSON.parse(await run(['vm', 'disk', '--json'])) as VMHomeDisk;
 }
 
@@ -117,8 +145,10 @@ const fake = (() => {
   let state: VMPowerState = 'running';
   let granted = 12 * GiB;
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const wsl = process.env.AGENTBOX_FAKE_VM === 'wsl';
   const power = (): VMPower => {
     const up = state !== 'off' && state !== 'starting';
+    if (wsl) return { state, memoryUsed: up ? 6.5 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: up ? 16 * GiB : 0, cpus: up ? 8 : 0, driver: 'wsl' };
     return {
       state,
       memoryUsed: up ? Math.round(granted * 0.62) : 0,

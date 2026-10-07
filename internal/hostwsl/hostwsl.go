@@ -348,17 +348,23 @@ func (d *Distro) Status(ctx context.Context) Status {
 
 // ready fails when the distro can't run commands yet, and says what to do.
 func (d *Distro) ready(ctx context.Context) error {
+	_, err := d.readyState(ctx)
+	return err
+}
+
+// readyState is ready, with the distro's state when it is.
+func (d *Distro) readyState(ctx context.Context) (State, error) {
 	st, err := d.State(ctx)
 	if err != nil {
-		return err
+		return st, err
 	}
 	if !st.Exists {
-		return ErrNotCreated
+		return st, ErrNotCreated
 	}
 	if st.Version == 1 {
-		return fmt.Errorf("%s is a WSL 1 distro, and Incus needs WSL 2: wsl --set-version %s 2", d.Name, d.Name)
+		return st, fmt.Errorf("%s is a WSL 1 distro, and Incus needs WSL 2: wsl --set-version %s 2", d.Name, d.Name)
 	}
-	return nil
+	return st, nil
 }
 
 func digest(r io.Reader) (string, error) {

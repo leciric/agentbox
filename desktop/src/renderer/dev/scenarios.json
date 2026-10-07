@@ -555,6 +555,21 @@
     "click": "[data-free-mode=free]"
   },
   {
+    "id": "power-wsl-popover-dark",
+    "description": "On Windows, AgentBox's WSL distro's pill and popover: memory in use of WSL's limit, no Pause — dark",
+    "query": "power=wsl-running&theme=dark",
+    "width": 1280,
+    "height": 820,
+    "click": "[data-vm-driver=wsl]"
+  },
+  {
+    "id": "power-wsl-off-light",
+    "description": "On Windows, the WSL distro stopped by Free resources, with Start — light",
+    "query": "power=wsl-off&theme=light",
+    "width": 1280,
+    "height": 820
+  },
+  {
     "id": "power-confirm-vm-dark",
     "description": "Free resources' confirmation in VM mode, which turns the VM off too — dark",
     "query": "power=running&theme=dark",

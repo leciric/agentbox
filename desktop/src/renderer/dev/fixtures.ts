@@ -852,7 +852,8 @@ function stopAgents(refs: string[]) {
 // seedPower is the top bar's resource controls (?power=): in host mode with
 // agents running (host) or with every one stopped by Free resources and
 // Start to bring them back (host-start); or in VM mode with the VM in a
-// state: running, paused, off, starting or stopping.
+// state: running, paused, off, starting or stopping; or on Windows with
+// AgentBox's WSL distro running or stopped (wsl-running, wsl-off).
 export function seedPower(queryClient: QueryClient, power: string): void {
   const GiB = 1024 ** 3;
   queryClient.setQueryData(['usage'], { host: { cpu: 38, cores: 16, memUsed: 21 * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
@@ -870,9 +871,12 @@ export function seedPower(queryClient: QueryClient, power: string): void {
     queryClient.setQueryData(['agents'], agents);
     return;
   }
-  const state = power as VMPowerState;
+  const wsl = power.startsWith('wsl-');
+  const state = power.replace(/^wsl-/, '') as VMPowerState;
   const up = state !== 'off' && state !== 'starting';
-  devState.vmPower = { state, memoryUsed: up ? 11.3 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: 24 * GiB, cpus: 12 };
+  devState.vmPower = wsl
+    ? { state, memoryUsed: up ? 6.5 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: up ? 16 * GiB : 0, cpus: up ? 8 : 0, driver: 'wsl' }
+    : { state, memoryUsed: up ? 11.3 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: 24 * GiB, cpus: 12 };
   if (state === 'off') {
     const agents = (devState.agents ?? []).map((a) => (a.state === 'running' || a.state === 'paused' ? { ...a, state: 'stopped', chat: 'off' } : a));
     localStorage.setItem('agentbox.freed', JSON.stringify(freeTargets(devState.agents ?? []).map((t) => t.ref)));
@@ -1036,7 +1040,9 @@ function fakeVM() {
           ? { ...vm, state: 'off', memoryUsed: 0, memoryGranted: 0 }
           : action === 'pause'
             ? { ...vm, state: 'paused' }
-            : { ...vm, state: 'running', memoryGranted: vm.memoryGranted || 8 * GiB, memoryUsed: vm.memoryUsed || 3.1 * GiB };
+            : vm.driver === 'wsl'
+              ? { ...vm, state: 'running', memoryGranted: 16 * GiB, memoryCap: 16 * GiB, memoryUsed: 2.4 * GiB, cpus: 8 }
+              : { ...vm, state: 'running', memoryGranted: vm.memoryGranted || 8 * GiB, memoryUsed: vm.memoryUsed || 3.1 * GiB };
       return devState.vmPower;
     },
   };

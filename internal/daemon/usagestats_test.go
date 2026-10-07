@@ -60,6 +60,12 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 	var fake fakeUsage
 	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
 	ctx := context.Background()
+	// The daemon checks as it starts: what's counted below goes with the
+	// check this test makes, not that one.
+	waitFor(t, "the check as the daemon starts", func() bool {
+		status, err := d.client.Update(ctx)
+		return err == nil && status.CheckedAt != nil
+	})
 
 	settings, err := patchSettings(t, d, `{}`)
 	if err != nil || !settings.UsageStats {
