@@ -118,8 +118,17 @@ func (r *Relay) open(ctx context.Context) (net.Conn, error) {
 }
 
 func (r *Relay) start(ctx context.Context) (*yamux.Session, error) {
-	if err := r.Distro.ready(ctx); err != nil {
+	st, err := r.Distro.readyState(ctx)
+	if err != nil {
 		return nil, err
+	}
+	// wsl.exe starts a stopped distro to run the bridge in it, and the app
+	// asks the daemon something every few seconds: after Free resources
+	// stopped it (`agentbox vm stop`), that would start it straight back up.
+	// A stopped distro has no daemon to reach, so it's said without starting
+	// it; the app starts it when the user does, or the next time it starts.
+	if st.State == "Stopped" {
+		return nil, fmt.Errorf("%s is stopped, and the AgentBox daemon with it", r.Distro.Name)
 	}
 	// The bridge is the distro's agentbox, which has to be this one's.
 	if _, err := r.Distro.EnsureBinary(ctx); err != nil {

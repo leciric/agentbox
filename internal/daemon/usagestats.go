@@ -64,6 +64,8 @@ func (s *Server) sendUsage(ctx context.Context, install string) {
 	if !s.usageStatsOn(ctx) {
 		return
 	}
+	s.updates.sending.Lock()
+	defer s.updates.sending.Unlock()
 	now := time.Now()
 	if err := s.store.ForgetFeatureUsage(ctx, usageDay(now.AddDate(0, 0, -update.MaxUsageDays))); err != nil {
 		return

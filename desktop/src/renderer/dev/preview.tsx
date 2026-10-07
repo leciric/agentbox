@@ -116,6 +116,8 @@
 //                           or clicks Free resources for its confirmation.
 //                           Free resources runs start to finish against the
 //                           dev bridge (fixtures.ts)
+//   ?power=wsl-running|wsl-off
+//                           the same on Windows, for AgentBox's WSL distro
 //   ?newagent=1             the New agent dialog, open on the project, for its
 //                           Size picker and the rest of its form
 //   &free=progress|done|partial|error

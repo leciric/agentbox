@@ -852,8 +852,9 @@ function stopAgents(refs: string[]) {
 // seedPower is the top bar's resource controls (?power=): in host mode with
 // agents running (host) or with every one stopped by Free resources and
 // Start to bring them back (host-start); or in VM mode with the VM in a
-// state: running, paused, off, starting or stopping. tight puts the VM's
-// memory (or the host's) past the top bar's 85%; near puts the Claude
+// state: running, paused, off, starting or stopping; or on Windows with
+// AgentBox's WSL distro running or stopped (wsl-running, wsl-off). tight puts
+// the VM's memory (or the host's) past the top bar's 85%; near puts the Claude
 // account's five-hour window at 92%.
 export function seedPower(queryClient: QueryClient, power: string, { tight = false, near = false } = {}): void {
   const GiB = 1024 ** 3;
@@ -872,19 +873,22 @@ export function seedPower(queryClient: QueryClient, power: string, { tight = fal
     queryClient.setQueryData(['agents'], agents);
     return;
   }
-  const state = power as VMPowerState;
+  const wsl = power.startsWith('wsl-');
+  const state = power.replace(/^wsl-/, '') as VMPowerState;
   const up = state !== 'off' && state !== 'starting';
   const pool = { size: 100 * GiB, allocated: Math.round(18.4 * GiB) };
   const root = { size: 20 * GiB, allocated: Math.round(5.8 * GiB) };
   const disk: T.VMDisk = { size: pool.size + root.size, allocated: pool.allocated + root.allocated, pool, root, hostFree: 310 * GiB };
-  devState.vmPower = {
-    state,
-    memoryUsed: up ? (tight ? 21.9 : 11.3) * GiB : 0,
-    memoryGranted: up ? (tight ? 23 : 16) * GiB : 0,
-    memoryCap: 24 * GiB,
-    cpus: 12,
-    ...(up ? { disk, hostFree: disk.hostFree } : {}),
-  };
+  devState.vmPower = wsl
+    ? { state, memoryUsed: up ? (tight ? 14.5 : 6.5) * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: up ? 16 * GiB : 0, cpus: up ? 8 : 0, driver: 'wsl' }
+    : {
+        state,
+        memoryUsed: up ? (tight ? 21.9 : 11.3) * GiB : 0,
+        memoryGranted: up ? (tight ? 23 : 16) * GiB : 0,
+        memoryCap: 24 * GiB,
+        cpus: 12,
+        ...(up ? { disk, hostFree: disk.hostFree } : {}),
+      };
   if (state === 'off') {
     const agents = (devState.agents ?? []).map((a) => (a.state === 'running' || a.state === 'paused' ? { ...a, state: 'stopped', chat: 'off' } : a));
     localStorage.setItem('agentbox.freed', JSON.stringify(freeTargets(devState.agents ?? []).map((t) => t.ref)));
@@ -1077,7 +1081,9 @@ function fakeVM() {
           ? { ...vm, state: 'off', memoryUsed: 0, memoryGranted: 0 }
           : action === 'pause'
             ? { ...vm, state: 'paused' }
-            : { ...vm, state: 'running', memoryGranted: vm.memoryGranted || 8 * GiB, memoryUsed: vm.memoryUsed || 3.1 * GiB };
+            : vm.driver === 'wsl'
+              ? { ...vm, state: 'running', memoryGranted: 16 * GiB, memoryCap: 16 * GiB, memoryUsed: 2.4 * GiB, cpus: 8 }
+              : { ...vm, state: 'running', memoryGranted: vm.memoryGranted || 8 * GiB, memoryUsed: vm.memoryUsed || 3.1 * GiB };
       return devState.vmPower;
     },
   };

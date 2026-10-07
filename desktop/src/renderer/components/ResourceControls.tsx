@@ -15,6 +15,7 @@ import {
   progress,
   restartable,
   saveRestorable,
+  vmHeld,
   whoText,
   type FreeTarget,
 } from '../lib/freeResources';
@@ -305,10 +306,10 @@ export function FreeResourcesDialog({
               <DialogDescription>
                 {count > 0
                   ? vmBefore
-                    ? t('vm.free.confirmBoth', { count, memory: humanBytes(vmBefore.memoryGranted) })
+                    ? t('vm.free.confirmBoth', { count, memory: humanBytes(vmHeld(vmBefore)) })
                     : t('vm.free.confirmAgents', { count })
                   : vmBefore
-                    ? t('vm.free.confirmVM', { memory: humanBytes(vmBefore.memoryGranted) })
+                    ? t('vm.free.confirmVM', { memory: humanBytes(vmHeld(vmBefore)) })
                     : t('vm.free.confirmNone')}
               </DialogDescription>
             </DialogHeader>
@@ -506,25 +507,26 @@ export const vmStateText: Record<VMPower['state'], MessageKey> = {
   stopping: 'vm.state.stopping',
 };
 
-// VMPanel is AgentBox's VM in a popover: its state, its memory, and its
-// controls.
+// VMPanel is AgentBox's VM (on Windows, its WSL distro) in a popover: its
+// state, its memory, and its controls.
 export function VMPanel({ vm, free }: { vm: VMPower; free: FreeResources }) {
   const t = useT();
+  const wsl = vm.driver === 'wsl';
   return (
     <div className="grid gap-3" data-vm-popover>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-[13px] font-medium text-primary">
           <MonitorCog className="size-4 text-subtle" />
-          {t('vm.agentboxVM')}
+          {wsl ? t('vm.wslPower.title') : t('vm.agentboxVM')}
         </span>
         <span className="flex items-center gap-1.5 text-[12px] text-muted">
           <span className={cn('size-1.5 rounded-full', vmDot(vm))} />
           {t(vmStateText[vm.state])}
         </span>
       </div>
-      <VMMemory vm={vm} />
+      {wsl ? <WSLMemory vm={vm} /> : <VMMemory vm={vm} />}
       <p className="text-[11.5px] leading-relaxed text-muted">
-        {t('vm.indicator.cpus', { cpus: vm.cpus })}
+        {wsl ? t('vm.wslPower.cpus', { cpus: vm.cpus }) : t('vm.indicator.cpus', { cpus: vm.cpus })}
         {vm.state === 'paused' && ` ${t('vm.indicator.pausedNote')}`}
       </p>
       {vm.error && <Notice className="text-[12px]">{vm.error}</Notice>}
@@ -547,12 +549,14 @@ export function vmDot(vm: VMPower): string {
 
 // VMActions is the machine's controls, under a line saying what the action
 // does: Start (with the agents a run stopped) when it's off; otherwise Pause
-// or Resume for a VM, and the action that gives its memory back. Stopping
-// always goes through that action, so the agents inside are stopped cleanly
-// and what that freed is shown, rather than cut off with the VM.
+// or Resume for a VM (not a WSL distro, which WSL can't pause), and the action
+// that gives its memory back. Stopping always goes through that action, so the
+// agents inside are stopped cleanly and what that freed is shown, rather than
+// cut off with the VM.
 export function VMActions({ free, style }: { free: FreeResources; style: 'shutDown' | 'freeMemory' }) {
   const t = useT();
   const vm = free.vm;
+  const wsl = vm?.driver === 'wsl';
   const [busy, setBusy] = useState(false);
   const act = async (action: VMPowerAction) => {
     setBusy(true);
@@ -588,7 +592,8 @@ export function VMActions({ free, style }: { free: FreeResources; style: 'shutDo
                 {t('vm.indicator.resume')}
               </Button>
             ) : (
-              vm && (
+              vm &&
+              !wsl && (
                 <Button size="sm" onClick={() => void act('pause')}>
                   <Pause />
                   {t('vm.indicator.pause')}
@@ -604,7 +609,7 @@ export function VMActions({ free, style }: { free: FreeResources; style: 'shutDo
       </div>
       {!off && free.mode !== 'busy' && (
         <span className="text-[11px] leading-relaxed text-faint">
-          {vm && t('vm.free.pauseExplained')} {t('vm.free.explained', { count: free.targets, vm: vm ? 'yes' : 'no' })}
+          {vm && !wsl && t('vm.free.pauseExplained')} {t('vm.free.explained', { count: free.targets, vm: vm ? 'yes' : 'no' })}
         </span>
       )}
     </div>
@@ -628,6 +633,24 @@ export function VMMemory({ vm }: { vm: VMPower }) {
         <Legend swatch="bg-gradient-to-r from-brand-400 to-sky-400" label={t('vm.indicator.used')} value={humanBytes(vm.memoryUsed)} />
         <Legend swatch="bg-brand-400/30" label={t('vm.indicator.granted')} value={humanBytes(vm.memoryGranted)} />
         <Legend swatch="bg-surface-strong" label={t('vm.indicator.cap')} value={humanBytes(vm.memoryCap)} />
+      </div>
+    </div>
+  );
+}
+
+// WSLMemory is the WSL distro's memory: what's in use of all WSL lets it have,
+// which it isn't given up front, so there's no granted share to show.
+function WSLMemory({ vm }: { vm: VMPower }) {
+  const t = useT();
+  const used = vm.memoryCap > 0 ? (Math.min(vm.memoryUsed, vm.memoryCap) / vm.memoryCap) * 100 : 0;
+  return (
+    <div className="grid gap-2">
+      <div className="relative h-2 overflow-hidden rounded-full bg-surface-strong">
+        <div className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-400 to-sky-400" style={{ width: `${used}%` }} />
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-[11px]">
+        <Legend swatch="bg-gradient-to-r from-brand-400 to-sky-400" label={t('vm.indicator.used')} value={humanBytes(vm.memoryUsed)} />
+        <Legend swatch="bg-surface-strong" label={t('vm.wslPower.limit')} value={humanBytes(vm.memoryCap)} />
       </div>
     </div>
   );

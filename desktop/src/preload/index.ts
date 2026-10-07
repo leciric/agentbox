@@ -99,6 +99,10 @@ export interface VMPower {
   // disk is its disk images as the host sees them: what they take on the
   // host's disk (allocated) against the size the VM was given (size).
   disk?: T.VMDisk;
+  // driver is 'wsl' for AgentBox's WSL distro on Windows (internal/hostwsl):
+  // memoryGranted and memoryCap are both what WSL lets it have, and it can't
+  // be paused.
+  driver?: 'wsl';
 }
 
 export type VMPowerState = 'off' | 'starting' | 'running' | 'pausing' | 'paused' | 'resuming' | 'stopping';

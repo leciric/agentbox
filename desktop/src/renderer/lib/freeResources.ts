@@ -66,6 +66,13 @@ export function progress(targets: FreeTarget[], agents: T.Agent[]): { done: numb
   return { done: stopped.length, total: targets.length };
 }
 
+// vmHeld is what turning the VM off gives back to the host: all it's been
+// granted, or for a WSL distro, which WSL doesn't grant up front, what its
+// programs use (its page cache aside, which Windows also gets back).
+export function vmHeld(vm: VMPower): number {
+  return vm.driver === 'wsl' ? vm.memoryUsed : vm.memoryGranted;
+}
+
 // Freed is what Free resources gave back to the host, as the result dialog
 // shows it. In VM mode, the host gets back all the memory the VM held, not
 // only what the agents inside it did, so that's the figure.
@@ -84,8 +91,8 @@ export function freed(result: T.StopAgentsResult | undefined, vmBefore: VMPower 
     out.hostAfter = result.hostMemoryAfter;
   }
   if (vmBefore && vmStopped) {
-    out.vm = vmBefore.memoryGranted;
-    out.memory = Math.max(out.memory, vmBefore.memoryGranted);
+    out.vm = vmHeld(vmBefore);
+    out.memory = Math.max(out.memory, out.vm);
     // The host figures are the VM's own, inside it: not what the host got.
     delete out.hostBefore;
     delete out.hostAfter;

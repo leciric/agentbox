@@ -20,7 +20,7 @@ func Main(args []string, version string) int {
 		fmt.Printf("agentbox version %s\n", version)
 		return 0
 	}
-	if len(args) == 0 || (args[0] != "wsl" && args[0] != "relay") {
+	if len(args) == 0 || (args[0] != "wsl" && args[0] != "relay" && !vmCommand(args)) {
 		d, err := New()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -35,9 +35,12 @@ func Main(args []string, version string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	var root *cobra.Command
-	if args[0] == "relay" {
+	switch args[0] {
+	case "relay":
 		root = newRelayCmd()
-	} else {
+	case "vm":
+		root = newVMCmd()
+	default:
 		root = newWSLCmd(version)
 	}
 	root.SetArgs(args[1:])

@@ -42,6 +42,10 @@ const (
 	// VMDriverVZ is Apple's Virtualization framework, driven by AgentBox
 	// itself rather than Lima, on a Mac: experimental.
 	VMDriverVZ = "vz"
+	// VMDriverWSL is AgentBox's WSL distro on Windows (internal/hostwsl):
+	// only `agentbox vm power` reports it, since WSL runs it rather than
+	// AgentBox, and it can't be paused.
+	VMDriverWSL = "wsl"
 )
 
 // States of the VM.

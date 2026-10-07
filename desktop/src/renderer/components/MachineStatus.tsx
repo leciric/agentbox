@@ -71,7 +71,9 @@ const toneRing: Record<Status['tone'], string> = {
 // sentence is the bubble's words for a status.
 function useSentence(free: FreeResources, status: Status): string {
   const t = useT();
-  const vm = free.vm ? 'yes' : 'no';
+  const wsl = free.vm?.driver === 'wsl';
+  const vm = wsl ? 'wsl' : free.vm ? 'yes' : 'no';
+  const what = wsl ? 'WSL' : 'VM';
   switch (status.kind) {
     case 'running':
       return t('shell.machine.running', { vm, count: free.now.filter((a) => a.state === 'running').length });
@@ -84,9 +86,9 @@ function useSentence(free: FreeResources, status: Status): string {
     case 'paused':
       return t('shell.machine.paused');
     case 'off':
-      return t('shell.machine.off');
+      return t('shell.machine.off', { what });
     case 'busy':
-      return t('shell.machine.busy', { state: free.vm?.state ?? 'starting' });
+      return t('shell.machine.busy', { state: free.vm?.state ?? 'starting', what });
   }
 }
 
@@ -123,6 +125,7 @@ function Bubble({
           data-machine={status.kind}
           data-connection={connection.state}
           data-vm-state={free.vm?.state}
+          data-vm-driver={free.vm?.driver}
         >
           <StatusIcon status={status} />
           <span
@@ -140,7 +143,7 @@ function Bubble({
           <span className="text-[13px] font-medium text-primary">{status.kind === 'running' ? t('shell.machine.allGood') : sentence}</span>
           <div className="grid gap-1.5 text-[12px]">
             {free.vm && (
-              <Check tone={status.kind === 'off' ? 'off' : free.vm.state === 'running' ? 'ok' : free.vm.state === 'paused' ? 'warn' : 'busy'} label={t('vm.agentboxVM')} value={t(vmStateText[free.vm.state])} />
+              <Check tone={status.kind === 'off' ? 'off' : free.vm.state === 'running' ? 'ok' : free.vm.state === 'paused' ? 'warn' : 'busy'} label={free.vm.driver === 'wsl' ? t('shell.machine.wsl') : t('vm.agentboxVM')} value={t(vmStateText[free.vm.state])} />
             )}
             {status.kind !== 'off' && status.kind !== 'paused' && status.kind !== 'busy' && (
               <Check
@@ -257,13 +260,14 @@ function Strip({
         data-machine={status.kind}
         data-connection={connection.state}
         data-vm-state={free.vm?.state}
+        data-vm-driver={free.vm?.driver}
       >
         <Segment
           label={sentence}
           trigger={
             <>
               <StatusIcon status={status} />
-              <span className="text-[12px] font-medium text-secondary">{free.vm ? t('shell.machine.vm') : t('shell.machine.agentbox')}</span>
+              <span className="text-[12px] font-medium text-secondary">{free.vm ? t(free.vm.driver === 'wsl' ? 'shell.machine.wsl' : 'shell.machine.vm') : t('shell.machine.agentbox')}</span>
               {!up && <span className={cn('hidden whitespace-nowrap text-[11.5px] sm:inline', status.tone === 'bad' ? 'text-rose-200' : 'text-muted')}>{sentence}</span>}
             </>
           }
@@ -391,7 +395,7 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
   return (
     <div className="grid gap-2.5">
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium text-primary">{vm ? t('shell.machine.vmMemory') : t('shell.machine.memoryLabel')}</span>
+        <span className="text-[13px] font-medium text-primary">{vm ? t(vm.driver === 'wsl' ? 'shell.machine.wslMemory' : 'shell.machine.vmMemory') : t('shell.machine.memoryLabel')}</span>
         <span className={cn('font-mono text-[11px] tabular-nums', tint(memory.percent))}>
           {t('shell.top.usedOf', { used: humanBytes(memory.used), size: humanBytes(memory.total) })}
         </span>

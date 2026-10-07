@@ -10,6 +10,7 @@ import { socketPath } from './paths';
 import { t } from '../shared/i18n/index.ts';
 import { NotListeningError, onWindows, relayRefused, startRelay } from './relay';
 import { linuxVM, vmState } from './vmmode';
+import { wslStoppedByUser } from './vmpower';
 
 export { socketPath };
 
@@ -204,6 +205,9 @@ async function start(): Promise<void> {
   if (process.env.AGENTBOX_NO_AUTOSTART) {
     throw new Error(t('web.main.daemonNotRunning', { socket: socketPath }));
   }
+  // Free resources stopped AgentBox's WSL distro: only the user starts it
+  // again, from the top bar, or the app's next launch does.
+  if (wslStoppedByUser()) throw new Error(t('web.main.wslStopped'));
   const vm = linuxVM();
   if (vm) {
     const state = await vmState();
