@@ -13,6 +13,7 @@ You are running inside an AgentBox agent: an isolated Linux machine that belongs
 - Every port is free. Run dev servers and databases on their usual ports.
 - Docker and Docker Compose are installed. Use them for databases, caches and other services.
 - You have passwordless `sudo`. Install whatever you need.
+- `/t` (`$TMPDIR`) is 2 GB of RAM, for temporary files and sockets: clone other repos and keep your work under your home directory.
 - `mise` manages language runtimes (for example `mise use node@22` or `mise use python@3.12`). Node.js LTS and pnpm are already installed.
 
 ## Setting up the project

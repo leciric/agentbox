@@ -162,6 +162,8 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 	if _, err := m.Incus.WaitReady(ctx, a.Instance, readyTimeout); err != nil {
 		return err
 	}
+	// A snapshot taken before /t was capped brings back its uncapped fstab.
+	m.CapTmp(ctx, a)
 	// The snapshot holds the secrets file as it was when the snapshot was
 	// taken; the agent's secrets are whatever they are now.
 	if err := m.WriteSecrets(ctx, a); err != nil {

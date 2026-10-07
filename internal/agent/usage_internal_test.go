@@ -30,3 +30,31 @@ func TestAgentMemoryLeavesOutCaches(t *testing.T) {
 		t.Errorf("without a cgroup: agentMemory = %d, want the fallback 42", got)
 	}
 }
+
+// TestAgentMemoryCountsTmpfs: a tmpfs's pages (/t) are shmem, which the
+// kernel keeps on the anon lists, not active_file or inactive_file, so what
+// an agent holds in /t counts in its memory, and so in admission, like any
+// other memory it can't give back.
+func TestAgentMemoryCountsTmpfs(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	dir := filepath.Join(root, "lxc.payload.ab-app-agent-01")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Numbers from an agent before and after writing 300 MiB to /t: shmem,
+	// file and active_anon each grew by it, and the file lists didn't.
+	const tmpfs = 314572800
+	if err := os.WriteFile(filepath.Join(dir, "memory.current"), []byte("1200000000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "memory.stat"), []byte(
+		"anon 789454848\nfile 1038639104\nshmem 330018816\nactive_anon 746319872\ninactive_anon 43134976\n"+
+			"active_file 668405760\ninactive_file 40292352\nslab_reclaimable 0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := agentMemory(root, "ab-app-agent-01", 1)
+	if want := int64(1200000000 - 668405760 - 40292352); got != want || got < tmpfs {
+		t.Errorf("agentMemory = %d, want %d, with the %d in /t", got, want, int64(tmpfs))
+	}
+}

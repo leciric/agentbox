@@ -33,8 +33,10 @@ func TestPackageCacheSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.srv.packageCache = d.srv.newPackageCache()
-	if out, err := patchSettings(t, d, `{"packageCacheMaxBytes":2147483648}`); err != nil || out.PackageCacheMaxBytes != 2<<30 || out.PackageCacheBytes < 8192 {
-		t.Errorf("after setting a 2 GiB cap: %d of %d, %v", out.PackageCacheBytes, out.PackageCacheMaxBytes, err)
+	// The smallest cap: a cap is fitted to the disk t.TempDir() is on, which
+	// in an agent is /t, 2 GiB.
+	if out, err := patchSettings(t, d, `{"packageCacheMaxBytes":1073741824}`); err != nil || out.PackageCacheMaxBytes != 1<<30 || out.PackageCacheBytes < 8192 {
+		t.Errorf("after setting a 1 GiB cap: %d of %d, %v", out.PackageCacheBytes, out.PackageCacheMaxBytes, err)
 	}
 	if _, err := patchSettings(t, d, `{"packageCacheMaxBytes":1000}`); err == nil {
 		t.Error("a cap under 1 GiB was taken")

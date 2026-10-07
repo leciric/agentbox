@@ -138,7 +138,8 @@ holds software we may not redistribute (Claude Code) and GPL packages.
   optional component on or off. The [Base image](.github/workflows/base-image.yml) workflow builds it
   on every PR that changes `internal/image/`.
 
-Agents' temporary files, including `t.TempDir()`, go to a tmpfs on `/t` (`TMPDIR`): a unix socket's
+Agents' temporary files, including `t.TempDir()`, go to a tmpfs on `/t` (`TMPDIR`), capped at 2 GiB as each
+machine starts (`agent.CapTmp`, no rebuild): a unix socket's
 path must stay under 107 bytes, and `/tmp` is where Incus mounts worktrees. `--dev-caches` fills the
 Go, npm and Electron caches from this repository at build time. `sudo scripts/check-personalise.sh`
 checks `personalise.sh` without Incus.

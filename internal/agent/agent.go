@@ -761,6 +761,8 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	if err := m.EnsureAgentAPI(ctx, a); err != nil {
 		return "in-agent API", err
 	}
+	// Before anything inside writes to /t: the base image mounts it uncapped.
+	m.CapTmp(ctx, a)
 
 	if home != "" {
 		m.logf("Copying what the old machine's chats need into the new one")
@@ -1779,6 +1781,8 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	// The shared package caches, mounted before anything inside installs: an
 	// agent made before they existed gets them here.
 	m.EnsurePackageCache(ctx, a)
+	// And /t's cap, which an agent made before it doesn't have in its fstab.
+	m.CapTmp(ctx, a)
 	// Same for .gitconfig: an account change while it was down couldn't write
 	// the credential helper in either.
 	if err := m.writeGitConfig(ctx, a); err != nil {
