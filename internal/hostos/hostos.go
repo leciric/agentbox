@@ -24,6 +24,11 @@ const (
 	// which grow into the host's disk as the VM writes (they're sparse): the
 	// VM's disk guard watches what's free there, through the shared home.
 	VMDisksEnv = "AGENTBOX_VM_DISKS"
+	// InstallIDFileEnv is a file on the host, at its path in the VM, that
+	// keeps the install ID the update check sends. state.db is the VM's, and
+	// a new VM, a new WSL distro or a moved one would otherwise make the same
+	// person a new install.
+	InstallIDFileEnv = "AGENTBOX_INSTALL_ID_FILE"
 
 	// Windows is OS's answer inside WSL2 (package hostwsl, D94).
 	Windows = "windows"

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 	"agentbox/internal/update"
 )
@@ -119,14 +122,57 @@ func (s *Server) updateCheckOn(ctx context.Context) (bool, error) {
 }
 
 // installID is the random UUID the check sends, made the first time one is
-// needed and kept from then on.
+// needed and kept from then on. In a VM, the front end names a file on the
+// host that keeps it too (hostos.InstallIDFileEnv), and that file wins over
+// state.db: a VM made again starts with an empty state.db, but is still the
+// same install. Writing the file is best effort: one the VM can't reach
+// leaves state.db's.
 func (s *Server) installID(ctx context.Context) (string, error) {
 	id, err := s.store.Setting(ctx, state.SettingInstallID)
-	if err != nil || id != "" {
-		return id, err
+	if err != nil {
+		return "", err
 	}
-	id = uuid.NewString()
-	return id, s.store.SetSetting(ctx, state.SettingInstallID, id)
+	file := os.Getenv(hostos.InstallIDFileEnv)
+	if file != "" {
+		if kept := readInstallID(file); kept != "" {
+			if kept == id {
+				return id, nil
+			}
+			return kept, s.store.SetSetting(ctx, state.SettingInstallID, kept)
+		}
+	}
+	if id == "" {
+		id = uuid.NewString()
+		if err := s.store.SetSetting(ctx, state.SettingInstallID, id); err != nil {
+			return "", err
+		}
+	}
+	if file != "" {
+		if err := writeInstallID(file, id); err != nil {
+			s.logf("keeping the install ID on the host: %v", err)
+		}
+	}
+	return id, nil
+}
+
+// readInstallID is the UUID file holds, or "" when it holds none.
+func readInstallID(file string) string {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	id, err := uuid.Parse(strings.TrimSpace(string(b)))
+	if err != nil {
+		return ""
+	}
+	return id.String()
+}
+
+func writeInstallID(file, id string) error {
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(file, []byte(id+"\n"), 0o600)
 }
 
 // setUpdateCheck is the setting changing. Turning it off forgets what the last

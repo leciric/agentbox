@@ -5,11 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"testing"
 	"time"
 
+	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 )
 
@@ -247,5 +250,45 @@ func TestUpdateLinkLeadsToTheLatestRelease(t *testing.T) {
 	gh.Close()
 	if got, err := d.client.LatestRelease(ctx); err != nil || got.Version != "0.10.0" {
 		t.Errorf("with GitHub down, LatestRelease() = %+v, %v", got, err)
+	}
+}
+
+// TestInstallIDKeptOnTheHost: in a VM, the host's file keeps the install ID.
+// An install that had one in state.db before writes it there; a VM made
+// again, with an empty state.db, takes it back rather than counting as a new
+// install; a file the VM can't write leaves state.db's.
+func TestInstallIDKeptOnTheHost(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "config", "install-id")
+	t.Setenv(hostos.InstallIDFileEnv, file)
+	ctx := context.Background()
+
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{})
+	const before = "5b0c7d4e-1111-4222-8333-944455556666"
+	if err := d.srv.store.SetSetting(ctx, state.SettingInstallID, before); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := d.srv.installID(ctx); err != nil || id != before {
+		t.Fatalf("installID() = %q, %v; want state.db's", id, err)
+	}
+	if b, _ := os.ReadFile(file); string(b) != before+"\n" {
+		t.Fatalf("the host's file holds %q", b)
+	}
+
+	again := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{})
+	if id, err := again.srv.installID(ctx); err != nil || id != before {
+		t.Fatalf("a new VM's installID() = %q, %v; want the host's", id, err)
+	}
+	if id, _ := again.srv.store.Setting(ctx, state.SettingInstallID); id != before {
+		t.Errorf("state.db holds %q", id)
+	}
+
+	t.Setenv(hostos.InstallIDFileEnv, filepath.Join(file, "not-a-dir", "install-id"))
+	other := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{})
+	id, err := other.srv.installID(ctx)
+	if err != nil || id == "" || id == before {
+		t.Fatalf("with no file to keep it in: %q, %v", id, err)
+	}
+	if again, _ := other.srv.installID(ctx); again != id {
+		t.Errorf("the ID changed from %q to %q", id, again)
 	}
 }

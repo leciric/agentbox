@@ -189,6 +189,7 @@ func TestForwardArgs(t *testing.T) {
 	want := []string{vm.Limactl, "shell", "--workdir", "/Users/alice/app", "agentbox", "--", "env",
 		hostos.Env + "=" + goos(), hostos.HomeEnv + "=" + vm.Home, "AGENTBOX_WORKTREES=" + filepath.Join(vm.Paths.Data, "worktrees"),
 		"AGENTBOX_MEDIA=" + filepath.Join(vm.Paths.Data, "media"),
+		hostos.InstallIDFileEnv + "=" + filepath.Join(vm.Paths.Config, "install-id"),
 		"AGENTBOX_PREVIEW_ADDR=127.0.0.1:17777",
 		"/usr/local/bin/agentbox", "create", "app", "--name", "it's mine"}
 	if !slices.Equal(got, want) {
