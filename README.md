@@ -217,8 +217,43 @@ POST https://agentbox.linting.dev/api/v1/usage
 ```
 
 A key names a feature and nothing about what it was used on: no names, paths, repositories,
-models, prompts or anything you typed. Counts the server has are deleted from `state.db`, and
-counts it never got are dropped after 31 days. Switch off **Share anonymous usage stats** under
+prompts or anything you typed. The model, effort and context window an agent is created with and
+each completed turn ran with are counted per AI tool too (`agent.create.model.claude.opus_5_5`,
+`agent.create.effort.claude.high`, `turn.context.codex.200k`): a model is matched against a fixed
+list of known ones (`usageModels` in
+[`internal/daemon/usagemodels.go`](internal/daemon/usagemodels.go)) and anything else, a custom or
+typed-in model among them, is sent as `other`.
+
+The same request's day also sends **anonymous events**, each a name and fixed fields, every one a
+number, a yes or no, or a value from a fixed list
+([`internal/daemon/usageevents.go`](internal/daemon/usageevents.go)), with a random id so a retry
+isn't counted twice:
+
+- `turn.completed`, for each turn of an agent or a project's chat: the AI tool, model, effort,
+  context window and permission mode as above, whether it was the chat or an agent, whether it was
+  done, cancelled or failed, how long it took, its input, cached, cache-creation, output and
+  reasoning tokens, and whether it used subagents.
+- `heartbeat`, once a day: how many projects and agents there are and the most agents at once,
+  how AgentBox runs (`chv`, `lima`, `wsl` or `host`), the VM's memory in a range such as `16_32g`,
+  the app's language, the update channel, whether the agent queue, its shared memory budget and
+  nesting are on, and how many connectors, Claude accounts and GitHub accounts there are.
+- `agent.finished`, as an agent is destroyed or retired: its AI tool, how long it lived and waited
+  in the queue in a range such as `30m_2h`, and whether it opened a pull request and had one merged.
+- `error`, by a fixed code such as `create_failed`, `image_build_failed`, `adapter_crashed` or
+  `auth_failed`, with the AI tool involved, never the error's text.
+- `setup`, the first time a new installation reaches each step (`setup_started`, `image_built`,
+  `first_project`, `first_agent`, `first_pr`), with how long after the setup began, in a range.
+
+```
+POST https://agentbox.linting.dev/api/v1/events
+{"install":"<uuid>","version":"0.1.0","os":"linux","arch":"amd64",
+ "events":[{"id":"<random uuid>","day":"2026-09-24","name":"error",
+            "props":{"code":"create_failed","tool":"claude"}}]}
+```
+
+**See what's sent** under **Settings → General** shows both requests exactly as the next check
+would send them. Counts and events the server has are deleted from `state.db`, and those it never
+got are dropped after 31 days. Switch off **Share anonymous usage stats** under
 **Settings → General** to stop them and delete what wasn't sent yet; they are also off whenever
 the update check is.
 

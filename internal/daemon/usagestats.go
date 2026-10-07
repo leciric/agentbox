@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -61,18 +62,37 @@ func agentFeature(ai string, claude, codex, openCode string) string {
 // unsent: the server wouldn't take them. Like the check, every failure is
 // silent, and what wasn't sent is tried again with the next check.
 func (s *Server) sendUsage(ctx context.Context, install string) {
+	s.beginSetupFunnel(ctx)
 	if !s.usageStatsOn(ctx) {
 		return
 	}
+	s.recordHeartbeat(ctx)
 	s.updates.sending.Lock()
 	defer s.updates.sending.Unlock()
 	now := time.Now()
 	if err := s.store.ForgetFeatureUsage(ctx, usageDay(now.AddDate(0, 0, -update.MaxUsageDays))); err != nil {
 		return
 	}
-	days, counts, err := s.store.FeatureUsage(ctx, usageDay(now))
-	if err != nil || len(days) == 0 {
+	req := update.NewRequest(install, Version)
+	// The events go on their own: a server that doesn't take them yet
+	// mustn't hold the counts back.
+	defer s.sendEvents(ctx, req)
+	report, err := s.pendingDays(ctx, now)
+	if err != nil || len(report) == 0 {
 		return
+	}
+	if err := update.SendUsage(ctx, s.cfg.UpdateURL, req, report); err != nil {
+		return
+	}
+	_ = s.store.ForgetFeatureUsage(ctx, report[len(report)-1].Day)
+}
+
+// pendingDays is the counts the next report sends: the days that are over,
+// oldest first, at most update.MaxUsageDays of them.
+func (s *Server) pendingDays(ctx context.Context, now time.Time) ([]update.UsageDay, error) {
+	days, counts, err := s.store.FeatureUsage(ctx, usageDay(now))
+	if err != nil {
+		return nil, err
 	}
 	if len(days) > update.MaxUsageDays {
 		days = days[:update.MaxUsageDays]
@@ -81,10 +101,7 @@ func (s *Server) sendUsage(ctx context.Context, install string) {
 	for i, day := range days {
 		report[i] = update.UsageDay{Day: day, Features: counts[day]}
 	}
-	if err := update.SendUsage(ctx, s.cfg.UpdateURL, update.NewRequest(install, Version), report); err != nil {
-		return
-	}
-	_ = s.store.ForgetFeatureUsage(ctx, days[len(days)-1])
+	return report, nil
 }
 
 // setUsageStats is the setting changing. Off forgets the counts not sent yet,
@@ -94,6 +111,9 @@ func (s *Server) setUsageStats(ctx context.Context, on bool) error {
 		return err
 	}
 	if !on {
+		if err := s.store.ForgetUsageEvents(ctx, 0, ""); err != nil {
+			return err
+		}
 		return s.store.ForgetFeatureUsage(ctx, "")
 	}
 	return nil
@@ -128,4 +148,49 @@ func (s *Server) countChatOption(session api.ChatSession, id string) {
 	case "mode":
 		s.countFeature(api.FeatureChatMode)
 	}
+}
+
+// usageStatsPending is GET /v1/usage-stats/pending: the bodies the next check
+// would post, as they would be posted.
+func (s *Server) usageStatsPending(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	out := api.UsageStatsPending{On: s.usageStatsOn(ctx)}
+	out.UsageURL, _ = update.UsageURL(s.cfg.UpdateURL)
+	out.EventsURL, _ = update.EventsURL(s.cfg.UpdateURL)
+	if !out.On {
+		return writeJSON(w, http.StatusOK, out)
+	}
+	install, err := s.installID(ctx)
+	if err != nil {
+		return err
+	}
+	req := update.NewRequest(install, Version)
+	days, err := s.pendingDays(ctx, time.Now())
+	if err != nil {
+		return err
+	}
+	if len(days) > 0 {
+		out.Usage = indentJSON(update.NewUsageBody(req, days))
+	}
+	events, _, err := s.pendingEvents(ctx)
+	if err != nil {
+		return err
+	}
+	if len(events) > 0 {
+		out.Events = indentJSON(update.NewEventsBody(req, events))
+	}
+	waiting, err := s.store.UsageEvents(ctx, state.MaxUsageEvents)
+	if err != nil {
+		return err
+	}
+	out.EventsWaiting = len(waiting)
+	return writeJSON(w, http.StatusOK, out)
+}
+
+func indentJSON(v any) string {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }

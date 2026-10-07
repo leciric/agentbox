@@ -288,16 +288,17 @@ func New(cfg Config) (*Server, error) {
 			s.events.publish(api.EventChat, ev)
 			s.captureLeadTurn(ev)
 		},
-		Finished:   s.agentFinished,
-		LeadIdle:   s.leadCacheIdle,
-		Idle:       s.leadIdle,
-		TurnEnded:  s.checkpointTurn,
-		AuthFailed: s.claudeAuthFailed,
-		Lost:       s.agentLost,
-		Limits:     s.claudeLimited,
-		Logf:       s.logf,
-		Version:    Version,
-		ImageDir:   cfg.Paths.ChatImages,
+		Finished:     s.agentFinished,
+		LeadIdle:     s.leadCacheIdle,
+		Idle:         s.leadIdle,
+		TurnEnded:    s.checkpointTurn,
+		TurnFinished: s.recordTurn,
+		AuthFailed:   s.claudeAuthFailed,
+		Lost:         s.agentLost,
+		Limits:       s.claudeLimited,
+		Logf:         s.logf,
+		Version:      Version,
+		ImageDir:     cfg.Paths.ChatImages,
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
@@ -712,6 +713,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
 	h("POST /v1/usage-stats/{feature}", s.countAppFeature)
+	h("GET /v1/usage-stats/pending", s.usageStatsPending)
 	h("POST /v1/reports/draft", s.reportDraft)
 	h("POST /v1/reports", s.sendReport)
 	h("GET /v1/image", s.imageStatus)

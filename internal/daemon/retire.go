@@ -162,6 +162,7 @@ func (s *Server) retire(w http.ResponseWriter, r *http.Request) error {
 		}
 		out.Retired = append(out.Retired, who)
 		s.countFeature(api.FeatureAgentRetire)
+		s.recordAgentFinished(ctx, st.Agent, "retired")
 	}
 	s.refreshAgents(ctx)
 	return writeJSON(w, http.StatusOK, out)
