@@ -301,7 +301,7 @@
   {
     "id": "cpu-popover-fixtures-dark",
     "description": "The top bar's \"Host CPU\" popover open, against a CPU-capped agent, a plain one and a paused one — dark",
-    "query": "meters=cpu&theme=dark",
+    "query": "meters=cpu&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 900,
     "click": "[data-meter=cpu]"
@@ -309,7 +309,7 @@
   {
     "id": "disk-popover-fixtures-dark",
     "description": "The top bar's disk meter in VM mode, against the user's VM as measured: 24.2 GiB of 120 GiB on the host's disk, with its popover open breaking it down by disk image, the host's side and the agents' pool — dark",
-    "query": "meters=disk&theme=dark",
+    "query": "meters=disk&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 900,
     "click": "[data-meter=disk]"
@@ -317,7 +317,7 @@
   {
     "id": "disk-meter-dark",
     "description": "The top bar's disk meter in VM mode beside the CPU meter, closed: 24 / 120 GiB, the user's VM as measured — dark",
-    "query": "meters=disk&theme=dark",
+    "query": "meters=disk&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 120
   },
@@ -332,14 +332,14 @@
   {
     "id": "disk-meter-unmeasured-dark",
     "description": "The top bar's disk meter in VM mode with nothing allocated yet: — / 120 GiB and an empty bar, never 0 B — dark",
-    "query": "meters=disk-unmeasured&theme=dark",
+    "query": "meters=disk-unmeasured&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 120
   },
   {
     "id": "pool-popover-fixtures-dark",
     "description": "The top bar's \"Agents' disk\" meter in host mode, the storage pool's used/size, with its popover open breaking it down by machine, base, worktree and media — dark",
-    "query": "meters=pool&theme=dark",
+    "query": "meters=pool&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 900,
     "click": "[data-meter=disk]"
@@ -435,6 +435,62 @@
     ]
   },
   {
+    "id": "settings-general-whole-dark",
+    "description": "Settings open at General, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=general&theme=dark",
+    "width": 1280,
+    "height": 1500
+  },
+  {
+    "id": "settings-phone-whole-dark",
+    "description": "Settings open at Phone, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=phone&theme=dark",
+    "width": 1280,
+    "height": 1100
+  },
+  {
+    "id": "settings-voice-whole-dark",
+    "description": "Settings open at Voice, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=voice&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "settings-models-whole-dark",
+    "description": "Settings open at Models, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=models&theme=dark",
+    "width": 1280,
+    "height": 2000
+  },
+  {
+    "id": "settings-agents-whole-dark",
+    "description": "Settings open at Agents, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=agents&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "settings-resources-whole-dark",
+    "description": "Settings open at Resources, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=resources&theme=dark",
+    "width": 1280,
+    "height": 1900
+  },
+  {
+    "id": "settings-accounts-whole-dark",
+    "description": "Settings open at Accounts, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=accounts&theme=dark",
+    "width": 1280,
+    "height": 1700
+  },
+  {
+    "id": "settings-project-whole-dark",
+    "description": "Settings open at a project's own settings, tall enough to show every row of the section, to read its labels and descriptions — dark",
+    "query": "settings=project:agentbox&theme=dark",
+    "width": 1280,
+    "height": 2300
+  },
+  {
     "id": "io-home-stalling-dark",
     "description": "Home and the rail with disk IO, on a host stalling on disk and memory (io full 35%, memory full 19%) — dark",
     "query": "io=stalling&theme=dark",
@@ -493,15 +549,30 @@
   {
     "id": "power-confirm-dark",
     "description": "Free resources' confirmation in host mode: who is working, who waits on you, long titles — dark",
-    "query": "power=host&theme=dark",
+    "query": "power=host&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 820,
     "click": "[data-free-mode=free]"
   },
   {
+    "id": "power-wsl-popover-dark",
+    "description": "On Windows, AgentBox's WSL distro's pill and popover: memory in use of WSL's limit, no Pause — dark",
+    "query": "power=wsl-running&theme=dark",
+    "width": 1280,
+    "height": 820,
+    "click": "[data-vm-driver=wsl]"
+  },
+  {
+    "id": "power-wsl-off-light",
+    "description": "On Windows, the WSL distro stopped by Free resources, with Start — light",
+    "query": "power=wsl-off&theme=light",
+    "width": 1280,
+    "height": 820
+  },
+  {
     "id": "power-confirm-vm-dark",
     "description": "Free resources' confirmation in VM mode, which turns the VM off too — dark",
-    "query": "power=running&theme=dark",
+    "query": "power=running&topbar=detailed&theme=dark",
     "width": 1280,
     "height": 820,
     "click": "[data-free-mode=free]"
@@ -673,6 +744,13 @@
     "height": 1100
   },
   {
+    "id": "queue-settings-fixed-dark",
+    "description": "agentbox's Settings, at the slots row, pinned to 2 agents at once: the hard cap and what happens to agents beyond it — dark",
+    "query": "queue=settings-fixed&theme=dark",
+    "width": 900,
+    "height": 1100
+  },
+  {
     "id": "queue-off-light",
     "description": "Agent queue off in Settings: the rail's already-queued agents still show Queued #N, but the queue UI otherwise steps out of the way — light",
     "query": "queue=off&finished=1&theme=light",
@@ -811,5 +889,129 @@
     "query": "notify=toast&theme=light",
     "width": 1440,
     "height": 900
+  },
+  {
+    "id": "awaiting-dark",
+    "description": "agent-41's turn ended on a CI watch still running: Awaiting in its rail row and its chat header, not in Finished — dark",
+    "query": "chat=awaiting&open=agent-41&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "untracked-dark",
+    "description": "agent-97 (OpenCode): its chat header warns that background work isn't tracked — dark",
+    "query": "chat=untracked&open=agent-97&finished=1&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "topbar-status-dark",
+    "description": "The top bar: the Claude chip (5h and week) and the VM as one status bubble, its popover open — dark",
+    "query": "power=running&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-status-light",
+    "description": "Same as topbar-status-dark — light",
+    "query": "power=running&theme=light",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-claude-dark",
+    "description": "The Claude chip's popover: the account, both windows, the other account — dark",
+    "query": "power=running&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-claude-meter]"
+  },
+  {
+    "id": "topbar-claude-near-dark",
+    "description": "The Claude chip at 92% of its 5-hour window, popover open with the at-the-limit warning — dark",
+    "query": "power=running&claude=near&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-claude-meter]"
+  },
+  {
+    "id": "topbar-memory-tight-dark",
+    "description": "VM memory past 85%: the bubble turns amber and \"Free up memory\" shows in the bar — dark",
+    "query": "power=running&mem=tight&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-offline-dark",
+    "description": "The VM up but the daemon unreachable: \"Reconnecting to AgentBox…\", popover open — dark",
+    "query": "power=running&conn=disconnected&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-starting-dark",
+    "description": "The VM starting: the bubble says so and Start is busy — dark",
+    "query": "power=starting&conn=connecting&theme=dark",
+    "width": 1280,
+    "height": 720
+  },
+  {
+    "id": "topbar-off-dark",
+    "description": "The VM off after freeing memory: \"VM off\" and Start, popover open — dark",
+    "query": "power=off&conn=disconnected&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-host-dark",
+    "description": "Host mode (installs from before the VM): \"AgentBox running\", popover open — dark",
+    "query": "power=host&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine]"
+  },
+  {
+    "id": "topbar-detailed-dark",
+    "description": "Settings' \"Detailed top bar\": the strip with VM, memory, CPU and disk, and Shut down; the VM segment open — dark",
+    "query": "power=running&topbar=detailed&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine] button"
+  },
+  {
+    "id": "topbar-detailed-light",
+    "description": "Same as topbar-detailed-dark — light",
+    "query": "power=running&topbar=detailed&theme=light",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine] button"
+  },
+  {
+    "id": "topbar-detailed-memory-dark",
+    "description": "The detailed strip's memory segment open: the VM's memory bar and its agents by memory, VM memory tight — dark",
+    "query": "power=running&topbar=detailed&mem=tight&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-meter=memory]"
+  },
+  {
+    "id": "topbar-detailed-offline-dark",
+    "description": "The detailed strip with the daemon unreachable: the numbers give way to \"Reconnecting…\" — dark",
+    "query": "power=running&topbar=detailed&conn=disconnected&theme=dark",
+    "width": 1280,
+    "height": 720,
+    "click": "[data-machine] button"
+  },
+  {
+    "id": "topbar-narrow-dark",
+    "description": "The top bar at 760px: the bubble keeps its dot, the Claude chip drops its week — dark",
+    "query": "power=running&theme=dark",
+    "width": 760,
+    "height": 300
   }
 ]

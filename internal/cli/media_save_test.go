@@ -89,6 +89,7 @@ func TestMediaSaveCmd(t *testing.T) {
 		{"no name", "pass --name", []string{"media", "save", "hello-stack/agent-01", dest}},
 		{"no path", "usage:", []string{"media", "save", "hello-stack/agent-01", "--name", "empty-state"}},
 		{"unknown name", `no media named "nope"`, []string{"media", "save", "hello-stack/agent-01", "--name", "nope", dest}},
+		{"existing file", "agentbox media add " + dest + " --name nope", []string{"media", "save", "hello-stack/agent-01", "--name", "nope", dest}},
 		{"a note", "is a note", []string{"media", "save", "hello-stack/agent-01", "--name", "summary", dest}},
 	} {
 		if _, err := run(t, "", c.args...); err == nil || !strings.Contains(err.Error(), c.want) {

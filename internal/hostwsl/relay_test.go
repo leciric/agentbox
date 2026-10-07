@@ -207,6 +207,11 @@ func TestRelay(t *testing.T) {
 		t.Fatalf("with no daemon: %s %q", resp.Status, body)
 	}
 
+	// As `daemon start` does, through Forward: a stopped distro's relay
+	// doesn't install the distro's agentbox.
+	if _, err := d.EnsureBinary(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err := d.StartDaemon(ctx); err != nil {
 		t.Fatal(err)
 	}

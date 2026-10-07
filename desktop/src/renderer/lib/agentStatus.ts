@@ -20,12 +20,22 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   // progress on it for long enough that it is stuck, not working.
   if (agent.chat === 'running' && agent.stalledSince) return { text: t('agent.status.stalled'), tone: 'error' };
   if (agent.chat === 'running') return { text: t('agent.status.working'), tone: 'live' };
+  // Its turn ended on work it left running — a background command, a
+  // monitor, a watcher — whose end wakes it to carry on. Not idle, and not
+  // finished: live, so the rail keeps it out of Finished.
+  if (awaiting(agent)) return { text: t('agent.status.awaiting'), tone: 'live' };
   // The AI tool exited, mid-turn or not: nothing runs until somebody sends
   // it a message, which isn't the same as idle.
   if (agent.state === 'running' && agent.chat === 'error') return { text: t('agent.status.chatStopped'), tone: 'error' };
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? t('agent.status.starting') : t('agent.status.idle'), tone: 'muted' };
   if (agent.state === 'paused') return { text: t('agent.status.paused'), tone: 'muted' };
   return { text: t('agent.status.stopped'), tone: 'muted' };
+}
+
+// awaiting is an agent between turns with background work still running
+// (T.Agent.background): Claude Code wakes it when that work ends.
+export function awaiting(agent: Pick<T.Agent, 'state' | 'chat' | 'background'>): boolean {
+  return agent.state === 'running' && agent.chat === 'ready' && (agent.background?.length ?? 0) > 0;
 }
 
 const prStates: Record<string, MessageKey> = {

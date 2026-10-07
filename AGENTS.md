@@ -76,20 +76,29 @@ Test the packages you changed while you work, and `go test ./...` once before yo
 packages (`internal/daemon`, `internal/chat`, `internal/agent`) run tests in parallel, and
 `internal/state`/`internal/memory` migrate a template database once per binary.
 
-[CI](.github/workflows/ci.yml) runs on every push to `main` and every PR, each as its own job:
+[CI](.github/workflows/ci.yml) is billed by the minute (the repository is private; macOS 10x,
+Windows 2x), so a PR runs only what its files can break. A first job checks the PR title as a
+conventional commit (`feat|fix|refactor|docs|chore|test|perf|ci`) and works out whether the change
+touches Go (anything but `desktop/` and prose, plus `desktop/src/shared/api.ts`) or the desktop app
+(`desktop/`, `vnc.js`); the other half's jobs skip. A new push cancels the run it supersedes.
 
-- `go vet ./...`, `go test ./...`, and the desktop app's `typecheck` and `build`. Incus tests are
-  behind the `integration` build tag and only vetted (D49).
-- `golangci-lint run ./...` (`.golangci.yml`).
-- `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`.
-- `go mod tidy && git diff --exit-code go.mod go.sum`.
-- `scripts/check-coverage.sh`: a floor in [`.github/coverage-floor.txt`](.github/coverage-floor.txt),
-  bumped as coverage rises, never lowered.
-- `npm --prefix desktop run lint`: oxlint ([`desktop/.oxlintrc.json`](desktop/.oxlintrc.json)), used
-  because typescript-eslint doesn't support TypeScript 7; only `react-hooks`' two rules from its
-  React plugin.
-- `npm --prefix desktop test` (Node's test runner, with coverage).
-- The PR title, checked as a conventional commit (`feat|fix|refactor|docs|chore|test|perf|ci`).
+- **Go tests and coverage**: `scripts/check-coverage.sh`, the one `go test ./...`, with a floor in
+  [`.github/coverage-floor.txt`](.github/coverage-floor.txt), bumped as coverage rises, never
+  lowered. It includes `TestTypeScriptTypesAreUpToDate`.
+- **Go vet, lint, tidy**: `go mod tidy` with no diff, `go vet ./...` (and with `-tags integration`:
+  Incus tests are only vetted, D49), `golangci-lint` (`.golangci.yml`), and builds for darwin/arm64
+  and linux/arm64.
+- **Desktop**: `npm --prefix desktop` `lint` (oxlint, [`desktop/.oxlintrc.json`](desktop/.oxlintrc.json),
+  used because typescript-eslint doesn't support TypeScript 7; only `react-hooks`' two rules from its
+  React plugin), `typecheck`, `test` (Node's test runner, with coverage), `build`, and the committed
+  `vnc.js` matching its build.
+- **macOS** (cgo, signed, the vz driver) and **Windows** (the WSL front end): on pushes to `main`
+  that touch Go, and on a PR labelled `ci:full` (adding the label runs just these two).
+- **govulncheck**: weekly, on `main`, and on PRs that change `go.mod`/`go.sum`.
+
+Go caches are saved by `main`'s runs only and restored by PRs, so a PR's tests skip packages it
+doesn't reach. [Base image](.github/workflows/base-image.yml) runs on PRs that change
+`internal/image/` (its tests aside), or by hand.
 
 ## Previewing the rail and the sidebar
 
@@ -108,6 +117,9 @@ A scenario is a URL (`?open=agent-99&theme=light`, see the comment atop `preview
 checks the ref out into a throwaway worktree (refs after #82 only). It uses `/usr/bin/chromium` when
 present, else `npx playwright install chromium` once.
 
+`--shots` is for overflow and before/after checks. Proof for a PR is a recording plus `agentbox media
+screenshot` of the preview in the agent's display, made by the desktop subagent.
+
 ## The agents' base image
 
 `agentbox image build` makes it on the user's machine from Debian and
@@ -124,7 +136,7 @@ holds software we may not redistribute (Claude Code) and GPL packages.
 - **Anything in `provision.sh`** means bumping `image.Version` in
   [`image.go`](internal/image/image.go), which makes Setup ask for a rebuild, as does turning an
   optional component on or off. The [Base image](.github/workflows/base-image.yml) workflow builds it
-  on every change to `internal/image/`.
+  on every PR that changes `internal/image/`.
 
 Agents' temporary files, including `t.TempDir()`, go to a tmpfs on `/t` (`TMPDIR`): a unix socket's
 path must stay under 107 bytes, and `/tmp` is where Incus mounts worktrees. `--dev-caches` fills the

@@ -83,7 +83,7 @@ func TestASubagentIsACardWithItsWorkNestedUnderIt(t *testing.T) {
 	// ...in the form claude-agent-acp 0.76.0 really reads: its SDK drops the
 	// field, and passes _meta through.
 	raw, _ := json.Marshal(init.ClientCapabilities.Meta)
-	if string(raw) != `{"jetbrains":{"air":{"capabilities":["nativeSubagentSessions"],"version":1}}}` {
+	if string(raw) != `{"jetbrains":{"air":{"capabilities":["nativeSubagentSessions","asyncTasks"],"version":1}}}` {
 		t.Errorf("initialize's capability _meta = %s", raw)
 	}
 }

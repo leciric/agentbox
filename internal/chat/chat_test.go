@@ -1607,7 +1607,21 @@ func TestSendDuringTurnKeepsOrder(t *testing.T) {
 	}
 	close(release)
 
-	th := waitThread(t, m, testAgent, "the turn to end", turnsEnded(1))
+	// The fake tool records a steer before its answer reaches the manager, so
+	// the turn can end while the messages still wait on that answer: they're
+	// marked sent once it arrives.
+	ended := turnsEnded(1)
+	th := waitThread(t, m, testAgent, "the turn to end with every message sent", func(th api.ChatThread) bool {
+		if !ended(th) {
+			return false
+		}
+		for _, it := range th.Items {
+			if it.Kind == "aside" && it.Delivery == api.ChatAsideWaiting {
+				return false
+			}
+		}
+		return true
+	})
 	var asides []string
 	for _, it := range th.Items {
 		if it.Kind == "aside" {

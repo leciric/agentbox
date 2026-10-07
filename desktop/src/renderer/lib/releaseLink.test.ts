@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { openLatestRelease } from './releaseLink.ts';
 
-const pinned = 'https://github.com/leciric/agentbox/releases/tag/v0.9.0';
-const latest = 'https://github.com/leciric/agentbox/releases/tag/v0.10.0';
+const pinned = 'https://downloads.agentbox.linting.dev/releases/v0.9.0/index.html';
+const latest = 'https://downloads.agentbox.linting.dev/releases/v0.10.0/index.html';
 
 test('the link opens the latest release, not the one the last check pinned', async () => {
   const opened: string[] = [];

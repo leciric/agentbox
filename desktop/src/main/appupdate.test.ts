@@ -49,7 +49,7 @@ function release(version: string, assets: Record<string, string | Buffer>, sums?
   const sumsBody = sums?.body ?? Object.entries(assets).map(([name, body]) => `${sha(body)}  ${name}\n`).join('');
   files.set(`/${version}/${sumsName}`, sumsBody);
   list.push({ name: sumsName, url: `${base}/${version}/${sumsName}`, size: sumsBody.length });
-  return { version, url: `https://github.com/leciric/agentbox/releases/tag/v${version}`, assets: list };
+  return { version, url: `https://downloads.agentbox.linting.dev/releases/v${version}/index.html`, assets: list };
 }
 
 const noRun: Run = async (cmd) => {

@@ -77,6 +77,7 @@ import { useVoiceSettings } from "../lib/voice/settings";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
+import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { VMMigrate } from "./VMMigrate";
 import { CHVSize, VMSize } from "./VMSize";
 import { VMSwap } from "./VMSwap";
@@ -797,6 +798,7 @@ function InstalledSettings({
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const readAloud = useReadAloudGroup();
+  const topBarDetailed = useTopBarDetailed();
   // On a Mac, the VM everything runs in, whose size can be changed here.
   const hostSetup = useQuery({
     queryKey: ["host-setup"],
@@ -878,6 +880,13 @@ function InstalledSettings({
               keywords: t("settings.languageKeywords"),
               modified: changed((s) => s.language !== T.DefaultLanguage),
               render: () => <LanguageSetting />,
+            },
+            {
+              id: "topbar-detailed",
+              label: t("settings.entry.topbar-detailed.label"),
+              keywords: t("settings.entry.topbar-detailed.keywords"),
+              modified: topBarDetailed,
+              render: () => <TopBarDetailedSetting />,
             },
           ],
         },
@@ -1620,6 +1629,28 @@ function UsageStats() {
 // ErrorReportsSetting is whether the app sends a report of each uncaught
 // error by itself (components/ErrorReports.tsx), which it offers the first
 // time one happens.
+// TopBarDetailedSetting is the top bar's layout on this computer: one status
+// bubble for the machine, or its memory, CPU and disk always in view
+// (lib/topBarLayout.ts).
+function TopBarDetailedSetting() {
+  const t = useT();
+  const on = useTopBarDetailed();
+  return (
+    <SettingRow
+      label={t("settings.entry.topbar-detailed.label")}
+      description={t("settings.topbarDetailed.description")}
+      control={
+        <Switch
+          data-topbar-detailed-setting
+          aria-label={t("settings.entry.topbar-detailed.label")}
+          checked={on}
+          onCheckedChange={setTopBarDetailed}
+        />
+      }
+    />
+  );
+}
+
 function ErrorReportsSetting() {
   const t = useT();
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });

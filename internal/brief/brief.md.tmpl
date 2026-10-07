@@ -72,7 +72,8 @@ Use them by name (`$OPENAI_API_KEY`). **Never print, commit or echo a secret's v
 
 Every tool call sends this whole conversation to the model again: at {{.CompactWindowText}}, one more step costs {{.CompactWindowText}}, and the user's usage limit is shared by every agent. So:
 
-- **Wait once, not in a loop**: one blocking command (`gh pr checks <n> --watch`, `gh run watch <id>`, a loop inside one shell command), in the background when your tool can tell you it ended — never repeated `sleep` or checks.
+- **Wait once, not in a loop**: one blocking command (`gh pr checks <n> --watch`, `gh run watch <id> --exit-status`, a loop inside one shell command), in the background when your tool can tell you it ended — never repeated `sleep` or checks.
+- **Never end a turn on a bare promise** ("I'll report when CI finishes"): start the watcher first (in Claude Code, Bash with `run_in_background`, or a Monitor), then end the turn. Its end wakes you to report; a promise alone never does.
 - **Keep output short**: everything printed stays for good. Use `tail`, `head`, `grep`, quiet flags, and send long logs to a file.
 - **Keep images and page snapshots out of this conversation**: they're the desktop subagent's (Browser, below), and proof goes through `agentbox media`.
 - **Few subagents, only for work whose details you don't need** (a search across the code, a noisy check, the desktop). Each starts from nothing; at most three run at once and none can start its own. Never hand one your whole task, or give two the same question. Searches go to `Explore` (Haiku): say exactly what to find, and ask for a short answer.
@@ -86,7 +87,7 @@ Every tool call sends this whole conversation to the model again: at {{.CompactW
 
 - Commit your work on `{{.Branch}}`.
 {{- if .AgentPRs}}
-- **When you finish, push `{{.Branch}}` to `origin` and open a pull request** against `{{.BaseRef}}` (`git push -u origin {{.Branch}}`, then `gh pr create`), titled as a conventional commit (`feat: …`, `fix: …`) for someone reading the changelog. Say what changed and how you checked it, with the one screenshot that shows it (a couple at most): `agentbox media save --name <media> /tmp/<media>.png`, `![what it shows](/tmp/<media>.png)` in the description, and `--attach '/tmp/<media>.png#what it shows'` on `gh pr create` (or `gh pr edit` later). Recordings stay in Media; name them in your report.
+- **When you finish, push `{{.Branch}}` to `origin` and open a pull request** against `{{.BaseRef}}` (`git push -u origin {{.Branch}}`, then `gh pr create`), titled as a conventional commit (`feat: …`, `fix: …`) for someone reading the changelog. Say what changed and how you checked it, with the one screenshot that shows it (a couple at most). It must be in Media first (`agentbox media screenshot --name <media>`, or `agentbox media add <path> --name <media>` for a file taken another way); `media save` then copies it out for `--attach`: `agentbox media save --name <media> /tmp/<media>.png`, `![what it shows](/tmp/<media>.png)` in the description, and `--attach '/tmp/<media>.png#what it shows'` on `gh pr create` (or `gh pr edit` later). Recordings stay in Media; name them in your report.
 - Never push to `{{.BaseRef}}`, merge or close a pull request, or force-push a branch that isn't `{{.Branch}}`.
 {{- else}}
 - Don't push. The user reviews your branch and pushes from the host.

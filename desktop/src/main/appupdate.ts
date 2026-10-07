@@ -213,7 +213,7 @@ export async function update(o: UpdateOptions): Promise<{ relaunch: string } | {
   // downloads only what changed, not through here.
   if (chosen.kind === 'appimage') throw new UpdateError('unsupported', 'an AppImage updates with electron-updater');
   const install = { ...chosen, kind: chosen.kind };
-  if (!release.assets?.length) throw new UpdateError('noAssets', `GitHub didn't list ${version}'s files`);
+  if (!release.assets?.length) throw new UpdateError('noAssets', `The release list has no files for ${version}`);
   const name = assetName(install.kind, version, o.arch);
   const asset = release.assets.find((a) => a.name === name);
   if (!asset) throw new UpdateError('noBuild', `${version} has no ${name}`);

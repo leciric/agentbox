@@ -1,6 +1,6 @@
 // openLatestRelease is what "Update available", and Settings' links to a new
 // release, open: the update channel's latest release as the daemon finds it on
-// GitHub at the moment of the click (GET /v1/update/release), not the page the
+// the release list at the moment of the click (GET /v1/update/release), not the page the
 // last daily check pinned, which releases a few hours apart left behind. When
 // the daemon can't say, the pinned page is still better than nothing.
 export async function openLatestRelease(
@@ -12,7 +12,7 @@ export async function openLatestRelease(
   try {
     url = (await latest()).url || pinned;
   } catch {
-    // The daemon or GitHub unreachable: the pinned page.
+    // The daemon or the release list unreachable: the pinned page.
   }
   await open(url);
 }

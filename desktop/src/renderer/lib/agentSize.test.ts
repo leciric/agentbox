@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { agentSizes, waitingLine } from './agentSize.ts';
 
-test('the sizes are auto, light, normal and heavy, each with a tip that reserves rather than limits', () => {
+test('the sizes are auto, light, normal and heavy, each with a tip that says what memory it sets aside, not a limit', () => {
   const sizes = agentSizes();
   assert.deepEqual(
     sizes.map((s) => s.value),
     ['', 'light', 'normal', 'heavy'],
   );
-  assert.match(sizes[3].tip, /Reserves ~8 GB/);
+  assert.match(sizes[3].tip, /About 8 GB of memory/);
   for (const s of sizes) assert.doesNotMatch(s.tip, /limit/i);
 });
 

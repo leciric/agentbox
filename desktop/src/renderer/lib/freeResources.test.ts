@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { VMPower } from '../../preload';
 import type * as T from '../../shared/api';
-import { coresText, freed, freeMode, freeTargets, progress, restartable, whoText } from './freeResources.ts';
+import { coresText, freed, freeMode, freeTargets, progress, restartable, vmHeld, whoText } from './freeResources.ts';
 
 const GiB = 1024 ** 3;
 const agent = (name: string, state: string, chat?: string, title = '') => ({ ref: `p/${name}`, name, title, state, chat }) as T.Agent;
@@ -68,6 +68,14 @@ test('what was freed: the agents, or in VM mode everything the VM held', () => {
   assert.deepEqual(freed(result, null, false), { memory: 5 * GiB, cpu: 320, hostBefore: 20 * GiB, hostAfter: 14 * GiB });
   assert.deepEqual(freed(result, vm('running'), true), { memory: 12 * GiB, cpu: 320, vm: 12 * GiB });
   assert.deepEqual(freed(result, vm('running'), false), { memory: 5 * GiB, cpu: 320, hostBefore: 20 * GiB, hostAfter: 14 * GiB }, 'a VM that failed to stop gave back nothing more');
+});
+
+test('a WSL distro gives back what its programs used, not all WSL would let it have', () => {
+  const wsl: VMPower = { state: 'running', memoryUsed: 6 * GiB, memoryGranted: 16 * GiB, memoryCap: 16 * GiB, cpus: 8, driver: 'wsl' };
+  assert.equal(vmHeld(wsl), 6 * GiB);
+  assert.equal(vmHeld(vm('running')), 12 * GiB);
+  const result: T.StopAgentsResult = { stopped: [], freedMemory: 2 * GiB, freedCPU: 100, hostMemoryBefore: 0, hostMemoryAfter: 0 };
+  assert.deepEqual(freed(result, wsl, true), { memory: 6 * GiB, cpu: 100, vm: 6 * GiB });
 });
 
 test('cores read the way a person says them', () => {

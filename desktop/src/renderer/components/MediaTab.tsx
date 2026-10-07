@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
+  CircleAlert,
   Download,
   ExternalLink,
   FileChartColumn,
@@ -21,7 +22,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
@@ -29,6 +30,7 @@ import { formatDateTime, useT } from '../lib/i18n';
 import { useSeeMedia } from '../lib/notifications';
 import { clock, describeAll, kindInfo, mediaKinds, mediaUrl, searchMedia } from '../lib/media';
 import { cn, errorMessage, humanBytes, timeAgo, timeUntil } from '../lib/utils';
+import { cachedStill, Unplayable, unplayable, videoStill } from '../lib/videoStills';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
@@ -37,6 +39,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, Input, Textarea } from './ui/input';
 import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
 import { Tip } from './ui/tooltip';
+import { ZoomableImage } from './ZoomableImage';
 
 const kindVariant: Record<string, BadgeVariant> = {
   screenshot: 'brand',
@@ -562,7 +565,7 @@ function Thumbnail({ item }: { item: T.MediaItem }) {
     case 'recording':
       return (
         <>
-          <video src={`${mediaUrl(item)}#t=0.5`} preload="metadata" muted className="size-full object-cover" />
+          <VideoStill item={item} />
           <span className="absolute inset-0 flex items-center justify-center">
             <span className="flex size-10 items-center justify-center rounded-full bg-black/60 ring-1 ring-line-heavy backdrop-blur transition group-hover:scale-110">
               <Play className="ml-0.5 size-4 text-white" />
@@ -584,6 +587,51 @@ function Thumbnail({ item }: { item: T.MediaItem }) {
     default:
       return <IconTile icon={kindInfo(item.kind).icon} />;
   }
+}
+
+// VideoStill is a recording's frame at 0.5 s, loaded once the tile is near the
+// screen (lib/videoStills.ts says why it isn't a <video>).
+function VideoStill({ item }: { item: T.MediaItem }) {
+  const t = useT();
+  const id = item.id;
+  const ref = useRef<HTMLDivElement>(null);
+  const [still, setStill] = useState(() => cachedStill(id));
+  const [broken, setBroken] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (still || broken || !el) return;
+    let loading: AbortController | undefined;
+    const seen = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && !loading) {
+          const ctl = new AbortController();
+          loading = ctl;
+          videoStill(id, mediaUrl({ id }), ctl.signal).then(setStill, (err: unknown) => {
+            if (err instanceof Unplayable) setBroken(true);
+            if (loading === ctl) loading = undefined;
+          });
+        } else if (!entry?.isIntersecting && loading) {
+          loading.abort();
+          loading = undefined;
+        }
+      },
+      { rootMargin: '400px' },
+    );
+    seen.observe(el);
+    return () => {
+      seen.disconnect();
+      loading?.abort();
+    };
+  }, [id, still, broken]);
+  if (broken) {
+    return (
+      <div className="flex size-full flex-col items-center justify-center gap-2 text-faint">
+        <CircleAlert className="size-7" />
+        <span className="text-xs">{t('agent.mediaTab.unplayable')}</span>
+      </div>
+    );
+  }
+  return <div ref={ref} className="size-full">{still && <img src={still} alt="" className="size-full object-cover" />}</div>;
 }
 
 function IconTile({ icon: Icon }: { icon: ComponentType<{ className?: string }> }) {
@@ -713,9 +761,9 @@ function ViewerBody({ item }: { item: T.MediaItem }) {
   const text = useMediaText(item, item.kind === 'log' || (item.kind === 'report' && !item.meta.entry) || item.kind === 'file', 1_000_000);
   switch (item.kind) {
     case 'screenshot':
-      return <img src={mediaUrl(item)} alt={item.name} className="max-h-[76vh] w-auto max-w-full object-contain" />;
+      return <ZoomableImage key={item.id} src={mediaUrl(item)} alt={item.name} />;
     case 'recording':
-      return <video key={item.id} src={mediaUrl(item)} controls autoPlay className="max-h-[76vh] w-full bg-black" />;
+      return <Recording key={item.id} item={item} />;
     case 'note':
       return <div className="w-full max-w-3xl self-start whitespace-pre-wrap p-8 text-[15px] leading-relaxed text-secondary">{item.text}</div>;
     case 'report':
@@ -728,6 +776,32 @@ function ViewerBody({ item }: { item: T.MediaItem }) {
     <pre className="w-full self-start whitespace-pre-wrap break-all p-5 font-mono text-[12px] leading-relaxed text-tertiary">
       {text.isPending ? t('common.loading') : text.error ? errorMessage(text.error) : text.data}
     </pre>
+  );
+}
+
+// Recording plays an item in the viewer, or says it can't: a file cut short
+// (a recording stopped before it was finished has no moov box) would
+// otherwise be a player that never starts.
+function Recording({ item }: { item: T.MediaItem }) {
+  const t = useT();
+  const [broken, setBroken] = useState(false);
+  if (broken) {
+    return (
+      <div className="flex flex-col items-center gap-2 p-10 text-center">
+        <CircleAlert className="size-8 text-faint" />
+        <div className="text-sm font-medium text-secondary">{t('agent.mediaTab.unplayable')}</div>
+        <div className="max-w-sm text-xs text-subtle">{t('agent.mediaTab.unplayableBody')}</div>
+      </div>
+    );
+  }
+  return (
+    <video
+      src={mediaUrl(item)}
+      controls
+      autoPlay
+      onError={(e) => unplayable(e.currentTarget.error) && setBroken(true)}
+      className="max-h-[76vh] w-full bg-black"
+    />
   );
 }
 

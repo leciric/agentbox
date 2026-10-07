@@ -405,8 +405,9 @@ function QueueOffNote() {
 
 // SlotsSetting chooses how many of this project's agents may run at once: 0
 // (Auto) shares the VM's memory fairly with every other project, by how
-// much memory each one's agents actually use; a fixed number pins it,
-// whatever else is running. GET /v1/queue's ProjectSlots says what Auto comes
+// much memory each one's agents actually use, and its number is only an
+// estimate; a fixed number pins it, whatever else is running, as a hard cap
+// on new agents however they're made. GET /v1/queue's ProjectSlots says what Auto comes
 // to right now, whether the per-agent figure is learned from this project's
 // own agents or still the installation's memory limit, and — below it — the
 // agents that figure is drawn from, refreshed every few seconds. The control
@@ -438,11 +439,16 @@ function SlotsSetting({ project }: { project: T.Project }) {
     <SettingRow
       label={t('defaults.project.slotsLabel')}
       description={
-        auto
-          ? mine
-            ? t('defaults.project.slotsAutoNow', { slots: mine.slots, size: humanBytes(mine.peak), learned: mine.peakLearned ? 'yes' : 'no' })
-            : t('defaults.project.slotsAuto')
-          : t('defaults.project.slotsUpTo', { count: project.slots })
+        auto ? (
+          <>
+            <span className="block">{t('defaults.project.slotsAutoStart')}</span>
+            {mine
+              ? t('defaults.project.slotsAutoNow', { slots: mine.slots, size: humanBytes(mine.peak), learned: mine.peakLearned ? 'yes' : 'no' })
+              : t('defaults.project.slotsAuto')}
+          </>
+        ) : (
+          t('defaults.project.slotsUpTo', { count: project.slots })
+        )
       }
       details={t('defaults.project.slotsDetails')}
       control={

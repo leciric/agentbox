@@ -26,7 +26,7 @@ export type AppUpdateErrorCode =
   | 'busy' // the daemon is running jobs, which a restart would cut short
   | 'upToDate' // the latest release is this one
   | 'noRelease' // the daemon couldn't say what the latest release is
-  | 'noAssets' // GitHub couldn't be reached for the release's files
+  | 'noAssets' // the release list couldn't be reached for the release's files
   | 'noBuild' // the release has no package for this OS and architecture
   | 'noChecksum' // the release's SHA256SUMS doesn't list the package
   | 'download' // the download failed

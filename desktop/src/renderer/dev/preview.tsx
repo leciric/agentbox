@@ -27,6 +27,13 @@
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
 //   ?readAloud=1            read aloud on: replies' hover rows get their speaker
+//   ?chat=awaiting          agent-41's chat: its turn ended on a CI watch still
+//                           running, so its header and its rail row say Awaiting
+//   ?chat=untracked         agent-97's (OpenCode) chat, whose header warns that
+//                           background work isn't tracked there
+//   ?chat=stopped|paused    a stopped (or paused) agent's stored conversation,
+//                           readable, with Start (Resume) on the composer.
+//                           Start, or sending a message, wakes it after 1.5s
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
@@ -58,6 +65,12 @@
 //                           saves (fixtures.ts)
 //   ?enforce=1              with ?settings=project:<name>: "Enforce this model" on, so the
 //                           project's model picker warns that Settings' model wins
+//   ?topbar=detailed        the top bar's machine as the detailed strip
+//                           (Settings' "Detailed top bar") rather than the bubble
+//   ?conn=connecting|disconnected
+//                           the connection to the daemon (default: connected)
+//   ?mem=tight              with ?power: the VM's memory, or the host's, past 85%
+//   ?claude=near            with ?power: the Claude account's 5-hour window at 92%
 //   ?usage=1                the top bar's usage meter against two Claude
 //                           accounts: on Home (the default account), on a
 //                           project that uses the other one, on a Claude
@@ -110,6 +123,8 @@
 //                           or clicks Free resources for its confirmation.
 //                           Free resources runs start to finish against the
 //                           dev bridge (fixtures.ts)
+//   ?power=wsl-running|wsl-off
+//                           the same on Windows, for AgentBox's WSL distro
 //   ?newagent=1             the New agent dialog, open on the project, for its
 //                           Size picker and the rest of its form
 //   &free=progress|done|partial|error
@@ -148,6 +163,7 @@
 //                           row: Auto's slot size and the running agents its
 //                           peak is learned from, memory and CPU now and at
 //                           their peak
+//   ?queue=settings-fixed   The same, with agentbox pinned to 2 agents at once
 //   ?queue=organic-alone    organic's Settings at the slots row, alone: two
 //   ?queue=organic-busy     organic's Settings beside a busy agentbox: one
 //   ?queue=off              Like busy, but with the installation's Agent
@@ -196,14 +212,14 @@ import { VMSetup } from '../components/VMSetup';
 import { MovePrompt } from '../components/RunInVM';
 import { laterKey } from '../lib/vmMove';
 import { VMSize } from '../components/VMSize';
-import { connectEvents } from '../lib/events';
+import { connectEvents, seedConnection } from '../lib/events';
 import { applyLanguage, useLanguage } from '../lib/i18n';
-import { ChatTab } from '../components/chat/ChatTab';
+import { ChatHeaderControls, ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
-import { agent12Chat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 
@@ -226,6 +242,7 @@ const moodState: Record<Mood, string> = { working: 'running', asking: 'running',
 const defaults = params.get('defaults') === '1';
 const github = params.get('github') === '1';
 const usage = params.get('usage') === '1';
+const topbar = params.get('topbar');
 const pulls = params.get('pulls') === '1';
 const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
@@ -240,7 +257,7 @@ const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
-const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'organic-alone' | 'organic-busy' | 'off' | null
+const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'settings-fixed' | 'organic-alone' | 'organic-busy' | 'off' | null
 // Whose Settings ?queue=settings and the organic ones show.
 const queueSettingsProject = queue?.startsWith('organic-') ? 'organic' : PROJECT;
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
@@ -306,6 +323,7 @@ function linuxBeforeSetupBridge(kvm: boolean): void {
 }
 
 const chat = params.get('chat');
+const asleepRef = `${PROJECT}/asleep`;
 const fixtures = buildFixtures();
 if (github) {
   // Two GitHub accounts, and a project that picked the second one while it
@@ -324,6 +342,8 @@ const chatAgent = chat ? fixtures.agents.find((a) => a.ref === `${PROJECT}/${cha
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, refetchOnWindowFocus: false } } });
 seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
+// Before the first render, so the chat reads it rather than the dev bridge.
+if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media === 'all') seedAllMedia(queryClient);
 else if (media) seedMedia(queryClient);
@@ -377,12 +397,29 @@ if (meters) {
   }
 }
 
-const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
+const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'settings-fixed': 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
 if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
+if (queue === 'settings-fixed') {
+  queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, slots: 2 } : p)));
+  queryClient.setQueryData<T.QueueStatus>(['queue', PROJECT], (q) => q && { ...q, projects: q.projects.map((p) => (p.project === PROJECT ? { ...p, slots: 2, pinned: 2 } : p)) });
+}
 if (queue) startNowBridge();
 if (queue === 'tasks') tasksBridge();
+if (settingsPage && !queue) settingsBridge();
 if (page) pageBridge();
-if (power) seedPower(queryClient, power);
+if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
+if (power) seedMeterUsage(queryClient);
+// The top bar's bell, empty: the ?notify= scenarios show it full.
+if (power || meters) setNotifications([], []);
+localStorage.setItem('agentbox.topbar.detailed', topbar === 'detailed' ? '1' : '0');
+const conn = params.get('conn');
+seedConnection(
+  conn === 'disconnected'
+    ? { state: 'disconnected', error: 'connect ECONNREFUSED /home/you/.local/share/agentbox/run/agentbox.sock' }
+    : conn === 'connecting'
+      ? { state: 'connecting' }
+      : { state: 'connected' },
+);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
 if (io) {
@@ -556,7 +593,7 @@ function Preview() {
   if (power) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }} data-preview-power={power}>
-        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
         {seededRun && <SeededFreeRun run={seededRun} />}
       </div>
     );
@@ -565,7 +602,7 @@ function Preview() {
   if (meters) {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
-        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} />
+        <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
       </div>
     );
   }
@@ -586,7 +623,7 @@ function Preview() {
     );
   }
 
-  if (queue === 'settings' || queue === 'organic-alone' || queue === 'organic-busy') {
+  if (queue === 'settings' || queue === 'settings-fixed' || queue === 'organic-alone' || queue === 'organic-busy') {
     return (
       <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }}>
         <QueueSettingsPreview />
@@ -706,9 +743,21 @@ function Preview() {
                 </section>
               ))}
           </div>
+        ) : chat === 'stopped' || chat === 'paused' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+          </div>
         ) : chat === 'compaction' ? (
           <div style={{ maxWidth: 720 }}>
             <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={compactionThread()} />
+          </div>
+        ) : chat === 'awaiting' || chat === 'untracked' ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            {/* The status and actions AgentView puts in its tab bar. */}
+            <div className="flex h-11 items-center justify-end gap-3 border-b border-line px-4">
+              <ChatHeaderControls agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} />
+            </div>
+            <ChatTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} starting={false} autoStart={false} onStart={() => {}} />
           </div>
         ) : chat === 'lead' ? (
           <div style={{ height: '100%', margin: -24 }}>
@@ -767,6 +816,31 @@ function Preview() {
 // QueueSettingsPreview is agentbox's Settings → General (?queue=settings):
 // the same ProjectSettings the real Settings tab renders, against whatever
 // seedQueue put in the projects query.
+// AsleepChatPreview wakes its agent the way the daemon does: Start, or a
+// message sent, runs it after a moment, and the message joins the chat.
+function AsleepChatPreview({ state: initial, agent }: { state: 'stopped' | 'paused'; agent: T.Agent }) {
+  const [state, setState] = useState<string>(initial);
+  const [starting, setStarting] = useState(false);
+  useEffect(() => {
+    api.sendChat = async (_ref, text) => {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      setState('running');
+      const now = new Date().toISOString();
+      const item: T.ChatItem = { id: `sent-${now}`, turn: `sent-${now}`, kind: 'user', text, createdAt: now, updatedAt: now };
+      queryClient.setQueryData<T.ChatThread>(['chat', asleepRef], (thread) => thread && { ...thread, items: [...thread.items, item] });
+      return item;
+    };
+  }, []);
+  const onStart = () => {
+    setStarting(true);
+    setTimeout(() => {
+      setStarting(false);
+      setState('running');
+    }, 1500);
+  };
+  return <ChatTab agent={{ ...agent, ref: asleepRef, name: 'agent-97', title: 'Add a dark mode toggle', state }} starting={starting} autoStart={false} onStart={onStart} />;
+}
+
 function QueueSettingsPreview() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const project = projects.data?.find((p) => p.name === queueSettingsProject);
@@ -819,6 +893,23 @@ function startNowBridge(): void {
       queryClient.setQueryData(['agents'], next);
       return { status: 204, body: '', contentType: 'application/json' };
     }
+    return inner(method, path, body);
+  };
+}
+
+// settingsBridge answers what Settings polls and the dev bridge would answer
+// with a bare {}: a project's queue (its "Agents at once" row reads the
+// projects in it) and the phone's LAN status, off and unpaired.
+function settingsBridge(): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
+  const queue: T.QueueStatus = { enabled: false, budget: 0, reserve: 0, projects: [], queued: [], reserved: 0 };
+  const lan: T.LANStatus = { enabled: false, port: 7780, listening: false, urls: [], tunnel: { enabled: false, named: false, state: 'off', origin: 'http://localhost:7780' }, phones: [] };
+  bridge.request = async (method, path, body) => {
+    if (method === 'GET' && path.startsWith('/v1/queue')) return answer(queryClient.getQueryData(['queue', PROJECT]) ?? queue);
+    if (method === 'GET' && path === '/v1/lan') return answer(lan);
     return inner(method, path, body);
   };
 }

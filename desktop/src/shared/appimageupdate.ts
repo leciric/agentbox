@@ -12,9 +12,9 @@ export type AppUpdateState =
   | { state: 'failed'; version: string; error: string };
 
 // releaseFeed is the directory a release's assets download from, given its
-// page as the daemon reports it (GET /v1/update/release): GitHub serves
-// .../releases/tag/v1.2.3's assets from .../releases/download/v1.2.3/. That
-// directory is the update feed, so the app installs exactly the release the
+// page as the daemon reports it (GET /v1/update/release): the R2 bucket
+// releases are published to (scripts/r2-publish.sh) holds .../releases/v1.2.3/
+// index.html beside that release's assets. That directory is the update feed, so the app installs exactly the release the
 // daemon picked for the update channel, nightly or stable, never one
 // electron-updater would choose by itself. Undefined for anything else.
 export function releaseFeed(page: string): string | undefined {
@@ -24,9 +24,9 @@ export function releaseFeed(page: string): string | undefined {
   } catch {
     return undefined;
   }
-  const m = /^(.*)\/releases\/tag\/([^/]+)\/?$/.exec(url.pathname);
+  const m = /^(.*\/releases\/[^/]+\/)index\.html$/.exec(url.pathname);
   if (!m || (url.protocol !== 'https:' && url.protocol !== 'http:')) return undefined;
-  url.pathname = `${m[1]}/releases/download/${m[2]}/`;
+  url.pathname = m[1];
   url.search = url.hash = '';
   return url.toString();
 }

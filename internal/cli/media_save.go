@@ -57,6 +57,9 @@ It is what gh's --attach needs to put a screenshot in a pull request:
 				}
 			}
 			if i < 0 {
+				if info, err := os.Stat(rest[0]); err == nil && info.Mode().IsRegular() {
+					return fmt.Errorf("no media named %q: save copies out of Media, it doesn't store a file. To keep %s in Media first: agentbox media add %s --name %s", name, rest[0], rest[0], name)
+				}
 				return fmt.Errorf("no media named %q: see agentbox media list", name)
 			}
 			item := items[i]

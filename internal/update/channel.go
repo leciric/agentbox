@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -20,11 +21,28 @@ const (
 	ChannelNightly = "nightly"
 )
 
-// DefaultReleasesURL is where the nightly channel looks for nightlies unless
-// AGENTBOX_RELEASES_URL says otherwise: GitHub's own list of the repository's
-// releases, newest first. agentbox.linting.dev only ever answers with a stable
-// release, so the nightly channel asks GitHub as well.
-const DefaultReleasesURL = "https://api.github.com/repos/leciric/agentbox/releases?per_page=30"
+// DefaultReleasesURL is the list of releases unless AGENTBOX_RELEASES_URL says
+// otherwise: releases.json in the Cloudflare R2 bucket the release and nightly
+// workflows publish to (scripts/r2-publish.sh), newest first, in the shape of
+// GitHub's release list. The repository is private, so GitHub's own list and
+// downloads answer nobody but its collaborators. agentbox.linting.dev only
+// ever answers with a stable release, so the nightly channel asks here as well.
+const DefaultReleasesURL = "https://downloads.agentbox.linting.dev/releases.json"
+
+// ReleasePage is the page of the release tagged tag, beside the release list
+// at base (DefaultReleasesURL when empty): releases/<tag>/index.html, which
+// scripts/r2-publish.sh writes into the directory holding the release's
+// assets. The directory itself is the AppImage's update feed
+// (desktop/src/shared/appUpdate.ts). An R2 bucket serves no directory
+// listing or index, so the page is named in full.
+func ReleasePage(base, tag string) string {
+	list, err := url.Parse(cmp.Or(base, DefaultReleasesURL))
+	if err != nil {
+		return ""
+	}
+	page := list.ResolveReference(&url.URL{Path: "releases/" + url.PathEscape(tag) + "/index.html"})
+	return page.String()
+}
 
 // nightlyVersion is what the nightly workflow calls a build:
 // <next release>-nightly.<YYYYMMDD>.<run>. Semver orders two of them by date,
@@ -85,13 +103,12 @@ func Offer(channel, current string, stable, nightly Latest) (Latest, bool) {
 
 func valid(v string) bool { return v != "" && semver.IsValid(canonical(v)) }
 
-// LatestRelease asks GitHub's release list at base (DefaultReleasesURL when
+// LatestRelease asks the release list at base (DefaultReleasesURL when
 // empty) for the newest published release of channel: on the stable channel
 // the newest vX.Y.Z that isn't a prerelease, on the nightly channel that or a
 // nightly, whichever is newer, with the files it offers for download. Drafts
-// and any other tag are skipped. It sends
-// no ID and nothing about the machine: the request is a plain GET of a public
-// page.
+// and any other tag are skipped. It sends no ID and nothing about the machine:
+// the request is a plain GET of a public page.
 func LatestRelease(ctx context.Context, base, channel string) (Latest, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
@@ -99,7 +116,6 @@ func LatestRelease(ctx context.Context, base, channel string) (Latest, error) {
 	if err != nil {
 		return Latest{}, err
 	}
-	r.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		return Latest{}, err
@@ -110,7 +126,6 @@ func LatestRelease(ctx context.Context, base, channel string) (Latest, error) {
 	}
 	var releases []struct {
 		Tag        string `json:"tag_name"`
-		URL        string `json:"html_url"`
 		Draft      bool   `json:"draft"`
 		Prerelease bool   `json:"prerelease"`
 		Assets     []struct {
@@ -131,7 +146,7 @@ func LatestRelease(ctx context.Context, base, channel string) (Latest, error) {
 			continue
 		}
 		if v := strings.TrimPrefix(rel.Tag, "v"); best.Version == "" || Newer(v, best.Version) {
-			best = Latest{Version: v, URL: rel.URL}
+			best = Latest{Version: v, URL: ReleasePage(base, rel.Tag)}
 			for _, a := range rel.Assets {
 				best.Assets = append(best.Assets, Asset(a))
 			}

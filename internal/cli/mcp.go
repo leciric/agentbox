@@ -371,7 +371,9 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"it gets its name and branch at once, and its machine and task when one of the project's slots is free " +
 					"(you're told in one line when it starts). Use it for work that can wait, so agents don't all compete for " +
 					"memory at once. Left out, the project's own setting decides, which is to start now unless the user " +
-					"chose to always queue."},
+					"chose to always queue. False doesn't get past the queue: an agent the VM has no memory for, or one " +
+					"beyond the number of agents at once the user fixed for this project, queues whatever this says, " +
+					"and the result says why."},
 				"size": sizeParam,
 				"notify": choiceOf("what a genuine finish does to your chat: \"chat\" to be told and woken when this agent finishes, "+
 					"\"off\" to only have the finish recorded — for a small, mechanical job you don't need to react to. This only "+
@@ -610,18 +612,23 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Description: "Free what an agent is holding once it has finished. Its work stays on its " +
 				"branch whichever way you retire it: stop shuts the machine down and it comes back in " +
 				"seconds, destroy removes the machine and the worktree but keeps its media, findable in " +
-				"the project's media view. An agent with uncommitted work is left alone. The next task " +
-				"is a new agent, not this one.",
+				"the project's media view. An agent with uncommitted work is left alone, and so is one " +
+				"still working, which includes waiting on a background command or monitor it left " +
+				"running, unless you force it. The next task is a new agent, not this one.",
 			Schema: object([]string{"agent"}, map[string]any{
 				"agent": str("its name, like agent-03"),
 				"how":   str("stop (the default), pause or destroy"),
+				"force": map[string]any{"type": "boolean", "description": "retire it even though it is still working or has uncommitted work"},
 			}),
 			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ Agent, How string }
+				var in struct {
+					Agent, How string
+					Force      bool
+				}
 				if err := decode(args, &in); err != nil {
 					return "", err
 				}
-				result, err := c.RetireProject(ctx, api.RetireRequest{How: in.How, Agents: []string{in.Agent}})
+				result, err := c.RetireProject(ctx, api.RetireRequest{How: in.How, Agents: []string{in.Agent}, Force: in.Force})
 				if err != nil {
 					return "", err
 				}

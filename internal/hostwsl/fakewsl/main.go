@@ -58,6 +58,10 @@ func root() string {
 
 func marker(name string) string { return filepath.Join(root(), "distros", strings.ToLower(name)) }
 
+// running marks a distro that runs, as WSL's are once a command has run in
+// them and until --terminate: a new one is stopped.
+func running(name string) string { return filepath.Join(root(), "running", strings.ToLower(name)) }
+
 func say(format string, a ...any) {
 	s := fmt.Sprintf(format, a...)
 	if os.Getenv("FAKEWSL_UTF16") != "" {
@@ -93,7 +97,11 @@ func run(args []string) int {
 		say("  NAME        STATE           VERSION\r\n")
 		for _, e := range entries {
 			v, _ := os.ReadFile(filepath.Join(root(), "distros", e.Name()))
-			say("  %-11s Running         %s\r\n", e.Name(), strings.TrimSpace(string(v)))
+			state := "Stopped"
+			if _, err := os.Stat(running(e.Name())); err == nil {
+				state = "Running"
+			}
+			say("  %-11s %-15s %s\r\n", e.Name(), state, strings.TrimSpace(string(v)))
 		}
 		return 0
 	case "--import":
@@ -107,8 +115,13 @@ func run(args []string) int {
 		_ = os.WriteFile(marker(args[1]), []byte("2"), 0o644)
 		return 0
 	case "--terminate":
+		if len(args) < 2 {
+			return fail("fakewsl: --terminate Name")
+		}
+		_ = os.Remove(running(args[1]))
 		return 0
 	case "--unregister":
+		_ = os.Remove(running(args[1]))
 		if err := os.Remove(marker(args[1])); err != nil {
 			return fail("There is no distribution with the supplied name.")
 		}
@@ -123,6 +136,8 @@ func distro(name string, args []string) int {
 	if _, err := os.Stat(marker(name)); err != nil {
 		return fail("There is no distribution with the supplied name.")
 	}
+	_ = os.MkdirAll(filepath.Dir(running(name)), 0o755)
+	_ = os.WriteFile(running(name), nil, 0o644)
 	dir := ""
 	for len(args) > 0 && args[0] != "--exec" {
 		switch args[0] {
@@ -181,6 +196,10 @@ func execute(command []string) int {
 		}
 	}
 	switch {
+	case command[0] == "sh" && len(command) == 3 && command[2] == "cat /proc/meminfo; nproc":
+		// Distro.Power: 16 GiB, 9.5 of them available, and 8 CPUs.
+		fmt.Print("MemTotal:       16777216 kB\nMemFree:         8388608 kB\nMemAvailable:    9961472 kB\n8\n")
+		return 0
 	case command[0] == "sha256sum":
 		b, err := os.ReadFile(command[1])
 		if err != nil {
@@ -220,6 +239,9 @@ func execute(command []string) int {
 		}
 		if len(command) > 1 && command[1] == "wsl-bridge" {
 			return bridge(command[2:])
+		}
+		if len(command) == 3 && command[1] == "daemon" && command[2] == "stop" {
+			return shutdown()
 		}
 		if bin := os.Getenv("FAKEWSL_AGENTBOX"); bin != "" {
 			return execLocal(append([]string{bin}, command[1:]...))
@@ -264,6 +286,21 @@ func bridge(args []string) int {
 	if err := hostwsl.Bridge(stdio{os.Stdin, os.Stdout}, socket); err != nil {
 		return fail("%v", err)
 	}
+	return 0
+}
+
+// shutdown is `agentbox daemon stop`: POST /v1/shutdown to the daemon.
+func shutdown() int {
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", os.Getenv("FAKEWSL_SOCKET"))
+		},
+	}}
+	resp, err := client.Post("http://agentbox/v1/shutdown", "", nil)
+	if err != nil {
+		return fail("no daemon is answering: %v", err)
+	}
+	_ = resp.Body.Close()
 	return 0
 }
 

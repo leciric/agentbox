@@ -371,6 +371,12 @@ func TestFleetFormattingHelpers(t *testing.T) {
 	if got := agentDoing(api.Agent{Chat: api.ChatRunning, StalledSince: &since}); got != "stalled, no progress since 17m ago" {
 		t.Errorf("agentDoing(stalled) = %q", got)
 	}
+	if got := agentDoing(api.Agent{Chat: api.ChatReady, Background: []string{"Watch CI run 42"}}); got != "awaiting background work (Watch CI run 42)" {
+		t.Errorf("agentDoing(awaiting) = %q", got)
+	}
+	if got := agentDoing(api.Agent{Chat: api.ChatReady}); got != "idle" {
+		t.Errorf("agentDoing(idle) = %q", got)
+	}
 	if got := agentDoing(api.Agent{Chat: api.ChatRunning}); got != "working" {
 		t.Errorf("agentDoing(running) = %q", got)
 	}

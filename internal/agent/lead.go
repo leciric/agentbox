@@ -349,6 +349,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	text, err := brief.RenderLead(brief.LeadData{
 		Recheck:              recheck,
 		Queue:                queue,
+		Slots:                p.Slots,
 		PRWatch:              prWatch,
 		VM:                   hostos.InVM(),
 		Host:                 hostos.Name(),
