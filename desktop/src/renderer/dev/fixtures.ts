@@ -582,6 +582,28 @@ export function agent12Chat(): T.ChatThread {
   };
 }
 
+// asleepChat is a conversation stored for an agent whose machine is now
+// stopped or paused: several finished turns, long enough to scroll, read from
+// the database without its AI tool running.
+export function asleepChat(ref: string): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const turns: [string, string][] = [
+    ['Add a dark mode toggle to the Settings page, saved in localStorage.', 'Added a toggle under Appearance in `SettingsView.tsx`, saved as `agentbox.theme`. The page follows it at once, without a reload.'],
+    ['Does it follow the system theme by default?', 'Yes: with nothing saved it reads `prefers-color-scheme`, and keeps following it while the app is open. Picking Light or Dark pins it.'],
+    ['Write a test for the saved value.', 'Added `theme.test.ts`: it saves Dark, reloads the setting and checks the page is dark, then clears it and checks the system theme wins again. `npm test` passes, 355 tests.'],
+    ['Commit it and open a pull request.', 'Committed on `agentbox/dark-mode-toggle` and opened PR #214, "feat: a dark mode toggle in Settings", with a screenshot of both themes. CI is green.'],
+  ];
+  const items: T.ChatItem[] = turns.flatMap(([ask, reply], i) => {
+    const ago = (turns.length - i) * 600_000;
+    const turn = `s${i}`;
+    return [
+      { id: `${turn}u`, turn, kind: 'user', text: ask, result: { state: 'completed', stopReason: 'end_turn', endedAt: at(ago - 60_000) }, createdAt: at(ago), updatedAt: at(ago) },
+      { id: `${turn}a`, turn, kind: 'assistant', text: reply, createdAt: at(ago - 60_000), updatedAt: at(ago - 60_000) },
+    ];
+  });
+  return { agent: ref, seq: 1, session: { state: 'off', tool: 'claude', options: [], commands: [] }, items };
+}
+
 // leadChat is the project's chat, where you talk to the lead, a little after
 // it told agent-12 to push again: the credential cards come after it, drawn
 // from the project's questions rather than written into the conversation.
@@ -1650,6 +1672,8 @@ export function installDevBridge(): void {
         devState.agents = devState.agents.map((a) => (a.ref === ref ? { ...a, state: 'running', chat: 'ready' } : a));
         return { status: 200, body: JSON.stringify(devState.agents.find((a) => a.ref === ref)), contentType: 'application/json' };
       }
+      // No bell history unless a scenario sets one: the Sidebar counts it, and {} isn't a list.
+      if (method === 'GET' && path === '/v1/notifications') return { status: 200, body: '[]', contentType: 'application/json' };
       // No checkpoints: Timeline filters what it gets, and {} isn't a list.
       if (method === 'GET' && path.endsWith('/checkpoints')) return { status: 200, body: '[]', contentType: 'application/json' };
       if (method === 'GET' && path === '/v1/agents' && devState.agents) return { status: 200, body: JSON.stringify(devState.agents), contentType: 'application/json' };

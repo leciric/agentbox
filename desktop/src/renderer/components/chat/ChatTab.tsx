@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, LoaderCircle, MessageSquarePlus, Play } from 'lucide-react';
+import { ArrowDown, LoaderCircle, MessageSquarePlus } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
-import { chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
+import { asleep, chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage } from '../../lib/utils';
@@ -39,6 +39,9 @@ export function ChatTab({
   const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
   const session = thread.data?.session;
   const running = agent.state === 'running';
+  // A stopped or paused agent's chat is still all there to read, with the
+  // button that starts it on the composer, which also wakes it by sending.
+  const sleeping = asleep(agent);
   useReadAloud(agent.ref, thread.data?.items);
   const start = useMutation({
     mutationFn: () => api.startChat(agent.ref),
@@ -193,23 +196,16 @@ export function ChatTab({
 
       <div ref={composer} className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pb-3 md:px-6 md:pb-5">
         <div className="pointer-events-auto mx-auto w-full max-w-4xl">
-          <Composer agent={agent} thread={thread.data} disabled={!running} onSent={scrollToEnd} />
+          <Composer
+            agent={agent}
+            thread={thread.data}
+            disabled={!running && !sleeping}
+            asleep={sleeping ? { state: sleeping, starting, onStart } : undefined}
+            onSent={scrollToEnd}
+          />
         </div>
       </div>
 
-      {!isProjectChat(agent.ref) && (agent.state === 'stopped' || agent.state === 'paused') && (
-        <div className="absolute inset-0 z-30 flex animate-fade-in items-center justify-center bg-chat/75 backdrop-blur-[2px]">
-          <div className="panel grid max-w-sm justify-items-center gap-3 rounded-2xl px-8 py-7 text-center">
-            <p className="text-sm text-tertiary">
-              {t('chat.tab.stopped', { name: agent.title || agent.name, state: agent.state, tool: aiLabel(agent.ai) })}
-            </p>
-            <Button variant="primary" onClick={onStart} disabled={starting}>
-              {starting ? <LoaderCircle className="animate-spin" /> : <Play />}
-              {t('chat.tab.startAgent', { state: agent.state, name: agent.name })}
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
