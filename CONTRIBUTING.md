@@ -192,4 +192,17 @@ A security problem doesn't belong in a public issue: contact the maintainer priv
 
 ## License
 
-AgentBox is open source under the [MIT License](LICENSE), and so is every contribution to it.
+AgentBox is source-available under the [Functional Source License, FSL-1.1-MIT](LICENSE), and
+your contribution is offered under it too. (Releases up to 0.12 were MIT.)
+
+### Contributor agreement
+
+By submitting a pull request, you agree that:
+
+- you keep the copyright in your contribution;
+- you grant Leandro Ciric a perpetual, worldwide, irrevocable license to use, modify, distribute and
+  relicense your contribution, including under other terms;
+- you have the right to make the contribution, and it isn't someone else's work or under terms that
+  conflict with this.
+
+There is nothing to sign: opening the pull request is your agreement.

@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/leciric/agentbox/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/leciric/agentbox/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://downloads.agentbox.linting.dev/index.html"><img alt="Download" src="https://img.shields.io/badge/download-latest-blue"></a>
-  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+  <a href="LICENSE"><img alt="License: FSL-1.1-MIT" src="https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg"></a>
   <img alt="Platform: Linux x86_64" src="https://img.shields.io/badge/platform-Linux%20x86__64-informational">
 </p>
 
@@ -283,4 +283,8 @@ Thanks to everyone who has contributed to AgentBox, in order of their first cont
 
 ## License
 
-AgentBox is open source under the [MIT License](LICENSE). Copyright (c) 2026 Leandro Ciric.
+AgentBox is source-available under the [Functional Source License, FSL-1.1-MIT](LICENSE): free to use,
+including inside a company; you may not sell it or offer it as a competing product or service; each
+version becomes MIT two years after its release. Releases up to 0.12 were MIT.
+
+Copyright 2026 Leandro Ciric.

@@ -4,7 +4,7 @@
   "version": "0.11.0",
   "description": "AgentBox desktop app: a client of the AgentBox daemon",
   "author": "AgentBox",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": "https://github.com/leciric/agentbox.git",
   "desktopName": "agentbox-desktop.desktop",
   "main": "out/main/index.cjs",
