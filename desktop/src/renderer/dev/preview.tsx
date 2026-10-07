@@ -58,8 +58,12 @@
 //                           saves (fixtures.ts)
 //   ?enforce=1              with ?settings=project:<name>: "Enforce this model" on, so the
 //                           project's model picker warns that Settings' model wins
-//   ?topbar=a|b|c           mock-ups of a redesigned top bar (topbarDesigns.tsx),
-//                           every state with its popovers drawn open
+//   ?topbar=detailed        the top bar's machine as the detailed strip
+//                           (Settings' "Detailed top bar") rather than the bubble
+//   ?conn=connecting|disconnected
+//                           the connection to the daemon (default: connected)
+//   ?mem=tight              with ?power: the VM's memory, or the host's, past 85%
+//   ?claude=near            with ?power: the Claude account's 5-hour window at 92%
 //   ?usage=1                the top bar's usage meter against two Claude
 //                           accounts: on Home (the default account), on a
 //                           project that uses the other one, on a Claude
@@ -194,13 +198,12 @@ import { Sidebar } from '../components/Sidebar';
 import { FreeResourcesDialog, type FreeRun } from '../components/ResourceControls';
 import { NewAgentDialog } from '../components/NewAgentDialog';
 import { TopBar } from '../components/TopBar';
-import { TopbarDesigns } from './topbarDesigns';
 import { TooltipProvider } from '../components/ui/tooltip';
 import { VMSetup } from '../components/VMSetup';
 import { MovePrompt } from '../components/RunInVM';
 import { laterKey } from '../lib/vmMove';
 import { VMSize } from '../components/VMSize';
-import { connectEvents } from '../lib/events';
+import { connectEvents, seedConnection } from '../lib/events';
 import { applyLanguage, useLanguage } from '../lib/i18n';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
@@ -392,7 +395,17 @@ if (queue) startNowBridge();
 if (queue === 'tasks') tasksBridge();
 if (settingsPage && !queue) settingsBridge();
 if (page) pageBridge();
-if (power) seedPower(queryClient, power);
+if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
+if (power) seedMeterUsage(queryClient);
+localStorage.setItem('agentbox.topbar.detailed', topbar === 'detailed' ? '1' : '0');
+const conn = params.get('conn');
+seedConnection(
+  conn === 'disconnected'
+    ? { state: 'disconnected', error: 'connect ECONNREFUSED /home/you/.local/share/agentbox/run/agentbox.sock' }
+    : conn === 'connecting'
+      ? { state: 'connecting' }
+      : { state: 'connected' },
+);
 const seededRun = power && free ? freeRun(queryClient, free) : undefined;
 
 if (io) {
@@ -557,7 +570,6 @@ function PagePreview({ at }: { at: string }) {
 }
 
 function Preview() {
-  if (topbar) return <TopbarDesigns option={topbar} />;
   if (github) return <GitHubPreview />;
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;

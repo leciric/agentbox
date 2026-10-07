@@ -24,6 +24,13 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
+// seedConnection sets the connection for dev/preview.tsx, which has no event
+// stream to say it.
+export function seedConnection(state: ConnectionState): void {
+  connection = state;
+  notify();
+}
+
 export function useConnection(): ConnectionState {
   return useSyncExternalStore(subscribe, () => connection);
 }
