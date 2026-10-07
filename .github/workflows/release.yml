@@ -57,6 +57,7 @@ jobs:
     name: release-please
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -78,6 +79,7 @@ jobs:
     needs: release-please
     if: always()
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     outputs:
       release_created: ${{ steps.resolve.outputs.release_created }}
       tag_name: ${{ steps.resolve.outputs.tag_name }}
@@ -124,6 +126,7 @@ jobs:
     # otherwise.
     if: always() && needs.release.result == 'success' && needs.release.outputs.release_created == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
       GH_TOKEN: ${{ github.token }}
@@ -147,6 +150,7 @@ jobs:
     needs: [release, checks]
     if: always() && needs.checks.result == 'success'
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
     steps:
@@ -179,8 +183,8 @@ jobs:
       # distribution, and fpm needs it to make the .pacman.
       - name: Install what electron-builder wants
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libarchive-tools
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends libarchive-tools
 
       - run: npm --prefix desktop ci
 
@@ -201,6 +205,7 @@ jobs:
     needs: [release, checks]
     if: always() && needs.checks.result == 'success'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
     steps:
@@ -237,8 +242,8 @@ jobs:
       - name: Install what electron-builder wants
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libarchive-tools wine wine32:i386 wine64
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends libarchive-tools wine wine32:i386 wine64
 
       - run: npm --prefix desktop ci
 
@@ -264,6 +269,7 @@ jobs:
     needs: [release, checks]
     if: always() && needs.checks.result == 'success'
     runs-on: macos-15
+    timeout-minutes: 40
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
       CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
@@ -355,6 +361,7 @@ jobs:
       needs.windows.result == 'success' &&
       (needs.macos.result == 'success' || needs.macos.result == 'skipped')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
       TAG: ${{ needs.release.outputs.tag_name }}
       GH_TOKEN: ${{ github.token }}
@@ -401,6 +408,7 @@ jobs:
     needs: [release, publish]
     if: always() && needs.publish.result == 'success'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     concurrency:
       group: r2-releases
       cancel-in-progress: false
