@@ -237,6 +237,7 @@ export const enUS = {
   'shell.machine.agentbox': 'AgentBox',
   'shell.machine.vmMemory': 'VM memory',
   'shell.machine.wslMemory': 'WSL memory',
+  'shell.machine.memoryGranted': 'Granted {granted} of a {cap} cap. The VM grows toward the cap as agents start.',
   'shell.machine.measuringMemory': 'Measuring memory…',
   'shell.machine.everythingElse': 'Everything else',
   'shell.sidebar.needsYou': 'Needs you',

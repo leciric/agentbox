@@ -17,16 +17,21 @@ const vm = (state: VMPower['state'], used = 5 * GiB, extra: Partial<VMPower> = {
 const host = (used: number, total = 32 * GiB) => ({ cpu: 10, cores: 8, memUsed: used, memTotal: total }) as T.HostUsage;
 const connected = { state: 'connected' } as const;
 
-test("a running VM's memory is what's in use against its cap, not what it's been granted", () => {
+test("a running VM's memory is what's in use against what it's been granted, with its cap alongside", () => {
   const s = machineStatus(vm('running', 8 * GiB), connected);
   assert.equal(s.kind, 'running');
   assert.equal(s.tone, 'ok');
-  assert.deepEqual(s.memory, { used: 8 * GiB, total: 16 * GiB, percent: 50 });
+  assert.deepEqual(s.memory, { used: 8 * GiB, total: 12 * GiB, cap: 16 * GiB, percent: (8 / 12) * 100 });
 });
 
-test('memory past 85% of the cap is tight', () => {
-  assert.equal(machineStatus(vm('running', 14 * GiB), connected).kind, 'memory');
-  assert.equal(machineStatus(vm('running', 13 * GiB), connected).kind, 'running');
+test('memory past 85% of what is granted is tight', () => {
+  assert.equal(machineStatus(vm('running', 11 * GiB), connected).kind, 'memory');
+  assert.equal(machineStatus(vm('running', 10 * GiB), connected).kind, 'running');
+});
+
+test('with nothing granted the cap is the total, as on WSL where they are equal', () => {
+  assert.deepEqual(machineStatus(vm('running', 4 * GiB, { memoryGranted: 0 }), connected).memory, { used: 4 * GiB, total: 16 * GiB, cap: 16 * GiB, percent: 25 });
+  assert.equal(machineStatus(vm('running', 4 * GiB, { memoryGranted: 16 * GiB }), connected).memory?.total, 16 * GiB);
 });
 
 test("the VM's power state comes before the connection, which can't be up without it", () => {

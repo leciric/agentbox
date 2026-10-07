@@ -401,6 +401,9 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
         </span>
       </div>
       {vm && <VMMemory vm={vm} />}
+      {vm && memory.cap > memory.total && (
+        <span className="text-[11.5px] leading-relaxed text-muted">{t('shell.machine.memoryGranted', { granted: humanBytes(memory.total), cap: humanBytes(memory.cap) })}</span>
+      )}
       {memory.percent > memoryFull && <span className="text-[11.5px] leading-relaxed text-muted">{t('shell.machine.memoryHint')}</span>}
       {query.isPending ? (
         <span className="py-1 text-[12px] text-muted">{t('shell.machine.measuringMemory')}</span>

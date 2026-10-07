@@ -238,6 +238,7 @@ export const ptBR: Messages = {
   'shell.machine.agentbox': 'AgentBox',
   'shell.machine.vmMemory': 'Memória da VM',
   'shell.machine.wslMemory': 'Memória do WSL',
+  'shell.machine.memoryGranted': 'Concedidos {granted} de um limite de {cap}. A VM cresce até o limite conforme os agentes iniciam.',
   'shell.machine.measuringMemory': 'Medindo a memória…',
   'shell.machine.everythingElse': 'Todo o resto',
   'shell.sidebar.needsYou': 'Precisa de você',
