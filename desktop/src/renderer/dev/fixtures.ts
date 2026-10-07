@@ -875,11 +875,13 @@ function stopAgents(refs: string[]) {
 // agents running (host) or with every one stopped by Free resources and
 // Start to bring them back (host-start); or in VM mode with the VM in a
 // state: running, paused, off, starting or stopping; or on Windows with
-// AgentBox's WSL distro running or stopped (wsl-running, wsl-off).
-export function seedPower(queryClient: QueryClient, power: string): void {
+// AgentBox's WSL distro running or stopped (wsl-running, wsl-off). tight puts
+// the VM's memory (or the host's) past the top bar's 85%; near puts the Claude
+// account's five-hour window at 92%.
+export function seedPower(queryClient: QueryClient, power: string, { tight = false, near = false } = {}): void {
   const GiB = 1024 ** 3;
-  queryClient.setQueryData(['usage'], { host: { cpu: 38, cores: 16, memUsed: 21 * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
-  queryClient.setQueryData(['claudeLimits'], []);
+  queryClient.setQueryData(['usage'], { host: { cpu: 38, cores: 16, memUsed: (tight ? 29 : 21) * GiB, memTotal: 32 * GiB, poolUsed: 0, poolTotal: 0, diskRead: 0, diskWrite: 0 }, agents: [] });
+  queryClient.setQueryData(['claudeLimits'], claudeLimits(near));
   localStorage.removeItem('agentbox.freed');
   if (power === 'host') {
     devState.vmPower = null;
@@ -896,9 +898,19 @@ export function seedPower(queryClient: QueryClient, power: string): void {
   const wsl = power.startsWith('wsl-');
   const state = power.replace(/^wsl-/, '') as VMPowerState;
   const up = state !== 'off' && state !== 'starting';
+  const pool = { size: 100 * GiB, allocated: Math.round(18.4 * GiB) };
+  const root = { size: 20 * GiB, allocated: Math.round(5.8 * GiB) };
+  const disk: T.VMDisk = { size: pool.size + root.size, allocated: pool.allocated + root.allocated, pool, root, hostFree: 310 * GiB };
   devState.vmPower = wsl
-    ? { state, memoryUsed: up ? 6.5 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: up ? 16 * GiB : 0, cpus: up ? 8 : 0, driver: 'wsl' }
-    : { state, memoryUsed: up ? 11.3 * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: 24 * GiB, cpus: 12 };
+    ? { state, memoryUsed: up ? (tight ? 14.5 : 6.5) * GiB : 0, memoryGranted: up ? 16 * GiB : 0, memoryCap: up ? 16 * GiB : 0, cpus: up ? 8 : 0, driver: 'wsl' }
+    : {
+        state,
+        memoryUsed: up ? (tight ? 21.9 : 11.3) * GiB : 0,
+        memoryGranted: up ? (tight ? 23 : 16) * GiB : 0,
+        memoryCap: 24 * GiB,
+        cpus: 12,
+        ...(up ? { disk, hostFree: disk.hostFree } : {}),
+      };
   if (state === 'off') {
     const agents = (devState.agents ?? []).map((a) => (a.state === 'running' || a.state === 'paused' ? { ...a, state: 'stopped', chat: 'off' } : a));
     localStorage.setItem('agentbox.freed', JSON.stringify(freeTargets(devState.agents ?? []).map((t) => t.ref)));
@@ -906,6 +918,35 @@ export function seedPower(queryClient: QueryClient, power: string): void {
     queryClient.setQueryData(['agents'], agents);
   }
   queryClient.setQueryData(['vmPower'], devState.vmPower);
+}
+
+// claudeLimits is two Claude accounts' latest readings: the default
+// "personal", its five-hour window a third used (near: 92%, 47 minutes to
+// go) and its week a fifth; and "work".
+export function claudeLimits(near = false): T.ClaudeLimit[] {
+  const at = (minutes: number) => new Date(Date.now() + minutes * 60_000).toISOString();
+  return [
+    {
+      account: 'personal',
+      default: true,
+      at: at(-2),
+      status: 'allowed',
+      windows: [
+        { name: 'five_hour', label: '5-hour', utilization: near ? 0.92 : 0.38, resetsAt: at(near ? 47 : 192) },
+        { name: 'seven_day', label: 'Weekly', utilization: near ? 0.71 : 0.22, resetsAt: at(near ? 27 * 60 : 102 * 60) },
+      ],
+    },
+    {
+      account: 'work',
+      default: false,
+      at: at(-40),
+      status: 'allowed',
+      windows: [
+        { name: 'five_hour', label: '5-hour', utilization: 0.12, resetsAt: at(130) },
+        { name: 'seven_day', label: 'Weekly', utilization: 0.4, resetsAt: at(50 * 60) },
+      ],
+    },
+  ];
 }
 
 // freeRun is a Free resources in one of its phases (?free=), against the
