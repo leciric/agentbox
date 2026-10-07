@@ -3,6 +3,14 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.12.1](https://github.com/leciric/agentbox/compare/v0.12.0...v0.12.1) (2026-10-07)
+
+
+### Fixed
+
+* the top bar's memory shows what the VM uses of what it's been granted ([#223](https://github.com/leciric/agentbox/issues/223)) ([44a9648](https://github.com/leciric/agentbox/commit/44a9648fdccfa46e8116df79ee850d3b9ef27cee))
+* updates are looked for hourly and usage stats are sent soon after they are due ([#224](https://github.com/leciric/agentbox/issues/224)) ([56d2192](https://github.com/leciric/agentbox/commit/56d219239132f8bc5caa472dee072a15af741d16))
+
 ## [0.12.0](https://github.com/leciric/agentbox/compare/v0.11.0...v0.12.0) (2026-10-07)
 
 
