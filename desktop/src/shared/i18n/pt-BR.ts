@@ -1263,7 +1263,7 @@ export const ptBR: Messages = {
   'chat.timeline.startingTool': 'Iniciando {tool}',
   'chat.timeline.working': 'Trabalhando há {elapsed}',
   'chat.timeline.stalled': ' · travado, sem progresso há {elapsed}',
-  'chat.timeline.woken': 'Um trabalho em segundo plano terminou, e o agente continuou sozinho',
+  'chat.timeline.woken': 'Acordou com um trabalho que deixou rodando em segundo plano',
   'chat.timeline.wokenBy': '{task} terminou, e o agente continuou sozinho',
   'chat.timeline.background': 'Esperando trabalho em segundo plano: {tasks}',
   'chat.timeline.handoff': 'O que a nova sessão recebe',

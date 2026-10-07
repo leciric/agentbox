@@ -348,6 +348,15 @@ func (p *chatPrinter) item(it api.ChatItem) {
 			p.once(it.ID+":end", fmt.Sprintf("  ⧉ %s %s\n", sa.Name, sa.State))
 		}
 	case "user":
+		if it.Woken {
+			// Nobody wrote it: background work ending woke the session.
+			if it.Text == "" {
+				p.once(it.ID, "↻ woken by background work\n\n")
+			} else {
+				p.once(it.ID, "↻ "+strings.ReplaceAll(it.Text, "\n", ", ")+" ended; carrying on\n\n")
+			}
+			return
+		}
 		p.once(it.ID, "› "+it.Text+"\n\n")
 	case "aside":
 		// Sent while the tool was already working, so it reads in the middle of

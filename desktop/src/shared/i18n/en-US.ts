@@ -1262,7 +1262,7 @@ export const enUS = {
   'chat.timeline.startingTool': 'Starting {tool}',
   'chat.timeline.working': 'Working for {elapsed}',
   'chat.timeline.stalled': ' · stalled, no progress for {elapsed}',
-  'chat.timeline.woken': 'Work left running in the background ended, and the agent carried on by itself',
+  'chat.timeline.woken': 'Woken by work it left running in the background',
   'chat.timeline.wokenBy': '{task} ended, and the agent carried on by itself',
   'chat.timeline.background': 'Waiting on background work: {tasks}',
   'chat.timeline.handoff': 'What the new session is told',

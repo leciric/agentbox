@@ -105,7 +105,8 @@ type ChatItem struct {
 	// Woken, on a user item, marks a turn nobody prompted: the AI tool's
 	// session started it by itself, because a background task or a monitor it
 	// left running finished or spoke. The item's Text then names the tasks
-	// that woke it, when the tool said, and is not a message anybody sent.
+	// that ended since the turn before, if any (a monitor speaking ends
+	// none), and is not a message anybody sent.
 	Woken bool `json:"woken,omitempty"`
 	// Hidden marks an item the AI tool has to read but nobody wants to: the
 	// prose AgentBox writes a lead when one of its agents finishes or asks,

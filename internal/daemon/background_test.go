@@ -167,6 +167,12 @@ func TestAnAgentWaitingOnBackgroundWorkIsNotReportedFinished(t *testing.T) {
 	if state := d.srv.chat.State(lead.Ref()); state != api.ChatOff && state != api.ChatReady && state != "" {
 		t.Errorf("the lead's chat is %q: a notice that it waits started a turn", state)
 	}
+	// A monitor wakes the session at every line; each of those turns ends
+	// waiting too, and the lead isn't told again.
+	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn", Background: []string{"Watch CI run 42"}})
+	if th, _ := d.srv.chat.Thread(lead); countNotices(th) != 1 {
+		t.Errorf("the lead was told %d times that the agent waits", countNotices(th))
+	}
 	d.srv.mu.Lock()
 	waits := d.srv.leadWaits[a.Ref()]
 	d.srv.mu.Unlock()
@@ -184,4 +190,14 @@ func TestAnAgentWaitingOnBackgroundWorkIsNotReportedFinished(t *testing.T) {
 	if !strings.Contains(noticeTo(t, d, lead), "CI passed") {
 		t.Errorf("the finish notice doesn't carry the follow-up: %q", noticeTo(t, d, lead))
 	}
+}
+
+func countNotices(th api.ChatThread) int {
+	n := 0
+	for _, it := range th.Items {
+		if it.Kind == "notice" {
+			n++
+		}
+	}
+	return n
 }
