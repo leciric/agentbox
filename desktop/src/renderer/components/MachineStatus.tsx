@@ -154,7 +154,7 @@ function Bubble({
             )}
             {status.memory && (
               <Check
-                tone={status.memory.percent > memoryFull ? 'warn' : 'ok'}
+                tone={status.memory.capPercent > memoryFull ? 'warn' : 'ok'}
                 label={t('shell.machine.memoryLabel')}
                 value={t('shell.top.usedOf', { used: humanBytes(status.memory.used), size: humanBytes(status.memory.total) })}
               />
@@ -283,12 +283,12 @@ function Strip({
         {up && status.memory && (
           <Segment
             label={t('shell.machine.memoryLabel')}
-            className={cn('hidden sm:flex', status.memory.percent > memoryFull && 'bg-amber-400/10')}
+            className={cn('hidden sm:flex', status.memory.capPercent > memoryFull && 'bg-amber-400/10')}
             data-meter="memory"
             trigger={
               <>
                 <span className="text-[11px] text-muted">{t('shell.machine.memoryLabel')}</span>
-                <span className={cn('whitespace-nowrap font-mono text-[11px] tabular-nums', tint(status.memory.percent))}>{gib(status.memory.used, status.memory.total)}</span>
+                <span className={cn('whitespace-nowrap font-mono text-[11px] tabular-nums', tint(status.memory.capPercent))}>{gib(status.memory.used, status.memory.total)}</span>
               </>
             }
           >
@@ -396,12 +396,15 @@ function MemoryPanel({ vm, status, onSelect }: { vm: VMPower | null; status: Sta
     <div className="grid gap-2.5">
       <div className="flex items-center justify-between">
         <span className="text-[13px] font-medium text-primary">{vm ? t(vm.driver === 'wsl' ? 'shell.machine.wslMemory' : 'shell.machine.vmMemory') : t('shell.machine.memoryLabel')}</span>
-        <span className={cn('font-mono text-[11px] tabular-nums', tint(memory.percent))}>
+        <span className={cn('font-mono text-[11px] tabular-nums', tint(memory.capPercent))}>
           {t('shell.top.usedOf', { used: humanBytes(memory.used), size: humanBytes(memory.total) })}
         </span>
       </div>
       {vm && <VMMemory vm={vm} />}
-      {memory.percent > memoryFull && <span className="text-[11.5px] leading-relaxed text-muted">{t('shell.machine.memoryHint')}</span>}
+      {vm && memory.cap > memory.total && (
+        <span className="text-[11.5px] leading-relaxed text-muted">{t('shell.machine.memoryGranted', { granted: humanBytes(memory.total), cap: humanBytes(memory.cap) })}</span>
+      )}
+      {memory.capPercent > memoryFull && <span className="text-[11.5px] leading-relaxed text-muted">{t('shell.machine.memoryHint')}</span>}
       {query.isPending ? (
         <span className="py-1 text-[12px] text-muted">{t('shell.machine.measuringMemory')}</span>
       ) : query.isError ? (
