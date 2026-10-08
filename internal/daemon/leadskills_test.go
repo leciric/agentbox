@@ -99,7 +99,7 @@ func TestTheLeadsSkillChangesWaitForTheUser(t *testing.T) {
 	if list, err := lead.ProjectSkills(ctx); err != nil || len(list) != 2 {
 		t.Errorf("ProjectSkills() = %+v, %v", list, err)
 	}
-	if detail, err := lead.ProjectSkill(ctx, "release"); err != nil || !strings.Contains(detail.Files[0].Content, "Run the script.") {
+	if detail, err := lead.ProjectSkill(ctx, "release"); err != nil || !strings.Contains(detail.Files[0].Content, "Run the script.") || detail.Active == nil || !*detail.Active {
 		t.Errorf("ProjectSkill() = %+v, %v", detail, err)
 	}
 	if got := user.titles(); len(got) != 0 {

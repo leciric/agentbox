@@ -653,7 +653,7 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
         {diffs?.length ? (
           <div className="mt-2 overflow-hidden rounded-lg border border-line bg-well">
             {diffs.map((diff, i) => (
-              <DiffView key={i} diff={diff} className="max-h-40" />
+              <DiffView key={i} diff={diff} className={approval ? 'max-h-64' : 'max-h-40'} />
             ))}
           </div>
         ) : null}

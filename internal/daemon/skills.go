@@ -119,6 +119,11 @@ func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// A lead reads it from its project (leadRoutes): whether that has it.
+	if project := r.PathValue("project"); project != "" {
+		on := sk.EnabledFor(project)
+		detail.Active = &on
+	}
 	return writeJSON(w, http.StatusOK, detail)
 }
 
