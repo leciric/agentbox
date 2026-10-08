@@ -88,6 +88,7 @@ export function Sidebar({
   const draggingRef = useRef<Dragging | null>(null);
   const [dragging, setDragging] = useState<Dragging | null>(null);
   const [target, setTarget] = useState<DropTarget | null>(null);
+  const aimed = useRef<DropTarget | null>(null); // the target, as of the last dragover
   const [naming, setNaming] = useState<string | null>(null); // a section being named: its id, or '' for a new one
   const [deleting, setDeleting] = useState<T.Section | null>(null);
   // What a keyboard move did, for a screen reader: the sidebar rearranging
@@ -182,6 +183,7 @@ export function Sidebar({
 
   const endDrag = useCallback(() => {
     draggingRef.current = null;
+    aimed.current = null;
     setDragging(null);
     setTarget(null);
   }, []);
@@ -201,6 +203,7 @@ export function Sidebar({
   const aim = (where: DropTarget | null) => {
     const what = draggingRef.current;
     const useful = what && where && drop(lists, what, where) ? where : null;
+    aimed.current = useful;
     setTarget((current) => (current && useful && targetKey(current) === targetKey(useful) ? current : useful));
   };
 
@@ -211,6 +214,16 @@ export function Sidebar({
     const what = draggingRef.current;
     endDrag();
     if (what && where) apply(drop(lists, what, where), what.kind === 'project' ? what.name : undefined);
+  };
+
+  // A drag that ends saying it moved something, with no drop event, was
+  // dropped where the indicator last was: Chromium on X11 can let go of a
+  // quick drag before telling the page, which would otherwise see the row
+  // jump back. Dropped elsewhere (outside the window, or Escape), it says
+  // none; one that did drop has ended already, so there is nothing left.
+  const finishDrag = (e: DragEvent) => {
+    if (e.dataTransfer.dropEffect !== 'none' && draggingRef.current && aimed.current) commitDrop(aimed.current);
+    else endDrag();
   };
 
   // dropZone makes an element a drop target. where says what a drop at the
@@ -293,7 +306,7 @@ export function Sidebar({
           )}
           draggable
           onDragStart={startDrag({ kind: 'project', name: project.name })}
-          onDragEnd={endDrag}
+          onDragEnd={finishDrag}
         >
           <button
             data-project={project.name}
@@ -394,7 +407,7 @@ export function Sidebar({
           commitDrop(belowLists(e));
         }}
         onDragLeave={(e: DragEvent) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setTarget(null);
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) aim(null);
         }}
       >
         <div className="flex items-center gap-1 px-2.5 pb-1.5">
@@ -465,7 +478,7 @@ export function Sidebar({
                   onRename={() => setNaming(list.section!.id)}
                   onDelete={() => setDeleting(list.section)}
                   onDragStart={startDrag({ kind: 'section', id: list.section.id })}
-                  onDragEnd={endDrag}
+                  onDragEnd={finishDrag}
                   dropZone={dropZone(() => (draggingRef.current?.kind === 'project' ? { kind: 'section', id: list.section!.id } : null))}
                   moveKeys={moveKeys}
                 />
@@ -601,7 +614,7 @@ function SectionHeader({
   onRename: () => void;
   onDelete: () => void;
   onDragStart: (e: DragEvent) => void;
-  onDragEnd: () => void;
+  onDragEnd: (e: DragEvent) => void;
   // A project dropped on the header joins the section, at its top.
   dropZone: { onDragOver: (e: DragEvent) => void; onDrop: (e: DragEvent) => void };
   moveKeys: (move: (delta: -1 | 1) => void) => (e: KeyboardEvent) => void;
