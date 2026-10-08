@@ -72,6 +72,16 @@ var usageModels = map[string]string{
 	"gemini_2_5_flash": "gemini_2_5_flash",
 	"grok_code_fast_1": "grok_code_fast_1",
 	"big_pickle":       "big_pickle",
+	// Cursor's own, and its names for others' (its "Auto" is "default").
+	"composer_2":       "composer_2",
+	"composer_2_5":     "composer_2_5",
+	"claude_opus_4_7":  "opus_4_7",
+	"claude_opus_4_8":  "opus_4_8",
+	"claude_haiku_5_5": "haiku_5_5",
+	"gpt_5_6_sol":      "gpt_5_6_sol",
+	"gpt_5_6_terra":    "gpt_5_6_terra",
+	"gpt_5_6_luna":     "gpt_5_6_luna",
+	"gemini_3_1_pro":   "gemini_3_1_pro",
 }
 
 // usageEfforts are the effort levels counted by name.
@@ -147,7 +157,7 @@ func usageWindow(tokens int64) string {
 
 // usageTool is the AI tool's part of a key, the same as agentFeature's.
 func usageTool(ai string) string {
-	return agentFeature(ai, "claude", "codex", "opencode")
+	return agentFeature(ai, "claude", "codex", "opencode", "cursor")
 }
 
 // countModelUse counts the model, effort and window something ran with, under
@@ -181,7 +191,7 @@ func (s *Server) countCreatedModel(ctx context.Context, a state.Agent) {
 	if err != nil {
 		return
 	}
-	var window int64 = -1 // OpenCode's own
+	var window int64 = -1 // OpenCode's and Cursor's own
 	if a.AI == "claude" || a.AI == "codex" {
 		// Both compact at the installation's window, unless a Claude Code
 		// agent was given one of its own.

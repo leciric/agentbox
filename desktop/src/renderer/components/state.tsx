@@ -1,4 +1,4 @@
-import { Bot, LoaderCircle, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
+import { Bot, LoaderCircle, MousePointer2, Sparkles, SquareTerminal, Terminal } from 'lucide-react';
 import { type Mood, useMood } from '../lib/agentStatus';
 import { t, useT, type MessageKey } from '../lib/i18n';
 import { cn } from '../lib/utils';
@@ -85,14 +85,14 @@ export function JobStatusBadge({ status }: { status: string }) {
   );
 }
 
-const aiLabels: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+const aiLabels: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', cursor: 'Cursor' };
 
 export function aiLabel(ai: string): string {
   return aiLabels[ai] ?? t('agent.ai.shellOnly');
 }
 
 export function AIIcon({ ai, className }: { ai: string; className?: string }) {
-  const Icon = ai === 'claude' ? Sparkles : ai === 'codex' ? Bot : ai === 'opencode' ? Terminal : SquareTerminal;
+  const Icon = ai === 'claude' ? Sparkles : ai === 'codex' ? Bot : ai === 'opencode' ? Terminal : ai === 'cursor' ? MousePointer2 : SquareTerminal;
   return <Icon className={className} />;
 }
 

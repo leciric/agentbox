@@ -54,7 +54,10 @@ var Tools = map[string]Tool{
 	// saying "the machine is the sandbox": it approves everything that isn't
 	// explicitly denied, which is what an autonomous agent needs.
 	"opencode": {Command: "opencode", Autonomous: "opencode --auto"},
-	"none":     {},
+	// Cursor runs through its SDK, which has no command line, so a Cursor
+	// agent has only the chat (interfaceFor).
+	"cursor": {},
+	"none":   {},
 }
 
 // claudeChatDefaults are the chat settings a new Claude Code agent starts
@@ -192,6 +195,19 @@ func (m *Manager) ChatChoices(ctx context.Context, ai string, model, effort *str
 		}
 		return nil
 	}
+	if ai == "cursor" {
+		// Cursor has models and, for some of them, effort levels, both its
+		// own names. Neither is checked against a menu here: which models an
+		// account can run is Cursor's answer, and a model's levels differ from
+		// one model to the next, so the adapter falls back to the model's own
+		// default for a level it doesn't have and the chat shows what it runs.
+		for name, chosen := range map[string]*string{"model": model, "effort": effort} {
+			if chosen != nil && strings.TrimSpace(*chosen) == "" {
+				return fmt.Errorf("an empty %s isn't a choice: leave it out to use the %s Cursor agents start on", name, name)
+			}
+		}
+		return nil
+	}
 	if ai != "claude" {
 		return fmt.Errorf("the model and the effort are Claude Code settings, and %s agents have none: leave them out", ai)
 	}
@@ -292,13 +308,13 @@ type CreateOptions struct {
 	// prefix, like "fix-login-redirect". Empty makes one from Title, then
 	// Task, then the agent's name. Either way a taken branch gets -2, -3….
 	Branch     string
-	AI         string // claude, codex, opencode or none
+	AI         string // claude, codex, opencode, cursor or none
 	Interface  string // chat (the default) or cli
 	Autonomous bool
 	// Model and Effort are the Claude Code chat settings chosen for this one
 	// agent. nil is "nobody chose", which falls back to the installation's
-	// setting and then to AgentBox's own default, per field. Only for AI
-	// "claude"; see ChatChoices.
+	// setting and then to AgentBox's own default, per field. For AI "claude",
+	// and for "cursor" in Cursor's own names; see ChatChoices.
 	Model  *string
 	Effort *string
 	// ContextWindow is where this agent's chat compacts, like "200k" or "1m",
@@ -343,7 +359,7 @@ type CreateOptions struct {
 // Create builds an agent from the project's saved base, or from the base image.
 func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions) (state.Agent, error) {
 	if _, ok := Tools[opts.AI]; !ok {
-		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode or none", opts.AI)
+		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode, cursor or none", opts.AI)
 	}
 	if opts.FinishNotice != "" && opts.FinishNotice != state.FinishNoticesChat && opts.FinishNotice != state.FinishNoticesOff {
 		return state.Agent{}, fmt.Errorf("unknown finish notice %q: use chat or off, or leave it out to follow the project", opts.FinishNotice)
@@ -632,6 +648,21 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		}
 	}
 
+	// Cursor's model and effort: the ones chosen for this agent, else the
+	// ones Settings → Models names for new Cursor agents, else none, which is
+	// Cursor's own Auto.
+	if a.AI == "cursor" {
+		options, err := m.cursorChatDefaults(ctx, pl.model, pl.effort)
+		if err != nil {
+			return fail("chat defaults", err)
+		}
+		if len(options) > 0 {
+			if err := m.Store.SaveChat(ctx, a.Project, a.Name, state.Chat{Options: options}); err != nil {
+				return fail("chat defaults", err)
+			}
+		}
+	}
+
 	m.logf("Creating worktree %s on branch %s (from %s)", a.Worktree, a.Branch, a.BaseRef)
 	if err := pl.repo.AddWorktree(a.Worktree, a.Branch, a.BaseCommit, "agentbox: "+a.Ref()); err != nil {
 		return fail("worktree", err)
@@ -803,6 +834,10 @@ func (m *Manager) CheckLogin(ai string, p state.Project, account string) (string
 		if !m.Creds.HasOpenCodeLogin() {
 			return "", errors.New("agents have no OpenCode login: run agentbox auth opencode (or use --ai claude)")
 		}
+	case "cursor":
+		if !m.Creds.HasCursorLogin() {
+			return "", errors.New("agents aren't signed in to Cursor: run agentbox auth cursor, or sign in under Settings → Accounts (or use --ai claude)")
+		}
 	}
 	return "", nil
 }
@@ -842,6 +877,39 @@ func (m *Manager) OpenCodeReady(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return m.Creds.HasOpenCodeLogin(), nil
+}
+
+// CursorReady reports whether an agent could run Cursor right now. Every base
+// image has the SDK (or gets it from image.UpdateTools, and a chat installs it
+// in a machine that still lacks it), so only the sign-in decides.
+func (m *Manager) CursorReady() bool { return m.Creds.HasCursorLogin() }
+
+// cursorChatDefaults is the chat options a new Cursor agent starts with.
+func (m *Manager) cursorChatDefaults(ctx context.Context, model, effort *string) (map[string]string, error) {
+	options := map[string]string{}
+	for id, chosen := range map[string]*string{"model": model, "effort": effort} {
+		if chosen != nil {
+			options[id] = strings.TrimSpace(*chosen)
+			continue
+		}
+		key := state.SettingDefaultCursorModel
+		if id == "effort" {
+			key = state.SettingDefaultCursorEffort
+		}
+		value, err := m.Store.Setting(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if value = strings.TrimSpace(value); value != "" {
+			options[id] = value
+		}
+	}
+	// An effort belongs to a model: Settings' effort is the one for Settings'
+	// model, so it isn't carried over to a model chosen for this one agent.
+	if model != nil && effort == nil {
+		delete(options, "effort")
+	}
+	return options, nil
 }
 
 // ClaudeAccountFor resolves which stored Claude Code account an agent uses: the
@@ -1027,6 +1095,16 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		}
 		files = append(files, file{home + "/.codex/auth.json", string(auth), 0o600})
 	}
+	// Cursor's SDK reads the sign-in from ~/.cursor/sdk/auth.json, its own
+	// FileCredentialStore's file, whether it came from an API key or a
+	// browser sign-in (credentials.CursorAuthPath).
+	if m.Creds.HasCursorLogin() {
+		auth, err := os.ReadFile(m.Creds.CursorAuthPath())
+		if err != nil {
+			return err
+		}
+		files = append(files, file{home + "/" + cursorAuthFile, string(auth), 0o600})
+	}
 	// OpenCode keeps every provider's key in one auth.json, and reads it from
 	// $XDG_DATA_HOME/opencode — the agent's own home, never the host's (D6).
 	if m.Creds.HasOpenCodeLogin() {
@@ -1091,6 +1169,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 		file{home + "/" + exploreAgentFile, exploreDefinition, 0o644},
 		file{home + "/.codex/config.toml", codexConfig, 0o600},
 		file{home + "/.config/opencode/opencode.json", string(opencodeConfig), 0o600},
+		file{home + "/" + cursorMCPFile, string(cursorMCPConfig(servers)), 0o600},
 	)
 
 	text, err := m.brief(ctx, a, ip, envFiles, task)

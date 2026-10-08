@@ -114,6 +114,10 @@ export interface Settings {
   claudeEffortChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
+  cursorModelChoices: ChatOptionChoice[];
+  cursorReady: boolean;
+  defaultCursorModel: string;
+  defaultCursorEffort: string;
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   claudeCompactWindow: number;
@@ -151,6 +155,8 @@ export interface UpdateSettingsRequest {
   defaultLeadModel?: string;
   defaultLeadContextWindow?: string;
   defaultClaudeEffort?: string;
+  defaultCursorModel?: string;
+  defaultCursorEffort?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   claudeCompactWindow?: number;
@@ -535,6 +541,8 @@ export interface AuthStatus {
   claude: boolean;
   codex: boolean;
   opencode: boolean;
+  cursor: boolean;
+  cursorEmail?: string;
   claudeAccounts: ClaudeAccount[];
   github: boolean;
   githubAccounts: GitHubAccount[];
@@ -865,6 +873,21 @@ export interface RenamedClaudeAccount {
 export interface GitHubTokenRequest {
   token: string;
   account?: string;
+}
+
+export interface CursorKeyRequest {
+  apiKey: string;
+}
+
+export interface CursorKeyResponse {
+  email?: string;
+}
+
+export interface CursorLogin {
+  state: string;
+  url?: string;
+  email?: string;
+  error?: string;
 }
 
 export interface RenameGitHubAccountRequest {
@@ -1406,6 +1429,7 @@ export interface ChatOptionChoice {
   description?: string;
   group?: string;
   kind?: string;
+  efforts?: string[];
 }
 
 export interface ChatCommand {

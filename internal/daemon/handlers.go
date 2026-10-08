@@ -1201,7 +1201,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			s.recordError(errCreateFailed, req.AI)
 			return nil, err
 		}
-		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode))
+		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
 		s.countCreatedModel(ctx, a)
 		s.notePeakAgents(ctx)
 		s.setupStep(ctx, setupFirstAgent)
@@ -1787,6 +1787,9 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		ClaudeAccounts: claude,
 		GitHub:         len(gh) > 0,
 		GitHubAccounts: gh,
+	}
+	if login, ok := creds.CursorLogin(); ok {
+		status.Cursor, status.CursorEmail = true, login.Email
 	}
 	s.refreshClaudeTokens(creds)
 	if status.GitHub {

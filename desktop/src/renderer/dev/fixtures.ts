@@ -130,7 +130,7 @@ export function buildFixtures(): FixtureData {
     // An agent in each of the avatars' moods (avatarMood), across the three
     // AI tools: working, asking (the escalated questions below), idle,
     // stopped and broken.
-    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'codex', chat: 'running' }),
+    agent({ ref: `${PROJECT}/agent-96`, title: 'Fix the agent rail overflowing on wide text', ai: 'cursor', chat: 'running' }),
     agent({ ref: `${PROJECT}/agent-97`, title: 'Long path agent', ai: 'opencode', chat: 'ready' }),
     agent({ ref: `${PROJECT}/agent-98`, title: 'Question agent', ai: 'codex', chat: 'waiting' }),
     agent({ ref: `${PROJECT}/agent-99`, title: 'PR agent', chat: 'running' }),
@@ -866,6 +866,7 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
     claude: true,
     codex: false,
     opencode: false,
+    cursor: false,
     claudeAccounts: [],
     github: true,
     githubAccounts: [
@@ -1184,6 +1185,10 @@ let defaultsSettings = {
   claudeEffortChoices: [],
   openCodeModelChoices: [],
   openCodeReady: false,
+  cursorModelChoices: [],
+  cursorReady: false,
+  defaultCursorModel: '',
+  defaultCursorEffort: '',
   resumeAfterLimit: true,
   continueAfterRestart: true,
   claudeCompactWindow: 200_000,
@@ -1335,6 +1340,7 @@ export function seedSettings(queryClient: QueryClient): void {
       check('storage', 'Storage', 'warn', 'dir: every new agent is a full copy of the base image (about 6 GB)', false),
       check('claude', 'Claude Code', 'ok', 'signed in as default', false),
       check('codex', 'Codex', 'optional', 'not signed in', false, 'agentbox auth codex'),
+      check('cursor', 'Cursor sign-in', 'optional', 'not signed in', false, 'agentbox auth cursor'),
       check('opencode', 'OpenCode', 'optional', 'not in the base image', false, 'agentbox image build --opencode'),
       check('android', 'Android', 'optional', 'no Android SDK found', false),
       check('preview', 'Preview proxy', 'ok', 'http://<port>.<agent>.agentbox.localhost:7777', false),

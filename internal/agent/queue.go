@@ -15,7 +15,7 @@ import (
 // The branch named here isn't made until then.
 func (m *Manager) Enqueue(ctx context.Context, project string, opts CreateOptions, request []byte) (state.Agent, error) {
 	if _, ok := Tools[opts.AI]; !ok {
-		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode or none", opts.AI)
+		return state.Agent{}, fmt.Errorf("unknown AI tool %q: use claude, codex, opencode, cursor or none", opts.AI)
 	}
 	if opts.FinishNotice != "" && opts.FinishNotice != state.FinishNoticesChat && opts.FinishNotice != state.FinishNoticesOff {
 		return state.Agent{}, fmt.Errorf("unknown finish notice %q: use chat or off, or leave it out to follow the project", opts.FinishNotice)

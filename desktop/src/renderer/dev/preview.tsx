@@ -520,7 +520,7 @@ function SeededFreeRun({ run }: { run: FreeRun }) {
 function AvatarRow({ mood, big = true }: { mood: Mood; big?: boolean }) {
   return (
     <div style={{ display: 'flex', alignItems: 'end', gap: 28 }}>
-      {['claude', 'codex', 'opencode', 'none'].map((ai) => (
+      {['claude', 'codex', 'opencode', 'cursor', 'none'].map((ai) => (
         <figure key={ai} style={{ display: 'grid', justifyItems: 'center', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <AgentAvatar ai={ai} mood={mood} state={moodState[mood]} seed={`${ai}-${mood}`} />

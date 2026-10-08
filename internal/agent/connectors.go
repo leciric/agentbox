@@ -135,8 +135,8 @@ func (m *Manager) SyncConnectors(ctx context.Context, project, agent string) err
 	return nil
 }
 
-// syncConnectors writes one agent's MCP servers into all three AI tools'
-// configuration: Codex's and OpenCode's whole, as PrepareChatModel does, and
+// syncConnectors writes one agent's MCP servers into all four AI tools'
+// configuration: Codex's, OpenCode's and Cursor's whole, as PrepareChatModel does, and
 // Claude Code's mcpServers merged into the ~/.claude.json it keeps its own
 // state in.
 func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) error {
@@ -148,6 +148,9 @@ func (m *Manager) syncConnectors(ctx context.Context, a state.Agent) error {
 		return err
 	}
 	if err := m.prepareAgentOpenCodeSettings(ctx, a); err != nil {
+		return err
+	}
+	if err := m.prepareAgentCursorSettings(ctx, a); err != nil {
 		return err
 	}
 	home := "/home/" + m.User.Name

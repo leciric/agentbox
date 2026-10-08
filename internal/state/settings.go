@@ -73,6 +73,18 @@ const (
 	// either from an OpenCode chat's ACP session or from `opencode models`
 	// (internal/opencode), and its values are OpenCode's "provider/model" ids.
 	SettingOpenCodeModelChoices = "opencode_model_choices"
+	// SettingCursorModelChoices is Cursor's model menu, as JSON, remembered
+	// for the same reason: which models a Cursor account can run is Cursor's
+	// answer. It arrives from a Cursor chat's ACP session or from the
+	// adapter's `models` command run on the host (internal/cursor), and each
+	// choice carries the effort levels that model takes (in its Description,
+	// see daemon.cursorChoices), since Cursor's levels differ by model.
+	SettingCursorModelChoices = "cursor_model_choices"
+	// SettingDefaultCursorModel and SettingDefaultCursorEffort are the model
+	// and effort new Cursor agents start on, in Cursor's own names. Empty is
+	// Cursor's "Auto" and the model's own default level.
+	SettingDefaultCursorModel  = "default_cursor_model"
+	SettingDefaultCursorEffort = "default_cursor_effort"
 	// SettingImageAndroid, SettingImageCodex, SettingImageOpenCode and
 	// SettingImageDevCaches are the
 	// optional components the base image is built with, stored as flags. They
@@ -521,7 +533,8 @@ func pinnedClaudeChoice(value string) (choice api.ChatOptionChoice, ok bool) {
 // named outside the menu (D46).
 func IsPinnedClaudeChoice(choice api.ChatOptionChoice) bool {
 	pinned, ok := pinnedClaudeChoice(choice.Value)
-	return ok && pinned == choice
+	return ok && len(choice.Efforts) == 0 && pinned.Value == choice.Value && pinned.Name == choice.Name &&
+		pinned.Description == choice.Description && pinned.Group == choice.Group && pinned.Kind == choice.Kind
 }
 
 // MergePinnedClaudeModels adds AgentBox's pinned models to a menu a Claude

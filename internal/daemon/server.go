@@ -23,6 +23,7 @@ import (
 	"agentbox/internal/chat"
 	"agentbox/internal/connectors"
 	"agentbox/internal/credentials"
+	"agentbox/internal/cursor"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -163,6 +164,17 @@ type Server struct {
 		running bool
 		last    time.Time
 	}
+	// cursorModels is the same for Cursor's menu, and cursorLogin the browser
+	// sign-in under way or last finished, with what stops it.
+	cursorModels struct {
+		running bool
+		last    time.Time
+	}
+	cursorLogin       api.CursorLogin
+	cursorLoginCancel context.CancelFunc
+	// cursorHelperFor, when set, stands in for Manager.CursorHelper in tests,
+	// which must not install anything.
+	cursorHelperFor func(context.Context) (cursor.Helper, error)
 
 	// loginCallbackUnreachable is whether the browser can't reach this
 	// machine's localhost, where a Claude Code login's callback listens: in
@@ -730,6 +742,10 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/auth/claude/{account}", s.removeClaudeAccount)
 	h("POST /v1/auth/claude/{account}/default", s.setDefaultClaudeAccount)
 	h("POST /v1/auth/claude/{account}/rename", s.renameClaudeAccount)
+	h("POST /v1/auth/cursor", s.saveCursorKey)
+	h("DELETE /v1/auth/cursor", s.removeCursorLogin)
+	h("POST /v1/auth/cursor/login", s.startCursorLogin)
+	h("GET /v1/auth/cursor/login", s.cursorLoginStatus)
 	h("POST /v1/auth/github", s.saveGitHubToken)
 	h("DELETE /v1/auth/github/{account}", s.removeGitHubAccount)
 	h("POST /v1/auth/github/{account}/default", s.setDefaultGitHubAccount)

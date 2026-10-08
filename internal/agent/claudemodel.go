@@ -245,6 +245,8 @@ func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model str
 		return m.prepareAgentCodexSettings(ctx, a, compactWindow)
 	case "opencode":
 		return m.prepareAgentOpenCodeSettings(ctx, a)
+	case "cursor":
+		return m.prepareAgentCursorSettings(ctx, a)
 	default:
 		return nil
 	}
