@@ -609,7 +609,9 @@ function Attached({ tone, children }: { tone: keyof typeof tones; children: Reac
   return <div className={cn('relative mx-auto -mb-4 w-[calc(100%-2.5rem)] animate-slide-up rounded-t-2xl border border-b-0 px-3.5 pb-6 pt-2.5 backdrop-blur-xl', tones[tone])}>{children}</div>;
 }
 
-function optionLabel(option: T.ChatPermissionOption): string {
+function optionLabel(option: T.ChatPermissionOption, approval: boolean): string {
+  // AgentBox's own requests for approval (a lead changing a skill) answer in their own words.
+  if (approval) return translate(option.kind.startsWith('allow') ? 'chat.permission.approve' : 'chat.permission.refuse');
   switch (option.kind) {
     case 'allow_once':
       return translate('chat.permission.allow');
@@ -628,7 +630,9 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
   const permission = request.permission!;
   const tool = toolOf(thread, permission.callId);
   const answer = useMutation({ mutationFn: (option: string) => api.answerChat(agent.ref, request.id, option), onError: (err) => toast.error(errorMessage(err)) });
-  const detail = tool?.command || (tool?.paths?.[0] && relativePath(tool.paths[0], agent.worktree));
+  const approval = !!permission.approval;
+  const detail = approval ? permission.detail : tool?.command || (tool?.paths?.[0] && relativePath(tool.paths[0], agent.worktree));
+  const diffs = permission.diffs?.length ? permission.diffs : tool?.diffs;
   const rejects = permission.options.filter((o) => o.kind.startsWith('reject'));
   const allows = permission.options.filter((o) => o.kind.startsWith('allow')).sort((a, b) => (a.kind === 'allow_once' ? 1 : 0) - (b.kind === 'allow_once' ? 1 : 0));
   return (
@@ -637,18 +641,19 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
         <div className="flex items-center gap-2 text-[12px]">
           <ShieldAlert className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
-            {t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
+            {approval ? t('chat.permission.approval') : t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
           </span>
           {count > 1 && <span className="ml-auto text-[10.5px] tabular-nums text-amber-200/60">{t('chat.permission.oneOf', { count })}</span>}
         </div>
         <p className="mt-1 break-words text-[13px] text-primary">{permission.title}</p>
-        {detail && !permission.title.includes(detail) && (
+        {detail && approval && <p className="mt-0.5 break-words text-[12px] text-muted">{detail}</p>}
+        {detail && !approval && !permission.title.includes(detail) && (
           <code className="mt-1 block max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-[11.5px] text-muted">{detail}</code>
         )}
-        {tool?.diffs?.length ? (
+        {diffs?.length ? (
           <div className="mt-2 overflow-hidden rounded-lg border border-line bg-well">
-            {tool.diffs.map((diff, i) => (
-              <DiffView key={i} diff={diff} className="max-h-40" />
+            {diffs.map((diff, i) => (
+              <DiffView key={i} diff={diff} className={approval ? 'max-h-64' : 'max-h-40'} />
             ))}
           </div>
         ) : null}
@@ -660,7 +665,7 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
               onClick={() => answer.mutate(option.id)}
               className="h-7 rounded-lg px-2.5 text-[12.5px] text-rose-200/90 transition hover:bg-rose-500/10 disabled:opacity-50"
             >
-              {optionLabel(option)}
+              {optionLabel(option, approval)}
             </button>
           ))}
           {allows.map((option) => (
@@ -674,7 +679,7 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
                 option.kind === 'allow_once' ? 'bg-amber-300 px-3 font-medium text-on-bright hover:bg-amber-200' : 'border border-amber-200/20 text-amber-50 hover:bg-amber-200/10',
               )}
             >
-              {optionLabel(option)}
+              {optionLabel(option, approval)}
             </button>
           ))}
         </div>
