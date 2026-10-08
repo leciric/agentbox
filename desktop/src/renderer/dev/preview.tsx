@@ -176,6 +176,10 @@
 //                           open at a tab or a section of its Settings tab
 //                           (?page=tokens, ?page=general…); with ?open=agent-99,
 //                           that agent's page (?page=secrets, ?page=machine…)
+//   ?drag=1                 a sidebar to rearrange by dragging: two sections and
+//                           projects in none, saved late and refetched as the
+//                           daemon does, while agents' statuses keep changing;
+//                           ?drag=slow takes 1.5s to save each move
 // See scenarios.json for the set scripts/preview.mjs captures.
 import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
