@@ -23,10 +23,12 @@ import {
   Sparkles,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import { api, isProjectChat } from '../../lib/api';
+import { api, isHomeChat, isProjectChat } from '../../lib/api';
+import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
+import { SkillTile } from '../SkillsPanel';
 import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { mentionAt, matchFiles, type MentionItem } from '../../lib/mentions';
@@ -70,6 +72,8 @@ export function Composer({
   const [cursor, setCursor] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState<string | null>(null);
   const [mentionHighlighted, setMentionHighlighted] = useState(0);
+  const [dollarDismissed, setDollarDismissed] = useState<string | null>(null);
+  const [dollarHighlighted, setDollarHighlighted] = useState(0);
   const [images, setImages] = useState<PendingImage[]>([]);
   const [dragging, setDragging] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -176,13 +180,34 @@ export function Composer({
     }
   }, [text]);
 
-  // Typing "/" lists the tool's commands.
+  // The skills this chat has (Settings → Skills), which "/" and "$" offer as
+  // T3 Code's composer does: a picked skill goes in as $name, and the daemon
+  // turns it into what the chat's AI tool runs (internal/chat/skills.go).
+  const home = isHomeChat(agent.ref);
+  const skillsQuery = useQuery({ queryKey: ['skills', home ? '' : agent.project], queryFn: () => api.skills(home ? undefined : agent.project), staleTime: 15_000 });
+  const skills = useMemo(() => composerSkills(skillsQuery.data, !home), [skillsQuery.data, home]);
+
+  // Typing "/" lists the chat's skills, then the tool's commands. Claude
+  // Code lists skills among its commands too: those show once, as skills.
   const query = /^\/(\S*)$/.exec(text)?.[1];
-  const commands = useMemo(
-    () => (query === undefined || query === dismissed ? [] : (session?.commands ?? []).filter((c) => c.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8)),
-    [query, dismissed, session?.commands],
-  );
+  const commands = useMemo((): SlashItem[] => {
+    if (query === undefined || query === dismissed) return [];
+    const found = searchSkills(skills, query, 6);
+    const names = new Set(skills.map((s) => s.name));
+    const tools = (session?.commands ?? []).filter((c) => !names.has(c.name) && c.name.toLowerCase().includes(query.toLowerCase())).slice(0, Math.max(3, 9 - found.length));
+    return [...found.map((skill) => ({ kind: 'skill' as const, skill })), ...tools.map((command) => ({ kind: 'command' as const, command }))];
+  }, [query, dismissed, session?.commands, skills]);
   useEffect(() => setHighlighted(0), [query]);
+
+  // Typing "$" anywhere lists the skills alone, for one in mid-sentence.
+  const dollar = query === undefined ? skillMentionAt(text, cursor) : undefined;
+  const dollarKey = dollar && `${dollar.start}:${dollar.query}`;
+  const dollarItems = useMemo(
+    () => (dollar === undefined || dollarKey === dollarDismissed ? [] : searchSkills(skills, dollar.query, 8)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dollarKey, dollarDismissed, skills],
+  );
+  useEffect(() => setDollarHighlighted(0), [dollarKey]);
 
   // Typing "@" anywhere lists the worktree's files. mentionKey names the
   // token the cursor sits in, and stays the same while the popup it opened is
@@ -223,8 +248,15 @@ export function Composer({
     setText(next);
     area.current?.focus();
   };
-  const pick = (command: T.ChatCommand) => {
-    setText(`/${command.name} `);
+  const pick = (item: SlashItem) => {
+    setText(item.kind === 'skill' ? `$${item.skill.name} ` : `/${item.command.name} `);
+    area.current?.focus();
+  };
+  const pickSkill = (skill: T.Skill) => {
+    if (!dollar) return;
+    const insert = `$${skill.name} `;
+    pendingCursor.current = dollar.start + insert.length;
+    setText(text.slice(0, dollar.start) + insert + text.slice(cursor).replace(/^\s/, ''));
     area.current?.focus();
   };
   const pickMention = (item: MentionItem) => {
@@ -251,6 +283,22 @@ export function Composer({
       }
       if (event.key === 'Escape') {
         setDismissed(query ?? null);
+        return;
+      }
+    }
+    if (dollarItems.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        setDollarHighlighted((i) => (i + (event.key === 'ArrowDown' ? 1 : dollarItems.length - 1)) % dollarItems.length);
+        return;
+      }
+      if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+        event.preventDefault();
+        pickSkill(dollarItems[dollarHighlighted]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        setDollarDismissed(dollarKey ?? null);
         return;
       }
     }
@@ -388,22 +436,40 @@ export function Composer({
         )}
         {commands.length > 0 && (
           <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.commands')}>
-            {commands.map((command, i) => (
-              <button
-                key={command.name}
-                role="option"
-                aria-selected={i === highlighted}
-                className={cn('flex w-full items-baseline gap-2.5 rounded-xl px-3 py-2 text-left', i === highlighted && 'bg-surface-raised')}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  pick(command);
-                }}
-                onMouseEnter={() => setHighlighted(i)}
-              >
-                <span className="shrink-0 font-mono text-[12.5px] text-primary">/{command.name}</span>
-                {command.hint && <span className="shrink-0 font-mono text-[11.5px] text-faint">{command.hint}</span>}
-                <span className="min-w-0 truncate text-[12px] text-subtle">{command.description}</span>
-              </button>
+            {commands.map((item, i) => (
+              <Fragment key={item.kind === 'skill' ? `skill:${item.skill.name}` : item.command.name}>
+                {(i === 0 || commands[i - 1].kind !== item.kind) && commands.some((c) => c.kind === 'skill') && (
+                  <p className={cn('px-3 pb-1 text-[10.5px] font-medium uppercase tracking-wide text-faint', i === 0 ? 'pt-1.5' : 'pt-2.5')}>
+                    {item.kind === 'skill' ? t('chat.composer.skills') : t('chat.composer.commandsGroup')}
+                  </p>
+                )}
+                {item.kind === 'skill' ? (
+                  <SkillOption skill={item.skill} active={i === highlighted} onPick={() => pick(item)} onHover={() => setHighlighted(i)} />
+                ) : (
+                  <button
+                    role="option"
+                    aria-selected={i === highlighted}
+                    className={cn('flex w-full items-baseline gap-2.5 rounded-xl px-3 py-2 text-left', i === highlighted && 'bg-surface-raised')}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      pick(item);
+                    }}
+                    onMouseEnter={() => setHighlighted(i)}
+                  >
+                    <span className="shrink-0 font-mono text-[12.5px] text-primary">/{item.command.name}</span>
+                    {item.command.hint && <span className="shrink-0 font-mono text-[11.5px] text-faint">{item.command.hint}</span>}
+                    <span className="min-w-0 truncate text-[12px] text-subtle">{item.command.description}</span>
+                  </button>
+                )}
+              </Fragment>
+            ))}
+          </div>
+        )}
+        {dollarItems.length > 0 && (
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.skills')}>
+            <p className="px-3 pb-1 pt-1.5 text-[10.5px] font-medium uppercase tracking-wide text-faint">{t('chat.composer.skills')}</p>
+            {dollarItems.map((skill, i) => (
+              <SkillOption key={skill.name} skill={skill} active={i === dollarHighlighted} onPick={() => pickSkill(skill)} onHover={() => setDollarHighlighted(i)} />
             ))}
           </div>
         )}
@@ -1044,5 +1110,29 @@ function ContextMeter({ session }: { session?: T.ChatSession }) {
         </svg>
       </span>
     </Tip>
+  );
+}
+
+type SlashItem = { kind: 'skill'; skill: T.Skill } | { kind: 'command'; command: T.ChatCommand };
+
+// SkillOption is one skill in the composer's menus: its tile, $name and what
+// it's for.
+function SkillOption({ skill, active, onPick, onHover }: { skill: T.Skill; active: boolean; onPick: () => void; onHover: () => void }) {
+  return (
+    <button
+      role="option"
+      aria-selected={active}
+      data-skill-option={skill.name}
+      className={cn('flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left', active && 'bg-surface-raised')}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onPick();
+      }}
+      onMouseEnter={onHover}
+    >
+      <SkillTile name={skill.name} size="sm" />
+      <span className="shrink-0 font-mono text-[12.5px] text-primary">${skill.name}</span>
+      <span className="min-w-0 truncate text-[12px] text-subtle">{skill.description}</span>
+    </button>
   );
 }

@@ -78,7 +78,7 @@ func TestSkillsReachRunningAgents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sk.Enabled || sk.Description != "Review a pull request." || sk.Files != 1 {
+	if !sk.Enabled || sk.Description != "Review a pull request." || sk.FileCount != 1 {
 		t.Errorf("SaveSkill() = %+v", sk)
 	}
 	waitSynced(t, synced)

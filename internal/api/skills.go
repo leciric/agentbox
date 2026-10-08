@@ -23,7 +23,7 @@ type Skill struct {
 	// UserInvocable is false when its SKILL.md says `user-invocable: false`:
 	// the composer doesn't offer it, and the model may still use it.
 	UserInvocable bool      `json:"userInvocable"`
-	Files         int       `json:"files"`
+	FileCount     int       `json:"fileCount"`
 	Size          int64     `json:"size"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`

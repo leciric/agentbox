@@ -69,7 +69,7 @@ func (s *Server) skillsInfo(ctx context.Context, project string) ([]api.Skill, e
 func (s *Server) skillInfo(ctx context.Context, sk state.Skill, size [2]int64) (api.Skill, error) {
 	info := api.Skill{
 		Name: sk.Name, Description: sk.Description, Source: sk.Source, Enabled: sk.Enabled,
-		Overrides: sk.Overrides, UserInvocable: true, Files: int(size[0]), Size: size[1],
+		Overrides: sk.Overrides, UserInvocable: true, FileCount: int(size[0]), Size: size[1],
 		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt,
 	}
 	if info.Overrides == nil {

@@ -17,6 +17,7 @@ import {
   LoaderCircle,
   LogIn,
   Mic,
+  Wand2,
   Monitor,
   Moon,
   MoonStar,
@@ -71,6 +72,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
+import { SkillsPanel } from "./SkillsPanel";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { useVoiceSettings } from "../lib/voice/settings";
@@ -965,6 +967,27 @@ function InstalledSettings({
         ]
       : []),
     {
+      id: "skills",
+      title: t("settings.section.skills.title"),
+      description: t("settings.section.skills.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "skills",
+          title: t("settings.section.skills.title"),
+          cards: true,
+          entries: [
+            {
+              id: "skills",
+              label: t("settings.section.skills.title"),
+              keywords: t("settings.entry.skills.keywords"),
+              render: () => <SkillsPanel embedded />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "voice",
       title: t("settings.section.voice.title"),
       description: t("settings.section.voice.description"),
@@ -1354,6 +1377,7 @@ const sectionIcons: SectionIcons = {
   general: SlidersHorizontal,
   models: Sparkles,
   voice: Mic,
+  skills: Wand2,
   phone: Smartphone,
   agents: Bot,
   resources: Cpu,

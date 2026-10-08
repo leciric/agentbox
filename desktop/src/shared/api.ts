@@ -898,7 +898,7 @@ export interface Skill {
   enabled: boolean;
   overrides: Record<string, boolean>;
   userInvocable: boolean;
-  files: number;
+  fileCount: number;
   size: number;
   createdAt: string;
   updatedAt: string;
@@ -919,7 +919,7 @@ export interface SkillDetail {
   enabled: boolean;
   overrides: Record<string, boolean>;
   userInvocable: boolean;
-  files: number;
+  fileCount: number;
   size: number;
   createdAt: string;
   updatedAt: string;
