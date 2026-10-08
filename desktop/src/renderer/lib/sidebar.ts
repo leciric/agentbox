@@ -50,6 +50,36 @@ export function buildLists(projects: T.Project[], sections: T.Section[]): Sideba
   return [...lists, loose];
 }
 
+// arrange is buildLists with a layout over it: the order a move asked for,
+// kept on screen until the daemon has answered for it, whatever the lists
+// say meanwhile (a refetch can answer with the order before the move). The
+// projects and sections themselves are still the lists', so a status, a
+// rename or a section folded shows at once. What the layout doesn't know, a
+// project or section added since, goes where buildLists would put it.
+export function arrange(projects: T.Project[], sections: T.Section[], layout: T.ProjectLayout | null): SidebarList[] {
+  if (!layout) return buildLists(projects, sections);
+  const byName = new Map(projects.map((p) => [p.name, p]));
+  const byId = new Map(sections.map((s) => [s.id, s]));
+  const placed = new Set<string>();
+  const take = (names: string[]) =>
+    names.flatMap((name) => {
+      const project = byName.get(name);
+      if (!project || placed.has(name)) return [];
+      placed.add(name);
+      return [project];
+    });
+  const lists: SidebarList[] = layout.sections.flatMap((s) => {
+    const section = byId.get(s.id);
+    return section ? [{ section, projects: take(s.projects) }] : [];
+  });
+  const known = new Set(layout.sections.map((s) => s.id));
+  for (const section of sections) if (!known.has(section.id)) lists.push({ section, projects: [] });
+  const loose: SidebarList = { section: null, projects: take(layout.loose) };
+  const bySection = new Map(lists.map((l) => [l.section!.id, l]));
+  for (const project of projects) if (!placed.has(project.name)) (bySection.get(project.section) ?? loose).projects.push(project);
+  return [...lists, loose];
+}
+
 export function toLayout(lists: SidebarList[]): T.ProjectLayout {
   return {
     sections: lists.filter((l) => l.section).map((l) => ({ id: l.section!.id, projects: l.projects.map((p) => p.name) })),
