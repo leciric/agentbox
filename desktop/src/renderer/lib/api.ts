@@ -186,6 +186,20 @@ export const api = {
   chooseChatCache: (name: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${project(name)}/chat/cache`, choice),
   files: (ref: string) => call<T.WorktreeFiles>('GET', filesBase(ref)),
 
+  // Skills (internal/skills): stored by the daemon, installed into every agent
+  // and lead whose project has them on. A project's list says, for each,
+  // whether its agents get it (active).
+  skills: (projectName?: string) => call<T.Skill[]>('GET', projectName ? `${project(projectName)}/skills` : '/v1/skills'),
+  skill: (name: string) => call<T.SkillDetail>('GET', `/v1/skills/${encodeURIComponent(name)}`),
+  saveSkill: (name: string, body: T.SaveSkillRequest) => call<T.Skill>('PUT', `/v1/skills/${encodeURIComponent(name)}`, body),
+  setSkillEnabled: (name: string, enabled: boolean) =>
+    call<T.Skill>('PATCH', `/v1/skills/${encodeURIComponent(name)}`, { enabled } satisfies T.UpdateSkillRequest),
+  setSkillOverride: (projectName: string, name: string, override: '' | 'on' | 'off') =>
+    call<T.Skill>('PUT', `${project(projectName)}/skills/${encodeURIComponent(name)}`, { override } satisfies T.SkillOverrideRequest),
+  removeSkill: (name: string) => call<void>('DELETE', `/v1/skills/${encodeURIComponent(name)}`),
+  scanSkills: (source: string) => call<T.SkillCandidate[]>('POST', '/v1/skills/scan', { source } satisfies T.ScanSkillsRequest),
+  importSkills: (body: T.ImportSkillsRequest) => call<T.Skill[]>('POST', '/v1/skills/import', body),
+
   // Secrets: names in, names out. A value only ever goes in — no call here
   // reads one back, because the daemon has no route that returns one.
   secrets: (target: string) => call<T.Secret[]>('GET', secretsBase(target)),

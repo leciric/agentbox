@@ -629,7 +629,7 @@ func (c *conversation) drainOutbox() {
 		var res acp.SteerResponse
 		err := ad.conn.Call(context.Background(), acp.MethodSessionSteer, acp.SteerRequest{
 			SessionID: sessionID,
-			Prompt:    c.promptBlocks(dir, midTurn(texts), images),
+			Prompt:    c.promptBlocks(dir, []string{midTurn(texts)}, images),
 			// Should the session have gone idle underneath us, the message comes
 			// back rather than becoming a turn of the adapter's own: a turn
 			// AgentBox never asked for is one it doesn't follow or end.
@@ -1871,7 +1871,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	var res acp.PromptResponse
 	err := ad.conn.Call(context.Background(), acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: sessionID,
-		Prompt:    c.promptBlocks(dir, text, images),
+		Prompt:    c.promptBlocks(dir, skillPrompt(c.agent.AI, text, c.m.skillNames(c.agent)), images),
 	}, &res)
 	c.mu.Lock()
 	defer c.mu.Unlock()

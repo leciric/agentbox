@@ -1772,6 +1772,11 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 	if err := m.WriteSecrets(ctx, a); err != nil {
 		return inst, err
 	}
+	// And its skills, which a change made while it was down couldn't reach.
+	// A skill that fails to install isn't worth an agent that won't start.
+	if err := m.WriteSkills(ctx, a); err != nil {
+		m.logf("installing the skills of %s: %v", a.Ref(), err)
+	}
 	// The same for its env file: an account changed while it was stopped or
 	// paused couldn't be written in then, so it's written fresh now, before
 	// anything inside reads it.
