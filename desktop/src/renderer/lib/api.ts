@@ -336,6 +336,8 @@ export const api = {
 
   media: (ref: string) => call<T.MediaItem[]>('GET', `${agent(ref)}/media`),
   deleteMedia: (id: string) => call<void>('DELETE', `/v1/media/${encodeURIComponent(id)}`),
+  setMediaFavorite: (id: string, favorite: boolean) =>
+    call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),
   // Every project's media, of the given kinds, each marked unseen while its notification is.
   allMedia: (kinds: string[] = []) => call<T.MediaItem[]>('GET', `/v1/media${kinds.length ? `?kind=${kinds.join(',')}` : ''}`),
   notifications: () => call<T.Notification[]>('GET', '/v1/notifications'),

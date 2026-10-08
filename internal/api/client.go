@@ -536,6 +536,13 @@ func (c *Client) DeleteMedia(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/media/"+url.PathEscape(id), nil, nil)
 }
 
+// SetMediaFavorite marks an item a favorite, which keeps it from ever being
+// removed automatically, or puts it back under the media retention.
+func (c *Client) SetMediaFavorite(ctx context.Context, id string, favorite bool) (MediaItem, error) {
+	var out MediaItem
+	return out, c.do(ctx, http.MethodPatch, "/v1/media/"+url.PathEscape(id), UpdateMediaRequest{Favorite: &favorite}, &out)
+}
+
 // DeleteProjectMedia deletes many of a project's items in one call: the ones
 // named by ID, or everything the same agent and kind filters as the list match.
 func (c *Client) DeleteProjectMedia(ctx context.Context, project string, req DeleteMediaRequest) (DeleteMediaResult, error) {

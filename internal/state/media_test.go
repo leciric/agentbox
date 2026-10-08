@@ -2,6 +2,7 @@ package state_test
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -129,5 +130,72 @@ func TestOrphanAgentMediaKeepsAnAlreadyStartedClock(t *testing.T) {
 	}
 	if !item.OrphanedAt.Equal(t0) {
 		t.Errorf("OrphanedAt = %v, want the original %v (unaffected by the later reuse)", item.OrphanedAt, t0)
+	}
+}
+
+// A favorite never expires, however long its agent has been gone, and
+// unfavoriting it starts its clock again from then rather than letting it go
+// at once.
+func TestFavoriteMediaNeverExpiresUntilUnfavorited(t *testing.T) {
+	ctx := context.Background()
+	st := open(t, filepath.Join(t.TempDir(), "state.db"))
+	if err := st.AddProject(ctx, state.Project{Name: "pawly", Root: "/src/pawly", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 1, 30, 12, 0, 0, 0, time.UTC)
+	addMedia(t, st, "kept", "pawly", "agent-01", now)
+	addMedia(t, st, "plain", "pawly", "agent-01", now)
+	item, err := st.SetMediaFavorite(ctx, "kept", true, now)
+	if err != nil || !item.Favorite {
+		t.Fatalf("SetMediaFavorite(true) = %+v, %v; want a favorite", item, err)
+	}
+	if err := st.OrphanAgentMedia(ctx, "pawly", "agent-01", now); err != nil {
+		t.Fatal(err)
+	}
+
+	later := now.Add(365 * 24 * time.Hour)
+	expired, err := st.ExpiredMedia(ctx, later)
+	if err != nil || len(expired) != 1 || expired[0].ID != "plain" {
+		t.Fatalf("ExpiredMedia() a year on = %+v, %v; want only [plain]", expired, err)
+	}
+
+	item, err = st.SetMediaFavorite(ctx, "kept", false, later)
+	if err != nil || item.Favorite || !item.OrphanedAt.Equal(later) {
+		t.Fatalf("SetMediaFavorite(false) = %+v, %v; want not a favorite, orphaned at %v", item, err, later)
+	}
+	if expired, _ := st.ExpiredMedia(ctx, later.Add(time.Hour)); len(expired) != 1 {
+		t.Errorf("ExpiredMedia() an hour after unfavoriting = %+v; want still only [plain]", expired)
+	}
+	if expired, _ := st.ExpiredMedia(ctx, later.Add(25*time.Hour)); len(expired) != 2 {
+		t.Errorf("ExpiredMedia() a day after unfavoriting = %+v; want both", expired)
+	}
+
+	// Unfavoriting an item that wasn't one, or whose agent is still there,
+	// leaves its clock alone.
+	addMedia(t, st, "live", "pawly", "agent-02", now)
+	if item, err := st.SetMediaFavorite(ctx, "live", false, later); err != nil || !item.OrphanedAt.IsZero() {
+		t.Errorf("SetMediaFavorite(false) on a live agent's item = %+v, %v; want it still unorphaned", item, err)
+	}
+	if _, err := st.SetMediaFavorite(ctx, "never-existed", true, now); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("SetMediaFavorite() on a missing item = %v, want ErrNotFound", err)
+	}
+}
+
+// DeleteAgentMedia keeps an agent's favorites and says which they were.
+func TestDeleteAgentMediaKeepsFavorites(t *testing.T) {
+	ctx := context.Background()
+	st := open(t, filepath.Join(t.TempDir(), "state.db"))
+	now := time.Now()
+	addMedia(t, st, "kept", "pawly", "agent-01", now)
+	addMedia(t, st, "plain", "pawly", "agent-01", now)
+	if _, err := st.SetMediaFavorite(ctx, "kept", true, now); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := st.DeleteAgentMedia(ctx, "pawly", "agent-01")
+	if err != nil || len(kept) != 1 || kept[0].ID != "kept" {
+		t.Fatalf("DeleteAgentMedia() = %+v, %v; want [kept]", kept, err)
+	}
+	if _, err := st.MediaItem(ctx, "plain"); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("plain item after DeleteAgentMedia = %v, want ErrNotFound", err)
 	}
 }

@@ -1845,6 +1845,7 @@ type DestroyOptions struct {
 	// deleting is the one part of a destroy that can't be undone. Kept media
 	// still expires on its own, per the installation's media retention —
 	// which, set to immediately, deletes it here as if this were set.
+	// Favorites are kept either way, until deleted by hand.
 	DeleteMedia bool
 }
 
@@ -1861,7 +1862,7 @@ func BranchDisposable(repo gitrepo.Repo, a state.Agent) bool {
 // with every commit the agent made, stays unless DeleteBranch is set or
 // BranchDisposable says nothing would be lost. Its media stays too, findable
 // in the project's media view, unless DeleteMedia is set or the media
-// retention is immediately.
+// retention is immediately; its favorites stay whatever happens.
 func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOptions) error {
 	if a.Status == state.AgentQueued {
 		// Nothing was made for it yet: no machine, worktree or branch.
