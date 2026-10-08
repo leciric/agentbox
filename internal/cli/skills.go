@@ -109,7 +109,6 @@ func onOffWord(on bool) string {
 	return "off"
 }
 
-
 func newSkillsShowCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:   "show <name> [file]",
