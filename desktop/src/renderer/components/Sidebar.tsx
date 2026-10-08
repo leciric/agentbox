@@ -269,7 +269,7 @@ export function Sidebar({
     const what = draggingRef.current;
     const end = listsEnd.current?.getBoundingClientRect().bottom ?? Infinity;
     if (!what || e.clientY < end) return null;
-    if (what.kind === 'project') return { kind: 'list', section: null };
+    if (what.kind === 'project') return listEnd(lists.at(-1)!);
     const last = lists.filter((l) => l.section).at(-1)?.section;
     return last ? { kind: 'sectionOrder', id: last.id, edge: 'after' } : null;
   };
