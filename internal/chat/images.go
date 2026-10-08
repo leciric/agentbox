@@ -118,10 +118,11 @@ func (c *conversation) saveImages(uploads []api.ChatImageUpload) ([]api.ChatImag
 	return images, nil
 }
 
-// promptBlocks is a prompt's content: its text, then its pictures read back
+// promptBlocks is a prompt's content: its text blocks (one, or two for a
+// Claude Code skill: skillPrompt), then its pictures read back
 // from their files. A picture that has gone missing is said in the text
 // rather than failing the turn. The conversation needn't be locked.
-func (c *conversation) promptBlocks(dir, text string, images []api.ChatImage) []acp.ContentBlock {
+func (c *conversation) promptBlocks(dir string, texts []string, images []api.ChatImage) []acp.ContentBlock {
 	var blocks []acp.ContentBlock
 	var missing []string
 	for _, img := range images {
@@ -133,12 +134,20 @@ func (c *conversation) promptBlocks(dir, text string, images []api.ChatImage) []
 		blocks = append(blocks, acp.ContentBlock{Type: "image", MimeType: img.MimeType, Data: base64.StdEncoding.EncodeToString(data)})
 	}
 	if len(missing) > 0 {
-		text += fmt.Sprintf("\n\n[AgentBox: %d image(s) sent with this message couldn't be read back, and aren't attached: %v]", len(missing), missing)
+		note := fmt.Sprintf("[AgentBox: %d image(s) sent with this message couldn't be read back, and aren't attached: %v]", len(missing), missing)
+		if len(texts) == 0 || texts[len(texts)-1] == "" {
+			texts = append(texts[:max(len(texts)-1, 0)], note)
+		} else {
+			texts[len(texts)-1] += "\n\n" + note
+		}
 	}
-	if text == "" {
-		return blocks
+	var out []acp.ContentBlock
+	for _, text := range texts {
+		if text != "" {
+			out = append(out, acp.ContentBlock{Type: "text", Text: text})
+		}
 	}
-	return append([]acp.ContentBlock{{Type: "text", Text: text}}, blocks...)
+	return append(out, blocks...)
 }
 
 // setImageSupport records whether the running adapter takes images, for the

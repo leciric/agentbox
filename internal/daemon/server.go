@@ -46,6 +46,9 @@ type Config struct {
 	User   image.User
 	Binary string    // copied into agents for the in-agent API; empty skips the copy
 	Log    io.Writer // the daemon's own log; nil discards it
+	// SkillHomes are where the user's AI tools' own skills are looked for
+	// (skills.Discover); nil is the host's home, when shared, and this one.
+	SkillHomes []string
 	// UpdateURL is where the daily install ping asks; empty is
 	// update.DefaultURL.
 	UpdateURL string
@@ -149,10 +152,17 @@ type Server struct {
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
-	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
-	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
-	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
-	lan          *lanState                // phones chatting from the local network or a tunnel (lan.go)
+	// skillsMu runs one installation of skills at a time (skills.go).
+	skillsMu sync.Mutex
+	// skillsSynced, when set (tests), is told each time one has ended.
+	skillsSynced func()
+	// approve asks the user to approve what a project's lead asked for, and
+	// waits for the answer: approveInChat, or the test's (leadskills.go).
+	approve      func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
+	baseSyncErrs map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
+	image        imageWork         // what the daemon is doing to the base image (imagetools.go)
+	remote       *remote.Connector // the connection to a hub, when this machine is an environment
+	lan          *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -295,6 +305,7 @@ func New(cfg Config) (*Server, error) {
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
+	s.approve = s.approveInChat
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
@@ -646,6 +657,15 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)
 	h("GET /v1/projects/{project}/pulls", s.projectPullRequests)
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
+	h("GET /v1/skills", s.listSkills)
+	h("POST /v1/skills/scan", s.scanSkills)
+	h("POST /v1/skills/import", s.importSkills)
+	h("GET /v1/skills/{name}", s.getSkill)
+	h("PUT /v1/skills/{name}", s.saveSkill)
+	h("PATCH /v1/skills/{name}", s.updateSkill)
+	h("DELETE /v1/skills/{name}", s.removeSkill)
+	h("GET /v1/projects/{project}/skills", s.listProjectSkills)
+	h("PUT /v1/projects/{project}/skills/{name}", s.setProjectSkill)
 	h("GET /v1/projects/{project}/secrets", s.listProjectSecrets)
 	h("PUT /v1/projects/{project}/secrets/{name}", s.setProjectSecret)
 	h("DELETE /v1/projects/{project}/secrets/{name}", s.removeProjectSecret)

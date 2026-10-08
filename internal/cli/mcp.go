@@ -1005,6 +1005,128 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "list_skills",
+			Description: "The skills AgentBox installs into agents (and you): each one's name, what it is for, and " +
+				"whether this project's agents get it. read_skill shows one whole.",
+			Run: func(json.RawMessage) (string, error) {
+				list, err := c.ProjectSkills(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeSkills(list), nil
+			},
+		},
+		{
+			Name:        "read_skill",
+			Description: "One skill's SKILL.md, and the other files in its folder.",
+			Schema:      object([]string{"name"}, map[string]any{"name": str("the skill's name")}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Name string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				detail, err := c.ProjectSkill(ctx, in.Name)
+				if err != nil {
+					return "", err
+				}
+				return describeSkill(detail), nil
+			},
+		},
+		{
+			Name: "create_skill",
+			Description: "Write a new skill: a procedure agents follow when its description matches their task. " +
+				"Write one when a procedure recurs across agents' tasks, or the user repeats an instruction. It is " +
+				"on in this project only, unless everywhere is set because it is general. Agents get it from their " +
+				"next session; tell the user in a line. An existing name is refused: edit_skill changes a skill.",
+			Schema: object([]string{"name", "content"}, map[string]any{
+				"name": str("lowercase-with-dashes, like release-checklist"),
+				"content": str("the whole SKILL.md: YAML front matter with name and description (when to use it, " +
+					"in a sentence the model matches tasks against), then the steps"),
+				"everywhere": map[string]any{"type": "boolean", "description": "on in every project, for a general skill"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Name, Content string
+					Everywhere    bool
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if _, err := c.CreateProjectSkill(ctx, api.LeadNewSkillRequest{Name: in.Name, Content: in.Content, Everywhere: in.Everywhere}); err != nil {
+					return "", err
+				}
+				if in.Everywhere {
+					return "Created " + in.Name + ", on in every project.", nil
+				}
+				return "Created " + in.Name + ", on in this project.", nil
+			},
+		},
+		{
+			Name: "edit_skill",
+			Description: "Replace a skill's SKILL.md. The user approves it first, from a card with the diff in your " +
+				"chat, and this waits for them; a refusal comes back as an error, and nothing changes.",
+			Schema: object([]string{"name", "content"}, map[string]any{
+				"name":    str("the skill's name"),
+				"content": str("the whole new SKILL.md"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Name, Content string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if _, err := c.EditProjectSkill(ctx, in.Name, in.Content); err != nil {
+					return "", err
+				}
+				return "The user approved it: " + in.Name + " is changed.", nil
+			},
+		},
+		{
+			Name: "switch_skill",
+			Description: "Turn a skill on or off, in this project or everywhere. Turning one on is yours to do; " +
+				"turning one off where it was on waits for the user's approval, from a card in your chat.",
+			Schema: object([]string{"name", "state"}, map[string]any{
+				"name": str("the skill's name"),
+				"state": choiceOf("on, off, or (in this project only) \"default\" to follow the AgentBox-wide switch",
+					"on", "off", "default"),
+				"everywhere": map[string]any{"type": "boolean", "description": "switch it AgentBox-wide rather than in this project"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Name, State string
+					Everywhere  bool
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				override := in.State
+				if override == "default" {
+					override = ""
+				}
+				sk, err := c.SwitchProjectSkill(ctx, in.Name, api.LeadSkillSwitchRequest{Override: override, Everywhere: in.Everywhere})
+				if err != nil {
+					return "", err
+				}
+				return in.Name + " is now " + skillState(sk), nil
+			},
+		},
+		{
+			Name: "delete_skill",
+			Description: "Delete a skill from AgentBox and every agent. The user approves it first, from a card in " +
+				"your chat, and this waits for them; a refusal comes back as an error. To stop one reaching this " +
+				"project alone, switch_skill it off here instead.",
+			Schema: object([]string{"name"}, map[string]any{"name": str("the skill's name")}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Name string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if err := c.RemoveProjectSkill(ctx, in.Name); err != nil {
+					return "", err
+				}
+				return "The user approved it: " + in.Name + " is deleted.", nil
+			},
+		},
+		{
 			Name: "list_questions",
 			Description: "The questions this project's agents are waiting on. An agent asking one is " +
 				"blocked until it is answered, so deal with these first.",
@@ -1549,4 +1671,47 @@ func oneLine(text string) string {
 		return string(runes[:200]) + "…"
 	}
 	return text
+}
+
+// describeSkills lists skills for list_skills, one a line.
+func describeSkills(list []api.Skill) string {
+	if len(list) == 0 {
+		return "There are no skills yet. create_skill writes one."
+	}
+	var b strings.Builder
+	for _, sk := range list {
+		fmt.Fprintf(&b, "- %s (%s): %s\n", sk.Name, skillState(sk), oneLine(sk.Description))
+	}
+	return b.String()
+}
+
+// skillState says where a skill is on, from the lead's project.
+func skillState(sk api.Skill) string {
+	here := "off here"
+	if sk.Active != nil && *sk.Active {
+		here = "on here"
+	}
+	everywhere := "off AgentBox-wide"
+	if sk.Enabled {
+		everywhere = "on AgentBox-wide"
+	}
+	return here + ", " + everywhere
+}
+
+// describeSkill is read_skill's answer: SKILL.md, then the other files' names.
+func describeSkill(detail api.SkillDetail) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s (%s)\n\n", detail.Name, skillState(detail.Skill))
+	var others []string
+	for _, f := range detail.Files {
+		if f.Path == "SKILL.md" {
+			b.WriteString(f.Content)
+		} else {
+			others = append(others, fmt.Sprintf("- %s (%s)", f.Path, sizeOf(f.Size)))
+		}
+	}
+	if len(others) > 0 {
+		b.WriteString("\n\nOther files:\n" + strings.Join(others, "\n"))
+	}
+	return b.String()
 }

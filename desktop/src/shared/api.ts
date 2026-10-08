@@ -919,6 +919,79 @@ export interface SetSecretRequest {
   value: string;
 }
 
+export interface Skill {
+  name: string;
+  description: string;
+  source: string;
+  enabled: boolean;
+  overrides: Record<string, boolean>;
+  userInvocable: boolean;
+  fileCount: number;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  active?: boolean;
+}
+
+export interface SkillFile {
+  path: string;
+  size: number;
+  binary?: boolean;
+  content?: string;
+}
+
+export interface SkillDetail {
+  name: string;
+  description: string;
+  source: string;
+  enabled: boolean;
+  overrides: Record<string, boolean>;
+  userInvocable: boolean;
+  fileCount: number;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  active?: boolean;
+  files: SkillFile[];
+}
+
+export interface SaveSkillRequest {
+  content: string;
+  enabled?: boolean;
+  project?: string;
+}
+
+export interface UpdateSkillRequest {
+  enabled?: boolean;
+}
+
+export interface SkillOverrideRequest {
+  override: string;
+}
+
+export interface ScanSkillsRequest {
+  source: string;
+}
+
+export interface SkillCandidate {
+  name: string;
+  description: string;
+  origin: string;
+  plugin?: string;
+  source: string;
+  files: number;
+  size: number;
+  content: string;
+  exists: boolean;
+  problem?: string;
+}
+
+export interface ImportSkillsRequest {
+  source: string;
+  names?: string[];
+  project?: string;
+}
+
 export interface BrowserCookies {
   imported: boolean;
   domains: string[];
@@ -1495,6 +1568,9 @@ export interface ChatPermission {
   title: string;
   options: ChatPermissionOption[];
   outcome?: string;
+  approval?: string;
+  detail?: string;
+  diffs?: ChatDiff[];
 }
 
 export interface ChatPermissionOption {

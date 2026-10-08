@@ -169,6 +169,10 @@ func (m *Manager) Restore(ctx context.Context, a state.Agent, name string) error
 	if err := m.WriteSecrets(ctx, a); err != nil {
 		return err
 	}
+	// Its skills too.
+	if err := m.WriteSkills(ctx, a); err != nil {
+		m.logf("installing the skills of %s: %v", a.Ref(), err)
+	}
 	return m.ensureSession(ctx, a)
 }
 

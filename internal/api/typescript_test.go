@@ -30,6 +30,7 @@ var tsTypes = []any{
 	SetupCheck{}, SetupStatus{}, ImageComponents{}, ImageBuild{}, ImageDownload{}, BuildImageRequest{},
 	ClaudeTokenRequest{}, ClaudeLoginRequest{}, ClaudeLogin{}, ClaudeLoginCodeRequest{}, RenameClaudeAccountRequest{}, RenamedClaudeAccount{}, GitHubTokenRequest{}, CursorKeyRequest{}, CursorKeyResponse{}, CursorLogin{}, RenameGitHubAccountRequest{}, RenamedGitHubAccount{},
 	Secret{}, SetSecretRequest{},
+	Skill{}, SkillFile{}, SkillDetail{}, SaveSkillRequest{}, UpdateSkillRequest{}, SkillOverrideRequest{}, ScanSkillsRequest{}, SkillCandidate{}, ImportSkillsRequest{},
 	BrowserCookies{}, BrowserCookiesPreviewRequest{}, BrowserCookiesPreview{}, CookieDomain{}, ImportBrowserCookiesRequest{},
 	BrowserProfile{}, BrowserProfiles{}, ImportFromBrowserRequest{},
 	SnapRequest{}, Snap{}, SnapSendRequest{},
