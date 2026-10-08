@@ -17,6 +17,7 @@ import {
   Play,
   Search,
   SquareCheck,
+  Star,
   StickyNote,
   Trash,
   User,
@@ -479,62 +480,103 @@ export function MediaCard({
 }) {
   const t = useT();
   const info = kindInfo(item.kind);
+  // The star sits beside the card's button rather than in it, since a button
+  // can't hold another; the wrapper lifts both on hover.
   return (
-    <button
-      // In Select mode the card ticks itself instead of opening the viewer.
-      onClick={selecting ? onToggle : onOpen}
-      aria-pressed={selecting ? selected === true : undefined}
-      data-media={item.kind}
-      data-media-name={item.name}
-      className={cn(
-        'group overflow-hidden rounded-xl border border-line bg-surface-faint text-left transition duration-200 hover:-translate-y-0.5 hover:border-line-vivid hover:bg-surface hover:shadow-[0_20px_44px_-24px_var(--ab-shadow-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
-        selecting && selected && 'border-brand-400/60 ring-2 ring-brand-400/40',
-      )}
-    >
-      <div className="relative aspect-[16/10] overflow-hidden bg-well">
-        <Thumbnail item={item} />
-        {/* In Select mode the tick takes the kind badge's corner. The two sit
-            in one row, so a long agent label shortens instead of covering the
-            kind badge. */}
-        <span className="absolute inset-x-2 top-2 flex items-start justify-between gap-2">
-          <span className="shrink-0">
-            {selecting ? (
-              <Tick checked={selected === true} />
-            ) : (
-              <Badge variant={kindVariant[item.kind]} className="bg-black/60 backdrop-blur [:root[data-appearance=light]_&]:text-white">
-                <info.icon />
-                {info.one}
-              </Badge>
+    <div className="group relative transition duration-200 hover:-translate-y-0.5">
+      <button
+        // In Select mode the card ticks itself instead of opening the viewer.
+        onClick={selecting ? onToggle : onOpen}
+        aria-pressed={selecting ? selected === true : undefined}
+        data-media={item.kind}
+        data-media-name={item.name}
+        className={cn(
+          'w-full overflow-hidden rounded-xl border border-line bg-surface-faint text-left transition duration-200 hover:border-line-vivid hover:bg-surface hover:shadow-[0_20px_44px_-24px_var(--ab-shadow-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+          selecting && selected && 'border-brand-400/60 ring-2 ring-brand-400/40',
+        )}
+      >
+        <div className="relative aspect-[16/10] overflow-hidden bg-well">
+          <Thumbnail item={item} />
+          {/* In Select mode the tick takes the kind badge's corner. The two sit
+              in one row, so a long agent label shortens instead of covering the
+              kind badge. */}
+          <span className="absolute inset-x-2 top-2 flex items-start justify-between gap-2">
+            <span className="shrink-0">
+              {selecting ? (
+                <Tick checked={selected === true} />
+              ) : (
+                <Badge variant={kindVariant[item.kind]} className="bg-black/60 backdrop-blur [:root[data-appearance=light]_&]:text-white">
+                  <info.icon />
+                  {info.one}
+                </Badge>
+              )}
+            </span>
+            {label && (
+              <span className="flex min-w-0 justify-end" data-media-agent={item.agentName}>
+                <Badge className="block min-w-0 truncate bg-black/70 text-white/90 backdrop-blur" title={label}>
+                  {label}
+                </Badge>
+              </span>
             )}
           </span>
-          {label && (
-            <span className="flex min-w-0 justify-end" data-media-agent={item.agentName}>
-              <Badge className="block min-w-0 truncate bg-black/70 text-white/90 backdrop-blur" title={label}>
-                {label}
-              </Badge>
-            </span>
-          )}
-        </span>
-        {item.kind === 'recording' && item.meta.duration ? (
-          <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-white">{clock(item.meta.duration)}</span>
-        ) : null}
-      </div>
-      <div className="px-3 py-2.5">
-        <div className="truncate text-[13px] font-medium text-primary">{item.name}</div>
-        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-subtle">
-          {item.source === 'agent' ? <Bot className="size-3" /> : <User className="size-3" />}
-          <span>{item.source === 'agent' ? t('agent.mediaTab.sourceAgent') : t('agent.mediaTab.sourceYou')}</span>
-          <span>·</span>
-          <span>{timeAgo(item.createdAt)}</span>
-          {item.size > 0 && (
-            <>
-              <span>·</span>
-              <span>{humanBytes(item.size)}</span>
-            </>
-          )}
+          {item.kind === 'recording' && item.meta.duration ? (
+            <span className="absolute bottom-2 right-2 rounded-md bg-black/70 px-1.5 py-0.5 font-mono text-[10.5px] tabular-nums text-white">{clock(item.meta.duration)}</span>
+          ) : null}
         </div>
-      </div>
-    </button>
+        <div className="px-3 py-2.5">
+          <div className="truncate text-[13px] font-medium text-primary">{item.name}</div>
+          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-subtle">
+            {item.source === 'agent' ? <Bot className="size-3" /> : <User className="size-3" />}
+            <span>{item.source === 'agent' ? t('agent.mediaTab.sourceAgent') : t('agent.mediaTab.sourceYou')}</span>
+            <span>·</span>
+            <span>{timeAgo(item.createdAt)}</span>
+            {item.size > 0 && (
+              <>
+                <span>·</span>
+                <span>{humanBytes(item.size)}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </button>
+      {!selecting && <FavoriteButton item={item} onHover className="absolute bottom-1.5 right-1.5" />}
+    </div>
+  );
+}
+
+// FavoriteButton stars an item, which keeps it from ever being removed
+// automatically (by the retention sweep, or with its agent), or unstars it,
+// which puts it back under the retention from now. The daemon's media event
+// updates the lists. onHover hides an unstarred one until its card is hovered.
+export function FavoriteButton({ item, onHover, className }: { item: T.MediaItem; onHover?: boolean; className?: string }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const toggle = useMutation({
+    mutationFn: () => api.setMediaFavorite(item.id, !item.favorite),
+    onSuccess: () =>
+      Promise.all(['allMedia', 'projectMedia', 'media'].map((key) => queryClient.invalidateQueries({ queryKey: [key] }))),
+    onError: (err) => toast.error(t('agent.mediaTab.favoriteFailed'), { description: errorMessage(err) }),
+  });
+  const label = item.favorite ? t('agent.mediaTab.unfavorite') : t('agent.mediaTab.favorite');
+  return (
+    <Tip label={label}>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-label={label}
+        aria-pressed={item.favorite === true}
+        data-media-favorite={item.favorite || undefined}
+        disabled={toggle.isPending}
+        onClick={() => toggle.mutate()}
+        className={cn(
+          item.favorite ? 'text-amber-400 hover:text-amber-300' : 'text-subtle',
+          onHover && !item.favorite && 'opacity-0 focus-visible:opacity-100 group-hover:opacity-100',
+          className,
+        )}
+      >
+        <Star className={cn(item.favorite && 'fill-current')} />
+      </Button>
+    </Tip>
   );
 }
 
@@ -695,7 +737,12 @@ export function MediaViewer({
               <DialogTitle className="truncate text-[15px]">{item.name}</DialogTitle>
               <span className="shrink-0 text-xs text-subtle">
                 {item.source === 'agent' ? t('agent.mediaTab.fromAgent') : t('agent.mediaTab.fromYou')} · {formatDateTime(item.createdAt)}
-                {item.agentGone && (item.expiresAt ? t('agent.mediaTab.agentRemovedExpires', { time: timeUntil(item.expiresAt) }) : t('agent.mediaTab.agentRemoved'))}
+                {item.agentGone &&
+                  (item.expiresAt
+                    ? t('agent.mediaTab.agentRemovedExpires', { time: timeUntil(item.expiresAt) })
+                    : item.favorite
+                      ? t('agent.mediaTab.agentRemovedFavorite')
+                      : t('agent.mediaTab.agentRemoved'))}
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-0.5">
                 <Tip label={t('agent.mediaTab.previous')}>
@@ -727,6 +774,7 @@ export function MediaViewer({
                     </Tip>
                   </>
                 )}
+                <FavoriteButton item={item} />
                 <Tip label={t('common.delete')}>
                   <Button size="icon-sm" variant="danger" aria-label={t('common.delete')} onClick={() => onDelete(item)}>
                     <Trash />

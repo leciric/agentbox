@@ -48,6 +48,7 @@ func toAPIMedia(item state.Media, hostPath string) api.MediaItem {
 		Text:      item.Text,
 		Meta:      meta,
 		CreatedAt: item.CreatedAt,
+		Favorite:  item.Favorite,
 	}
 	if item.File != "" {
 		out.File = filepath.Base(item.File)
@@ -266,6 +267,27 @@ func (s *Server) deleteMedia(w http.ResponseWriter, r *http.Request) error {
 	s.events.publish(api.EventMedia, api.MediaItem{ID: item.ID, Agent: item.Ref(), Kind: item.Kind, Name: item.Name, Removed: true})
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// updateMedia changes what can be changed about an item: whether it's a
+// favorite. Host API only, like deleting.
+func (s *Server) updateMedia(w http.ResponseWriter, r *http.Request) error {
+	var req api.UpdateMediaRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	item, err := s.store.MediaItem(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	if req.Favorite != nil {
+		if item, err = s.store.SetMediaFavorite(r.Context(), item.ID, *req.Favorite, time.Now()); err != nil {
+			return err
+		}
+	}
+	out := toAPIMedia(item, s.manager(nil).MediaPath(item))
+	s.events.publish(api.EventMedia, out)
+	return writeJSON(w, http.StatusOK, out)
 }
 
 // deleteProjectMedia deletes many of a project's items at once, across its

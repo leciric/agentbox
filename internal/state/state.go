@@ -855,6 +855,10 @@ var migrations = []string{
 		name  TEXT NOT NULL,
 		props TEXT NOT NULL
 	)`,
+
+	// A favorite media item is never removed on its own: not by the
+	// retention sweep, not with its agent (Media.Favorite).
+	`ALTER TABLE media ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

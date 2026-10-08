@@ -191,7 +191,7 @@ func (s *Server) allMedia(w http.ResponseWriter, r *http.Request) error {
 		} else {
 			item.AgentGone = true
 		}
-		if !it.OrphanedAt.IsZero() && !forever {
+		if !it.OrphanedAt.IsZero() && !forever && !it.Favorite {
 			expires := it.OrphanedAt.Add(period)
 			item.ExpiresAt = &expires
 		}

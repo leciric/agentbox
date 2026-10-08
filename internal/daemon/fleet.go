@@ -188,7 +188,7 @@ func (s *Server) projectMedia(w http.ResponseWriter, r *http.Request) error {
 			// Its agent is gone: it was kept, not deleted, at destroy time.
 			item.AgentGone = true
 		}
-		if !it.OrphanedAt.IsZero() && !forever {
+		if !it.OrphanedAt.IsZero() && !forever && !it.Favorite {
 			// Matches Store.ExpiredMedia's own arithmetic, so what's shown here
 			// is exactly when the sweeper will remove the item.
 			expires := it.OrphanedAt.Add(period)

@@ -253,3 +253,58 @@ esac`))
 		t.Errorf("MediaItem() after destroy with immediate retention = %v, want ErrNotFound", err)
 	}
 }
+
+// A favorite survives its agent whatever the destroy was told about media:
+// with retention immediately or DeleteMedia asked for, its row and file stay,
+// and its retention clock starts for when it stops being a favorite. The rest
+// of the agent's media goes.
+func TestDestroyKeepsFavoriteMedia(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		immediate bool
+		opts      agent.DestroyOptions
+	}{
+		{"retention immediately", true, agent.DestroyOptions{Force: true}},
+		{"DeleteMedia", false, agent.DestroyOptions{Force: true, DeleteMedia: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[]' ;;
+esac`))
+			if tc.immediate {
+				if err := f.st.SetSetting(ctx, state.SettingMediaRetention, api.MediaRetentionImmediately); err != nil {
+					t.Fatal(err)
+				}
+			}
+			a := destroyFixture(t, f)
+			fav := addMediaFixture(t, f, a)
+			if _, err := f.st.SetMediaFavorite(ctx, fav.ID, true, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			plainDir := filepath.Join(f.m.MediaDir(a.Project, a.Name), "item-2")
+			if err := os.MkdirAll(plainDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.st.AddMedia(ctx, state.Media{ID: "item-2", Project: a.Project, Agent: a.Name, Kind: "file", Name: "plain", File: "item-2", Source: "agent", Meta: "{}", CreatedAt: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+
+			assertGone(t, f, f.m.Destroy(ctx, a, tc.opts))
+
+			got, err := f.st.MediaItem(ctx, fav.ID)
+			if err != nil || !got.Favorite || got.OrphanedAt.IsZero() {
+				t.Errorf("favorite after destroy = %+v, %v; want kept, orphaned", got, err)
+			}
+			if _, err := os.Stat(f.m.MediaPath(fav)); err != nil {
+				t.Errorf("favorite's file after destroy = %v, want kept", err)
+			}
+			if _, err := f.st.MediaItem(ctx, "item-2"); !errors.Is(err, state.ErrNotFound) {
+				t.Errorf("plain item after destroy = %v, want ErrNotFound", err)
+			}
+			if _, err := os.Stat(plainDir); !os.IsNotExist(err) {
+				t.Errorf("plain item's directory after destroy = %v, want gone", err)
+			}
+		})
+	}
+}
