@@ -365,6 +365,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		EnforceAgentDefaults: enforced,
 		ModelMenu:            models,
 		OpenCodeMenu:         openCodeModels,
+		CursorReady:          m.CursorReady(),
 		ClaudeAccounts:       accountNames,
 		CanSpawn:             socket != "",
 		AgentPRs:             p.AgentPRs,

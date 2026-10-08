@@ -360,6 +360,12 @@ export const api = {
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
   cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),
   auth: () => call<T.AuthStatus>('GET', '/v1/auth'),
+  // Cursor signs in with an API key (checked with Cursor before it is kept) or
+  // through its own browser flow, which the daemon runs and reports on.
+  saveCursorKey: (apiKey: string) => call<T.CursorKeyResponse>('POST', '/v1/auth/cursor', { apiKey } satisfies T.CursorKeyRequest),
+  removeCursorLogin: () => call<void>('DELETE', '/v1/auth/cursor'),
+  startCursorLogin: () => call<T.CursorLogin>('POST', '/v1/auth/cursor/login'),
+  cursorLogin: () => call<T.CursorLogin>('GET', '/v1/auth/cursor/login'),
   saveClaudeToken: (token: string, account?: string) => call<void>('POST', '/v1/auth/claude', { token, account } satisfies T.ClaudeTokenRequest),
   // Logging in from the app: the daemon runs `claude setup-token` as a job, and
   // says which page to open while it waits for you to approve it.

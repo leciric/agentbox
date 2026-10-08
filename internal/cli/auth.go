@@ -23,12 +23,12 @@ import (
 func newAuthCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Log agents in to Claude Code, Codex and OpenCode",
-		Long: `Agents use AgentBox's own logins, never your host's ~/.claude, ~/.codex or
-~/.local/share/opencode. Sharing those directories would let an agent change
-your host configuration.`,
+		Short: "Log agents in to Claude Code, Codex, OpenCode and Cursor",
+		Long: `Agents use AgentBox's own logins, never your host's ~/.claude, ~/.codex,
+~/.local/share/opencode or ~/.cursor. Sharing those directories would let an
+agent change your host configuration.`,
 	}
-	cmd.AddCommand(newAuthClaudeCmd(a), newAuthCodexCmd(a), newAuthOpenCodeCmd(a), newAuthGitHubCmd(a), newAuthStatusCmd(a))
+	cmd.AddCommand(newAuthClaudeCmd(a), newAuthCodexCmd(a), newAuthOpenCodeCmd(a), newAuthCursorCmd(a), newAuthGitHubCmd(a), newAuthStatusCmd(a))
 	return cmd
 }
 
@@ -299,6 +299,13 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 			if creds.HasOpenCodeLogin() {
 				oc = "login stored"
 			}
+			cur := "not signed in (run: agentbox auth cursor)"
+			if login, ok := creds.CursorLogin(); ok {
+				cur = "signed in" + cursorAccount(login.Email)
+				if !login.Expiry.IsZero() {
+					cur += ", until " + login.Expiry.Format("2 January 2006")
+				}
+			}
 			if len(accounts) > 0 {
 				names := make([]string, 0, len(accounts))
 				for _, acc := range accounts {
@@ -340,6 +347,7 @@ func newAuthStatusCmd(a *app) *cobra.Command {
 			}
 			_, _ = fmt.Fprintf(w, "Codex\t%s\n", codex)
 			_, _ = fmt.Fprintf(w, "OpenCode\t%s\n", oc)
+			_, _ = fmt.Fprintf(w, "Cursor\t%s\n", cur)
 			_, _ = fmt.Fprintf(w, "GitHub\t%s\n", gh)
 			return w.Flush()
 		},

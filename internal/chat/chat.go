@@ -1,5 +1,5 @@
 // Package chat runs the conversations of the app's Chat tab, one per agent. The
-// agent's AI tool (Claude Code, Codex or OpenCode) runs inside the agent behind an ACP
+// agent's AI tool (Claude Code, Codex, OpenCode or Cursor) runs inside the agent behind an ACP
 // adapter, which the daemon speaks to over the adapter's stdin and stdout.
 // What the tool reports becomes a list of items (messages, tool calls, plans,
 // permission requests); every change is stored and published as a numbered event.
@@ -50,7 +50,7 @@ const (
 )
 
 // ToolNames are the AI tools the chat can drive.
-var ToolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
+var ToolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor"}
 
 // Launcher starts an agent's ACP adapter. status says what it's doing while it
 // prepares, like installing the adapter.
@@ -975,6 +975,8 @@ func modelMenuSetting(ai string) (string, bool) {
 		return state.SettingClaudeModelChoices, true
 	case "opencode":
 		return state.SettingOpenCodeModelChoices, true
+	case "cursor":
+		return state.SettingCursorModelChoices, true
 	}
 	return "", false
 }
@@ -2595,6 +2597,9 @@ func (c *conversation) rememberChoices() {
 	case "opencode":
 		categories[state.SettingOpenCodeModelChoices] = "model"
 	}
+	// Cursor's menu is left to the daemon, which asks Cursor for it with each
+	// model's effort levels (SettingCursorModelChoices): a session's menu has
+	// only the running model's.
 	menus := map[string][]api.ChatOptionChoice{}
 	for key, category := range categories {
 		i := slices.IndexFunc(c.session.Options, func(o api.ChatOption) bool { return o.Category == category && o.Type == "select" })

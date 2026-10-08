@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/cursor"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
 	"agentbox/internal/state"
@@ -28,12 +29,21 @@ type ChatAdapter struct {
 	// Package is mise's name for the adapter, with the version AgentBox uses:
 	// the one the base image pins (internal/image/tools.txt).
 	Package string
+	// Script, when set, is an adapter AgentBox carries itself: written into
+	// the agent at ScriptPath as the chat starts and run with node, with
+	// Package (what it runs on) installed where SDKEnv says.
+	Script     []byte
+	ScriptPath string // under the agent's home
+	SDKEnv     string
 }
 
 var ChatAdapters = map[string]ChatAdapter{
 	"claude":   {Tool: "Claude Code", Command: "claude-agent-acp", Package: image.Pin("npm:@agentclientprotocol/claude-agent-acp")},
 	"codex":    {Tool: "Codex", Command: "codex-acp", Package: image.Pin("npm:@agentclientprotocol/codex-acp")},
 	"opencode": {Tool: "OpenCode", Command: "opencode", Args: []string{"acp"}, Package: image.Pin("npm:opencode-ai")},
+	// Cursor's adapter is AgentBox's own, over Cursor's TypeScript SDK
+	// (internal/cursor): Package is the SDK.
+	"cursor": {Tool: "Cursor", Command: "node", Package: cursor.SDKPackage, Script: cursor.Script, ScriptPath: cursorScriptFile, SDKEnv: cursor.SDKEnv},
 }
 
 // installTimeout bounds installing an adapter in an agent whose machine doesn't have it.
@@ -134,10 +144,21 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	status("Starting " + adapter.Tool)
 	// mise exec runs the version AgentBox pins, whatever the agent's own mise configuration says.
 	command := shellQuote(adapter.Command)
-	for _, arg := range adapter.Args {
+	args := adapter.Args
+	var env string
+	if adapter.Script != nil {
+		// Written every time, so the adapter is always this daemon's own.
+		path := "/home/" + m.User.Name + "/" + adapter.ScriptPath
+		if err := m.Incus.WriteFile(ctx, a.Instance, path, adapter.Script, m.User.UID, m.User.GID, 0o644); err != nil {
+			return nil, fmt.Errorf("writing the %s adapter into %s: %w", adapter.Tool, a.Ref(), err)
+		}
+		args = append([]string{path}, args...)
+		env = fmt.Sprintf("%s=\"$(mise where %s)\" ", adapter.SDKEnv, pkg)
+	}
+	for _, arg := range args {
 		command += " " + shellQuote(arg)
 	}
-	script := fmt.Sprintf("cd %s && exec mise exec %s -- %s", shellQuote(a.Worktree), pkg, command)
+	script := fmt.Sprintf("cd %s && %sexec mise exec %s -- %s", shellQuote(a.Worktree), env, pkg, command)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
 }
 
@@ -145,10 +166,12 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 // says otherwise, and the command line for an agent without an AI tool.
 func interfaceFor(ai, iface string) (string, error) {
 	switch {
+	case ai == "cursor" && iface == state.InterfaceCLI:
+		return "", errors.New("a Cursor agent runs only in the chat: AgentBox drives Cursor through its SDK, which has no command line")
 	case iface != "" && iface != state.InterfaceChat && iface != state.InterfaceCLI:
 		return "", fmt.Errorf("unknown interface %q: use chat or cli", iface)
 	case ai == "none" && iface == state.InterfaceChat:
-		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex or opencode")
+		return "", errors.New("an agent without an AI tool has nothing to chat with: use claude, codex, opencode or cursor")
 	case ai == "none", iface == state.InterfaceCLI:
 		return state.InterfaceCLI, nil
 	}
@@ -165,6 +188,9 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	}
 	if iface != state.InterfaceChat && iface != state.InterfaceCLI {
 		return a, fmt.Errorf("unknown interface %q: use chat or cli", iface)
+	}
+	if _, err := interfaceFor(a.AI, iface); err != nil {
+		return a, err
 	}
 	if err := m.Store.SetAgentInterface(ctx, a.Project, a.Name, iface); err != nil {
 		return a, err

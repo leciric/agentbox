@@ -37,7 +37,7 @@ type TokenRow struct {
 	// this row's agent is gone can't pull its spend into somebody else's
 	// total. "" for a row written before this existed.
 	AgentID string
-	AI      string // claude, codex or opencode
+	AI      string // claude, codex, opencode or cursor
 	Session string // the AI tool's session id
 	Turn    string // groups the rows of one turn
 	Kind    string

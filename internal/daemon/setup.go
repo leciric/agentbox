@@ -128,6 +128,18 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 		check(opencodeCheck, creds.HasOpenCodeLogin(), "AgentBox has its own OpenCode login for agents")
 	}
 
+	// Cursor needs only a sign-in: every base image has its SDK. One whose
+	// key ran out reads as not signed in (credentials.CursorLogin).
+	cursorCheck := api.SetupCheck{ID: "cursor", Title: "Cursor sign-in", Status: api.SetupOptional,
+		Detail: "optional: agents can't run Cursor yet", Fix: "agentbox auth cursor"}
+	if login, ok := creds.CursorLogin(); ok {
+		cursorCheck.Status, cursorCheck.Detail = api.SetupOK, "AgentBox has its own Cursor sign-in for agents"
+		if login.Email != "" {
+			cursorCheck.Detail += " (" + login.Email + ")"
+		}
+	}
+	checks = append(checks, cursorCheck)
+
 	if sdk, err := s.manager(nil).AndroidHost(); err == nil {
 		checks = append(checks, api.SetupCheck{ID: "android", Title: "Android emulators", Status: api.SetupOK,
 			Detail: fmt.Sprintf("KVM, and the Android SDK in %s with %s", sdk.Path, sdk.Images[0].ID)})

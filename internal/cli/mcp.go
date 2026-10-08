@@ -89,9 +89,10 @@ func choiceOf(description string, values ...string) map[string]any {
 // tool's own description agrees with the parameter's rather than telling it in
 // one sentence that agents start on a model already chosen and in the next
 // that choosing is its job.
-func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]any, leadPicksModel, openCodeReady bool) {
+func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]any, leadPicksModel bool, ready readyTools) {
 	var models, efforts, openCodeModels []string
-	var openCode bool
+	var openCode, cursorReady bool
+	var cursorModels []api.ChatOptionChoice
 	// The defaults an agent created with none of these gets, named in the
 	// descriptions below: Settings → Models, with AgentBox's own defaults
 	// under them. The lead's own defaults are another section of Settings and
@@ -116,6 +117,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 			openCodeModels = append(openCodeModels, choice.Value)
 		}
 		openCode = settings.OpenCodeReady
+		cursorReady, cursorModels = settings.CursorReady, settings.CursorModelChoices
 	}
 	// What the project asks of this parameter. The lead's brief says the same
 	// thing at greater length; this is what a model reads at the moment it
@@ -167,27 +169,41 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// asking for it otherwise would be a tool call that can only fail. The
 	// models go with it, because OpenCode's names and Claude Code's are not
 	// interchangeable in either direction.
+	params = map[string]any{}
+	tools := []string{"claude"}
+	aiDescription := "which AI tool the agent runs. \"claude\" is Claude Code and the default, and what this project's " +
+		"agents are set up for."
 	if openCode {
 		named := "OpenCode's own provider/model ids"
 		if len(openCodeModels) > 0 {
 			named = "one of " + strings.Join(openCodeModels, ", ")
 		}
 		model += " For an agent with ai=\"opencode\", the model is not a Claude Code name but " + named + " instead."
-		params = map[string]any{
-			"ai": choiceOf("which AI tool the agent runs. \"claude\" is Claude Code and the default, and what this project's "+
-				"agents are set up for. \"opencode\" is OpenCode, the open-source agent, which runs the models of whichever "+
-				"providers this machine has logged in to; choose it when the task asks for it, or when the user asked for one "+
-				"of those models. Say which you chose and why, in the same line as the model.", "claude", "opencode"),
+		tools = append(tools, "opencode")
+		aiDescription += " \"opencode\" is OpenCode, the open-source agent, which runs the models of whichever " +
+			"providers this machine has logged in to."
+	}
+	if cursorReady {
+		named := "Cursor's own model ids (\"default\" is Cursor's Auto)"
+		if len(cursorModels) > 0 {
+			named = "one of " + cursorMenu(cursorModels)
 		}
-	} else {
-		params = map[string]any{}
+		model += " For an agent with ai=\"cursor\", the model is " + named + " instead."
+		tools = append(tools, "cursor")
+		aiDescription += " \"cursor\" is Cursor, which runs Cursor's own Composer models and other vendors' through " +
+			"the user's Cursor account. It only has the chat, and can't stop to ask permission: it runs every tool call."
+	}
+	if len(tools) > 1 {
+		params["ai"] = choiceOf(aiDescription+" Choose another tool than Claude Code when the task asks for it, or when the user "+
+			"asked for it or for one of its models. Say which you chose and why, in the same line as the model.", tools...)
 	}
 	params["model"] = str(model)
 	params["permissions"] = choiceOf("how the agent's AI tool asks permission. \"autonomous\" never asks: the agent's own machine "+
 		"is the sandbox, and it works unattended. \"ask\" makes it stop before it changes anything, which only makes sense "+
 		"if someone is watching its chat to answer. Leave this out for autonomous.", "autonomous", "ask")
-	effort := str("how hard this agent thinks, as one of Claude Code's own effort levels — a Claude Code setting, which an " +
-		"OpenCode agent doesn't have, so leave it out for one. This one is checked when the agent is " +
+	effort := str("how hard this agent thinks, as one of Claude Code's own effort levels — an OpenCode agent has none, so " +
+		"leave it out for one, and a Cursor agent takes the levels its model lists (in the model's description above), " +
+		"or none. For Claude Code it is checked when the agent is " +
 		"made, so a level Claude Code has never offered is refused here rather than silently ignored. Some models have no effort " +
 		"levels at all, and then it simply doesn't apply. Leave this out to use the effort chosen for new agents in AgentBox's " +
 		"settings, and AgentBox's own default (high) when nothing is chosen there.")
@@ -212,7 +228,25 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		params["context_window"] = str("where this agent's chat compacts, a Claude Code setting. Leave this out for " + defaultWindow +
 			", the window new agents start with in AgentBox's Settings → Models. It is also the most Settings allows: a longer one is refused.")
 	}
-	return params, auto, openCode
+	return params, auto, readyTools{openCode: openCode, cursor: cursorReady}
+}
+
+// readyTools says which AI tools besides Claude Code an agent could run right
+// now, so create_agent offers only those.
+type readyTools struct{ openCode, cursor bool }
+
+// cursorMenu names Cursor's models for the lead, each with the effort levels
+// it takes, like "claude-opus-5-5 (effort: low, high)".
+func cursorMenu(models []api.ChatOptionChoice) string {
+	names := make([]string, 0, len(models))
+	for _, m := range models {
+		if len(m.Efforts) > 0 {
+			names = append(names, m.Value+" (effort: "+strings.Join(m.Efforts, ", ")+")")
+			continue
+		}
+		names = append(names, m.Value)
+	}
+	return strings.Join(names, ", ")
 }
 
 // leadAI reads create_agent's "ai": the AI tool the agent runs. Empty is
@@ -221,19 +255,25 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 // isn't on offer — the lead is told about OpenCode only when an agent could
 // really run it, and a lead working from an older brief would otherwise get an
 // error about a missing login with nothing to do about it.
-func leadAI(ai string, openCodeReady bool) (string, error) {
+func leadAI(ai string, ready readyTools) (string, error) {
 	switch strings.TrimSpace(strings.ToLower(ai)) {
 	case "", "claude":
 		return "claude", nil
 	case "opencode":
-		if !openCodeReady {
+		if !ready.openCode {
 			return "", errors.New("this machine can't run OpenCode agents: OpenCode has to be built into the base image " +
 				"(agentbox image build --opencode) and logged in (agentbox auth opencode). Create the agent with ai=\"claude\", " +
 				"or ask the user to set OpenCode up first")
 		}
 		return "opencode", nil
+	case "cursor":
+		if !ready.cursor {
+			return "", errors.New("this machine can't run Cursor agents: agents aren't signed in to Cursor (agentbox auth cursor, or " +
+				"Settings → Accounts in the app). Create the agent with ai=\"claude\", or ask the user to sign in to Cursor first")
+		}
+		return "cursor", nil
 	default:
-		return "", fmt.Errorf("ai is %q: it is \"claude\" (Claude Code) or \"opencode\" (OpenCode)", ai)
+		return "", fmt.Errorf("ai is %q: it is \"claude\" (Claude Code), \"opencode\" (OpenCode) or \"cursor\" (Cursor)", ai)
 	}
 }
 
@@ -284,7 +324,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		}
 		return json.Unmarshal(args, into)
 	}
-	settings, leadPicksModel, openCodeReady := chatSettingParams(ctx, c)
+	settings, leadPicksModel, ready := chatSettingParams(ctx, c)
 	startsOn := "It starts on the model, effort " +
 		"and permissions new agents start on here; set those below only when this agent needs " +
 		"something different, such as a cheaper model for a small, mechanical job."
@@ -384,7 +424,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 						"[\"notion\"]; [] for none. Leave it out to give it all of them. Each tool it has costs context in every " +
 						"turn, so give an agent only the ones its task needs."},
 				"claude_account": str("which of this project's Claude Code accounts (list_accounts) this agent logs in as. Only applies " +
-					"when it runs Claude Code; sending it for an agent with ai=\"opencode\" is an error. An unknown or disallowed name is " +
+					"when it runs Claude Code; sending it for an agent with ai=\"opencode\" or \"cursor\" is an error. An unknown or disallowed name is " +
 					"refused, and the error names the ones it may use — use list_accounts to see them, along with how much " +
 					"of each is left. Leave this out to use the project's own account, and the machine's default account when " +
 					"the project has none set."),
@@ -409,7 +449,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Task) == "" {
 					return "", errors.New("an agent needs a title and a task")
 				}
-				ai, err := leadAI(in.AI, openCodeReady)
+				ai, err := leadAI(in.AI, ready)
 				if err != nil {
 					return "", err
 				}

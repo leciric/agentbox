@@ -73,6 +73,25 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	// Cursor's are stored as chosen: its menu is the account's, and a model or
+	// level it doesn't offer is reported by the chat that tries it. Choosing
+	// a model clears an effort it didn't come with, since levels belong to
+	// models and the old one may mean nothing to the new.
+	if req.DefaultCursorModel != nil {
+		if err := s.store.SetSetting(r.Context(), state.SettingDefaultCursorModel, strings.TrimSpace(*req.DefaultCursorModel)); err != nil {
+			return err
+		}
+		if req.DefaultCursorEffort == nil {
+			if err := s.store.SetSetting(r.Context(), state.SettingDefaultCursorEffort, ""); err != nil {
+				return err
+			}
+		}
+	}
+	if req.DefaultCursorEffort != nil {
+		if err := s.store.SetSetting(r.Context(), state.SettingDefaultCursorEffort, strings.TrimSpace(*req.DefaultCursorEffort)); err != nil {
+			return err
+		}
+	}
 	if req.ResumeAfterLimit != nil {
 		// Stored as a flag rather than as "" / "1", because this one is on
 		// until it is turned off: see state.FlagOn. Turning it off leaves any
@@ -350,6 +369,25 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if len(openCodeModels) == 0 && openCodeReady {
 		s.refreshOpenCodeModels()
 	}
+	// Cursor's menu is asked for the same way, and kept fresh hourly, since
+	// it is the only place the menu comes from (rememberChoices leaves it
+	// alone: a session's menu has no effort levels per model).
+	cursorModels, err := s.rememberedMenu(r, state.SettingCursorModelChoices)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	cursorReady := s.manager(nil).CursorReady()
+	if cursorReady {
+		s.refreshCursorModels(false)
+	}
+	cursorModel, err := s.store.Setting(r.Context(), state.SettingDefaultCursorModel)
+	if err != nil {
+		return api.Settings{}, err
+	}
+	cursorEffort, err := s.store.Setting(r.Context(), state.SettingDefaultCursorEffort)
+	if err != nil {
+		return api.Settings{}, err
+	}
 	resumeAfterLimit, err := s.store.FlagOn(r.Context(), state.SettingResumeAfterLimit)
 	if err != nil {
 		return api.Settings{}, err
@@ -448,6 +486,11 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		OpenCodeModelChoices: openCodeModels,
 		OpenCodeReady:        openCodeReady,
+
+		CursorModelChoices:  cursorModels,
+		CursorReady:         cursorReady,
+		DefaultCursorModel:  cursorModel,
+		DefaultCursorEffort: cursorEffort,
 
 		ResumeAfterLimit:     resumeAfterLimit,
 		ContinueAfterRestart: continueAfterRestart,

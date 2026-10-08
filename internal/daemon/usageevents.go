@@ -179,11 +179,11 @@ func usageOutcome(state string) string {
 }
 
 // usageModes are the permission modes counted by name, keyed by the mode's id
-// without "-" or "_", lowercase: Claude Code's, Codex's and OpenCode's.
+// without "-" or "_", lowercase: Claude Code's, Codex's, OpenCode's and Cursor's.
 var usageModes = map[string]string{
 	"default": "default", "build": "default", "acceptedits": "accept_edits", "plan": "plan",
 	"bypasspermissions": "bypass", "bypass": "bypass", "dontask": "dont_ask",
-	"readonly": "read_only", "auto": "auto", "fullaccess": "full_access",
+	"readonly": "read_only", "auto": "auto", "fullaccess": "full_access", "autoreview": "auto",
 }
 
 func usageMode(mode string) string {
@@ -219,7 +219,7 @@ func usageSpan(d time.Duration) string {
 // recordError keeps an error event, with the agent's tool when there is one.
 func (s *Server) recordError(code, ai string) {
 	tool := "none"
-	if ai == "claude" || ai == "codex" || ai == "opencode" {
+	if ai == "claude" || ai == "codex" || ai == "opencode" || ai == "cursor" {
 		tool = ai
 	}
 	s.recordEvent(eventError, errorEvent{Code: code, Tool: tool})
@@ -255,7 +255,7 @@ func (s *Server) recordAgentFinished(ctx context.Context, a state.Agent, how str
 		return
 	}
 	e := agentFinishedEvent{Tool: "none", How: how, Lifetime: usageSpan(time.Since(a.CreatedAt)), Queued: queued}
-	if a.AI == "claude" || a.AI == "codex" || a.AI == "opencode" {
+	if a.AI == "claude" || a.AI == "codex" || a.AI == "opencode" || a.AI == "cursor" {
 		e.Tool = a.AI
 	}
 	events, err := s.memory().Events(ctx, a.Project, memory.EventFilter{

@@ -83,6 +83,10 @@ type ChatOptionChoice struct {
 	Description string `json:"description,omitempty"`
 	Group       string `json:"group,omitempty"`
 	Kind        string `json:"kind,omitempty"` // for modes: standard, plan, auto_review or full_access
+	// Efforts are the effort levels a model takes, in Cursor's model menu
+	// (Settings.CursorModelChoices), where every model has levels of its own
+	// and most have none.
+	Efforts []string `json:"efforts,omitempty"`
 }
 
 type ChatCommand struct {

@@ -444,3 +444,44 @@ func TestRenameGitHubAccount(t *testing.T) {
 		t.Errorf("ClaudeAccounts() = %+v", accounts)
 	}
 }
+
+// Cursor's sign-in is the SDK's own credentials file. A key that expired is no
+// sign-in, since the SDK ignores it, and neither is a file without a key.
+func TestCursorLogin(t *testing.T) {
+	s := store(t)
+	if s.HasCursorLogin() {
+		t.Fatal("a store with nothing in it has a Cursor sign-in")
+	}
+	write := func(content string) {
+		t.Helper()
+		if err := os.MkdirAll(s.CursorHome(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(s.CursorAuthPath(), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(`{"version":1,"backendUrl":"https://api2.cursor.sh","apiKey":"key_1","createdAtMs":1,"email":"a@b.c"}`)
+	login, ok := s.CursorLogin()
+	if !ok || login.APIKey != "key_1" || login.Email != "a@b.c" || !login.Expiry.IsZero() {
+		t.Fatalf("CursorLogin = %+v, %v", login, ok)
+	}
+	write(`{"version":1,"backendUrl":"https://api2.cursor.sh","apiKey":"key_2","createdAtMs":1,"apiKeyExpiresAtMs":4102444800000}`)
+	if login, ok := s.CursorLogin(); !ok || login.Expiry.Year() != 2100 {
+		t.Fatalf("a key minted at sign-in: %+v, %v", login, ok)
+	}
+	write(`{"version":1,"backendUrl":"https://api2.cursor.sh","apiKey":"key_3","createdAtMs":1,"apiKeyExpiresAtMs":1000}`)
+	if s.HasCursorLogin() {
+		t.Fatal("an expired key counts as a sign-in")
+	}
+	write(`{"version":1,"apiKey":" "}`)
+	if s.HasCursorLogin() {
+		t.Fatal("a file without a key counts as a sign-in")
+	}
+	if err := s.RemoveCursorLogin(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveCursorLogin(); err != nil {
+		t.Fatalf("removing it twice: %v", err)
+	}
+}

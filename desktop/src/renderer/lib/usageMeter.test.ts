@@ -38,8 +38,8 @@ test("a Claude agent shows the account it holds; one with no AI tool, its projec
   assert.equal(pickMeter({ limits, project: project('work'), agent: agent('none') }).reading?.account, 'work');
 });
 
-test('Codex and OpenCode have no reading, so the meter hides', () => {
-  for (const ai of ['codex', 'opencode']) {
+test('Codex, OpenCode and Cursor have no reading, so the meter hides', () => {
+  for (const ai of ['codex', 'opencode', 'cursor']) {
     const pick = pickMeter({ limits, project: project('work'), agent: agent(ai) });
     assert.equal(pick.tool, ai);
     assert.equal(pick.reading, undefined);

@@ -103,6 +103,12 @@ var Downloads = []Download{
 		MB:      12,
 	},
 	{
+		// Measured on 2026-10-08: npm's cache after installing it (17 MB).
+		Name:    "Cursor SDK",
+		Purpose: "Cursor's TypeScript SDK, which AgentBox's own adapter drives for agents created with --ai cursor.",
+		MB:      17,
+	},
+	{
 		Name:    "Codex CLI",
 		Purpose: "OpenAI's Codex, for agents created with --ai codex.",
 		MB:      141,

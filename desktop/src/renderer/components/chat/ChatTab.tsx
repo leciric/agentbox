@@ -338,7 +338,7 @@ function SessionStatus({ agent, session }: { agent: T.Agent; session?: T.ChatSes
       </Tip>
       {/* Only Claude Code's adapter reports background tasks: elsewhere an
           agent waiting on one reads as finished, and never wakes for it. */}
-      {(agent.ai === 'codex' || agent.ai === 'opencode') && (
+      {(agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor') && (
         <Tip label={t('chat.background.untrackedTip', { tool })}>
           <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-amber-300/80" data-chat-background-untracked>
             <EyeOff className="size-3.5 shrink-0" />

@@ -413,6 +413,32 @@ func (c *Client) SaveGitHubToken(ctx context.Context, account, token string) (st
 	return out.User, err
 }
 
+// SaveCursorKey signs agents in to Cursor with an API key, once Cursor says
+// whose it is, and returns the account's email when Cursor gave one.
+func (c *Client) SaveCursorKey(ctx context.Context, key string) (string, error) {
+	var out CursorKeyResponse
+	err := c.do(ctx, http.MethodPost, "/v1/auth/cursor", CursorKeyRequest{APIKey: key}, &out)
+	return out.Email, err
+}
+
+// RemoveCursorLogin signs agents out of Cursor.
+func (c *Client) RemoveCursorLogin(ctx context.Context) error {
+	return c.do(ctx, http.MethodDelete, "/v1/auth/cursor", nil, nil)
+}
+
+// StartCursorLogin starts Cursor's browser sign-in, or returns the one already
+// under way.
+func (c *Client) StartCursorLogin(ctx context.Context) (CursorLogin, error) {
+	var out CursorLogin
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/cursor/login", nil, &out)
+}
+
+// CursorLoginStatus is how the browser sign-in is getting on.
+func (c *Client) CursorLoginStatus(ctx context.Context) (CursorLogin, error) {
+	var out CursorLogin
+	return out, c.do(ctx, http.MethodGet, "/v1/auth/cursor/login", nil, &out)
+}
+
 // RemoveGitHubAccount forgets a stored GitHub account.
 func (c *Client) RemoveGitHubAccount(ctx context.Context, account string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/auth/github/"+url.PathEscape(account), nil, nil)

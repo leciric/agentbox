@@ -24,7 +24,10 @@
 # from its GitHub workflow: later releases have no trust evidence (D21). The
 # ACP adapters run Claude Code and Codex for the app's chat, and OpenCode is
 # its own; internal/agent/chat.go installs the same versions in older agents,
-# from these lines.
+# from these lines. Cursor's adapter is AgentBox's own script
+# (internal/cursor/adapter.mjs), written into the agent as its chat starts:
+# what is pinned here is the SDK it runs on, which has no command of its own,
+# so its check looks for the package where mise's npm backend puts it.
 #
 # A "host" line is AgentBox's own, not an agent's: no image has it. cloudflared
 # is the Cloudflare Tunnel the daemon starts so a phone can chat from anywhere
@@ -38,6 +41,7 @@
 -        gh@2.101.0                                        gh --version
 -        npm:@playwright/mcp@0.0.79                        playwright-mcp --version && playwright-mcp --help | grep -q -- --cdp-endpoint
 -        npm:@agentclientprotocol/claude-agent-acp@0.85.1  command -v claude-agent-acp
+-        npm:@cursor/sdk@1.0.35                            d="$(mise where npm:@cursor/sdk)" && ls "$d"/node_modules/@cursor/sdk/package.json "$d"/lib/node_modules/@cursor/sdk/package.json 2>/dev/null | grep -q .
 codex    codex@0.155.0                                     codex --version
 codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
 opencode npm:opencode-ai@1.18.31                           opencode --version && opencode acp --help | grep -q ACP

@@ -150,6 +150,10 @@ type LeadData struct {
 	// so a brief that lists models is a brief whose lead can really create
 	// OpenCode agents.
 	OpenCodeMenu []string
+	// CursorReady is whether agents are signed in to Cursor, so the lead may
+	// create Cursor agents. Its models aren't listed here: create_agent's own
+	// description names them, with each one's effort levels.
+	CursorReady bool
 	// ClaudeAccounts are the names of the Claude Code accounts this project may
 	// use: the machine's, less any its allow-list leaves out. The brief says
 	// nothing about spreading agents across them unless there is more than one

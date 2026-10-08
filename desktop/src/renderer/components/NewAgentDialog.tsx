@@ -80,6 +80,7 @@ const tools: { ai: string; label?: string; labelKey?: MessageKey; hint?: string;
   { ai: 'claude', label: 'Claude Code', hint: 'Anthropic' },
   { ai: 'codex', label: 'Codex', hint: 'OpenAI' },
   { ai: 'opencode', label: 'OpenCode', hintKey: 'project.newAgent.tool.openSource' },
+  { ai: 'cursor', label: 'Cursor', hintKey: 'project.newAgent.tool.cursor' },
   { ai: 'none', labelKey: 'project.newAgent.tool.shellOnly', hintKey: 'project.newAgent.tool.noAI' },
 ];
 
@@ -130,6 +131,14 @@ export function NewAgentDialog({
   // from a chat that has run, or from `opencode models` against AgentBox's own
   // login. Its agents have no effort — that is a Claude Code setting.
   const openCodeModels = settings.data?.openCodeModelChoices ?? [];
+  // Cursor's own model ids, and the effort levels each one takes (most take
+  // none). With no model picked, the one Settings names decides the levels.
+  const cursorModels = settings.data?.cursorModelChoices ?? [];
+  const cursorModel = form.model || settings.data?.defaultCursorModel || '';
+  const cursorEfforts = cursorModels.find((c) => c.value === cursorModel)?.efforts ?? [];
+  const cursorEffort = cursorEfforts.includes(form.effort) ? form.effort : '';
+  // Cursor has no command-line interface to work with: only its chat.
+  const iface = form.ai === 'cursor' ? 'chat' : form.iface;
   const fallbackModel = settingLabel(modelChoices, settings.data?.defaultClaudeModel ?? '', 'opus');
   // The windows the model it will run on has: the one picked, else the
   // project's, else the installation's default. "Default" is the window new
@@ -152,14 +161,14 @@ export function NewAgentDialog({
         name: form.name.trim() || undefined,
         branch: form.branch.trim() || undefined,
         ai: form.ai,
-        interface: form.ai === 'none' ? undefined : form.iface,
+        interface: form.ai === 'none' ? undefined : iface,
         // Sent either way: false is a choice, and leaving it out would mean
         // "whatever new agents do", which isn't what the switch was set to.
         autonomous: form.autonomous,
         // Left out when nothing was picked, so the model and effort new agents
         // start on apply. "" would be a choice of no model at all, and is refused.
-        model: form.ai === 'claude' || form.ai === 'opencode' ? form.model || undefined : undefined,
-        effort: form.ai === 'claude' ? form.effort || undefined : undefined,
+        model: form.ai === 'claude' || form.ai === 'opencode' || form.ai === 'cursor' ? form.model || undefined : undefined,
+        effort: form.ai === 'claude' ? form.effort || undefined : form.ai === 'cursor' ? cursorEffort || undefined : undefined,
         contextWindow: form.ai === 'claude' ? contextWindow || undefined : undefined,
         from: form.from.trim() || undefined,
         clean: form.clean || undefined,
@@ -219,7 +228,8 @@ export function NewAgentDialog({
   const needsLogin =
     (form.ai === 'claude' && auth.data?.claude === false) ||
     (form.ai === 'codex' && auth.data?.codex === false) ||
-    (form.ai === 'opencode' && auth.data?.opencode === false);
+    (form.ai === 'opencode' && auth.data?.opencode === false) ||
+    (form.ai === 'cursor' && auth.data?.cursor === false);
   // An AI tool that is optional in the base image is no use until the image
   // has it: saying so here is the same answer the daemon would give, before
   // the form is filled in rather than after it is sent.
@@ -359,20 +369,24 @@ export function NewAgentDialog({
                       key={option.value}
                       type="button"
                       role="radio"
-                      aria-checked={form.iface === option.value}
+                      aria-checked={iface === option.value}
+                      disabled={form.ai === 'cursor' && option.value === 'cli'}
                       data-interface={option.value}
-                      onClick={() => set('iface', option.value)}
+                      onClick={() => form.ai !== 'cursor' && set('iface', option.value)}
                       className={cn(
                         'flex items-center gap-2.5 rounded-xl border border-line bg-surface-faint px-3 py-2.5 text-left transition hover:border-line-vivid hover:bg-surface',
-                        form.iface === option.value && 'border-brand-400/50 bg-brand-500/10 shadow-[0_0_0_3px_rgb(139_92_246/0.12)]',
+                        iface === option.value && 'border-brand-400/50 bg-brand-500/10 shadow-[0_0_0_3px_rgb(139_92_246/0.12)]',
+                        form.ai === 'cursor' && option.value === 'cli' && 'cursor-not-allowed opacity-50 hover:border-line hover:bg-surface-faint',
                       )}
                     >
-                      <option.icon className={cn('size-4 shrink-0 text-subtle', form.iface === option.value && 'text-brand-300')} />
+                      <option.icon className={cn('size-4 shrink-0 text-subtle', iface === option.value && 'text-brand-300')} />
                       <span className="grid">
                         <span className="text-[13px] font-medium text-primary">{t(option.label)}</span>
                         <span className="text-[11px] text-subtle">
                           {option.value === 'chat'
                             ? t('project.newAgent.chatHint')
+                            : form.ai === 'cursor'
+                              ? t('project.newAgent.cursorNoCli')
                             : t('project.newAgent.cliHint', { tool: aiLabel(form.ai) })}
                         </span>
                       </span>
@@ -416,6 +430,32 @@ export function NewAgentDialog({
                       ))}
                     </Select>
                   </Field>
+                )}
+                {form.ai === 'cursor' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label={t('project.newAgent.modelLabel')} htmlFor="agent-cursor-model" hint={t('project.newAgent.cursorModelHint')}>
+                      <Select id="agent-cursor-model" value={form.model} onChange={(value) => setForm((f) => ({ ...f, model: value, effort: '' }))}>
+                        <SelectOption value="">{t('project.newAgent.cursorDefault')}</SelectOption>
+                        {cursorModels.map((choice) => (
+                          <SelectOption key={choice.value} value={choice.value}>
+                            {choiceName(choice) || choice.value}
+                          </SelectOption>
+                        ))}
+                      </Select>
+                    </Field>
+                    {cursorEfforts.length > 0 && (
+                      <Field label={t('project.newAgent.effortLabel')} htmlFor="agent-cursor-effort" hint={t('project.newAgent.effortHint')}>
+                        <Select id="agent-cursor-effort" value={cursorEffort} onChange={(value) => set('effort', value)}>
+                          <SelectOption value="">{t('project.newAgent.cursorEffortDefault')}</SelectOption>
+                          {cursorEfforts.map((level) => (
+                            <SelectOption key={level} value={level}>
+                              {level}
+                            </SelectOption>
+                          ))}
+                        </Select>
+                      </Field>
+                    )}
+                  </div>
                 )}
                 {form.ai === 'claude' && (
                   <div className="grid grid-cols-2 gap-4">

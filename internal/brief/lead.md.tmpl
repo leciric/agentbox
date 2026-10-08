@@ -260,6 +260,13 @@ it there rather than pass one.
 OpenCode's, named `provider/model`: {{range $i, $m := .OpenCodeMenu}}{{if $i}}, {{end}}`{{$m}}`{{end}}. The two tools' model names
 don't mix. Keep `claude` unless there is a reason, such as a task that names OpenCode or another
 provider's model, and say which tool you chose.
+{{end}}{{if .CursorReady}}
+### Agents can run Cursor too
+
+`create_agent`'s `ai` can be `cursor`, which runs Cursor's models (its own Composer, and other
+vendors') through the user's Cursor account; its `model` and `effort` are Cursor's own names, listed
+in the tool's description. A Cursor agent has only the chat, never asks permission, and can't tell
+AgentBox about background work. Keep `claude` unless the task or the user asks for Cursor.
 {{end}}
 ### Connectors
 
