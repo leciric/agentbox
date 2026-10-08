@@ -350,6 +350,7 @@ else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
+if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
 if (params.get('enforce') === '1') { queryClient.setQueryData(['queue', PROJECT], { projects: [] }); seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
@@ -992,6 +993,64 @@ function slowListsBridge(hold: number | null, refetches = false): void {
   };
   // What the app does when an agent is removed, as the daemon announces it.
   if (refetches) (window as unknown as { refetchLists: () => void }).refetchLists = () => void loadingClient.invalidateQueries();
+}
+
+// dragBridge is a sidebar to rearrange (?drag=1): two sections and projects
+// in none, saved the way the daemon saves them, late and followed by the
+// event that makes the app refetch both lists, while the projects' agents
+// keep changing status, which re-renders every row mid-drag. ?drag=slow
+// takes 1.5s to save, long enough to drag again before the first one lands.
+function dragBridge(queryClient: QueryClient, delay: number): void {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  const createdAt = new Date().toISOString();
+  let sections: T.Section[] = [
+    { id: 'work', name: 'Work', position: 1, collapsed: false, createdAt },
+    { id: 'side', name: 'Side projects', position: 2, collapsed: false, createdAt },
+  ];
+  const groups: [string, string[]][] = [
+    ['work', [PROJECT, 'agentbox-landing', 'agentbox-hub']],
+    ['side', ['blog', 'dotfiles']],
+    ['', ['docs', 'mobile-app', 'infra', 'scratch']],
+  ];
+  const base = fixtures.projects.find((p) => p.name === PROJECT)!;
+  let projects: T.Project[] = groups.flatMap(([section, names]) => names.map((name, i) => ({ ...base, name, displayName: '', section, position: i + 1 })));
+  const chats = ['running', 'waiting', 'ready'] as const;
+  let tick = 0;
+  const agents = () => projects.slice(0, 6).map((p, i) => ({ ...fixtures.agents[i], project: p.name, ref: `${p.name}/agent-${i + 1}`, chat: chats[(i + tick) % 3] }));
+  const answer = (v: unknown) => ({ status: 200, body: JSON.stringify(v), contentType: 'application/json' });
+  bridge.request = async (method, path, body) => {
+    if (method === 'GET' && path === '/v1/projects') return answer(projects);
+    if (method === 'GET' && path === '/v1/sections') return answer(sections);
+    if (method === 'PUT' && path === '/v1/projects/layout') {
+      const layout = body as T.ProjectLayout;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      const named = new Map(projects.map((p) => [p.name, p]));
+      const lists: [string, string[]][] = [...layout.sections.map((s): [string, string[]] => [s.id, s.projects]), ['', layout.loose]];
+      projects = lists.flatMap(([section, names]) => names.map((name, i) => ({ ...named.get(name)!, section, position: i + 1 })));
+      sections = layout.sections.map((s, i) => ({ ...sections.find((x) => x.id === s.id)!, position: i + 1 }));
+      // EventProject, as the daemon sends it after a reorder.
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ['projects'] });
+        void queryClient.invalidateQueries({ queryKey: ['sections'] });
+      }, 20);
+      return answer(projects);
+    }
+    if (method === 'PATCH' && path.startsWith('/v1/sections/')) {
+      const id = decodeURIComponent(path.slice('/v1/sections/'.length));
+      sections = sections.map((s) => (s.id === id ? { ...s, ...(body as T.UpdateSectionRequest) } : s));
+      return answer(sections.find((s) => s.id === id));
+    }
+    return inner(method, path, body);
+  };
+  queryClient.setQueryData(['projects'], projects);
+  queryClient.setQueryData(['sections'], sections);
+  queryClient.setQueryData(['agents'], agents());
+  setInterval(() => {
+    tick++;
+    queryClient.setQueryData(['agents'], agents());
+  }, 700);
 }
 
 // Home on a Linux machine that runs agents itself, and the Settings its

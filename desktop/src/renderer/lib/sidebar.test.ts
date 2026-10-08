@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { buildLists, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type SidebarList } from './sidebar.ts';
+import { arrange, buildLists, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type SidebarList } from './sidebar.ts';
 
 const project = (name: string, section = ''): T.Project => ({ name, section }) as T.Project;
 const section = (id: string, name = id): T.Section => ({ id, name }) as T.Section;
@@ -174,4 +174,103 @@ test('flatten writes back each project position and section, and renumbers secti
     flat.sections.map((s) => [s.id, s.position]),
     [['s1', 1]],
   );
+});
+
+const names = (lists: SidebarList[]) => lists.map((l) => [l.section?.id ?? null, l.projects.map((p) => p.name)]);
+
+test('drop is null for every place that is already where the project is', () => {
+  const lists = buildLists([project('a'), project('b'), project('c')], []);
+  // Over itself, and the two edges beside it that are the same place.
+  for (const target of [
+    { kind: 'project', name: 'b', edge: 'before' },
+    { kind: 'project', name: 'b', edge: 'after' },
+    { kind: 'project', name: 'a', edge: 'after' },
+    { kind: 'project', name: 'c', edge: 'before' },
+  ] as const)
+    assert.equal(drop(lists, { kind: 'project', name: 'b' }, target), null, JSON.stringify(target));
+  // The end of its list, for the last one.
+  assert.equal(drop(lists, { kind: 'project', name: 'c' }, { kind: 'list', section: null }), null);
+});
+
+test('drop moves a project to the very top and the very bottom of the sidebar', () => {
+  const lists = buildLists([project('a', 's1'), project('b', 's1'), project('c'), project('d')], [section('s1')]);
+  assert.deepEqual(names(drop(lists, { kind: 'project', name: 'd' }, { kind: 'project', name: 'a', edge: 'before' })!), [
+    ['s1', ['d', 'a', 'b']],
+    [null, ['c']],
+  ]);
+  assert.deepEqual(names(drop(lists, { kind: 'project', name: 'a' }, { kind: 'project', name: 'd', edge: 'after' })!), [
+    ['s1', ['b']],
+    [null, ['c', 'd', 'a']],
+  ]);
+  // Below every list: the end of the projects in no section.
+  assert.deepEqual(names(drop(lists, { kind: 'project', name: 'a' }, { kind: 'list', section: null })!), [
+    ['s1', ['b']],
+    [null, ['c', 'd', 'a']],
+  ]);
+});
+
+test('drop moving a project down its own list lands where the line was, not one further', () => {
+  const lists = buildLists([project('a'), project('b'), project('c'), project('d')], []);
+  assert.deepEqual(names(drop(lists, { kind: 'project', name: 'a' }, { kind: 'project', name: 'c', edge: 'after' })!), [[null, ['b', 'c', 'a', 'd']]]);
+  assert.deepEqual(names(drop(lists, { kind: 'project', name: 'a' }, { kind: 'project', name: 'c', edge: 'before' })!), [[null, ['b', 'a', 'c', 'd']]]);
+  assert.deepEqual(names(drop(lists, { kind: 'project', name: 'd' }, { kind: 'project', name: 'b', edge: 'after' })!), [[null, ['a', 'b', 'd', 'c']]]);
+});
+
+test('drop moves a section after the last one, and is null beside itself', () => {
+  const lists = buildLists([project('a', 's1')], [section('s1'), section('s2'), section('s3')]);
+  assert.deepEqual(
+    drop(lists, { kind: 'section', id: 's1' }, { kind: 'sectionOrder', id: 's3', edge: 'after' })!.map((l) => l.section?.id ?? null),
+    ['s2', 's3', 's1', null],
+  );
+  assert.equal(drop(lists, { kind: 'section', id: 's1' }, { kind: 'sectionOrder', id: 's1', edge: 'after' }), null);
+});
+
+test('drop works from what the last drop left, for two moves before either is saved', () => {
+  const lists = buildLists([project('a'), project('b'), project('c')], []);
+  const first = drop(lists, { kind: 'project', name: 'c' }, { kind: 'project', name: 'a', edge: 'before' })!;
+  const second = drop(first, { kind: 'project', name: 'a' }, { kind: 'project', name: 'b', edge: 'after' })!;
+  assert.deepEqual(names(second), [[null, ['c', 'b', 'a']]]);
+});
+
+test('arrange is buildLists when no move is on its way', () => {
+  const projects = [project('a', 's1'), project('b')];
+  assert.deepEqual(arrange(projects, [section('s1')], null), buildLists(projects, [section('s1')]));
+});
+
+test('arrange keeps a move on screen over a refetch that answers with the order before it', () => {
+  const sections = [section('s1'), section('s2')];
+  const stale = [project('a', 's1'), project('b', 's1'), project('c')];
+  const lists = arrange(stale, sections, { sections: [{ id: 's2', projects: ['b'] }, { id: 's1', projects: ['a'] }], loose: ['c'] });
+  assert.deepEqual(names(lists), [
+    ['s2', ['b']],
+    ['s1', ['a']],
+    [null, ['c']],
+  ]);
+});
+
+test("arrange shows the list's own projects and sections, changed since the move", () => {
+  const lists = arrange([{ ...project('a', 's1'), displayName: 'Renamed' }], [{ ...section('s1'), collapsed: true }], { sections: [{ id: 's1', projects: ['a'] }], loose: [] });
+  assert.equal(lists[0].projects[0].displayName, 'Renamed');
+  assert.equal(lists[0].section!.collapsed, true);
+});
+
+test('arrange places what the move did not know about, and drops what has gone', () => {
+  const lists = arrange(
+    [project('a', 's1'), project('new', 's1'), project('loose-new')],
+    [section('s1'), section('s9')],
+    { sections: [{ id: 's1', projects: ['gone', 'a'] }, { id: 'deleted', projects: [] }], loose: ['gone-too'] },
+  );
+  assert.deepEqual(names(lists), [
+    ['s1', ['a', 'new']],
+    ['s9', []],
+    [null, ['loose-new']],
+  ]);
+});
+
+test('arrange shows a project once, even in a layout that names it twice', () => {
+  const lists = arrange([project('a')], [section('s1')], { sections: [{ id: 's1', projects: ['a'] }], loose: ['a'] });
+  assert.deepEqual(names(lists), [
+    ['s1', ['a']],
+    [null, []],
+  ]);
 });
