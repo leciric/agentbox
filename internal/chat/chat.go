@@ -2578,7 +2578,7 @@ func (c *conversation) runningModelName() string {
 //
 // The two menus are not quite alike. The models are the account's, and stay
 // put. The effort levels are the ones "available for this model", and a model
-// can advertise none at all (Haiku 4.5 sends no effort option), so what is
+// can advertise none at all (Haiku 4.5 sent no effort option; Haiku 5.5 does), so what is
 // remembered is the levels Claude Code has been seen to name — enough to catch
 // a level it has never heard of, not a promise about any one model. A session
 // that sends no menu leaves the last one alone rather than forgetting it.

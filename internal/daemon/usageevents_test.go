@@ -198,6 +198,19 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 	}
 }
 
+// setupEvents are the setup events kept: the daemon's own loop may add the
+// day's heartbeat at any moment, so a test of the funnel looks at its events only.
+func setupEvents(d testDaemon) []state.UsageEvent {
+	var out []state.UsageEvent
+	rows, _ := d.srv.store.UsageEvents(context.Background(), 50)
+	for _, r := range rows {
+		if r.Name == eventSetup {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
 func TestSetupFunnelSkipsAnInstallationInUse(t *testing.T) {
 	t.Setenv("AGENTBOX_NO_UPDATE_CHECK", "")
 	t.Setenv("DO_NOT_TRACK", "")
@@ -211,7 +224,7 @@ func TestSetupFunnelSkipsAnInstallationInUse(t *testing.T) {
 	_ = d.srv.store.ForgetUsageEvents(ctx, 0, "")
 	d.srv.beginSetupFunnel(ctx)
 	d.srv.setupStep(ctx, setupFirstAgent)
-	if rows, _ := d.srv.store.UsageEvents(ctx, 10); len(rows) != 0 {
+	if rows := setupEvents(d); len(rows) != 0 {
 		t.Errorf("an installation in use sent %d setup events", len(rows))
 	}
 
@@ -219,7 +232,7 @@ func TestSetupFunnelSkipsAnInstallationInUse(t *testing.T) {
 	_ = d.srv.store.SetSetting(ctx, settingUsageSetupAt, "1")
 	d.srv.setupStep(ctx, setupFirstAgent)
 	d.srv.setupStep(ctx, setupFirstAgent)
-	rows, _ := d.srv.store.UsageEvents(ctx, 10)
+	rows := setupEvents(d)
 	if len(rows) != 1 || !strings.Contains(string(rows[0].Props), `"since":"gt_1w"`) {
 		t.Errorf("setup events = %v", rows)
 	}
