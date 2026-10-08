@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Image as ImageIcon, Images, Video } from 'lucide-react';
+import { Check, Image as ImageIcon, Images, Star, Video } from 'lucide-react';
 import { useState } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -40,6 +40,7 @@ export function AllMediaView({ onSelect }: { onSelect: (view: View) => void }) {
   const [agent, setAgent] = useState('');
   const [kind, setKind] = useState('');
   const [unseenOnly, setUnseenOnly] = useState(false);
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<T.MediaItem | null>(null);
 
@@ -52,8 +53,11 @@ export function AllMediaView({ onSelect }: { onSelect: (view: View) => void }) {
   for (const m of inProject) agentCounts.set(m.agent, (agentCounts.get(m.agent) ?? 0) + 1);
   const inAgent = inProject.filter((m) => !agent || m.agent === agent);
   // The open item stays in an Unseen-only list once opening it marks it seen,
-  // so the viewer doesn't close on it.
-  const visible = inAgent.filter((m) => (!kind || m.kind === kind) && (!unseenOnly || m.unseen || m.id === openId));
+  // and in a Favorites-only one once it's unstarred, so the viewer doesn't
+  // close on it.
+  const visible = inAgent.filter(
+    (m) => (!kind || m.kind === kind) && (!unseenOnly || m.unseen || m.id === openId) && (!favoritesOnly || m.favorite || m.id === openId),
+  );
   const unseen = items.filter((m) => m.unseen);
   const index = visible.findIndex((m) => m.id === openId);
   const label = (m: T.MediaItem) => {
@@ -142,6 +146,9 @@ export function AllMediaView({ onSelect }: { onSelect: (view: View) => void }) {
               <FilterChip active={unseenOnly} count={inAgent.filter((m) => m.unseen).length} onClick={() => setUnseenOnly(!unseenOnly)}>
                 <span className="size-1.5 rounded-full bg-brand-400" />
                 {t('shell.allMedia.unseen')}
+              </FilterChip>
+              <FilterChip icon={Star} active={favoritesOnly} count={inAgent.filter((m) => m.favorite).length} onClick={() => setFavoritesOnly(!favoritesOnly)}>
+                {t('shell.allMedia.favorites')}
               </FilterChip>
             </div>
           </div>

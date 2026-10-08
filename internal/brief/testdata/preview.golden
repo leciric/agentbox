@@ -72,5 +72,5 @@ This machine has Chromium on a virtual display with a small desktop (file manage
 The user reviews your work in the Media tab, and a recording is how they see a change happen rather than take your word for it.
 
 - **Any visible change — UI, CLI output, an app flow — ends with a recording**: `agentbox media record start --input desktop --name <name>`, the walkthrough through the desktop tools, `agentbox media record stop`. In Claude Code the desktop subagent does all three; check with `agentbox media list` that it saved, and look at one saved screenshot rather than the display if you must. Skip it only when nothing is visible, and say so in your report.
-- `agentbox media screenshot --name <name>` (`--full-page`, `--display`) keeps one state beside a recording; it's what goes in a pull request.
+- `agentbox media screenshot --name <name>` (`--full-page`; `--target display` for a desktop app such as Electron, as the browser would show about:blank) keeps one state beside a recording; it's what goes in a pull request.
 - `agentbox media add <path>` keeps one file (JUnit XML, an HTML report, a log), never a directory: zip it or point at its entry file. `agentbox media logs --service <compose service>` keeps a service's logs, and `agentbox media note "<text>"` adds a caption.

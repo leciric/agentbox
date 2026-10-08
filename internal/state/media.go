@@ -7,7 +7,8 @@ import (
 )
 
 // Media is something kept as proof of an agent's work: a screenshot, recording,
-// report, log, note or file. Items are added and deleted, never changed.
+// report, log, note or file. Items are added and deleted, never changed but
+// for Favorite.
 type Media struct {
 	ID        string
 	Project   string
@@ -26,16 +27,19 @@ type Media struct {
 	// kept, which is when its retention clock starts. Zero means its agent
 	// still exists, so it never expires.
 	OrphanedAt time.Time
+	// Favorite items are never removed automatically: ExpiredMedia skips
+	// them, and so does DeleteAgentMedia. Deleting one by hand still works.
+	Favorite bool
 }
 
 func (m Media) Ref() string { return m.Project + "/" + m.Agent }
 
-const mediaColumns = `id, project, agent, kind, name, file, mime, size, sha256, source, text, meta, created_at, orphaned_at`
+const mediaColumns = `id, project, agent, kind, name, file, mime, size, sha256, source, text, meta, created_at, orphaned_at, favorite`
 
 func (s *Store) AddMedia(ctx context.Context, m Media) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO media (`+mediaColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ID, m.Project, m.Agent, m.Kind, m.Name, m.File, m.Mime, m.Size, m.SHA256, m.Source, m.Text, m.Meta, m.CreatedAt.UnixMilli(), millis(m.OrphanedAt))
+		`INSERT INTO media (`+mediaColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ID, m.Project, m.Agent, m.Kind, m.Name, m.File, m.Mime, m.Size, m.SHA256, m.Source, m.Text, m.Meta, m.CreatedAt.UnixMilli(), millis(m.OrphanedAt), m.Favorite)
 	return err
 }
 
@@ -82,9 +86,29 @@ func (s *Store) DeleteMedia(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Store) DeleteAgentMedia(ctx context.Context, project, agent string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM media WHERE project = ? AND agent = ?`, project, agent)
-	return err
+// DeleteAgentMedia deletes an agent's media but for its favorites, and
+// returns those it kept.
+func (s *Store) DeleteAgentMedia(ctx context.Context, project, agent string) ([]Media, error) {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM media WHERE project = ? AND agent = ? AND favorite = 0`, project, agent); err != nil {
+		return nil, err
+	}
+	return s.Media(ctx, project, agent)
+}
+
+// SetMediaFavorite marks an item a favorite, or not. Unfavoriting an item
+// whose agent is gone restarts its retention clock at now, so it doesn't
+// expire the instant it stops being a favorite.
+func (s *Store) SetMediaFavorite(ctx context.Context, id string, favorite bool, now time.Time) (Media, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE media SET favorite = ?, orphaned_at = CASE WHEN ? = 0 AND favorite = 1 AND orphaned_at > 0 THEN ? ELSE orphaned_at END WHERE id = ?`,
+		favorite, favorite, now.UnixMilli(), id)
+	if err != nil {
+		return Media{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Media{}, fmt.Errorf("media %s: %w", id, ErrNotFound)
+	}
+	return s.MediaItem(ctx, id)
 }
 
 // OrphanAgentMedia marks an agent's media as kept past its agent, starting
@@ -99,8 +123,8 @@ func (s *Store) OrphanAgentMedia(ctx context.Context, project, agent string, at 
 
 // ExpiredMedia lists kept media whose agent is gone and whose retention
 // period, counted from when it was orphaned, has passed as of now. Media
-// whose agent still exists is never included, and nothing is while the
-// installation keeps media forever.
+// whose agent still exists is never included, nor is a favorite, and nothing
+// is while the installation keeps media forever.
 func (s *Store) ExpiredMedia(ctx context.Context, now time.Time) ([]Media, error) {
 	retention, err := s.MediaRetention(ctx)
 	if err != nil {
@@ -110,7 +134,7 @@ func (s *Store) ExpiredMedia(ctx context.Context, now time.Time) ([]Media, error
 	if forever {
 		return nil, nil
 	}
-	return s.queryMedia(ctx, `WHERE orphaned_at > 0 AND orphaned_at <= ? ORDER BY created_at`, now.Add(-period).UnixMilli())
+	return s.queryMedia(ctx, `WHERE orphaned_at > 0 AND orphaned_at <= ? AND favorite = 0 ORDER BY created_at`, now.Add(-period).UnixMilli())
 }
 
 func (s *Store) queryMedia(ctx context.Context, clause string, args ...any) ([]Media, error) {
@@ -124,7 +148,7 @@ func (s *Store) queryMedia(ctx context.Context, clause string, args ...any) ([]M
 		var m Media
 		var created, orphaned int64
 		if err := rows.Scan(&m.ID, &m.Project, &m.Agent, &m.Kind, &m.Name, &m.File, &m.Mime, &m.Size,
-			&m.SHA256, &m.Source, &m.Text, &m.Meta, &created, &orphaned); err != nil {
+			&m.SHA256, &m.Source, &m.Text, &m.Meta, &created, &orphaned, &m.Favorite); err != nil {
 			return nil, err
 		}
 		m.CreatedAt = time.UnixMilli(created)

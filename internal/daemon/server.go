@@ -723,6 +723,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/media/{id}", s.mediaItem)
 	h("GET /v1/media/{id}/file", s.mediaFile)
 	h("DELETE /v1/media/{id}", s.deleteMedia)
+	h("PATCH /v1/media/{id}", s.updateMedia)
 	h("GET /v1/media", s.allMedia)
 	h("GET /v1/notifications", s.notifications)
 	h("POST /v1/notifications/seen", s.seeNotifications)

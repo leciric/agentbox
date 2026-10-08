@@ -673,6 +673,7 @@ export interface MediaItem {
   expiresAt?: string;
   removed?: boolean;
   unseen?: boolean;
+  favorite?: boolean;
 }
 
 export interface MediaMeta {
@@ -780,6 +781,10 @@ export interface DeleteMediaRequest {
 export interface DeleteMediaResult {
   deleted: number;
   bytes: number;
+}
+
+export interface UpdateMediaRequest {
+  favorite?: boolean;
 }
 
 export interface SetupCheck {

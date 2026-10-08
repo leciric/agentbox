@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, Images, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 import type { ComponentType, DragEvent, KeyboardEvent, ReactNode } from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
@@ -11,7 +11,7 @@ import { t as tNow, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
-import { buildLists, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
+import { arrange, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
 import { useAppUpdate } from '../lib/useAppUpdate';
 import { cn, errorMessage } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -69,36 +69,71 @@ export function Sidebar({
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
   const queryClient = useQueryClient();
 
-  // The sidebar's order, as the daemon last said it: the sections in theirs,
-  // then the projects in none. Every move below is a function of this.
-  // No sections before the projects are in either: each would show as empty.
-  const lists = useMemo(() => (projects.data ? buildLists(projects.data, sections.data ?? []) : []), [projects.data, sections.data]);
+  // A move on its way to the daemon: the layout it sent, shown until the
+  // last move in flight has its answer. Until then a refetch (the daemon
+  // announces every reorder, and a move can be dropped before the one before
+  // it lands) would answer with an older order, and the rows would jump back.
+  const [pending, setPending] = useState<T.ProjectLayout | null>(null);
+  const inFlight = useRef(0);
 
+  // The sidebar's order, as the daemon last said it, or as the move on its
+  // way asked: the sections in theirs, then the projects in none. Every move
+  // below is a function of this. No sections before the projects are in
+  // either: each would show as empty.
+  const lists = useMemo(() => (projects.data ? arrange(projects.data, sections.data ?? [], pending) : []), [projects.data, sections.data, pending]);
+
+  // What is being dragged lives in a ref, which every drag event reads, and
+  // in state a moment later, for what it draws: changing the page inside
+  // dragstart puts the change in the drag image, and can cancel the drag.
+  const draggingRef = useRef<Dragging | null>(null);
   const [dragging, setDragging] = useState<Dragging | null>(null);
   const [target, setTarget] = useState<DropTarget | null>(null);
+  const aimed = useRef<DropTarget | null>(null); // the target, as of the last dragover
   const [naming, setNaming] = useState<string | null>(null); // a section being named: its id, or '' for a new one
   const [deleting, setDeleting] = useState<T.Section | null>(null);
   // What a keyboard move did, for a screen reader: the sidebar rearranging
   // itself is the whole of the feedback otherwise.
   const [announced, setAnnounced] = useState('');
 
-  // A reorder sends the whole layout, and shows it before the daemon answers:
-  // the cache is written with exactly what the daemon will write, so a
-  // successful round trip changes nothing on screen.
+  // A reorder sends the whole layout, and shows it before the daemon answers.
+  // Reorders go one at a time (the scope), so the daemon stores the last one
+  // last, and only the last answer is written: an earlier one is an order
+  // already moved on from.
   const reorder = useMutation({
-    mutationFn: (next: SidebarList[]) => api.setProjectLayout(toLayout(next)),
-    onMutate: (next: SidebarList[]) => {
-      const { projects: ordered, sections: order } = flatten(next);
-      queryClient.setQueryData<T.Project[]>(['projects'], ordered);
-      queryClient.setQueryData<T.Section[]>(['sections'], order);
-    },
-    onSuccess: (ordered) => queryClient.setQueryData<T.Project[]>(['projects'], ordered),
-    onError: async (err) => {
-      toast.error(errorMessage(err));
-      await queryClient.invalidateQueries({ queryKey: ['projects'] });
-      await queryClient.invalidateQueries({ queryKey: ['sections'] });
+    scope: { id: 'project-layout' },
+    mutationFn: (layout: T.ProjectLayout) => api.setProjectLayout(layout),
+    onError: (err) => toast.error(errorMessage(err)),
+    onSettled: (ordered, err, layout) => {
+      if (--inFlight.current > 0) return;
+      // A refetch started before the daemon stored this would answer with
+      // the order before it.
+      void queryClient.cancelQueries({ queryKey: ['projects'] });
+      void queryClient.cancelQueries({ queryKey: ['sections'] });
+      if (err || !ordered) {
+        void queryClient.invalidateQueries({ queryKey: ['projects'] });
+        void queryClient.invalidateQueries({ queryKey: ['sections'] });
+      } else {
+        queryClient.setQueryData<T.Project[]>(['projects'], ordered);
+        queryClient.setQueryData<T.Section[]>(['sections'], (current) => current && flatten(arrange([], current, layout)).sections);
+      }
+      setPending(null);
     },
   });
+
+  // save sends a move, and shows it at once: the cache is written with
+  // exactly what the daemon will write, for every other view that lists the
+  // projects, and the sidebar keeps it on screen until the answer.
+  const save = (next: SidebarList[], then?: () => void) => {
+    const layout = toLayout(next);
+    inFlight.current++;
+    setPending(layout);
+    void queryClient.cancelQueries({ queryKey: ['projects'] });
+    void queryClient.cancelQueries({ queryKey: ['sections'] });
+    const { projects: ordered, sections: order } = flatten(next);
+    queryClient.setQueryData<T.Project[]>(['projects'], ordered);
+    queryClient.setQueryData<T.Section[]>(['sections'], order);
+    reorder.mutate(layout, { onSuccess: then });
+  };
 
   const patchSection = useMutation({
     mutationFn: ({ id, req }: { id: string; req: T.UpdateSectionRequest }) => api.updateSection(id, req),
@@ -124,10 +159,8 @@ export function Sidebar({
     if (!next) return;
     const landed = moved ? next.find((l) => l.projects.some((p) => p.name === moved)) : undefined;
     if (moved) setAnnounced(place(next, moved));
-    reorder.mutate(next, {
-      onSuccess: () => {
-        if (landed?.section?.collapsed) patchSection.mutate({ id: landed.section.id, req: { collapsed: false } });
-      },
+    save(next, () => {
+      if (landed?.section?.collapsed) patchSection.mutate({ id: landed.section.id, req: { collapsed: false } });
     });
   };
 
@@ -138,19 +171,107 @@ export function Sidebar({
     if (!next) return;
     const sections = next.filter((l) => l.section);
     setAnnounced(tNow('shell.sidebar.sectionPlace', { name: section.name, n: sections.findIndex((l) => l.section!.id === section.id) + 1, total: sections.length }));
-    reorder.mutate(next);
+    save(next);
   };
 
-  const endDrag = () => {
+  const startDrag = (what: Dragging) => (e: DragEvent) => {
+    draggingRef.current = what;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', what.kind === 'project' ? what.name : what.id);
+    setTimeout(() => draggingRef.current === what && setDragging(what));
+  };
+
+  const endDrag = useCallback(() => {
+    draggingRef.current = null;
+    aimed.current = null;
     setDragging(null);
     setTarget(null);
+  }, []);
+
+  // A drag whose row went away mid-drag (its section folded, the list
+  // refetched without it) never hears its dragend; the first mouse move with
+  // no button down says the drag is over all the same.
+  useEffect(() => {
+    if (!dragging) return;
+    const over = (e: MouseEvent) => e.buttons === 0 && endDrag();
+    window.addEventListener('mousemove', over);
+    return () => window.removeEventListener('mousemove', over);
+  }, [dragging, endDrag]);
+
+  // The indicator: where a drop would land, or nothing where it would change
+  // nothing (a project over itself), so what it shows is what a drop does.
+  const aim = (where: DropTarget | null) => {
+    const what = draggingRef.current;
+    const useful = what && where && drop(lists, what, where) ? where : null;
+    aimed.current = useful;
+    setTarget((current) => (current && useful && targetKey(current) === targetKey(useful) ? current : useful));
   };
 
-  // A drop applies whatever the last dragover decided, which is the same
-  // thing the indicator is drawn from: the row under the pointer set both.
-  const commitDrop = () => {
-    if (dragging && target) apply(drop(lists, dragging, target), dragging.kind === 'project' ? dragging.name : undefined);
+  // A drop goes where the drop event says, not where the last dragover did:
+  // dragover comes at most every few dozen milliseconds, so a quick drag
+  // lets go somewhere it hasn't reported yet.
+  const commitDrop = (where: DropTarget | null) => {
+    const what = draggingRef.current;
     endDrag();
+    if (what && where) apply(drop(lists, what, where), what.kind === 'project' ? what.name : undefined);
+  };
+
+  // A drag that ends saying it moved something, with no drop event, was
+  // dropped where the indicator last was: Chromium on X11 can let go of a
+  // quick drag before telling the page, which would otherwise see the row
+  // jump back. Dropped elsewhere (outside the window, or Escape), it says
+  // none; one that did drop has ended already, so there is nothing left.
+  const finishDrag = (e: DragEvent) => {
+    if (e.dataTransfer.dropEffect !== 'none' && draggingRef.current && aimed.current) commitDrop(aimed.current);
+    else endDrag();
+  };
+
+  // dropZone makes an element a drop target. where says what a drop at the
+  // pointer would be, or null for a drag this element isn't a target for,
+  // which then goes on to the element around it: a section dragged over a
+  // project is a drag over the section that project is in. The innermost
+  // target that answers decides.
+  const dropZone = (where: (e: DragEvent) => DropTarget | null) => ({
+    onDragOver: (e: DragEvent) => {
+      if (e.isDefaultPrevented()) return;
+      const at = where(e);
+      if (!at) return;
+      e.preventDefault();
+      aim(at);
+    },
+    onDrop: (e: DragEvent) => {
+      if (e.isDefaultPrevented()) return;
+      const at = where(e);
+      if (!at) return;
+      e.preventDefault();
+      commitDrop(at);
+    },
+  });
+  // A project over a list but not over any of its rows (the space between
+  // two sections) goes to that list's end, or onto the section's header when
+  // there are no rows to go after.
+  const listEnd = (list: SidebarList): DropTarget => {
+    const last = list.section?.collapsed ? undefined : list.projects.at(-1);
+    if (last) return { kind: 'project', name: last.name, edge: 'after' };
+    return list.section ? { kind: 'section', id: list.section.id } : { kind: 'list', section: null };
+  };
+  const edge = (e: DragEvent): 'before' | 'after' => {
+    const box = e.currentTarget.getBoundingClientRect();
+    return e.clientY < box.top + box.height / 2 ? 'before' : 'after';
+  };
+
+  // Below every list, the space left in the sidebar is the end of it: a
+  // project lands at the bottom of the projects in no section, a section
+  // after the last section. Anywhere else no target took (the gap between
+  // two sections), there is nothing to drop on, and the indicator says so.
+  const listsEnd = useRef<HTMLDivElement>(null);
+  const belowLists = (e: DragEvent): DropTarget | null => {
+    const what = draggingRef.current;
+    const end = listsEnd.current?.getBoundingClientRect().bottom ?? Infinity;
+    if (!what || e.clientY < end) return null;
+    if (what.kind === 'project') return listEnd(lists.at(-1)!);
+    const last = lists.filter((l) => l.section).at(-1)?.section;
+    return last ? { kind: 'sectionOrder', id: last.id, edge: 'after' } : null;
   };
 
   // Alt with an arrow moves the focused row, which is the keyboard's whole
@@ -162,7 +283,12 @@ export function Sidebar({
     move(e.key === 'ArrowUp' ? -1 : 1);
   };
 
-  const dropLine = <div className="mx-2 my-px h-0.5 rounded-full bg-brand-400" />;
+  // Drawn over the rows rather than between them: a line that took room would
+  // push the row under the pointer away, and the next dragover would aim
+  // somewhere else.
+  const dropLine = (edge: 'before' | 'after', gap = false) => (
+    <div className={cn('pointer-events-none absolute inset-x-2 z-10 h-0.5 rounded-full bg-brand-400', edge === 'before' ? (gap ? '-top-[3px]' : '-top-px') : gap ? 'bottom-px' : '-bottom-px')} />
+  );
   const isTarget = (where: DropTarget) => target !== null && targetKey(target) === targetKey(where);
 
   const projectRow = (project: T.Project) => {
@@ -170,8 +296,8 @@ export function Sidebar({
     const tone = projectTone(mine);
     const dragged = dragging?.kind === 'project' && dragging.name === project.name;
     return (
-      <div key={project.name}>
-        {isTarget({ kind: 'project', name: project.name, edge: 'before' }) && dropLine}
+      <div key={project.name} className="relative" {...dropZone((e) => (draggingRef.current?.kind === 'project' ? { kind: 'project', name: project.name, edge: edge(e) } : null))}>
+        {isTarget({ kind: 'project', name: project.name, edge: 'before' }) && dropLine('before')}
         <div
           className={cn(
             'group flex items-center rounded-lg pr-1 transition-colors hover:bg-surface-faint',
@@ -179,24 +305,8 @@ export function Sidebar({
             dragged && 'opacity-40',
           )}
           draggable
-          onDragStart={(e: DragEvent) => {
-            setDragging({ kind: 'project', name: project.name });
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', project.name);
-          }}
-          onDragEnd={endDrag}
-          onDragOver={(e: DragEvent) => {
-            // A section dragged over a project isn't a drop: no indicator,
-            // and no preventDefault, so the cursor says so.
-            if (dragging?.kind !== 'project') return setTarget(null);
-            e.preventDefault();
-            const box = e.currentTarget.getBoundingClientRect();
-            setTarget({ kind: 'project', name: project.name, edge: e.clientY < box.top + box.height / 2 ? 'before' : 'after' });
-          }}
-          onDrop={(e: DragEvent) => {
-            e.preventDefault();
-            commitDrop();
-          }}
+          onDragStart={startDrag({ kind: 'project', name: project.name })}
+          onDragEnd={finishDrag}
         >
           <button
             data-project={project.name}
@@ -227,38 +337,28 @@ export function Sidebar({
             </button>
           </Tip>
         </div>
-        {isTarget({ kind: 'project', name: project.name, edge: 'after' }) && dropLine}
+        {isTarget({ kind: 'project', name: project.name, edge: 'after' }) && dropLine('after')}
       </div>
     );
   };
 
-  // The tail of a list: what a project dropped below everything lands on, and
-  // what an empty section offers instead of nothing at all.
+  // What an empty list offers instead of nothing at all. A list with
+  // projects needs none: below its last one is after its last one. An empty
+  // section says what it is for; the projects in no section are a list with
+  // no heading, so an empty one has nothing to say and shows nothing until
+  // something is dragged, at the bottom, where it moves nothing else.
   const listTail = (list: SidebarList) => {
     const id = list.section?.id ?? null;
-    const empty = list.projects.length === 0;
-    // An empty section says what it is for; the projects in no section are a
-    // list with no heading, so an empty one has nothing to say and shows
-    // nothing until something is dragged over it.
-    if ((!empty || !list.section) && dragging?.kind !== 'project') return null;
+    if (list.projects.length > 0 || (!list.section && dragging?.kind !== 'project')) return null;
     return (
       <div
         className={cn(
-          'mx-2 rounded-lg text-[11.5px] text-faint transition-colors',
-          empty ? 'border border-dashed border-line-strong px-2.5 py-1.5' : 'h-2',
+          'mx-2 rounded-lg border border-dashed border-line-strong px-2.5 py-1.5 text-[11.5px] text-faint transition-colors',
           isTarget({ kind: 'list', section: id }) && 'border-brand-400/60 bg-brand-400/10 text-brand-300',
         )}
-        onDragOver={(e: DragEvent) => {
-          if (dragging?.kind !== 'project') return;
-          e.preventDefault();
-          setTarget({ kind: 'list', section: id });
-        }}
-        onDrop={(e: DragEvent) => {
-          e.preventDefault();
-          commitDrop();
-        }}
+        {...dropZone(() => (draggingRef.current?.kind === 'project' ? { kind: 'list', section: id } : null))}
       >
-        {empty && list.section && t('shell.sidebar.dropHere')}
+        {list.section && t('shell.sidebar.dropHere')}
       </div>
     );
   };
@@ -292,7 +392,24 @@ export function Sidebar({
         <MediaNavItem active={view.kind === 'media'} onClick={() => onSelect({ kind: 'media' })} />
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label={t('shell.sidebar.projects')}>
+      <nav
+        className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1"
+        aria-label={t('shell.sidebar.projects')}
+        onDragOver={(e: DragEvent) => {
+          if (e.isDefaultPrevented() || !draggingRef.current) return; // a row took it
+          const at = belowLists(e);
+          if (at) e.preventDefault();
+          aim(at);
+        }}
+        onDrop={(e: DragEvent) => {
+          if (e.isDefaultPrevented()) return;
+          e.preventDefault();
+          commitDrop(belowLists(e));
+        }}
+        onDragLeave={(e: DragEvent) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) aim(null);
+        }}
+      >
         <div className="flex items-center gap-1 px-2.5 pb-1.5">
           <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('shell.sidebar.projects')}</span>
           <Tip label={t('shell.sidebar.newProject')}>
@@ -334,49 +451,70 @@ export function Sidebar({
           </button>
         )}
 
-        {lists.map((list) =>
-          list.section ? (
-            <div key={list.section.id} className="mb-1">
-              {isTarget({ kind: 'sectionOrder', id: list.section.id, edge: 'before' }) && dropLine}
-              <SectionHeader
-                section={list.section}
-                count={list.projects.length}
-                dragging={dragging}
-                targeted={isTarget({ kind: 'section', id: list.section.id })}
-                onToggle={() => patchSection.mutate({ id: list.section!.id, req: { collapsed: !list.section!.collapsed } })}
-                onMove={(delta) => moveSectionBy(list.section!, delta)}
-                onRename={() => setNaming(list.section!.id)}
-                onDelete={() => setDeleting(list.section)}
-                onDragStart={() => setDragging({ kind: 'section', id: list.section!.id })}
-                onDragEnd={endDrag}
-                onDragOver={setTarget}
-                onDrop={commitDrop}
-                moveKeys={moveKeys}
-              />
-              {!list.section.collapsed && (
-                <>
-                  {list.projects.map(projectRow)}
-                  {listTail(list)}
-                </>
-              )}
-              {isTarget({ kind: 'sectionOrder', id: list.section.id, edge: 'after' }) && dropLine}
-            </div>
-          ) : (
-            <div key="loose" className={cn(lists.length > 1 && 'mt-1.5 border-t border-line-faint pt-1.5')}>
-              {naming === '' && (
-                <NameSection
-                  onCancel={() => setNaming(null)}
-                  onSave={(name) => {
-                    setNaming(null);
-                    addSection.mutate(name);
-                  }}
+        <div ref={listsEnd}>
+          {lists.map((list) =>
+            list.section ? (
+              // A section dragged over another one, anywhere on it, its
+              // projects included, goes before or after it by which half. The
+              // space under it is its own (padding, not a margin), so a drop
+              // between two sections has somewhere to go.
+              <div
+                key={list.section.id}
+                className="relative pb-1"
+                {...dropZone((e) => {
+                  const what = draggingRef.current;
+                  if (what?.kind === 'section') return { kind: 'sectionOrder', id: list.section!.id, edge: edge(e) };
+                  return what ? listEnd(list) : null;
+                })}
+              >
+                {isTarget({ kind: 'sectionOrder', id: list.section.id, edge: 'before' }) && dropLine('before', true)}
+                <SectionHeader
+                  section={list.section}
+                  count={list.projects.length}
+                  dragging={dragging}
+                  targeted={isTarget({ kind: 'section', id: list.section.id })}
+                  onToggle={() => patchSection.mutate({ id: list.section!.id, req: { collapsed: !list.section!.collapsed } })}
+                  onMove={(delta) => moveSectionBy(list.section!, delta)}
+                  onRename={() => setNaming(list.section!.id)}
+                  onDelete={() => setDeleting(list.section)}
+                  onDragStart={startDrag({ kind: 'section', id: list.section.id })}
+                  onDragEnd={finishDrag}
+                  dropZone={dropZone(() => (draggingRef.current?.kind === 'project' ? { kind: 'section', id: list.section!.id } : null))}
+                  moveKeys={moveKeys}
                 />
-              )}
-              {list.projects.map(projectRow)}
-              {listTail(list)}
-            </div>
-          ),
-        )}
+                {!list.section.collapsed && (
+                  <>
+                    {list.projects.map(projectRow)}
+                    {listTail(list)}
+                  </>
+                )}
+                {isTarget({ kind: 'sectionOrder', id: list.section.id, edge: 'after' }) && dropLine('after', true)}
+              </div>
+            ) : (
+              <div
+                key="loose"
+                className={cn(lists.length > 1 && 'mt-1.5 border-t border-line-faint pt-1.5')}
+                {...dropZone(() => {
+                  if (draggingRef.current?.kind !== 'project') return null;
+                  const first = list.projects[0];
+                  return first ? { kind: 'project', name: first.name, edge: 'before' } : { kind: 'list', section: null };
+                })}
+              >
+                {naming === '' && (
+                  <NameSection
+                    onCancel={() => setNaming(null)}
+                    onSave={(name) => {
+                      setNaming(null);
+                      addSection.mutate(name);
+                    }}
+                  />
+                )}
+                {list.projects.map(projectRow)}
+                {listTail(list)}
+              </div>
+            ),
+          )}
+        </div>
         <p className="sr-only" aria-live="polite">
           {announced}
         </p>
@@ -464,8 +602,7 @@ function SectionHeader({
   onDelete,
   onDragStart,
   onDragEnd,
-  onDragOver,
-  onDrop,
+  dropZone,
   moveKeys,
 }: {
   section: T.Section;
@@ -476,25 +613,13 @@ function SectionHeader({
   onMove: (delta: -1 | 1) => void;
   onRename: () => void;
   onDelete: () => void;
-  onDragStart: () => void;
-  onDragEnd: () => void;
-  onDragOver: (where: DropTarget) => void;
-  onDrop: () => void;
+  onDragStart: (e: DragEvent) => void;
+  onDragEnd: (e: DragEvent) => void;
+  // A project dropped on the header joins the section, at its top.
+  dropZone: { onDragOver: (e: DragEvent) => void; onDrop: (e: DragEvent) => void };
   moveKeys: (move: (delta: -1 | 1) => void) => (e: KeyboardEvent) => void;
 }) {
   const t = useT();
-  // A section takes a project dropped on its header, and swaps places with
-  // another section dropped on it. Which of the two is being dragged decides
-  // what the header is a target for.
-  const over = (e: DragEvent) => {
-    if (!dragging) return;
-    e.preventDefault();
-    if (dragging.kind === 'project') return onDragOver({ kind: 'section', id: section.id });
-    if (dragging.id === section.id) return;
-    const box = e.currentTarget.getBoundingClientRect();
-    onDragOver({ kind: 'sectionOrder', id: section.id, edge: e.clientY < box.top + box.height / 2 ? 'before' : 'after' });
-  };
-
   return (
     <div
       className={cn(
@@ -503,17 +628,9 @@ function SectionHeader({
         dragging?.kind === 'section' && dragging.id === section.id && 'opacity-40',
       )}
       draggable
-      onDragStart={(e: DragEvent) => {
-        onDragStart();
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', section.name);
-      }}
+      onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onDragOver={over}
-      onDrop={(e: DragEvent) => {
-        e.preventDefault();
-        onDrop();
-      }}
+      {...dropZone}
     >
       <GripVertical className="size-3 shrink-0 text-ghost opacity-0 transition group-hover/section:opacity-100" />
       <button

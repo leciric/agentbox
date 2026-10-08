@@ -1935,6 +1935,15 @@ type MediaItem struct {
 	// Unseen is true, in GET /v1/media, for an item the user was told about
 	// and hasn't opened or marked seen yet.
 	Unseen bool `json:"unseen,omitempty"`
+	// Favorite items are never removed automatically, by the retention
+	// sweep or with their agent, so they have no ExpiresAt.
+	Favorite bool `json:"favorite,omitempty"`
+}
+
+// UpdateMediaRequest is PATCH /v1/media/{id}: what to change about an item.
+// Unfavoriting one whose agent is gone starts its retention clock then.
+type UpdateMediaRequest struct {
+	Favorite *bool `json:"favorite,omitempty"`
 }
 
 type MediaMeta struct {

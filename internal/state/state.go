@@ -856,6 +856,10 @@ var migrations = []string{
 		props TEXT NOT NULL
 	)`,
 
+	// A favorite media item is never removed on its own: not by the
+	// retention sweep, not with its agent (Media.Favorite).
+	`ALTER TABLE media ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`,
+
 	// Skills (internal/skills): a folder with a SKILL.md, stored whole so the
 	// daemon can install it into every agent and lead that gets it. enabled is
 	// the AgentBox-wide switch; skill_projects holds a project's override of

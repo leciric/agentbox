@@ -166,6 +166,14 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 		return state.Media{}, err
 	}
 	target := cmpOr(opts.Target, "browser")
+	if opts.Target == "" {
+		// Nothing asked for: the browser's page, unless it has none worth
+		// shooting (an app on the display, a browser left on about:blank),
+		// where the page would come out blank.
+		if status, err := m.BrowserStatus(ctx, a); err == nil && status.Display && !hasRealPage(status.Pages) {
+			target = "display"
+		}
+	}
 	if target != "browser" && target != "display" && target != "android" {
 		return state.Media{}, fmt.Errorf("unknown screenshot target %q: use browser, display or android", target)
 	}
@@ -199,7 +207,10 @@ func (m *Manager) browserScreenshot(ctx context.Context, a state.Agent, file str
 	if !status.Running || len(status.Pages) == 0 {
 		return "", fmt.Errorf("%s's browser isn't running: start it, or take a display screenshot", a.Ref())
 	}
-	page := status.Pages[0]
+	page, ok := firstRealPage(status.Pages)
+	if !ok {
+		return "", fmt.Errorf("%s's browser has no page open, only about:blank, which would come out blank: to capture an app on the display, use --target display", a.Ref())
+	}
 	err = m.withPage(ctx, a, page, func(ctx context.Context, session *devtoolsSession) error {
 		params := map[string]any{"format": "png"}
 		if fullPage {
@@ -223,6 +234,21 @@ func (m *Manager) browserScreenshot(ctx context.Context, a state.Agent, file str
 		return os.WriteFile(file, content, 0o600)
 	})
 	return page.URL, err
+}
+
+// firstRealPage returns the first page that isn't about:blank.
+func firstRealPage(pages []BrowserPage) (BrowserPage, bool) {
+	for _, p := range pages {
+		if p.URL != "about:blank" {
+			return p, true
+		}
+	}
+	return BrowserPage{}, false
+}
+
+func hasRealPage(pages []BrowserPage) bool {
+	_, ok := firstRealPage(pages)
+	return ok
 }
 
 func (m *Manager) displayScreenshot(ctx context.Context, a state.Agent, file, id string) error {
@@ -690,14 +716,41 @@ func (m *Manager) DeleteMedia(ctx context.Context, item state.Media) error {
 	return os.RemoveAll(filepath.Join(m.MediaDir(item.Project, item.Agent), item.ID))
 }
 
+// deleteAgentMedia deletes an agent's media as it goes, but for its
+// favorites: those are kept as if the agent's media were, their retention
+// clock started for when they stop being favorites.
 func (m *Manager) deleteAgentMedia(ctx context.Context, a state.Agent) error {
-	if err := m.Store.DeleteAgentMedia(ctx, a.Project, a.Name); err != nil {
+	kept, err := m.Store.DeleteAgentMedia(ctx, a.Project, a.Name)
+	if err != nil {
 		return err
 	}
 	if old := m.legacyMediaDir(); old != "" {
-		_ = os.RemoveAll(filepath.Join(old, a.Project, a.Name))
+		removeAllBut(filepath.Join(old, a.Project, a.Name), kept)
 	}
-	return os.RemoveAll(m.MediaDir(a.Project, a.Name))
+	if len(kept) == 0 {
+		return os.RemoveAll(m.MediaDir(a.Project, a.Name))
+	}
+	removeAllBut(m.MediaDir(a.Project, a.Name), kept)
+	return m.keepAgentMedia(ctx, a)
+}
+
+// removeAllBut empties an agent's media directory of everything but the
+// kept items' own directories, each named for its item's ID.
+func removeAllBut(dir string, kept []state.Media) {
+	if len(kept) == 0 {
+		_ = os.RemoveAll(dir)
+		return
+	}
+	keep := make(map[string]bool, len(kept))
+	for _, item := range kept {
+		keep[item.ID] = true
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if !keep[e.Name()] {
+			_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // keepAgentMedia starts the retention clock on an agent's media, now that its
