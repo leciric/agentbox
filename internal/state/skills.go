@@ -118,7 +118,7 @@ func (s *Store) Skills(ctx context.Context) ([]Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []Skill
 	byName := map[string]int{}
 	for rows.Next() {
@@ -139,7 +139,7 @@ func (s *Store) Skills(ctx context.Context) ([]Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer overrides.Close()
+	defer func() { _ = overrides.Close() }()
 	for overrides.Next() {
 		var skill, project string
 		var on bool
@@ -173,7 +173,7 @@ func (s *Store) SkillFiles(ctx context.Context, name string) ([]SkillFile, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []SkillFile
 	for rows.Next() {
 		var f SkillFile
@@ -201,7 +201,7 @@ func (s *Store) SkillSizes(ctx context.Context) (map[string][2]int64, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	out := map[string][2]int64{}
 	for rows.Next() {
 		var name string

@@ -63,14 +63,14 @@ func newSkillsListCmd(a *app) *cobra.Command {
 			}
 			out := cmd.OutOrStdout()
 			if len(list) == 0 {
-				fmt.Fprintln(out, "No skills yet. Import some with `agentbox skills import`.")
+				_, _ = fmt.Fprintln(out, "No skills yet. Import some with `agentbox skills import`.")
 				return nil
 			}
 			tw := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
 			if project != "" {
-				fmt.Fprintln(tw, "NAME\tIN "+strings.ToUpper(project)+"\tAGENTBOX-WIDE\tDESCRIPTION")
+				_, _ = fmt.Fprintln(tw, "NAME\tIN "+strings.ToUpper(project)+"\tAGENTBOX-WIDE\tDESCRIPTION")
 			} else {
-				fmt.Fprintln(tw, "NAME\tAGENTBOX-WIDE\tPROJECTS\tDESCRIPTION")
+				_, _ = fmt.Fprintln(tw, "NAME\tAGENTBOX-WIDE\tPROJECTS\tDESCRIPTION")
 			}
 			for _, sk := range list {
 				if project != "" {
@@ -78,10 +78,10 @@ func newSkillsListCmd(a *app) *cobra.Command {
 					if _, ok := sk.Overrides[project]; ok {
 						here += " (this project)"
 					}
-					fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", sk.Name, here, onOffWord(sk.Enabled), clip(oneLine(sk.Description), 60))
+					_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", sk.Name, here, onOffWord(sk.Enabled), clip(oneLine(sk.Description), 60))
 					continue
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", sk.Name, onOffWord(sk.Enabled), overridesText(sk.Overrides), clip(oneLine(sk.Description), 60))
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", sk.Name, onOffWord(sk.Enabled), overridesText(sk.Overrides), clip(oneLine(sk.Description), 60))
 			}
 			return tw.Flush()
 		},
@@ -191,7 +191,7 @@ its other files and where it is on.
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Saved skill %s: %s\n", sk.Name, clip(oneLine(sk.Description), 80))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Saved skill %s: %s\n", sk.Name, clip(oneLine(sk.Description), 80))
 			return nil
 		},
 	}
@@ -244,11 +244,11 @@ machine AgentBox runs on.`,
 					return err
 				}
 				if len(found) == 0 {
-					fmt.Fprintln(out, "No skills found there.")
+					_, _ = fmt.Fprintln(out, "No skills found there.")
 					return nil
 				}
 				tw := tabwriter.NewWriter(out, 0, 2, 2, ' ', 0)
-				fmt.Fprintln(tw, "NAME\tFROM\tFILES\tDESCRIPTION")
+				_, _ = fmt.Fprintln(tw, "NAME\tFROM\tFILES\tDESCRIPTION")
 				for _, f := range found {
 					desc := clip(oneLine(f.Description), 60)
 					if f.Problem != "" {
@@ -260,12 +260,12 @@ machine AgentBox runs on.`,
 					if f.Plugin != "" {
 						from += " " + f.Plugin
 					}
-					fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", f.Name, from, f.Files, desc)
+					_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", f.Name, from, f.Files, desc)
 				}
 				if err := tw.Flush(); err != nil {
 					return err
 				}
-				fmt.Fprintln(out, "\nImport some by name after the source, or all of them with --all.")
+				_, _ = fmt.Fprintln(out, "\nImport some by name after the source, or all of them with --all.")
 				return nil
 			}
 			if all {
@@ -276,7 +276,7 @@ machine AgentBox runs on.`,
 				return err
 			}
 			for _, sk := range list {
-				fmt.Fprintf(out, "Imported %s\n", sk.Name)
+				_, _ = fmt.Fprintf(out, "Imported %s\n", sk.Name)
 			}
 			return nil
 		},
@@ -311,7 +311,7 @@ func newSkillsSwitchCmd(a *app, verb string, on bool) *cobra.Command {
 				if project != "" {
 					where = "in " + project
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s is %s %s\n", name, onOffWord(on), where)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s is %s %s\n", name, onOffWord(on), where)
 			}
 			return nil
 		},
@@ -339,7 +339,7 @@ func newSkillsInheritCmd(a *app) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "%s follows AgentBox-wide in %s: %s\n", name, project, onOffWord(sk.Enabled))
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s follows AgentBox-wide in %s: %s\n", name, project, onOffWord(sk.Enabled))
 			}
 			return nil
 		},
@@ -363,7 +363,7 @@ func newSkillsRemoveCmd(a *app) *cobra.Command {
 				if err := c.RemoveSkill(cmd.Context(), name); err != nil {
 					return err
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", name)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %s\n", name)
 			}
 			return nil
 		},
