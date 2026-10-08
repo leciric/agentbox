@@ -3,6 +3,22 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.13.0](https://github.com/leciric/agentbox/compare/v0.12.1...v0.13.0) (2026-10-08)
+
+
+### Added
+
+* Cursor as a fourth AI tool, driven through Cursor's TypeScript SDK ([#226](https://github.com/leciric/agentbox/issues/226)) ([e2c6749](https://github.com/leciric/agentbox/commit/e2c67499427d6d1b29b77ec41d44254179321335))
+* skills for every agent and chat, AgentBox-wide or per project, imported from your AI tools, a folder or git ([#230](https://github.com/leciric/agentbox/issues/230)) ([ee35be9](https://github.com/leciric/agentbox/commit/ee35be9453f19755c73fb4c831057edb0a2c8131))
+* star media to keep it: favorites are never removed automatically, and the Media view filters to them ([#229](https://github.com/leciric/agentbox/issues/229)) ([5e78f75](https://github.com/leciric/agentbox/commit/5e78f7563da382bbd84857ff4fb36fcc79989c11))
+
+
+### Fixed
+
+* Claude Code chats get Haiku 5.5, with the Claude ACP adapter 0.88.0 ([#232](https://github.com/leciric/agentbox/issues/232)) ([86b5de5](https://github.com/leciric/agentbox/commit/86b5de527a3a520dfa9b29b6fde48a64bdaff3f0))
+* dragging projects and sections in the sidebar lands where they're dropped and stays there ([#228](https://github.com/leciric/agentbox/issues/228)) ([8176fd5](https://github.com/leciric/agentbox/commit/8176fd558118a36f7eb6dd86840feb91f90c948a))
+* screenshots of an app on the display no longer come out blank ([#227](https://github.com/leciric/agentbox/issues/227)) ([d16c25a](https://github.com/leciric/agentbox/commit/d16c25ae0343b048fd9c315f57775a6b1ff8b49f))
+
 ## [0.12.1](https://github.com/leciric/agentbox/compare/v0.12.0...v0.12.1) (2026-10-07)
 
 
