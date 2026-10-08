@@ -127,14 +127,21 @@ func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) error {
 // is corrected to it rather than refused, so pasting one in just works.
 func (s *Server) saveSkill(w http.ResponseWriter, r *http.Request) error {
 	name := r.PathValue("name")
-	if err := skills.ValidateName(name); err != nil {
-		return err
-	}
 	var req api.SaveSkillRequest
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	ctx := r.Context()
+	if err := s.storeSkill(r.Context(), name, req); err != nil {
+		return err
+	}
+	return s.writeSkill(w, r, name)
+}
+
+// storeSkill is saveSkill without HTTP, for the lead's tools too.
+func (s *Server) storeSkill(ctx context.Context, name string, req api.SaveSkillRequest) error {
+	if err := skills.ValidateName(name); err != nil {
+		return err
+	}
 	sk, err := s.store.Skill(ctx, name)
 	isNew := err != nil
 	var files []state.SkillFile
@@ -171,7 +178,7 @@ func (s *Server) saveSkill(w http.ResponseWriter, r *http.Request) error {
 		s.logf("skill %s changed", name)
 	}
 	s.syncSkills("")
-	return s.writeSkill(w, r, name)
+	return nil
 }
 
 func (s *Server) writeSkill(w http.ResponseWriter, r *http.Request, name string) error {
@@ -197,23 +204,36 @@ func (s *Server) updateSkill(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if req.Enabled != nil {
-		if err := s.store.SetSkillEnabled(r.Context(), name, *req.Enabled); err != nil {
+		if err := s.setSkillEnabled(r.Context(), name, *req.Enabled); err != nil {
 			return err
 		}
-		s.logf("skill %s turned %s AgentBox-wide", name, onOff(*req.Enabled))
-		s.syncSkills("")
 	}
 	return s.writeSkill(w, r, name)
 }
 
+func (s *Server) setSkillEnabled(ctx context.Context, name string, on bool) error {
+	if err := s.store.SetSkillEnabled(ctx, name, on); err != nil {
+		return err
+	}
+	s.logf("skill %s turned %s AgentBox-wide", name, onOff(on))
+	s.syncSkills("")
+	return nil
+}
+
 func (s *Server) removeSkill(w http.ResponseWriter, r *http.Request) error {
-	name := r.PathValue("name")
-	if err := s.store.RemoveSkill(r.Context(), name); err != nil {
+	if err := s.deleteSkill(r.Context(), r.PathValue("name")); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (s *Server) deleteSkill(ctx context.Context, name string) error {
+	if err := s.store.RemoveSkill(ctx, name); err != nil {
 		return err
 	}
 	s.logf("skill %s removed", name)
 	s.syncSkills("")
-	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 
@@ -226,20 +246,44 @@ func (s *Server) setProjectSkill(w http.ResponseWriter, r *http.Request) error {
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	var on *bool
-	switch req.Override {
-	case "on", "off":
-		v := req.Override == "on"
-		on = &v
-	case "":
-	default:
-		return fmt.Errorf("invalid override %q: use on, off, or nothing to follow AgentBox's", req.Override)
-	}
-	if err := s.store.SetSkillOverride(r.Context(), name, project, on); err != nil {
+	on, err := parseOverride(req.Override)
+	if err != nil {
 		return err
 	}
-	s.logf("skill %s in %s: %s", name, project, cmpOr(req.Override, "as AgentBox-wide"))
+	if err := s.setSkillOverride(r.Context(), project, name, on); err != nil {
+		return err
+	}
+	return s.writeProjectSkill(w, r, project, name)
+}
+
+// parseOverride reads a project's say on a skill: on, off, or nil to follow
+// AgentBox's.
+func parseOverride(override string) (*bool, error) {
+	switch override {
+	case "on", "off":
+		v := override == "on"
+		return &v, nil
+	case "":
+		return nil, nil
+	}
+	return nil, fmt.Errorf("invalid override %q: use on, off, or nothing to follow AgentBox's", override)
+}
+
+func (s *Server) setSkillOverride(ctx context.Context, project, name string, on *bool) error {
+	if err := s.store.SetSkillOverride(ctx, name, project, on); err != nil {
+		return err
+	}
+	override := ""
+	if on != nil {
+		override = onOff(*on)
+	}
+	s.logf("skill %s in %s: %s", name, project, cmpOr(override, "as AgentBox-wide"))
 	s.syncSkills(project)
+	return nil
+}
+
+// writeProjectSkill answers with a skill as a project sees it.
+func (s *Server) writeProjectSkill(w http.ResponseWriter, r *http.Request, project, name string) error {
 	sk, err := s.store.Skill(r.Context(), name)
 	if err != nil {
 		return err

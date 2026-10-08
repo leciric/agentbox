@@ -103,3 +103,22 @@ type ImportSkillsRequest struct {
 	Names   []string `json:"names,omitempty"`
 	Project string   `json:"project,omitempty"`
 }
+
+// LeadNewSkillRequest is the body of POST /v1/project/skills on a lead's
+// socket: a skill the lead wrote, on in its own project alone or, with
+// Everywhere, AgentBox-wide. A name already taken is refused: changing a
+// skill is the user's to approve (PUT /v1/project/skills/{name}).
+type LeadNewSkillRequest struct {
+	Name       string `json:"name"`
+	Content    string `json:"content"`
+	Everywhere bool   `json:"everywhere,omitempty"`
+}
+
+// LeadSkillSwitchRequest is the body of PUT /v1/project/skills/{name}/switch
+// on a lead's socket. In the lead's project, Override is "on", "off" or "" to
+// follow the AgentBox-wide switch; with Everywhere, it is that switch, "on" or
+// "off". Turning a skill off anywhere it was on waits for the user's approval.
+type LeadSkillSwitchRequest struct {
+	Override   string `json:"override"`
+	Everywhere bool   `json:"everywhere,omitempty"`
+}

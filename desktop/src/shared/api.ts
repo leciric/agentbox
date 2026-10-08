@@ -1544,6 +1544,9 @@ export interface ChatPermission {
   title: string;
   options: ChatPermissionOption[];
   outcome?: string;
+  approval?: string;
+  detail?: string;
+  diffs?: ChatDiff[];
 }
 
 export interface ChatPermissionOption {

@@ -205,13 +205,26 @@ type ChatPlanEntry struct {
 	Status  string `json:"status"` // pending, in_progress or completed
 }
 
-// ChatPermission is the AI tool asking before it uses a tool.
+// ChatPermission is the AI tool asking before it uses a tool, or AgentBox
+// asking the user before it does what a lead's tool asked for (Approval).
 type ChatPermission struct {
 	CallID  string                 `json:"callId"` // the tool call it asks about
 	Title   string                 `json:"title"`
 	Options []ChatPermissionOption `json:"options"`
 	Outcome string                 `json:"outcome,omitempty"` // the ID of the option chosen, or "cancelled"; empty while it waits
+	// Approval is set when AgentBox asks rather than the AI tool: what it
+	// is about ("skill"), with Detail saying what would change and Diffs
+	// showing it.
+	Approval string     `json:"approval,omitempty"`
+	Detail   string     `json:"detail,omitempty"`
+	Diffs    []ChatDiff `json:"diffs,omitempty"`
 }
+
+// Approval options: what the user can answer a request for approval with.
+const (
+	ApproveOption = "approve"
+	RefuseOption  = "refuse"
+)
 
 type ChatPermissionOption struct {
 	ID   string `json:"id"`

@@ -155,6 +155,9 @@ type Server struct {
 	skillsMu sync.Mutex
 	// skillsSynced, when set (tests), is told each time one has ended.
 	skillsSynced func()
+	// approve asks the user to approve what a project's lead asked for, and
+	// waits for the answer: approveInChat, or the test's (leadskills.go).
+	approve      func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
 	baseSyncErrs map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork         // what the daemon is doing to the base image (imagetools.go)
 	remote       *remote.Connector // the connection to a hub, when this machine is an environment
@@ -290,6 +293,7 @@ func New(cfg Config) (*Server, error) {
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
+	s.approve = s.approveInChat
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
