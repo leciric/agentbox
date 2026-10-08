@@ -974,7 +974,7 @@ function InstalledSettings({
       groups: [
         {
           id: "skills",
-          title: t("settings.section.skills.title"),
+          title: t("settings.group.skills.title"),
           cards: true,
           entries: [
             {

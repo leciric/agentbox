@@ -28,8 +28,9 @@ const (
 	MaxFiles     = 200
 	MaxFileBytes = 2 << 20
 	MaxBytes     = 8 << 20
-	// MaxDescription is the Agent Skills spec's bound on a description.
-	MaxDescription = 1024
+	// MaxDescription bounds a description. The Agent Skills spec says 1024,
+	// and Anthropic's own skills go past it, so a longer one is let through.
+	MaxDescription = 4096
 	// File is the one file every skill has.
 	File = "SKILL.md"
 )

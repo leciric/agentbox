@@ -2581,6 +2581,7 @@ export const enUS = {
   // skills
   'settings.section.skills.title': 'Skills',
   'settings.section.skills.description': 'Folders with a SKILL.md that every agent and chat can use, on everywhere or project by project.',
+  'settings.group.skills.title': 'Library',
   'settings.entry.skills.keywords': 'skills skill.md claude code codex opencode cursor plugins import slash commands library',
   'project.view.section.skills': 'Skills',
   'chat.composer.skills': 'Skills',

@@ -2582,6 +2582,7 @@ export const ptBR: Messages = {
   // skills
   'settings.section.skills.title': 'Skills',
   'settings.section.skills.description': 'Pastas com um SKILL.md que todo agente e chat podem usar, ligadas em tudo ou projeto a projeto.',
+  'settings.group.skills.title': 'Biblioteca',
   'settings.entry.skills.keywords': 'skills habilidades skill.md claude code codex opencode cursor plugins importar comandos biblioteca',
   'project.view.section.skills': 'Skills',
   'chat.composer.skills': 'Skills',

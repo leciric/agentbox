@@ -151,14 +151,14 @@ export function SkillsPanel({ project, embedded }: { project?: string; embedded?
         <div aria-hidden className="pointer-events-none absolute -right-16 -top-24 size-72 rounded-full bg-brand-500/20 blur-3xl" />
         <div aria-hidden className="pointer-events-none absolute -bottom-28 left-1/3 size-64 rounded-full bg-fuchsia-500/10 blur-3xl" />
         <div className="relative flex flex-wrap items-start gap-5">
-          <div className="relative">
+          <div className={cn('relative', embedded && 'hidden')}>
             <div className="brand-gradient absolute inset-0 rounded-2xl opacity-40 blur-lg" />
             <div className="relative flex size-12 items-center justify-center rounded-2xl border border-line-strong bg-overlay">
               <Wand2 className="size-5 text-brand-300" />
             </div>
           </div>
           <div className="min-w-0 flex-1 basis-72">
-            <h2 className="text-[19px] font-semibold tracking-tight text-title">{project ? t('skills.projectTitle') : t('skills.title')}</h2>
+            {!embedded && <h2 className="text-[19px] font-semibold tracking-tight text-title">{project ? t('skills.projectTitle') : t('skills.title')}</h2>}
             <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted">
               {project ? t('skills.projectDescription') : t('skills.description')}
             </p>
@@ -293,9 +293,9 @@ function SkillCard({ skill, project, on, onOpen, onToggle }: { skill: T.Skill; p
         <SkillTile name={skill.name} dim={!on} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-2">
-            <h3 className={cn('truncate text-[14px] font-semibold', on ? 'text-title' : 'text-muted')}>{skillTitle(skill.name)}</h3>
+            <h3 className={cn('truncate text-[14px] font-semibold', on ? 'text-title' : 'text-muted')}>{skill.name}</h3>
           </div>
-          <code className="font-mono text-[11.5px] text-faint">${skill.name}</code>
+          <code className="font-mono text-[11.5px] text-subtle">${skill.name}</code>
         </div>
         <Tip label={on ? t('skills.turnOff') : t('skills.turnOn')}>
           <span onClick={(e) => e.stopPropagation()} className="pt-0.5">
@@ -316,10 +316,10 @@ function SkillCard({ skill, project, on, onOpen, onToggle }: { skill: T.Skill; p
             {override ? t('skills.onHere') : t('skills.offHere')}
           </Badge>
         )}
-        {project && override === undefined && <span className="ml-auto text-faint">{t('skills.followsWide')}</span>}
+        {project && override === undefined && <span className="ml-auto text-subtle">{t('skills.followsWide')}</span>}
         {!project && Object.keys(skill.overrides).length > 0 && (
           <Tip label={Object.entries(skill.overrides).map(([p, v]) => `${p}: ${v ? t('skills.on') : t('skills.off')}`).join(' · ')}>
-            <span className="ml-auto text-faint">{t('skills.overrides', { count: Object.keys(skill.overrides).length })}</span>
+            <span className="ml-auto text-subtle">{t('skills.overrides', { count: Object.keys(skill.overrides).length })}</span>
           </Tip>
         )}
         {!skill.userInvocable && (
@@ -387,7 +387,7 @@ function SkillDialog({
   const on = skill ? (project ? !!summary?.active : skill.enabled) : false;
   const origin = skill ? originOf(skill.source) : 'agentbox';
   const OriginIcon = originIcons[origin];
-  const title = creating ? skillTitle(skillNameOf(newName) || 'new-skill') : skillTitle(name!);
+  const title = creating ? skillNameOf(newName) || 'new-skill' : name!;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
