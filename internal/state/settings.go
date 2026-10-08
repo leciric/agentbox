@@ -63,7 +63,7 @@ const (
 	// last advertised, as JSON, remembered for the same reason as the model
 	// menu and with one caveat the model list doesn't have: the adapter sends
 	// the levels "available for this model", and a model can have none at all
-	// (Haiku 4.5 sends no effort option). So this is the levels Claude Code
+	// (Haiku 4.5 sent none; Haiku 5.5 sends them all). So this is the levels Claude Code
 	// has been seen to name, not a promise about one model.
 	SettingClaudeEffortChoices = "claude_effort_choices"
 	// SettingOpenCodeModelChoices is the model menu OpenCode last advertised,

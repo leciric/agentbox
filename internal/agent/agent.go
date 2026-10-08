@@ -171,7 +171,8 @@ func (m *Manager) chosenSetting(ctx context.Context, explicit *string, project, 
 //     are refused outright, with no alias resolution to rescue them, and
 //     wanted() then drops an unoffered value in silence. The menu is only ever
 //     one that really arrived over ACP. Two honest limits: a model can offer
-//     no effort levels at all (Haiku 4.5 sends no effort option), so this says
+//     no effort levels at all (Haiku 4.5 sent none; Haiku 5.5 on adapter 0.88.0
+//     offers the whole list), so this says
 //     the level is one Claude Code names, not that this agent will have it;
 //     and an installation whose chat has never started has no menu to check
 //     against, so nothing is rejected there.
