@@ -43,6 +43,7 @@ const fakeIncus = `case "$1" in
       *) echo '{"config": {}, "devices": {}}' ;;
     esac ;;
   copy)
+    touch "$INCUS_LOG.copying"
     sleep "${COPY_DELAY:-0}"
     if [ -n "$COPY_FAILS" ]; then echo "Error: simulated copy failure" >&2; exit 1; fi ;;
   delete) echo "$*" >> "$INCUS_LOG" ;;
@@ -616,9 +617,12 @@ func TestCancelJobRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The log line comes before the copy step checks for a cancellation, so
+	// wait for incus itself to be copying, or the cancel may land before there
+	// is an instance to roll back.
 	waitFor(t, "the copy to start", func() bool {
-		log, _ := d.client.JobLog(ctx, j.ID)
-		return strings.Contains(log, "Creating instance")
+		_, err := os.Stat(filepath.Join(root, "incus.log.copying"))
+		return err == nil
 	})
 	j, err = d.client.CancelJob(ctx, j.ID)
 	if err != nil {

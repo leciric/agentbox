@@ -240,7 +240,8 @@ func newMediaScreenshotCmd(a *app) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&req.Name, "name", "", `a name, like "empty-state"`)
-	cmd.Flags().BoolVar(&display, "display", false, "the whole display instead of the browser's page")
+	cmd.Flags().StringVar(&req.Target, "target", "", "browser, display or android (default: the browser's page, or the display when the browser has none)")
+	cmd.Flags().BoolVar(&display, "display", false, "same as --target display")
 	cmd.Flags().BoolVar(&req.FullPage, "full-page", false, "the whole page, not just the visible part")
 	return cmd
 }

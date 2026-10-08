@@ -166,6 +166,14 @@ func (m *Manager) Screenshot(ctx context.Context, a state.Agent, opts Screenshot
 		return state.Media{}, err
 	}
 	target := cmpOr(opts.Target, "browser")
+	if opts.Target == "" {
+		// Nothing asked for: the browser's page, unless it has none worth
+		// shooting (an app on the display, a browser left on about:blank),
+		// where the page would come out blank.
+		if status, err := m.BrowserStatus(ctx, a); err == nil && status.Display && !hasRealPage(status.Pages) {
+			target = "display"
+		}
+	}
 	if target != "browser" && target != "display" && target != "android" {
 		return state.Media{}, fmt.Errorf("unknown screenshot target %q: use browser, display or android", target)
 	}
@@ -199,7 +207,10 @@ func (m *Manager) browserScreenshot(ctx context.Context, a state.Agent, file str
 	if !status.Running || len(status.Pages) == 0 {
 		return "", fmt.Errorf("%s's browser isn't running: start it, or take a display screenshot", a.Ref())
 	}
-	page := status.Pages[0]
+	page, ok := firstRealPage(status.Pages)
+	if !ok {
+		return "", fmt.Errorf("%s's browser has no page open, only about:blank, which would come out blank: to capture an app on the display, use --target display", a.Ref())
+	}
 	err = m.withPage(ctx, a, page, func(ctx context.Context, session *devtoolsSession) error {
 		params := map[string]any{"format": "png"}
 		if fullPage {
@@ -223,6 +234,21 @@ func (m *Manager) browserScreenshot(ctx context.Context, a state.Agent, file str
 		return os.WriteFile(file, content, 0o600)
 	})
 	return page.URL, err
+}
+
+// firstRealPage returns the first page that isn't about:blank.
+func firstRealPage(pages []BrowserPage) (BrowserPage, bool) {
+	for _, p := range pages {
+		if p.URL != "about:blank" {
+			return p, true
+		}
+	}
+	return BrowserPage{}, false
+}
+
+func hasRealPage(pages []BrowserPage) bool {
+	_, ok := firstRealPage(pages)
+	return ok
 }
 
 func (m *Manager) displayScreenshot(ctx context.Context, a state.Agent, file, id string) error {

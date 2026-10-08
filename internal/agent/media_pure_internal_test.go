@@ -158,3 +158,15 @@ func TestCopyPathCopiesFilesAndDirectories(t *testing.T) {
 		t.Error("copyPath() of a missing source should fail")
 	}
 }
+
+func TestFirstRealPageSkipsAboutBlank(t *testing.T) {
+	blank := BrowserPage{URL: "about:blank"}
+	real := BrowserPage{URL: "http://localhost:3000/"}
+	if hasRealPage(nil) || hasRealPage([]BrowserPage{blank, blank}) {
+		t.Error("about:blank alone counted as a page worth shooting")
+	}
+	got, ok := firstRealPage([]BrowserPage{blank, real})
+	if !ok || got.URL != real.URL {
+		t.Errorf("firstRealPage = %v, %v; want the real page", got, ok)
+	}
+}

@@ -1,8 +1,15 @@
 package agent_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"image"
+	"image/png"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -254,5 +261,69 @@ func TestMoveMediaToTheShare(t *testing.T) {
 	}
 	if n, err := f.m.MoveMedia(); err != nil || n != 0 {
 		t.Errorf("MoveMedia() again = %d, %v; want nothing to move", n, err)
+	}
+}
+
+// devtoolsWithPages answers the agent's DevTools socket as a browser whose
+// pages are the given URLs.
+func devtoolsWithPages(t *testing.T, urls ...string) string {
+	t.Helper()
+	socket := filepath.Join(t.TempDir(), "cdp")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var targets []map[string]string
+	for i, u := range urls {
+		targets = append(targets, map[string]string{"id": fmt.Sprint(i), "type": "page", "url": u, "webSocketDebuggerUrl": "ws://x/devtools/page/" + fmt.Sprint(i)})
+	}
+	list, _ := json.Marshal(targets)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/json/version", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(`{"Browser":"Chrome/141"}`)) })
+	mux.HandleFunc("/json/list", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(list) })
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(listener) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return socket
+}
+
+func screenshotFixture(t *testing.T, urls ...string) (fixture, state.Agent) {
+	t.Helper()
+	shot := filepath.Join(t.TempDir(), "shot.png")
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 4, 3))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shot, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHOT", shot)
+	f := setup(t, fakeIncus(t, `case "$1" in
+  list) echo '[{"name":"ab-hello-stack-agent-01","status":"Running"}]' ;;
+  query) echo '{"devices":{"agentbox-cdp":{"type":"proxy"}}}' ;;
+  exec) ;;
+  file) [ "$2" = "pull" ] && cp "$SHOT" "$4" ;;
+esac`))
+	socket := devtoolsWithPages(t, urls...)
+	f.m.BrowserSocket = func(string, string) string { return socket }
+	return f, logsFixture(t, f, "none")
+}
+
+func TestScreenshotFallsBackToTheDisplayWhenTheBrowserHasOnlyABlankPage(t *testing.T) {
+	f, a := screenshotFixture(t, "about:blank")
+	item, err := f.m.Screenshot(context.Background(), a, agent.ScreenshotOptions{Name: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(item.Meta, `"target":"display"`) {
+		t.Errorf("meta = %s, want target display", item.Meta)
+	}
+}
+
+func TestScreenshotRefusesAnExplicitBrowserTargetOnABlankPage(t *testing.T) {
+	f, a := screenshotFixture(t, "about:blank")
+	_, err := f.m.Screenshot(context.Background(), a, agent.ScreenshotOptions{Target: "browser", Name: "app"})
+	if err == nil || !strings.Contains(err.Error(), "--target display") {
+		t.Errorf("err = %v, want one pointing to --target display", err)
 	}
 }
