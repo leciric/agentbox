@@ -11,7 +11,6 @@
 package skills
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"path"
@@ -99,16 +98,15 @@ func Parse(content string) (Meta, string, error) {
 	if !strings.HasPrefix(content, "---\n") && !strings.HasPrefix(content, "---\r\n") {
 		return meta, content, nil
 	}
+	// Line by line, each without its \r: a SKILL.md written on Windows ends
+	// its lines with \r\n.
 	rest := content[strings.Index(content, "\n")+1:]
 	var front []string
-	body := ""
 	closed := false
-	sc := bufio.NewScanner(strings.NewReader(rest))
-	sc.Buffer(make([]byte, 0, 64<<10), MaxFileBytes)
-	consumed := 0
-	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		consumed += len(sc.Text()) + 1
+	for rest != "" {
+		line, after, _ := strings.Cut(rest, "\n")
+		rest = after
+		line = strings.TrimRight(line, "\r")
 		if line == "---" {
 			closed = true
 			break
@@ -118,9 +116,7 @@ func Parse(content string) (Meta, string, error) {
 	if !closed {
 		return meta, "", errors.New("SKILL.md's frontmatter has no closing ---")
 	}
-	if consumed < len(rest) {
-		body = rest[consumed:]
-	}
+	body := rest
 	for i := 0; i < len(front); i++ {
 		line := front[i]
 		if line == "" || strings.HasPrefix(line, "#") || line[0] == ' ' || line[0] == '\t' {
@@ -189,14 +185,19 @@ func WithName(content, n string) string {
 		return "---\nname: " + n + "\ndescription: \n---\n\n" + content
 	}
 	lines := strings.SplitAfter(content, "\n")
+	// The line it writes ends as the file's do.
+	eol := "\n"
+	if strings.HasSuffix(lines[0], "\r\n") {
+		eol = "\r\n"
+	}
 	for i := 1; i < len(lines); i++ {
 		line := strings.TrimRight(lines[i], "\r\n")
 		if line == "---" {
 			// No name in it: add one at the top.
-			return lines[0] + "name: " + n + "\n" + strings.Join(lines[1:], "")
+			return lines[0] + "name: " + n + eol + strings.Join(lines[1:], "")
 		}
 		if strings.HasPrefix(line, "name:") {
-			lines[i] = "name: " + n + "\n"
+			lines[i] = "name: " + n + eol
 			return strings.Join(lines, "")
 		}
 	}

@@ -307,11 +307,15 @@ func (s *Server) writeProjectSkill(w http.ResponseWriter, r *http.Request, proje
 }
 
 // skillHomes are where the user's own AI tools keep their skills: the host's
-// home when the VM shares it (hostos.HomeEnv), and this machine's.
+// home when the VM shares it (hostos.HomeEnv), the Windows user's in WSL
+// (hostos.WindowsHome), where their tools run on Windows itself, and this
+// machine's.
 func skillHomes() []string {
 	var homes []string
-	if h := os.Getenv(hostos.HomeEnv); h != "" {
-		homes = append(homes, h)
+	for _, h := range []string{os.Getenv(hostos.HomeEnv), hostos.WindowsHome()} {
+		if h != "" {
+			homes = append(homes, h)
+		}
 	}
 	if h, err := os.UserHomeDir(); err == nil && !slices.Contains(homes, h) {
 		homes = append(homes, h)

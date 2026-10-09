@@ -226,9 +226,11 @@ func TestRelay(t *testing.T) {
 	if resp, body := get(); resp.StatusCode != http.StatusOK || body != `{"version":"fake"}` {
 		t.Fatalf("with the daemon: %s %q", resp.Status, body)
 	}
-	// The install ID is kept beside the distro's directory, which a new distro replaces.
+	// The install ID is kept beside the distro's directory, which a new
+	// distro replaces; the Windows home is where the user's skills are.
 	env, _ := os.ReadFile(filepath.Join(d.fakeEnv("FAKEWSL_ROOT"), "daemon-env"))
-	if want := hostos.InstallIDFileEnv + "=" + filepath.Join(filepath.Dir(d.Dir), "install-id"); string(env) != want {
+	home, _ := os.UserHomeDir()
+	if want := hostos.InstallIDFileEnv + "=" + filepath.Join(filepath.Dir(d.Dir), "install-id") + "\n" + hostos.WindowsHomeEnv + "=" + home; string(env) != want {
 		t.Errorf("the daemon was started with %q, want %q", env, want)
 	}
 
