@@ -2770,6 +2770,31 @@ export const enUS = {
   'skills.selectNone': 'None',
   'skills.importCount': '{count, plural, =0 {Import} one {Import # skill} other {Import # skills}}',
   'skills.imported': '{count, plural, one {Imported # skill} other {Imported # skills}}',
+
+  // search
+  'search.title': 'Search AgentBox',
+  'search.open': 'Search everything',
+  'search.label': 'Search',
+  'search.placeholder': 'Search projects, agents, chats, memory, media…',
+  'search.results': 'Results',
+  'search.hint': 'Search every project at once: projects, agents, chats, memory, media, skills, connectors, notes and pull requests.',
+  'search.nothing': 'Nothing in AgentBox matches “{query}”.',
+  'search.more': 'more not shown',
+  'search.agentboxWide': 'AgentBox-wide',
+  'search.keys.move': 'to move',
+  'search.keys.open': 'to open',
+  'search.group.projects': 'Projects',
+  'search.group.agents': 'Agents',
+  'search.group.chats': 'Chat messages',
+  'search.group.memories': 'Memories',
+  'search.group.events': 'Events',
+  'search.group.reports': 'Reports',
+  'search.group.media': 'Media',
+  'search.group.skills': 'Skills',
+  'search.group.connectors': 'Connectors',
+  'search.group.notes': 'Notes',
+  'search.group.pulls': 'Pull requests',
+  'search.group.other': 'Other',
 };
 
 export type MessageKey = keyof typeof enUS;

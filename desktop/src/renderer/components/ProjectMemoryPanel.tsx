@@ -21,13 +21,14 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import * as A from '../../shared/api';
 import { formatTokens } from '../lib/chat';
 import { api } from '../lib/api';
 import { formatNumber, useT, type MessageKey, type Translate } from '../lib/i18n';
+import { pendingReveal, useReveal, type MemorySection, type Reveal } from '../lib/reveal';
 import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
 import { FilterChip } from './MediaTab';
@@ -53,7 +54,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 // three at once, and reports are what an agent said as it finished.
 export function ProjectMemoryPanel({ project, onOpenMedia }: { project: string; onOpenMedia: () => void }) {
   const t = useT();
-  const [section, setSection] = useState<'tasks' | 'memories' | 'search' | 'events' | 'reports' | 'context'>('memories');
+  const [section, setSection] = useState<'tasks' | 'memories' | 'search' | 'events' | 'reports' | 'context'>(() => revealedIn(pendingReveal(), project)?.section ?? 'memories');
+  // A search result opened here, while the page was already open.
+  const reveal = useReveal();
+  useEffect(() => {
+    const found = revealedIn(reveal, project);
+    if (found) setSection(found.section);
+  }, [reveal, project]);
 
   return (
     <div className="mx-auto grid max-w-4xl gap-5 px-4 py-6 md:px-8 md:py-7">
@@ -108,6 +115,21 @@ export function ProjectMemoryPanel({ project, onOpenMedia }: { project: string; 
       </Tabs>
     </div>
   );
+}
+
+// revealedIn is what a search result asked this project's Memory to show.
+function revealedIn(reveal: Reveal | null, project: string) {
+  return reveal?.memory?.project === project ? reveal.memory : undefined;
+}
+
+// usePinned is the memory, event or report a search result opened, when the
+// list it belongs on doesn't show it (an event older than the timeline, a
+// memory of a kind filtered out): it is shown first, so it can be brought
+// forward all the same.
+function usePinned<I extends { id: string }>(project: string, section: MemorySection, shown: readonly I[]): I | undefined {
+  const found = revealedIn(useReveal(), project);
+  if (found?.section !== section || shown.some((item) => item.id === found.item.id)) return undefined;
+  return found.item as unknown as I;
 }
 
 // --- Working memory --------------------------------------------------------
@@ -783,6 +805,7 @@ function MemoriesSection({ project }: { project: string }) {
   });
 
   const items = memories.data ?? [];
+  const pinnedMemory = usePinned<T.Memory>(project, 'memories', items);
   const visibleSuperseded = showSuperseded ? superseded.filter((entry) => !kind || entry.old.kind === kind) : [];
   const visibleResolved = showResolved ? resolved.filter((memory) => !kind || memory.kind === kind) : [];
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['memories', project] });
@@ -835,6 +858,7 @@ function MemoriesSection({ project }: { project: string }) {
       )}
 
       <div className="grid gap-2">
+        {pinnedMemory && <MemoryRow key={`found-${pinnedMemory.id}`} memory={pinnedMemory} />}
         {items.map((memory) => (
           <MemoryRow
             key={memory.id}
@@ -1210,6 +1234,7 @@ function MemoryEventsSection({ project }: { project: string }) {
     agents.set(a, (agents.get(a) ?? 0) + 1);
   }
   const visible = items.filter((event) => (!type || event.type === type) && (!agent || (event.agent ?? '') === agent));
+  const pinnedEvent = usePinned<T.MemoryEvent>(project, 'events', visible);
 
   return (
     <div className="grid gap-3">
@@ -1265,6 +1290,7 @@ function MemoryEventsSection({ project }: { project: string }) {
       {items.length > 0 && visible.length === 0 && <p className="px-1 text-[13px] text-subtle">{t('memory.noMatch')}</p>}
 
       <div className="grid gap-2">
+        {pinnedEvent && <EventRow key={`found-${pinnedEvent.id}`} event={pinnedEvent} />}
         {visible.map((event) => (
           <EventRow key={event.id} event={event} />
         ))}
@@ -1334,6 +1360,7 @@ function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpe
   const t = useT();
   const reports = useQuery({ queryKey: ['memoryReports', project], queryFn: () => api.memoryReports(project) });
   const artifacts = useQuery({ queryKey: ['memoryArtifacts', project], queryFn: () => api.memoryArtifacts(project) });
+  const pinnedReport = usePinned<T.AgentReport>(project, 'reports', reports.data ?? []);
 
   return (
     <div className="grid gap-6">
@@ -1349,6 +1376,7 @@ function MemoryReportsSection({ project, onOpenMedia }: { project: string; onOpe
           </Panel>
         )}
         <div className="grid gap-2">
+          {pinnedReport && <ReportRow key={`found-${pinnedReport.id}`} report={pinnedReport} />}
           {(reports.data ?? []).map((report) => (
             <ReportRow key={report.id} report={report} />
           ))}

@@ -2435,7 +2435,8 @@ const (
 	FeatureSettingsResources   = "settings.view.resources"
 	FeatureSettingsProject     = "settings.view.project"
 	FeatureSettingsSearch      = "settings.search"
-	FeatureChatFind            = "chat.find" // a search inside a chat, counted once per opening of its find bar
+	FeatureChatFind            = "chat.find"   // a search inside a chat, counted once per opening of its find bar
+	FeatureSearchOpen          = "search.open" // the search palette, AgentBox-wide
 	FeatureMenuOpenChat        = "menu.agent.open_chat"
 	FeatureMenuOpenTerminal    = "menu.agent.open_terminal"
 	FeatureMenuInfo            = "menu.agent.info"
@@ -2467,7 +2468,7 @@ var AppFeatures = []string{
 	FeatureDesktopOpen, FeatureTerminalOpen, FeatureAndroidOpen, FeatureAgentMediaView, FeatureProjectMediaView,
 	FeaturePullList, FeatureMemoryView, FeatureTokensView,
 	FeatureSettingsEnvironment, FeatureSettingsAccounts, FeatureSettingsLead, FeatureSettingsAgents,
-	FeatureSettingsGeneral, FeatureSettingsModels, FeatureSettingsResources, FeatureSettingsProject, FeatureSettingsSearch,
+	FeatureSettingsGeneral, FeatureSettingsModels, FeatureSettingsResources, FeatureSettingsProject, FeatureSettingsSearch, FeatureSearchOpen,
 	FeatureChatFind, FeatureMenuOpenChat, FeatureMenuOpenTerminal, FeatureMenuInfo, FeatureMenuLifecycle, FeatureMenuRetire,
 	FeatureMenuCopyBranch, FeatureMenuOpenPullRequest, FeatureMenuDestroy,
 }

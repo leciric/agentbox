@@ -73,6 +73,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
     >
       <Textarea
         aria-label={t('project.notes.title')}
+        data-project-notes
         className="min-h-44 font-mono text-[12.5px]"
         spellCheck={false}
         value={text}

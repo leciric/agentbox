@@ -934,3 +934,22 @@
   background: color-mix(in srgb, var(--ab-brand-mid) 12%, white);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ab-brand-mid) 45%, transparent);
 }
+
+/* What a search result opened, flashed once where it is on its page
+   (lib/reveal.ts). An outline, so nothing around it moves. */
+[data-revealed] {
+  animation: ab-revealed 2.4s ease-out;
+}
+@keyframes ab-revealed {
+  0%,
+  45% {
+    outline: 2px solid var(--ab-brand-400);
+    outline-offset: 3px;
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ab-brand-400) 18%, transparent);
+  }
+  100% {
+    outline: 2px solid transparent;
+    outline-offset: 3px;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}

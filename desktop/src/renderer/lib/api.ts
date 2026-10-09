@@ -366,6 +366,9 @@ export const api = {
   deleteMedia: (id: string) => call<void>('DELETE', `/v1/media/${encodeURIComponent(id)}`),
   setMediaFavorite: (id: string, favorite: boolean) =>
     call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),
+  // Everything AgentBox keeps, in every project, that has the words typed: the search palette.
+  search: (query: string, limit = 0) =>
+    call<T.SearchResults>('GET', `/v1/search?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ''}`),
   // Every project's media, of the given kinds, each marked unseen while its notification is.
   allMedia: (kinds: string[] = []) => call<T.MediaItem[]>('GET', `/v1/media${kinds.length ? `?kind=${kinds.join(',')}` : ''}`),
   notifications: () => call<T.Notification[]>('GET', '/v1/notifications'),

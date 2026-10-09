@@ -623,6 +623,9 @@ func (s *Server) routes() http.Handler {
 	// What Anthropic last said about each Claude account's usage limits (D85).
 	h("GET /v1/limits", s.claudeLimits)
 
+	// The app's search palette: everything, in every project, in one call.
+	h("GET /v1/search", s.search)
+
 	h("GET /v1/projects", s.listProjects)
 	h("POST /v1/projects", s.addProject)
 	// How the sidebar is organised (D79): the sections, and one layout that

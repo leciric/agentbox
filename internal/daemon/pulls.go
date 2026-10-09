@@ -171,7 +171,11 @@ type pullsCache struct {
 	// gen counts how often a merge overtook a repository's answer, so a
 	// refresh that was in flight over it doesn't put the pre-merge list back.
 	gen map[string]int
-	now func() time.Time
+	// projects are the projects each repository was read for, so search can
+	// look through what the cache holds without asking git for every
+	// project's origin again.
+	projects map[string][]string
+	now      func() time.Time
 }
 
 type pullsEntry struct {
@@ -211,7 +215,7 @@ func newPullsCache() *pullsCache {
 	return &pullsCache{
 		ttl: pullsTTL, branchTTL: pullsBranchTTL,
 		byRepo: map[string]pullsEntry{}, fetching: map[string]bool{}, gen: map[string]int{},
-		now: time.Now,
+		projects: map[string][]string{}, now: time.Now,
 	}
 }
 
@@ -221,6 +225,28 @@ func (c *pullsCache) state(key string) (pullsEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.byRepo[key], c.fetching[key]
+}
+
+// readFor records that key is project's repository.
+func (c *pullsCache) readFor(key, project string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !slices.Contains(c.projects[key], project) {
+		c.projects[key] = append(c.projects[key], project)
+	}
+}
+
+// known is every pull request the cache holds, by the project it was read for.
+func (c *pullsCache) known() map[string][]api.PullRequest {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := map[string][]api.PullRequest{}
+	for key, projects := range c.projects {
+		for _, project := range projects {
+			out[project] = append(out[project], c.byRepo[key].prs...)
+		}
+	}
+	return out
 }
 
 // claim marks a refresh as started when one is wanted and none is running,
@@ -413,6 +439,7 @@ func (s *Server) projectPulls(p state.Project, agents []state.Agent) (github.Rep
 	}
 	heads := agentHeads(p.Root, agents)
 	key := repo.String()
+	s.pulls.readFor(key, p.Name)
 	if gen, ok := s.pulls.claim(key, heads); ok {
 		go s.refreshPulls(p.Name, client, repo, gen, heads)
 	}

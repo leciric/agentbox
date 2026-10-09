@@ -52,6 +52,7 @@ var tsTypes = []any{
 	TokenCounts{}, ModelTokens{}, AgentTokens{}, TokenBucket{}, TokenReport{}, TokenTurn{}, ClaudeLimit{}, ClaudeLimitWindow{},
 	VMStatus{}, VMMemory{}, VMDisk{}, VMDiskImage{}, VMHomeDisk{}, VMSwap{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
 	ReportSection{}, ReportDraftRequest{}, ReportDraft{}, ReportRequest{}, ReportSent{},
+	SearchResults{}, SearchGroup{}, SearchHit{},
 }
 
 var tsConstants = [][2]string{
@@ -80,11 +81,14 @@ var tsConstants = [][2]string{
 	{"ConsolidationMechanical", ConsolidationMechanical}, {"ConsolidationDistill", ConsolidationDistill},
 	{"TaskOpen", TaskOpen}, {"TaskActive", TaskActive}, {"TaskBlocked", TaskBlocked},
 	{"TaskDone", TaskDone}, {"TaskAbandoned", TaskAbandoned},
+	{"SearchProjects", SearchProjects}, {"SearchAgents", SearchAgents}, {"SearchChats", SearchChats}, {"SearchMemories", SearchMemories},
+	{"SearchEvents", SearchEvents}, {"SearchReports", SearchReports}, {"SearchMedia", SearchMedia}, {"SearchSkills", SearchSkills},
+	{"SearchConnectors", SearchConnectors}, {"SearchNotes", SearchNotes}, {"SearchPulls", SearchPulls},
 	{"TokensTurn", TokensTurn}, {"TokensBackground", TokensBackground}, {"TokensCompaction", TokensCompaction}, {"TokensConsolidation", TokensConsolidation},
 	{"FeatureDesktopOpen", FeatureDesktopOpen}, {"FeatureTerminalOpen", FeatureTerminalOpen}, {"FeatureAndroidOpen", FeatureAndroidOpen}, {"FeatureAgentMediaView", FeatureAgentMediaView},
 	{"FeatureProjectMediaView", FeatureProjectMediaView}, {"FeaturePullList", FeaturePullList}, {"FeatureMemoryView", FeatureMemoryView}, {"FeatureTokensView", FeatureTokensView},
 	{"FeatureSettingsEnvironment", FeatureSettingsEnvironment}, {"FeatureSettingsAccounts", FeatureSettingsAccounts}, {"FeatureSettingsLead", FeatureSettingsLead}, {"FeatureSettingsAgents", FeatureSettingsAgents},
-	{"FeatureSettingsGeneral", FeatureSettingsGeneral}, {"FeatureSettingsModels", FeatureSettingsModels}, {"FeatureSettingsResources", FeatureSettingsResources}, {"FeatureSettingsProject", FeatureSettingsProject}, {"FeatureSettingsSearch", FeatureSettingsSearch}, {"FeatureChatFind", FeatureChatFind},
+	{"FeatureSettingsGeneral", FeatureSettingsGeneral}, {"FeatureSettingsModels", FeatureSettingsModels}, {"FeatureSettingsResources", FeatureSettingsResources}, {"FeatureSettingsProject", FeatureSettingsProject}, {"FeatureSettingsSearch", FeatureSettingsSearch}, {"FeatureChatFind", FeatureChatFind}, {"FeatureSearchOpen", FeatureSearchOpen},
 	{"FeatureMenuOpenChat", FeatureMenuOpenChat}, {"FeatureMenuOpenTerminal", FeatureMenuOpenTerminal}, {"FeatureMenuInfo", FeatureMenuInfo}, {"FeatureMenuLifecycle", FeatureMenuLifecycle}, {"FeatureMenuRetire", FeatureMenuRetire},
 	{"FeatureMenuCopyBranch", FeatureMenuCopyBranch}, {"FeatureMenuOpenPullRequest", FeatureMenuOpenPullRequest}, {"FeatureMenuDestroy", FeatureMenuDestroy},
 	{"ModeHost", ModeHost}, {"ModeVM", ModeVM}, {"VMDriverLima", VMDriverLima}, {"VMDriverCloudHypervisor", VMDriverCloudHypervisor},
