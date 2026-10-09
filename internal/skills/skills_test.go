@@ -281,3 +281,37 @@ func TestInstallScript(t *testing.T) {
 		return nil
 	})
 }
+
+func TestDiscoverReadsSymlinkedSkillFolders(t *testing.T) {
+	// What npx skills add leaves: the skill in ~/.agents/skills, linked from ~/.claude/skills.
+	home := t.TempDir()
+	write(t, filepath.Join(home, ".agents", "skills", "linked", "SKILL.md"), skillMD("linked", "Linked."))
+	write(t, filepath.Join(home, ".agents", "skills", "linked", "refs", "a.md"), "a")
+	write(t, filepath.Join(home, "secret.txt"), "secret")
+	if err := os.Symlink(filepath.Join(home, "secret.txt"), filepath.Join(home, ".agents", "skills", "linked", "leak.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(home, ".claude", "skills", "linked")
+	if err := os.Symlink(filepath.Join("..", "..", ".agents", "skills", "linked"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	got := Discover([]string{home})
+	if len(got) != 1 {
+		t.Fatalf("Discover() = %d skills, want 1 (listed once)", len(got))
+	}
+	c := got[0]
+	if c.Problem != "" || c.Origin != "claude" || c.Dir != link || c.Source != "claude:linked" {
+		t.Errorf("candidate = %+v", c)
+	}
+	var paths []string
+	for _, f := range c.Files {
+		paths = append(paths, f.Path)
+	}
+	if strings.Join(paths, ",") != "SKILL.md,refs/a.md" {
+		t.Errorf("files = %v, want SKILL.md and refs/a.md only", paths)
+	}
+}

@@ -116,12 +116,19 @@ func read(dir, origin, source string) Candidate {
 		c.Source = dir
 	}
 	var total int
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	// WalkDir doesn't follow a symlinked root, and npx skills add links
+	// ~/.claude/skills/<name> to ~/.agents/skills/<name>. Walk the real folder;
+	// Dir and Source stay as found.
+	root := dir
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		root = real
+	}
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if p != dir && skipDirs[d.Name()] {
+			if p != root && skipDirs[d.Name()] {
 				return filepath.SkipDir
 			}
 			return nil
@@ -131,7 +138,7 @@ func read(dir, origin, source string) Candidate {
 		if !d.Type().IsRegular() {
 			return nil
 		}
-		rel, _ := filepath.Rel(dir, p)
+		rel, _ := filepath.Rel(root, p)
 		if len(c.Files) >= MaxFiles {
 			return fmt.Errorf("it has more than %d files", MaxFiles)
 		}
