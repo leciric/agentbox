@@ -2275,6 +2275,7 @@ export const FeatureSettingsModels = "settings.view.models";
 export const FeatureSettingsResources = "settings.view.resources";
 export const FeatureSettingsProject = "settings.view.project";
 export const FeatureSettingsSearch = "settings.search";
+export const FeatureChatFind = "chat.find";
 export const FeatureMenuOpenChat = "menu.agent.open_chat";
 export const FeatureMenuOpenTerminal = "menu.agent.open_terminal";
 export const FeatureMenuInfo = "menu.agent.info";

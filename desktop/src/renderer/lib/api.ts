@@ -178,6 +178,8 @@ export const api = {
         ? `${chatBase(ref)}?${new URLSearchParams({ limit: String(page.limit), ...(page.before ? { before: page.before } : {}), ...(page.from ? { from: page.from } : {}) })}`
         : chatBase(ref),
     ),
+  // What in a chat holds query, loaded or not: its items, oldest first.
+  searchChat: (ref: string, query: string) => call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query })}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   sendChat: (ref: string, text: string, images?: T.ChatImageUpload[]) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images } satisfies T.ChatMessageRequest),

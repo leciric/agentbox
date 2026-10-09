@@ -58,10 +58,10 @@ const TimelineRow = memo(
     switch (row.type) {
       case 'user':
         return (
-          <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'}>
+          <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id}>
             {!!row.item.images?.length && <SentImages chatRef={chatRef} images={row.item.images} />}
             {row.item.text && (
-              <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]">
+              <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]" data-chat-text>
                 {row.item.text}
               </div>
             )}
@@ -71,8 +71,10 @@ const TimelineRow = memo(
         );
       case 'assistant':
         return (
-          <div className={cn('group min-w-0 px-1', row.final ? 'pb-4' : 'pb-2.5')} data-chat-item="assistant">
-            <Markdown text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
+          <div className={cn('group min-w-0 px-1', row.final ? 'pb-4' : 'pb-2.5')} data-chat-item="assistant" data-chat-id={row.item.id}>
+            <div data-chat-text>
+              <Markdown text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
+            </div>
             {row.final && <Meta item={row.item} className="mt-1.5" replay />}
           </div>
         );
@@ -142,15 +144,19 @@ const TimelineRow = memo(
         // left is an error, and the mark a rollover leaves where the session
         // changed.
         return row.item.kind === 'error' ? (
-          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-[13px] text-rose-100" role="alert" data-chat-item="error">
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-500/20 bg-rose-500/[0.06] px-3.5 py-2.5 text-[13px] text-rose-100" role="alert" data-chat-item="error" data-chat-id={row.item.id}>
             <CircleAlert className="mt-0.5 size-4 shrink-0 text-rose-300" />
-            <p className="min-w-0 break-words leading-relaxed">{row.item.text}</p>
+            <p className="min-w-0 break-words leading-relaxed" data-chat-text>
+              {row.item.text}
+            </p>
           </div>
         ) : (
-          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px] text-muted" data-chat-item="notice">
+          <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[13px] text-muted" data-chat-item="notice" data-chat-id={row.item.id}>
             <Info className="mt-0.5 size-4 shrink-0 text-subtle" />
             <div className="min-w-0 flex-1 leading-relaxed">
-              <p className="break-words">{row.item.text}</p>
+              <p className="break-words" data-chat-text>
+                {row.item.text}
+              </p>
               {/* A rollback's or a fork's context transfer: what the fresh
                   session is told, in the open rather than slipped into its prompt. */}
               {row.item.handoff && (

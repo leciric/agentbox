@@ -23,6 +23,7 @@ import {
   lineCounts,
   liveLabel,
   loadOlder,
+  loadThrough,
   pageSize,
   pendingPermissions,
   prependPage,
@@ -422,6 +423,31 @@ for (const honourFrom of [true, false]) {
     assert.deepEqual(now.slice(-4), ['u25', 'a25', 'u26', 'a26']);
   });
 }
+
+test('a search hit older than anything loaded is read back to in one read', async (t) => {
+  const all = turns(25);
+  const read = daemon(all);
+  const pages: { before?: string; from?: string; limit: number }[] = [];
+  t.mock.method(api, 'chat', async (ref: string, page?: { before?: string; from?: string; limit: number }) => {
+    pages.push(page!);
+    return read(ref, page);
+  });
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-find';
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  assert.ok(await loadThrough(queryClient, ref, 'a3'));
+  const held = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!;
+  // From the hit's turn to the end, nothing missing between.
+  assert.deepEqual(
+    held.items.map((it) => it.id),
+    all.slice(all.findIndex((it) => it.id === 'u3')).map((it) => it.id),
+  );
+  assert.equal(held.older, true);
+  assert.equal(pages.at(-1)!.from, 'a3');
+  // One the chat holds already costs nothing.
+  assert.ok(await loadThrough(queryClient, ref, 'u20'));
+  assert.equal(pages.length, 2);
+});
 
 test('a page loaded while the chat is read again stays', async (t) => {
   const all = turns(25);

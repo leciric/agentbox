@@ -16,6 +16,7 @@ import { Button } from '../ui/button';
 import { Notice } from '../ui/card';
 import { Tip } from '../ui/tooltip';
 import { Composer } from './Composer';
+import { FindBar } from './FindBar';
 import { ReadAloudControls } from './ReadAloud';
 import { Timeline } from './Timeline';
 
@@ -135,12 +136,42 @@ export function ChatTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [older, loadingOlder, firstId]);
 
+  // Ctrl+F (⌘F) finds in the chat on screen. Every chat open in the app
+  // listens, and only one is visible.
+  const root = useRef<HTMLDivElement>(null);
+  const [finding, setFinding] = useState(false);
+  const [findFocus, setFindFocus] = useState(0);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'f' || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      if (!root.current?.checkVisibility()) return;
+      event.preventDefault();
+      setFinding(true);
+      setFindFocus((n) => n + 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // A conversation of nothing but notices — a project's chat whose only agent
   // finished without waking it — has items and still nothing to show, so the
   // hero belongs there too.
   const empty = !thread.data?.items.some((it) => !isSilent(it));
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-chat" data-chat={agent.ref}>
+    <div ref={root} className="relative flex h-full min-h-0 flex-col bg-chat" data-chat={agent.ref}>
+      {finding && (
+        <FindBar
+          chatRef={agent.ref}
+          thread={thread.data}
+          scroller={scroller}
+          focus={findFocus}
+          onJump={() => {
+            following.current = false;
+            setAtEnd(false);
+          }}
+          onClose={() => setFinding(false)}
+        />
+      )}
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"

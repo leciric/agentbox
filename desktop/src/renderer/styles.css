@@ -624,6 +624,16 @@
   }
 }
 
+/* What a chat's find bar found (components/chat/FindBar.tsx), and the one
+   it's on. */
+::highlight(chat-find) {
+  background-color: color-mix(in srgb, #facc15 32%, transparent);
+}
+::highlight(chat-find-current) {
+  background-color: #f59e0b;
+  color: #1c1917;
+}
+
 /* A label with a highlight sweeping across it: what's happening right now. */
 .chat-shine {
   color: transparent;

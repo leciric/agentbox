@@ -23,6 +23,7 @@ export type AppFeature =
   | typeof T.FeatureSettingsResources
   | typeof T.FeatureSettingsProject
   | typeof T.FeatureSettingsSearch
+  | typeof T.FeatureChatFind
   | typeof T.FeatureMenuOpenChat
   | typeof T.FeatureMenuOpenTerminal
   | typeof T.FeatureMenuInfo
