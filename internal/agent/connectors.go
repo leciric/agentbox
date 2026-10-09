@@ -21,14 +21,15 @@ import (
 // token: the configuration is all an agent gets of it.
 
 // connectorNames are the enabled connectors an agent is given, by name: its
-// project's that its limit lets through, and its own. A lead is given its
+// project's (the AgentBox-wide ones among them) that its limit lets through,
+// and its own. A lead is given its
 // project's, relayed through its own socket rather than a machine's
 // (leadMCPServers).
 func (m *Manager) connectorNames(ctx context.Context, a state.Agent) ([]string, error) {
 	var found []state.Connector
 	var err error
 	if a.IsLead() {
-		found, err = m.Store.Connectors(ctx, a.Project, "")
+		found, err = m.Store.ProjectConnectors(ctx, a.Project)
 	} else {
 		found, err = m.Store.AgentConnectors(ctx, a.Project, a.Name)
 	}
@@ -45,13 +46,13 @@ func (m *Manager) connectorNames(ctx context.Context, a state.Agent) ([]string, 
 }
 
 // CheckConnectorLimit refuses a limit (CreateOptions.Connectors) that names a
-// connector the project doesn't have, which is a typo far more often than a
+// connector the project doesn't have, of its own or AgentBox-wide, which is a typo far more often than a
 // connector somebody means to add later.
 func (m *Manager) CheckConnectorLimit(ctx context.Context, project string, names []string) error {
 	if names == nil {
 		return nil
 	}
-	found, err := m.Store.Connectors(ctx, project, "")
+	found, err := m.Store.ProjectConnectors(ctx, project)
 	if err != nil {
 		return err
 	}

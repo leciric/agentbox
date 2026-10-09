@@ -11,22 +11,30 @@ import (
 
 // Connector is one remote MCP server a project, or one agent of it, uses:
 // where it is, how it signs in, and — for an OAuth one that has — the sign-in.
+// An AgentBox-wide connector has neither project nor agent: every project
+// gets it, unless the project overrides it or has its own of the same name.
 //
 // ClientSecret, AccessToken and RefreshToken are *ciphertext*, sealed by
 // package secrets before they get here, like a Secret's Value. Package
 // connectors is the only reader that opens them.
 type Connector struct {
-	Project string
+	Project string // empty for an AgentBox-wide connector
 	Agent   string // empty for a project connector, which every agent of it gets
 	Name    string
 	URL     string
 	Auth    string // "oauth", "secret" or "none"
 	// Secret, Header and Scheme are a "secret" connector's: the secret it
 	// sends and how.
-	Secret  string
-	Header  string
-	Scheme  string
+	Secret string
+	Header string
+	Scheme string
+	// Enabled is whether agents get it. An AgentBox-wide connector's is the
+	// AgentBox-wide switch, except as ProjectConnectors and AgentConnectors
+	// return it, where it is what the project says (EnabledFor).
 	Enabled bool
+	// Overrides are, for an AgentBox-wide connector, the projects that say
+	// otherwise than Enabled, by name.
+	Overrides map[string]bool
 
 	// What discovery and registration found, kept so a refresh needs neither.
 	Issuer        string
@@ -47,12 +55,30 @@ type Connector struct {
 	UpdatedAt   time.Time
 }
 
-// Scope is ScopeProject or ScopeAgent.
+// ScopeAgentBox is an AgentBox-wide connector's scope.
+const ScopeAgentBox = "agentbox"
+
+// Scope is ScopeAgentBox, ScopeProject or ScopeAgent.
 func (c Connector) Scope() string {
-	if c.Agent == "" {
+	switch {
+	case c.Project == "":
+		return ScopeAgentBox
+	case c.Agent == "":
 		return ScopeProject
 	}
 	return ScopeAgent
+}
+
+// Wide reports whether it is an AgentBox-wide connector.
+func (c Connector) Wide() bool { return c.Project == "" }
+
+// EnabledFor is whether a project's agents get an AgentBox-wide connector:
+// the project's override, or the AgentBox-wide switch.
+func (c Connector) EnabledFor(project string) bool {
+	if on, ok := c.Overrides[project]; ok {
+		return on
+	}
+	return c.Enabled
 }
 
 const connectorColumns = `project, agent, name, url, auth, secret, header, scheme, enabled,
@@ -108,19 +134,46 @@ func (s *Store) Connector(ctx context.Context, project, agent, name string) (Con
 }
 
 // Connectors lists one scope's connectors by name: a project's own when agent
-// is "", otherwise that agent's own.
+// is "", otherwise that agent's own, and the AgentBox-wide ones for project "".
 func (s *Store) Connectors(ctx context.Context, project, agent string) ([]Connector, error) {
 	return s.queryConnectors(ctx, `WHERE project = ? AND agent = ? ORDER BY name`, project, agent)
 }
 
-// AllConnectors is every connector of every project, for the refresh sweep.
+// AllConnectors is every connector of every project, and the AgentBox-wide
+// ones, for the refresh sweep.
 func (s *Store) AllConnectors(ctx context.Context) ([]Connector, error) {
 	return s.queryConnectors(ctx, `ORDER BY project, agent, name`)
 }
 
+// ProjectConnectors is what a project's agents get, enabled or not, before
+// any agent's limit or own: its own connectors and the AgentBox-wide ones, by
+// name, its own replacing an AgentBox-wide one of the same name. An
+// AgentBox-wide one comes with Enabled as the project has it (EnabledFor).
+func (s *Store) ProjectConnectors(ctx context.Context, project string) ([]Connector, error) {
+	found, err := s.queryConnectors(ctx, `WHERE project IN (?, '') AND agent = '' ORDER BY name, project = ''`, project)
+	if err != nil {
+		return nil, err
+	}
+	return firstOfEach(found, project, Agent{}), nil
+}
+
+// ProjectConnector is the connector of that name a project's agents get: its
+// own, or else the AgentBox-wide one, with Enabled as the project has it.
+func (s *Store) ProjectConnector(ctx context.Context, project, name string) (Connector, error) {
+	found, err := s.queryConnectors(ctx, `WHERE project IN (?, '') AND agent = '' AND name = ? ORDER BY project = ''`, project, name)
+	if err != nil {
+		return Connector{}, err
+	}
+	if found = firstOfEach(found, project, Agent{}); len(found) == 0 {
+		return Connector{}, fmt.Errorf("connector %s: %w", name, ErrNotFound)
+	}
+	return found[0], nil
+}
+
 // AgentConnectors is what one agent gets, enabled or not: its project's
-// connectors that its limit lets through (Agent.Connectors) and its own, by
-// name, an agent's own replacing its project's of the same name.
+// connectors (ProjectConnectors) that its limit lets through
+// (Agent.Connectors) and its own, by name, an agent's own replacing its
+// project's of the same name, and those an AgentBox-wide one.
 func (s *Store) AgentConnectors(ctx context.Context, project, agent string) ([]Connector, error) {
 	a, err := s.Agent(ctx, project, agent)
 	switch {
@@ -129,23 +182,46 @@ func (s *Store) AgentConnectors(ctx context.Context, project, agent string) ([]C
 	case err != nil:
 		return nil, err
 	}
-	found, err := s.queryConnectors(ctx, `WHERE project = ? AND agent IN ('', ?) ORDER BY name, agent = ''`, project, agent)
+	found, err := s.queryConnectors(ctx, `WHERE (project = ? AND agent IN ('', ?)) OR (project = '' AND agent = '')
+		ORDER BY name, agent = '', project = ''`, project, agent)
 	if err != nil {
 		return nil, err
 	}
-	// Ordered by name with an agent's own first, so the first of each name
-	// is the one that counts.
+	return firstOfEach(found, project, a), nil
+}
+
+// firstOfEach keeps the first connector of each name of found, which is
+// ordered by name and then by which one counts. One a's limit leaves out is
+// skipped, and an AgentBox-wide one gets the project's Enabled.
+func firstOfEach(found []Connector, project string, a Agent) []Connector {
 	var out []Connector
-	for _, c := range found {
-		if len(out) > 0 && out[len(out)-1].Name == c.Name {
+	for i, c := range found {
+		if i > 0 && found[i-1].Name == c.Name {
 			continue
 		}
 		if c.Agent == "" && !a.GetsConnector(c.Name) {
 			continue
 		}
+		if c.Wide() {
+			c.Enabled = c.EnabledFor(project)
+		}
 		out = append(out, c)
 	}
-	return out, nil
+	return out
+}
+
+// SetConnectorOverride sets a project's say on an AgentBox-wide connector: on,
+// off, or (nil) none, when it follows the AgentBox-wide switch again.
+func (s *Store) SetConnectorOverride(ctx context.Context, name, project string, on *bool) error {
+	if _, err := s.Connector(ctx, "", "", name); err != nil {
+		return err
+	}
+	if on == nil {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM connector_projects WHERE connector = ? AND project = ?`, name, project)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT OR REPLACE INTO connector_projects (connector, project, enabled) VALUES (?, ?, ?)`, name, project, *on)
+	return err
 }
 
 // SetAgentConnectors changes which of its project's connectors an agent is
@@ -178,7 +254,8 @@ func connectorLimit(names []string) (sql.NullString, error) {
 	return sql.NullString{String: string(b), Valid: true}, nil
 }
 
-// RemoveConnector forgets one connector, sign-in and all.
+// RemoveConnector forgets one connector, sign-in and all, and an
+// AgentBox-wide one's overrides.
 func (s *Store) RemoveConnector(ctx context.Context, project, agent, name string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM connectors WHERE project = ? AND agent = ? AND name = ?`, project, agent, name)
 	if err != nil {
@@ -187,7 +264,10 @@ func (s *Store) RemoveConnector(ctx context.Context, project, agent, name string
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("connector %s: %w", name, ErrNotFound)
 	}
-	return nil
+	if project == "" {
+		_, err = s.db.ExecContext(ctx, `DELETE FROM connector_projects WHERE connector = ?`, name)
+	}
+	return err
 }
 
 // RemoveAgentConnectors forgets the connectors that belonged to one agent.
@@ -196,9 +276,16 @@ func (s *Store) RemoveAgentConnectors(ctx context.Context, project, agent string
 	return err
 }
 
-// RemoveProjectConnectors forgets every connector of a project, in both scopes.
+// RemoveProjectConnectors forgets every connector of a project, in both scopes,
+// and its overrides of the AgentBox-wide ones.
 func (s *Store) RemoveProjectConnectors(ctx context.Context, project string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM connectors WHERE project = ?`, project)
+	if project == "" {
+		return errors.New("no project")
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM connectors WHERE project = ?`, project); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM connector_projects WHERE project = ?`, project)
 	return err
 }
 
@@ -221,7 +308,41 @@ func (s *Store) queryConnectors(ctx context.Context, clause string, args ...any)
 		c.UpdatedAt = time.Unix(updated, 0)
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	_ = rows.Close() // before the next query, on a store that may have one connection
+	return out, s.connectorOverrides(ctx, out)
+}
+
+// connectorOverrides fills in the AgentBox-wide connectors' Overrides.
+func (s *Store) connectorOverrides(ctx context.Context, found []Connector) error {
+	wide := map[string]int{}
+	for i, c := range found {
+		if c.Wide() {
+			found[i].Overrides = map[string]bool{}
+			wide[c.Name] = i
+		}
+	}
+	if len(wide) == 0 {
+		return nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT connector, project, enabled FROM connector_projects`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var name, project string
+		var on bool
+		if err := rows.Scan(&name, &project, &on); err != nil {
+			return err
+		}
+		if i, ok := wide[name]; ok {
+			found[i].Overrides[project] = on
+		}
+	}
+	return rows.Err()
 }
 
 func unixOrZero(t time.Time) int64 {

@@ -17,6 +17,7 @@ import {
   LoaderCircle,
   LogIn,
   Mic,
+  Plug,
   Wand2,
   Monitor,
   Moon,
@@ -74,6 +75,7 @@ import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
+import { ConnectorsTab } from "./ConnectorsTab";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { useVoiceSettings } from "../lib/voice/settings";
@@ -992,6 +994,27 @@ function InstalledSettings({
       ],
     },
     {
+      id: "connectors",
+      title: t("settings.section.connectors.title"),
+      description: t("settings.section.connectors.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "connectors",
+          title: t("settings.group.connectors.title"),
+          cards: true,
+          entries: [
+            {
+              id: "connectors",
+              label: t("settings.section.connectors.title"),
+              keywords: t("settings.entry.connectors.keywords"),
+              render: () => <ConnectorsTab target="" embedded />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "voice",
       title: t("settings.section.voice.title"),
       description: t("settings.section.voice.description"),
@@ -1398,6 +1421,7 @@ const sectionIcons: SectionIcons = {
   models: Sparkles,
   voice: Mic,
   skills: Wand2,
+  connectors: Plug,
   phone: Smartphone,
   agents: Bot,
   resources: Cpu,

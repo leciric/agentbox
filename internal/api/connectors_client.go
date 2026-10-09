@@ -8,10 +8,13 @@ import (
 )
 
 // The connectors client. A target is "<project>" or "<project>/<agent>", the
-// way the secrets client takes one.
+// way the secrets client takes one, or "" for the AgentBox-wide connectors.
 
 // ConnectorsPath is the API path of a scope's connectors.
 func ConnectorsPath(target string) (string, error) {
+	if target == "" {
+		return "/v1/connectors", nil
+	}
 	path, err := SecretsPath(target)
 	if err != nil {
 		return "", err
@@ -87,4 +90,11 @@ func (c *Client) RequestConnector(ctx context.Context, req ConnectorRequest) (Qu
 func (c *Client) ProjectConnectors(ctx context.Context) ([]Connector, error) {
 	var out []Connector
 	return out, c.do(ctx, http.MethodGet, c.leadPath("/connectors"), nil, &out)
+}
+
+// SetConnectorOverride sets a project's say on an AgentBox-wide connector:
+// "on", "off", or "" to follow the AgentBox-wide switch.
+func (c *Client) SetConnectorOverride(ctx context.Context, project, name, override string) (Connector, error) {
+	var out Connector
+	return out, c.connectorDo(ctx, http.MethodPut, project, "/"+url.PathEscape(name)+"/override", ConnectorOverrideRequest{Override: override}, &out)
 }

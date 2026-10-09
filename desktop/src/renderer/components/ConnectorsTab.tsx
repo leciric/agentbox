@@ -8,10 +8,14 @@ import { api } from '../lib/api';
 import { formatDateTime, t as translate, useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import {
+  type ConnectorOverride,
   type ConnectorPreset,
   connectorName,
   connectorPresets,
   connectorStatus,
+  isWide,
+  overrideOf,
+  overrideRequest,
   tokenLine,
   validConnectorName,
   validConnectorURL,
@@ -27,34 +31,56 @@ import { Field, Input } from './ui/input';
 import { Switch } from './ui/switch';
 import { Tip } from './ui/tooltip';
 
-// Connectors, a section of a project's or an agent's Settings tab: remote MCP servers — Notion, Linear, Figma… — that a
-// project's agents, or one agent, get as tools. A target is "pawly" or
-// "pawly/agent-01", as under Secrets.
+// Connectors, a section of a project's or an agent's Settings tab, and of
+// AgentBox's Settings: remote MCP servers — Notion, Linear, Figma… — that every
+// project, a project's agents, or one agent, get as tools. A target is "pawly"
+// or "pawly/agent-01", as under Secrets, or "" for the AgentBox-wide ones.
+// A project's page lists the AgentBox-wide ones it gets with a three-way
+// override; one of its own of the same name replaces one there.
 //
 // The user signs in here, in their own browser, and the daemon keeps the
 // tokens: no page can read one, so what a row shows is the connector's state
 // and when its token runs out, never the token.
 
-export function ConnectorsTab({ target }: { target: string }) {
+// embedded drops the tab's own scrolling and margins, inside a Settings page
+// that has them.
+export function ConnectorsTab({ target, embedded }: { target: string; embedded?: boolean }) {
   const t = useT();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const wide = target === '';
   const forAgent = target.includes('/');
   const connectors = useQuery({ queryKey: ['connectors', target], queryFn: () => api.connectors(target) });
   const [removing, setRemoving] = useState<T.Connector | null>(null);
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['connectors'] });
   const connect = useConnect(target);
 
-  const mine = connectors.data?.filter((c) => (forAgent ? c.scope === 'agent' : c.scope === 'project')) ?? [];
-  const inherited = forAgent ? (connectors.data?.filter((c) => c.scope === 'project') ?? []) : [];
+  const scope = wide ? A.ConnectorWide : forAgent ? 'agent' : 'project';
+  const mine = connectors.data?.filter((c) => c.scope === scope) ?? [];
+  const inherited = forAgent ? (connectors.data?.filter((c) => c.scope !== 'agent') ?? []) : [];
+  const fromAgentBox = !wide && !forAgent ? (connectors.data?.filter(isWide) ?? []) : [];
   const [project, agent] = target.split('/');
 
   return (
-    <div className="h-full overflow-y-auto p-5">
-      <div className="mx-auto grid max-w-4xl gap-4">
-        <ConnectorRequestCards project={project} agent={agent} />
+    <div className={cn(!embedded && 'h-full overflow-y-auto p-5')}>
+      <div className={cn('mx-auto grid gap-4', !embedded && 'max-w-4xl')}>
+        {!wide && <ConnectorRequestCards project={project} agent={agent} />}
 
-        <Catalog target={target} forAgent={forAgent} have={connectors.data ?? []} onAdded={refresh} connect={connect.start} />
+        <Catalog target={target} scope={scope} have={connectors.data ?? []} onAdded={refresh} connect={connect.start} />
+
+        {fromAgentBox.length > 0 && (
+          <Card
+            title={t('project.connectors.fromAgentBox', { count: fromAgentBox.length })}
+            icon={Globe}
+            description={t('project.connectors.fromAgentBoxDescription')}
+          >
+            <ul className="grid gap-2" aria-label={t('project.connectors.agentBoxAria')}>
+              {fromAgentBox.map((c) => (
+                <ConnectorRow key={c.name} connector={c} control={<OverrideControl project={target} connector={c} />} />
+              ))}
+            </ul>
+          </Card>
+        )}
 
         {inherited.length > 0 && (
           <Card
@@ -71,10 +97,20 @@ export function ConnectorsTab({ target }: { target: string }) {
         )}
 
         <Card
-          title={forAgent ? t('project.connectors.agentOwn', { count: mine.length }) : t('project.connectors.projectOwn', { count: mine.length })}
+          title={
+            wide
+              ? t('project.connectors.wideOwn', { count: mine.length })
+              : forAgent
+                ? t('project.connectors.agentOwn', { count: mine.length })
+                : t('project.connectors.projectOwn', { count: mine.length })
+          }
           icon={Plug}
           description={
-            forAgent ? t('project.connectors.agentOwnDescription') : t('project.connectors.projectOwnDescription')
+            wide
+              ? t('project.connectors.wideOwnDescription')
+              : forAgent
+                ? t('project.connectors.agentOwnDescription')
+                : t('project.connectors.projectOwnDescription')
           }
         >
           {connectors.error && <Notice>{errorMessage(connectors.error)}</Notice>}
@@ -106,9 +142,11 @@ export function ConnectorsTab({ target }: { target: string }) {
         onOpenChange={(open) => !open && setRemoving(null)}
         title={t('project.connectors.removeTitle', { name: removing?.name ?? '' })}
         description={
-          removing?.scope === 'project'
-            ? t('project.connectors.removeDescriptionProject', { project: projectLabel(removing.project ?? '', projects.data) })
-            : t('project.connectors.removeDescriptionAgent', { agent: removing?.agent ?? '' })
+          removing?.scope === A.ConnectorWide
+            ? t('project.connectors.removeDescriptionWide')
+            : removing?.scope === 'project'
+              ? t('project.connectors.removeDescriptionProject', { project: projectLabel(removing.project ?? '', projects.data) })
+              : t('project.connectors.removeDescriptionAgent', { agent: removing?.agent ?? '' })
         }
         confirmLabel={t('common.remove')}
         destructive
@@ -172,27 +210,39 @@ function useConnect(target: string) {
 // token for a server that takes one instead.
 function Catalog({
   target,
-  forAgent,
+  scope,
   have,
   onAdded,
   connect,
 }: {
   target: string;
-  forAgent: boolean;
+  scope: string;
   have: T.Connector[];
   onAdded: () => Promise<unknown>;
   connect: (name: string) => Promise<void>;
 }) {
   const t = useT();
   const [picked, setPicked] = useState<ConnectorPreset | 'custom' | null>(null);
-  const added = (p: ConnectorPreset) => have.find((c) => c.url === p.url || c.name === p.name);
+  // An AgentBox-wide one doesn't take a project's tile: the project can add
+  // its own, which replaces it there.
+  const added = (p: ConnectorPreset) => have.find((c) => (scope === A.ConnectorWide || !isWide(c)) && (c.url === p.url || c.name === p.name));
 
   return (
     <Card
-      title={forAgent ? t('project.connectors.giveAgent') : t('project.connectors.giveProject')}
+      title={
+        scope === A.ConnectorWide
+          ? t('project.connectors.giveWide')
+          : scope === 'agent'
+            ? t('project.connectors.giveAgent')
+            : t('project.connectors.giveProject')
+      }
       icon={Plus}
       description={
-        forAgent ? t('project.connectors.giveAgentDescription') : t('project.connectors.giveProjectDescription')
+        scope === A.ConnectorWide
+          ? t('project.connectors.giveWideDescription')
+          : scope === 'agent'
+            ? t('project.connectors.giveAgentDescription')
+            : t('project.connectors.giveProjectDescription')
       }
     >
       <div className="grid gap-2 py-1 sm:grid-cols-5" role="list" aria-label={t('project.connectors.catalogAria')}>
@@ -225,7 +275,7 @@ function Catalog({
           key={picked === 'custom' ? 'custom' : picked.id}
           target={target}
           preset={picked === 'custom' ? undefined : picked}
-          taken={have.filter((c) => c.scope === (forAgent ? 'agent' : 'project')).map((c) => c.name)}
+          taken={have.filter((c) => c.scope === scope).map((c) => c.name)}
           onDone={async (connector) => {
             setPicked(null);
             await onAdded();
@@ -289,7 +339,9 @@ type AuthChoice = typeof A.ConnectorOAuth | typeof A.ConnectorSecret | typeof A.
 // ConnectorForm adds a connector. For a browser sign-in that is a name and a
 // URL, and the sign-in starts as soon as it is added; for a token, the token
 // is stored as a secret of the same target first and the connector sends it
-// in a header, so it is kept, and shown, the way any other secret is.
+// in a header, so it is kept, and shown, the way any other secret is. An
+// AgentBox-wide connector's token goes with it instead, kept by AgentBox and
+// given to no agent.
 function ConnectorForm({
   target,
   preset,
@@ -315,7 +367,8 @@ function ConnectorForm({
     mutationFn: async () => {
       const req: T.SetConnectorRequest = { url: url.trim(), auth };
       if (auth === A.ConnectorSecret) {
-        await api.setSecret(target, secretName.trim(), token);
+        if (target === '') req.secretValue = token;
+        else await api.setSecret(target, secretName.trim(), token);
         req.secret = secretName.trim();
         req.header = header.trim();
         // A preset says what goes before the token; a custom header leaves it
@@ -394,7 +447,11 @@ function ConnectorForm({
 
       {auth === A.ConnectorSecret && (
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label={preset?.secret?.tokenLabel ?? t('project.connectors.tokenLabel')} htmlFor="connector-token" hint={t('project.connectors.tokenHint')}>
+          <Field
+            label={preset?.secret?.tokenLabel ?? t('project.connectors.tokenLabel')}
+            htmlFor="connector-token"
+            hint={target === '' ? t('project.connectors.tokenHintWide') : t('project.connectors.tokenHint')}
+          >
             <Input
               id="connector-token"
               type="password"
@@ -453,10 +510,12 @@ function ConnectorForm({
 
 // ConnectorRow is one connector: its name and server, where it stands, how
 // long its sign-in holds, and — when it is this target's own — what can be
-// done about it. A project connector on an agent's tab shows only.
+// done about it. A project connector on an agent's tab shows only; an
+// AgentBox-wide one on a project's has control, its override.
 function ConnectorRow({
   connector: c,
   target,
+  control,
   connecting,
   onConnect,
   onReopen,
@@ -464,6 +523,7 @@ function ConnectorRow({
 }: {
   connector: T.Connector;
   target?: string;
+  control?: ReactNode;
   connecting?: boolean;
   onConnect?: () => void;
   onReopen?: () => void;
@@ -496,10 +556,12 @@ function ConnectorRow({
           {status.label}
         </Badge>
         {!c.enabled && <Badge>{t('project.connectors.off')}</Badge>}
+        {isWide(c) && target === undefined && !control && <Badge variant="brand">{t('project.connectors.wideBadge')}</Badge>}
         <span className="min-w-0 truncate font-mono text-[11.5px] text-subtle" title={c.url}>
           {c.url}
         </span>
-        {target && (
+        {control && <div className="ml-auto flex shrink-0 items-center">{control}</div>}
+        {target !== undefined && (
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <Tip label={c.enabled ? t('project.connectors.given') : t('project.connectors.leftOut')}>
               <span className="flex items-center">
@@ -545,10 +607,61 @@ function ConnectorRow({
         {c.connectedAt && c.status === A.ConnectorConnected && <span title={formatDateTime(c.connectedAt)}>{t('project.connectors.since', { when: timeAgo(c.connectedAt, now) })}</span>}
         {c.auth === A.ConnectorNone && <span>{t('project.connectors.publicServer')}</span>}
         <span>{whereItIs(c)}</span>
+        {c.overrides && Object.keys(c.overrides).length > 0 && (
+          <Tip label={Object.entries(c.overrides).map(([p, on]) => `${p}: ${on ? t('skills.on') : t('skills.off')}`).join(' · ')}>
+            <span>{t('project.connectors.overridden', { count: Object.keys(c.overrides).length })}</span>
+          </Tip>
+        )}
       </div>
       {c.status === A.ConnectorError && c.error && <p className="break-words text-[11.5px] text-rose-300">{c.error}</p>}
       {change.error && <p className="break-words text-[11.5px] text-rose-300">{errorMessage(change.error)}</p>}
     </li>
+  );
+}
+
+// OverrideControl is a project's say on an AgentBox-wide connector: off, on,
+// or inherit, which follows the switch in AgentBox's Settings.
+function OverrideControl({ project, connector: c }: { project: string; connector: T.Connector }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const set = useMutation({
+    mutationFn: (o: ConnectorOverride) => api.setConnectorOverride(project, c.name, overrideRequest(o)),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<T.Connector[]>(['connectors', project], (list) => list?.map((x) => (x.name === updated.name && x.scope === updated.scope ? updated : x)));
+      void queryClient.invalidateQueries({ queryKey: ['connectors'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const current = set.isPending && set.variables ? set.variables : overrideOf(c);
+  const options: [ConnectorOverride, string][] = [
+    ['off', t('project.connectors.overrideOff')],
+    ['inherit', t('project.connectors.overrideInherit')],
+    ['on', t('project.connectors.overrideOn')],
+  ];
+  return (
+    <div
+      className="flex items-center rounded-lg border border-line-faint bg-surface p-0.5"
+      role="radiogroup"
+      aria-label={t('project.connectors.overrideAria', { name: c.name })}
+      data-connector-override={current}
+    >
+      {options.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          role="radio"
+          aria-checked={current === value}
+          disabled={set.isPending}
+          onClick={() => current !== value && set.mutate(value)}
+          className={cn(
+            'rounded-md px-2.5 py-1 text-[11.5px] font-medium transition',
+            current === value ? 'bg-brand-500/15 text-primary ring-1 ring-inset ring-brand-400/50' : 'text-subtle hover:text-primary',
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -572,6 +685,10 @@ function hostOf(url: string): string {
 function whereItIs(c: T.Connector): string {
   const agents = c.agents ?? [];
   if (agents.length === 0) return translate('project.connectors.inNone');
+  if (isWide(c) && c.project === '' && agents.length > 1) {
+    const projects = new Set(agents.map((ref) => ref.split('/')[0])).size;
+    if (projects > 1) return translate('project.connectors.inManyProjects', { count: agents.length, projects });
+  }
   if (c.scope === 'agent') return translate('project.connectors.inThisAgent');
   if (agents.length === 1) return translate('project.connectors.inOne', { agent: agents[0].split('/')[1] });
   return translate('project.connectors.inMany', { count: agents.length });
