@@ -421,7 +421,7 @@ func (s *Server) importSkills(w http.ResponseWriter, r *http.Request) error {
 // project's (or, for "", any) reaches. One runs at a time, and each reads the
 // store as it starts, so the last one leaves every agent as the store is.
 func (s *Server) syncSkills(project string) {
-	go func() {
+	s.skillSyncs.Go(func() {
 		s.skillsMu.Lock()
 		defer s.skillsMu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -432,7 +432,7 @@ func (s *Server) syncSkills(project string) {
 		if s.skillsSynced != nil {
 			s.skillsSynced()
 		}
-	}()
+	})
 }
 
 func onOff(on bool) string {

@@ -139,6 +139,10 @@ type Server struct {
 	// starts, so Run doesn't return - and a test doesn't tear its temp dir down
 	// - while one is still about to write its answer beside the token.
 	bgChecks sync.WaitGroup
+	// skillSyncs tracks the skill installs syncSkills starts in the
+	// background, for the same reason: one may still be writing an agent's
+	// skill files.
+	skillSyncs sync.WaitGroup
 
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
@@ -393,6 +397,7 @@ func (s *Server) Run(ctx context.Context) error {
 		stop()
 		loops.Wait()
 		s.bgChecks.Wait()
+		s.skillSyncs.Wait()
 	}()
 	s.firstSweeps.Add(3)
 	loops.Go(func() { s.watch(ctx) })
