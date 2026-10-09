@@ -1,32 +1,40 @@
-// useAppUpdate is "Update available" for the sidebar and Settings: where an
-// in-place update stands (main/appupdate.ts), and what clicking it does —
-// download the update, restart into it once it's ready, or open the release
-// page where the app can't update itself (updateOrOpen).
+// useAppUpdate runs an update from "Update available" (lib/appUpdate.ts).
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import type { AppUpdateState } from '../../shared/appUpdate';
+import type { AppUpdateProgress, AppUpdateResult } from '../../shared/appupdate';
 import { api } from './api';
+import { failureMessage, updateLabel } from './appUpdate';
 import { t } from './i18n';
-import { updateOrOpen } from './releaseLink';
+import { openLatestRelease } from './releaseLink';
 
-export function useAppUpdate(available: { version: string; url: string } | undefined) {
-  const [state, setState] = useState<AppUpdateState>({ state: 'idle' });
-  const [supported, setSupported] = useState(false);
-  useEffect(() => {
-    void window.agentbox.appUpdate.supported().then(setSupported);
-    void window.agentbox.appUpdate.state().then(setState);
-    return window.agentbox.appUpdate.onState(setState);
-  }, []);
+export function useAppUpdate() {
+  const support = useQuery({ queryKey: ['app-update-support'], queryFn: () => window.agentbox.appUpdate.support(), staleTime: Infinity });
+  const [progress, setProgress] = useState<AppUpdateProgress | 'preparing' | null>(null);
+  // Progress goes to every window's listeners: an update started in Settings
+  // shows in the sidebar too.
+  useEffect(() => window.agentbox.appUpdate.onProgress(setProgress), []);
 
-  const start = () => {
-    if (!available || state.state === 'downloading' || state.state === 'installing') return;
-    if (state.state === 'ready') {
-      void window.agentbox.appUpdate.install().then(setState);
-      return;
-    }
-    void updateOrOpen(api.latestRelease, window.agentbox.appUpdate, window.agentbox.openExternal, available, (error) =>
-      toast.error(t('appUpdate.failed'), { description: error }),
+  const releasePage = (pinned: string) => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, pinned);
+
+  // start updates to the channel's latest release, or opens its page when
+  // this install can't; pinned is the page of the release the check found.
+  const start = async (pinned: string) => {
+    if (!support.data?.inPlace) return releasePage(pinned);
+    if (progress !== null) return;
+    setProgress('preparing');
+    const result = await window.agentbox.appUpdate.start().catch(
+      (err: unknown): AppUpdateResult => ({ ok: false, code: 'install', detail: err instanceof Error ? err.message : String(err) }),
     );
+    // Succeeded: the app restarts, still saying so.
+    if (result.ok) return;
+    setProgress(null);
+    toast.error(t('shell.update.failed'), {
+      description: failureMessage(result),
+      duration: 15_000,
+      action: { label: t('shell.update.releasePage'), onClick: () => releasePage(result.url ?? pinned) },
+    });
   };
-  return { state, supported, start };
+
+  return { support: support.data, label: updateLabel(progress), updating: progress !== null, start };
 }

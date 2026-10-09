@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isPrerelease, releaseFeed } from './appUpdate.ts';
+import { isPrerelease, releaseFeed } from './appimageupdate.ts';
 
 test("a release's feed is the directory its assets download from", () => {
   assert.equal(releaseFeed('https://downloads.agentbox.linting.dev/releases/v0.12.0/index.html'), 'https://downloads.agentbox.linting.dev/releases/v0.12.0/');

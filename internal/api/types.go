@@ -1924,6 +1924,24 @@ type UpdateAvailable struct {
 	URL     string `json:"url"`
 }
 
+// UpdateRelease is what GET /v1/update/release answers: the update channel's
+// latest release as GitHub lists it, and the files it offers, which the app
+// picks its own package from to update itself in place. Assets is empty when
+// GitHub couldn't be reached and the last check's find stands in.
+type UpdateRelease struct {
+	Version string         `json:"version"`
+	URL     string         `json:"url"`
+	Assets  []ReleaseAsset `json:"assets,omitempty"`
+}
+
+// ReleaseAsset is one file of a release: a package of the app, the
+// command-line tool, or the SHA256SUMS (SHA256SUMS-mac) they're checked against.
+type ReleaseAsset struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
+	Size int64  `json:"size"`
+}
+
 // TerminalResize is sent as a text frame on a terminal WebSocket to resize it.
 // Binary frames carry raw terminal bytes in both directions.
 type TerminalResize struct {

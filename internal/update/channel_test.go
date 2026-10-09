@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 )
 
@@ -77,9 +78,11 @@ func TestLatestReleasePicksTheNewestReleaseOrNightly(t *testing.T) {
 			{"tag_name":"v0.12.0-nightly.20261001.9","draft":true},
 			{"tag_name":"image-99"},
 			{"tag_name":"v0.11.0-nightly.20260929.12","prerelease":true},
-			{"tag_name":"v0.11.0-nightly.20260930.2","prerelease":true},
+			{"tag_name":"v0.11.0-nightly.20260930.2","prerelease":true,"assets":[
+				{"name":"AgentBox-0.11.0-nightly.20260930.2-mac-arm64.zip","browser_download_url":"https://example.com/n2.zip","size":42},
+				{"name":"SHA256SUMS","browser_download_url":"https://example.com/sums","size":7}]},
 			{"tag_name":"v0.10.1","prerelease":true},
-			{"tag_name":"v0.10.0","html_url":"https://github.com/leciric/agentbox/releases/tag/v0.10.0"},
+			{"tag_name":"v0.10.0"},
 			{"tag_name":"v0.9.1"},
 			{"tag_name":"v0.11.0-rc.1"}
 		]`))
@@ -93,6 +96,11 @@ func TestLatestReleasePicksTheNewestReleaseOrNightly(t *testing.T) {
 	if want := srv.URL + "/releases/v0.11.0-nightly.20260930.2/index.html"; got.Version != "0.11.0-nightly.20260930.2" || got.URL != want {
 		t.Errorf("LatestRelease(nightly) = %+v, want its page %s", got, want)
 	}
+	// With the files the app updates itself from.
+	want := []Asset{{"AgentBox-0.11.0-nightly.20260930.2-mac-arm64.zip", "https://example.com/n2.zip", 42}, {"SHA256SUMS", "https://example.com/sums", 7}}
+	if !reflect.DeepEqual(got.Assets, want) {
+		t.Errorf("LatestRelease(nightly).Assets = %+v, want %+v", got.Assets, want)
+	}
 	// The stable channel's latest is the newest release that isn't a
 	// prerelease, however many nightlies came after it. Its page is the
 	// bucket's, never GitHub's, which the private repository closes to users.
@@ -100,7 +108,7 @@ func TestLatestReleasePicksTheNewestReleaseOrNightly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := srv.URL + "/releases/v0.10.0/index.html"; got.Version != "0.10.0" || got.URL != want {
+	if want := srv.URL + "/releases/v0.10.0/index.html"; got.Version != "0.10.0" || got.URL != want || got.Assets != nil {
 		t.Errorf("LatestRelease(stable) = %+v, want its page %s", got, want)
 	}
 }

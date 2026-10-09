@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"agentbox/internal/api"
 	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 )
@@ -265,7 +266,8 @@ func TestUpdateLinkLeadsToTheLatestRelease(t *testing.T) {
 
 	releases.Lock()
 	list = `[{"tag_name":"v0.11.0-nightly.20260930.1","prerelease":true},
-		{"tag_name":"v0.10.0"},
+		{"tag_name":"v0.10.0",
+		 "assets":[{"name":"SHA256SUMS","browser_download_url":"https://downloads.agentbox.linting.dev/releases/v0.10.0/SHA256SUMS","size":1024}]},
 		{"tag_name":"v0.9.1"},
 		{"tag_name":"v0.9.0"}]`
 	releases.Unlock()
@@ -273,13 +275,17 @@ func TestUpdateLinkLeadsToTheLatestRelease(t *testing.T) {
 	if err != nil || got.Version != "0.10.0" || got.URL != gh.URL+"/releases/v0.10.0/index.html" {
 		t.Fatalf("LatestRelease() = %+v, %v; want 0.10.0's page", got, err)
 	}
+	// And its files, which the app updates itself from.
+	if want := (api.ReleaseAsset{Name: "SHA256SUMS", URL: "https://downloads.agentbox.linting.dev/releases/v0.10.0/SHA256SUMS", Size: 1024}); len(got.Assets) != 1 || got.Assets[0] != want {
+		t.Errorf("LatestRelease().Assets = %+v", got.Assets)
+	}
 	if status, _ := d.client.Update(ctx); status.Available == nil || status.Available.Version != "0.10.0" {
 		t.Errorf("after the link, Update() = %+v", status)
 	}
 
 	// GitHub unreachable: the last find, rather than nothing.
 	gh.Close()
-	if got, err := d.client.LatestRelease(ctx); err != nil || got.Version != "0.10.0" {
+	if got, err := d.client.LatestRelease(ctx); err != nil || got.Version != "0.10.0" || len(got.Assets) != 0 {
 		t.Errorf("with GitHub down, LatestRelease() = %+v, %v", got, err)
 	}
 }

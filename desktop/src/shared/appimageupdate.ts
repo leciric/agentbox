@@ -1,4 +1,4 @@
-// Updating the app in place, where it can be (main/appupdate.ts): what the
+// Updating the app in place, where it can be (main/appimageupdate.ts): what the
 // main process tells the renderer about it, shared by both.
 
 // AppUpdateState is where an in-place update stands. idle is nothing asked

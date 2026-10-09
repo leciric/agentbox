@@ -733,8 +733,8 @@ func (c *Client) UsageStatsPending(ctx context.Context) (UsageStatsPending, erro
 }
 
 // LatestRelease is the update channel's latest release, as the release list has it now.
-func (c *Client) LatestRelease(ctx context.Context) (UpdateAvailable, error) {
-	var out UpdateAvailable
+func (c *Client) LatestRelease(ctx context.Context) (UpdateRelease, error) {
+	var out UpdateRelease
 	return out, c.do(ctx, http.MethodGet, "/v1/update/release", nil, &out)
 }
 

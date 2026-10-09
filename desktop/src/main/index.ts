@@ -1,13 +1,11 @@
 // The Electron main process. It holds no AgentBox logic: it proxies API calls,
 // the event stream, WebSocket streams and media files between the renderer and
 // the current environment (this machine's daemon, or one on a hub), signs in to
-// hubs, and installs the command-line tool.
+// hubs, installs the command-line tool, and updates the app (updater.ts).
 import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron';
-import { AppImageUpdater } from 'electron-updater';
 import { arch, hostname } from 'node:os';
 import { join } from 'node:path';
 import { AppLog, captureConsole, reportSections, type AppError } from './applog';
-import { AppUpdates } from './appupdate';
 import { agentboxBin, cliStatus, installCli } from './cli';
 import { currentTarget, isLocal, localSocket, savedHubs, saveHubs, setTarget, type SavedHub, type Target } from './connection';
 import { type ApiResponse, ensureDaemon, notListening, request, restartDaemon, restartIfStale, socketPath, stopHostDaemon, stopStartingDaemon, unreachable } from './daemon';
@@ -21,6 +19,7 @@ import { guardStdio } from './stdio';
 import { showNotice, type OSNotice } from './notify';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
+import { installAppUpdates, restartingForUpdate } from './updater';
 import { learnMode, linuxVM } from './vmmode';
 import { allowMicrophone, enableWebGPU } from './voice';
 import { distro, linuxPath, windowsPath } from './wslpaths';
@@ -249,29 +248,10 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));
   await shell.openExternal(url);
 });
-// In-place updates (appupdate.ts), only for a packaged AppImage: anything
-// else answers that it can't, and the renderer opens the release page.
-let appUpdates: AppUpdates | undefined;
-function inPlaceUpdates(): AppUpdates | undefined {
-  if (!app.isPackaged || process.platform !== 'linux' || !process.env.APPIMAGE) return undefined;
-  if (!appUpdates) {
-    const updater = new AppImageUpdater();
-    updater.logger = console;
-    appUpdates = new AppUpdates(updater, app.getVersion(), (state) => send('appUpdate:state', state));
-  }
-  return appUpdates;
-}
-ipcMain.handle('appUpdate:supported', () => inPlaceUpdates() !== undefined);
-ipcMain.handle('appUpdate:state', () => inPlaceUpdates()?.state ?? { state: 'idle' });
-ipcMain.handle('appUpdate:download', (_event, release: { version: string; url: string }) => {
-  const updates = inPlaceUpdates();
-  if (!updates) throw new Error('this app is not an AppImage that can update itself');
-  return updates.download(release);
-});
-ipcMain.handle('appUpdate:install', () => inPlaceUpdates()?.install());
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());
+installAppUpdates(send);
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -328,7 +308,8 @@ const vmStopTimeout = 60_000;
 let vmStop: 'pending' | 'stopping' | 'done' = onMac && !process.env.AGENTBOX_NO_AUTOSTART ? 'pending' : 'done';
 
 app.on('before-quit', (event) => {
-  if (vmStop === 'done') return;
+  // Restarting into a new version (updater.ts): the VM stays up for it.
+  if (vmStop === 'done' || restartingForUpdate()) return;
   event.preventDefault();
   if (vmStop === 'stopping') return;
   vmStop = 'stopping';
