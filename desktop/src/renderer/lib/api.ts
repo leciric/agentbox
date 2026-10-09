@@ -36,6 +36,13 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
 }
 
+// text is call for an endpoint that answers plain text. An empty answer is ''
+// rather than call's undefined: a job that hasn't logged a line, an agent with
+// no changes or an empty brief is an empty body, and callers treat it as text.
+async function text(method: string, path: string): Promise<string> {
+  return (await call<string | undefined>(method, path)) ?? '';
+}
+
 const project = (name: string) => `/v1/projects/${encodeURIComponent(name)}`;
 const agent = (ref: string) => `/v1/agents/${ref.split('/').map(encodeURIComponent).join('/')}`;
 
@@ -122,7 +129,7 @@ export const api = {
   updateSection: (id: string, req: T.UpdateSectionRequest) => call<T.Section>('PATCH', `/v1/sections/${encodeURIComponent(id)}`, req),
   removeSection: (id: string) => call<void>('DELETE', `/v1/sections/${encodeURIComponent(id)}`),
   setProjectLayout: (layout: T.ProjectLayout) => call<T.Project[]>('PUT', '/v1/projects/layout', layout),
-  brief: (name: string) => call<string>('GET', `${project(name)}/brief`),
+  brief: (name: string) => text('GET', `${project(name)}/brief`),
   notes: (name: string) => call<T.Notes>('GET', `${project(name)}/notes`),
   saveNotes: (name: string, text: string) => call<T.Notes>('PUT', `${project(name)}/notes`, { text } satisfies T.NotesRequest),
   base: async (name: string) => {
@@ -159,7 +166,7 @@ export const api = {
   // Free resources: stop every running or paused agent, or only refs, as a
   // job whose result is a StopAgentsResult.
   stopAgents: (refs?: string[]) => call<T.Job>('POST', '/v1/agents/stop', { refs } satisfies T.StopAgentsRequest),
-  diffStat: (ref: string) => call<string>('GET', `${agent(ref)}/diff?stat=true`),
+  diffStat: (ref: string) => text('GET', `${agent(ref)}/diff?stat=true`),
 
   // A chat is read a page at a time: the latest limit messages, the ones
   // before an item, or everything from an item on. Without a page it is the
@@ -401,6 +408,6 @@ export const api = {
 
   jobs: () => call<T.Job[]>('GET', '/v1/jobs'),
   job: (id: string) => call<T.Job>('GET', `/v1/jobs/${id}`),
-  jobLog: (id: string) => call<string>('GET', `/v1/jobs/${id}/log`),
+  jobLog: (id: string) => text('GET', `/v1/jobs/${id}/log`),
   cancelJob: (id: string) => call<T.Job>('POST', `/v1/jobs/${id}/cancel`),
 };
