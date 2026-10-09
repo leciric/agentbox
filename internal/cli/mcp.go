@@ -381,10 +381,11 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "list_connectors",
 			Description: "This project's connectors: remote MCP servers like Notion or Linear that its agents get as tools, " +
-				"signed in once by the user and held by AgentBox, so no agent ever sees a token. Shows each one's status and " +
+				"signed in once by the user and held by AgentBox, so no agent ever sees a token — the project's own and the " +
+				"AgentBox-wide ones it gets. Shows each one's status and " +
 				"which agents have it. The connected ones are your own tools too (mcp__<name>__*). Pass create_agent's " +
 				"connectors to give an agent only some of them. To add one, ask the user to (Settings → Connectors on the project's " +
-				"page); an agent that finds it needs one asks the user itself, with request_connector.",
+				"page, or in AgentBox's Settings for every project); an agent that finds it needs one asks the user itself, with request_connector.",
 			Run: func(json.RawMessage) (string, error) {
 				found, err := c.ProjectConnectors(ctx)
 				if err != nil {
@@ -1335,6 +1336,9 @@ func describeConnectors(found []api.Connector) string {
 		given := "no agent"
 		if len(conn.Agents) > 0 {
 			given = strings.Join(conn.Agents, ", ")
+		}
+		if conn.Scope == api.ConnectorWide {
+			given += " (AgentBox-wide)"
 		}
 		fmt.Fprintf(&b, "- %s — %s, %s; given to %s\n", conn.Name, conn.URL, status, given)
 	}

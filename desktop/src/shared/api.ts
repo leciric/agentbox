@@ -1082,6 +1082,8 @@ export interface Connector {
   header?: string;
   scheme?: string;
   enabled: boolean;
+  override?: string;
+  overrides?: Record<string, boolean>;
   status: string;
   error?: string;
   issuer?: string;
@@ -1099,7 +1101,12 @@ export interface SetConnectorRequest {
   secret?: string;
   header?: string;
   scheme?: string;
+  secretValue?: string;
   enabled?: boolean;
+}
+
+export interface ConnectorOverrideRequest {
+  override: string;
 }
 
 export interface ConnectResult {
@@ -2185,6 +2192,7 @@ export const CredentialSecret = "secret";
 export const ConnectorOAuth = "oauth";
 export const ConnectorSecret = "secret";
 export const ConnectorNone = "none";
+export const ConnectorWide = "agentbox";
 export const ConnectorConnected = "connected";
 export const ConnectorDisconnected = "disconnected";
 export const ConnectorConnecting = "connecting";

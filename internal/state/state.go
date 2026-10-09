@@ -886,6 +886,18 @@ var migrations = []string{
 		enabled INTEGER NOT NULL,
 		PRIMARY KEY (skill, project)
 	)`,
+
+	// AgentBox-wide connectors are rows of connectors with project '' (and
+	// agent ''): signed in once, given to every project. Their enabled is the
+	// AgentBox-wide switch; connector_projects holds a project's override of
+	// it, either way, like skill_projects. A project's own connector of the
+	// same name replaces the AgentBox-wide one there.
+	`CREATE TABLE connector_projects (
+		connector TEXT NOT NULL,
+		project   TEXT NOT NULL,
+		enabled   INTEGER NOT NULL,
+		PRIMARY KEY (connector, project)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
