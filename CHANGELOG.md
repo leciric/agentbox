@@ -3,6 +3,31 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.13.0](https://github.com/leciric/agentbox/compare/v0.12.1...v0.13.0) (2026-10-09)
+
+
+### Added
+
+* AgentBox-wide connectors, signed in once in Settings, with a per-project off / inherit / on ([#236](https://github.com/leciric/agentbox/issues/236)) ([192457e](https://github.com/leciric/agentbox/commit/192457ef6d88b832c109de2a1ca688c3fb3ff3ea))
+* Cursor as a fourth AI tool, driven through Cursor's TypeScript SDK ([#226](https://github.com/leciric/agentbox/issues/226)) ([e2c6749](https://github.com/leciric/agentbox/commit/e2c67499427d6d1b29b77ec41d44254179321335))
+* find in a chat with Ctrl+F, including messages not loaded yet ([#241](https://github.com/leciric/agentbox/issues/241)) ([2d06581](https://github.com/leciric/agentbox/commit/2d06581ad3be798bd0de8e28980f7cb9766087ef))
+* Hatch is a built-in connector, and the connector grid fits six tiles ([#243](https://github.com/leciric/agentbox/issues/243)) ([2bb5a63](https://github.com/leciric/agentbox/commit/2bb5a6343610d72f7e6f9d12e256b39cc7288afd))
+* reload a chat's tools after a connector change without losing the conversation ([#235](https://github.com/leciric/agentbox/issues/235)) ([4676e4a](https://github.com/leciric/agentbox/commit/4676e4a78a9f4e4294c31b73c272df4e66d980c0))
+* search everything in AgentBox from one palette (Ctrl/Cmd+K) ([#242](https://github.com/leciric/agentbox/issues/242)) ([81acf45](https://github.com/leciric/agentbox/commit/81acf45e18c21f08bc0eb33a701e1943a8e7c1f8))
+* skills for every agent and chat, AgentBox-wide or per project, imported from your AI tools, a folder or git ([#230](https://github.com/leciric/agentbox/issues/230)) ([ee35be9](https://github.com/leciric/agentbox/commit/ee35be9453f19755c73fb4c831057edb0a2c8131))
+* star media to keep it: favorites are never removed automatically, and the Media view filters to them ([#229](https://github.com/leciric/agentbox/issues/229)) ([5e78f75](https://github.com/leciric/agentbox/commit/5e78f7563da382bbd84857ff4fb36fcc79989c11))
+* Update available installs the new version in place and restarts ([#240](https://github.com/leciric/agentbox/issues/240)) ([0736975](https://github.com/leciric/agentbox/commit/0736975ed3da27aa3824f4bb3ef046d4087289fe))
+
+
+### Fixed
+
+* an empty job log no longer crashes the app with "reading 'replace'" ([#238](https://github.com/leciric/agentbox/issues/238)) ([e1624d7](https://github.com/leciric/agentbox/commit/e1624d7da136c2672d855cab42cfcfb7b9c78670))
+* Claude Code chats get Haiku 5.5, with the Claude ACP adapter 0.88.0 ([#232](https://github.com/leciric/agentbox/issues/232)) ([86b5de5](https://github.com/leciric/agentbox/commit/86b5de527a3a520dfa9b29b6fde48a64bdaff3f0))
+* dragging projects and sections in the sidebar lands where they're dropped and stays there ([#228](https://github.com/leciric/agentbox/issues/228)) ([8176fd5](https://github.com/leciric/agentbox/commit/8176fd558118a36f7eb6dd86840feb91f90c948a))
+* on Windows, importing skills finds the ones your Windows AI tools have and takes Windows paths ([#237](https://github.com/leciric/agentbox/issues/237)) ([279eb97](https://github.com/leciric/agentbox/commit/279eb978f305b15b797656852cdd6868dfeabcdd))
+* screenshots of an app on the display no longer come out blank ([#227](https://github.com/leciric/agentbox/issues/227)) ([d16c25a](https://github.com/leciric/agentbox/commit/d16c25ae0343b048fd9c315f57775a6b1ff8b49f))
+* skills installed as symlinks (like npx skills add) can be imported ([#234](https://github.com/leciric/agentbox/issues/234)) ([996d3a8](https://github.com/leciric/agentbox/commit/996d3a8c7884eeb10a09eb3db463365d42716205))
+
 ## [0.12.1](https://github.com/leciric/agentbox/compare/v0.12.0...v0.12.1) (2026-10-07)
 
 
