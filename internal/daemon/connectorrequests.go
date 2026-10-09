@@ -217,6 +217,7 @@ func (s *Server) answerConnectorFor(ctx context.Context, q state.Question, req a
 		if err := s.manager(nil).GrantConnector(ctx, a, name); err != nil {
 			return q, err
 		}
+		s.chat.ToolsChanged(a.Project, a.Name)
 		if a, err = s.store.Agent(ctx, q.Project, q.Agent); err != nil {
 			return q, err
 		}

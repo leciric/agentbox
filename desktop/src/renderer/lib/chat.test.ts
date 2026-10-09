@@ -28,6 +28,7 @@ import {
   prependPage,
   timelineRows,
   toolOf,
+  toolsReload,
   workSummary,
 } from './chat.ts';
 
@@ -463,4 +464,16 @@ test('asleep is a stopped or paused agent, whose chat stays readable and wakes i
   // A project's chat has no machine to start.
   assert.equal(asleep({ ref: 'p', state: 'stopped' }), undefined);
   assert.equal(asleep({ ref: 'p/lead', state: 'stopped' }), undefined);
+});
+
+test('toolsReload is ready only for an idle running session', () => {
+  const session = (over: Partial<T.ChatSession>) => ({ state: 'ready', tool: 'claude', options: [], commands: [], ...over }) as T.ChatSession;
+  assert.equal(toolsReload(undefined), 'off');
+  assert.equal(toolsReload(session({ state: 'off' })), 'off');
+  assert.equal(toolsReload(session({ state: 'error' })), 'off');
+  assert.equal(toolsReload(session({ state: 'starting' })), 'busy');
+  assert.equal(toolsReload(session({ state: 'running', turnStartedAt: '2026-01-01T00:00:00Z' })), 'busy');
+  assert.equal(toolsReload(session({ state: 'waiting' })), 'busy');
+  assert.equal(toolsReload(session({ background: ['npm run dev'] })), 'busy');
+  assert.equal(toolsReload(session({})), 'ready');
 });

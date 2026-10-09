@@ -248,6 +248,16 @@ export const isSilent = (it: T.ChatItem) => !!it.hidden;
 // the daemon starts or resumes the machine and delivers it (tellAgent). A
 // project's chat has no machine. Anything else not running (queued,
 // initializing, incomplete, missing) has nothing to wake into.
+// toolsReload says whether "Reload tools" can restart a chat's AI tool now,
+// and why not otherwise: the daemon refuses while the session is busy, since
+// a restart would end the turn or its background work, and a session that
+// isn't running reads the current tools when it starts anyway.
+export function toolsReload(session: T.ChatSession | undefined): 'ready' | 'busy' | 'off' {
+  if (!session || session.state === 'off' || session.state === 'error') return 'off';
+  if (session.state !== 'ready' || session.turnStartedAt || (session.background ?? []).length > 0) return 'busy';
+  return 'ready';
+}
+
 export const asleep = (agent: Pick<T.Agent, 'ref' | 'state'>): 'stopped' | 'paused' | undefined =>
   isProjectChat(agent.ref) ? undefined : agent.state === 'stopped' || agent.state === 'paused' ? agent.state : undefined;
 

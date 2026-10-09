@@ -55,6 +55,15 @@ type ChatSession struct {
 	// description (claude-agent-acp's async tasks). The session wakes by
 	// itself when one finishes, so a chat with any is still working.
 	Background []string `json:"background,omitempty"`
+	// ToolsChanged says the chat's MCP servers (the project's connectors)
+	// changed since its adapter started, which reads them only then. The next
+	// message restarts it first, resuming the session, unless NoResume;
+	// "Reload tools" (POST …/chat/reload) does it now.
+	ToolsChanged bool `json:"toolsChanged,omitempty"`
+	// NoResume says the running adapter can resume no session (neither ACP's
+	// session/resume nor session/load), so reloading its tools starts a new
+	// session that doesn't remember the conversation.
+	NoResume bool `json:"noResume,omitempty"`
 }
 
 const (
