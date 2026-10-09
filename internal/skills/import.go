@@ -1,7 +1,10 @@
 package skills
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 )
 
@@ -94,7 +98,7 @@ func Collect(dir, origin, source string) ([]Candidate, error) {
 			p := filepath.Join(d, e.Name())
 			// A symlink to a folder is followed one step, the way the tools
 			// do for linked skill libraries.
-			if st, err := os.Stat(p); err == nil && st.IsDir() {
+			if st, err := os.Stat(resolve(p)); err == nil && st.IsDir() {
 				if err := walk(p, depth+1); err != nil {
 					return err
 				}
@@ -119,10 +123,7 @@ func read(dir, origin, source string) Candidate {
 	// WalkDir doesn't follow a symlinked root, and npx skills add links
 	// ~/.claude/skills/<name> to ~/.agents/skills/<name>. Walk the real folder;
 	// Dir and Source stay as found.
-	root := dir
-	if real, err := filepath.EvalSymlinks(dir); err == nil {
-		root = real
-	}
+	root := resolve(dir)
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -157,7 +158,7 @@ func read(dir, origin, source string) Candidate {
 		if total > MaxBytes {
 			return fmt.Errorf("it holds more than %d MB", MaxBytes>>20)
 		}
-		c.Files = append(c.Files, state.SkillFile{Path: filepath.ToSlash(rel), Mode: uint32(info.Mode().Perm()), Content: content})
+		c.Files = append(c.Files, state.SkillFile{Path: filepath.ToSlash(rel), Mode: fileMode(info.Mode().Perm(), content), Content: content})
 		return nil
 	})
 	meta := Meta{}
@@ -185,6 +186,43 @@ func read(dir, origin, source string) Candidate {
 	return c
 }
 
+// fileMode is the mode a skill's file is kept with: 0755 or 0644, so that
+// nothing lands in every agent writable by all. A file that says it is 0777
+// is on a Windows drive (WSL's drvfs gives every file that mode), or was
+// chmod -R 777'd: it is a script when it starts with #!.
+func fileMode(perm fs.FileMode, content []byte) uint32 {
+	switch {
+	case perm == 0o777:
+		if bytes.HasPrefix(content, []byte("#!")) {
+			return 0o755
+		}
+		return 0o644
+	case perm&0o111 != 0:
+		return 0o755
+	}
+	return 0o644
+}
+
+// resolve is the folder p really is, through symlinks, or p. From WSL, a
+// link Windows made (a junction, from npx skills add) can point at a Windows
+// path, C:\Users\ana\.agents\skills\x, which WSL usually shows as
+// /mnt/c/... but may leave as it is: that is taken to its WSL path.
+func resolve(p string) string {
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	target, err := os.Readlink(p)
+	if err != nil || !hostos.IsWindowsPath(target) {
+		return p
+	}
+	if lp, ok := linuxPath(target, ""); ok {
+		if real, err := filepath.EvalSymlinks(lp); err == nil {
+			return real
+		}
+	}
+	return p
+}
+
 // Prepare turns a candidate into what is stored: its files with SKILL.md's
 // name matching the name it's stored under.
 func (c Candidate) Prepare(n string) ([]state.SkillFile, Meta, error) {
@@ -202,21 +240,21 @@ func (c Candidate) Prepare(n string) ([]state.SkillFile, Meta, error) {
 }
 
 // Discover lists the skills the user's own AI tools have, in each home given
-// (the VM's and, when it is shared, the host's): Claude Code's own and its
-// plugins', Codex's, OpenCode's, Cursor's and the shared ~/.agents/skills.
+// (the VM's and, when it is shared, the host's or, in WSL, Windows's): Claude
+// Code's own and its plugins', Codex's, OpenCode's, Cursor's and the shared
+// ~/.agents/skills. A skill is listed once however many places have it:
+// linked from one to another, or copied, as npx skills add does on Windows
+// when it can't link, or found in both homes.
 func Discover(homes []string) []Candidate {
 	var out []Candidate
 	seen := map[string]bool{}
 	add := func(cs []Candidate) {
 		for _, c := range cs {
-			real, err := filepath.EvalSymlinks(c.Dir)
-			if err != nil {
-				real = c.Dir
-			}
-			if seen[real] {
+			real, same := resolve(c.Dir), c.Name+"\x00"+c.digest()
+			if seen[real] || seen[same] {
 				continue
 			}
-			seen[real] = true
+			seen[real], seen[same] = true, true
 			out = append(out, c)
 		}
 	}
@@ -239,6 +277,19 @@ func Discover(homes []string) []Candidate {
 	return out
 }
 
+// digest stands for the candidate's files, to tell copies of a skill.
+func (c Candidate) digest() string {
+	if c.Problem != "" {
+		return "problem:" + c.Dir
+	}
+	h := sha256.New()
+	for _, f := range c.Files {
+		_, _ = fmt.Fprintf(h, "%s\x00%d\x00", f.Path, len(f.Content))
+		_, _ = h.Write(f.Content)
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 // collectChildren reads each folder of a tool's skills directory, one level
 // down: that is all a tool reads there. Dot-folders are the tool's own
 // (Codex keeps its bundled skills in .system).
@@ -253,7 +304,7 @@ func collectChildren(dir, origin string) []Candidate {
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
-		if st, err := os.Stat(filepath.Join(p, File)); err != nil || st.IsDir() {
+		if st, err := os.Stat(filepath.Join(resolve(p), File)); err != nil || st.IsDir() {
 			continue
 		}
 		out = append(out, read(p, origin, origin+":"+e.Name()))
@@ -301,6 +352,14 @@ func pluginSkills(dir string) []Candidate {
 	for _, in := range installs {
 		if in.path == "" {
 			continue
+		}
+		// Claude Code on Windows writes Windows paths, read here from WSL.
+		if hostos.IsWindowsPath(in.path) {
+			p, ok := linuxPath(in.path, "")
+			if !ok {
+				continue
+			}
+			in.path = p
 		}
 		for _, c := range collectChildren(filepath.Join(in.path, "skills"), "claude-plugin") {
 			c.Plugin = in.plugin
@@ -392,6 +451,22 @@ func Clone(ctx context.Context, source string) (dir string, cleanup func(), err 
 	return dir, cleanup, nil
 }
 
+// mnt is where WSL mounts Windows's drives. A variable for tests.
+var mnt = "/mnt"
+
+// linuxPath is hostos.LinuxPath, with Windows's drives under mnt.
+func linuxPath(p, distro string) (string, bool) {
+	lp, ok := hostos.LinuxPath(p, distro)
+	if rest, cut := strings.CutPrefix(lp, "/mnt/"); ok && cut && hostos.IsWindowsPath(p) {
+		lp = filepath.Join(mnt, rest)
+	}
+	return lp, ok
+}
+
+// windowsPaths says whether a source may be a Windows path: in WSL. A
+// variable for tests.
+var windowsPaths = hostos.WSL
+
 // Scan finds the skills a source holds: a git URL, a folder or a SKILL.md,
 // or, for "", the user's AI tools' own (Discover).
 func Scan(ctx context.Context, source string, homes []string) ([]Candidate, error) {
@@ -422,6 +497,19 @@ func Scan(ctx context.Context, source string, homes []string) ([]Candidate, erro
 		}
 		return found, nil
 	default:
+		// Explorer's Copy as path quotes it.
+		if len(source) >= 2 && source[0] == '"' && source[len(source)-1] == '"' {
+			source = source[1 : len(source)-1]
+		}
+		// In WSL a folder is often given as Windows sees it: C:\Users\ana\x
+		// or \\wsl.localhost\<distro>\home\ana\x.
+		if windowsPaths() && hostos.IsWindowsPath(source) {
+			p, ok := linuxPath(source, os.Getenv("WSL_DISTRO_NAME"))
+			if !ok {
+				return nil, fmt.Errorf("%s isn't a folder WSL can see: put it in AgentBox's distro or on a Windows drive", source)
+			}
+			source = p
+		}
 		if strings.HasPrefix(source, "~/") {
 			if home, err := os.UserHomeDir(); err == nil {
 				source = filepath.Join(home, source[2:])

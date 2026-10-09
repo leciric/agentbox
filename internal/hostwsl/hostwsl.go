@@ -519,36 +519,8 @@ func (d *Distro) workdir() (string, string) {
 	return "~", fmt.Sprintf("note: %s isn't a folder WSL can see, so this runs in your Linux home folder", cwd)
 }
 
-var (
-	drivePath = regexp.MustCompile(`^([A-Za-z]):(?:[\\/](.*))?$`)
-	// \\wsl.localhost\<distro>\... and the older \\wsl$\<distro>\...
-	wslPath = regexp.MustCompile(`(?i)^[\\/]{2}(?:wsl\.localhost|wsl\$)[\\/]([^\\/]+)(?:[\\/](.*))?$`)
-)
-
-// LinuxPath is where a Windows path is in the distro: C:\Users\ana is
-// /mnt/c/Users/ana, and \\wsl.localhost\AgentBox\home\ana is /home/ana. A Linux
-// path is itself. ok is false for a path WSL can't see: another distro's
-// files, or a network share.
-func LinuxPath(p, distro string) (string, bool) {
-	if strings.HasPrefix(p, "/") {
-		return p, true
-	}
-	if m := drivePath.FindStringSubmatch(p); m != nil {
-		rest := strings.TrimRight(strings.ReplaceAll(m[2], `\`, "/"), "/")
-		out := "/mnt/" + strings.ToLower(m[1])
-		if rest != "" {
-			out += "/" + rest
-		}
-		return out, true
-	}
-	if m := wslPath.FindStringSubmatch(p); m != nil {
-		if !strings.EqualFold(m[1], distro) {
-			return "", false
-		}
-		return "/" + strings.TrimRight(strings.ReplaceAll(m[2], `\`, "/"), "/"), true
-	}
-	return "", false
-}
+// LinuxPath is where a Windows path is in the distro (hostos.LinuxPath).
+func LinuxPath(p, distro string) (string, bool) { return hostos.LinuxPath(p, distro) }
 
 // WindowsPath is where Windows sees a path of the distro:
 // \\wsl.localhost\AgentBox\home\ana for /home/ana, and C:\x for /mnt/c/x.
@@ -575,7 +547,7 @@ func translateArgs(args []string) []string {
 	out := make([]string, len(args))
 	for i, a := range args {
 		out[i] = a
-		if drivePath.MatchString(a) || wslPath.MatchString(a) {
+		if hostos.IsWindowsPath(a) {
 			if p, ok := LinuxPath(a, env("AGENTBOX_WSL_DISTRO", DefaultName)); ok {
 				out[i] = p
 			}
@@ -614,16 +586,21 @@ func (d *Distro) StartDaemon(ctx context.Context) error {
 
 // daemonEnv is what the daemon is told about Windows: where the install ID
 // is kept (hostos.InstallIDFileEnv), beside the distro's directory rather than
-// in it, so a new distro is still the same install.
+// in it, so a new distro is still the same install; and the Windows user's
+// home (hostos.WindowsHomeEnv), where their own AI tools keep their skills.
 func (d *Distro) daemonEnv() []string {
-	if d.Dir == "" {
-		return nil
+	var env []string
+	if d.Dir != "" {
+		if file, ok := LinuxPath(filepath.Join(filepath.Dir(d.Dir), "install-id"), d.Name); ok {
+			env = append(env, hostos.InstallIDFileEnv+"="+file)
+		}
 	}
-	file, ok := LinuxPath(filepath.Join(filepath.Dir(d.Dir), "install-id"), d.Name)
-	if !ok {
-		return nil
+	if home, err := os.UserHomeDir(); err == nil {
+		if p, ok := LinuxPath(home, d.Name); ok {
+			env = append(env, hostos.WindowsHomeEnv+"="+p)
+		}
 	}
-	return []string{hostos.InstallIDFileEnv + "=" + file}
+	return env
 }
 
 // daemonAnswers asks the distro's agentbox whether the daemon answers, waiting
