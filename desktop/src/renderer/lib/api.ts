@@ -68,8 +68,9 @@ const filesBase = (ref: string) => {
 // A secrets target is a project ("pawly") or one agent ("pawly/agent-01"),
 // the same two scopes the command line takes.
 const secretsBase = (target: string) => (target.includes('/') ? `${agent(target)}/secrets` : `${project(target)}/secrets`);
-// Connectors take the same two targets.
-const connectorsBase = (target: string) => (target.includes('/') ? `${agent(target)}/connectors` : `${project(target)}/connectors`);
+// Connectors take the same two targets, and '' for the AgentBox-wide ones.
+const connectorsBase = (target: string) =>
+  target === '' ? '/v1/connectors' : target.includes('/') ? `${agent(target)}/connectors` : `${project(target)}/connectors`;
 const connectorPath = (target: string, name: string) => `${connectorsBase(target)}/${encodeURIComponent(name)}`;
 
 export type AgentAction = 'start' | 'stop' | 'pause' | 'resume';
@@ -241,6 +242,9 @@ export const api = {
   removeConnector: (target: string, name: string) => call<void>('DELETE', connectorPath(target, name)),
   connectConnector: (target: string, name: string) => call<T.ConnectResult>('POST', `${connectorPath(target, name)}/connect`),
   disconnectConnector: (target: string, name: string) => call<T.Connector>('POST', `${connectorPath(target, name)}/disconnect`),
+  // A project's say on an AgentBox-wide connector: 'on', 'off', or '' to follow AgentBox's.
+  setConnectorOverride: (projectName: string, name: string, override: '' | 'on' | 'off') =>
+    call<T.Connector>('PUT', `${connectorPath(projectName, name)}/override`, { override } satisfies T.ConnectorOverrideRequest),
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
 

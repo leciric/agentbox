@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -236,6 +238,118 @@ func TestConnectorRefusals(t *testing.T) {
 	if _, err := d.client.Connectors(ctx, "nope"); !api.IsNotFound(err) {
 		t.Errorf("an unknown project's connectors: %v", err)
 	}
+}
+
+// An AgentBox-wide connector, with the secret it sends kept by AgentBox: every
+// project's agents and chats get it, a project turns it off and back, a
+// project's own of the same name replaces it, and removing it takes its
+// secret with it. The secret is never an agent's variable.
+func TestWideConnector(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	capture := filepath.Join(root, "capture")
+	if err := os.MkdirAll(capture, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := startTestDaemon(t, root, connectorsIncus, testConfig{env: map[string]string{"CAPTURE": capture}})
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	if err := d.srv.serveAgentAPI(a.Instance); err != nil {
+		t.Fatal(err)
+	}
+	fake := connectorstest.New()
+	defer fake.Close()
+	fake.Accept("pat-1")
+	read := func() string {
+		b, _ := os.ReadFile(filepath.Join(capture, ".claude.json"))
+		return string(b)
+	}
+
+	if _, err := d.client.SetConnector(ctx, "hello-stack", "notion", api.SetConnectorRequest{URL: fake.MCP(), Secret: "NOTION_TOKEN", SecretValue: "pat-1"}); err == nil {
+		t.Error("a project connector took a secret's value")
+	}
+	added, err := d.client.SetConnector(ctx, "", "notion", api.SetConnectorRequest{URL: fake.MCP(), Secret: "NOTION_TOKEN", SecretValue: "pat-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added.Scope != api.ConnectorWide || added.Project != "" || added.Status != api.ConnectorConnected ||
+		strings.Join(added.Agents, ",") != "hello-stack/agent-01" {
+		t.Errorf("added = %+v", added)
+	}
+	waitFor(t, "the agent's MCP configuration", func() bool { return strings.Contains(read(), "notion") })
+	if names, _ := d.srv.secrets().NamesForAgent(ctx, "hello-stack", "agent-01"); len(names) != 0 {
+		t.Errorf("the agent holds the secrets %v", names)
+	}
+
+	list, err := d.client.Connectors(ctx, "hello-stack")
+	if err != nil || len(list) != 1 || list[0].Scope != api.ConnectorWide || !list[0].Enabled || list[0].Override != "" {
+		t.Errorf("hello-stack's connectors = %+v, %v", list, err)
+	}
+	inAgent := api.NewClient(d.srv.agentSocketPath(a.Instance))
+	relay := &connectors.Relay{HTTP: inAgent.HTTPClient(), URL: inAgent.SelfConnectorURL("notion")}
+	if result, err := relay.CallTool(ctx, "notion-search", json.RawMessage(`{"query":"roadmap"}`)); err != nil || result.Text() != "found: roadmap" {
+		t.Errorf("the agent calling notion = %+v, %v", result, err)
+	}
+	fake.Lock()
+	if len(fake.Seen) == 0 || fake.Seen[0] != "Bearer pat-1" {
+		t.Errorf("the server saw %v", fake.Seen)
+	}
+	fake.Unlock()
+	if err := d.srv.serveLeadAPI("hello-stack"); err != nil {
+		t.Fatal(err)
+	}
+	lead := api.NewClient(d.srv.leadSocketPath("hello-stack"))
+	if mine, err := lead.SelfConnectors(ctx); err != nil || len(mine) != 1 || mine[0].Name != "notion" {
+		t.Errorf("the lead's SelfConnectors() = %+v, %v", mine, err)
+	}
+
+	// Off in the project, then following AgentBox-wide again.
+	off, err := d.client.SetConnectorOverride(ctx, "hello-stack", "notion", "off")
+	if err != nil || off.Enabled || off.Override != "off" || len(off.Agents) != 0 {
+		t.Errorf("turned off = %+v, %v", off, err)
+	}
+	waitFor(t, "notion to leave the agent", func() bool { return !strings.Contains(read(), "notion") })
+	if mine, _ := inAgent.SelfConnectors(ctx); len(mine) != 0 {
+		t.Errorf("the agent still has %+v", mine)
+	}
+	if wide, _ := d.client.Connector(ctx, "", "notion"); !wide.Enabled || !reflect.DeepEqual(wide.Overrides, map[string]bool{"hello-stack": false}) || len(wide.Agents) != 0 {
+		t.Errorf("notion itself = %+v", wide)
+	}
+	if err := d.srv.manager(nil).CheckConnectorLimit(ctx, "hello-stack", []string{"notion"}); err != nil {
+		t.Errorf("an AgentBox-wide connector isn't the project's to give an agent: %v", err)
+	}
+	if back, err := d.client.SetConnectorOverride(ctx, "hello-stack", "notion", ""); err != nil || !back.Enabled || back.Override != "" {
+		t.Errorf("inheriting = %+v, %v", back, err)
+	}
+	waitFor(t, "notion to come back", func() bool { return strings.Contains(read(), "notion") })
+	if _, err := d.client.SetConnectorOverride(ctx, "hello-stack", "linear", "on"); !api.IsNotFound(err) {
+		t.Errorf("overriding a connector that isn't AgentBox-wide: %v", err)
+	}
+
+	// The project's own replaces it there.
+	if _, err := d.client.SetConnector(ctx, "hello-stack", "notion", api.SetConnectorRequest{URL: "https://notion.example/mcp", Auth: api.ConnectorNone}); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := d.client.Connectors(ctx, "hello-stack"); len(list) != 1 || list[0].Scope != "project" {
+		t.Errorf("with its own, hello-stack's connectors = %+v", list)
+	}
+	if wide, _ := d.client.Connector(ctx, "", "notion"); len(wide.Agents) != 0 {
+		t.Errorf("notion reaches %v past the project's own", wide.Agents)
+	}
+	if mine, _ := inAgent.SelfConnectors(ctx); len(mine) != 1 || mine[0].URL != "https://notion.example/mcp" {
+		t.Errorf("the agent has %+v, want the project's own", mine)
+	}
+	if err := d.client.RemoveConnector(ctx, "hello-stack", "notion"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.client.RemoveConnector(ctx, "", "notion"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.srv.store.Secret(ctx, "", "", "NOTION_TOKEN"); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("the removed connector's secret stayed: %v", err)
+	}
+	waitFor(t, "notion to leave the agent", func() bool { return !strings.Contains(read(), "notion") })
 }
 
 type relaySession struct {

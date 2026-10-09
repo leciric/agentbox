@@ -36,6 +36,14 @@ that agent alone, and replace a project connector of the same name.
   agentbox connector add pawly notion --url https://mcp.notion.com/mcp
   agentbox connector connect pawly notion
 
+An AgentBox-wide connector (--global, in place of the project) is signed in to
+once and goes to every project, unless a project turns it off or has its own
+of the same name, which replaces it there:
+
+  agentbox connector add --global linear --url https://mcp.linear.app/mcp
+  agentbox connector connect --global linear
+  agentbox connector override pawly linear off
+
 A server that can't sign AgentBox in with OAuth — Figma's, for one — can be
 sent one of the project's secrets as a header instead:
 
@@ -43,24 +51,67 @@ sent one of the project's secrets as a header instead:
   agentbox connector add pawly figma --url https://mcp.figma.com/mcp --secret FIGMA_TOKEN --header X-Figma-Token`,
 	}
 	cmd.AddCommand(newConnectorAddCmd(a), newConnectorListCmd(a), newConnectorConnectCmd(a),
-		newConnectorDisconnectCmd(a), newConnectorRemoveCmd(a), newConnectorMCPCmd(a),
+		newConnectorDisconnectCmd(a), newConnectorRemoveCmd(a), newConnectorOverrideCmd(a), newConnectorMCPCmd(a),
 		newConnectorToolsCmd(a), newConnectorCallCmd(a))
 	return cmd
 }
 
+// connectorArgs reads a command's scope and connector name: <target> NAME, or
+// with --global NAME alone, for an AgentBox-wide connector (target "").
+func connectorArgs(global bool, args []string) (target, name string, err error) {
+	switch {
+	case global && len(args) == 1:
+		return "", args[0], nil
+	case global:
+		return "", "", errors.New("--global takes the connector's name alone, in place of a project")
+	case len(args) == 2:
+		return args[0], args[1], nil
+	}
+	return "", "", errors.New("which project? give <project | project/agent> NAME, or --global NAME for an AgentBox-wide connector")
+}
+
+// globalFlag is --global, on every command that takes a connector's scope.
+func globalFlag(cmd *cobra.Command, global *bool) {
+	cmd.Flags().BoolVarP(global, "global", "g", false, "an AgentBox-wide connector, which every project gets, in place of <project | project/agent>")
+}
+
+// scopeText is how a message names a connector's scope.
+func scopeText(target string) string {
+	if target == "" {
+		return "every project"
+	}
+	return target
+}
+
+// scopeArg is how a command names it back.
+func scopeArg(target string) string {
+	if target == "" {
+		return "--global"
+	}
+	return target
+}
+
 func newConnectorAddCmd(a *app) *cobra.Command {
 	var req api.SetConnectorRequest
-	var disabled, enabled bool
+	var disabled, enabled, global, valueStdin bool
 	cmd := &cobra.Command{
-		Use:   "add <project | project/agent> NAME --url URL",
+		Use:   "add <project | project/agent | --global> NAME --url URL",
 		Short: "Add a connector, or change one",
 		Long: `NAME is what agents' AI tools know it as: lowercase letters, digits, - and _.
 
 --auth is oauth (the default: sign in with connect), secret (send the secret
 named by --secret, as --header, "Authorization: Bearer <value>" by default), or
-none. Changing the URL or --auth of a connector forgets its sign-in.`,
-		Args: cobra.ExactArgs(2),
+none. Changing the URL or --auth of a connector forgets its sign-in.
+
+A project's or an agent's connector sends one of its secrets (agentbox secrets
+set). An AgentBox-wide one (--global) keeps its own, asked for here, or read
+from stdin with --value-stdin, and gives it to no agent as a variable.`,
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			target, name, err := connectorArgs(global, args)
+			if err != nil {
+				return err
+			}
 			switch {
 			case disabled && enabled:
 				return errors.New("--enabled and --disabled together")
@@ -69,22 +120,32 @@ none. Changing the URL or --auth of a connector forgets its sign-in.`,
 			case enabled:
 				req.Enabled = new(true)
 			}
+			switch {
+			case global && req.Secret != "":
+				if req.SecretValue, err = secretValue(cmd, req.Secret, valueStdin); err != nil {
+					return err
+				}
+			case valueStdin:
+				return errors.New("--value-stdin is for an AgentBox-wide connector's secret (--global --secret NAME): set a project's with agentbox secrets set")
+			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
-			conn, err := c.SetConnector(cmd.Context(), args[0], args[1], req)
+			conn, err := c.SetConnector(cmd.Context(), target, name, req)
 			if err != nil {
 				return err
 			}
 			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "%s is %s for %s\n", conn.Name, describeConnector(conn), args[0])
+			_, _ = fmt.Fprintf(out, "%s is %s for %s\n", conn.Name, describeConnector(conn), scopeText(target))
 			if conn.Auth == api.ConnectorOAuth && conn.Status != api.ConnectorConnected {
-				_, _ = fmt.Fprintf(out, "Sign in to it with: agentbox connector connect %s %s\n", args[0], conn.Name)
+				_, _ = fmt.Fprintf(out, "Sign in to it with: agentbox connector connect %s %s\n", scopeArg(target), conn.Name)
 			}
 			return nil
 		},
 	}
+	globalFlag(cmd, &global)
+	cmd.Flags().BoolVar(&valueStdin, "value-stdin", false, "with --global and --secret, read the secret's value from stdin rather than ask for it")
 	cmd.Flags().StringVar(&req.URL, "url", "", "the server's MCP endpoint (streamable HTTP), like https://mcp.notion.com/mcp")
 	cmd.Flags().StringVar(&req.Auth, "auth", "", "oauth, secret or none (oauth unless --secret is given)")
 	cmd.Flags().StringVar(&req.Secret, "secret", "", "the secret to send, for --auth secret")
@@ -97,15 +158,23 @@ none. Changing the URL or --auth of a connector forgets its sign-in.`,
 }
 
 func newConnectorListCmd(a *app) *cobra.Command {
-	return &cobra.Command{
-		Use:     "list [project | project/agent]",
+	var global bool
+	cmd := &cobra.Command{
+		Use:     "list [project | project/agent | --global]",
 		Aliases: []string{"ls"},
-		Short:   "List a project's connectors, or an agent's",
-		Long: `A project lists its own connectors; an agent lists everything it is given.
-Inside an agent, with no argument, it lists that agent's.`,
+		Short:   "List a project's connectors, or an agent's, or the AgentBox-wide ones",
+		Long: `A project lists its own connectors and the AgentBox-wide ones it gets; an agent
+lists everything it is given; --global lists the AgentBox-wide ones. Inside an
+agent, with no argument, it lists that agent's.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
+			if global {
+				if len(args) > 0 {
+					return errors.New("--global lists the AgentBox-wide connectors, in place of a project")
+				}
+				args = []string{""}
+			}
 			if len(args) == 0 {
 				socket := inAgentSocket()
 				if _, err := os.Stat(socket); err != nil {
@@ -131,21 +200,29 @@ Inside an agent, with no argument, it lists that agent's.`,
 				return err
 			}
 			if len(found) == 0 {
-				_, _ = fmt.Fprintf(out, "No connectors for %s yet. Add one with: agentbox connector add %s NAME --url URL\n", args[0], args[0])
+				_, _ = fmt.Fprintf(out, "No connectors for %s yet. Add one with: agentbox connector add %s NAME --url URL\n", scopeText(args[0]), scopeArg(args[0]))
 				return nil
 			}
 			w := tabwriter.NewWriter(out, 0, 0, 3, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tSCOPE\tAUTH\tSTATUS\tURL")
 			for _, conn := range found {
 				status := statusText(conn.Status, conn.Error)
-				if !conn.Enabled {
+				switch {
+				case conn.Override != "":
+					status += " (" + conn.Override + " here)"
+				case !conn.Enabled:
 					status += " (off)"
+				}
+				if len(conn.Overrides) > 0 {
+					status += fmt.Sprintf(" (overridden in %d)", len(conn.Overrides))
 				}
 				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", conn.Name, conn.Scope, describeConnector(conn), status, conn.URL)
 			}
 			return w.Flush()
 		},
 	}
+	globalFlag(cmd, &global)
+	return cmd
 }
 
 func statusText(status, why string) string {
@@ -170,20 +247,23 @@ func describeConnector(c api.Connector) string {
 }
 
 func newConnectorConnectCmd(a *app) *cobra.Command {
-	var noWait bool
+	var noWait, global bool
 	cmd := &cobra.Command{
-		Use:   "connect <project | project/agent> NAME",
+		Use:   "connect <project | project/agent | --global> NAME",
 		Short: "Sign in to a connector's server, in your browser",
 		Long: `Opens the server's sign-in page and waits until you have signed in. The server
 sends your browser back to AgentBox on 127.0.0.1, which finishes the sign-in:
 nothing needs pasting back here.`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			target, name, err := connectorArgs(global, args)
+			if err != nil {
+				return err
+			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
-			target, name := args[0], args[1]
 			project, agent, _ := strings.Cut(target, "/")
 			// Listening before connecting: a sign-in takes a person seconds
 			// at the least, and the stream is up well before it ends.
@@ -234,43 +314,101 @@ nothing needs pasting back here.`,
 		},
 	}
 	cmd.Flags().BoolVar(&noWait, "no-wait", false, "print the sign-in page and return, rather than wait for the sign-in")
+	globalFlag(cmd, &global)
 	return cmd
 }
 
 func newConnectorDisconnectCmd(a *app) *cobra.Command {
-	return &cobra.Command{
-		Use:   "disconnect <project | project/agent> NAME",
+	var global bool
+	cmd := &cobra.Command{
+		Use:   "disconnect <project | project/agent | --global> NAME",
 		Short: "Forget a connector's sign-in, and keep the connector",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			target, name, err := connectorArgs(global, args)
+			if err != nil {
+				return err
+			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
-			if _, err := c.DisconnectConnector(cmd.Context(), args[0], args[1]); err != nil {
+			if _, err := c.DisconnectConnector(cmd.Context(), target, name); err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Disconnected %s of %s\n", args[1], args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Disconnected %s of %s\n", name, scopeText(target))
 			return nil
 		},
 	}
+	globalFlag(cmd, &global)
+	return cmd
 }
 
 func newConnectorRemoveCmd(a *app) *cobra.Command {
-	return &cobra.Command{
-		Use:     "rm <project | project/agent> NAME",
+	var global bool
+	cmd := &cobra.Command{
+		Use:     "rm <project | project/agent | --global> NAME",
 		Aliases: []string{"remove"},
 		Short:   "Remove a connector, sign-in and all",
-		Args:    cobra.ExactArgs(2),
+		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			target, name, err := connectorArgs(global, args)
+			if err != nil {
+				return err
+			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
 			}
-			if err := c.RemoveConnector(cmd.Context(), args[0], args[1]); err != nil {
+			if err := c.RemoveConnector(cmd.Context(), target, name); err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %s from %s\n", args[1], args[0])
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Removed %s from %s\n", name, scopeText(target))
+			return nil
+		},
+	}
+	globalFlag(cmd, &global)
+	return cmd
+}
+
+// newConnectorOverrideCmd sets a project's say on an AgentBox-wide connector.
+func newConnectorOverrideCmd(a *app) *cobra.Command {
+	return &cobra.Command{
+		Use:   "override PROJECT NAME on|off|inherit",
+		Short: "Turn an AgentBox-wide connector on or off in one project",
+		Long: `on and off hold whatever the AgentBox-wide switch says; inherit drops the
+override, so the project follows it again. A project's own connector of the
+same name replaces the AgentBox-wide one whatever this says.`,
+		Args: cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			project, name, override := args[0], args[1], args[2]
+			switch override {
+			case "on", "off":
+			case "inherit":
+				override = ""
+			default:
+				return fmt.Errorf("%q: use on, off or inherit", override)
+			}
+			if strings.Contains(project, "/") {
+				return errors.New("an AgentBox-wide connector is overridden for a whole project, not one agent")
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			conn, err := c.SetConnectorOverride(cmd.Context(), project, name, override)
+			if err != nil {
+				return err
+			}
+			given := "off"
+			if conn.Enabled {
+				given = "on"
+			}
+			how := "as AgentBox-wide"
+			if conn.Override != "" {
+				how = "overridden"
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s is %s in %s (%s)\n", name, given, project, how)
 			return nil
 		},
 	}

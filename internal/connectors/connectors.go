@@ -208,7 +208,30 @@ func (s *Service) Remove(ctx context.Context, project, agent, name string) error
 	if err := s.State.RemoveConnector(ctx, project, agent, name); err != nil {
 		return err
 	}
+	if c.Wide() && c.Auth == api.ConnectorSecret {
+		if err := s.forgetWideSecret(ctx, c.Secret); err != nil {
+			return err
+		}
+	}
 	s.changed(c, true)
+	return nil
+}
+
+// forgetWideSecret removes the value an AgentBox-wide connector sent once no
+// other one sends it: nothing else can read it.
+func (s *Service) forgetWideSecret(ctx context.Context, name string) error {
+	wide, err := s.State.Connectors(ctx, "", "")
+	if err != nil {
+		return err
+	}
+	for _, other := range wide {
+		if other.Auth == api.ConnectorSecret && other.Secret == name {
+			return nil
+		}
+	}
+	if err := s.Secrets.Remove(ctx, "", "", name); err != nil && !errors.Is(err, state.ErrNotFound) {
+		return err
+	}
 	return nil
 }
 
@@ -249,11 +272,10 @@ func (s *Service) Status(ctx context.Context, c state.Connector, forAgent string
 	case api.ConnectorNone:
 		return api.ConnectorConnected, ""
 	case api.ConnectorSecret:
-		agent := forAgent
-		if c.Agent != "" {
-			agent = c.Agent
-		}
-		if _, err := s.Secrets.Resolve(ctx, c.Project, agent, c.Secret); err != nil {
+		if _, err := s.secret(ctx, c, forAgent); err != nil {
+			if errors.Is(err, state.ErrNotFound) && c.Wide() {
+				return api.ConnectorError, fmt.Sprintf("it sends the secret %s, which isn't set: add it again with its value", c.Secret)
+			}
 			if errors.Is(err, state.ErrNotFound) {
 				return api.ConnectorError, fmt.Sprintf("it sends the secret %s, which isn't set: agentbox secrets set %s %s", c.Secret, c.Project, c.Secret)
 			}
@@ -279,7 +301,7 @@ func (s *Service) Info(ctx context.Context, c state.Connector, agents []string) 
 	status, why := s.Status(ctx, c, "")
 	out := api.Connector{
 		Name: c.Name, Scope: c.Scope(), Project: c.Project, Agent: c.Agent, URL: c.URL, Auth: c.Auth,
-		Secret: c.Secret, Header: c.Header, Scheme: c.Scheme, Enabled: c.Enabled,
+		Secret: c.Secret, Header: c.Header, Scheme: c.Scheme, Enabled: c.Enabled, Overrides: c.Overrides,
 		Status: status, Error: why, Issuer: c.Issuer, Scopes: c.Granted, UpdatedAt: c.UpdatedAt, Agents: agents,
 	}
 	if out.Agents == nil {
@@ -316,11 +338,7 @@ func (s *Service) Header(ctx context.Context, c state.Connector, forAgent string
 	case api.ConnectorNone:
 		return "", "", nil
 	case api.ConnectorSecret:
-		agent := forAgent
-		if c.Agent != "" {
-			agent = c.Agent
-		}
-		v, err := s.Secrets.Resolve(ctx, c.Project, agent, c.Secret)
+		v, err := s.secret(ctx, c, forAgent)
 		if errors.Is(err, state.ErrNotFound) {
 			return "", "", fmt.Errorf("%w: %s sends the secret %s, which isn't set", ErrNotConnected, c.Name, c.Secret)
 		}
@@ -341,6 +359,28 @@ func (s *Service) Header(ctx context.Context, c state.Connector, forAgent string
 		return "", "", err
 	}
 	return "Authorization", "Bearer " + token, nil
+}
+
+// secret is the value a secret connector sends for an agent: the agent's own
+// secret of that name or its project's, or for an AgentBox-wide connector
+// the one stored with it (SetSecret).
+func (s *Service) secret(ctx context.Context, c state.Connector, forAgent string) (string, error) {
+	agent := forAgent
+	switch {
+	case c.Wide():
+		agent = ""
+	case c.Agent != "":
+		agent = c.Agent
+	}
+	return s.Secrets.Resolve(ctx, c.Project, agent, c.Secret)
+}
+
+// SetSecret stores the value an AgentBox-wide connector sends, under the
+// secret's name: a secret of no project, which no agent is given as a
+// variable and only this package reads.
+func (s *Service) SetSecret(ctx context.Context, name, value string) error {
+	_, err := s.Secrets.Set(ctx, "", "", name, value)
+	return err
 }
 
 // lock is the one lock per connector that a refresh holds, so two requests
@@ -508,7 +548,10 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 
 // target is how the command line names a connector's scope.
 func target(c state.Connector) string {
-	if c.Agent == "" {
+	switch {
+	case c.Wide():
+		return "--global"
+	case c.Agent == "":
 		return c.Project
 	}
 	return c.Project + "/" + c.Agent
