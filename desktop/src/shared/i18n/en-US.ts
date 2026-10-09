@@ -2219,6 +2219,7 @@ export const enUS = {
   'project.connectors.blurb.notion': 'Pages, databases and comments',
   'project.connectors.blurb.linear': 'Issues, projects and cycles',
   'project.connectors.blurb.sentry': 'Errors, issues and releases',
+  'project.connectors.blurb.hatch': 'Publish and share pages',
   'project.connectors.blurb.figma': 'Files, frames and components',
   'project.connectors.figma.tokenLabel': 'Personal access token',
   'project.connectors.figma.why': 'Figma only lets apps it has approved sign in, so it takes a personal access token instead. Make one in Figma\'s settings, under Security.',

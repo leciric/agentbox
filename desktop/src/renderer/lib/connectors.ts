@@ -26,6 +26,9 @@ export const connectorPresets: ConnectorPreset[] = [
   { id: 'notion', label: 'Notion', name: 'notion', url: 'https://mcp.notion.com/mcp', auth: T.ConnectorOAuth, get blurb() { return t('project.connectors.blurb.notion'); } },
   { id: 'linear', label: 'Linear', name: 'linear', url: 'https://mcp.linear.app/mcp', auth: T.ConnectorOAuth, get blurb() { return t('project.connectors.blurb.linear'); } },
   { id: 'sentry', label: 'Sentry', name: 'sentry', url: 'https://mcp.sentry.dev/mcp', auth: T.ConnectorOAuth, get blurb() { return t('project.connectors.blurb.sentry'); } },
+  // Hatch is ours: its /mcp answers 401 pointing at OAuth metadata with
+  // dynamic client registration, so it signs in through the browser.
+  { id: 'hatch', label: 'Hatch', name: 'hatch', url: 'https://hatch.linting.dev/mcp', auth: T.ConnectorOAuth, get blurb() { return t('project.connectors.blurb.hatch'); } },
   {
     id: 'figma',
     label: 'Figma',

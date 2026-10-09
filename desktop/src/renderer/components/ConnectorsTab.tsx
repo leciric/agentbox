@@ -245,7 +245,7 @@ function Catalog({
             : t('project.connectors.giveProjectDescription')
       }
     >
-      <div className="grid gap-2 py-1 sm:grid-cols-5" role="list" aria-label={t('project.connectors.catalogAria')}>
+      <div className="grid grid-cols-2 gap-2 py-1 sm:grid-cols-3" role="list" aria-label={t('project.connectors.catalogAria')}>
         {connectorPresets.map((p) => {
           const existing = added(p);
           return (
@@ -329,8 +329,16 @@ function Tile({
 }
 
 // PresetMark is a letter, not the company's logo: the app ships no one else's
-// artwork.
+// artwork. Hatch is the exception, being ours: an egg with a crack through it.
 function PresetMark({ preset }: { preset: ConnectorPreset }) {
+  if (preset.id === 'hatch') {
+    return (
+      <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M8 1.8c2.6 0 4.6 3.4 4.6 6.4a4.6 4.6 0 0 1-9.2 0C3.4 5.2 5.4 1.8 8 1.8Z" />
+        <path d="m4 8.4 1.8 1.4L8 7.8l2.2 2L12 8.4" />
+      </svg>
+    );
+  }
   return <span className="text-[11px] font-semibold">{preset.label[0]}</span>;
 }
 

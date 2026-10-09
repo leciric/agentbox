@@ -2220,6 +2220,7 @@ export const ptBR: Messages = {
   'project.connectors.blurb.notion': 'Páginas, bancos de dados e comentários',
   'project.connectors.blurb.linear': 'Issues, projetos e ciclos',
   'project.connectors.blurb.sentry': 'Erros, issues e releases',
+  'project.connectors.blurb.hatch': 'Publique e compartilhe páginas',
   'project.connectors.blurb.figma': 'Arquivos, frames e componentes',
   'project.connectors.figma.tokenLabel': 'Token de acesso pessoal',
   'project.connectors.figma.why': 'O Figma só deixa entrar os apps que ele aprovou, então aceita um token de acesso pessoal. Crie um nas configurações do Figma, em Security.',
