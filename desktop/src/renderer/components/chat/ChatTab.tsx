@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, EyeOff, LoaderCircle, MessageSquarePlus } from 'lucide-react';
+import { ArrowDown, EyeOff, LoaderCircle, MessageSquarePlus, RefreshCw } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
-import { asleep, chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
+import { asleep, chatKey, fetchThread, isSilent, loadOlder, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage } from '../../lib/utils';
@@ -225,6 +226,7 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
     <>
       <SessionStatus agent={agent} session={thread.data?.session} />
       <ReadAloudControls />
+      <ReloadTools agent={agent} session={thread.data?.session} />
       <Tip label={t('chat.tab.newChatTip')}>
         <Button size="sm" variant="ghost" className="h-7 px-2 sm:px-2.5" disabled={items.length === 0} onClick={() => setClearing(true)}>
           <MessageSquarePlus />
@@ -243,6 +245,51 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
         })}
         confirmLabel={t('chat.tab.newChat')}
         onConfirm={() => api.clearChat(agent.ref)}
+      />
+    </>
+  );
+}
+
+// ReloadTools restarts the chat's AI tool with the connectors and MCP servers
+// it has now, which it reads only as it starts, resuming the same session so
+// the conversation carries on. An adapter that can't resume asks first.
+function ReloadTools({ agent, session }: { agent: T.Agent; session?: T.ChatSession }) {
+  const t = useT();
+  const [confirming, setConfirming] = useState(false);
+  const reload = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  const tool = aiLabel(agent.ai);
+  const can = toolsReload(session);
+  const tip =
+    can === 'busy'
+      ? t('chat.tab.reloadToolsBusy', { tool })
+      : can === 'off'
+        ? t('chat.tab.reloadToolsOff', { tool })
+        : t(session?.noResume ? 'chat.tab.reloadToolsNoResumeTip' : 'chat.tab.reloadToolsTip', { tool });
+  return (
+    <>
+      <Tip label={tip}>
+        {/* A span, so the tip still shows on the disabled button. */}
+        <span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 sm:px-2.5"
+            disabled={can !== 'ready' || reload.isPending}
+            onClick={() => (session?.noResume ? setConfirming(true) : reload.mutate())}
+            data-chat-reload-tools
+          >
+            <RefreshCw className={cn(reload.isPending && 'animate-spin')} />
+            <span className="hidden lg:inline">{t('chat.tab.reloadTools')}</span>
+          </Button>
+        </span>
+      </Tip>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t('chat.tab.reloadToolsTitle')}
+        description={t('chat.tab.reloadToolsDescription', { tool })}
+        confirmLabel={t('chat.tab.reloadToolsConfirm')}
+        onConfirm={() => api.reloadChatTools(agent.ref)}
       />
     </>
   );

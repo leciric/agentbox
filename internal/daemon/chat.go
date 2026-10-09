@@ -162,6 +162,22 @@ func (s *Server) cancelChat(from agentFrom) func(http.ResponseWriter, *http.Requ
 	}
 }
 
+// reloadChatTools restarts a chat's AI tool with the MCP servers it has now,
+// resuming its session (chat.Manager.ReloadTools).
+func (s *Server) reloadChatTools(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		session, err := s.chat.ReloadTools(a)
+		if err != nil {
+			return err
+		}
+		return writeJSON(w, http.StatusOK, session)
+	}
+}
+
 func (s *Server) answerChat(from agentFrom) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		a, err := from(r)

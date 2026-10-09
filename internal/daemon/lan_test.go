@@ -281,6 +281,7 @@ func TestLANAllowed(t *testing.T) {
 		{"POST", "/v1/agents/p/a/chat/messages", true},
 		{"POST", "/v1/agents/p/a/chat/permissions/42", true},
 		{"PUT", "/v1/agents/p/a/chat/options/model", true},
+		{"POST", "/v1/projects/p/chat/reload", true},
 		{"POST", "/v1/projects/p/questions/q1/answer", true},
 		{"POST", "/v1/agents/p/a/start", true},
 		{"POST", "/v1/agents/p/a/stop", false},

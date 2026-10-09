@@ -265,6 +265,8 @@ func (s *Server) connectorChanged(c state.Connector, removed bool) {
 		if err := s.manager(nil).SyncConnectors(ctx, c.Project, c.Agent); err != nil {
 			s.logf("connector %s: %v", c.Name, err)
 		}
+		// Running chats read MCP servers only as they start.
+		s.chat.ToolsChanged(c.Project, c.Agent)
 	}()
 }
 

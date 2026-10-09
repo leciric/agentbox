@@ -679,7 +679,7 @@ func (s *Server) lanAPI(w http.ResponseWriter, r *http.Request, addr string) {
 // secrets.
 var (
 	lanWrites = []*regexp.Regexp{
-		regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|permissions/[^/]+)$`),
+		regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|permissions/[^/]+)$`),
 		regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`),
 		regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`),
 		regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`),

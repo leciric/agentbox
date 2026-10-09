@@ -175,6 +175,7 @@ export const api = {
     call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images } satisfies T.ChatMessageRequest),
   chatImageUrl: (ref: string, id: string) => window.agentbox.chatImageUrl(`${chatBase(ref)}/images/${encodeURIComponent(id)}`),
   cancelChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/cancel`),
+  reloadChatTools: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/reload`),
   answerChat: (ref: string, item: string, optionId: string) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/permissions/${encodeURIComponent(item)}`, { optionId } satisfies T.ChatAnswerRequest),
   setChatOption: (ref: string, option: string, value: string) =>

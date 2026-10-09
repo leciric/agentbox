@@ -18,6 +18,7 @@ import {
   PencilLine,
   PencilRuler,
   Play,
+  Plug,
   Search,
   ShieldAlert,
   Sparkles,
@@ -29,7 +30,7 @@ import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
 import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
-import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf } from '../../lib/chat';
+import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { mentionAt, matchFiles, type MentionItem } from '../../lib/mentions';
 import { getDraft, setDraft } from '../../lib/drafts';
@@ -163,6 +164,7 @@ export function Composer({
   // Cancelling the turn stops its reply being read aloud too.
   const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onMutate: stopReading, onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  const reloadTools = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
   useEffect(() => {
     setDraft(agent.ref, text);
@@ -414,6 +416,25 @@ export function Composer({
           <div className="flex items-center gap-2 text-[12.5px] text-muted">
             <LoaderCircle className="size-3.5 animate-spin" />
             {session.detail || t('chat.composer.startingTool', { tool })}
+          </div>
+        </Attached>
+      ) : session?.toolsChanged ? (
+        // The connectors changed since the AI tool started, which reads its
+        // MCP servers only then. The daemon restarts it before the next
+        // message when it can resume the session; "Reload now" doesn't wait.
+        <Attached tone="neutral">
+          <div className="flex items-start gap-2 text-[12.5px]" data-chat-tools-changed>
+            <Plug className="mt-0.5 size-3.5 shrink-0 text-muted" />
+            <p className="min-w-0 flex-1 break-words leading-relaxed text-tertiary">
+              {t(session.noResume ? 'chat.composer.toolsChangedNoResume' : 'chat.composer.toolsChanged', { tool })}
+            </p>
+            <button
+              className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-title transition hover:bg-white/10 disabled:opacity-50"
+              disabled={reloadTools.isPending || toolsReload(session) !== 'ready'}
+              onClick={() => reloadTools.mutate()}
+            >
+              {t('chat.composer.reloadNow')}
+            </button>
           </div>
         </Attached>
       ) : null}

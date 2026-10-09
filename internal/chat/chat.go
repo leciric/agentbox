@@ -514,6 +514,7 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []
 		c.stopAdapter()
 		c.windowRestart = false
 	}
+	c.reloadBeforeTurn()
 	ad := c.startAdapter()
 	c.session.State = c.stateNow()
 	c.markSession()
@@ -1185,6 +1186,9 @@ type conversation struct {
 	// windowRestart says the context window changed since the adapter
 	// started, so the next turn restarts it (window.go).
 	windowRestart bool
+	// toolsRestart says the chat's MCP servers changed since the adapter
+	// started, so the next turn restarts it (tools.go).
+	toolsRestart bool
 	// capture, while a hidden prompt runs, collects what the session says
 	// instead of the conversation collecting it.
 	capture *strings.Builder
@@ -1287,6 +1291,7 @@ type adapter struct {
 	ready     bool
 	steering  bool   // it takes a message into a running turn, per acp.MethodSessionSteer
 	images    bool   // it takes images in a prompt, per promptCapabilities.image
+	resumable bool   // it can resume a session (session/resume or session/load)
 	err       error  // why it didn't start
 	replaying bool   // a loaded session replays history that's already here
 	spend     spend  // what it has cost, for the token ledger (tokens.go)
@@ -1565,6 +1570,8 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.models, _ = c.windows()
 	ad.account = a.ClaudeAccount
 	c.windowRestart = false
+	// It reads the MCP servers its configuration has now.
+	c.toolsChanged(false)
 	c.mu.Unlock()
 	tool := ToolNames[a.AI]
 	status := func(detail string) {
@@ -1669,6 +1676,8 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.sessionID = resp.SessionID
 	ad.steering = init.Meta != nil && init.Meta.Steering != nil && init.Meta.Steering.Supported
 	ad.images = init.AgentCapabilities.PromptCapabilities.Image
+	ad.resumable = init.AgentCapabilities.SessionCapabilities.Resume != nil || init.AgentCapabilities.LoadSession
+	c.session.NoResume = !ad.resumable
 	c.setImageSupport(ad.images)
 	if resumeErr != nil && len(c.items) > 0 {
 		it := c.add("notice", c.lastTurn())

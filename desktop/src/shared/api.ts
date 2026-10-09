@@ -1489,6 +1489,8 @@ export interface ChatSession {
   resumeAt?: string;
   noImages?: boolean;
   background?: string[];
+  toolsChanged?: boolean;
+  noResume?: boolean;
 }
 
 export interface ChatOption {
