@@ -181,4 +181,15 @@ export function FindBar({
 
 const noHits: T.ChatSearchHit[] = [];
 
+// The marks' colours. They are here rather than in styles.css because the CSS
+// minifier doesn't know ::highlight() yet and warns on every build, though
+// Chromium has it.
+if (typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.textContent = `
+    ::highlight(chat-find) { background-color: color-mix(in srgb, #facc15 32%, transparent); }
+    ::highlight(chat-find-current) { background-color: #f59e0b; color: #1c1917; }`;
+  document.head.append(style);
+}
+
 const findButton = 'flex size-7 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-raised hover:text-title disabled:pointer-events-none disabled:opacity-40';
