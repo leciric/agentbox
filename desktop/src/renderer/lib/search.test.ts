@@ -40,10 +40,17 @@ test('each kind opens where it lives', () => {
   });
 
   // A chat message: the lead's is the project's chat, an agent's its own.
-  const lead = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c1', project: 'pawly' }) });
-  assert.deepEqual(lead, { open: 'view', view: { kind: 'project', project: 'pawly', tab: 'chat' }, reveal: { selector: '[data-chat-item-id="c1"]' } });
+  // A chat message opens its chat at it, with the find bar on what was searched.
+  const lead = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c1', project: 'pawly' }) }, 'hatch');
+  assert.deepEqual(lead, {
+    open: 'view',
+    view: { kind: 'project', project: 'pawly', tab: 'chat' },
+    reveal: { chat: { project: 'pawly', agent: undefined, item: 'c1', query: 'hatch' } },
+  });
   const agent = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c2', project: 'pawly', agent: 'agent-01' }) });
   assert.equal(agent.open === 'view' && agent.view.kind === 'agent' && agent.view.ref, 'pawly/agent-01');
+  const home = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c3', project: T.HomeProject }) });
+  assert.deepEqual(home.open === 'view' && home.view, { kind: 'homeChat' });
 
   const memory = { id: 'mem_1', project: 'pawly', kind: 'issue', title: 'T', content: '', importance: 3, createdAt: '', updatedAt: '' };
   const m = searchTarget({ kind: T.SearchMemories, hit: hit({ id: 'mem_1', project: 'pawly', memory }) });

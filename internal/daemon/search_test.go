@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +61,18 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	if err := os.WriteFile(notesPath, []byte("# Notes\n\n- Use pnpm.\n- Hatch's MCP needs a token.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.AddAgent(ctx, state.Agent{Project: a.Project, Name: state.LeadName, Instance: "ab-hello-stack-lead", Role: state.RoleLead, Status: state.AgentReady, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	chatItem := func(id, kind, text string) []state.ChatItem {
+		return []state.ChatItem{{ID: id, Data: []byte(`{"id":"` + id + `","kind":"` + kind + `","text":"` + text + `"}`)}}
+	}
+	if err := store.SaveChatItems(ctx, a.Project, a.Name, chatItem("c-agent", "assistant", "The Hatch preset is in.")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveChatItems(ctx, a.Project, state.LeadName, chatItem("c-lead", "user", "Ask Hatch for their URL")); err != nil {
+		t.Fatal(err)
+	}
 	d.srv.pulls.readFor("acme/hello", a.Project)
 	d.srv.pulls.mu.Lock()
 	d.srv.pulls.byRepo["acme/hello"] = pullsEntry{prs: []api.PullRequest{
@@ -78,12 +91,23 @@ func TestSearchFindsEveryKind(t *testing.T) {
 		kinds[g.Kind] = g
 		order = append(order, g.Kind)
 	}
-	want := []string{api.SearchAgents, api.SearchMemories, api.SearchEvents, api.SearchReports, api.SearchMedia, api.SearchSkills, api.SearchConnectors, api.SearchNotes, api.SearchPulls}
+	want := []string{api.SearchAgents, api.SearchChats, api.SearchMemories, api.SearchEvents, api.SearchReports, api.SearchMedia, api.SearchSkills, api.SearchConnectors, api.SearchNotes, api.SearchPulls}
 	if strings.Join(order, ",") != strings.Join(want, ",") {
 		t.Fatalf("groups = %v, want %v", order, want)
 	}
 	if h := kinds[api.SearchAgents].Hits[0]; h.ID != a.Ref() || h.Title != "Hatch connector preset" || h.Tag != a.Branch || !strings.Contains(h.Detail, "connectors grid") {
 		t.Errorf("agent hit = %+v", h)
+	}
+	// An agent's message is its chat's; the lead's is its project's chat.
+	chats := map[string]api.SearchHit{}
+	for _, h := range kinds[api.SearchChats].Hits {
+		chats[h.ID] = h
+	}
+	if h := chats["c-agent"]; h.Agent != a.Name || h.Project != a.Project || h.Tag != "assistant" || h.Title != "The Hatch preset is in." {
+		t.Errorf("agent's chat hit = %+v", h)
+	}
+	if h := chats["c-lead"]; h.Agent != "" || h.Project != a.Project {
+		t.Errorf("lead's chat hit = %+v", h)
 	}
 	if g := kinds[api.SearchMemories]; len(g.Hits) != 1 || g.Hits[0].Memory == nil || g.Hits[0].Project != a.Project {
 		t.Errorf("memories = %+v, want the project's and not the Home chat's", g.Hits)
@@ -114,6 +138,10 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	}
 	if got, err := d.client.Search(ctx, "linear", 0); err != nil || len(got.Groups) != 1 || got.Groups[0].Hits[0].Project != a.Project {
 		t.Errorf("search linear = %+v, %v", got, err)
+	}
+	// Too short for the chat index: no chats, the rest still.
+	if got, err := d.client.Search(ctx, "ha", 0); err != nil || slices.ContainsFunc(got.Groups, func(g api.SearchGroup) bool { return g.Kind == api.SearchChats }) {
+		t.Errorf("search ha = %+v, %v; want no chats", got, err)
 	}
 	// Every word is required.
 	if got, err := d.client.Search(ctx, "hatch zebra", 0); err != nil || len(got.Groups) != 0 {

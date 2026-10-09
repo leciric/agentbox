@@ -4,14 +4,18 @@
 // exists, so the element is waited for; a panel that has to show something
 // first (a sub-tab of Memory, an event older than its timeline) reads the
 // request to know what.
-import { useSyncExternalStore } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import type * as T from '../../shared/api';
 
 export type MemorySection = 'memories' | 'events' | 'reports';
 
 export type Reveal = {
-  // selector finds the element to bring forward.
-  selector: string;
+  // selector finds the element to bring forward; a chat message (chat) has
+  // its chat bring it forward instead, reading back to it if need be.
+  selector?: string;
+  // chat is a message of a project's chat (no agent), of an agent's, or of
+  // the Home chat (project HomeProject), with the words searched for.
+  chat?: { project: string; agent?: string; item: string; query?: string };
   // memory is the sub-tab of a project's Memory page it is on, and the
   // thing itself, for the page to show even when its list doesn't.
   memory?: { section: MemorySection; project: string; item: T.Memory | T.MemoryEvent | T.AgentReport };
@@ -33,7 +37,7 @@ const listeners = new Set<() => void>();
 export function requestReveal(reveal: Reveal): void {
   current = { ...reveal, at: Date.now() };
   for (const listener of listeners) listener();
-  void bringForward(reveal);
+  if (reveal.selector) void bringForward(reveal.selector, reveal);
 }
 
 function subscribe(listener: () => void) {
@@ -52,10 +56,22 @@ export function useReveal(): Reveal | null {
   return useSyncExternalStore(subscribe, () => current);
 }
 
-async function bringForward(reveal: Reveal) {
+// useChatOpenAt is ChatTab's openAt for a message a search found in this
+// chat (agent "" for a project's chat), while the request is new: a chat
+// opened later, by hand, opens at its end as usual.
+export function useChatOpenAt(project: string, agent = ''): { item: string; query?: string } | undefined {
+  const reveal = useSyncExternalStore(subscribe, () => current);
+  return useMemo(() => {
+    const chat = reveal?.chat;
+    if (!chat || chat.project !== project || (chat.agent ?? '') !== agent || Date.now() - reveal.at > waitMs) return undefined;
+    return { item: chat.item, query: chat.query };
+  }, [reveal, project, agent]);
+}
+
+async function bringForward(selector: string, reveal: Reveal) {
   const until = Date.now() + waitMs;
   let el: Element | null = null;
-  while (!(el = document.querySelector(reveal.selector)) && Date.now() < until) {
+  while (!(el = document.querySelector(selector)) && Date.now() < until) {
     await new Promise((resolve) => setTimeout(resolve, 60));
   }
   if (!el) return;

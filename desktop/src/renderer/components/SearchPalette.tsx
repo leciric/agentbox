@@ -124,11 +124,11 @@ function Palette({ onOpen }: { onOpen: (target: SearchTarget) => void }) {
   useEffect(() => {
     if (!openWhenAnswered || pending || results.isFetching) return;
     setOpenWhenAnswered(false);
-    if (items[0]) onOpen(searchTarget(items[0]));
-  }, [openWhenAnswered, pending, results.isFetching, items, onOpen]);
+    if (items[0]) onOpen(searchTarget(items[0], asked));
+  }, [openWhenAnswered, pending, results.isFetching, items, onOpen, asked]);
 
   const agentTitle = (project: string, name: string) => agents.data?.find((a) => a.ref === `${project}/${name}`)?.title || name;
-  const open = (item: SearchItem | undefined) => item && onOpen(searchTarget(item));
+  const open = (item: SearchItem | undefined) => item && onOpen(searchTarget(item, asked));
 
   let index = -1;
   return (
@@ -180,7 +180,7 @@ function Palette({ onOpen }: { onOpen: (target: SearchTarget) => void }) {
                 {group.hits.map((hit) => {
                   const i = ++index;
                   const where = [
-                    hit.project ? projectLabel(hit.project, projects.data) : group.kind === T.SearchSkills || group.kind === T.SearchConnectors ? t('search.agentboxWide') : '',
+                    hit.project === T.HomeProject ? t('shell.nav.mainChat') : hit.project ? projectLabel(hit.project, projects.data) : group.kind === T.SearchSkills || group.kind === T.SearchConnectors ? t('search.agentboxWide') : '',
                     hit.agent && group.kind !== T.SearchAgents ? agentTitle(hit.project ?? '', hit.agent) : '',
                   ].filter(Boolean);
                   return (

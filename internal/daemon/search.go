@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
@@ -82,6 +83,13 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	found, err := s.searchAgents(ctx, projects, agents, words)
 	if err := add(api.SearchAgents, found, err); err != nil {
 		return err
+	}
+	chats, more, err := s.searchChats(ctx, known, agents, q, limit)
+	if err != nil {
+		return err
+	}
+	if len(chats) > 0 {
+		out.Groups = append(out.Groups, api.SearchGroup{Kind: api.SearchChats, Hits: chats, More: more})
 	}
 	memoryGroups, err := s.searchMemory(ctx, known, q, limit)
 	if err != nil {
@@ -293,6 +301,47 @@ func (s *Server) searchAgents(ctx context.Context, projects []state.Project, age
 		}, score})
 	}
 	return out, nil
+}
+
+// searchChatsMin is how long a query has to be before chats are searched:
+// shorter than the chat index's trigrams, a search reads every message
+// AgentBox holds, which is too slow to do on every keystroke.
+const searchChatsMin = 3
+
+// searchChats is what was said in every chat, through the chat index
+// (state.SearchChats), best match first: the query found as typed, in one
+// piece, the way a chat's own find bar finds it. A lead's messages are its
+// project's chat (no Agent); the Home chat's are the project HomeProject.
+func (s *Server) searchChats(ctx context.Context, known map[string]state.Project, agents []state.Agent, q string, limit int) ([]api.SearchHit, bool, error) {
+	if utf8.RuneCountInString(q) < searchChatsMin {
+		return nil, false, nil
+	}
+	found, more, err := s.store.SearchChats(ctx, state.ChatSearch{Query: q, Limit: limit})
+	if err != nil {
+		return nil, false, err
+	}
+	leads := map[string]bool{}
+	for _, a := range agents {
+		if a.IsLead() {
+			leads[a.Project+"/"+a.Name] = true
+		}
+	}
+	var out []api.SearchHit
+	for _, h := range found {
+		if _, ok := known[h.Project]; !ok && h.Project != state.HomeProject {
+			continue
+		}
+		agent := h.Agent
+		if leads[h.Project+"/"+h.Agent] || h.Project == state.HomeProject {
+			agent = ""
+		}
+		var text strings.Builder
+		for _, part := range h.Snippet {
+			text.WriteString(part.Text)
+		}
+		out = append(out, api.SearchHit{ID: h.ID, Title: text.String(), Tag: h.Kind, Project: h.Project, Agent: agent})
+	}
+	return out, more, nil
 }
 
 // searchMemory is the memories, events and reports of every project, from

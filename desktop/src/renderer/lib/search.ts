@@ -42,15 +42,17 @@ export type SearchTarget =
 
 const css = (value: string) => value.replace(/["\\]/g, '\\$&');
 
-// searchTarget is where a result opens.
-export function searchTarget({ kind, hit }: SearchItem): SearchTarget {
+// searchTarget is where a result opens; query is what was searched for, for
+// the place to mark it (a chat's find bar).
+export function searchTarget({ kind, hit }: SearchItem, query?: string): SearchTarget {
   const project = hit.project ?? '';
   const ref = hit.agent ? `${project}/${hit.agent}` : '';
   switch (kind) {
     case T.SearchAgents:
       return { open: 'view', view: { kind: 'agent', ref: hit.id } };
     case T.SearchChats: {
-      const reveal = { selector: `[data-chat-item-id="${css(hit.id)}"]` };
+      const reveal = { chat: { project, agent: hit.agent, item: hit.id, query } };
+      if (project === T.HomeProject) return { open: 'view', view: { kind: 'homeChat' }, reveal };
       return ref
         ? { open: 'view', view: { kind: 'agent', ref, tab: 'chat' }, reveal }
         : { open: 'view', view: { kind: 'project', project, tab: 'chat' }, reveal };
