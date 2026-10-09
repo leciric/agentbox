@@ -289,6 +289,31 @@ func (m *Manager) Reread(a state.Agent, from string, limit int) (api.ChatThread,
 	return c.page(start, end), nil
 }
 
+// Search finds query in an agent's conversation, in its order (see
+// state.Store.SearchChats), with at most limit hits. What the conversation
+// holds and hasn't stored yet, like an answer still streaming in, is stored
+// first so that it is found too.
+func (m *Manager) Search(ctx context.Context, a state.Agent, query string, limit int) (api.ChatSearch, error) {
+	if c := m.existing(a.Ref()); c != nil {
+		c.mu.Lock()
+		c.flush(true)
+		c.mu.Unlock()
+	}
+	hits, more, err := m.Store.SearchChats(ctx, state.ChatSearch{Query: query, Project: a.Project, Agent: a.Name, Limit: limit})
+	if err != nil {
+		return api.ChatSearch{}, err
+	}
+	out := api.ChatSearch{Query: query, Hits: make([]api.ChatSearchHit, len(hits)), More: more}
+	for i, h := range hits {
+		snippet := make([]api.ChatSnippetPart, len(h.Snippet))
+		for j, p := range h.Snippet {
+			snippet[j] = api.ChatSnippetPart{Text: p.Text, Match: p.Match}
+		}
+		out.Hits[i] = api.ChatSearchHit{Agent: a.Ref(), ID: h.ID, Kind: h.Kind, Snippet: snippet}
+	}
+	return out, nil
+}
+
 // page is items[start:end] as a thread. The conversation is locked.
 func (c *conversation) page(start, end int) api.ChatThread {
 	items := make([]api.ChatItem, 0, end-start)

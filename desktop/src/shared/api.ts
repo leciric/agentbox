@@ -1479,6 +1479,24 @@ export interface ChatThread {
   older?: boolean;
 }
 
+export interface ChatSearch {
+  query: string;
+  hits: ChatSearchHit[];
+  more?: boolean;
+}
+
+export interface ChatSearchHit {
+  agent: string;
+  id: string;
+  kind: string;
+  snippet: ChatSnippetPart[];
+}
+
+export interface ChatSnippetPart {
+  text: string;
+  match?: boolean;
+}
+
 export interface ChatSession {
   state: string;
   tool: string;

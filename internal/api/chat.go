@@ -17,6 +17,30 @@ type ChatThread struct {
 	Older bool `json:"older,omitempty"`
 }
 
+// ChatSearch is what a search of a conversation found (GET …/chat/search?q=):
+// what it shows you — your messages, the AI tool's answers, its notices —
+// that holds the query, ignoring case and accents, in the conversation's
+// order. A hit can be older than any page the app has read.
+type ChatSearch struct {
+	Query string          `json:"query"`
+	Hits  []ChatSearchHit `json:"hits"`
+	More  bool            `json:"more,omitempty"` // there were more hits than the limit (limit=, 500 by default)
+}
+
+type ChatSearchHit struct {
+	Agent string `json:"agent"` // the chat's ref
+	ID    string `json:"id"`    // the item's
+	Kind  string `json:"kind"`  // user, aside, assistant, notice or error
+	// Snippet is the item's text around its first match, cut to a line,
+	// with every match in it marked.
+	Snippet []ChatSnippetPart `json:"snippet"`
+}
+
+type ChatSnippetPart struct {
+	Text  string `json:"text"`
+	Match bool   `json:"match,omitempty"`
+}
+
 // ChatSession is the state of the AI tool's session behind a conversation.
 type ChatSession struct {
 	State   string `json:"state"`            // off, starting, ready, running, waiting (for your answer) or error

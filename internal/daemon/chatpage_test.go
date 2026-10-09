@@ -51,3 +51,43 @@ func TestChatIsReadAPageAtATime(t *testing.T) {
 		t.Error("a limit below 0 was taken")
 	}
 }
+
+// A chat's search route finds what it holds, older than any page included, in
+// the conversation's order, and a lead's chat is searched under its project.
+func TestChatIsSearched(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	var rows []state.ChatItem
+	for i, text := range []string{"Where is the Ação config?", "In config.toml", "thanks", "the CONFIG again"} {
+		kind := []string{"user", "assistant"}[i%2]
+		data, _ := json.Marshal(api.ChatItem{ID: fmt.Sprintf("m%d", i), Kind: kind, Text: text})
+		rows = append(rows, state.ChatItem{ID: fmt.Sprintf("m%d", i), Position: int64(i), Data: data})
+	}
+	if err := d.srv.store.SaveChatItems(ctx, "hello-stack", state.LeadName, rows); err != nil {
+		t.Fatal(err)
+	}
+	found, err := d.client.SearchChat(ctx, "hello-stack", "config", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, h := range found.Hits {
+		got = append(got, h.ID)
+	}
+	if fmt.Sprint(got) != "[m0 m1 m3]" || found.More {
+		t.Fatalf("hits = %v, more %v; want [m0 m1 m3]", got, found.More)
+	}
+	if h := found.Hits[0]; h.Agent != "hello-stack/"+state.LeadName || h.Kind != "user" || len(h.Snippet) != 3 || h.Snippet[1] != (api.ChatSnippetPart{Text: "config", Match: true}) {
+		t.Errorf("first hit = %+v", h)
+	}
+	if found, err := d.client.SearchChat(ctx, "hello-stack", "acao", 1); err != nil || len(found.Hits) != 1 || found.More {
+		t.Errorf("SearchChat(acao, 1) = %+v, %v", found, err)
+	}
+	if found, err := d.client.SearchChat(ctx, "hello-stack", "config", 2); err != nil || len(found.Hits) != 2 || !found.More {
+		t.Errorf("SearchChat(config, 2) = %+v, %v; want two hits and more", found, err)
+	}
+}
