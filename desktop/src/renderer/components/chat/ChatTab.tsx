@@ -276,10 +276,11 @@ function ReloadTools({ agent, session }: { agent: T.Agent; session?: T.ChatSessi
             className="h-7 px-2 sm:px-2.5"
             disabled={can !== 'ready' || reload.isPending}
             onClick={() => (session?.noResume ? setConfirming(true) : reload.mutate())}
+            aria-label={t('chat.tab.reloadTools')}
             data-chat-reload-tools
           >
             <RefreshCw className={cn(reload.isPending && 'animate-spin')} />
-            <span className="hidden lg:inline">{t('chat.tab.reloadTools')}</span>
+            <span className="hidden 2xl:inline">{t('chat.tab.reloadTools')}</span>
           </Button>
         </span>
       </Tip>
