@@ -106,13 +106,26 @@ function Palette({ onOpen }: { onOpen: (target: SearchTarget) => void }) {
   });
   const shown = asked === '' ? undefined : results.data;
   const items = searchItems(shown);
-  const pending = query.trim() !== asked || results.isFetching;
+  // Still answering what was typed: the list up is the one before it.
+  const pending = query.trim() !== asked || results.isPlaceholderData;
 
   // A new answer starts at its first result.
   useEffect(() => setActive(0), [shown]);
   useEffect(() => {
-    list.current?.querySelector('[data-search-active]')?.scrollIntoView({ block: 'nearest' });
-  }, [active]);
+    const row = list.current?.querySelector('[data-search-active]');
+    // The first of a group brings its group's heading with it.
+    if (row?.previousElementSibling?.tagName === 'H3') row.previousElementSibling.scrollIntoView({ block: 'nearest' });
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [active, shown]);
+
+  // Enter pressed before the answer to what was typed came back opens that
+  // answer's first result when it comes, not the first of the one before.
+  const [openWhenAnswered, setOpenWhenAnswered] = useState(false);
+  useEffect(() => {
+    if (!openWhenAnswered || pending || results.isFetching) return;
+    setOpenWhenAnswered(false);
+    if (items[0]) onOpen(searchTarget(items[0]));
+  }, [openWhenAnswered, pending, results.isFetching, items, onOpen]);
 
   const agentTitle = (project: string, name: string) => agents.data?.find((a) => a.ref === `${project}/${name}`)?.title || name;
   const open = (item: SearchItem | undefined) => item && onOpen(searchTarget(item));
@@ -137,7 +150,9 @@ function Palette({ onOpen }: { onOpen: (target: SearchTarget) => void }) {
               setActive((i) => moveActive(i, event.key === 'ArrowDown' ? 1 : -1, items.length));
             } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
               event.preventDefault();
-              open(items[active]);
+              if (!pending) return open(items[active]);
+              setAsked(query.trim());
+              setOpenWhenAnswered(true);
             }
           }}
         />
