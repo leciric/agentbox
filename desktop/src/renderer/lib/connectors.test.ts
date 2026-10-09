@@ -134,3 +134,9 @@ test('connectorRequest is nothing for another kind, or with nothing to go on', (
   assert.equal(connectorRequest(question({ kind: T.CredentialSecret, secretName: 'X' })), undefined);
   assert.equal(connectorRequest(question()), undefined);
 });
+
+test('Hatch is a preset that signs in through the browser', () => {
+  const p = presetFor('https://hatch.linting.dev/mcp');
+  assert.equal(p?.id, 'hatch');
+  assert.equal(p?.auth, T.ConnectorOAuth);
+});
