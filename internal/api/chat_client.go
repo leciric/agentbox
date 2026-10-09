@@ -69,6 +69,17 @@ func (c *Client) ChatPage(ctx context.Context, ref, before string, limit int) (C
 	return out, c.chatDo(ctx, http.MethodGet, ref, "?"+q.Encode(), nil, &out)
 }
 
+// SearchChat finds query in a conversation (see ChatSearch), with at most
+// limit hits; 0 is the daemon's default.
+func (c *Client) SearchChat(ctx context.Context, ref, query string, limit int) (ChatSearch, error) {
+	q := url.Values{"q": {query}}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	var out ChatSearch
+	return out, c.chatDo(ctx, http.MethodGet, ref, "/search?"+q.Encode(), nil, &out)
+}
+
 // StartChat starts the agent's AI tool for its chat, unless it runs.
 func (c *Client) StartChat(ctx context.Context, ref string) (ChatSession, error) {
 	var out ChatSession
