@@ -200,6 +200,7 @@ func (s *Server) overrideConnector(ctx context.Context, project, name string, on
 		if err := s.manager(nil).SyncConnectors(ctx, project, ""); err != nil {
 			s.logf("connector %s: %v", name, err)
 		}
+		s.chat.ToolsChanged(project, "")
 	}()
 	return nil
 }
@@ -438,9 +439,9 @@ func (s *Server) connectorChanged(c state.Connector, removed bool) {
 			if err := s.manager(nil).SyncConnectors(ctx, project, c.Agent); err != nil {
 				s.logf("connector %s: %v", c.Name, err)
 			}
+			// Running chats read MCP servers only as they start.
+			s.chat.ToolsChanged(project, c.Agent)
 		}
-		// Running chats read MCP servers only as they start.
-		s.chat.ToolsChanged(c.Project, c.Agent)
 	}()
 }
 
