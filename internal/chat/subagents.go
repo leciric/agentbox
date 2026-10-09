@@ -57,6 +57,9 @@ func (c *conversation) spawnSubagent(ad *adapter, parent *subagent, u acp.Sessio
 		c.touch(sa.card)
 		return
 	}
+	if c.turn != nil {
+		c.turn.subagents = true
+	}
 	turn := c.lastTurn()
 	var card *api.ChatItem
 	if parent == nil {

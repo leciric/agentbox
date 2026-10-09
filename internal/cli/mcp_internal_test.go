@@ -31,10 +31,13 @@ func TestLeadAI(t *testing.T) {
 		{ai: "opencode", ready: true, want: "opencode"},
 		{ai: "OpenCode", ready: true, want: "opencode"},
 		{ai: "opencode", ready: false, wantErrIs: "agentbox image build --opencode"},
+		{ai: "cursor", ready: true, want: "cursor"},
+		{ai: "Cursor", ready: true, want: "cursor"},
+		{ai: "cursor", ready: false, wantErrIs: "agentbox auth cursor"},
 		{ai: "codex", ready: true, wantErrIs: `ai is "codex"`},
 		{ai: "gpt", wantErrIs: `ai is "gpt"`},
 	} {
-		got, err := leadAI(c.ai, c.ready)
+		got, err := leadAI(c.ai, readyTools{openCode: c.ready, cursor: c.ready})
 		switch {
 		case c.wantErrIs != "":
 			if err == nil || !strings.Contains(err.Error(), c.wantErrIs) {
@@ -46,7 +49,7 @@ func TestLeadAI(t *testing.T) {
 	}
 	// The refusal says both halves: an image without OpenCode and a missing
 	// login are fixed differently, and the lead can do neither itself.
-	_, err := leadAI("opencode", false)
+	_, err := leadAI("opencode", readyTools{})
 	if err == nil || !strings.Contains(err.Error(), "agentbox auth opencode") {
 		t.Errorf("the refusal doesn't mention the login: %v", err)
 	}

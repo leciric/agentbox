@@ -280,6 +280,49 @@ func TestSweepExpiredMediaRemovesRowsAndFiles(t *testing.T) {
 	}
 }
 
+// The sweeper leaves a favorite alone however long ago its agent went, and
+// the API says so by giving it no expiry. Unfavoriting it over the API puts
+// it back on the clock from then, so the very next sweep still keeps it.
+func TestSweepExpiredMediaSkipsFavorites(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	item := addTestMedia(t, d, a.Project, "agent-gone", "fav", "file", 10)
+	if err := d.srv.store.OrphanAgentMedia(ctx, a.Project, "agent-gone", time.Now().Add(-30*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.client.SetMediaFavorite(ctx, item.ID, true)
+	if err != nil || !got.Favorite || got.ExpiresAt != nil {
+		t.Fatalf("SetMediaFavorite(true) = %+v, %v; want a favorite with no expiry", got, err)
+	}
+	all, err := d.client.AllMedia(ctx, "")
+	if err != nil || len(all) != 1 || !all[0].Favorite || all[0].ExpiresAt != nil {
+		t.Fatalf("AllMedia() = %+v, %v; want the favorite, with no expiry", all, err)
+	}
+
+	d.srv.sweepExpiredMedia(ctx, time.Now())
+	if _, err := d.srv.store.MediaItem(ctx, item.ID); err != nil {
+		t.Fatalf("favorite after the sweep = %v, want kept", err)
+	}
+
+	got, err = d.client.SetMediaFavorite(ctx, item.ID, false)
+	if err != nil || got.Favorite {
+		t.Fatalf("SetMediaFavorite(false) = %+v, %v", got, err)
+	}
+	d.srv.sweepExpiredMedia(ctx, time.Now())
+	if _, err := d.srv.store.MediaItem(ctx, item.ID); err != nil {
+		t.Errorf("item swept right after unfavoriting = %v, want its clock restarted", err)
+	}
+	d.srv.sweepExpiredMedia(ctx, time.Now().Add(25*time.Hour))
+	if _, err := d.srv.store.MediaItem(ctx, item.ID); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("item a day after unfavoriting = %v, want swept", err)
+	}
+	if _, err := d.client.SetMediaFavorite(ctx, "never-existed", true); err == nil {
+		t.Error("SetMediaFavorite() on a missing item succeeded")
+	}
+}
+
 // addTestMedia writes an item's file and its row, so a delete has both to
 // take away and a real size to report as freed.
 func addTestMedia(t *testing.T, d testDaemon, project, agent, id, kind string, size int) state.Media {

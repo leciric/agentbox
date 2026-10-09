@@ -311,6 +311,73 @@ export function NewAgentEffort() {
   );
 }
 
+// CursorDefaults is the model, or the effort, new Cursor agents start on. The
+// list is Cursor's own, as the daemon fetched it with the sign-in; "" is
+// Cursor's Auto. An effort row shows only when the model has levels at all.
+export function CursorDefaults({ part }: { part: 'model' | 'effort' }) {
+  const t = useT();
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (req: T.UpdateSettingsRequest) => api.updateSettings(req),
+    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const choices = settings.data?.cursorModelChoices ?? [];
+  const model = settings.data?.defaultCursorModel ?? '';
+  const effort = settings.data?.defaultCursorEffort ?? '';
+  const efforts = choices.find((c) => c.value === model)?.efforts ?? [];
+  const ready = settings.data?.cursorReady ?? false;
+  const disabled = save.isPending || settings.data === undefined || !ready;
+  const note = settings.data === undefined ? null : !ready ? t('defaults.cursor.signIn') : choices.length === 0 ? t('defaults.cursor.listLater') : null;
+
+  if (part === 'effort' && efforts.length === 0) return null;
+
+  return (
+    <SettingRow
+      label={part === 'model' ? t('defaults.cursor.modelLabel') : t('defaults.cursor.effortLabel')}
+      description={part === 'model' ? t('defaults.cursor.modelDescription') : t('defaults.cursor.effortDescription')}
+      control={
+        part === 'model' ? (
+          <Select
+            data-default-cursor-model
+            aria-label={t('defaults.cursor.modelLabel')}
+            disabled={disabled}
+            value={model}
+            onChange={(next) => save.mutate({ defaultCursorModel: next })}
+          >
+            <SelectOption value="">{t('defaults.cursor.modelAuto')}</SelectOption>
+            {choices.map((choice) => (
+              <SelectOption key={choice.value} value={choice.value}>
+                {choiceName(choice) || choice.value}
+              </SelectOption>
+            ))}
+            {model !== '' && !choices.some((c) => c.value === model) && <SelectOption value={model}>{t('defaults.newAgent.unavailable', { value: model })}</SelectOption>}
+          </Select>
+        ) : (
+          <Select
+            data-default-cursor-effort
+            aria-label={t('defaults.cursor.effortLabel')}
+            disabled={disabled}
+            value={effort}
+            onChange={(next) => save.mutate({ defaultCursorEffort: next })}
+          >
+            <SelectOption value="">{t('defaults.cursor.effortDefault')}</SelectOption>
+            {efforts.map((level) => (
+              <SelectOption key={level} value={level}>
+                {level}
+              </SelectOption>
+            ))}
+          </Select>
+        )
+      }
+    >
+      {part === 'model' && note && <SettingNote tone={ready ? 'muted' : 'warning'}>{note}</SettingNote>}
+    </SettingRow>
+  );
+}
+
 // ResourceField is a labelled CommitInput.
 function ResourceField({
   id,

@@ -23,6 +23,7 @@ import (
 	"agentbox/internal/chat"
 	"agentbox/internal/connectors"
 	"agentbox/internal/credentials"
+	"agentbox/internal/cursor"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -45,12 +46,18 @@ type Config struct {
 	User   image.User
 	Binary string    // copied into agents for the in-agent API; empty skips the copy
 	Log    io.Writer // the daemon's own log; nil discards it
-	// UpdateURL is where the daily update check asks; empty is
+	// SkillHomes are where the user's AI tools' own skills are looked for
+	// (skills.Discover); nil is the host's home, when shared, and this one.
+	SkillHomes []string
+	// UpdateURL is where the daily install ping asks; empty is
 	// update.DefaultURL.
 	UpdateURL string
 	// ReleasesURL is where the nightly channel looks for nightlies; empty is
 	// update.DefaultReleasesURL.
 	ReleasesURL string
+	// UpdateStartDelay is how long after start the first update check waits:
+	// update.StartDelay when zero, none when negative (tests).
+	UpdateStartDelay time.Duration
 	// PreviewAddr is where the preview proxy listens: empty is
 	// defaultPreviewAddr, and "off" turns the proxy off.
 	PreviewAddr string
@@ -87,7 +94,7 @@ type Server struct {
 	files   *filesCache      // each agent's worktree file listing, served briefly stale
 	disks   *agentDiskCache  // each agent's machine and worktree sizes, for its info card
 	themes  *omarchy.Watcher // the desktop theme this machine is running, if any
-	updates updates          // what the daily update check last found
+	updates updates          // what the hourly update check last found
 	stop    context.CancelFunc
 	incus   *incusWatch // whether Incus answers, and what to do when it doesn't
 	disk    *diskWatch  // the disk guard: a floor of free space on every disk AgentBox writes to
@@ -145,10 +152,17 @@ type Server struct {
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
-	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
-	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
-	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
-	lan          *lanState                // phones chatting from the local network or a tunnel (lan.go)
+	// skillsMu runs one installation of skills at a time (skills.go).
+	skillsMu sync.Mutex
+	// skillsSynced, when set (tests), is told each time one has ended.
+	skillsSynced func()
+	// approve asks the user to approve what a project's lead asked for, and
+	// waits for the answer: approveInChat, or the test's (leadskills.go).
+	approve      func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
+	baseSyncErrs map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
+	image        imageWork         // what the daemon is doing to the base image (imagetools.go)
+	remote       *remote.Connector // the connection to a hub, when this machine is an environment
+	lan          *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -160,6 +174,17 @@ type Server struct {
 		running bool
 		last    time.Time
 	}
+	// cursorModels is the same for Cursor's menu, and cursorLogin the browser
+	// sign-in under way or last finished, with what stops it.
+	cursorModels struct {
+		running bool
+		last    time.Time
+	}
+	cursorLogin       api.CursorLogin
+	cursorLoginCancel context.CancelFunc
+	// cursorHelperFor, when set, stands in for Manager.CursorHelper in tests,
+	// which must not install anything.
+	cursorHelperFor func(context.Context) (cursor.Helper, error)
 
 	// loginCallbackUnreachable is whether the browser can't reach this
 	// machine's localhost, where a Claude Code login's callback listens: in
@@ -280,6 +305,7 @@ func New(cfg Config) (*Server, error) {
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
+	s.approve = s.approveInChat
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
@@ -288,16 +314,17 @@ func New(cfg Config) (*Server, error) {
 			s.events.publish(api.EventChat, ev)
 			s.captureLeadTurn(ev)
 		},
-		Finished:   s.agentFinished,
-		LeadIdle:   s.leadCacheIdle,
-		Idle:       s.leadIdle,
-		TurnEnded:  s.checkpointTurn,
-		AuthFailed: s.claudeAuthFailed,
-		Lost:       s.agentLost,
-		Limits:     s.claudeLimited,
-		Logf:       s.logf,
-		Version:    Version,
-		ImageDir:   cfg.Paths.ChatImages,
+		Finished:     s.agentFinished,
+		LeadIdle:     s.leadCacheIdle,
+		Idle:         s.leadIdle,
+		TurnEnded:    s.checkpointTurn,
+		TurnFinished: s.recordTurn,
+		AuthFailed:   s.claudeAuthFailed,
+		Lost:         s.agentLost,
+		Limits:       s.claudeLimited,
+		Logf:         s.logf,
+		Version:      Version,
+		ImageDir:     cfg.Paths.ChatImages,
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
@@ -375,6 +402,7 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
 	loops.Go(func() { s.runQueue(ctx) })
 	loops.Go(func() { s.watchUpdates(ctx) })
+	loops.Go(func() { s.watchUsage(ctx, realUsageClock()) })
 	loops.Go(func() { s.watchStalls(ctx) })
 	loops.Go(func() { s.watchPullRequests(ctx) })
 	loops.Go(func() { s.syncBases(ctx) })
@@ -629,6 +657,15 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)
 	h("GET /v1/projects/{project}/pulls", s.projectPullRequests)
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
+	h("GET /v1/skills", s.listSkills)
+	h("POST /v1/skills/scan", s.scanSkills)
+	h("POST /v1/skills/import", s.importSkills)
+	h("GET /v1/skills/{name}", s.getSkill)
+	h("PUT /v1/skills/{name}", s.saveSkill)
+	h("PATCH /v1/skills/{name}", s.updateSkill)
+	h("DELETE /v1/skills/{name}", s.removeSkill)
+	h("GET /v1/projects/{project}/skills", s.listProjectSkills)
+	h("PUT /v1/projects/{project}/skills/{name}", s.setProjectSkill)
 	h("GET /v1/projects/{project}/secrets", s.listProjectSecrets)
 	h("PUT /v1/projects/{project}/secrets/{name}", s.setProjectSecret)
 	h("DELETE /v1/projects/{project}/secrets/{name}", s.removeProjectSecret)
@@ -702,6 +739,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/media/{id}", s.mediaItem)
 	h("GET /v1/media/{id}/file", s.mediaFile)
 	h("DELETE /v1/media/{id}", s.deleteMedia)
+	h("PATCH /v1/media/{id}", s.updateMedia)
 	h("GET /v1/media", s.allMedia)
 	h("GET /v1/notifications", s.notifications)
 	h("POST /v1/notifications/seen", s.seeNotifications)
@@ -712,6 +750,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/usage/memory", s.memoryUsage)
 	h("GET /v1/usage/cpu", s.cpuUsage)
 	h("POST /v1/usage-stats/{feature}", s.countAppFeature)
+	h("GET /v1/usage-stats/pending", s.usageStatsPending)
 	h("POST /v1/reports/draft", s.reportDraft)
 	h("POST /v1/reports", s.sendReport)
 	h("GET /v1/image", s.imageStatus)
@@ -724,6 +763,10 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/auth/claude/{account}", s.removeClaudeAccount)
 	h("POST /v1/auth/claude/{account}/default", s.setDefaultClaudeAccount)
 	h("POST /v1/auth/claude/{account}/rename", s.renameClaudeAccount)
+	h("POST /v1/auth/cursor", s.saveCursorKey)
+	h("DELETE /v1/auth/cursor", s.removeCursorLogin)
+	h("POST /v1/auth/cursor/login", s.startCursorLogin)
+	h("GET /v1/auth/cursor/login", s.cursorLoginStatus)
 	h("POST /v1/auth/github", s.saveGitHubToken)
 	h("DELETE /v1/auth/github/{account}", s.removeGitHubAccount)
 	h("POST /v1/auth/github/{account}/default", s.setDefaultGitHubAccount)

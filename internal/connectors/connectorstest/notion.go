@@ -260,6 +260,14 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, answer)
 }
 
+// Accept makes /mcp take a token it didn't issue, as a server takes a
+// personal access token: what a secret connector sends.
+func (s *Server) Accept(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.access[token] = true
+}
+
 // mcp is the streamable HTTP endpoint: initialize answers JSON and starts a
 // session, tools/list answers as an event stream, tools/call as JSON.
 func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {

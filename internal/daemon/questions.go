@@ -419,6 +419,9 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, result 
 	s.prWatch.poke(a.Project)
 	ev := s.record(ctx, finishedEvent(a, changes, pr, s.chat.LastMessage(a), time.Now()))
 	s.captureAgentFinished(ctx, a, changes, pr, ev.Summary)
+	if pr != nil {
+		s.setupStep(ctx, setupFirstPR)
+	}
 	s.notifyFinished(ctx, ev)
 	// Whether the lead reacts to this now is the project's to say, or the
 	// agent's when the project leaves it to whichever agent finished — and

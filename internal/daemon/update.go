@@ -1,9 +1,12 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -11,11 +14,12 @@ import (
 	"github.com/google/uuid"
 
 	"agentbox/internal/api"
+	"agentbox/internal/hostos"
 	"agentbox/internal/state"
 	"agentbox/internal/update"
 )
 
-// updates is what the daily update check last found. It is kept in memory
+// updates is what the hourly update check last found. It is kept in memory
 // only: the daemon asks again as it starts, so there is nothing to carry over.
 type updates struct {
 	mu        sync.Mutex
@@ -27,11 +31,19 @@ type updates struct {
 	sending sync.Mutex
 }
 
-// watchUpdates checks for a newer AgentBox as the daemon starts and every
-// update.Interval after, for as long as the check is allowed. Every failure is
-// dropped without a word: a machine offline, or a server that is down, is no
-// reason to tell anyone anything.
+// watchUpdates looks for a newer AgentBox update.StartDelay after the daemon
+// starts and every update.Interval after, for as long as the check is
+// allowed, and at once when the channel changes or the setting is turned on.
+// Every failure is dropped without a word: a machine offline, or a server that
+// is down, is no reason to tell anyone anything.
 func (s *Server) watchUpdates(ctx context.Context) {
+	if delay := cmp.Or(s.cfg.UpdateStartDelay, update.StartDelay); delay > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+	}
 	tick := time.NewTicker(update.Interval)
 	defer tick.Stop()
 	for {
@@ -43,6 +55,25 @@ func (s *Server) watchUpdates(ctx context.Context) {
 		case <-s.updates.now:
 		}
 	}
+}
+
+// settingUpdatePing is the UTC day the install was last counted.
+const settingUpdatePing = "update_ping_day"
+
+// pingInstall counts the install, once a UTC day: the one request to
+// agentbox.linting.dev, which carries the install's ID, version, OS and
+// architecture. The day is kept only once the server answered, so a failure is
+// tried again with the next check. The usage stats not sent yet go with it,
+// whatever it found (usagestats.go).
+func (s *Server) pingInstall(ctx context.Context, install string) {
+	today := usageDay(time.Now())
+	if last, err := s.store.Setting(ctx, settingUpdatePing); err != nil || last == today {
+		return
+	}
+	if _, err := update.Check(ctx, s.cfg.UpdateURL, update.NewRequest(install, Version)); err == nil {
+		_ = s.store.SetSetting(ctx, settingUpdatePing, today)
+	}
+	s.sendUsage(ctx, install)
 }
 
 func (s *Server) checkForUpdate(ctx context.Context) {
@@ -57,18 +88,11 @@ func (s *Server) checkForUpdate(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	stable, err := update.Check(ctx, s.cfg.UpdateURL, update.NewRequest(install, Version))
-	// agentbox.linting.dev's link is to the release on GitHub, which the
-	// private repository closes to users: the bucket's page for the same
-	// version replaces it.
-	if err == nil && stable.Version != "" {
-		stable.URL = update.ReleasePage(s.cfg.ReleasesURL, "v"+strings.TrimPrefix(stable.Version, "v"))
-	}
-	// The usage stats go with the check, whatever it found (usagestats.go).
-	s.sendUsage(ctx, install)
-	// The nightly channel asks the release list for the nightlies too, since
-	// agentbox.linting.dev only answers with stable releases. Either answer
-	// alone is still worth offering.
+	s.pingInstall(ctx, install)
+	// The release list, which the bucket serves and the CDN caches, answers
+	// for both channels. The nightly channel asks for the nightlies too; either
+	// answer alone is still worth offering.
+	stable, err := update.LatestRelease(ctx, s.cfg.ReleasesURL, update.ChannelStable)
 	var nightly update.Latest
 	var nightlyErr error
 	if channel == update.ChannelNightly {
@@ -119,14 +143,57 @@ func (s *Server) updateCheckOn(ctx context.Context) (bool, error) {
 }
 
 // installID is the random UUID the check sends, made the first time one is
-// needed and kept from then on.
+// needed and kept from then on. In a VM, the front end names a file on the
+// host that keeps it too (hostos.InstallIDFileEnv), and that file wins over
+// state.db: a VM made again starts with an empty state.db, but is still the
+// same install. Writing the file is best effort: one the VM can't reach
+// leaves state.db's.
 func (s *Server) installID(ctx context.Context) (string, error) {
 	id, err := s.store.Setting(ctx, state.SettingInstallID)
-	if err != nil || id != "" {
-		return id, err
+	if err != nil {
+		return "", err
 	}
-	id = uuid.NewString()
-	return id, s.store.SetSetting(ctx, state.SettingInstallID, id)
+	file := os.Getenv(hostos.InstallIDFileEnv)
+	if file != "" {
+		if kept := readInstallID(file); kept != "" {
+			if kept == id {
+				return id, nil
+			}
+			return kept, s.store.SetSetting(ctx, state.SettingInstallID, kept)
+		}
+	}
+	if id == "" {
+		id = uuid.NewString()
+		if err := s.store.SetSetting(ctx, state.SettingInstallID, id); err != nil {
+			return "", err
+		}
+	}
+	if file != "" {
+		if err := writeInstallID(file, id); err != nil {
+			s.logf("keeping the install ID on the host: %v", err)
+		}
+	}
+	return id, nil
+}
+
+// readInstallID is the UUID file holds, or "" when it holds none.
+func readInstallID(file string) string {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	id, err := uuid.Parse(strings.TrimSpace(string(b)))
+	if err != nil {
+		return ""
+	}
+	return id.String()
+}
+
+func writeInstallID(file, id string) error {
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(file, []byte(id+"\n"), 0o600)
 }
 
 // setUpdateCheck is the setting changing. Turning it off forgets what the last

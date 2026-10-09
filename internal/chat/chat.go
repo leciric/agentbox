@@ -1,5 +1,5 @@
 // Package chat runs the conversations of the app's Chat tab, one per agent. The
-// agent's AI tool (Claude Code, Codex or OpenCode) runs inside the agent behind an ACP
+// agent's AI tool (Claude Code, Codex, OpenCode or Cursor) runs inside the agent behind an ACP
 // adapter, which the daemon speaks to over the adapter's stdin and stdout.
 // What the tool reports becomes a list of items (messages, tool calls, plans,
 // permission requests); every change is stored and published as a numbered event.
@@ -50,7 +50,7 @@ const (
 )
 
 // ToolNames are the AI tools the chat can drive.
-var ToolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
+var ToolNames = map[string]string{"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode", "cursor": "Cursor"}
 
 // Launcher starts an agent's ACP adapter. status says what it's doing while it
 // prepares, like installing the adapter.
@@ -93,6 +93,10 @@ type Manager struct {
 	// checkpoint the worktree. Off the lock, in a goroutine of its own: by
 	// then the turn may have been rolled back, which Turn tells.
 	TurnEnded func(a state.Agent, turn string)
+	// TurnFinished, when set, is called after any turn ends, a lead's too,
+	// with what the anonymous usage stats count about it (TurnStats). Off the
+	// lock, in a goroutine of its own.
+	TurnFinished func(a state.Agent, stats TurnStats)
 	// AuthFailed, when set, is called when a turn failed because the agent's
 	// AI tool was refused by its provider: an expired or revoked login. The
 	// daemon marks the account rejected, so a dead token is named where it is
@@ -625,7 +629,7 @@ func (c *conversation) drainOutbox() {
 		var res acp.SteerResponse
 		err := ad.conn.Call(context.Background(), acp.MethodSessionSteer, acp.SteerRequest{
 			SessionID: sessionID,
-			Prompt:    c.promptBlocks(dir, midTurn(texts), images),
+			Prompt:    c.promptBlocks(dir, []string{midTurn(texts)}, images),
 			// Should the session have gone idle underneath us, the message comes
 			// back rather than becoming a turn of the adapter's own: a turn
 			// AgentBox never asked for is one it doesn't follow or end.
@@ -971,6 +975,8 @@ func modelMenuSetting(ai string) (string, bool) {
 		return state.SettingClaudeModelChoices, true
 	case "opencode":
 		return state.SettingOpenCodeModelChoices, true
+	case "cursor":
+		return state.SettingCursorModelChoices, true
 	}
 	return "", false
 }
@@ -1256,6 +1262,8 @@ type turn struct {
 	// woken is a turn the session started by itself, with no prompt of
 	// AgentBox's to answer (background.go).
 	woken bool
+	// subagents is whether the turn started any subagent (subagents.go).
+	subagents bool
 }
 
 // generationMS is how long a turn took to generate: from its first to its
@@ -1865,7 +1873,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	var res acp.PromptResponse
 	err := ad.conn.Call(context.Background(), acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: sessionID,
-		Prompt:    c.promptBlocks(dir, text, images),
+		Prompt:    c.promptBlocks(dir, skillPrompt(c.agent.AI, text, c.m.skillNames(c.agent)), images),
 	}, &res)
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -2017,6 +2025,10 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	if c.m.Finished != nil && !c.agent.IsLead() {
 		agent, res := c.agent, *result
 		c.m.background.Go(func() { c.m.Finished(agent, res) })
+	}
+	if c.m.TurnFinished != nil {
+		agent, stats := c.agent, c.turnStats(t, res, result.State)
+		c.m.background.Go(func() { c.m.TurnFinished(agent, stats) })
 	}
 	if c.m.TurnEnded != nil && !c.agent.IsLead() {
 		agent, turn := c.agent, t.id
@@ -2566,7 +2578,7 @@ func (c *conversation) runningModelName() string {
 //
 // The two menus are not quite alike. The models are the account's, and stay
 // put. The effort levels are the ones "available for this model", and a model
-// can advertise none at all (Haiku 4.5 sends no effort option), so what is
+// can advertise none at all (Haiku 4.5 sent no effort option; Haiku 5.5 does), so what is
 // remembered is the levels Claude Code has been seen to name — enough to catch
 // a level it has never heard of, not a promise about any one model. A session
 // that sends no menu leaves the last one alone rather than forgetting it.
@@ -2585,6 +2597,9 @@ func (c *conversation) rememberChoices() {
 	case "opencode":
 		categories[state.SettingOpenCodeModelChoices] = "model"
 	}
+	// Cursor's menu is left to the daemon, which asks Cursor for it with each
+	// model's effort levels (SettingCursorModelChoices): a session's menu has
+	// only the running model's.
 	menus := map[string][]api.ChatOptionChoice{}
 	for key, category := range categories {
 		i := slices.IndexFunc(c.session.Options, func(o api.ChatOption) bool { return o.Category == category && o.Type == "select" })

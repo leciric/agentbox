@@ -12,12 +12,14 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"runtime"
 	"strings"
+	"testing"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -28,12 +30,28 @@ import (
 // DefaultURL is where the check goes unless AGENTBOX_UPDATE_URL says otherwise.
 const DefaultURL = "https://agentbox.linting.dev/api/v1/latest"
 
+// Endpoint is base, or DefaultURL when base is empty. Never DefaultURL in a
+// test binary: a test that forgot its fake server would count a made-up
+// install, with a version never released, on the real server.
+func Endpoint(base string) (*url.URL, error) {
+	if base == "" && testing.Testing() {
+		return nil, errors.New("a test reached for " + DefaultURL + ": give it a fake server")
+	}
+	return url.Parse(cmp.Or(base, DefaultURL))
+}
+
 // Timeout bounds one check. Anything slower is treated like any other failure:
 // silently, as no news.
 const Timeout = 5 * time.Second
 
-// Interval is how often a running daemon asks again.
-const Interval = 24 * time.Hour
+// Interval is how often a running daemon looks for a newer release: a plain
+// GET of the release list, which the CDN caches, so it costs the server
+// nothing. The ping that counts the install (Check) goes once a UTC day.
+const Interval = time.Hour
+
+// StartDelay is how long after the daemon starts the first check waits, so
+// the check doesn't compete with start-up.
+const StartDelay = 15 * time.Second
 
 // Latest is the server's answer. Only GitHub's release list (LatestRelease)
 // says what files a release has; agentbox.linting.dev's answer has none.
@@ -71,7 +89,7 @@ func NewRequest(install, version string) Request {
 func Check(ctx context.Context, base string, req Request) (Latest, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
-	u, err := url.Parse(cmp.Or(base, DefaultURL))
+	u, err := Endpoint(base)
 	if err != nil {
 		return Latest{}, err
 	}

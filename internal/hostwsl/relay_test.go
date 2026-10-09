@@ -17,6 +17,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"agentbox/internal/hostos"
 )
 
 var fakeDir string
@@ -223,6 +225,11 @@ func TestRelay(t *testing.T) {
 	})
 	if resp, body := get(); resp.StatusCode != http.StatusOK || body != `{"version":"fake"}` {
 		t.Fatalf("with the daemon: %s %q", resp.Status, body)
+	}
+	// The install ID is kept beside the distro's directory, which a new distro replaces.
+	env, _ := os.ReadFile(filepath.Join(d.fakeEnv("FAKEWSL_ROOT"), "daemon-env"))
+	if want := hostos.InstallIDFileEnv + "=" + filepath.Join(filepath.Dir(d.Dir), "install-id"); string(env) != want {
+		t.Errorf("the daemon was started with %q, want %q", env, want)
 	}
 
 	// Many at once, over the one wsl.exe, each with a body bigger than a

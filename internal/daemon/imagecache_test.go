@@ -35,8 +35,10 @@ func TestImageCacheSettings(t *testing.T) {
 	}
 	// Measured afresh: what a daemon starting on a cache from before finds.
 	d.srv.imageCache = d.srv.newImageCache()
-	if out, err := patchSettings(t, d, `{"imageCacheMaxBytes":2147483648}`); err != nil || out.ImageCacheMaxBytes != 2<<30 || out.ImageCacheBytes != 1234 {
-		t.Errorf("after setting a 2 GiB cap: %d of %d, %v", out.ImageCacheBytes, out.ImageCacheMaxBytes, err)
+	// The smallest cap: a cap is fitted to the disk t.TempDir() is on, which
+	// in an agent is /t, 2 GiB.
+	if out, err := patchSettings(t, d, `{"imageCacheMaxBytes":1073741824}`); err != nil || out.ImageCacheMaxBytes != 1<<30 || out.ImageCacheBytes != 1234 {
+		t.Errorf("after setting a 1 GiB cap: %d of %d, %v", out.ImageCacheBytes, out.ImageCacheMaxBytes, err)
 	}
 	if _, err := patchSettings(t, d, `{"imageCacheMaxBytes":1000}`); err == nil {
 		t.Error("a cap under 1 GiB was taken")

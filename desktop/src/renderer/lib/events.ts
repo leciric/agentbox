@@ -105,11 +105,12 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventConnector: {
         // A connector was added, changed or removed, or a sign-in finished.
         // Every list it can be in is refetched: its project's, and each of
-        // the project's agents', which carry the project's connectors too.
+        // the project's agents', which carry the project's connectors too —
+        // and for an AgentBox-wide one (project ''), every list.
         const connector = event.data as T.Connector;
         void queryClient.invalidateQueries({
           queryKey: ['connectors'],
-          predicate: (query) => String(query.queryKey[1]).split('/')[0] === connector.project,
+          predicate: (query) => connector.project === '' || String(query.queryKey[1]).split('/')[0] === connector.project,
         });
         break;
       }

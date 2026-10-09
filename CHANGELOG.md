@@ -3,6 +3,68 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.12.1](https://github.com/leciric/agentbox/compare/v0.12.0...v0.12.1) (2026-10-07)
+
+
+### Fixed
+
+* the top bar's memory shows what the VM uses of what it's been granted ([#223](https://github.com/leciric/agentbox/issues/223)) ([44a9648](https://github.com/leciric/agentbox/commit/44a9648fdccfa46e8116df79ee850d3b9ef27cee))
+* updates are looked for hourly and usage stats are sent soon after they are due ([#224](https://github.com/leciric/agentbox/issues/224)) ([56d2192](https://github.com/leciric/agentbox/commit/56d219239132f8bc5caa472dee072a15af741d16))
+
+## [0.12.0](https://github.com/leciric/agentbox/compare/v0.11.0...v0.12.0) (2026-10-07)
+
+
+### Added
+
+* a clearer top bar: Claude's 5-hour and weekly limits, and one status bubble for the VM ([#214](https://github.com/leciric/agentbox/issues/214)) ([ca3181b](https://github.com/leciric/agentbox/commit/ca3181bdd700602da596a8997baf3e35e8182cc1))
+* a project's model picker warns when Settings enforces a model ([#202](https://github.com/leciric/agentbox/issues/202)) ([8a302db](https://github.com/leciric/agentbox/commit/8a302dbb965d8c0f1f242a6eb0bfad024b9cfe60))
+* a speaker under the agent's replies reads one aloud again ([#189](https://github.com/leciric/agentbox/issues/189)) ([b72399b](https://github.com/leciric/agentbox/commit/b72399ba0706758e488eee8197f4a1ac21d6750d))
+* a stopped or paused agent's chat stays readable, with Start on the composer ([#216](https://github.com/leciric/agentbox/issues/216)) ([8127022](https://github.com/leciric/agentbox/commit/8127022b063d9b573a0d52ad7bea128bfe337754))
+* agentbox machines mcp gives Claude Code and Codex on your computer a desktop machine to test in ([#181](https://github.com/leciric/agentbox/issues/181)) ([4f2d2d0](https://github.com/leciric/agentbox/commit/4f2d2d0ed5b3a582e29f96b849fbdc66f8321d87))
+* agentbox machines serve opens a local web page to browse every screenshot and recording ([#180](https://github.com/leciric/agentbox/issues/180)) ([a70d9d3](https://github.com/leciric/agentbox/commit/a70d9d34109f142f8970695bd4f626b8d826c32d))
+* agentbox machines serve shows each machine's desktop live, with start, stop and take control ([#182](https://github.com/leciric/agentbox/issues/182)) ([501027b](https://github.com/leciric/agentbox/commit/501027b157d3fc8c730a631b7f23e31bab3b4b24))
+* agents and chats carry on with a turn that an AgentBox restart cut short ([#198](https://github.com/leciric/agentbox/issues/198)) ([a6a3647](https://github.com/leciric/agentbox/commit/a6a36472bcb226a808e278d6344bac0ef8f0998d))
+* agents checkpoint every turn, and can be rolled back or forked from any of them ([#185](https://github.com/leciric/agentbox/issues/185)) ([3a52003](https://github.com/leciric/agentbox/commit/3a52003135a2155a92fe9b35c121c16865bd279b))
+* agents from every project share the VM's memory: a create that doesn't fit waits, and tests and builds take a share of it when they run ([#171](https://github.com/leciric/agentbox/issues/171)) ([f5290c6](https://github.com/leciric/agentbox/commit/f5290c63768967600e90d78dfe08763ed9a4345a))
+* agents share one package cache, so dependencies and browsers are downloaded once ([#169](https://github.com/leciric/agentbox/issues/169)) ([d6b8821](https://github.com/leciric/agentbox/commit/d6b8821702db7f577f7a1f789bab18493f0ea0a3))
+* desktop machines operate the app with a real pointer and keyboard, with the dock back on their desktop ([#183](https://github.com/leciric/agentbox/issues/183)) ([33a0750](https://github.com/leciric/agentbox/commit/33a0750ec3486d7473e9893619260171b939482d))
+* downloads and updates come from downloads.agentbox.linting.dev, since GitHub's releases are private ([#206](https://github.com/leciric/agentbox/issues/206)) ([4a5a89a](https://github.com/leciric/agentbox/commit/4a5a89aca6215b6de15342abdccdc9c008d2f5f0))
+* import a project's browser cookies straight from an installed browser ([#201](https://github.com/leciric/agentbox/issues/201)) ([1570e14](https://github.com/leciric/agentbox/commit/1570e1436a3f42e93748dc98f910227a1d6a7ea8))
+* Media's project and agent filters are selects, so many agents no longer fill the view with chips ([#200](https://github.com/leciric/agentbox/issues/200)) ([39c3770](https://github.com/leciric/agentbox/commit/39c37707d6f5cc3d6d65e8b89f115fa17a2260d7))
+* notifications open their agent and media, with a history bell and an all-projects Media view ([#195](https://github.com/leciric/agentbox/issues/195)) ([8ce0349](https://github.com/leciric/agentbox/commit/8ce0349efca35ba85c518324dc5ebf6b64325c30))
+* on Windows, the top bar shows AgentBox's WSL distro and its memory, with Free resources ([#213](https://github.com/leciric/agentbox/issues/213)) ([baf3f1f](https://github.com/leciric/agentbox/commit/baf3f1fae4148fd9bdbb72a0f417d5a16fb4ad8d))
+* projects can be named anything, with spaces, capitals or any character ([#172](https://github.com/leciric/agentbox/issues/172)) ([81d2611](https://github.com/leciric/agentbox/commit/81d2611479072b0255dd1914aacc65489ad2dead))
+* SnapShots send a window to a chat as a bug report, and projects import browser cookies from an export ([#186](https://github.com/leciric/agentbox/issues/186)) ([cb34d13](https://github.com/leciric/agentbox/commit/cb34d1309f8a6d40333a81de2e4f76d568707f56))
+* the app can be used in English or Brazilian Portuguese, chosen in Settings ([#197](https://github.com/leciric/agentbox/issues/197)) ([9d725be](https://github.com/leciric/agentbox/commit/9d725be409fccce68a4d009981435c8eb1c2b2b7))
+* the AppImage downloads and installs updates itself, then restarts into them ([#199](https://github.com/leciric/agentbox/issues/199)) ([077aff4](https://github.com/leciric/agentbox/commit/077aff48f78b4b4d8e813b50adda926457ef256a))
+* the top bar's Claude chip shows the time left in the 5-hour window ([#219](https://github.com/leciric/agentbox/issues/219)) ([359d991](https://github.com/leciric/agentbox/commit/359d99110ec7907ab559a3c84c7a08c4bd2cae8b))
+* usage stats learn the models, effort and context windows in use, with anonymous turn, heartbeat, agent, error and setup events ([#220](https://github.com/leciric/agentbox/issues/220)) ([e985880](https://github.com/leciric/agentbox/commit/e985880719b731e57f4cd5426b3bb1beac1c4374))
+* zoom and pan images in the Media viewer ([#208](https://github.com/leciric/agentbox/issues/208)) ([a1353f7](https://github.com/leciric/agentbox/commit/a1353f77d31d4ac0767c76314ef49644b53f3153))
+
+
+### Fixed
+
+* a fixed number of agents at once really caps them ([#207](https://github.com/leciric/agentbox/issues/207)) ([cb0aea2](https://github.com/leciric/agentbox/commit/cb0aea266f28648aa8185943e8b4ae12010383db))
+* a VM made again, or a new WSL distro, stays the same install in the update check ([#218](https://github.com/leciric/agentbox/issues/218)) ([df8eca0](https://github.com/leciric/agentbox/commit/df8eca0e9f69cb8d92ad6217ae3fc59529ce2d4d))
+* agent recordings are made in one pass and saved the moment they stop ([#188](https://github.com/leciric/agentbox/issues/188)) ([11d899c](https://github.com/leciric/agentbox/commit/11d899c3204ece30ec7f779ba148f7c9b1cc4296))
+* AgentBox's caches and tools move to the VM's agents' disk, and caches are sized to fit it ([#196](https://github.com/leciric/agentbox/issues/196)) ([c6542a6](https://github.com/leciric/agentbox/commit/c6542a628da5639c29c96f7b40c2e36033dff5c5))
+* agents and the project's chat follow up when the background work they watch ends ([#215](https://github.com/leciric/agentbox/issues/215)) ([6f58183](https://github.com/leciric/agentbox/commit/6f581838160a5b1dfe58dc3c1d2a5aee4bfdf8b6))
+* agents no longer wait for memory the VM has free, and a queued agent can be started now ([#175](https://github.com/leciric/agentbox/issues/175)) ([82fdad2](https://github.com/leciric/agentbox/commit/82fdad20e9d8483eb744092e24ef835f4218b8dc))
+* agents' turns end when you message them while their background subagents run ([#176](https://github.com/leciric/agentbox/issues/176)) ([06875d0](https://github.com/leciric/agentbox/commit/06875d007e426d276534c00d39165829a0908979))
+* an agent's /t holds at most 2 GB, so temporary files can't fill the VM's memory ([#221](https://github.com/leciric/agentbox/issues/221)) ([eff0867](https://github.com/leciric/agentbox/commit/eff086766bbaf94ea02817daa32b7e9d3c9cc412))
+* build the Arch package faster, with zstd ([#211](https://github.com/leciric/agentbox/issues/211)) ([64010c8](https://github.com/leciric/agentbox/commit/64010c8a6a824189dc036bc0246dc614496d63b8))
+* Chromium no longer asks to restore pages after a machine stops ([#184](https://github.com/leciric/agentbox/issues/184)) ([dcb9d89](https://github.com/leciric/agentbox/commit/dcb9d897f2b90b6a92174a2d5b92008d36c4b805))
+* media save says a screenshot must be in Media first ([#203](https://github.com/leciric/agentbox/issues/203)) ([922aadd](https://github.com/leciric/agentbox/commit/922aaddfa6a49e618fcb6c132017a0c8c18bc27b))
+* new autonomous agents start in Bypass permissions again ([#191](https://github.com/leciric/agentbox/issues/191)) ([84e82b0](https://github.com/leciric/agentbox/commit/84e82b0b30fb4f76ebf0a611608eb38788899367))
+* package-cache tests no longer leak the agent's environment ([#187](https://github.com/leciric/agentbox/issues/187)) ([3c90763](https://github.com/leciric/agentbox/commit/3c90763c20ba544a54160ab3cbf998f54cb53fad))
+* queued agents start on the model chosen for them ([#193](https://github.com/leciric/agentbox/issues/193)) ([4ea1ae3](https://github.com/leciric/agentbox/commit/4ea1ae3162f9885ed2a7ca11f3f60a78250f83f4))
+* recordings in Media play again when there are many of them ([#210](https://github.com/leciric/agentbox/issues/210)) ([9b664f5](https://github.com/leciric/agentbox/commit/9b664f56cd573238aab7dd446c13df6406d2db6b))
+* Settings explain each option in plain words, and match what it does ([#209](https://github.com/leciric/agentbox/issues/209)) ([325e05c](https://github.com/leciric/agentbox/commit/325e05c82019ee0d05e11bbf3f292ce5bdcf2ba4))
+* telling a stopped or paused agent starts its machine first, and waits for memory when the VM has none ([#173](https://github.com/leciric/agentbox/issues/173)) ([02ddf90](https://github.com/leciric/agentbox/commit/02ddf90653a82e759b5fd674b88e5d56dd89b8bb))
+* the project chat has AgentBox's tools in a Mac VM made before 0.10 ([#192](https://github.com/leciric/agentbox/issues/192)) ([bfa1de4](https://github.com/leciric/agentbox/commit/bfa1de4fd2228bba593907ad7b31b8c1233cccd4))
+* the project chat recovers when its repository was cloned again ([#190](https://github.com/leciric/agentbox/issues/190)) ([5565caa](https://github.com/leciric/agentbox/commit/5565caa51c849220c4cc11bc3b41d5cd47c34bb0))
+* the WSL storage pool is sized from free disk and grows on re-run ([#194](https://github.com/leciric/agentbox/issues/194)) ([28abf18](https://github.com/leciric/agentbox/commit/28abf18d8748fac9d076207998592eb566589550))
+
 ## [0.11.0](https://github.com/leciric/agentbox/compare/v0.10.0...v0.11.0) (2026-10-02)
 
 

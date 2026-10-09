@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"reflect"
 	"testing"
 
 	"agentbox/internal/api"
@@ -20,7 +21,7 @@ func TestMergePinnedClaudeModels(t *testing.T) {
 	adapterFable := api.ChatOptionChoice{Value: "claude-fable-5-1", Name: "Fable (really offered)", Description: "from the adapter"}
 	merged = state.MergePinnedClaudeModels([]api.ChatOptionChoice{adapterFable})
 	got, ok := find(merged, "claude-fable-5-1")
-	if !ok || got != adapterFable {
+	if !ok || !reflect.DeepEqual(got, adapterFable) {
 		t.Fatalf("a menu that already offers a pinned value got overwritten: %+v", got)
 	}
 

@@ -60,6 +60,90 @@ func TestAgentConnectors(t *testing.T) {
 }
 
 // An agent made with a limit is given only the project connectors it names,
+
+// An AgentBox-wide connector reaches every project, as its switch or the
+// project's override says, and a project's own of the same name replaces it.
+func TestWideConnectors(t *testing.T) {
+	st := openStore(t)
+	ctx := context.Background()
+	now := time.Now().Truncate(time.Second)
+	for _, c := range []state.Connector{
+		{Name: "notion", URL: "https://mcp.notion.com/mcp", Auth: "oauth", Enabled: true, UpdatedAt: now},
+		{Name: "linear", URL: "https://mcp.linear.app/mcp", Auth: "oauth", Enabled: false, UpdatedAt: now},
+		{Project: "pawly", Name: "linear", URL: "https://linear.example/mcp", Auth: "none", Enabled: true, UpdatedAt: now},
+		{Project: "pawly", Agent: "agent-01", Name: "notion", URL: "https://notion.example/mcp", Auth: "none", Enabled: true, UpdatedAt: now},
+	} {
+		if err := st.SetConnector(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names := func(found []state.Connector) string {
+		var out []string
+		for _, c := range found {
+			on := "off"
+			if c.Enabled {
+				on = "on"
+			}
+			out = append(out, c.Name+":"+c.Scope()+":"+on)
+		}
+		return strings.Join(out, " ")
+	}
+	got, _ := st.ProjectConnectors(ctx, "pawly")
+	if want := "linear:project:on notion:agentbox:on"; names(got) != want {
+		t.Errorf("pawly gets %s, want %s", names(got), want)
+	}
+	got, _ = st.ProjectConnectors(ctx, "other")
+	if want := "linear:agentbox:off notion:agentbox:on"; names(got) != want {
+		t.Errorf("other gets %s, want %s", names(got), want)
+	}
+	got, _ = st.AgentConnectors(ctx, "pawly", "agent-01")
+	if want := "linear:project:on notion:agent:on"; names(got) != want {
+		t.Errorf("agent-01 gets %s, want %s", names(got), want)
+	}
+
+	on, off := true, false
+	if err := st.SetConnectorOverride(ctx, "linear", "other", &on); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetConnectorOverride(ctx, "notion", "other", &off); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetConnectorOverride(ctx, "figma", "other", &on); !errors.Is(err, state.ErrNotFound) {
+		t.Errorf("overriding a connector that isn't AgentBox-wide: %v", err)
+	}
+	got, _ = st.AgentConnectors(ctx, "other", "agent-02")
+	if want := "linear:agentbox:on notion:agentbox:off"; names(got) != want {
+		t.Errorf("other/agent-02 gets %s, want %s", names(got), want)
+	}
+	c, err := st.ProjectConnector(ctx, "other", "notion")
+	if err != nil || c.Enabled || !c.Wide() {
+		t.Errorf("other's notion = %+v, %v", c, err)
+	}
+	wide, _ := st.Connector(ctx, "", "", "notion")
+	if !wide.Enabled || len(wide.Overrides) != 1 || wide.Overrides["other"] {
+		t.Errorf("notion itself = %+v", wide)
+	}
+	if err := st.SetConnectorOverride(ctx, "notion", "other", nil); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := st.ProjectConnector(ctx, "other", "notion"); !c.Enabled {
+		t.Error("notion didn't follow AgentBox-wide again")
+	}
+
+	if err := st.RemoveProjectConnectors(ctx, "other"); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := st.Connector(ctx, "", "", "linear"); len(c.Overrides) != 0 {
+		t.Errorf("a removed project's override stayed: %+v", c.Overrides)
+	}
+	if err := st.RemoveConnector(ctx, "", "", "notion"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.ProjectConnectors(ctx, "pawly"); names(got) != "linear:project:on" {
+		t.Errorf("after removing notion, pawly gets %s", names(got))
+	}
+}
+
 // and always its own; nil is every one, and empty is none.
 func TestAgentConnectorLimit(t *testing.T) {
 	st := openStore(t)

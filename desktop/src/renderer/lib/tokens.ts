@@ -2,7 +2,7 @@
 // context window — 200k, 1M — and rounds too hard for a ledger, where 12.4M and
 // 1.3B are the numbers worth telling apart.
 
-import { formatNumber } from '../../shared/i18n/index.ts';
+import { formatNumber, t } from '../../shared/i18n/index.ts';
 
 // fixed is a number with a set count of decimals, in the language's own
 // separator, and never grouped: 1.30B, not 1,300.00M.
@@ -55,6 +55,20 @@ export function windowNow(w: { utilization: number; resetsAt: string }, now = Da
   const resets = Date.parse(w.resetsAt);
   if (Number.isFinite(resets) && resets > 0 && resets <= now) return null;
   return w.utilization;
+}
+
+// windowLeft is the time a window has left, to the minute: "3h 20m", "1h",
+// "35m", "<1m". It is null when the reset is unknown or already past, so the
+// caller falls back to naming the window.
+export function windowLeft(resetsAt: string, now = Date.now()): string | null {
+  const resets = Date.parse(resetsAt);
+  if (!Number.isFinite(resets) || resets <= now) return null;
+  const minutes = Math.floor((resets - now) / 60_000);
+  if (minutes < 1) return t('shell.top.leftLessThanMinute');
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return t('shell.top.leftMinutes', { m });
+  return m === 0 ? t('shell.top.leftHours', { h }) : t('shell.top.leftHoursMinutes', { h, m });
 }
 
 // limitTone is how worrying a share of a limit is, in the top bar's own

@@ -206,6 +206,8 @@ var sessionDirs = map[string][]string{
 	"claude":   {".claude/projects"},
 	"codex":    {".codex/sessions"},
 	"opencode": {".local/share/opencode"},
+	// Cursor's SDK keeps each workspace's agents under ~/.cursor/projects.
+	"cursor": {".cursor/projects"},
 }
 
 // MigrateOptions are migrateCHV's.

@@ -43,6 +43,7 @@ const fakeIncus = `case "$1" in
       *) echo '{"config": {}, "devices": {}}' ;;
     esac ;;
   copy)
+    touch "$INCUS_LOG.copying"
     sleep "${COPY_DELAY:-0}"
     if [ -n "$COPY_FAILS" ]; then echo "Error: simulated copy failure" >&2; exit 1; fi ;;
   delete) echo "$*" >> "$INCUS_LOG" ;;
@@ -152,13 +153,14 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	// "dev" build, which never checks; the ones about the check change the
 	// version and give the daemon a fake server.
 	srv, err := New(Config{
-		Paths:       p,
-		Incus:       incus.Client{Bin: bin},
-		User:        image.User{Name: "dev", UID: 1000, GID: 1000},
-		UpdateURL:   cmp.Or(tc.updateURL, "http://127.0.0.1:1"),
-		ReleasesURL: cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
-		PreviewAddr: cmp.Or(tc.previewAddr, "off"),
-		GitHubAPI:   gh.URL,
+		Paths:            p,
+		Incus:            incus.Client{Bin: bin},
+		User:             image.User{Name: "dev", UID: 1000, GID: 1000},
+		UpdateURL:        cmp.Or(tc.updateURL, "http://127.0.0.1:1"),
+		ReleasesURL:      cmp.Or(tc.releasesURL, "http://127.0.0.1:1"),
+		UpdateStartDelay: -1,
+		PreviewAddr:      cmp.Or(tc.previewAddr, "off"),
+		GitHubAPI:        gh.URL,
 		// Every fake connector server listens on loopback.
 		ConnectorsLoopback: true,
 	})
@@ -615,9 +617,12 @@ func TestCancelJobRollsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The log line comes before the copy step checks for a cancellation, so
+	// wait for incus itself to be copying, or the cancel may land before there
+	// is an instance to roll back.
 	waitFor(t, "the copy to start", func() bool {
-		log, _ := d.client.JobLog(ctx, j.ID)
-		return strings.Contains(log, "Creating instance")
+		_, err := os.Stat(filepath.Join(root, "incus.log.copying"))
+		return err == nil
 	})
 	j, err = d.client.CancelJob(ctx, j.ID)
 	if err != nil {

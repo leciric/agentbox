@@ -686,7 +686,7 @@ var (
 		regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`),
 		regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`),
 	}
-	lanUnreadable = regexp.MustCompile(`^/v1/(lan|remote|auth/claude/login|jobs/[^/]+/log)(/|$)|/(terminal|secrets|browser/view|android/view)(/|$)`)
+	lanUnreadable = regexp.MustCompile(`^/v1/(lan|remote|auth/claude/login|auth/cursor|jobs/[^/]+/log)(/|$)|/(terminal|secrets|browser/view|android/view)(/|$)`)
 )
 
 func lanAllowed(method, path string) bool {

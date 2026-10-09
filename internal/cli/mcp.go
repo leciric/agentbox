@@ -89,9 +89,10 @@ func choiceOf(description string, values ...string) map[string]any {
 // tool's own description agrees with the parameter's rather than telling it in
 // one sentence that agents start on a model already chosen and in the next
 // that choosing is its job.
-func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]any, leadPicksModel, openCodeReady bool) {
+func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]any, leadPicksModel bool, ready readyTools) {
 	var models, efforts, openCodeModels []string
-	var openCode bool
+	var openCode, cursorReady bool
+	var cursorModels []api.ChatOptionChoice
 	// The defaults an agent created with none of these gets, named in the
 	// descriptions below: Settings → Models, with AgentBox's own defaults
 	// under them. The lead's own defaults are another section of Settings and
@@ -116,6 +117,7 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 			openCodeModels = append(openCodeModels, choice.Value)
 		}
 		openCode = settings.OpenCodeReady
+		cursorReady, cursorModels = settings.CursorReady, settings.CursorModelChoices
 	}
 	// What the project asks of this parameter. The lead's brief says the same
 	// thing at greater length; this is what a model reads at the moment it
@@ -167,27 +169,41 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 	// asking for it otherwise would be a tool call that can only fail. The
 	// models go with it, because OpenCode's names and Claude Code's are not
 	// interchangeable in either direction.
+	params = map[string]any{}
+	tools := []string{"claude"}
+	aiDescription := "which AI tool the agent runs. \"claude\" is Claude Code and the default, and what this project's " +
+		"agents are set up for."
 	if openCode {
 		named := "OpenCode's own provider/model ids"
 		if len(openCodeModels) > 0 {
 			named = "one of " + strings.Join(openCodeModels, ", ")
 		}
 		model += " For an agent with ai=\"opencode\", the model is not a Claude Code name but " + named + " instead."
-		params = map[string]any{
-			"ai": choiceOf("which AI tool the agent runs. \"claude\" is Claude Code and the default, and what this project's "+
-				"agents are set up for. \"opencode\" is OpenCode, the open-source agent, which runs the models of whichever "+
-				"providers this machine has logged in to; choose it when the task asks for it, or when the user asked for one "+
-				"of those models. Say which you chose and why, in the same line as the model.", "claude", "opencode"),
+		tools = append(tools, "opencode")
+		aiDescription += " \"opencode\" is OpenCode, the open-source agent, which runs the models of whichever " +
+			"providers this machine has logged in to."
+	}
+	if cursorReady {
+		named := "Cursor's own model ids (\"default\" is Cursor's Auto)"
+		if len(cursorModels) > 0 {
+			named = "one of " + cursorMenu(cursorModels)
 		}
-	} else {
-		params = map[string]any{}
+		model += " For an agent with ai=\"cursor\", the model is " + named + " instead."
+		tools = append(tools, "cursor")
+		aiDescription += " \"cursor\" is Cursor, which runs Cursor's own Composer models and other vendors' through " +
+			"the user's Cursor account. It only has the chat, and can't stop to ask permission: it runs every tool call."
+	}
+	if len(tools) > 1 {
+		params["ai"] = choiceOf(aiDescription+" Choose another tool than Claude Code when the task asks for it, or when the user "+
+			"asked for it or for one of its models. Say which you chose and why, in the same line as the model.", tools...)
 	}
 	params["model"] = str(model)
 	params["permissions"] = choiceOf("how the agent's AI tool asks permission. \"autonomous\" never asks: the agent's own machine "+
 		"is the sandbox, and it works unattended. \"ask\" makes it stop before it changes anything, which only makes sense "+
 		"if someone is watching its chat to answer. Leave this out for autonomous.", "autonomous", "ask")
-	effort := str("how hard this agent thinks, as one of Claude Code's own effort levels — a Claude Code setting, which an " +
-		"OpenCode agent doesn't have, so leave it out for one. This one is checked when the agent is " +
+	effort := str("how hard this agent thinks, as one of Claude Code's own effort levels — an OpenCode agent has none, so " +
+		"leave it out for one, and a Cursor agent takes the levels its model lists (in the model's description above), " +
+		"or none. For Claude Code it is checked when the agent is " +
 		"made, so a level Claude Code has never offered is refused here rather than silently ignored. Some models have no effort " +
 		"levels at all, and then it simply doesn't apply. Leave this out to use the effort chosen for new agents in AgentBox's " +
 		"settings, and AgentBox's own default (high) when nothing is chosen there.")
@@ -212,7 +228,25 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 		params["context_window"] = str("where this agent's chat compacts, a Claude Code setting. Leave this out for " + defaultWindow +
 			", the window new agents start with in AgentBox's Settings → Models. It is also the most Settings allows: a longer one is refused.")
 	}
-	return params, auto, openCode
+	return params, auto, readyTools{openCode: openCode, cursor: cursorReady}
+}
+
+// readyTools says which AI tools besides Claude Code an agent could run right
+// now, so create_agent offers only those.
+type readyTools struct{ openCode, cursor bool }
+
+// cursorMenu names Cursor's models for the lead, each with the effort levels
+// it takes, like "claude-opus-5-5 (effort: low, high)".
+func cursorMenu(models []api.ChatOptionChoice) string {
+	names := make([]string, 0, len(models))
+	for _, m := range models {
+		if len(m.Efforts) > 0 {
+			names = append(names, m.Value+" (effort: "+strings.Join(m.Efforts, ", ")+")")
+			continue
+		}
+		names = append(names, m.Value)
+	}
+	return strings.Join(names, ", ")
 }
 
 // leadAI reads create_agent's "ai": the AI tool the agent runs. Empty is
@@ -221,19 +255,25 @@ func chatSettingParams(ctx context.Context, c *api.Client) (params map[string]an
 // isn't on offer — the lead is told about OpenCode only when an agent could
 // really run it, and a lead working from an older brief would otherwise get an
 // error about a missing login with nothing to do about it.
-func leadAI(ai string, openCodeReady bool) (string, error) {
+func leadAI(ai string, ready readyTools) (string, error) {
 	switch strings.TrimSpace(strings.ToLower(ai)) {
 	case "", "claude":
 		return "claude", nil
 	case "opencode":
-		if !openCodeReady {
+		if !ready.openCode {
 			return "", errors.New("this machine can't run OpenCode agents: OpenCode has to be built into the base image " +
 				"(agentbox image build --opencode) and logged in (agentbox auth opencode). Create the agent with ai=\"claude\", " +
 				"or ask the user to set OpenCode up first")
 		}
 		return "opencode", nil
+	case "cursor":
+		if !ready.cursor {
+			return "", errors.New("this machine can't run Cursor agents: agents aren't signed in to Cursor (agentbox auth cursor, or " +
+				"Settings → Accounts in the app). Create the agent with ai=\"claude\", or ask the user to sign in to Cursor first")
+		}
+		return "cursor", nil
 	default:
-		return "", fmt.Errorf("ai is %q: it is \"claude\" (Claude Code) or \"opencode\" (OpenCode)", ai)
+		return "", fmt.Errorf("ai is %q: it is \"claude\" (Claude Code), \"opencode\" (OpenCode) or \"cursor\" (Cursor)", ai)
 	}
 }
 
@@ -284,7 +324,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		}
 		return json.Unmarshal(args, into)
 	}
-	settings, leadPicksModel, openCodeReady := chatSettingParams(ctx, c)
+	settings, leadPicksModel, ready := chatSettingParams(ctx, c)
 	startsOn := "It starts on the model, effort " +
 		"and permissions new agents start on here; set those below only when this agent needs " +
 		"something different, such as a cheaper model for a small, mechanical job."
@@ -341,10 +381,11 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "list_connectors",
 			Description: "This project's connectors: remote MCP servers like Notion or Linear that its agents get as tools, " +
-				"signed in once by the user and held by AgentBox, so no agent ever sees a token. Shows each one's status and " +
+				"signed in once by the user and held by AgentBox, so no agent ever sees a token — the project's own and the " +
+				"AgentBox-wide ones it gets. Shows each one's status and " +
 				"which agents have it. The connected ones are your own tools too (mcp__<name>__*). Pass create_agent's " +
 				"connectors to give an agent only some of them. To add one, ask the user to (Settings → Connectors on the project's " +
-				"page); an agent that finds it needs one asks the user itself, with request_connector.",
+				"page, or in AgentBox's Settings for every project); an agent that finds it needs one asks the user itself, with request_connector.",
 			Run: func(json.RawMessage) (string, error) {
 				found, err := c.ProjectConnectors(ctx)
 				if err != nil {
@@ -384,7 +425,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 						"[\"notion\"]; [] for none. Leave it out to give it all of them. Each tool it has costs context in every " +
 						"turn, so give an agent only the ones its task needs."},
 				"claude_account": str("which of this project's Claude Code accounts (list_accounts) this agent logs in as. Only applies " +
-					"when it runs Claude Code; sending it for an agent with ai=\"opencode\" is an error. An unknown or disallowed name is " +
+					"when it runs Claude Code; sending it for an agent with ai=\"opencode\" or \"cursor\" is an error. An unknown or disallowed name is " +
 					"refused, and the error names the ones it may use — use list_accounts to see them, along with how much " +
 					"of each is left. Leave this out to use the project's own account, and the machine's default account when " +
 					"the project has none set."),
@@ -409,7 +450,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if strings.TrimSpace(in.Title) == "" || strings.TrimSpace(in.Task) == "" {
 					return "", errors.New("an agent needs a title and a task")
 				}
-				ai, err := leadAI(in.AI, openCodeReady)
+				ai, err := leadAI(in.AI, ready)
 				if err != nil {
 					return "", err
 				}
@@ -965,6 +1006,128 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "list_skills",
+			Description: "The skills AgentBox installs into agents (and you): each one's name, what it is for, and " +
+				"whether this project's agents get it. read_skill shows one whole.",
+			Run: func(json.RawMessage) (string, error) {
+				list, err := c.ProjectSkills(ctx)
+				if err != nil {
+					return "", err
+				}
+				return describeSkills(list), nil
+			},
+		},
+		{
+			Name:        "read_skill",
+			Description: "One skill's SKILL.md, and the other files in its folder.",
+			Schema:      object([]string{"name"}, map[string]any{"name": str("the skill's name")}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Name string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				detail, err := c.ProjectSkill(ctx, in.Name)
+				if err != nil {
+					return "", err
+				}
+				return describeSkill(detail), nil
+			},
+		},
+		{
+			Name: "create_skill",
+			Description: "Write a new skill: a procedure agents follow when its description matches their task. " +
+				"Write one when a procedure recurs across agents' tasks, or the user repeats an instruction. It is " +
+				"on in this project only, unless everywhere is set because it is general. Agents get it from their " +
+				"next session; tell the user in a line. An existing name is refused: edit_skill changes a skill.",
+			Schema: object([]string{"name", "content"}, map[string]any{
+				"name": str("lowercase-with-dashes, like release-checklist"),
+				"content": str("the whole SKILL.md: YAML front matter with name and description (when to use it, " +
+					"in a sentence the model matches tasks against), then the steps"),
+				"everywhere": map[string]any{"type": "boolean", "description": "on in every project, for a general skill"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Name, Content string
+					Everywhere    bool
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if _, err := c.CreateProjectSkill(ctx, api.LeadNewSkillRequest{Name: in.Name, Content: in.Content, Everywhere: in.Everywhere}); err != nil {
+					return "", err
+				}
+				if in.Everywhere {
+					return "Created " + in.Name + ", on in every project.", nil
+				}
+				return "Created " + in.Name + ", on in this project.", nil
+			},
+		},
+		{
+			Name: "edit_skill",
+			Description: "Replace a skill's SKILL.md. The user approves it first, from a card with the diff in your " +
+				"chat, and this waits for them; a refusal comes back as an error, and nothing changes.",
+			Schema: object([]string{"name", "content"}, map[string]any{
+				"name":    str("the skill's name"),
+				"content": str("the whole new SKILL.md"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Name, Content string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if _, err := c.EditProjectSkill(ctx, in.Name, in.Content); err != nil {
+					return "", err
+				}
+				return "The user approved it: " + in.Name + " is changed.", nil
+			},
+		},
+		{
+			Name: "switch_skill",
+			Description: "Turn a skill on or off, in this project or everywhere. Turning one on is yours to do; " +
+				"turning one off where it was on waits for the user's approval, from a card in your chat.",
+			Schema: object([]string{"name", "state"}, map[string]any{
+				"name": str("the skill's name"),
+				"state": choiceOf("on, off, or (in this project only) \"default\" to follow the AgentBox-wide switch",
+					"on", "off", "default"),
+				"everywhere": map[string]any{"type": "boolean", "description": "switch it AgentBox-wide rather than in this project"},
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Name, State string
+					Everywhere  bool
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				override := in.State
+				if override == "default" {
+					override = ""
+				}
+				sk, err := c.SwitchProjectSkill(ctx, in.Name, api.LeadSkillSwitchRequest{Override: override, Everywhere: in.Everywhere})
+				if err != nil {
+					return "", err
+				}
+				return in.Name + " is now " + skillState(sk), nil
+			},
+		},
+		{
+			Name: "delete_skill",
+			Description: "Delete a skill from AgentBox and every agent. The user approves it first, from a card in " +
+				"your chat, and this waits for them; a refusal comes back as an error. To stop one reaching this " +
+				"project alone, switch_skill it off here instead.",
+			Schema: object([]string{"name"}, map[string]any{"name": str("the skill's name")}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Name string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if err := c.RemoveProjectSkill(ctx, in.Name); err != nil {
+					return "", err
+				}
+				return "The user approved it: " + in.Name + " is deleted.", nil
+			},
+		},
+		{
 			Name: "list_questions",
 			Description: "The questions this project's agents are waiting on. An agent asking one is " +
 				"blocked until it is answered, so deal with these first.",
@@ -1173,6 +1336,9 @@ func describeConnectors(found []api.Connector) string {
 		given := "no agent"
 		if len(conn.Agents) > 0 {
 			given = strings.Join(conn.Agents, ", ")
+		}
+		if conn.Scope == api.ConnectorWide {
+			given += " (AgentBox-wide)"
 		}
 		fmt.Fprintf(&b, "- %s — %s, %s; given to %s\n", conn.Name, conn.URL, status, given)
 	}
@@ -1509,4 +1675,47 @@ func oneLine(text string) string {
 		return string(runes[:200]) + "…"
 	}
 	return text
+}
+
+// describeSkills lists skills for list_skills, one a line.
+func describeSkills(list []api.Skill) string {
+	if len(list) == 0 {
+		return "There are no skills yet. create_skill writes one."
+	}
+	var b strings.Builder
+	for _, sk := range list {
+		fmt.Fprintf(&b, "- %s (%s): %s\n", sk.Name, skillState(sk), oneLine(sk.Description))
+	}
+	return b.String()
+}
+
+// skillState says where a skill is on, from the lead's project.
+func skillState(sk api.Skill) string {
+	here := "off here"
+	if sk.Active != nil && *sk.Active {
+		here = "on here"
+	}
+	everywhere := "off AgentBox-wide"
+	if sk.Enabled {
+		everywhere = "on AgentBox-wide"
+	}
+	return here + ", " + everywhere
+}
+
+// describeSkill is read_skill's answer: SKILL.md, then the other files' names.
+func describeSkill(detail api.SkillDetail) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s (%s)\n\n", detail.Name, skillState(detail.Skill))
+	var others []string
+	for _, f := range detail.Files {
+		if f.Path == "SKILL.md" {
+			b.WriteString(f.Content)
+		} else {
+			others = append(others, fmt.Sprintf("- %s (%s)", f.Path, sizeOf(f.Size)))
+		}
+	}
+	if len(others) > 0 {
+		b.WriteString("\n\nOther files:\n" + strings.Join(others, "\n"))
+	}
+	return b.String()
 }

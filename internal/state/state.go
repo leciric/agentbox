@@ -843,6 +843,61 @@ var migrations = []string{
 		resumes    INTEGER NOT NULL DEFAULT 0,
 		PRIMARY KEY (project, agent)
 	)`,
+
+	// The anonymous usage events not sent yet (SettingUsageStats), oldest
+	// first: one row per event, with an id of its own so the server can tell
+	// a retry from a new one. props is a JSON object of fixed fields
+	// (internal/daemon/usageevents.go), never anything typed or named.
+	`CREATE TABLE usage_events (
+		seq   INTEGER PRIMARY KEY AUTOINCREMENT,
+		id    TEXT NOT NULL,
+		day   TEXT NOT NULL,
+		name  TEXT NOT NULL,
+		props TEXT NOT NULL
+	)`,
+
+	// A favorite media item is never removed on its own: not by the
+	// retention sweep, not with its agent (Media.Favorite).
+	`ALTER TABLE media ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`,
+
+	// Skills (internal/skills): a folder with a SKILL.md, stored whole so the
+	// daemon can install it into every agent and lead that gets it. enabled is
+	// the AgentBox-wide switch; skill_projects holds a project's override of
+	// it, either way, so a skill can be on everywhere but one project or off
+	// everywhere but one.
+	`CREATE TABLE skills (
+		name        TEXT PRIMARY KEY,
+		description TEXT NOT NULL DEFAULT '',
+		source      TEXT NOT NULL DEFAULT '',
+		enabled     INTEGER NOT NULL DEFAULT 1,
+		created_at  INTEGER NOT NULL,
+		updated_at  INTEGER NOT NULL
+	)`,
+	`CREATE TABLE skill_files (
+		skill   TEXT NOT NULL REFERENCES skills (name) ON DELETE CASCADE,
+		path    TEXT NOT NULL,
+		mode    INTEGER NOT NULL,
+		content BLOB NOT NULL,
+		PRIMARY KEY (skill, path)
+	)`,
+	`CREATE TABLE skill_projects (
+		skill   TEXT NOT NULL REFERENCES skills (name) ON DELETE CASCADE,
+		project TEXT NOT NULL,
+		enabled INTEGER NOT NULL,
+		PRIMARY KEY (skill, project)
+	)`,
+
+	// AgentBox-wide connectors are rows of connectors with project '' (and
+	// agent ''): signed in once, given to every project. Their enabled is the
+	// AgentBox-wide switch; connector_projects holds a project's override of
+	// it, either way, like skill_projects. A project's own connector of the
+	// same name replaces the AgentBox-wide one there.
+	`CREATE TABLE connector_projects (
+		connector TEXT NOT NULL,
+		project   TEXT NOT NULL,
+		enabled   INTEGER NOT NULL,
+		PRIMARY KEY (connector, project)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1435,6 +1490,9 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 	// a project added again at the same path shouldn't inherit the old one's
 	// keys or sign-ins.
 	if err := s.RemoveProjectConnectors(ctx, name); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM skill_projects WHERE project = ?`, name); err != nil {
 		return err
 	}
 	return s.RemoveProjectSecrets(ctx, name)

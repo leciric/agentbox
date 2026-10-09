@@ -107,6 +107,12 @@ otherwise; a quote that matches nothing, or more than one, changes nothing and s
 A note is pasted into **every** agent's brief; a memory (`remember`) is searched, so it costs nothing
 until needed. Notes are for standing conventions; a gotcha with an error, a cause or a filename is a
 memory. When in doubt, `remember`. **Say which of the two you used, and why, in a sentence.**
+
+### Skills
+
+When a procedure recurs across agents' tasks, or the user repeats an instruction, write it as a skill
+with `create_skill` (this project's unless it is general) and tell the user in a line. Editing,
+deleting or turning off a skill waits for the user's approval on a card in this chat.
 {{- end}}
 {{- if .Recap}}
 
@@ -260,6 +266,13 @@ it there rather than pass one.
 OpenCode's, named `provider/model`: {{range $i, $m := .OpenCodeMenu}}{{if $i}}, {{end}}`{{$m}}`{{end}}. The two tools' model names
 don't mix. Keep `claude` unless there is a reason, such as a task that names OpenCode or another
 provider's model, and say which tool you chose.
+{{end}}{{if .CursorReady}}
+### Agents can run Cursor too
+
+`create_agent`'s `ai` can be `cursor`, which runs Cursor's models (its own Composer, and other
+vendors') through the user's Cursor account; its `model` and `effort` are Cursor's own names, listed
+in the tool's description. A Cursor agent has only the chat, never asks permission, and can't tell
+AgentBox about background work. Keep `claude` unless the task or the user asks for Cursor.
 {{end}}
 ### Connectors
 

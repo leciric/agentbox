@@ -114,6 +114,10 @@ export interface Settings {
   claudeEffortChoices: ChatOptionChoice[];
   openCodeModelChoices: ChatOptionChoice[];
   openCodeReady: boolean;
+  cursorModelChoices: ChatOptionChoice[];
+  cursorReady: boolean;
+  defaultCursorModel: string;
+  defaultCursorEffort: string;
   resumeAfterLimit: boolean;
   continueAfterRestart: boolean;
   claudeCompactWindow: number;
@@ -151,6 +155,8 @@ export interface UpdateSettingsRequest {
   defaultLeadModel?: string;
   defaultLeadContextWindow?: string;
   defaultClaudeEffort?: string;
+  defaultCursorModel?: string;
+  defaultCursorEffort?: string;
   resumeAfterLimit?: boolean;
   continueAfterRestart?: boolean;
   claudeCompactWindow?: number;
@@ -535,6 +541,8 @@ export interface AuthStatus {
   claude: boolean;
   codex: boolean;
   opencode: boolean;
+  cursor: boolean;
+  cursorEmail?: string;
   claudeAccounts: ClaudeAccount[];
   github: boolean;
   githubAccounts: GitHubAccount[];
@@ -685,6 +693,7 @@ export interface MediaItem {
   expiresAt?: string;
   removed?: boolean;
   unseen?: boolean;
+  favorite?: boolean;
 }
 
 export interface MediaMeta {
@@ -794,6 +803,10 @@ export interface DeleteMediaResult {
   bytes: number;
 }
 
+export interface UpdateMediaRequest {
+  favorite?: boolean;
+}
+
 export interface SetupCheck {
   id: string;
   title: string;
@@ -879,6 +892,21 @@ export interface GitHubTokenRequest {
   account?: string;
 }
 
+export interface CursorKeyRequest {
+  apiKey: string;
+}
+
+export interface CursorKeyResponse {
+  email?: string;
+}
+
+export interface CursorLogin {
+  state: string;
+  url?: string;
+  email?: string;
+  error?: string;
+}
+
 export interface RenameGitHubAccountRequest {
   name: string;
 }
@@ -901,6 +929,79 @@ export interface Secret {
 
 export interface SetSecretRequest {
   value: string;
+}
+
+export interface Skill {
+  name: string;
+  description: string;
+  source: string;
+  enabled: boolean;
+  overrides: Record<string, boolean>;
+  userInvocable: boolean;
+  fileCount: number;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  active?: boolean;
+}
+
+export interface SkillFile {
+  path: string;
+  size: number;
+  binary?: boolean;
+  content?: string;
+}
+
+export interface SkillDetail {
+  name: string;
+  description: string;
+  source: string;
+  enabled: boolean;
+  overrides: Record<string, boolean>;
+  userInvocable: boolean;
+  fileCount: number;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  active?: boolean;
+  files: SkillFile[];
+}
+
+export interface SaveSkillRequest {
+  content: string;
+  enabled?: boolean;
+  project?: string;
+}
+
+export interface UpdateSkillRequest {
+  enabled?: boolean;
+}
+
+export interface SkillOverrideRequest {
+  override: string;
+}
+
+export interface ScanSkillsRequest {
+  source: string;
+}
+
+export interface SkillCandidate {
+  name: string;
+  description: string;
+  origin: string;
+  plugin?: string;
+  source: string;
+  files: number;
+  size: number;
+  content: string;
+  exists: boolean;
+  problem?: string;
+}
+
+export interface ImportSkillsRequest {
+  source: string;
+  names?: string[];
+  project?: string;
 }
 
 export interface BrowserCookies {
@@ -993,6 +1094,8 @@ export interface Connector {
   header?: string;
   scheme?: string;
   enabled: boolean;
+  override?: string;
+  overrides?: Record<string, boolean>;
   status: string;
   error?: string;
   issuer?: string;
@@ -1010,7 +1113,12 @@ export interface SetConnectorRequest {
   secret?: string;
   header?: string;
   scheme?: string;
+  secretValue?: string;
   enabled?: boolean;
+}
+
+export interface ConnectorOverrideRequest {
+  override: string;
 }
 
 export interface ConnectResult {
@@ -1307,6 +1415,15 @@ export interface RemoteConnectRequest {
   token: string;
 }
 
+export interface UsageStatsPending {
+  on: boolean;
+  usageUrl: string;
+  usage: string;
+  eventsUrl: string;
+  events: string;
+  eventsWaiting: number;
+}
+
 export interface LANStatus {
   enabled: boolean;
   port: number;
@@ -1409,6 +1526,7 @@ export interface ChatOptionChoice {
   description?: string;
   group?: string;
   kind?: string;
+  efforts?: string[];
 }
 
 export interface ChatCommand {
@@ -1469,6 +1587,9 @@ export interface ChatPermission {
   title: string;
   options: ChatPermissionOption[];
   outcome?: string;
+  approval?: string;
+  detail?: string;
+  diffs?: ChatDiff[];
 }
 
 export interface ChatPermissionOption {
@@ -2081,6 +2202,7 @@ export const CredentialSecret = "secret";
 export const ConnectorOAuth = "oauth";
 export const ConnectorSecret = "secret";
 export const ConnectorNone = "none";
+export const ConnectorWide = "agentbox";
 export const ConnectorConnected = "connected";
 export const ConnectorDisconnected = "disconnected";
 export const ConnectorConnecting = "connecting";

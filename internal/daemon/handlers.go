@@ -206,6 +206,7 @@ func (s *Server) registerProject(ctx context.Context, p state.Project) (state.Pr
 		return p, err
 	}
 	s.countFeature(api.FeatureProjectAdd)
+	s.setupStep(ctx, setupFirstProject)
 	// Read it back, so the answer carries what the store filled in, the slug
 	// made from its name among them.
 	ref := p.Name
@@ -1158,6 +1159,13 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			ran = &tailWriter{max: catchUpTail}
 			log = io.MultiWriter(log, ran)
 		}
+		// A queued agent's row is as old as its place in the queue.
+		var queuedAt time.Time
+		if req.Name != "" && queued != "" {
+			if q, err := s.store.Agent(ctx, req.Project, req.Name); err == nil && q.Status == state.AgentQueued {
+				queuedAt = q.CreatedAt
+			}
+		}
 		a, err := s.manager(log).Create(ctx, req.Project, agent.CreateOptions{
 			Name:          req.Name,
 			Branch:        req.Branch,
@@ -1190,9 +1198,16 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 				// is still waiting on, the same as a finish it asked for.
 				s.tellLead(ctx, req.Project, fmt.Sprintf("create_agent failed: %v", err), true)
 			}
+			s.recordError(errCreateFailed, req.AI)
 			return nil, err
 		}
-		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode))
+		s.countFeature(agentFeature(a.AI, api.FeatureAgentCreateClaude, api.FeatureAgentCreateCodex, api.FeatureAgentCreateOpenCode, api.FeatureAgentCreateCursor))
+		s.countCreatedModel(ctx, a)
+		s.notePeakAgents(ctx)
+		s.setupStep(ctx, setupFirstAgent)
+		if !queuedAt.IsZero() {
+			s.noteAgentQueued(ctx, a, time.Since(queuedAt))
+		}
 		if byLead {
 			s.countFeature(api.FeatureAgentCreateByLead)
 		}
@@ -1258,6 +1273,9 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	}
 	s.captureEvent(r.Context(), a.Project, a.Name, "agent_retired", map[string]any{"how": "destroy", "branch": a.Branch}, "")
 	s.countFeature(api.FeatureAgentDestroy)
+	if a.Status != state.AgentQueued {
+		s.recordAgentFinished(r.Context(), a, "destroyed")
+	}
 	s.refreshAgents(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
@@ -1277,7 +1295,9 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		switch action {
 		case "start":
-			err = s.startMachine(ctx, m, a)
+			if err = s.startMachine(ctx, m, a); err != nil {
+				s.recordError(errStartFailed, a.AI)
+			}
 		case "stop":
 			s.dropWaking(a, "the agent was stopped")
 			s.chat.Stop(a.Ref(), "the agent was stopped")
@@ -1579,9 +1599,11 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) error {
 	err = s.startJob(w, "image-build", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
 		defer s.releaseImage()
 		if err := image.Build(ctx, s.cfg.Incus, s.cfg.User, opts, log); err != nil {
+			s.recordError(errImageBuildFailed, "")
 			return nil, err
 		}
 		s.countFeature(api.FeatureImageBuild)
+		s.setupStep(ctx, setupImageBuilt)
 		// A build you made settles an update of the daemon's that failed or
 		// was cancelled.
 		s.setImagePhase(func(w *imageWork) { *w = imageWork{busy: w.busy} })
@@ -1766,6 +1788,9 @@ func (s *Server) authStatus(w http.ResponseWriter, _ *http.Request) error {
 		GitHub:         len(gh) > 0,
 		GitHubAccounts: gh,
 	}
+	if login, ok := creds.CursorLogin(); ok {
+		status.Cursor, status.CursorEmail = true, login.Email
+	}
 	s.refreshClaudeTokens(creds)
 	if status.GitHub {
 		// Who the default account's token belongs to, and whether GitHub
@@ -1854,6 +1879,7 @@ func (s *Server) refreshClaudeTokens(creds credentials.Store) {
 // there is nothing to check: the app and `agentbox auth status` say so at once
 // rather than at the next hourly check.
 func (s *Server) claudeAuthFailed(a state.Agent, detail string) {
+	s.recordError(errAuthFailed, a.AI)
 	if a.AI != "claude" {
 		return
 	}

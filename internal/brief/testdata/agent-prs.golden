@@ -13,6 +13,7 @@ You are running inside an AgentBox agent: an isolated Linux machine that belongs
 - Every port is free. Run dev servers and databases on their usual ports.
 - Docker and Docker Compose are installed. Use them for databases, caches and other services.
 - You have passwordless `sudo`. Install whatever you need.
+- `/t` (`$TMPDIR`) is 2 GB of RAM, for temporary files and sockets: clone other repos and keep your work under your home directory.
 - `mise` manages language runtimes (for example `mise use node@22` or `mise use python@3.12`). Node.js LTS and pnpm are already installed.
 
 ## Setting up the project
@@ -78,5 +79,5 @@ This machine has Chromium on a virtual display with a small desktop (file manage
 The user reviews your work in the Media tab, and a recording is how they see a change happen rather than take your word for it.
 
 - **Any visible change — UI, CLI output, an app flow — ends with a recording**: `agentbox media record start --input desktop --name <name>`, the walkthrough through the desktop tools, `agentbox media record stop`. In Claude Code the desktop subagent does all three; check with `agentbox media list` that it saved, and look at one saved screenshot rather than the display if you must. Skip it only when nothing is visible, and say so in your report.
-- `agentbox media screenshot --name <name>` (`--full-page`, `--display`) keeps one state beside a recording; it's what goes in a pull request.
+- `agentbox media screenshot --name <name>` (`--full-page`; `--target display` for a desktop app such as Electron, as the browser would show about:blank) keeps one state beside a recording; it's what goes in a pull request.
 - `agentbox media add <path>` keeps one file (JUnit XML, an HTML report, a log), never a directory: zip it or point at its entry file. `agentbox media logs --service <compose service>` keeps a service's logs, and `agentbox media note "<text>"` adds a caption.

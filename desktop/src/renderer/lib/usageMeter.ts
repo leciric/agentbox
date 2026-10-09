@@ -25,7 +25,7 @@ export interface MeterPick {
 //
 // Only Claude accounts have readings: claude-agent-acp relays Anthropic's
 // limits on usage_update, while codex-acp keeps Codex's to itself (only its
-// /status text shows them) and OpenCode reports none. So a Codex or OpenCode
+// /status text shows them) and OpenCode and Cursor report none. So a Codex, OpenCode or Cursor
 // agent gets no reading, and the meter hides, until the daemon records one.
 export function pickMeter({ limits, project, agent }: { limits: T.ClaudeLimit[]; project?: T.Project; agent?: T.Agent }): MeterPick {
   const byAccount = (name: string, whose: string): MeterPick => {

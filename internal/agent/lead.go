@@ -365,6 +365,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		EnforceAgentDefaults: enforced,
 		ModelMenu:            models,
 		OpenCodeMenu:         openCodeModels,
+		CursorReady:          m.CursorReady(),
 		ClaudeAccounts:       accountNames,
 		CanSpawn:             socket != "",
 		AgentPRs:             p.AgentPRs,
@@ -378,7 +379,10 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
-	return m.writeLeadHome(home, a.Worktree, text, socket, nil, connectors, m.leadGitHubToken(p) != "")
+	if err := m.writeLeadHome(home, a.Worktree, text, socket, nil, connectors, m.leadGitHubToken(p) != ""); err != nil {
+		return err
+	}
+	return m.WriteSkills(ctx, a)
 }
 
 // writeLeadHome writes what a lead's private HOME holds: its policy, its brief,

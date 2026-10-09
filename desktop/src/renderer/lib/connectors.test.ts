@@ -7,6 +7,9 @@ import {
   connectorPresets,
   connectorRequest,
   connectorStatus,
+  isWide,
+  overrideOf,
+  overrideRequest,
   presetFor,
   RequestConnector,
   tokenLine,
@@ -133,4 +136,15 @@ test('connectorRequest makes a name from the URL when none is given', () => {
 test('connectorRequest is nothing for another kind, or with nothing to go on', () => {
   assert.equal(connectorRequest(question({ kind: T.CredentialSecret, secretName: 'X' })), undefined);
   assert.equal(connectorRequest(question()), undefined);
+});
+
+test('an AgentBox-wide connector in a project reads its override three ways', () => {
+  const wide = connector({ scope: T.ConnectorWide, project: '' });
+  assert.ok(isWide(wide));
+  assert.ok(!isWide(connector()));
+  assert.equal(overrideOf(wide), 'inherit');
+  assert.equal(overrideOf({ ...wide, override: 'off' }), 'off');
+  assert.equal(overrideOf({ ...wide, override: 'on' }), 'on');
+  assert.equal(overrideRequest('inherit'), '');
+  assert.equal(overrideRequest('off'), 'off');
 });

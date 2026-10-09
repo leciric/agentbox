@@ -74,6 +74,7 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.label.name == 'nightly')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       build: ${{ steps.pick.outputs.build }}
       sha: ${{ steps.pick.outputs.sha }}
@@ -162,6 +163,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.build == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
@@ -193,8 +195,8 @@ jobs:
 
       - name: Install what electron-builder wants
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libarchive-tools
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends libarchive-tools
 
       - run: npm --prefix desktop ci
 
@@ -212,6 +214,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.build == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
@@ -244,8 +247,8 @@ jobs:
       - name: Install what electron-builder wants
         run: |
           sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libarchive-tools wine wine32:i386 wine64
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends libarchive-tools wine wine32:i386 wine64
 
       - run: npm --prefix desktop ci
 
@@ -265,6 +268,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.build == 'true'
     runs-on: macos-15
+    timeout-minutes: 40
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       NIGHTLY: ${{ needs.resolve.outputs.nightly }}
@@ -360,6 +364,7 @@ jobs:
       needs.windows.result == 'success' &&
       (needs.macos.result == 'success' || needs.macos.result == 'skipped')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
       TAG: ${{ needs.resolve.outputs.tag }}
@@ -419,6 +424,7 @@ jobs:
     needs: [resolve, publish]
     if: always() && needs.publish.result == 'success' && needs.resolve.outputs.publish == 'true'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     concurrency:
       group: r2-releases
       cancel-in-progress: false

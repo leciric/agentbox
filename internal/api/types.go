@@ -383,6 +383,18 @@ type Settings struct {
 	// image has it and AgentBox has a login for it. A project's chat reads
 	// this to know whether it may create OpenCode agents at all.
 	OpenCodeReady bool `json:"openCodeReady"`
+	// CursorModelChoices is the model menu Cursor named for AgentBox's
+	// sign-in, each with the effort levels it takes: asked of Cursor on this
+	// machine (internal/cursor) in the background, and empty until that has
+	// answered once.
+	CursorModelChoices []ChatOptionChoice `json:"cursorModelChoices"`
+	// CursorReady is true when agents are signed in to Cursor, which is all
+	// a Cursor agent needs: every base image has its SDK.
+	CursorReady bool `json:"cursorReady"`
+	// DefaultCursorModel and DefaultCursorEffort are what new Cursor agents
+	// start on; "" is Cursor's Auto and the model's own default level.
+	DefaultCursorModel  string `json:"defaultCursorModel"`
+	DefaultCursorEffort string `json:"defaultCursorEffort"`
 	// ResumeAfterLimit says whether a chat whose turn was cut short by a
 	// Claude usage limit carries on by itself once the limit resets. On
 	// unless it was turned off, and unlike the settings above it applies to
@@ -514,6 +526,11 @@ type UpdateSettingsRequest struct {
 	DefaultLeadContextWindow *string `json:"defaultLeadContextWindow,omitempty"`
 	// DefaultClaudeEffort is "" to go back to AgentBox's own default.
 	DefaultClaudeEffort *string `json:"defaultClaudeEffort,omitempty"`
+	// DefaultCursorModel and DefaultCursorEffort are what new Cursor agents
+	// start on, in Cursor's own names; "" goes back to Cursor's Auto and the
+	// model's own default level.
+	DefaultCursorModel  *string `json:"defaultCursorModel,omitempty"`
+	DefaultCursorEffort *string `json:"defaultCursorEffort,omitempty"`
 	// ResumeAfterLimit turns the automatic resume after a Claude usage limit
 	// on or off, for every agent.
 	ResumeAfterLimit *bool `json:"resumeAfterLimit,omitempty"`
@@ -622,7 +639,7 @@ type Agent struct {
 	// While any runs, an agent whose chat is ready is awaiting, not idle: the
 	// work's end wakes it, and it hasn't finished.
 	Background []string `json:"background,omitempty"`
-	State        string     `json:"state"` // running, stopped, paused, initializing, incomplete, missing or queued
+	State      string   `json:"state"` // running, stopped, paused, initializing, incomplete, missing or queued
 	// QueuePosition is a queued agent's place in its project's queue, 1 for
 	// the next to start; absent for any other agent.
 	QueuePosition int `json:"queuePosition,omitempty"`
@@ -1178,9 +1195,14 @@ type ClaudeAccount struct {
 }
 
 type AuthStatus struct {
-	Claude         bool            `json:"claude"` // at least one Claude Code account is stored
-	Codex          bool            `json:"codex"`
-	OpenCode       bool            `json:"opencode"` // agentbox auth opencode stored a provider login
+	Claude   bool `json:"claude"` // at least one Claude Code account is stored
+	Codex    bool `json:"codex"`
+	OpenCode bool `json:"opencode"` // agentbox auth opencode stored a provider login
+	// Cursor is true when agents are signed in to Cursor, with an API key or
+	// Cursor's browser sign-in; CursorEmail is whose account it is, when
+	// Cursor said.
+	Cursor         bool            `json:"cursor"`
+	CursorEmail    string          `json:"cursorEmail,omitempty"`
 	ClaudeAccounts []ClaudeAccount `json:"claudeAccounts"`
 	// GitHub is true when at least one GitHub account is stored.
 	GitHub         bool            `json:"github"`
@@ -1207,6 +1229,37 @@ type GitHubTokenRequest struct {
 	Token string `json:"token"`
 	// Account names the login; empty means the account called "default".
 	Account string `json:"account,omitempty"`
+}
+
+// CursorKeyRequest signs agents in to Cursor with an API key from Cursor's
+// dashboard. The daemon asks Cursor whose it is before keeping it.
+type CursorKeyRequest struct {
+	APIKey string `json:"apiKey"`
+}
+
+// CursorKeyResponse says whose Cursor account the key belongs to, when
+// Cursor said.
+type CursorKeyResponse struct {
+	Email string `json:"email,omitempty"`
+}
+
+// The states of a Cursor browser sign-in (CursorLogin.State).
+const (
+	CursorLoginIdle     = "idle"     // none was started since the daemon started
+	CursorLoginStarting = "starting" // installing what it needs, or waiting for Cursor's page
+	CursorLoginWaiting  = "waiting"  // URL is the page to open and finish it in
+	CursorLoginDone     = "done"
+	CursorLoginFailed   = "failed"
+)
+
+// CursorLogin is the progress of Cursor's browser sign-in, which mints an
+// API key named "AgentBox" on the account (POST /v1/auth/cursor/login, then
+// GET the same path until it is done or failed).
+type CursorLogin struct {
+	State string `json:"state"`
+	URL   string `json:"url,omitempty"`
+	Email string `json:"email,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // RenameGitHubAccountRequest gives a stored GitHub account another name.
@@ -1953,6 +2006,15 @@ type MediaItem struct {
 	// Unseen is true, in GET /v1/media, for an item the user was told about
 	// and hasn't opened or marked seen yet.
 	Unseen bool `json:"unseen,omitempty"`
+	// Favorite items are never removed automatically, by the retention
+	// sweep or with their agent, so they have no ExpiresAt.
+	Favorite bool `json:"favorite,omitempty"`
+}
+
+// UpdateMediaRequest is PATCH /v1/media/{id}: what to change about an item.
+// Unfavoriting one whose agent is gone starts its retention clock then.
+type UpdateMediaRequest struct {
+	Favorite *bool `json:"favorite,omitempty"`
 }
 
 type MediaMeta struct {
@@ -2310,8 +2372,12 @@ type RemoteConnectRequest struct {
 
 // The features anonymous usage stats count (Settings.UsageStats). A key names
 // what was used and nothing about what it was used on: no names, paths,
-// repositories, models or text ever go into one, which is why they are a
-// fixed list rather than made up where they are counted. The daemon counts
+// repositories or text ever go into one, which is why they are a fixed list
+// rather than made up where they are counted. The model, effort and context
+// keys are the one exception, still from fixed lists: a prefix below, the AI
+// tool, and a value matched against the daemon's own list of known models,
+// efforts and windows (internal/daemon/usagemodels.go), anything else
+// "other", like turn.model.claude.opus_5_5 or agent.create.context.claude.1m. The daemon counts
 // the first group at its own chokepoints; the app counts the second, the ones
 // only it can see, through POST /v1/usage-stats/{feature}, which takes nothing
 // but a key on this list. The keys go to agentbox.linting.dev as they are, so
@@ -2320,6 +2386,7 @@ const (
 	FeatureAgentCreateClaude   = "agent.create.claude"
 	FeatureAgentCreateCodex    = "agent.create.codex"
 	FeatureAgentCreateOpenCode = "agent.create.opencode"
+	FeatureAgentCreateCursor   = "agent.create.cursor"
 	FeatureAgentCreateByLead   = "agent.create.by_lead"
 	FeatureAgentDestroy        = "agent.destroy"
 	FeatureAgentRetire         = "agent.retire"
@@ -2332,6 +2399,13 @@ const (
 	FeatureLeadTurnClaude      = "lead.turn.claude"
 	FeatureLeadTurnCodex       = "lead.turn.codex"
 	FeatureLeadTurnOpenCode    = "lead.turn.opencode"
+	FeatureLeadTurnCursor      = "lead.turn.cursor"
+	FeatureAgentCreateModel    = "agent.create.model"
+	FeatureAgentCreateEffort   = "agent.create.effort"
+	FeatureAgentCreateContext  = "agent.create.context"
+	FeatureTurnModel           = "turn.model"
+	FeatureTurnEffort          = "turn.effort"
+	FeatureTurnContext         = "turn.context"
 	FeatureChatModel           = "chat.model.change"
 	FeatureChatEffort          = "chat.effort.change"
 	FeatureChatWindow          = "chat.window.change"
@@ -2370,6 +2444,22 @@ const (
 	FeatureMenuOpenPullRequest = "menu.agent.open_pr"
 	FeatureMenuDestroy         = "menu.agent.destroy"
 )
+
+// UsageStatsPending is GET /v1/usage-stats/pending: exactly what the next
+// update check would send, for Settings to show. Usage and Events are the
+// JSON bodies as they would be posted, "" when nothing waits.
+type UsageStatsPending struct {
+	// On is whether anything is counted and sent at all (Settings.UsageStats,
+	// and nothing blocking the update check).
+	On        bool   `json:"on"`
+	UsageURL  string `json:"usageUrl"`
+	Usage     string `json:"usage"`
+	EventsURL string `json:"eventsUrl"`
+	Events    string `json:"events"`
+	// EventsWaiting is every event not sent yet, of which Events holds the
+	// first report's worth.
+	EventsWaiting int `json:"eventsWaiting"`
+}
 
 // AppFeatures are the keys the app may count through the API.
 var AppFeatures = []string{

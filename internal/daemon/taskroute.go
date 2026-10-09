@@ -205,7 +205,7 @@ func (s *Server) taskToLead(ctx context.Context, t memory.Task) (memory.Task, er
 		return memory.Task{}, err
 	}
 	s.captureTaskStatus(ctx, out, t.Status)
-	s.countFeature(agentFeature(lead.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode))
+	s.countFeature(agentFeature(lead.AI, api.FeatureLeadTurnClaude, api.FeatureLeadTurnCodex, api.FeatureLeadTurnOpenCode, api.FeatureLeadTurnCursor))
 	return out, nil
 }
 

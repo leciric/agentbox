@@ -17,6 +17,8 @@ import {
   LoaderCircle,
   LogIn,
   Mic,
+  Plug,
+  Wand2,
   Monitor,
   Moon,
   MoonStar,
@@ -48,6 +50,7 @@ import { cn, errorMessage } from "../lib/utils";
 import { ImageDownloads } from "./ImageDownloads";
 import { JobProgress } from "./JobProgress";
 import { ReportDialog } from "./ReportDialog";
+import { UsageSentDialog } from "./UsageSentDialog";
 import { WhatsNewDialog } from "./WhatsNewDialog";
 import {
   AgentQueue,
@@ -55,6 +58,7 @@ import {
   DockerPruneOnStop,
   CompactWindow,
   DefaultContextWindow,
+  CursorDefaults,
   DefaultModel,
   LeadRecheck,
   MediaRetention,
@@ -71,6 +75,8 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
+import { SkillsPanel } from "./SkillsPanel";
+import { ConnectorsTab } from "./ConnectorsTab";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { useVoiceSettings } from "../lib/voice/settings";
@@ -139,6 +145,7 @@ const descriptions: Record<string, MessageKey> = {
   claude: "settings.setup.desc.claude",
   codex: "settings.setup.desc.codex",
   opencode: "settings.setup.desc.opencode",
+  cursor: "settings.setup.desc.cursor",
   github: "settings.setup.desc.github",
   android: "settings.setup.desc.android",
   preview: "settings.setup.desc.preview",
@@ -154,6 +161,7 @@ const checkTitles: Record<string, MessageKey> = {
   claude: "settings.setup.title.claude",
   codex: "settings.setup.title.codex",
   opencode: "settings.setup.title.opencode",
+  cursor: "settings.setup.title.cursor",
   android: "settings.setup.title.android",
   preview: "settings.setup.title.preview",
 };
@@ -169,7 +177,7 @@ const environmentIds = new Set([
   "android",
   "preview",
 ]);
-const accountIds = new Set(["claude", "codex", "opencode", "github"]);
+const accountIds = new Set(["claude", "codex", "opencode", "cursor", "github"]);
 
 // githubDetail says who the default account's token belongs to, or why it
 // can't be used.
@@ -391,6 +399,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
         />
       </div>
     ),
+    cursor: <CursorAccount command={check("cursor")?.fix ?? "agentbox auth cursor"} />,
     android: check("android")?.fix ? (
       <div className="grid gap-2">
         <p className="text-[13px] text-muted">
@@ -965,6 +974,48 @@ function InstalledSettings({
         ]
       : []),
     {
+      id: "skills",
+      title: t("settings.section.skills.title"),
+      description: t("settings.section.skills.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "skills",
+          title: t("settings.group.skills.title"),
+          cards: true,
+          entries: [
+            {
+              id: "skills",
+              label: t("settings.section.skills.title"),
+              keywords: t("settings.entry.skills.keywords"),
+              render: () => <SkillsPanel embedded />,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "connectors",
+      title: t("settings.section.connectors.title"),
+      description: t("settings.section.connectors.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "connectors",
+          title: t("settings.group.connectors.title"),
+          cards: true,
+          entries: [
+            {
+              id: "connectors",
+              label: t("settings.section.connectors.title"),
+              keywords: t("settings.entry.connectors.keywords"),
+              render: () => <ConnectorsTab target="" embedded />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "voice",
       title: t("settings.section.voice.title"),
       description: t("settings.section.voice.description"),
@@ -1002,6 +1053,20 @@ function InstalledSettings({
               keywords: t("settings.entry.agent-effort.keywords"),
               modified: changed((s) => s.defaultClaudeEffort !== ""),
               render: () => <NewAgentEffort />,
+            },
+            {
+              id: "cursor-model",
+              label: t("settings.entry.cursor-model.label"),
+              keywords: t("settings.entry.cursor-model.keywords"),
+              modified: changed((s) => s.defaultCursorModel !== ""),
+              render: () => <CursorDefaults part="model" />,
+            },
+            {
+              id: "cursor-effort",
+              label: t("settings.entry.cursor-effort.label"),
+              keywords: t("settings.entry.cursor-effort.keywords"),
+              modified: changed((s) => s.defaultCursorEffort !== ""),
+              render: () => <CursorDefaults part="effort" />,
             },
             {
               id: "enforce",
@@ -1233,7 +1298,9 @@ function InstalledSettings({
           id: "ai",
           title: t("settings.group.ai.title"),
           cards: true,
-          entries: aiSteps.map((step) => stepEntry(step, step.id === "claude")),
+          // Claude Code's and Cursor's are managed here even once they're done:
+          // accounts to add, a key to change, a sign-in to end.
+          entries: aiSteps.map((step) => stepEntry(step, step.id === "claude" || step.id === "cursor")),
         },
         {
           id: "github",
@@ -1354,6 +1421,8 @@ const sectionIcons: SectionIcons = {
   general: SlidersHorizontal,
   models: Sparkles,
   voice: Mic,
+  skills: Wand2,
+  connectors: Plug,
   phone: Smartphone,
   agents: Bot,
   resources: Cpu,
@@ -1579,9 +1648,10 @@ export function PRWatch() {
 }
 
 // UsageStats rides on the update check: the same request's day, carrying how
-// many times each feature was used (internal/daemon/usagestats.go). Its one
-// line is the whole of what it sends; keep it in step with the README's
-// "Update check" section. It can't be on while the check is off or blocked,
+// many times each feature was used (internal/daemon/usagestats.go), and the
+// anonymous events (usageevents.go). Its lines say what it sends, and "See
+// what's sent" shows it exactly; keep them in step with the README's "Update
+// check" section. It can't be on while the check is off or blocked,
 // and says which, rather than a switch that does nothing.
 function UsageStats() {
   const t = useT();
@@ -1598,6 +1668,7 @@ function UsageStats() {
     onError: (err) => toast.error(errorMessage(err)),
   });
 
+  const [seeing, setSeeing] = useState(false);
   const blocked = update.data?.blocked;
   const checkOff = settings.data?.updateCheck === false;
   return (
@@ -1622,6 +1693,12 @@ function UsageStats() {
           {t("settings.update.offBecause", { reason: blocked ?? t("settings.usageStats.checkOff") })}
         </SettingNote>
       )}
+      <div>
+        <Button variant="ghost" size="sm" data-usage-see onClick={() => setSeeing(true)}>
+          {t("settings.usageStats.see")}
+        </Button>
+      </div>
+      <UsageSentDialog open={seeing} onOpenChange={setSeeing} />
     </SettingRow>
   );
 }
@@ -2355,6 +2432,176 @@ function ClaudeTokenForm({
       </p>
       {save.error && <Notice>{errorMessage(save.error)}</Notice>}
     </form>
+  );
+}
+
+// CursorAccount is Cursor's sign-in: an API key pasted here, or Cursor's own
+// browser flow, which the daemon runs while this polls how far it got. Agents
+// share the one sign-in; the key is never shown again once it is saved.
+function CursorAccount({ command }: { command: string }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const auth = useQuery({ queryKey: ["auth"], queryFn: api.auth });
+  const [key, setKey] = useState("");
+  const opened = useRef("");
+  const refresh = () =>
+    Promise.all(
+      ["auth", "setup", "settings"].map((k) =>
+        queryClient.invalidateQueries({ queryKey: [k] }),
+      ),
+    );
+  // Polled only once this window started a sign-in: a disabled query never
+  // runs its refetchInterval.
+  const [polling, setPolling] = useState(false);
+  const login = useQuery({
+    queryKey: ["cursor-login"],
+    queryFn: api.cursorLogin,
+    enabled: polling,
+    refetchInterval: (query) =>
+      query.state.data?.state === "starting" || query.state.data?.state === "waiting"
+        ? 1000
+        : false,
+  });
+  const start = useMutation({
+    mutationFn: api.startCursorLogin,
+    onSuccess: (next) => {
+      opened.current = "";
+      queryClient.setQueryData(["cursor-login"], next);
+      setPolling(true);
+    },
+  });
+  const state = login.data?.state;
+  const url = login.data?.url;
+  const waiting = state === "starting" || state === "waiting";
+  const signedIn = auth.data?.cursor === true;
+
+  // Open Cursor's page once, as the Claude login does; the link below it
+  // opens it again.
+  useEffect(() => {
+    if (state !== "waiting" || !url || opened.current === url) return;
+    opened.current = url;
+    void window.agentbox.openExternal(url);
+  }, [state, url]);
+  useEffect(() => {
+    if (state !== "done") return;
+    toast(t("settings.cursor.signedIn"));
+    void refresh();
+    queryClient.setQueryData(["cursor-login"], { state: "idle" });
+    setPolling(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+
+  const save = useMutation({
+    mutationFn: () => api.saveCursorKey(key.trim()),
+    onSuccess: async () => {
+      toast(t("settings.cursor.keySaved"));
+      setKey("");
+      await refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const signOut = useMutation({
+    mutationFn: api.removeCursorLogin,
+    onSuccess: async () => {
+      toast(t("settings.cursor.signedOut"));
+      await refresh();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex flex-wrap items-center gap-2 text-[13px]">
+        <StepIcon status={signedIn ? "ok" : "optional"} small />
+        <span className="text-secondary">
+          {signedIn
+            ? auth.data?.cursorEmail
+              ? t("settings.cursor.signedInAs", { email: auth.data.cursorEmail })
+              : t("settings.cursor.signedInPlain")
+            : t("settings.cursor.notSignedIn")}
+        </span>
+        {signedIn && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto"
+            disabled={signOut.isPending}
+            onClick={() => signOut.mutate()}
+          >
+            {t("settings.cursor.signOut")}
+          </Button>
+        )}
+      </div>
+      <form
+        className="flex flex-wrap items-end gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (key.trim()) save.mutate();
+        }}
+      >
+        <div className="grid gap-1.5">
+          <Label htmlFor="cursor-api-key">{t("settings.cursor.keyLabel")}</Label>
+          <Input
+            id="cursor-api-key"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={t("settings.cursor.keyPlaceholder")}
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+            className="w-72 font-mono"
+          />
+        </div>
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={!key.trim() || save.isPending}
+        >
+          {save.isPending && <LoaderCircle className="animate-spin" />}
+          {t("settings.cursor.saveKey")}
+        </Button>
+      </form>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="secondary"
+          disabled={waiting || start.isPending}
+          onClick={() => start.mutate()}
+        >
+          {waiting || start.isPending ? (
+            <LoaderCircle className="animate-spin" />
+          ) : (
+            <LogIn />
+          )}
+          {t("settings.cursor.signIn")}
+        </Button>
+        {state === "waiting" && url && (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-[13px] text-brand-300 underline-offset-2 hover:underline"
+            onClick={() => void window.agentbox.openExternal(url)}
+          >
+            <ExternalLink className="size-3.5" />
+            {t("settings.cursor.openPage")}
+          </button>
+        )}
+      </div>
+      {waiting && (
+        <p className="text-xs text-subtle">
+          {state === "waiting"
+            ? t("settings.cursor.waiting")
+            : t("settings.cursor.starting")}
+        </p>
+      )}
+      {state === "failed" && (
+        <Notice>{login.data?.error || t("settings.cursor.failed")}</Notice>
+      )}
+      {save.error && <Notice>{errorMessage(save.error)}</Notice>}
+      {start.error && <Notice>{errorMessage(start.error)}</Notice>}
+      <p className="text-[13px] text-muted">
+        {t.rich("settings.cursor.cliBody", { code: (c) => <Code>{c}</Code> })}
+      </p>
+      <CommandBox command={command} />
+    </div>
   );
 }
 

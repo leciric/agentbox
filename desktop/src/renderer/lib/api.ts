@@ -36,6 +36,13 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
   return (res.contentType.includes('application/json') ? JSON.parse(res.body) : res.body) as R;
 }
 
+// text is call for an endpoint that answers plain text. An empty answer is ''
+// rather than call's undefined: a job that hasn't logged a line, an agent with
+// no changes or an empty brief is an empty body, and callers treat it as text.
+async function text(method: string, path: string): Promise<string> {
+  return (await call<string | undefined>(method, path)) ?? '';
+}
+
 const project = (name: string) => `/v1/projects/${encodeURIComponent(name)}`;
 const agent = (ref: string) => `/v1/agents/${ref.split('/').map(encodeURIComponent).join('/')}`;
 
@@ -68,8 +75,9 @@ const filesBase = (ref: string) => {
 // A secrets target is a project ("pawly") or one agent ("pawly/agent-01"),
 // the same two scopes the command line takes.
 const secretsBase = (target: string) => (target.includes('/') ? `${agent(target)}/secrets` : `${project(target)}/secrets`);
-// Connectors take the same two targets.
-const connectorsBase = (target: string) => (target.includes('/') ? `${agent(target)}/connectors` : `${project(target)}/connectors`);
+// Connectors take the same two targets, and '' for the AgentBox-wide ones.
+const connectorsBase = (target: string) =>
+  target === '' ? '/v1/connectors' : target.includes('/') ? `${agent(target)}/connectors` : `${project(target)}/connectors`;
 const connectorPath = (target: string, name: string) => `${connectorsBase(target)}/${encodeURIComponent(name)}`;
 
 export type AgentAction = 'start' | 'stop' | 'pause' | 'resume';
@@ -101,6 +109,7 @@ export const api = {
   update: () => call<T.UpdateStatus>('GET', '/v1/update'),
   latestRelease: () => call<T.UpdateRelease>('GET', '/v1/update/release'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
+  usageStatsPending: () => call<T.UsageStatsPending>('GET', '/v1/usage-stats/pending'),
   countFeature: (feature: string) => call<void>('POST', `/v1/usage-stats/${encodeURIComponent(feature)}`),
   reportDraft: (req: T.ReportDraftRequest) => call<T.ReportDraft>('POST', '/v1/reports/draft', req),
   sendReport: (req: T.ReportRequest) => call<T.ReportSent>('POST', '/v1/reports', req),
@@ -120,7 +129,7 @@ export const api = {
   updateSection: (id: string, req: T.UpdateSectionRequest) => call<T.Section>('PATCH', `/v1/sections/${encodeURIComponent(id)}`, req),
   removeSection: (id: string) => call<void>('DELETE', `/v1/sections/${encodeURIComponent(id)}`),
   setProjectLayout: (layout: T.ProjectLayout) => call<T.Project[]>('PUT', '/v1/projects/layout', layout),
-  brief: (name: string) => call<string>('GET', `${project(name)}/brief`),
+  brief: (name: string) => text('GET', `${project(name)}/brief`),
   notes: (name: string) => call<T.Notes>('GET', `${project(name)}/notes`),
   saveNotes: (name: string, text: string) => call<T.Notes>('PUT', `${project(name)}/notes`, { text } satisfies T.NotesRequest),
   base: async (name: string) => {
@@ -157,7 +166,7 @@ export const api = {
   // Free resources: stop every running or paused agent, or only refs, as a
   // job whose result is a StopAgentsResult.
   stopAgents: (refs?: string[]) => call<T.Job>('POST', '/v1/agents/stop', { refs } satisfies T.StopAgentsRequest),
-  diffStat: (ref: string) => call<string>('GET', `${agent(ref)}/diff?stat=true`),
+  diffStat: (ref: string) => text('GET', `${agent(ref)}/diff?stat=true`),
 
   // A chat is read a page at a time: the latest limit messages, the ones
   // before an item, or everything from an item on. Without a page it is the
@@ -184,6 +193,20 @@ export const api = {
   chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
   chooseChatCache: (name: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${project(name)}/chat/cache`, choice),
   files: (ref: string) => call<T.WorktreeFiles>('GET', filesBase(ref)),
+
+  // Skills (internal/skills): stored by the daemon, installed into every agent
+  // and lead whose project has them on. A project's list says, for each,
+  // whether its agents get it (active).
+  skills: (projectName?: string) => call<T.Skill[]>('GET', projectName ? `${project(projectName)}/skills` : '/v1/skills'),
+  skill: (name: string) => call<T.SkillDetail>('GET', `/v1/skills/${encodeURIComponent(name)}`),
+  saveSkill: (name: string, body: T.SaveSkillRequest) => call<T.Skill>('PUT', `/v1/skills/${encodeURIComponent(name)}`, body),
+  setSkillEnabled: (name: string, enabled: boolean) =>
+    call<T.Skill>('PATCH', `/v1/skills/${encodeURIComponent(name)}`, { enabled } satisfies T.UpdateSkillRequest),
+  setSkillOverride: (projectName: string, name: string, override: '' | 'on' | 'off') =>
+    call<T.Skill>('PUT', `${project(projectName)}/skills/${encodeURIComponent(name)}`, { override } satisfies T.SkillOverrideRequest),
+  removeSkill: (name: string) => call<void>('DELETE', `/v1/skills/${encodeURIComponent(name)}`),
+  scanSkills: (source: string) => call<T.SkillCandidate[]>('POST', '/v1/skills/scan', { source } satisfies T.ScanSkillsRequest),
+  importSkills: (body: T.ImportSkillsRequest) => call<T.Skill[]>('POST', '/v1/skills/import', body),
 
   // Secrets: names in, names out. A value only ever goes in — no call here
   // reads one back, because the daemon has no route that returns one.
@@ -226,6 +249,9 @@ export const api = {
   removeConnector: (target: string, name: string) => call<void>('DELETE', connectorPath(target, name)),
   connectConnector: (target: string, name: string) => call<T.ConnectResult>('POST', `${connectorPath(target, name)}/connect`),
   disconnectConnector: (target: string, name: string) => call<T.Connector>('POST', `${connectorPath(target, name)}/disconnect`),
+  // A project's say on an AgentBox-wide connector: 'on', 'off', or '' to follow AgentBox's.
+  setConnectorOverride: (projectName: string, name: string, override: '' | 'on' | 'off') =>
+    call<T.Connector>('PUT', `${connectorPath(projectName, name)}/override`, { override } satisfies T.ConnectorOverrideRequest),
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
 
@@ -335,6 +361,8 @@ export const api = {
 
   media: (ref: string) => call<T.MediaItem[]>('GET', `${agent(ref)}/media`),
   deleteMedia: (id: string) => call<void>('DELETE', `/v1/media/${encodeURIComponent(id)}`),
+  setMediaFavorite: (id: string, favorite: boolean) =>
+    call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),
   // Every project's media, of the given kinds, each marked unseen while its notification is.
   allMedia: (kinds: string[] = []) => call<T.MediaItem[]>('GET', `/v1/media${kinds.length ? `?kind=${kinds.join(',')}` : ''}`),
   notifications: () => call<T.Notification[]>('GET', '/v1/notifications'),
@@ -357,6 +385,12 @@ export const api = {
   memoryUsage: () => call<T.MemoryUsage>('GET', '/v1/usage/memory'),
   cpuUsage: () => call<T.CPUUsage>('GET', '/v1/usage/cpu?interval=500ms'),
   auth: () => call<T.AuthStatus>('GET', '/v1/auth'),
+  // Cursor signs in with an API key (checked with Cursor before it is kept) or
+  // through its own browser flow, which the daemon runs and reports on.
+  saveCursorKey: (apiKey: string) => call<T.CursorKeyResponse>('POST', '/v1/auth/cursor', { apiKey } satisfies T.CursorKeyRequest),
+  removeCursorLogin: () => call<void>('DELETE', '/v1/auth/cursor'),
+  startCursorLogin: () => call<T.CursorLogin>('POST', '/v1/auth/cursor/login'),
+  cursorLogin: () => call<T.CursorLogin>('GET', '/v1/auth/cursor/login'),
   saveClaudeToken: (token: string, account?: string) => call<void>('POST', '/v1/auth/claude', { token, account } satisfies T.ClaudeTokenRequest),
   // Logging in from the app: the daemon runs `claude setup-token` as a job, and
   // says which page to open while it waits for you to approve it.
@@ -374,6 +408,6 @@ export const api = {
 
   jobs: () => call<T.Job[]>('GET', '/v1/jobs'),
   job: (id: string) => call<T.Job>('GET', `/v1/jobs/${id}`),
-  jobLog: (id: string) => call<string>('GET', `/v1/jobs/${id}/log`),
+  jobLog: (id: string) => text('GET', `/v1/jobs/${id}/log`),
   cancelJob: (id: string) => call<T.Job>('POST', `/v1/jobs/${id}/cancel`),
 };

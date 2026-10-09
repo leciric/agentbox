@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { humanTokens, limitTone, share, tps, usd, windowNow } from './tokens.ts';
+import { humanTokens, limitTone, share, tps, usd, windowLeft, windowNow } from './tokens.ts';
 
 test('humanTokens picks the largest unit that keeps a number readable', () => {
   assert.equal(humanTokens(999), '999');
@@ -54,4 +54,23 @@ test('limitTone thresholds match the top bar', () => {
   assert.equal(limitTone(0.5), 'ok');
   assert.equal(limitTone(0.7), 'warn');
   assert.equal(limitTone(0.9), 'high');
+});
+
+test('windowLeft counts down to the minute', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  const at = (ms: number) => new Date(now + ms).toISOString();
+  const min = 60_000;
+  assert.equal(windowLeft(at(200 * min), now), '3h 20m');
+  assert.equal(windowLeft(at(60 * min), now), '1h');
+  assert.equal(windowLeft(at(35 * min), now), '35m');
+  assert.equal(windowLeft(at(59_000), now), '<1m');
+  assert.equal(windowLeft(at(5 * 60 * min), now), '5h');
+});
+
+test('windowLeft is null with no running window or no usable reset', () => {
+  const now = Date.parse('2026-01-01T00:00:00Z');
+  assert.equal(windowLeft('2026-01-01T00:00:00Z', now), null);
+  assert.equal(windowLeft('2025-12-31T00:00:00Z', now), null);
+  assert.equal(windowLeft('not-a-date', now), null);
+  assert.equal(windowLeft('', now), null);
 });

@@ -18,11 +18,31 @@ import (
 type fakeUsage struct {
 	mu      sync.Mutex
 	reports []map[string]any
+	// events are the events reports it kept; eventsStatus, when set, is what
+	// it answers them with instead, keeping nothing.
+	events       []map[string]any
+	eventsStatus int
 }
 
 func (f *fakeUsage) start(t *testing.T) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/events" {
+			body, _ := io.ReadAll(r.Body)
+			var report map[string]any
+			if err := json.Unmarshal(body, &report); err != nil {
+				t.Error(err)
+			}
+			f.mu.Lock()
+			status := f.eventsStatus
+			if status == 0 {
+				f.events = append(f.events, report)
+				status = http.StatusNoContent
+			}
+			f.mu.Unlock()
+			w.WriteHeader(status)
+			return
+		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/usage" {
 			body, _ := io.ReadAll(r.Body)
 			var report map[string]any
@@ -47,6 +67,29 @@ func (f *fakeUsage) sent() []map[string]any {
 	return append([]map[string]any(nil), f.reports...)
 }
 
+// sentEvents is every event it kept, by name, with its fields.
+func (f *fakeUsage) sentEvents() map[string][]map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string][]map[string]any{}
+	for _, report := range f.events {
+		list, _ := report["events"].([]any)
+		for _, e := range list {
+			ev, _ := e.(map[string]any)
+			name, _ := ev["name"].(string)
+			props, _ := ev["props"].(map[string]any)
+			out[name] = append(out[name], props)
+		}
+	}
+	return out
+}
+
+func (f *fakeUsage) answerEvents(status int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.eventsStatus = status
+}
+
 func postFeature(d testDaemon, feature string) error {
 	r := httptest.NewRequest(http.MethodPost, "/v1/usage-stats/"+feature, nil)
 	r.SetPathValue("feature", feature)
@@ -58,7 +101,7 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.16.0")
 	var fake fakeUsage
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
 	ctx := context.Background()
 	// The daemon checks as it starts: what's counted below goes with the
 	// check this test makes, not that one.
@@ -84,7 +127,7 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 	}
 	_ = d.srv.store.CountFeature(ctx, usageDay(time.Now().AddDate(0, 0, -40)), api.FeatureAgentDestroy)
 
-	d.srv.checkForUpdate(ctx)
+	d.sendNow(t)
 	reports := fake.sent()
 	if len(reports) != 1 {
 		t.Fatalf("sent %d reports, want 1", len(reports))
@@ -104,7 +147,7 @@ func TestUsageStatsAreCountedAndSentWithTheCheck(t *testing.T) {
 		t.Errorf("after sending, kept %v %v", left, counts)
 	}
 	// Nothing new to send, nothing sent.
-	d.srv.checkForUpdate(ctx)
+	d.sendNow(t)
 	if n := len(fake.sent()); n != 1 {
 		t.Errorf("sent %d reports with nothing to send", n)
 	}
@@ -124,7 +167,7 @@ func TestUsageStatsFollowTheUpdateCheck(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	asVersion(t, "0.16.0")
 	var fake fakeUsage
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t)})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
 	ctx := context.Background()
 
 	_ = postFeature(d, api.FeatureMemoryView)

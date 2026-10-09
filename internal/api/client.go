@@ -413,6 +413,32 @@ func (c *Client) SaveGitHubToken(ctx context.Context, account, token string) (st
 	return out.User, err
 }
 
+// SaveCursorKey signs agents in to Cursor with an API key, once Cursor says
+// whose it is, and returns the account's email when Cursor gave one.
+func (c *Client) SaveCursorKey(ctx context.Context, key string) (string, error) {
+	var out CursorKeyResponse
+	err := c.do(ctx, http.MethodPost, "/v1/auth/cursor", CursorKeyRequest{APIKey: key}, &out)
+	return out.Email, err
+}
+
+// RemoveCursorLogin signs agents out of Cursor.
+func (c *Client) RemoveCursorLogin(ctx context.Context) error {
+	return c.do(ctx, http.MethodDelete, "/v1/auth/cursor", nil, nil)
+}
+
+// StartCursorLogin starts Cursor's browser sign-in, or returns the one already
+// under way.
+func (c *Client) StartCursorLogin(ctx context.Context) (CursorLogin, error) {
+	var out CursorLogin
+	return out, c.do(ctx, http.MethodPost, "/v1/auth/cursor/login", nil, &out)
+}
+
+// CursorLoginStatus is how the browser sign-in is getting on.
+func (c *Client) CursorLoginStatus(ctx context.Context) (CursorLogin, error) {
+	var out CursorLogin
+	return out, c.do(ctx, http.MethodGet, "/v1/auth/cursor/login", nil, &out)
+}
+
 // RemoveGitHubAccount forgets a stored GitHub account.
 func (c *Client) RemoveGitHubAccount(ctx context.Context, account string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/auth/github/"+url.PathEscape(account), nil, nil)
@@ -534,6 +560,13 @@ func (c *Client) MediaFile(ctx context.Context, ref, id string) (io.ReadCloser, 
 
 func (c *Client) DeleteMedia(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/media/"+url.PathEscape(id), nil, nil)
+}
+
+// SetMediaFavorite marks an item a favorite, which keeps it from ever being
+// removed automatically, or puts it back under the media retention.
+func (c *Client) SetMediaFavorite(ctx context.Context, id string, favorite bool) (MediaItem, error) {
+	var out MediaItem
+	return out, c.do(ctx, http.MethodPatch, "/v1/media/"+url.PathEscape(id), UpdateMediaRequest{Favorite: &favorite}, &out)
 }
 
 // DeleteProjectMedia deletes many of a project's items in one call: the ones
@@ -690,6 +723,13 @@ func (c *Client) Version(ctx context.Context) (VersionInfo, error) {
 func (c *Client) Update(ctx context.Context) (UpdateStatus, error) {
 	var status UpdateStatus
 	return status, c.do(ctx, http.MethodGet, "/v1/update", nil, &status)
+}
+
+// UsageStatsPending is what the next update check would send of the
+// anonymous usage stats, exactly.
+func (c *Client) UsageStatsPending(ctx context.Context) (UsageStatsPending, error) {
+	var out UsageStatsPending
+	return out, c.do(ctx, http.MethodGet, "/v1/usage-stats/pending", nil, &out)
 }
 
 // LatestRelease is the update channel's latest release, as the release list has it now.
