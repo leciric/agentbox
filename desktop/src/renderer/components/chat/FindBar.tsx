@@ -1,14 +1,14 @@
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, LoaderCircle, Search, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import * as T from '../../../shared/api';
 import { api } from '../../lib/api';
-import { loadThrough } from '../../lib/chat';
-import { matchesIn, stepHit } from '../../lib/chatFind';
+import { stepHit } from '../../lib/chatFind';
 import { useT } from '../../lib/i18n';
 import { countFeature } from '../../lib/usageStats';
 import { cn } from '../../lib/utils';
 import { Tip } from '../ui/tooltip';
+import { rangesIn, useRevealItem, type ChatOpenAt } from './reveal';
 
 // FindBar is Ctrl+F (⌘F) in a chat. The daemon finds the query in the whole
 // conversation, loaded or not (GET …/chat/search); the bar marks it in what
@@ -22,6 +22,7 @@ export function FindBar({
   thread,
   scroller,
   focus,
+  start,
   onJump,
   onClose,
 }: {
@@ -29,14 +30,14 @@ export function FindBar({
   thread?: T.ChatThread;
   scroller: RefObject<HTMLDivElement | null>;
   focus: number; // changes each time the bar is asked for again, to take the keyboard back
+  start?: ChatOpenAt; // what the bar opens on: a query, and the hit to start at
   onJump: () => void; // the chat stops following its end
   onClose: () => void;
 }) {
   const t = useT();
-  const queryClient = useQueryClient();
   const input = useRef<HTMLInputElement>(null);
-  const [text, setText] = useState('');
-  const [query, setQuery] = useState('');
+  const [text, setText] = useState(start?.query ?? '');
+  const [query, setQuery] = useState(start?.query ?? '');
   useEffect(() => {
     const timer = setTimeout(() => setQuery(text), 150);
     return () => clearTimeout(timer);
@@ -60,56 +61,25 @@ export function FindBar({
   // The hit you're on, by item. A new query starts again at the newest; the
   // same query searched again keeps it.
   const [current, setCurrent] = useState<string>();
-  // reveal is the hit to bring into view, once it's on the page.
-  const reveal = useRef<string>(undefined);
+  const { reveal, loading } = useRevealItem(chatRef, thread, scroller, onJump);
   const searched = useRef('');
   useEffect(() => {
     const data = found.data;
     if (!data || found.isPlaceholderData) return;
     const fresh = searched.current !== data.query;
     searched.current = data.query;
-    const next = stepHit(data.hits, fresh ? undefined : current, 'stay');
+    // The first results of the query the bar opened with start at the item
+    // it opened at.
+    const next = stepHit(data.hits, fresh ? (data.query === start?.query ? start.item : undefined) : current, 'stay');
     setCurrent(next);
-    if (fresh) reveal.current = next;
+    if (fresh && next) reveal(next, data.query);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [found.data, found.isPlaceholderData, current]);
   const step = (direction: 'older' | 'newer') => {
     const next = stepHit(hits, current, direction);
-    reveal.current = next;
+    if (next) reveal(next, query);
     setCurrent(next);
   };
-
-  // Going to a hit: read the chat back to it if it isn't loaded, then put
-  // it a third of the way down the view once it's on the page.
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    const box = scroller.current;
-    const id = reveal.current;
-    if (!id || !box) return;
-    const row = box.querySelector(`[data-chat-id="${CSS.escape(id)}"]`);
-    if (!row) {
-      if (loading || thread?.items.some((it) => it.id === id)) return;
-      onJump();
-      setLoading(true);
-      // A hit the chat can't read back to (cleared meanwhile) is let go,
-      // rather than read for again on every render.
-      const forget = () => {
-        if (reveal.current === id) reveal.current = undefined;
-      };
-      loadThrough(queryClient, chatRef, id)
-        .then((ok) => ok || forget())
-        .catch(forget)
-        .finally(() => setLoading(false));
-      return;
-    }
-    reveal.current = undefined;
-    onJump();
-    const first = rangesIn(row, query)[0];
-    const rect = (first ?? row).getBoundingClientRect();
-    const view = box.getBoundingClientRect();
-    box.scrollTo({ top: box.scrollTop + rect.top - view.top - box.clientHeight / 3 });
-    // A new search, or a step, or the page it waits for having rendered.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current, found.data, thread, loading]);
 
   // The marks follow the page: pages loaded, text streaming in, code
   // coloured after it renders.
@@ -212,35 +182,3 @@ export function FindBar({
 const noHits: T.ChatSearchHit[] = [];
 
 const findButton = 'flex size-7 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-raised hover:text-title disabled:pointer-events-none disabled:opacity-40';
-
-// rangesIn is where query is in a row's text: its [data-chat-text] parts,
-// each read whole so a match can run across the elements inside, like a
-// bold word in a sentence.
-function rangesIn(row: Element, query: string): Range[] {
-  const out: Range[] = [];
-  const parts = row.matches('[data-chat-text]') ? [row] : Array.from(row.querySelectorAll('[data-chat-text]'));
-  for (const part of parts) {
-    const nodes: Text[] = [];
-    const starts: number[] = [];
-    let text = '';
-    const walker = document.createTreeWalker(part, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      nodes.push(node as Text);
-      starts.push(text.length);
-      text += node.nodeValue ?? '';
-    }
-    // The text node holding index i, and i's offset in it.
-    const locate = (i: number, end: boolean) => {
-      let k = starts.length - 1;
-      while (k > 0 && (end ? starts[k] >= i : starts[k] > i)) k--;
-      return [nodes[k], i - starts[k]] as const;
-    };
-    for (const [s, e] of matchesIn(text, query)) {
-      const range = document.createRange();
-      range.setStart(...locate(s, false));
-      range.setEnd(...locate(e, true));
-      out.push(range);
-    }
-  }
-  return out;
-}

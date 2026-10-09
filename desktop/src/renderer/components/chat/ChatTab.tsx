@@ -17,24 +17,30 @@ import { Notice } from '../ui/card';
 import { Tip } from '../ui/tooltip';
 import { Composer } from './Composer';
 import { FindBar } from './FindBar';
+import { useRevealItem, type ChatOpenAt } from './reveal';
 import { ReadAloudControls } from './ReadAloud';
 import { Timeline } from './Timeline';
 
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
 // composer floating over its end.
 // autoStart is off only where nothing should start, like the dev preview.
+// openAt brings an item into view, reading the chat back to it if need be,
+// with the find bar open on openAt.query when there is one; a new object
+// does it again, so pass one per opening.
 export function ChatTab({
   agent,
   starting,
   onStart,
   autoStart = true,
   onOpenAgent,
+  openAt,
 }: {
   agent: T.Agent;
   starting: boolean;
   onStart: () => void;
   autoStart?: boolean;
   onOpenAgent?: (ref: string) => void;
+  openAt?: ChatOpenAt;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -141,6 +147,8 @@ export function ChatTab({
   const root = useRef<HTMLDivElement>(null);
   const [finding, setFinding] = useState(false);
   const [findFocus, setFindFocus] = useState(0);
+  const [findStart, setFindStart] = useState<ChatOpenAt>();
+  const [openings, setOpenings] = useState(0);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== 'f' || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
@@ -153,6 +161,22 @@ export function ChatTab({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const jumped = () => {
+    following.current = false;
+    setAtEnd(false);
+  };
+  const { reveal } = useRevealItem(agent.ref, thread.data, scroller, jumped);
+  useEffect(() => {
+    if (!openAt) return;
+    if (openAt.query) {
+      // A fresh bar, on the query, starting at the item.
+      setFindStart(openAt);
+      setOpenings((n) => n + 1);
+      setFinding(true);
+      setFindFocus((n) => n + 1);
+    } else reveal(openAt.item);
+  }, [openAt, reveal]);
+
   // A conversation of nothing but notices — a project's chat whose only agent
   // finished without waking it — has items and still nothing to show, so the
   // hero belongs there too.
@@ -161,15 +185,17 @@ export function ChatTab({
     <div ref={root} className="relative flex h-full min-h-0 flex-col bg-chat" data-chat={agent.ref}>
       {finding && (
         <FindBar
+          key={openings}
           chatRef={agent.ref}
           thread={thread.data}
           scroller={scroller}
           focus={findFocus}
-          onJump={() => {
-            following.current = false;
-            setAtEnd(false);
+          start={findStart}
+          onJump={jumped}
+          onClose={() => {
+            setFinding(false);
+            setFindStart(undefined);
           }}
-          onClose={() => setFinding(false)}
         />
       )}
       <div
