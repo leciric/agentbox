@@ -2172,6 +2172,32 @@ export interface ReportSent {
   id: string;
 }
 
+export interface SearchResults {
+  query: string;
+  groups: SearchGroup[];
+}
+
+export interface SearchGroup {
+  kind: string;
+  hits: SearchHit[];
+  more?: boolean;
+}
+
+export interface SearchHit {
+  id: string;
+  title: string;
+  detail?: string;
+  tag?: string;
+  project?: string;
+  agent?: string;
+  at?: string;
+  url?: string;
+  memory?: Memory;
+  event?: MemoryEvent;
+  report?: AgentReport;
+  media?: MediaItem;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -2266,6 +2292,17 @@ export const TaskActive = "active";
 export const TaskBlocked = "blocked";
 export const TaskDone = "done";
 export const TaskAbandoned = "abandoned";
+export const SearchProjects = "projects";
+export const SearchAgents = "agents";
+export const SearchChats = "chats";
+export const SearchMemories = "memories";
+export const SearchEvents = "events";
+export const SearchReports = "reports";
+export const SearchMedia = "media";
+export const SearchSkills = "skills";
+export const SearchConnectors = "connectors";
+export const SearchNotes = "notes";
+export const SearchPulls = "pulls";
 export const TokensTurn = "turn";
 export const TokensBackground = "background";
 export const TokensCompaction = "compaction";
@@ -2288,6 +2325,7 @@ export const FeatureSettingsResources = "settings.view.resources";
 export const FeatureSettingsProject = "settings.view.project";
 export const FeatureSettingsSearch = "settings.search";
 export const FeatureChatFind = "chat.find";
+export const FeatureSearchOpen = "search.open";
 export const FeatureMenuOpenChat = "menu.agent.open_chat";
 export const FeatureMenuOpenTerminal = "menu.agent.open_terminal";
 export const FeatureMenuInfo = "menu.agent.info";

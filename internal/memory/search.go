@@ -91,35 +91,73 @@ func (s *Store) searchBM25(ctx context.Context, project, query string, limit int
 	return out, nil
 }
 
+// SearchAll is Search across every project at once, for the app's search
+// palette, which asks on every pause in the typing: every word is required
+// and the last is matched as a prefix, so "connec" already finds the
+// connector it is on its way to. There is no any-word pass, which would
+// answer a half-typed word with everything that has one of the others.
+func (s *Store) SearchAll(ctx context.Context, query string, limit int) (Results, error) {
+	match := prefixQuery(query)
+	if match == "" {
+		return Results{}, errors.New("a search needs something to look for")
+	}
+	limit = limitOf(limit)
+	out, err := s.search(ctx, "", match, rerankPoolFor(limit))
+	if err != nil {
+		return Results{}, err
+	}
+	return rerank(out, limit), nil
+}
+
+// prefixQuery is ftsQuery's all-words query with its last phrase a prefix.
+func prefixQuery(query string) string {
+	all, _ := ftsQuery(query)
+	if all == "" {
+		return ""
+	}
+	return all + "*"
+}
+
+// search runs one MATCH against each index, in one project, or in every
+// project when project is "" (only SearchAll asks for that).
 func (s *Store) search(ctx context.Context, project, match string, limit int) (Results, error) {
 	var out Results
+	in := func(table string) (string, []any) {
+		if project == "" {
+			return "", []any{match, limit}
+		}
+		return " AND " + table + ".project = ?", []any{match, project, limit}
+	}
 	// Each index is joined by its own name — MATCH and bm25 both want the
 	// table, not an alias — and the row columns are all qualified, so the two
 	// tables' same-named columns can't collide. A title is worth twice a body,
 	// so a memory called after the thing you searched for comes before one
 	// that merely mentions it.
+	where, args := in("m")
 	memories, err := s.queryMemories(ctx,
 		`JOIN memories_fts ON memories_fts.rowid = m.rowid
-		 WHERE memories_fts MATCH ? AND m.project = ? AND `+live+`
-		 ORDER BY bm25(memories_fts, 2.0, 1.0) LIMIT ?`, match, project, limit)
+		 WHERE memories_fts MATCH ?`+where+` AND `+live+`
+		 ORDER BY bm25(memories_fts, 2.0, 1.0) LIMIT ?`, args...)
 	if err != nil {
 		return Results{}, searchError(err)
 	}
 	out.Memories = memories
 
+	where, args = in("events")
 	events, err := s.queryEvents(ctx,
 		`JOIN events_fts ON events_fts.rowid = events.rowid
-		 WHERE events_fts MATCH ? AND events.project = ?
-		 ORDER BY bm25(events_fts) LIMIT ?`, match, project, limit)
+		 WHERE events_fts MATCH ?`+where+`
+		 ORDER BY bm25(events_fts) LIMIT ?`, args...)
 	if err != nil {
 		return Results{}, searchError(err)
 	}
 	out.Events = events
 
+	where, args = in("agent_reports")
 	reports, err := s.queryReports(ctx,
 		`JOIN reports_fts ON reports_fts.rowid = agent_reports.rowid
-		 WHERE reports_fts MATCH ? AND agent_reports.project = ?
-		 ORDER BY bm25(reports_fts) LIMIT ?`, match, project, limit)
+		 WHERE reports_fts MATCH ?`+where+`
+		 ORDER BY bm25(reports_fts) LIMIT ?`, args...)
 	if err != nil {
 		return Results{}, searchError(err)
 	}

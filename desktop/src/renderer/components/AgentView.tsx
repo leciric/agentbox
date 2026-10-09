@@ -33,6 +33,7 @@ import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { waitingLine } from '../lib/agentSize';
 import { api, type AgentAction } from '../lib/api';
+import { useChatOpenAt } from '../lib/reveal';
 import { useT, type MessageKey } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
@@ -81,6 +82,9 @@ export function AgentView({
   const queryClient = useQueryClient();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const media = useQuery({ queryKey: ['media', agentRef], queryFn: () => api.media(agentRef) });
+  // A message of this chat the search palette opened.
+  const [refProject, refName] = agentRef.split('/');
+  const openAt = useChatOpenAt(refProject, refName);
   const agent = agents.data?.find((a) => a.ref === agentRef);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const android = useQuery({ queryKey: ['android', agentRef], queryFn: () => api.android(agentRef), enabled: agent?.state === 'running' });
@@ -273,7 +277,7 @@ export function AgentView({
         <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line bg-sunken shadow-[0_30px_80px_-40px_var(--ab-shadow-deep)] md:mx-6 md:mb-6">
           {chatty && (
             <TabsContent value="chat" className="flex flex-col">
-              <ChatTab agent={agent} starting={busy} onStart={() => run(agent.state === 'paused' ? 'resume' : 'start')} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} />
+              <ChatTab agent={agent} starting={busy} onStart={() => run(agent.state === 'paused' ? 'resume' : 'start')} onOpenAgent={(ref) => onSelect({ kind: 'agent', ref })} openAt={openAt} />
             </TabsContent>
           )}
           <TabsContent value="terminal" className="flex flex-col">

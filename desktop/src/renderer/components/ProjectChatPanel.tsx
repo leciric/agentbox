@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { t, useT } from '../lib/i18n';
+import { useChatOpenAt } from '../lib/reveal';
 import { ChatTab } from './chat/ChatTab';
 
 // leadAgentFrom builds the Agent ChatTab expects out of a project's chat: the
@@ -47,10 +48,11 @@ export function ProjectChatPanel({ project }: { project: T.Project }) {
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', project.name], queryFn: () => api.projectChat(project.name) });
   const info = chat.data;
+  const openAt = useChatOpenAt(project.name);
 
   if (!info) {
     return <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>;
   }
 
-  return <ChatTab agent={leadAgentFrom(project, info)} starting={false} onStart={() => {}} />;
+  return <ChatTab agent={leadAgentFrom(project, info)} starting={false} onStart={() => {}} openAt={openAt} />;
 }

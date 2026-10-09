@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, GitBranch, GitMerge, GitPullRequest, LoaderCircle, MessageSquare, User } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
+import { useReveal } from '../lib/reveal';
 import { errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FilterChip } from './MediaTab';
@@ -52,6 +53,13 @@ export function PullRequestsPanel({
   const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000 });
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
   const [filter, setFilter] = useState<Filter>('open');
+  // A search result for one that's closed or merged: list them all, so it is
+  // there to be brought forward.
+  const reveal = useReveal();
+  const revealedState = reveal?.pull?.project === project ? pulls.data?.pullRequests.find((pr) => pr.number === reveal.pull?.number)?.state : undefined;
+  useEffect(() => {
+    if (revealedState && revealedState !== 'open') setFilter('all');
+  }, [revealedState, reveal]);
   const [merging, setMerging] = useState<T.PullRequest | null>(null);
   const [method, setMethod] = useState('merge');
   // What each merge is doing, by pull request number. The confirmation closes

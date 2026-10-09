@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { t, useT } from '../lib/i18n';
+import { useChatOpenAt } from '../lib/reveal';
 import { ChatHeaderControls, ChatTab } from './chat/ChatTab';
 
 // homeAgentFrom builds the Agent ChatTab expects out of the Home chat: a lead
@@ -39,6 +40,7 @@ export function HomeChatPanel() {
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject) });
   const info = chat.data;
+  const openAt = useChatOpenAt(T.HomeProject);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-3 px-4 pb-3 pt-5 md:px-8">
@@ -54,7 +56,7 @@ export function HomeChatPanel() {
       </div>
       <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
         {info ? (
-          <ChatTab agent={homeAgentFrom(info)} starting={false} onStart={() => {}} />
+          <ChatTab agent={homeAgentFrom(info)} starting={false} onStart={() => {}} openAt={openAt} />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-subtle">{chat.error ? t('chat.unavailable') : t('common.loading')}</div>
         )}
