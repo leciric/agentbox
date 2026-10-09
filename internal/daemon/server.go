@@ -46,6 +46,9 @@ type Config struct {
 	User   image.User
 	Binary string    // copied into agents for the in-agent API; empty skips the copy
 	Log    io.Writer // the daemon's own log; nil discards it
+	// SkillHomes are where the user's AI tools' own skills are looked for
+	// (skills.Discover); nil is the host's home, when shared, and this one.
+	SkillHomes []string
 	// UpdateURL is where the daily install ping asks; empty is
 	// update.DefaultURL.
 	UpdateURL string
@@ -136,6 +139,10 @@ type Server struct {
 	// starts, so Run doesn't return - and a test doesn't tear its temp dir down
 	// - while one is still about to write its answer beside the token.
 	bgChecks sync.WaitGroup
+	// skillSyncs tracks the skill installs syncSkills starts in the
+	// background, for the same reason: one may still be writing an agent's
+	// skill files.
+	skillSyncs sync.WaitGroup
 
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
@@ -149,10 +156,17 @@ type Server struct {
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
-	baseSyncErrs map[string]string        // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
-	image        imageWork                // what the daemon is doing to the base image (imagetools.go)
-	remote       *remote.Connector        // the connection to a hub, when this machine is an environment
-	lan          *lanState                // phones chatting from the local network or a tunnel (lan.go)
+	// skillsMu runs one installation of skills at a time (skills.go).
+	skillsMu sync.Mutex
+	// skillsSynced, when set (tests), is told each time one has ended.
+	skillsSynced func()
+	// approve asks the user to approve what a project's lead asked for, and
+	// waits for the answer: approveInChat, or the test's (leadskills.go).
+	approve      func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
+	baseSyncErrs map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
+	image        imageWork         // what the daemon is doing to the base image (imagetools.go)
+	remote       *remote.Connector // the connection to a hub, when this machine is an environment
+	lan          *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -295,6 +309,7 @@ func New(cfg Config) (*Server, error) {
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
+	s.approve = s.approveInChat
 	s.chat = &chat.Manager{
 		Store:   store,
 		Launch:  s.launchChat,
@@ -382,6 +397,7 @@ func (s *Server) Run(ctx context.Context) error {
 		stop()
 		loops.Wait()
 		s.bgChecks.Wait()
+		s.skillSyncs.Wait()
 	}()
 	s.firstSweeps.Add(3)
 	loops.Go(func() { s.watch(ctx) })
@@ -607,6 +623,9 @@ func (s *Server) routes() http.Handler {
 	// What Anthropic last said about each Claude account's usage limits (D85).
 	h("GET /v1/limits", s.claudeLimits)
 
+	// The app's search palette: everything, in every project, in one call.
+	h("GET /v1/search", s.search)
+
 	h("GET /v1/projects", s.listProjects)
 	h("POST /v1/projects", s.addProject)
 	// How the sidebar is organised (D79): the sections, and one layout that
@@ -623,11 +642,13 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/notes", s.getNotes)
 	h("PUT /v1/projects/{project}/notes", s.setNotes)
 	h("GET /v1/projects/{project}/chat", s.getChat(s.leadFromPath))
+	h("GET /v1/projects/{project}/chat/search", s.searchChat(s.leadFromPath))
 	h("DELETE /v1/projects/{project}/chat", s.clearChat(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/start", s.startChat(s.ensureLeadFromPath))
 	h("POST /v1/projects/{project}/chat/messages", s.sendChat(s.ensureLeadFromPath))
 	h("GET /v1/projects/{project}/chat/images/{image}", s.chatImage(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
+	h("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
 	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
 	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
@@ -646,6 +667,15 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)
 	h("GET /v1/projects/{project}/pulls", s.projectPullRequests)
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
+	h("GET /v1/skills", s.listSkills)
+	h("POST /v1/skills/scan", s.scanSkills)
+	h("POST /v1/skills/import", s.importSkills)
+	h("GET /v1/skills/{name}", s.getSkill)
+	h("PUT /v1/skills/{name}", s.saveSkill)
+	h("PATCH /v1/skills/{name}", s.updateSkill)
+	h("DELETE /v1/skills/{name}", s.removeSkill)
+	h("GET /v1/projects/{project}/skills", s.listProjectSkills)
+	h("PUT /v1/projects/{project}/skills/{name}", s.setProjectSkill)
 	h("GET /v1/projects/{project}/secrets", s.listProjectSecrets)
 	h("PUT /v1/projects/{project}/secrets/{name}", s.setProjectSecret)
 	h("DELETE /v1/projects/{project}/secrets/{name}", s.removeProjectSecret)
@@ -694,11 +724,13 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/agents/{project}/{agent}/secrets/{name}", s.removeAgentSecret)
 	h("GET /v1/agents/{project}/{agent}/terminal", s.terminal)
 	h("GET /v1/agents/{project}/{agent}/chat", s.getChat(s.agentFromPath))
+	h("GET /v1/agents/{project}/{agent}/chat/search", s.searchChat(s.agentFromPath))
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/images/{image}", s.chatImage(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
+	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/chat/options/{option}", s.setChatOption(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/browser", s.browser("status", s.agentFromPath))

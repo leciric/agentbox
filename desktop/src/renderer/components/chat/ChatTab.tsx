@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, EyeOff, LoaderCircle, MessageSquarePlus } from 'lucide-react';
+import { ArrowDown, EyeOff, LoaderCircle, MessageSquarePlus, RefreshCw } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
-import { asleep, chatKey, fetchThread, isSilent, loadOlder } from '../../lib/chat';
+import { asleep, chatKey, fetchThread, isSilent, loadOlder, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage } from '../../lib/utils';
@@ -15,24 +16,31 @@ import { Button } from '../ui/button';
 import { Notice } from '../ui/card';
 import { Tip } from '../ui/tooltip';
 import { Composer } from './Composer';
+import { FindBar } from './FindBar';
+import { useRevealItem, type ChatOpenAt } from './reveal';
 import { ReadAloudControls } from './ReadAloud';
 import { Timeline } from './Timeline';
 
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
 // composer floating over its end.
 // autoStart is off only where nothing should start, like the dev preview.
+// openAt brings an item into view, reading the chat back to it if need be,
+// with the find bar open on openAt.query when there is one; a new object
+// does it again, so pass one per opening.
 export function ChatTab({
   agent,
   starting,
   onStart,
   autoStart = true,
   onOpenAgent,
+  openAt,
 }: {
   agent: T.Agent;
   starting: boolean;
   onStart: () => void;
   autoStart?: boolean;
   onOpenAgent?: (ref: string) => void;
+  openAt?: ChatOpenAt;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -134,12 +142,62 @@ export function ChatTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [older, loadingOlder, firstId]);
 
+  // Ctrl+F (⌘F) finds in the chat on screen. Every chat open in the app
+  // listens, and only one is visible.
+  const root = useRef<HTMLDivElement>(null);
+  const [finding, setFinding] = useState(false);
+  const [findFocus, setFindFocus] = useState(0);
+  const [findStart, setFindStart] = useState<ChatOpenAt>();
+  const [openings, setOpenings] = useState(0);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'f' || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      if (!root.current?.checkVisibility()) return;
+      event.preventDefault();
+      setFinding(true);
+      setFindFocus((n) => n + 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const jumped = () => {
+    following.current = false;
+    setAtEnd(false);
+  };
+  const { reveal } = useRevealItem(agent.ref, thread.data, scroller, jumped);
+  useEffect(() => {
+    if (!openAt) return;
+    if (openAt.query) {
+      // A fresh bar, on the query, starting at the item.
+      setFindStart(openAt);
+      setOpenings((n) => n + 1);
+      setFinding(true);
+      setFindFocus((n) => n + 1);
+    } else reveal(openAt.item);
+  }, [openAt, reveal]);
+
   // A conversation of nothing but notices — a project's chat whose only agent
   // finished without waking it — has items and still nothing to show, so the
   // hero belongs there too.
   const empty = !thread.data?.items.some((it) => !isSilent(it));
   return (
-    <div className="relative flex h-full min-h-0 flex-col bg-chat" data-chat={agent.ref}>
+    <div ref={root} className="relative flex h-full min-h-0 flex-col bg-chat" data-chat={agent.ref}>
+      {finding && (
+        <FindBar
+          key={openings}
+          chatRef={agent.ref}
+          thread={thread.data}
+          scroller={scroller}
+          focus={findFocus}
+          start={findStart}
+          onJump={jumped}
+          onClose={() => {
+            setFinding(false);
+            setFindStart(undefined);
+          }}
+        />
+      )}
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
@@ -225,6 +283,7 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
     <>
       <SessionStatus agent={agent} session={thread.data?.session} />
       <ReadAloudControls />
+      <ReloadTools agent={agent} session={thread.data?.session} />
       <Tip label={t('chat.tab.newChatTip')}>
         <Button size="sm" variant="ghost" className="h-7 px-2 sm:px-2.5" disabled={items.length === 0} onClick={() => setClearing(true)}>
           <MessageSquarePlus />
@@ -243,6 +302,52 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
         })}
         confirmLabel={t('chat.tab.newChat')}
         onConfirm={() => api.clearChat(agent.ref)}
+      />
+    </>
+  );
+}
+
+// ReloadTools restarts the chat's AI tool with the connectors and MCP servers
+// it has now, which it reads only as it starts, resuming the same session so
+// the conversation carries on. An adapter that can't resume asks first.
+function ReloadTools({ agent, session }: { agent: T.Agent; session?: T.ChatSession }) {
+  const t = useT();
+  const [confirming, setConfirming] = useState(false);
+  const reload = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  const tool = aiLabel(agent.ai);
+  const can = toolsReload(session);
+  const tip =
+    can === 'busy'
+      ? t('chat.tab.reloadToolsBusy', { tool })
+      : can === 'off'
+        ? t('chat.tab.reloadToolsOff', { tool })
+        : t(session?.noResume ? 'chat.tab.reloadToolsNoResumeTip' : 'chat.tab.reloadToolsTip', { tool });
+  return (
+    <>
+      <Tip label={tip}>
+        {/* A span, so the tip still shows on the disabled button. */}
+        <span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 sm:px-2.5"
+            disabled={can !== 'ready' || reload.isPending}
+            onClick={() => (session?.noResume ? setConfirming(true) : reload.mutate())}
+            aria-label={t('chat.tab.reloadTools')}
+            data-chat-reload-tools
+          >
+            <RefreshCw className={cn(reload.isPending && 'animate-spin')} />
+            <span className="hidden 2xl:inline">{t('chat.tab.reloadTools')}</span>
+          </Button>
+        </span>
+      </Tip>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t('chat.tab.reloadToolsTitle')}
+        description={t('chat.tab.reloadToolsDescription', { tool })}
+        confirmLabel={t('chat.tab.reloadToolsConfirm')}
+        onConfirm={() => api.reloadChatTools(agent.ref)}
       />
     </>
   );

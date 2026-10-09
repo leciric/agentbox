@@ -11,6 +11,7 @@ import { t as tNow, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { projectTone, type StatusTone } from '../lib/agentStatus';
 import { isNightly, isUpgrade } from '../lib/nightly';
+import { updateHint } from '../lib/appUpdate';
 import { arrange, drop, flatten, moveProject, moveSection, place, targetKey, toLayout, type Dragging, type DropTarget, type SidebarList } from '../lib/sidebar';
 import { useAppUpdate } from '../lib/useAppUpdate';
 import { cn, errorMessage } from '../lib/utils';
@@ -61,7 +62,7 @@ export function Sidebar({
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
   // Pushed by the daemon whenever it changes (EventUpdate); read once here.
   const update = useQuery({ queryKey: ['update'], queryFn: api.update, staleTime: Infinity });
-  const appUpdate = useAppUpdate(update.data?.available);
+  const appUpdate = useAppUpdate();
   // The app's own version says whether it is a nightly; the daemon's is the
   // fallback, for the web app, which has no build of its own to ask.
   const info = useQuery({ queryKey: ['app-info'], queryFn: () => window.agentbox.info(), staleTime: Infinity });
@@ -523,24 +524,17 @@ export function Sidebar({
       <div className="grid gap-0.5 border-t border-line p-2">
         {update.data?.available && (
           // What the daemon's daily check found (see the README's "Update
-          // check"). In an AppImage, clicking it downloads the update and
-          // then restarts into it (main/appupdate.ts); anywhere else it opens
-          // the release, since how AgentBox was installed decides how it's
-          // updated.
-          <NavItem icon={CircleArrowUp} onClick={appUpdate.start}>
-            <span className="truncate text-emerald-300" data-update-available={update.data.available.version} data-app-update={appUpdate.state.state}>
-              {appUpdate.state.state === 'downloading'
-                ? t('appUpdate.downloading', { percent: appUpdate.state.percent })
-                : appUpdate.state.state === 'ready'
-                  ? t('appUpdate.restart')
-                  : appUpdate.state.state === 'installing'
-                    ? t('appUpdate.restarting')
-                    : isUpgrade(update.data.available.version, update.data.current)
-                      ? t('shell.sidebar.updateAvailable')
-                      : t('shell.sidebar.latestStable')}
-            </span>
-            <span className="ml-auto rounded-full bg-emerald-400/15 px-1.5 text-[10.5px] text-emerald-300">
-              {appUpdate.state.state === 'idle' ? update.data.available.version : appUpdate.state.version}
+          // check"). Clicking it updates the app in place, where this install
+          // can (lib/appUpdate.ts), and opens the release page where it can't.
+          <NavItem
+            icon={CircleArrowUp}
+            title={appUpdate.updating ? undefined : updateHint(appUpdate.support, update.data.available.version)}
+            disabled={appUpdate.updating}
+            onClick={() => void appUpdate.start(update.data!.available!.url)}
+          >
+            <span className="min-w-0 truncate text-emerald-300" data-update-available={update.data.available.version} aria-live="polite">
+              {appUpdate.label ??
+                (isUpgrade(update.data.available.version, update.data.current) ? t('shell.sidebar.updateAvailable') : t('shell.sidebar.latestStable'))}
             </span>
           </NavItem>
         )}
@@ -772,12 +766,28 @@ function MediaNavItem({ active, onClick }: { active: boolean; onClick: () => voi
   );
 }
 
-function NavItem({ icon: Icon, active, onClick, children }: { icon: ComponentType<{ className?: string }>; active?: boolean; onClick: () => void; children: ReactNode }) {
+function NavItem({
+  icon: Icon,
+  active,
+  title,
+  disabled,
+  onClick,
+  children,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  active?: boolean;
+  title?: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
+      title={title}
+      disabled={disabled}
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary',
+        'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary disabled:cursor-progress',
         active && 'bg-surface-raised text-title',
       )}
     >

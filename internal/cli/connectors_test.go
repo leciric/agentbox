@@ -127,6 +127,57 @@ func fakeConnectorSocket(t *testing.T) string {
 }
 
 // Inside an agent, a connector connected while it worked is reached from the
+
+// An AgentBox-wide connector from the command line: added with its secret on
+// stdin, listed on its own and in a project, overridden there, and removed.
+func TestWideConnectorCommands(t *testing.T) {
+	isolate(t)
+	startDaemon(t)
+	repo := testutil.FixtureRepo(t, "hello-stack")
+	if _, err := run(t, "", "add", repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run(t, "", "connector", "add", "--global", "hello-stack", "linear", "--url", "https://mcp.linear.app/mcp"); err == nil {
+		t.Error("--global took a project too")
+	}
+	out, err := run(t, "lin_api_123\n", "connector", "add", "--global", "linear", "--url", "https://mcp.linear.app/mcp", "--secret", "LINEAR_TOKEN", "--value-stdin")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	mustContain(t, out, "linear is sending $LINEAR_TOKEN as Authorization: Bearer … for every project")
+
+	out, err = run(t, "", "connector", "list", "--global")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "linear", "agentbox", "connected")
+	if strings.Contains(out, "lin_api_123") {
+		t.Errorf("the list shows the secret:\n%s", out)
+	}
+
+	out, err = run(t, "", "connector", "override", "hello-stack", "linear", "off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "linear is off in hello-stack (overridden)")
+	out, err = run(t, "", "connector", "list", "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "linear", "agentbox", "(off here)")
+	out, err = run(t, "", "connector", "override", "hello-stack", "linear", "inherit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "linear is on in hello-stack (as AgentBox-wide)")
+
+	out, err = run(t, "", "connector", "rm", "--global", "linear")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, out, "Removed linear from every project")
+}
+
 // shell: its tools, and a call to one.
 func TestConnectorToolsAndCall(t *testing.T) {
 	isolate(t)

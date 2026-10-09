@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Menu as MenuIcon, TriangleAlert } from 'lucide-react';
+import { ChevronRight, Menu as MenuIcon, Search as SearchIcon, TriangleAlert } from 'lucide-react';
 import type { View } from '../App';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
@@ -21,6 +21,7 @@ export function TopBar({
   onOpenNav,
   onNewAgent,
   onOpenNotice,
+  onSearch,
 }: {
   view: View;
   onSelect: (view: View) => void;
@@ -29,6 +30,8 @@ export function TopBar({
   // onOpenNotice goes where a notification in the bell points; without it
   // there's no bell.
   onOpenNotice?: (notice: T.Notification) => void;
+  // onSearch opens the search palette; without it there's no search button.
+  onSearch?: () => void;
 }) {
   const t = useT();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -91,6 +94,7 @@ export function TopBar({
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        {onSearch && <SearchButton onClick={onSearch} />}
         {setup.data && !setup.data.ready && view.kind !== 'settings' && (
           <button
             className="flex items-center gap-1.5 rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200 ring-1 ring-inset ring-amber-400/25 transition hover:bg-amber-400/15"
@@ -119,6 +123,27 @@ export function TopBar({
 // that has reset since shows no number rather than one that describes a
 // window that is over. Its countdowns tick every minute: the query's refetch
 // leaves them alone while the reading is unchanged.
+// The search palette's way in for the pointer, with its shortcut on it.
+const onMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+
+function SearchButton({ onClick }: { onClick: () => void }) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className="flex items-center gap-2 rounded-full py-1 pl-2.5 pr-2.5 text-muted ring-1 ring-inset ring-line transition hover:bg-surface-raised hover:text-primary md:pr-1.5"
+      aria-label={t('search.open')}
+      title={t('search.open')}
+      data-search-button
+      onClick={onClick}
+    >
+      <SearchIcon className="size-3.5" />
+      <span className="hidden text-[12px] md:inline">{t('common.search')}</span>
+      <kbd className="hidden rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle md:inline">{onMac ? '⌘K' : 'Ctrl K'}</kbd>
+    </button>
+  );
+}
+
 function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   const t = useT();
   const clock = useNow(60_000);

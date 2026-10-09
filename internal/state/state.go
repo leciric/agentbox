@@ -859,6 +859,77 @@ var migrations = []string{
 	// A favorite media item is never removed on its own: not by the
 	// retention sweep, not with its agent (Media.Favorite).
 	`ALTER TABLE media ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`,
+
+	// Skills (internal/skills): a folder with a SKILL.md, stored whole so the
+	// daemon can install it into every agent and lead that gets it. enabled is
+	// the AgentBox-wide switch; skill_projects holds a project's override of
+	// it, either way, so a skill can be on everywhere but one project or off
+	// everywhere but one.
+	`CREATE TABLE skills (
+		name        TEXT PRIMARY KEY,
+		description TEXT NOT NULL DEFAULT '',
+		source      TEXT NOT NULL DEFAULT '',
+		enabled     INTEGER NOT NULL DEFAULT 1,
+		created_at  INTEGER NOT NULL,
+		updated_at  INTEGER NOT NULL
+	)`,
+	`CREATE TABLE skill_files (
+		skill   TEXT NOT NULL REFERENCES skills (name) ON DELETE CASCADE,
+		path    TEXT NOT NULL,
+		mode    INTEGER NOT NULL,
+		content BLOB NOT NULL,
+		PRIMARY KEY (skill, path)
+	)`,
+	`CREATE TABLE skill_projects (
+		skill   TEXT NOT NULL REFERENCES skills (name) ON DELETE CASCADE,
+		project TEXT NOT NULL,
+		enabled INTEGER NOT NULL,
+		PRIMARY KEY (skill, project)
+	)`,
+
+	// AgentBox-wide connectors are rows of connectors with project '' (and
+	// agent ''): signed in once, given to every project. Their enabled is the
+	// AgentBox-wide switch; connector_projects holds a project's override of
+	// it, either way, like skill_projects. A project's own connector of the
+	// same name replaces the AgentBox-wide one there.
+	`CREATE TABLE connector_projects (
+		connector TEXT NOT NULL,
+		project   TEXT NOT NULL,
+		enabled   INTEGER NOT NULL,
+		PRIMARY KEY (connector, project)
+	)`,
+
+	// Search inside a chat (SearchChats): what the conversation shows you —
+	// your messages, the AI tool's answers, its notices and errors, never
+	// tool calls, a subagent's work or what's hidden — is search_text, a
+	// virtual column read out of the item's JSON, and chat_items_fts indexes
+	// it, external-content like memories_fts. The trigram tokenizer matches
+	// any run of three or more characters, ignoring case and accents, the way
+	// a browser's find does, so what the app highlights is what was found.
+	// Items with nothing to read stay out of the index, which the triggers'
+	// conditions keep to.
+	`ALTER TABLE chat_items ADD COLUMN search_text TEXT GENERATED ALWAYS AS (
+		CASE WHEN json_valid(data)
+			AND json_extract(data, '$.kind') IN ('user', 'aside', 'assistant', 'notice', 'error')
+			AND coalesce(json_extract(data, '$.parent'), '') = ''
+			AND NOT coalesce(json_extract(data, '$.hidden'), 0)
+			AND NOT coalesce(json_extract(data, '$.woken'), 0)
+		THEN nullif(json_extract(data, '$.text'), '') END) VIRTUAL`,
+	`CREATE VIRTUAL TABLE chat_items_fts USING fts5(search_text, content='chat_items', content_rowid='rowid',
+		tokenize='trigram remove_diacritics 1')`,
+	`CREATE TRIGGER chat_items_fts_insert AFTER INSERT ON chat_items WHEN new.search_text IS NOT NULL BEGIN
+		INSERT INTO chat_items_fts (rowid, search_text) VALUES (new.rowid, new.search_text);
+	END`,
+	`CREATE TRIGGER chat_items_fts_delete AFTER DELETE ON chat_items WHEN old.search_text IS NOT NULL BEGIN
+		INSERT INTO chat_items_fts (chat_items_fts, rowid, search_text) VALUES ('delete', old.rowid, old.search_text);
+	END`,
+	`CREATE TRIGGER chat_items_fts_update AFTER UPDATE ON chat_items BEGIN
+		INSERT INTO chat_items_fts (chat_items_fts, rowid, search_text)
+			SELECT 'delete', old.rowid, old.search_text WHERE old.search_text IS NOT NULL;
+		INSERT INTO chat_items_fts (rowid, search_text)
+			SELECT new.rowid, new.search_text WHERE new.search_text IS NOT NULL;
+	END`,
+	`INSERT INTO chat_items_fts (rowid, search_text) SELECT rowid, search_text FROM chat_items WHERE search_text IS NOT NULL`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1451,6 +1522,9 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 	// a project added again at the same path shouldn't inherit the old one's
 	// keys or sign-ins.
 	if err := s.RemoveProjectConnectors(ctx, name); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM skill_projects WHERE project = ?`, name); err != nil {
 		return err
 	}
 	return s.RemoveProjectSecrets(ctx, name)

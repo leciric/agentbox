@@ -21,6 +21,10 @@ const (
 	ConnectorNone = "none"
 )
 
+// ConnectorWide is the Scope of an AgentBox-wide connector, which every
+// project gets.
+const ConnectorWide = "agentbox"
+
 // Where a connector stands.
 const (
 	// ConnectorConnected can be used: signed in, or its secret is set.
@@ -41,13 +45,20 @@ const (
 // finishing is the one to wait for after connect.
 const EventConnector = "connector"
 
-// Connector is one remote MCP server a project, or one agent of it, uses.
+// Connector is one remote MCP server a project, or one agent of it, uses, or
+// an AgentBox-wide one every project gets: GET /v1/connectors lists those,
+// and a project's list (GET /v1/projects/{project}/connectors) has them after
+// its own, with Enabled and Override as the project has them. A project's own
+// connector replaces an AgentBox-wide one of the same name, which its list
+// then leaves out.
 type Connector struct {
 	// Name is what the agents' AI tools know it as — its tools are
 	// mcp__<name>__* in Claude Code. Lowercase letters, digits, - and _.
 	Name string `json:"name"`
-	// Scope is "project" (every agent of the project gets it) or "agent".
-	Scope   string `json:"scope"`
+	// Scope is "agentbox" (every project gets it), "project" (every agent of
+	// the project gets it) or "agent".
+	Scope string `json:"scope"`
+	// Project is empty for an AgentBox-wide connector.
 	Project string `json:"project"`
 	// Agent is empty for a project connector.
 	Agent string `json:"agent,omitempty"`
@@ -64,8 +75,16 @@ type Connector struct {
 	Header string `json:"header,omitempty"`
 	Scheme string `json:"scheme,omitempty"`
 	// Enabled connectors are given to agents. A disabled one keeps its
-	// sign-in and is simply left out.
+	// sign-in and is simply left out. An AgentBox-wide one's is its
+	// AgentBox-wide switch, or in a project's list whether that project's
+	// agents get it.
 	Enabled bool `json:"enabled"`
+	// Override is, for an AgentBox-wide connector in a project's list, what
+	// the project says: "on", "off", or "" to follow the AgentBox-wide switch.
+	Override string `json:"override,omitempty"`
+	// Overrides are, for an AgentBox-wide connector, the projects that say
+	// otherwise, by name: true for on.
+	Overrides map[string]bool `json:"overrides,omitempty"`
 	// Status is ConnectorConnected, ConnectorDisconnected,
 	// ConnectorConnecting or ConnectorError.
 	Status string `json:"status"`
@@ -83,7 +102,9 @@ type Connector struct {
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	// Agents are the agents this connector is given to, by ref: every agent
 	// of the project for a project connector (unless one has its own of the
-	// same name), the one agent for an agent connector.
+	// same name), the one agent for an agent connector, and for an
+	// AgentBox-wide one every agent of the projects it is on in that has no
+	// connector of its own by that name (of that project's, in its list).
 	Agents []string `json:"agents"`
 	// Removed is set on the EventConnector for a connector that is gone.
 	Removed bool `json:"removed,omitempty"`
@@ -99,9 +120,23 @@ type SetConnectorRequest struct {
 	Secret string `json:"secret,omitempty"`
 	Header string `json:"header,omitempty"`
 	Scheme string `json:"scheme,omitempty"`
+	// SecretValue, for an AgentBox-wide connector only, is the value of
+	// Secret, stored with it first: AgentBox keeps it to send to the server
+	// and gives it to no agent as a variable. A project's or an agent's
+	// connector sends one of its secrets, set the usual way. Left out, the
+	// value stored before is kept.
+	SecretValue string `json:"secretValue,omitempty"`
 	// Enabled defaults to true for a new connector, and to what it was for
 	// an existing one.
 	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// ConnectorOverrideRequest is the body of PUT
+// /v1/projects/{project}/connectors/{name}/override: a project's say on an
+// AgentBox-wide connector, "on", "off", or "" to follow the AgentBox-wide
+// switch. It answers with the connector as the project's list has it.
+type ConnectorOverrideRequest struct {
+	Override string `json:"override"`
 }
 
 // ConnectResult is the answer to POST .../connectors/{name}/connect: the

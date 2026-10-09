@@ -133,6 +133,14 @@ func (s *Server) leadRoutes(project string) http.Handler {
 		mux.HandleFunc(route.method+" /v1/project/memory"+route.path,
 			withProject(s.memoryHandler(route.action, s.projectMemoryScope)))
 	}
+	// Skills: reading and adding them is the lead's; changing, deleting or
+	// turning off one waits for the user's approval (leadskills.go).
+	mux.HandleFunc("GET /v1/project/skills", withProject(s.listProjectSkills))
+	mux.HandleFunc("POST /v1/project/skills", withProject(s.leadCreateSkill))
+	mux.HandleFunc("GET /v1/project/skills/{name}", withProject(s.getSkill))
+	mux.HandleFunc("PUT /v1/project/skills/{name}", withProject(s.leadEditSkill))
+	mux.HandleFunc("DELETE /v1/project/skills/{name}", withProject(s.leadRemoveSkill))
+	mux.HandleFunc("PUT /v1/project/skills/{name}/switch", withProject(s.leadSwitchSkill))
 	mux.HandleFunc("GET /v1/project/questions", withProject(s.leadQuestions))
 	mux.HandleFunc("POST /v1/project/questions/{id}/answer", withProject(s.leadAnswerQuestion))
 	mux.HandleFunc("POST /v1/project/questions/{id}/escalate", withProject(s.leadEscalateQuestion))

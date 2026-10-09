@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
-import { openSettingsEvent, rememberSection } from "./components/SettingsPage";
+import { openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
+import { isSearchShortcut, SearchPalette } from "./components/SearchPalette";
 import { ErrorReports } from "./components/ErrorReports";
 import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
@@ -34,6 +35,8 @@ import { t as tNow, useT } from "./lib/i18n";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
+import { requestReveal } from "./lib/reveal";
+import type { SearchTarget } from "./lib/search";
 import { setupCard } from "./lib/setup";
 import { useHostTheme } from "./lib/theme";
 import { markSeen, shouldShowAutomatically } from "./lib/whatsnew";
@@ -137,11 +140,16 @@ export function App() {
   }, [agents.data, view]);
 
   // A media item opened from a notification, in a viewer over its agent's
-  // Media tab, with where it came from.
-  const [viewing, setViewing] = useState<{ ref: string; id: string; from: string; at: string } | null>(null);
+  // Media tab, with where it came from; or from a search, over its agent's
+  // items in the project's Media, where an agent that's gone still has them.
+  const [viewing, setViewing] = useState<{ ref: string; id: string; from: string; at: string; inProject?: boolean } | null>(null);
   const viewingMedia = useQuery({
-    queryKey: ["media", viewing?.ref],
-    queryFn: () => api.media(viewing!.ref),
+    queryKey: viewing?.inProject ? ["projectMedia", ...viewing.ref.split("/")] : ["media", viewing?.ref],
+    queryFn: () => {
+      if (!viewing!.inProject) return api.media(viewing!.ref);
+      const [project, agent] = viewing!.ref.split("/");
+      return api.projectMedia(project, agent);
+    },
     enabled: viewing !== null,
   });
   const viewingItems = viewingMedia.data ?? [];
@@ -159,6 +167,34 @@ export function App() {
   };
   const openNoticeRef = useRef(openNotice);
   openNoticeRef.current = openNotice;
+
+  // The search palette: Ctrl+K (⌘K) anywhere but a terminal, or the top bar's
+  // button. What it opens is brought forward on the page it opens.
+  const [searching, setSearching] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!isSearchShortcut(event)) return;
+      event.preventDefault();
+      setSearching((open) => !open);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+  const openFound = (target: SearchTarget) => {
+    switch (target.open) {
+      case "media":
+        select({ kind: "project", project: target.project, tab: "media" });
+        setViewing({ ref: target.item.agent, id: target.item.id, from: "", at: "", inProject: true });
+        return;
+      case "settings":
+        if (target.reveal) requestReveal(target.reveal);
+        openSettingsSection(target.section);
+        return;
+      case "view":
+        if (target.reveal) requestReveal(target.reveal);
+        select(target.view);
+    }
+  };
 
   // toastNotice shows one in the app, the whole toast a link, and in the OS
   // while the window isn't in front (the bridge decides).
@@ -295,6 +331,7 @@ export function App() {
           onOpenNav={() => setNavOpen(true)}
           onNewAgent={setNewAgentProject}
           onOpenNotice={openNotice}
+          onSearch={() => setSearching(true)}
         />
         <div className="flex min-h-0 min-w-0 flex-1">
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -417,6 +454,7 @@ export function App() {
           setViewing(null);
         }}
       />
+      <SearchPalette open={searching} onOpenChange={setSearching} onOpen={openFound} />
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

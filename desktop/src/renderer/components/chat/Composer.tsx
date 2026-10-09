@@ -18,16 +18,19 @@ import {
   PencilLine,
   PencilRuler,
   Play,
+  Plug,
   Search,
   ShieldAlert,
   Sparkles,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
-import { api, isProjectChat } from '../../lib/api';
-import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf } from '../../lib/chat';
+import { api, isHomeChat, isProjectChat } from '../../lib/api';
+import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
+import { SkillTile } from '../SkillsPanel';
+import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { mentionAt, matchFiles, type MentionItem } from '../../lib/mentions';
 import { getDraft, setDraft } from '../../lib/drafts';
@@ -70,6 +73,8 @@ export function Composer({
   const [cursor, setCursor] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState<string | null>(null);
   const [mentionHighlighted, setMentionHighlighted] = useState(0);
+  const [dollarDismissed, setDollarDismissed] = useState<string | null>(null);
+  const [dollarHighlighted, setDollarHighlighted] = useState(0);
   const [images, setImages] = useState<PendingImage[]>([]);
   const [dragging, setDragging] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
@@ -159,6 +164,7 @@ export function Composer({
   // Cancelling the turn stops its reply being read aloud too.
   const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onMutate: stopReading, onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
+  const reloadTools = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
   useEffect(() => {
     setDraft(agent.ref, text);
@@ -176,13 +182,34 @@ export function Composer({
     }
   }, [text]);
 
-  // Typing "/" lists the tool's commands.
+  // The skills this chat has (Settings → Skills), which "/" and "$" offer as
+  // T3 Code's composer does: a picked skill goes in as $name, and the daemon
+  // turns it into what the chat's AI tool runs (internal/chat/skills.go).
+  const home = isHomeChat(agent.ref);
+  const skillsQuery = useQuery({ queryKey: ['skills', home ? '' : agent.project], queryFn: () => api.skills(home ? undefined : agent.project), staleTime: 15_000 });
+  const skills = useMemo(() => composerSkills(skillsQuery.data, !home), [skillsQuery.data, home]);
+
+  // Typing "/" lists the chat's skills, then the tool's commands. Claude
+  // Code lists skills among its commands too: those show once, as skills.
   const query = /^\/(\S*)$/.exec(text)?.[1];
-  const commands = useMemo(
-    () => (query === undefined || query === dismissed ? [] : (session?.commands ?? []).filter((c) => c.name.toLowerCase().includes(query.toLowerCase())).slice(0, 8)),
-    [query, dismissed, session?.commands],
-  );
+  const commands = useMemo((): SlashItem[] => {
+    if (query === undefined || query === dismissed) return [];
+    const found = searchSkills(skills, query, 6);
+    const names = new Set(skills.map((s) => s.name));
+    const tools = (session?.commands ?? []).filter((c) => !names.has(c.name) && c.name.toLowerCase().includes(query.toLowerCase())).slice(0, Math.max(3, 9 - found.length));
+    return [...found.map((skill) => ({ kind: 'skill' as const, skill })), ...tools.map((command) => ({ kind: 'command' as const, command }))];
+  }, [query, dismissed, session?.commands, skills]);
   useEffect(() => setHighlighted(0), [query]);
+
+  // Typing "$" anywhere lists the skills alone, for one in mid-sentence.
+  const dollar = query === undefined ? skillMentionAt(text, cursor) : undefined;
+  const dollarKey = dollar && `${dollar.start}:${dollar.query}`;
+  const dollarItems = useMemo(
+    () => (dollar === undefined || dollarKey === dollarDismissed ? [] : searchSkills(skills, dollar.query, 8)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dollarKey, dollarDismissed, skills],
+  );
+  useEffect(() => setDollarHighlighted(0), [dollarKey]);
 
   // Typing "@" anywhere lists the worktree's files. mentionKey names the
   // token the cursor sits in, and stays the same while the popup it opened is
@@ -223,8 +250,15 @@ export function Composer({
     setText(next);
     area.current?.focus();
   };
-  const pick = (command: T.ChatCommand) => {
-    setText(`/${command.name} `);
+  const pick = (item: SlashItem) => {
+    setText(item.kind === 'skill' ? `$${item.skill.name} ` : `/${item.command.name} `);
+    area.current?.focus();
+  };
+  const pickSkill = (skill: T.Skill) => {
+    if (!dollar) return;
+    const insert = `$${skill.name} `;
+    pendingCursor.current = dollar.start + insert.length;
+    setText(text.slice(0, dollar.start) + insert + text.slice(cursor).replace(/^\s/, ''));
     area.current?.focus();
   };
   const pickMention = (item: MentionItem) => {
@@ -251,6 +285,22 @@ export function Composer({
       }
       if (event.key === 'Escape') {
         setDismissed(query ?? null);
+        return;
+      }
+    }
+    if (dollarItems.length > 0) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        setDollarHighlighted((i) => (i + (event.key === 'ArrowDown' ? 1 : dollarItems.length - 1)) % dollarItems.length);
+        return;
+      }
+      if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey)) {
+        event.preventDefault();
+        pickSkill(dollarItems[dollarHighlighted]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        setDollarDismissed(dollarKey ?? null);
         return;
       }
     }
@@ -368,6 +418,25 @@ export function Composer({
             {session.detail || t('chat.composer.startingTool', { tool })}
           </div>
         </Attached>
+      ) : session?.toolsChanged ? (
+        // The connectors changed since the AI tool started, which reads its
+        // MCP servers only then. The daemon restarts it before the next
+        // message when it can resume the session; "Reload now" doesn't wait.
+        <Attached tone="neutral">
+          <div className="flex items-start gap-2 text-[12.5px]" data-chat-tools-changed>
+            <Plug className="mt-0.5 size-3.5 shrink-0 text-muted" />
+            <p className="min-w-0 flex-1 break-words leading-relaxed text-tertiary">
+              {t(session.noResume ? 'chat.composer.toolsChangedNoResume' : 'chat.composer.toolsChanged', { tool })}
+            </p>
+            <button
+              className="h-6 shrink-0 rounded-md px-2 text-[12px] font-medium text-title transition hover:bg-white/10 disabled:opacity-50"
+              disabled={reloadTools.isPending || toolsReload(session) !== 'ready'}
+              onClick={() => reloadTools.mutate()}
+            >
+              {t('chat.composer.reloadNow')}
+            </button>
+          </div>
+        </Attached>
       ) : null}
 
       <div
@@ -388,22 +457,40 @@ export function Composer({
         )}
         {commands.length > 0 && (
           <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.commands')}>
-            {commands.map((command, i) => (
-              <button
-                key={command.name}
-                role="option"
-                aria-selected={i === highlighted}
-                className={cn('flex w-full items-baseline gap-2.5 rounded-xl px-3 py-2 text-left', i === highlighted && 'bg-surface-raised')}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  pick(command);
-                }}
-                onMouseEnter={() => setHighlighted(i)}
-              >
-                <span className="shrink-0 font-mono text-[12.5px] text-primary">/{command.name}</span>
-                {command.hint && <span className="shrink-0 font-mono text-[11.5px] text-faint">{command.hint}</span>}
-                <span className="min-w-0 truncate text-[12px] text-subtle">{command.description}</span>
-              </button>
+            {commands.map((item, i) => (
+              <Fragment key={item.kind === 'skill' ? `skill:${item.skill.name}` : item.command.name}>
+                {(i === 0 || commands[i - 1].kind !== item.kind) && commands.some((c) => c.kind === 'skill') && (
+                  <p className={cn('px-3 pb-1 text-[10.5px] font-medium uppercase tracking-wide text-faint', i === 0 ? 'pt-1.5' : 'pt-2.5')}>
+                    {item.kind === 'skill' ? t('chat.composer.skills') : t('chat.composer.commandsGroup')}
+                  </p>
+                )}
+                {item.kind === 'skill' ? (
+                  <SkillOption skill={item.skill} active={i === highlighted} onPick={() => pick(item)} onHover={() => setHighlighted(i)} />
+                ) : (
+                  <button
+                    role="option"
+                    aria-selected={i === highlighted}
+                    className={cn('flex w-full items-baseline gap-2.5 rounded-xl px-3 py-2 text-left', i === highlighted && 'bg-surface-raised')}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      pick(item);
+                    }}
+                    onMouseEnter={() => setHighlighted(i)}
+                  >
+                    <span className="shrink-0 font-mono text-[12.5px] text-primary">/{item.command.name}</span>
+                    {item.command.hint && <span className="shrink-0 font-mono text-[11.5px] text-faint">{item.command.hint}</span>}
+                    <span className="min-w-0 truncate text-[12px] text-subtle">{item.command.description}</span>
+                  </button>
+                )}
+              </Fragment>
+            ))}
+          </div>
+        )}
+        {dollarItems.length > 0 && (
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.skills')}>
+            <p className="px-3 pb-1 pt-1.5 text-[10.5px] font-medium uppercase tracking-wide text-faint">{t('chat.composer.skills')}</p>
+            {dollarItems.map((skill, i) => (
+              <SkillOption key={skill.name} skill={skill} active={i === dollarHighlighted} onPick={() => pickSkill(skill)} onHover={() => setDollarHighlighted(i)} />
             ))}
           </div>
         )}
@@ -543,7 +630,9 @@ function Attached({ tone, children }: { tone: keyof typeof tones; children: Reac
   return <div className={cn('relative mx-auto -mb-4 w-[calc(100%-2.5rem)] animate-slide-up rounded-t-2xl border border-b-0 px-3.5 pb-6 pt-2.5 backdrop-blur-xl', tones[tone])}>{children}</div>;
 }
 
-function optionLabel(option: T.ChatPermissionOption): string {
+function optionLabel(option: T.ChatPermissionOption, approval: boolean): string {
+  // AgentBox's own requests for approval (a lead changing a skill) answer in their own words.
+  if (approval) return translate(option.kind.startsWith('allow') ? 'chat.permission.approve' : 'chat.permission.refuse');
   switch (option.kind) {
     case 'allow_once':
       return translate('chat.permission.allow');
@@ -562,7 +651,9 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
   const permission = request.permission!;
   const tool = toolOf(thread, permission.callId);
   const answer = useMutation({ mutationFn: (option: string) => api.answerChat(agent.ref, request.id, option), onError: (err) => toast.error(errorMessage(err)) });
-  const detail = tool?.command || (tool?.paths?.[0] && relativePath(tool.paths[0], agent.worktree));
+  const approval = !!permission.approval;
+  const detail = approval ? permission.detail : tool?.command || (tool?.paths?.[0] && relativePath(tool.paths[0], agent.worktree));
+  const diffs = permission.diffs?.length ? permission.diffs : tool?.diffs;
   const rejects = permission.options.filter((o) => o.kind.startsWith('reject'));
   const allows = permission.options.filter((o) => o.kind.startsWith('allow')).sort((a, b) => (a.kind === 'allow_once' ? 1 : 0) - (b.kind === 'allow_once' ? 1 : 0));
   return (
@@ -571,18 +662,19 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
         <div className="flex items-center gap-2 text-[12px]">
           <ShieldAlert className="size-3.5 shrink-0 text-amber-300" />
           <span className="font-medium text-amber-100">
-            {t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
+            {approval ? t('chat.permission.approval') : t('chat.permission.asks', { tool: aiLabel(agent.ai), action: tool?.kind ?? '' })}
           </span>
           {count > 1 && <span className="ml-auto text-[10.5px] tabular-nums text-amber-200/60">{t('chat.permission.oneOf', { count })}</span>}
         </div>
         <p className="mt-1 break-words text-[13px] text-primary">{permission.title}</p>
-        {detail && !permission.title.includes(detail) && (
+        {detail && approval && <p className="mt-0.5 break-words text-[12px] text-muted">{detail}</p>}
+        {detail && !approval && !permission.title.includes(detail) && (
           <code className="mt-1 block max-h-20 overflow-auto whitespace-pre-wrap break-all font-mono text-[11.5px] text-muted">{detail}</code>
         )}
-        {tool?.diffs?.length ? (
+        {diffs?.length ? (
           <div className="mt-2 overflow-hidden rounded-lg border border-line bg-well">
-            {tool.diffs.map((diff, i) => (
-              <DiffView key={i} diff={diff} className="max-h-40" />
+            {diffs.map((diff, i) => (
+              <DiffView key={i} diff={diff} className={approval ? 'max-h-64' : 'max-h-40'} />
             ))}
           </div>
         ) : null}
@@ -594,7 +686,7 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
               onClick={() => answer.mutate(option.id)}
               className="h-7 rounded-lg px-2.5 text-[12.5px] text-rose-200/90 transition hover:bg-rose-500/10 disabled:opacity-50"
             >
-              {optionLabel(option)}
+              {optionLabel(option, approval)}
             </button>
           ))}
           {allows.map((option) => (
@@ -608,7 +700,7 @@ function PermissionBanner({ agent, thread, request, count }: { agent: T.Agent; t
                 option.kind === 'allow_once' ? 'bg-amber-300 px-3 font-medium text-on-bright hover:bg-amber-200' : 'border border-amber-200/20 text-amber-50 hover:bg-amber-200/10',
               )}
             >
-              {optionLabel(option)}
+              {optionLabel(option, approval)}
             </button>
           ))}
         </div>
@@ -1044,5 +1136,29 @@ function ContextMeter({ session }: { session?: T.ChatSession }) {
         </svg>
       </span>
     </Tip>
+  );
+}
+
+type SlashItem = { kind: 'skill'; skill: T.Skill } | { kind: 'command'; command: T.ChatCommand };
+
+// SkillOption is one skill in the composer's menus: its tile, $name and what
+// it's for.
+function SkillOption({ skill, active, onPick, onHover }: { skill: T.Skill; active: boolean; onPick: () => void; onHover: () => void }) {
+  return (
+    <button
+      role="option"
+      aria-selected={active}
+      data-skill-option={skill.name}
+      className={cn('flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left', active && 'bg-surface-raised')}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onPick();
+      }}
+      onMouseEnter={onHover}
+    >
+      <SkillTile name={skill.name} size="sm" />
+      <span className="shrink-0 font-mono text-[12.5px] text-primary">${skill.name}</span>
+      <span className="min-w-0 truncate text-[12px] text-subtle">{skill.description}</span>
+    </button>
   );
 }

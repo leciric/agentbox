@@ -106,9 +106,9 @@ func valid(v string) bool { return v != "" && semver.IsValid(canonical(v)) }
 // LatestRelease asks the release list at base (DefaultReleasesURL when
 // empty) for the newest published release of channel: on the stable channel
 // the newest vX.Y.Z that isn't a prerelease, on the nightly channel that or a
-// nightly, whichever is newer. Drafts and any other tag are skipped. It sends
-// no ID and nothing about the machine: the request is a plain GET of a public
-// page.
+// nightly, whichever is newer, with the files it offers for download. Drafts
+// and any other tag are skipped. It sends no ID and nothing about the machine:
+// the request is a plain GET of a public page.
 func LatestRelease(ctx context.Context, base, channel string) (Latest, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
@@ -128,6 +128,11 @@ func LatestRelease(ctx context.Context, base, channel string) (Latest, error) {
 		Tag        string `json:"tag_name"`
 		Draft      bool   `json:"draft"`
 		Prerelease bool   `json:"prerelease"`
+		Assets     []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+			Size int64  `json:"size"`
+		} `json:"assets"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(nil, resp.Body, 4<<20)).Decode(&releases); err != nil {
 		return Latest{}, err
@@ -142,6 +147,9 @@ func LatestRelease(ctx context.Context, base, channel string) (Latest, error) {
 		}
 		if v := strings.TrimPrefix(rel.Tag, "v"); best.Version == "" || Newer(v, best.Version) {
 			best = Latest{Version: v, URL: ReleasePage(base, rel.Tag)}
+			for _, a := range rel.Assets {
+				best.Assets = append(best.Assets, Asset(a))
+			}
 		}
 	}
 	if best.Version == "" {

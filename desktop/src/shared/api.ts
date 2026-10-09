@@ -602,6 +602,18 @@ export interface UpdateAvailable {
   url: string;
 }
 
+export interface UpdateRelease {
+  version: string;
+  url: string;
+  assets?: ReleaseAsset[];
+}
+
+export interface ReleaseAsset {
+  name: string;
+  url: string;
+  size: number;
+}
+
 export interface IncusStatus {
   answering: boolean;
   since?: string;
@@ -919,6 +931,79 @@ export interface SetSecretRequest {
   value: string;
 }
 
+export interface Skill {
+  name: string;
+  description: string;
+  source: string;
+  enabled: boolean;
+  overrides: Record<string, boolean>;
+  userInvocable: boolean;
+  fileCount: number;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  active?: boolean;
+}
+
+export interface SkillFile {
+  path: string;
+  size: number;
+  binary?: boolean;
+  content?: string;
+}
+
+export interface SkillDetail {
+  name: string;
+  description: string;
+  source: string;
+  enabled: boolean;
+  overrides: Record<string, boolean>;
+  userInvocable: boolean;
+  fileCount: number;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  active?: boolean;
+  files: SkillFile[];
+}
+
+export interface SaveSkillRequest {
+  content: string;
+  enabled?: boolean;
+  project?: string;
+}
+
+export interface UpdateSkillRequest {
+  enabled?: boolean;
+}
+
+export interface SkillOverrideRequest {
+  override: string;
+}
+
+export interface ScanSkillsRequest {
+  source: string;
+}
+
+export interface SkillCandidate {
+  name: string;
+  description: string;
+  origin: string;
+  plugin?: string;
+  source: string;
+  files: number;
+  size: number;
+  content: string;
+  exists: boolean;
+  problem?: string;
+}
+
+export interface ImportSkillsRequest {
+  source: string;
+  names?: string[];
+  project?: string;
+}
+
 export interface BrowserCookies {
   imported: boolean;
   domains: string[];
@@ -1009,6 +1094,8 @@ export interface Connector {
   header?: string;
   scheme?: string;
   enabled: boolean;
+  override?: string;
+  overrides?: Record<string, boolean>;
   status: string;
   error?: string;
   issuer?: string;
@@ -1026,7 +1113,12 @@ export interface SetConnectorRequest {
   secret?: string;
   header?: string;
   scheme?: string;
+  secretValue?: string;
   enabled?: boolean;
+}
+
+export interface ConnectorOverrideRequest {
+  override: string;
 }
 
 export interface ConnectResult {
@@ -1399,6 +1491,24 @@ export interface ChatThread {
   older?: boolean;
 }
 
+export interface ChatSearch {
+  query: string;
+  hits: ChatSearchHit[];
+  more?: boolean;
+}
+
+export interface ChatSearchHit {
+  agent: string;
+  id: string;
+  kind: string;
+  snippet: ChatSnippetPart[];
+}
+
+export interface ChatSnippetPart {
+  text: string;
+  match?: boolean;
+}
+
 export interface ChatSession {
   state: string;
   tool: string;
@@ -1416,6 +1526,8 @@ export interface ChatSession {
   resumeAt?: string;
   noImages?: boolean;
   background?: string[];
+  toolsChanged?: boolean;
+  noResume?: boolean;
 }
 
 export interface ChatOption {
@@ -1495,6 +1607,9 @@ export interface ChatPermission {
   title: string;
   options: ChatPermissionOption[];
   outcome?: string;
+  approval?: string;
+  detail?: string;
+  diffs?: ChatDiff[];
 }
 
 export interface ChatPermissionOption {
@@ -2057,6 +2172,32 @@ export interface ReportSent {
   id: string;
 }
 
+export interface SearchResults {
+  query: string;
+  groups: SearchGroup[];
+}
+
+export interface SearchGroup {
+  kind: string;
+  hits: SearchHit[];
+  more?: boolean;
+}
+
+export interface SearchHit {
+  id: string;
+  title: string;
+  detail?: string;
+  tag?: string;
+  project?: string;
+  agent?: string;
+  at?: string;
+  url?: string;
+  memory?: Memory;
+  event?: MemoryEvent;
+  report?: AgentReport;
+  media?: MediaItem;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -2107,6 +2248,7 @@ export const CredentialSecret = "secret";
 export const ConnectorOAuth = "oauth";
 export const ConnectorSecret = "secret";
 export const ConnectorNone = "none";
+export const ConnectorWide = "agentbox";
 export const ConnectorConnected = "connected";
 export const ConnectorDisconnected = "disconnected";
 export const ConnectorConnecting = "connecting";
@@ -2150,6 +2292,17 @@ export const TaskActive = "active";
 export const TaskBlocked = "blocked";
 export const TaskDone = "done";
 export const TaskAbandoned = "abandoned";
+export const SearchProjects = "projects";
+export const SearchAgents = "agents";
+export const SearchChats = "chats";
+export const SearchMemories = "memories";
+export const SearchEvents = "events";
+export const SearchReports = "reports";
+export const SearchMedia = "media";
+export const SearchSkills = "skills";
+export const SearchConnectors = "connectors";
+export const SearchNotes = "notes";
+export const SearchPulls = "pulls";
 export const TokensTurn = "turn";
 export const TokensBackground = "background";
 export const TokensCompaction = "compaction";
@@ -2171,6 +2324,8 @@ export const FeatureSettingsModels = "settings.view.models";
 export const FeatureSettingsResources = "settings.view.resources";
 export const FeatureSettingsProject = "settings.view.project";
 export const FeatureSettingsSearch = "settings.search";
+export const FeatureChatFind = "chat.find";
+export const FeatureSearchOpen = "search.open";
 export const FeatureMenuOpenChat = "menu.agent.open_chat";
 export const FeatureMenuOpenTerminal = "menu.agent.open_terminal";
 export const FeatureMenuInfo = "menu.agent.info";

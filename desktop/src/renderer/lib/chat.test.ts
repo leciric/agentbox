@@ -23,11 +23,13 @@ import {
   lineCounts,
   liveLabel,
   loadOlder,
+  loadThrough,
   pageSize,
   pendingPermissions,
   prependPage,
   timelineRows,
   toolOf,
+  toolsReload,
   workSummary,
 } from './chat.ts';
 
@@ -422,6 +424,31 @@ for (const honourFrom of [true, false]) {
   });
 }
 
+test('a search hit older than anything loaded is read back to in one read', async (t) => {
+  const all = turns(25);
+  const read = daemon(all);
+  const pages: { before?: string; from?: string; limit: number }[] = [];
+  t.mock.method(api, 'chat', async (ref: string, page?: { before?: string; from?: string; limit: number }) => {
+    pages.push(page!);
+    return read(ref, page);
+  });
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-find';
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  assert.ok(await loadThrough(queryClient, ref, 'a3'));
+  const held = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!;
+  // From the hit's turn to the end, nothing missing between.
+  assert.deepEqual(
+    held.items.map((it) => it.id),
+    all.slice(all.findIndex((it) => it.id === 'u3')).map((it) => it.id),
+  );
+  assert.equal(held.older, true);
+  assert.equal(pages.at(-1)!.from, 'a3');
+  // One the chat holds already costs nothing.
+  assert.ok(await loadThrough(queryClient, ref, 'u20'));
+  assert.equal(pages.length, 2);
+});
+
 test('a page loaded while the chat is read again stays', async (t) => {
   const all = turns(25);
   const read = daemon(all);
@@ -463,4 +490,16 @@ test('asleep is a stopped or paused agent, whose chat stays readable and wakes i
   // A project's chat has no machine to start.
   assert.equal(asleep({ ref: 'p', state: 'stopped' }), undefined);
   assert.equal(asleep({ ref: 'p/lead', state: 'stopped' }), undefined);
+});
+
+test('toolsReload is ready only for an idle running session', () => {
+  const session = (over: Partial<T.ChatSession>) => ({ state: 'ready', tool: 'claude', options: [], commands: [], ...over }) as T.ChatSession;
+  assert.equal(toolsReload(undefined), 'off');
+  assert.equal(toolsReload(session({ state: 'off' })), 'off');
+  assert.equal(toolsReload(session({ state: 'error' })), 'off');
+  assert.equal(toolsReload(session({ state: 'starting' })), 'busy');
+  assert.equal(toolsReload(session({ state: 'running', turnStartedAt: '2026-01-01T00:00:00Z' })), 'busy');
+  assert.equal(toolsReload(session({ state: 'waiting' })), 'busy');
+  assert.equal(toolsReload(session({ background: ['npm run dev'] })), 'busy');
+  assert.equal(toolsReload(session({})), 'ready');
 });

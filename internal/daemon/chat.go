@@ -86,6 +86,35 @@ func (s *Server) getChat(from agentFrom) func(http.ResponseWriter, *http.Request
 	}
 }
 
+// chatSearchLimit is how many hits a search of one chat returns unless it
+// asks for fewer or more, and the most it can ask for.
+const (
+	chatSearchLimit    = 500
+	chatSearchLimitMax = 5000
+)
+
+func (s *Server) searchChat(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		q := r.URL.Query()
+		limit := chatSearchLimit
+		if v := q.Get("limit"); v != "" {
+			if limit, err = strconv.Atoi(v); err != nil || limit <= 0 {
+				return fmt.Errorf("limit must be a number of hits, not %q", v)
+			}
+			limit = min(limit, chatSearchLimitMax)
+		}
+		found, err := s.chat.Search(r.Context(), a, q.Get("q"), limit)
+		if err != nil {
+			return err
+		}
+		return writeJSON(w, http.StatusOK, found)
+	}
+}
+
 func (s *Server) startChat(from agentFrom) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		a, err := from(r)
@@ -155,6 +184,22 @@ func (s *Server) cancelChat(from agentFrom) func(http.ResponseWriter, *http.Requ
 			return err
 		}
 		session, err := s.chat.Cancel(a)
+		if err != nil {
+			return err
+		}
+		return writeJSON(w, http.StatusOK, session)
+	}
+}
+
+// reloadChatTools restarts a chat's AI tool with the MCP servers it has now,
+// resuming its session (chat.Manager.ReloadTools).
+func (s *Server) reloadChatTools(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		session, err := s.chat.ReloadTools(a)
 		if err != nil {
 			return err
 		}

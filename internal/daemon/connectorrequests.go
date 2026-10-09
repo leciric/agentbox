@@ -114,18 +114,20 @@ func (s *Server) requestConnectorFor(ctx context.Context, a state.Agent, req api
 }
 
 // requestedConnector is the connector of that name an agent would be given:
-// its own, or its project's, whether or not its limit lets that one through.
+// its own, or its project's, or the AgentBox-wide one (with Enabled as the
+// project has it), whether or not its limit lets that one through.
 func (s *Server) requestedConnector(ctx context.Context, a state.Agent, name string) (state.Connector, bool, error) {
-	for _, agent := range []string{a.Name, ""} {
-		c, err := s.store.Connector(ctx, a.Project, agent, name)
-		if err == nil {
-			return c, true, nil
-		}
-		if !errors.Is(err, state.ErrNotFound) {
-			return state.Connector{}, false, err
-		}
+	c, err := s.store.Connector(ctx, a.Project, a.Name, name)
+	if errors.Is(err, state.ErrNotFound) {
+		c, err = s.store.ProjectConnector(ctx, a.Project, name)
 	}
-	return state.Connector{}, false, nil
+	switch {
+	case errors.Is(err, state.ErrNotFound):
+		return state.Connector{}, false, nil
+	case err != nil:
+		return state.Connector{}, false, err
+	}
+	return c, true, nil
 }
 
 // connectorUsable reports whether the agent can use c now: it is on, it
@@ -195,7 +197,16 @@ func (s *Server) answerConnectorFor(ctx context.Context, q state.Question, req a
 	if !found {
 		return q, fmt.Errorf("%s has no connector %s yet: add it and connect it first", q.Project, name)
 	}
-	if !c.Enabled {
+	switch {
+	case !c.Enabled && c.Wide():
+		// Off in this project, or everywhere: on in this project, which
+		// leaves the others as they are.
+		on := true
+		if err := s.overrideConnector(ctx, a.Project, c.Name, &on); err != nil {
+			return q, err
+		}
+		c.Enabled = true
+	case !c.Enabled:
 		set, on := setRequestOf(c), true
 		set.Enabled = &on
 		if c, err = s.connectors.Set(ctx, c.Project, c.Agent, c.Name, set); err != nil {
@@ -206,6 +217,7 @@ func (s *Server) answerConnectorFor(ctx context.Context, q state.Question, req a
 		if err := s.manager(nil).GrantConnector(ctx, a, name); err != nil {
 			return q, err
 		}
+		s.chat.ToolsChanged(a.Project, a.Name)
 		if a, err = s.store.Agent(ctx, q.Project, q.Agent); err != nil {
 			return q, err
 		}

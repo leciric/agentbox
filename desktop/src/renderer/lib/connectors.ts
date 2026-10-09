@@ -161,3 +161,18 @@ export function hostOf(url: string): string {
     return '';
   }
 }
+
+// A project's say on an AgentBox-wide connector, as its three-way control
+// shows it: off, on, or inherit, following AgentBox's switch.
+export type ConnectorOverride = 'off' | 'inherit' | 'on';
+
+export const isWide = (c: T.Connector) => c.scope === T.ConnectorWide;
+
+export function overrideOf(c: T.Connector): ConnectorOverride {
+  return c.override === 'on' || c.override === 'off' ? c.override : 'inherit';
+}
+
+// overrideRequest is what the daemon takes for it: '' to inherit.
+export function overrideRequest(o: ConnectorOverride): '' | 'on' | 'off' {
+  return o === 'inherit' ? '' : o;
+}

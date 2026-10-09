@@ -252,3 +252,57 @@ func titles(memories []memory.Memory) []string {
 	}
 	return out
 }
+
+// TestSearchAll is the app's search palette's read: every project at once, the
+// last word a prefix of what is being typed, and every word required.
+func TestSearchAll(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	for _, m := range []memory.Memory{
+		{Project: "pawly", Title: "Connectors sign in through OAuth", Content: "The daemon keeps the refresh token."},
+		{Project: "harbor", Title: "Connector presets", Content: "Hatch has no remote endpoint yet."},
+		{Project: "harbor", Title: "Unrelated", Content: "Nothing to see."},
+	} {
+		if _, err := s.AddMemory(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.AppendEvent(ctx, memory.Event{Project: "harbor", Type: "note", Payload: json.RawMessage(`{"text":"connected the preset"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddReport(ctx, memory.Report{Project: "pawly", Agent: "agent-01", Summary: "Built the connector grid."}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.SearchAll(ctx, "connec", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projects := map[string]bool{}
+	for _, m := range got.Memories {
+		projects[m.Project] = true
+	}
+	if len(got.Memories) != 2 || !projects["pawly"] || !projects["harbor"] {
+		t.Fatalf("memories = %+v, want both projects' connector memories", got.Memories)
+	}
+	if len(got.Events) != 1 || len(got.Reports) != 1 {
+		t.Fatalf("events = %d, reports = %d, want 1 and 1", len(got.Events), len(got.Reports))
+	}
+
+	// Every word is required: no any-word fallback while typing.
+	got, err = s.SearchAll(ctx, "hatch conn", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Memories) != 1 || got.Memories[0].Title != "Connector presets" || len(got.Reports) != 0 {
+		t.Fatalf("hatch conn = %+v", got)
+	}
+
+	if _, err := s.SearchAll(ctx, "  ", 10); err == nil {
+		t.Fatal("an empty search should be refused")
+	}
+	// Nothing typed is read as FTS5 syntax, the prefix included.
+	if _, err := s.SearchAll(ctx, `NOT "a*`, 10); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -17,6 +17,8 @@ import {
   LoaderCircle,
   LogIn,
   Mic,
+  Plug,
+  Wand2,
   Monitor,
   Moon,
   MoonStar,
@@ -41,6 +43,7 @@ import { api } from "../lib/api";
 import { formatDate, formatList, languages, t, useT, type MessageKey } from "../lib/i18n";
 import { isNightly, isUpgrade } from "../lib/nightly";
 import { openLatestRelease } from "../lib/releaseLink";
+import { updateHint } from "../lib/appUpdate";
 import { useAppUpdate } from "../lib/useAppUpdate";
 import type { SettingSection } from "../lib/settingsSearch";
 import { cn, errorMessage } from "../lib/utils";
@@ -72,6 +75,8 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
+import { SkillsPanel } from "./SkillsPanel";
+import { ConnectorsTab } from "./ConnectorsTab";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { useVoiceSettings } from "../lib/voice/settings";
@@ -969,6 +974,48 @@ function InstalledSettings({
         ]
       : []),
     {
+      id: "skills",
+      title: t("settings.section.skills.title"),
+      description: t("settings.section.skills.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "skills",
+          title: t("settings.group.skills.title"),
+          cards: true,
+          entries: [
+            {
+              id: "skills",
+              label: t("settings.section.skills.title"),
+              keywords: t("settings.entry.skills.keywords"),
+              render: () => <SkillsPanel embedded />,
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: "connectors",
+      title: t("settings.section.connectors.title"),
+      description: t("settings.section.connectors.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "connectors",
+          title: t("settings.group.connectors.title"),
+          cards: true,
+          entries: [
+            {
+              id: "connectors",
+              label: t("settings.section.connectors.title"),
+              keywords: t("settings.entry.connectors.keywords"),
+              render: () => <ConnectorsTab target="" embedded />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "voice",
       title: t("settings.section.voice.title"),
       description: t("settings.section.voice.description"),
@@ -1374,6 +1421,8 @@ const sectionIcons: SectionIcons = {
   general: SlidersHorizontal,
   models: Sparkles,
   voice: Mic,
+  skills: Wand2,
+  connectors: Plug,
   phone: Smartphone,
   agents: Bot,
   resources: Cpu,
@@ -1474,35 +1523,9 @@ function UpdateCheck() {
           >
             {t("settings.updateCheck.seeWhatsNew")}
           </button>
-          <AppUpdateAction available={available} />
         </SettingNote>
       )}
     </SettingRow>
-  );
-}
-
-// AppUpdateAction updates the app in place from Settings, where it can (an
-// AppImage, main/appupdate.ts): the same as the sidebar's "Update available",
-// with the download's progress and, when it failed, why.
-function AppUpdateAction({ available }: { available: T.UpdateAvailable }) {
-  const t = useT();
-  const { state, supported, start } = useAppUpdate(available);
-  if (!supported) return null;
-  const link = "rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50";
-  return (
-    <span data-app-update={state.state}>
-      {" · "}
-      {state.state === "downloading" ? (
-        t("appUpdate.downloading", { percent: state.percent })
-      ) : state.state === "installing" ? (
-        t("appUpdate.restarting")
-      ) : (
-        <button className={link} onClick={start}>
-          {state.state === "ready" ? t("appUpdate.restart") : t("appUpdate.updateNow")}
-        </button>
-      )}
-      {state.state === "failed" && <span className="block text-rose-300">{t("appUpdate.failedBecause", { error: state.error })}</span>}
-    </span>
   );
 }
 
@@ -1538,6 +1561,7 @@ function UpdateChannel() {
   const current = update.data?.channel;
   const available = update.data?.available;
   const backToStable = !!available && current === "stable" && !!update.data?.nightly && !isUpgrade(available.version, update.data.current);
+  const appUpdate = useAppUpdate();
   return (
     <SettingRow
       label={t("settings.entry.update-channel.label")}
@@ -1576,11 +1600,12 @@ function UpdateChannel() {
           {t("settings.channel.backToStable", { version: available.version })}{" "}
           <button
             className="rounded text-brand-300 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50"
-            onClick={() => void openLatestRelease(api.latestRelease, window.agentbox.openExternal, available.url)}
+            title={updateHint(appUpdate.support, available.version)}
+            disabled={appUpdate.updating}
+            onClick={() => void appUpdate.start(available.url)}
           >
-            {t("settings.channel.getIt")}
+            {appUpdate.label ?? t("settings.channel.getIt")}
           </button>
-          <AppUpdateAction available={available} />
         </SettingNote>
       )}
     </SettingRow>

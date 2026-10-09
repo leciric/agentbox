@@ -289,6 +289,31 @@ func (m *Manager) Reread(a state.Agent, from string, limit int) (api.ChatThread,
 	return c.page(start, end), nil
 }
 
+// Search finds query in an agent's conversation, in its order (see
+// state.Store.SearchChats), with at most limit hits. What the conversation
+// holds and hasn't stored yet, like an answer still streaming in, is stored
+// first so that it is found too.
+func (m *Manager) Search(ctx context.Context, a state.Agent, query string, limit int) (api.ChatSearch, error) {
+	if c := m.existing(a.Ref()); c != nil {
+		c.mu.Lock()
+		c.flush(true)
+		c.mu.Unlock()
+	}
+	hits, more, err := m.Store.SearchChats(ctx, state.ChatSearch{Query: query, Project: a.Project, Agent: a.Name, Limit: limit})
+	if err != nil {
+		return api.ChatSearch{}, err
+	}
+	out := api.ChatSearch{Query: query, Hits: make([]api.ChatSearchHit, len(hits)), More: more}
+	for i, h := range hits {
+		snippet := make([]api.ChatSnippetPart, len(h.Snippet))
+		for j, p := range h.Snippet {
+			snippet[j] = api.ChatSnippetPart{Text: p.Text, Match: p.Match}
+		}
+		out.Hits[i] = api.ChatSearchHit{Agent: a.Ref(), ID: h.ID, Kind: h.Kind, Snippet: snippet}
+	}
+	return out, nil
+}
+
 // page is items[start:end] as a thread. The conversation is locked.
 func (c *conversation) page(start, end int) api.ChatThread {
 	items := make([]api.ChatItem, 0, end-start)
@@ -514,6 +539,7 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []
 		c.stopAdapter()
 		c.windowRestart = false
 	}
+	c.reloadBeforeTurn()
 	ad := c.startAdapter()
 	c.session.State = c.stateNow()
 	c.markSession()
@@ -629,7 +655,7 @@ func (c *conversation) drainOutbox() {
 		var res acp.SteerResponse
 		err := ad.conn.Call(context.Background(), acp.MethodSessionSteer, acp.SteerRequest{
 			SessionID: sessionID,
-			Prompt:    c.promptBlocks(dir, midTurn(texts), images),
+			Prompt:    c.promptBlocks(dir, []string{midTurn(texts)}, images),
 			// Should the session have gone idle underneath us, the message comes
 			// back rather than becoming a turn of the adapter's own: a turn
 			// AgentBox never asked for is one it doesn't follow or end.
@@ -1185,6 +1211,9 @@ type conversation struct {
 	// windowRestart says the context window changed since the adapter
 	// started, so the next turn restarts it (window.go).
 	windowRestart bool
+	// toolsRestart says the chat's MCP servers changed since the adapter
+	// started, so the next turn restarts it (tools.go).
+	toolsRestart bool
 	// capture, while a hidden prompt runs, collects what the session says
 	// instead of the conversation collecting it.
 	capture *strings.Builder
@@ -1287,6 +1316,7 @@ type adapter struct {
 	ready     bool
 	steering  bool   // it takes a message into a running turn, per acp.MethodSessionSteer
 	images    bool   // it takes images in a prompt, per promptCapabilities.image
+	resumable bool   // it can resume a session (session/resume or session/load)
 	err       error  // why it didn't start
 	replaying bool   // a loaded session replays history that's already here
 	spend     spend  // what it has cost, for the token ledger (tokens.go)
@@ -1565,6 +1595,8 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.models, _ = c.windows()
 	ad.account = a.ClaudeAccount
 	c.windowRestart = false
+	// It reads the MCP servers its configuration has now.
+	c.toolsChanged(false)
 	c.mu.Unlock()
 	tool := ToolNames[a.AI]
 	status := func(detail string) {
@@ -1669,6 +1701,8 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.sessionID = resp.SessionID
 	ad.steering = init.Meta != nil && init.Meta.Steering != nil && init.Meta.Steering.Supported
 	ad.images = init.AgentCapabilities.PromptCapabilities.Image
+	ad.resumable = init.AgentCapabilities.SessionCapabilities.Resume != nil || init.AgentCapabilities.LoadSession
+	c.session.NoResume = !ad.resumable
 	c.setImageSupport(ad.images)
 	if resumeErr != nil && len(c.items) > 0 {
 		it := c.add("notice", c.lastTurn())
@@ -1873,7 +1907,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	var res acp.PromptResponse
 	err := ad.conn.Call(context.Background(), acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: sessionID,
-		Prompt:    c.promptBlocks(dir, text, images),
+		Prompt:    c.promptBlocks(dir, skillPrompt(c.agent.AI, text, c.m.skillNames(c.agent)), images),
 	}, &res)
 	c.mu.Lock()
 	defer c.mu.Unlock()

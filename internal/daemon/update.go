@@ -290,7 +290,9 @@ func (s *Server) getUpdate(w http.ResponseWriter, r *http.Request) error {
 // with releases coming out several a day an app that checked in the morning
 // sent its user to a release two behind the latest all day. When the list can't
 // be reached, the last check's find is still better than nothing. A newer
-// release found here also becomes what the sidebar offers.
+// release found here also becomes what the sidebar offers. The answer lists
+// the release's files, from which the app updates itself in place
+// (desktop/src/main/appupdate.ts); without them, it opens the page.
 func (s *Server) getLatestRelease(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	channel, err := s.updateChannel(ctx)
@@ -305,7 +307,7 @@ func (s *Server) getLatestRelease(w http.ResponseWriter, r *http.Request) error 
 		if last == nil {
 			return fmt.Errorf("finding the latest release: %w", err)
 		}
-		return writeJSON(w, http.StatusOK, last)
+		return writeJSON(w, http.StatusOK, api.UpdateRelease{Version: last.Version, URL: last.URL})
 	}
 	if on, err := s.updateCheckOn(ctx); err == nil && on {
 		stable, nightly := latest, update.Latest{}
@@ -323,5 +325,9 @@ func (s *Server) getLatestRelease(w http.ResponseWriter, r *http.Request) error 
 			}
 		}
 	}
-	return writeJSON(w, http.StatusOK, api.UpdateAvailable{Version: latest.Version, URL: latest.URL})
+	out := api.UpdateRelease{Version: latest.Version, URL: latest.URL}
+	for _, a := range latest.Assets {
+		out.Assets = append(out.Assets, api.ReleaseAsset(a))
+	}
+	return writeJSON(w, http.StatusOK, out)
 }

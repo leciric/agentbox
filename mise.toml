@@ -1,5 +1,8 @@
 [tools]
-go = "1.27"
+# The patch release, the one go.mod names: the coverage floor
+# (.github/coverage-floor.txt) is measured with it, and go1.27.2 counts
+# statements so that every package reads about a point lower. Move both together.
+go = "1.27.1"
 node = "lts"
 pnpm = "latest"
 ttyd = "latest"

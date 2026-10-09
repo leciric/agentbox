@@ -20,6 +20,9 @@ func TestLinuxPath(t *testing.T) {
 		{`\\server\share\x`, "", false},
 		{"/home/ana", "/home/ana", true},
 		{`relative\dir`, "", false},
+		// A junction's target, as Windows keeps it.
+		{`\??\C:\Users\Ana\.agents\skills\x`, "/mnt/c/Users/Ana/.agents/skills/x", true},
+		{`\\?\D:\x`, "/mnt/d/x", true},
 	} {
 		got, ok := LinuxPath(tc.in, "AgentBox")
 		if got != tc.want || ok != tc.ok {

@@ -153,6 +153,12 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     run: unavailable('web.bridge.hostSetup'),
     onOutput: () => () => {},
   },
+  // A phone has no app to update.
+  appUpdate: {
+    support: () => Promise.resolve({ inPlace: false, reason: 'unknown' }),
+    start: () => Promise.resolve({ ok: false, code: 'unsupported', detail: 'unknown' }),
+    onProgress: () => () => {},
+  },
   vmMigrate: {
     status: () => Promise.resolve(null),
     run: unavailable('web.bridge.vmMigrate'),
@@ -213,14 +219,6 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   setLanguage: () => {},
   openPath: unavailable('web.bridge.openPath'),
   showItem: unavailable('web.bridge.showItem'),
-  // A browser has no app to update in place: Update available opens the release.
-  appUpdate: {
-    supported: async () => false,
-    state: async () => ({ state: 'idle' as const }),
-    download: async () => ({ state: 'idle' as const }),
-    install: async () => ({ state: 'idle' as const }),
-    onState: () => () => {},
-  },
   openExternal: (url) => {
     window.open(url, '_blank', 'noopener');
     return Promise.resolve();

@@ -17,6 +17,30 @@ type ChatThread struct {
 	Older bool `json:"older,omitempty"`
 }
 
+// ChatSearch is what a search of a conversation found (GET …/chat/search?q=):
+// what it shows you — your messages, the AI tool's answers, its notices —
+// that holds the query, ignoring case and accents, in the conversation's
+// order. A hit can be older than any page the app has read.
+type ChatSearch struct {
+	Query string          `json:"query"`
+	Hits  []ChatSearchHit `json:"hits"`
+	More  bool            `json:"more,omitempty"` // there were more hits than the limit (limit=, 500 by default)
+}
+
+type ChatSearchHit struct {
+	Agent string `json:"agent"` // the chat's ref
+	ID    string `json:"id"`    // the item's
+	Kind  string `json:"kind"`  // user, aside, assistant, notice or error
+	// Snippet is the item's text around its first match, cut to a line,
+	// with every match in it marked.
+	Snippet []ChatSnippetPart `json:"snippet"`
+}
+
+type ChatSnippetPart struct {
+	Text  string `json:"text"`
+	Match bool   `json:"match,omitempty"`
+}
+
 // ChatSession is the state of the AI tool's session behind a conversation.
 type ChatSession struct {
 	State   string `json:"state"`            // off, starting, ready, running, waiting (for your answer) or error
@@ -55,6 +79,15 @@ type ChatSession struct {
 	// description (claude-agent-acp's async tasks). The session wakes by
 	// itself when one finishes, so a chat with any is still working.
 	Background []string `json:"background,omitempty"`
+	// ToolsChanged says the chat's MCP servers (the project's connectors)
+	// changed since its adapter started, which reads them only then. The next
+	// message restarts it first, resuming the session, unless NoResume;
+	// "Reload tools" (POST …/chat/reload) does it now.
+	ToolsChanged bool `json:"toolsChanged,omitempty"`
+	// NoResume says the running adapter can resume no session (neither ACP's
+	// session/resume nor session/load), so reloading its tools starts a new
+	// session that doesn't remember the conversation.
+	NoResume bool `json:"noResume,omitempty"`
 }
 
 const (
@@ -209,13 +242,26 @@ type ChatPlanEntry struct {
 	Status  string `json:"status"` // pending, in_progress or completed
 }
 
-// ChatPermission is the AI tool asking before it uses a tool.
+// ChatPermission is the AI tool asking before it uses a tool, or AgentBox
+// asking the user before it does what a lead's tool asked for (Approval).
 type ChatPermission struct {
 	CallID  string                 `json:"callId"` // the tool call it asks about
 	Title   string                 `json:"title"`
 	Options []ChatPermissionOption `json:"options"`
 	Outcome string                 `json:"outcome,omitempty"` // the ID of the option chosen, or "cancelled"; empty while it waits
+	// Approval is set when AgentBox asks rather than the AI tool: what it
+	// is about ("skill"), with Detail saying what would change and Diffs
+	// showing it.
+	Approval string     `json:"approval,omitempty"`
+	Detail   string     `json:"detail,omitempty"`
+	Diffs    []ChatDiff `json:"diffs,omitempty"`
 }
+
+// Approval options: what the user can answer a request for approval with.
+const (
+	ApproveOption = "approve"
+	RefuseOption  = "refuse"
+)
 
 type ChatPermissionOption struct {
 	ID   string `json:"id"`

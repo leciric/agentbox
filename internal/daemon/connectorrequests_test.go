@@ -245,6 +245,38 @@ func TestConnectorRequestGivesAConnectorPastTheLimit(t *testing.T) {
 	}
 }
 
+// An agent asks for an AgentBox-wide connector its project turned off:
+// answering turns it on in that project alone, leaving the AgentBox-wide
+// switch as it was.
+func TestConnectorRequestForAWideConnector(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	if _, err := d.client.SetConnector(ctx, "", "sentry", api.SetConnectorRequest{URL: "https://mcp.sentry.dev/mcp", Auth: api.ConnectorNone}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.SetConnectorOverride(ctx, "hello-stack", "sentry", "off"); err != nil {
+		t.Fatal(err)
+	}
+	told, id := connectorRequestInBackground(t, d, a, api.ConnectorRequest{Name: "sentry", Reason: "the crash is in Sentry"})
+	if q, _ := d.srv.store.Question(ctx, id); q.ConnectorURL != "https://mcp.sentry.dev/mcp" {
+		t.Errorf("the request's URL = %q, want the AgentBox-wide connector's", q.ConnectorURL)
+	}
+	if q, err := d.client.AnswerCredential(ctx, "hello-stack", id, api.AnswerCredentialRequest{Connector: "sentry"}); err != nil || q.Status != state.QuestionAnswered {
+		t.Fatalf("answering = %+v, %v", q, err)
+	}
+	if got := toldAgent(t, told); !strings.Contains(got.Answer, "The user connected sentry") {
+		t.Errorf("the agent was told %q", got.Answer)
+	}
+	if c, err := d.client.Connector(ctx, "hello-stack", "sentry"); err != nil || !c.Enabled || c.Override != "on" {
+		t.Errorf("sentry in hello-stack = %+v, %v: want it on there", c, err)
+	}
+	if wide, _ := d.client.Connector(ctx, "", "sentry"); !wide.Enabled || len(wide.Overrides) != 1 {
+		t.Errorf("sentry itself = %+v", wide)
+	}
+}
+
 // A project's chat lists its project's connectors, and has them as its own
 // tools through the same relay, on its own socket — only its project's, and
 // no agent's own.

@@ -7,6 +7,9 @@ import {
   connectorPresets,
   connectorRequest,
   connectorStatus,
+  isWide,
+  overrideOf,
+  overrideRequest,
   presetFor,
   RequestConnector,
   tokenLine,
@@ -139,4 +142,15 @@ test('Hatch is a preset that signs in through the browser', () => {
   const p = presetFor('https://hatch.linting.dev/mcp');
   assert.equal(p?.id, 'hatch');
   assert.equal(p?.auth, T.ConnectorOAuth);
+});
+
+test('an AgentBox-wide connector in a project reads its override three ways', () => {
+  const wide = connector({ scope: T.ConnectorWide, project: '' });
+  assert.ok(isWide(wide));
+  assert.ok(!isWide(connector()));
+  assert.equal(overrideOf(wide), 'inherit');
+  assert.equal(overrideOf({ ...wide, override: 'off' }), 'off');
+  assert.equal(overrideOf({ ...wide, override: 'on' }), 'on');
+  assert.equal(overrideRequest('inherit'), '');
+  assert.equal(overrideRequest('off'), 'off');
 });

@@ -179,3 +179,40 @@ func (c *Client) ForkAgent(ctx context.Context, agent string, req ForkRequest) (
 	var out Job
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/agents/"+url.PathEscape(agent)+"/fork"), req, &out)
 }
+
+// ProjectSkills lists every skill, each saying whether the lead's project's
+// agents get it.
+func (c *Client) ProjectSkills(ctx context.Context) ([]Skill, error) {
+	var out []Skill
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/skills"), nil, &out)
+}
+
+// ProjectSkill is one skill with its files.
+func (c *Client) ProjectSkill(ctx context.Context, name string) (SkillDetail, error) {
+	var out SkillDetail
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/skills/"+url.PathEscape(name)), nil, &out)
+}
+
+// CreateProjectSkill stores a new skill the lead wrote.
+func (c *Client) CreateProjectSkill(ctx context.Context, req LeadNewSkillRequest) (Skill, error) {
+	var out Skill
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/skills"), req, &out)
+}
+
+// EditProjectSkill replaces a skill's SKILL.md once the user approves it.
+func (c *Client) EditProjectSkill(ctx context.Context, name, content string) (Skill, error) {
+	var out Skill
+	return out, c.do(ctx, http.MethodPut, c.leadPath("/skills/"+url.PathEscape(name)), SaveSkillRequest{Content: content}, &out)
+}
+
+// SwitchProjectSkill turns a skill on or off, in the lead's project or
+// AgentBox-wide; turning one off waits for the user's approval.
+func (c *Client) SwitchProjectSkill(ctx context.Context, name string, req LeadSkillSwitchRequest) (Skill, error) {
+	var out Skill
+	return out, c.do(ctx, http.MethodPut, c.leadPath("/skills/"+url.PathEscape(name)+"/switch"), req, &out)
+}
+
+// RemoveProjectSkill deletes a skill once the user approves it.
+func (c *Client) RemoveProjectSkill(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, c.leadPath("/skills/"+url.PathEscape(name)), nil, nil)
+}

@@ -33,10 +33,11 @@ export const isMessage = (it: T.ChatItem) => (it.kind === 'user' || it.kind === 
 // after a missed event, a reconnect, or opening the chat again — never drops
 // a message already on screen: one that arrived meanwhile doesn't push the
 // oldest out of a page of the same size.
-export async function fetchThread(queryClient: QueryClient, ref: string): Promise<T.ChatThread> {
+// from, when given, reads back to that item instead of the oldest one held.
+export async function fetchThread(queryClient: QueryClient, ref: string, from?: string): Promise<T.ChatThread> {
   const held = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
   const limit = Math.max(pageSize, held?.items.filter(isMessage).length ?? 0);
-  const thread = await api.chat(ref, { limit, from: held?.items[0]?.id });
+  const thread = await api.chat(ref, { limit, from: from ?? held?.items[0]?.id });
   const next = advance(thread, recent.get(ref) ?? []);
   const now = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
   return keepHeld(next === 'gap' ? thread : next, now);
@@ -69,6 +70,18 @@ export async function loadOlder(queryClient: QueryClient, ref: string): Promise<
   const next = prependPage(now, page, recent.get(ref) ?? []);
   if (next !== now) queryClient.setQueryData(chatKey(ref), next);
   return next !== now;
+}
+
+// loadThrough reads a chat back as far as the item id, older than anything it
+// holds, which a search found: everything from that item's turn on, in one
+// read, as scrolling up to it would have. It answers whether the chat holds
+// the item now.
+export async function loadThrough(queryClient: QueryClient, ref: string, id: string): Promise<boolean> {
+  const has = (thread?: T.ChatThread) => !!thread?.items.some((it) => it.id === id);
+  if (has(queryClient.getQueryData<T.ChatThread>(chatKey(ref)))) return true;
+  const thread = await fetchThread(queryClient, ref, id);
+  queryClient.setQueryData(chatKey(ref), thread);
+  return has(thread);
 }
 
 // prependPage puts an older page in front of a thread. The page is as of its
@@ -248,6 +261,16 @@ export const isSilent = (it: T.ChatItem) => !!it.hidden;
 // the daemon starts or resumes the machine and delivers it (tellAgent). A
 // project's chat has no machine. Anything else not running (queued,
 // initializing, incomplete, missing) has nothing to wake into.
+// toolsReload says whether "Reload tools" can restart a chat's AI tool now,
+// and why not otherwise: the daemon refuses while the session is busy, since
+// a restart would end the turn or its background work, and a session that
+// isn't running reads the current tools when it starts anyway.
+export function toolsReload(session: T.ChatSession | undefined): 'ready' | 'busy' | 'off' {
+  if (!session || session.state === 'off' || session.state === 'error') return 'off';
+  if (session.state !== 'ready' || session.turnStartedAt || (session.background ?? []).length > 0) return 'busy';
+  return 'ready';
+}
+
 export const asleep = (agent: Pick<T.Agent, 'ref' | 'state'>): 'stopped' | 'paused' | undefined =>
   isProjectChat(agent.ref) ? undefined : agent.state === 'stopped' || agent.state === 'paused' ? agent.state : undefined;
 

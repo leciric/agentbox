@@ -6,7 +6,7 @@
 // agents), and lands on its chat.
 
 export type ProjectTab = 'chat' | 'tasks' | 'pulls' | 'media' | 'settings';
-export type ProjectSection = 'repository' | 'general' | 'brief' | 'memory' | 'tokens' | 'secrets' | 'connectors';
+export type ProjectSection = 'repository' | 'general' | 'brief' | 'memory' | 'tokens' | 'secrets' | 'connectors' | 'skills';
 
 export type AgentTab = 'chat' | 'terminal' | 'browser' | 'android' | 'media' | 'settings' | 'snapshots';
 export type AgentSection = 'machine' | 'code' | 'ai' | 'secrets' | 'connectors';
@@ -19,7 +19,7 @@ export type ProjectPlaceName = ProjectTab | ProjectSection | 'overview' | 'agent
 // or the name of a tab from before them.
 export type AgentPlaceName = AgentTab | AgentSection | 'overview';
 
-export const projectSections: readonly ProjectSection[] = ['repository', 'general', 'brief', 'memory', 'tokens', 'secrets', 'connectors'];
+export const projectSections: readonly ProjectSection[] = ['repository', 'general', 'brief', 'memory', 'tokens', 'secrets', 'connectors', 'skills'];
 export const agentSections: readonly AgentSection[] = ['machine', 'code', 'ai', 'secrets', 'connectors'];
 
 const projectTabs: readonly string[] = ['chat', 'tasks', 'pulls', 'media', 'settings'];

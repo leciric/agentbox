@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, ListTodo, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Trash } from 'lucide-react';
+import { Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, ListTodo, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -22,6 +22,7 @@ import { ProjectTasksPanel } from './ProjectTasksPanel';
 import { PullRequestsPanel } from './PullRequestsPanel';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
+import { SkillsPanel } from './SkillsPanel';
 import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
 import { Card, Row } from './ui/card';
@@ -72,6 +73,7 @@ function ProjectNotes({ project, className }: { project: string; className?: str
     >
       <Textarea
         aria-label={t('project.notes.title')}
+        data-project-notes
         className="min-h-44 font-mono text-[12.5px]"
         spellCheck={false}
         value={text}
@@ -108,6 +110,7 @@ const projectSettingsSections = (t: Translate): SettingsSection<ProjectSection>[
   { id: 'tokens', title: t('project.view.section.tokens'), icon: Coins },
   { id: 'secrets', title: t('project.view.section.secrets'), icon: KeyRound },
   { id: 'connectors', title: t('project.view.section.connectors'), icon: Plug },
+  { id: 'skills', title: t('project.view.section.skills'), icon: Wand2 },
 ];
 
 export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name: string; tab?: ProjectPlaceName; onSelect: (view: View) => void; onNewAgent: () => void }) {
@@ -292,6 +295,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             )}
             {section === 'secrets' && <SecretsTab target={name} />}
             {section === 'connectors' && <ConnectorsTab target={name} />}
+            {section === 'skills' && <SkillsPanel project={name} />}
           </SettingsSections>
         </div>
       </TabsContent>
