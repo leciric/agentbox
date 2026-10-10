@@ -288,17 +288,6 @@ function memories() {
   ];
 }
 
-function tasks() {
-  const t = (id, agent, status, goal, minutes, parent = null) => ({ id, agent, status, goal, at: ago(minutes), parent });
-  return [
-    t('task-1', '', 'open', 'Make the reminders list usable past a hundred rows', 96),
-    t('task-2', 'agent-01', 'done', 'Paginate the reminders list', 95, 'task-1'),
-    t('task-3', 'agent-02', 'blocked', 'Keep the digest email in step with the page size', 60, 'task-1'),
-    t('task-4', 'agent-03', 'in_progress', 'Fix the flaky e2e run', 45),
-    t('task-5', 'agent-04', 'in_progress', 'Dark mode for the settings page', 20),
-  ];
-}
-
 function openState() {
   for (let i = 0; ; i++) {
     try {
@@ -389,9 +378,6 @@ function seed() {
     }),
     ago(3),
   );
-  const addTask = db.prepare(`INSERT INTO tasks (id, project, agent, parent_task_id, status, goal, created_at, updated_at, closed_at) VALUES (?,?,?,?,?,?,?,?,?)`);
-  for (const t of tasks()) addTask.run(t.id, P, t.agent, t.parent, t.status, t.goal, t.at, t.at, t.status === 'done' ? ago(9) : 0);
-  db.prepare(`INSERT INTO task_dependencies (project, task_id, depends_on_id, created_at) VALUES (?, 'task-3', 'task-2', ?)`).run(P, ago(60));
   db.prepare(
     `INSERT INTO agent_reports (id, project, agent, created_at, task, status, summary, discoveries, decisions, remaining_issues) VALUES ('r1', ?, 'agent-01', ?, 'Paginate the reminders list', 'done', ?, ?, ?, '[]')`,
   ).run(
@@ -613,11 +599,6 @@ async function main() {
     await tab(/Memories/);
     await page.getByText('The e2e run is flaky because of the clock').first().waitFor({ timeout: 15_000 });
     await shot('memory');
-  });
-  await attempt('tasks', async () => {
-    await tab(/Tasks/);
-    await page.getByText('Keep the digest email in step with the page size').first().waitFor({ timeout: 15_000 });
-    await shot('memory-tasks');
   });
   await attempt('agents', async () => {
     await openProject();
