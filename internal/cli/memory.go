@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -23,10 +25,120 @@ import (
 func newMemoryCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "memory",
-		Short: "What this project remembers: search it, report on your task, record what you produced",
+		Short: "What a project remembers: tidy its open items, or (inside an agent) serve it to the AI tool",
 	}
-	cmd.AddCommand(newMemoryMCPCmd(a))
+	cmd.AddCommand(newMemoryMCPCmd(a), newMemoryTidyCmd(a))
 	return cmd
+}
+
+// newMemoryTidyCmd cleans a project memory that is already full of open
+// items nobody closed: it resolves the old ones and merges the duplicates
+// among the rest, with no model involved. It is a dry run unless --apply.
+func newMemoryTidyCmd(a *app) *cobra.Command {
+	var olderThan string
+	var apply bool
+	cmd := &cobra.Command{
+		Use:   "tidy <project>",
+		Short: "Resolve a project's stale open issues and merge duplicate ones (a dry run without --apply)",
+		Long: `Cleans up the open issues a project's memory has collected, without asking a model.
+
+Every live issue, and every memory whose title says it is waiting on something
+("PRs awaiting the user's merge"), that nobody has mentioned for longer than
+--older-than is resolved, with "tidied" as what closed it. Of the ones left,
+those about the same problem are merged into the newest, even when their
+titles differ. Facts, decisions and discoveries are never touched.
+
+Nothing is deleted: a resolved memory stays readable by id. Without --apply
+this only prints what it would do.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			age, err := parseAge(olderThan)
+			if err != nil {
+				return err
+			}
+			c, err := a.client(cmd)
+			if err != nil {
+				return err
+			}
+			plan, err := c.ProjectMemory(args[0]).Tidy(cmd.Context(), api.TidyMemoryRequest{
+				OlderThanHours: int(age / time.Hour), Apply: apply,
+			})
+			if err != nil {
+				return err
+			}
+			_, _ = fmt.Fprint(cmd.OutOrStdout(), describeTidy(args[0], olderThan, plan, time.Now()))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&olderThan, "older-than", "7d", "resolve open items nobody has mentioned for longer than this (7d, 2w, 36h)")
+	cmd.Flags().BoolVar(&apply, "apply", false, "do it, rather than print what it would do")
+	return cmd
+}
+
+// parseAge reads a cutoff as people write one: days, weeks, or anything
+// time.ParseDuration takes. Less than an hour is refused: it would tidy away
+// what was written a minute ago.
+func parseAge(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	bad := fmt.Errorf("--older-than is %q: write it as 7d, 2w or 36h", s)
+	var age time.Duration
+	switch unit := s[max(len(s)-1, 0):]; unit {
+	case "d", "w":
+		n, err := strconv.Atoi(s[:len(s)-1])
+		if err != nil {
+			return 0, bad
+		}
+		age = time.Duration(n) * 24 * time.Hour
+		if unit == "w" {
+			age *= 7
+		}
+	default:
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return 0, bad
+		}
+		age = d
+	}
+	if age < time.Hour {
+		return 0, fmt.Errorf("--older-than is %s: anything under an hour would tidy away what was just written", s)
+	}
+	return age, nil
+}
+
+func describeTidy(project, olderThan string, plan api.TidyMemoryResult, now time.Time) string {
+	var b strings.Builder
+	verb, merge := "would resolve", "would merge"
+	if plan.Applied {
+		verb, merge = "resolved", "merged"
+	}
+	fmt.Fprintf(&b, "%s: %s %d open %s nobody has mentioned in %s, and %s %d %s. %d %s open.\n",
+		project, verb, len(plan.Resolved), plural(len(plan.Resolved), "item", "items"), olderThan,
+		merge, len(plan.Merged), plural(len(plan.Merged), "duplicate", "duplicates"),
+		plan.Kept, plural(plan.Kept, "stays", "stay"))
+	if len(plan.Resolved) > 0 {
+		fmt.Fprintf(&b, "\nResolved as tidied:\n")
+		for _, m := range plan.Resolved {
+			fmt.Fprintf(&b, "  %s  [%s] %s (%d days old)\n", m.ID, m.Kind, oneLine(m.Title), int(now.Sub(m.CreatedAt).Hours()/24))
+		}
+	}
+	if len(plan.Merged) > 0 {
+		fmt.Fprintf(&b, "\nMerged into the newest that says the same:\n")
+		for _, mg := range plan.Merged {
+			fmt.Fprintf(&b, "  %s  %s\n    → %s  %s (%s, %.2f)\n", mg.Memory.ID, oneLine(mg.Memory.Title),
+				mg.Into.ID, oneLine(mg.Into.Title), mg.Why, mg.Score)
+		}
+	}
+	if !plan.Applied && len(plan.Resolved)+len(plan.Merged) > 0 {
+		b.WriteString("\nNothing was changed: run it again with --apply to do this.\n")
+	}
+	return b.String()
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func newMemoryMCPCmd(_ *app) *cobra.Command {

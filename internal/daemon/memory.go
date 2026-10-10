@@ -92,6 +92,9 @@ var memoryRoutes = []struct {
 	{http.MethodGet, "/duplicates", "duplicates", true, false},
 	{http.MethodPost, "/resolve", "resolve-memory", false, false},
 	{http.MethodPost, "/consolidate", "consolidate", false, false},
+	// Tidying resolves a whole store's worth of open items at once, which is
+	// the user's to decide (agentbox memory tidy).
+	{http.MethodPost, "/tidy", "tidy", false, true},
 	// The project's tasks (D77), which are the user's own list: an agent and
 	// the project's chat may read it, and only the user writes it, from the
 	// app's Tasks tab. Nothing in the daemon writes a task on its own either,
@@ -282,6 +285,31 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 
 		case "consolidate":
 			return s.consolidateProject(w, r, who.project)
+
+		case "tidy":
+			var req api.TidyMemoryRequest
+			if r.ContentLength > 0 {
+				if err := readJSON(r, &req); err != nil {
+					return err
+				}
+			}
+			if req.OlderThanHours < 0 {
+				return fmt.Errorf("olderThanHours is %d: a cutoff is a number of hours back from now", req.OlderThanHours)
+			}
+			plan, err := m.Tidy(ctx, who.project, memory.TidyOptions{
+				OlderThan: time.Duration(req.OlderThanHours) * time.Hour, Apply: req.Apply,
+			})
+			if err != nil {
+				return err
+			}
+			out := api.TidyMemoryResult{Applied: plan.Applied, Resolved: apiMemories(plan.Resolved), Kept: plan.Kept,
+				Merged: make([]api.MemoryMerge, 0, len(plan.Merged))}
+			for _, mg := range plan.Merged {
+				out.Merged = append(out.Merged, api.MemoryMerge{
+					Memory: apiMemory(mg.Memory), Into: apiMemory(mg.Into), Score: mg.Score, Why: mg.Why,
+				})
+			}
+			return writeJSON(w, http.StatusOK, out)
 
 		case "add-report":
 			var req api.AddReportRequest

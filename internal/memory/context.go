@@ -348,11 +348,14 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 
 	// What is in the way. Memories orders by importance, so a cut list keeps
 	// the issues that matter rather than the newest ones.
-	issues, err := s.Memories(ctx, req.Project, []string{KindIssue})
+	// Only the ones somebody has brought up within StaleAfter: an issue
+	// nobody has mentioned in three weeks is far likelier fixed than still in
+	// the way, and a recap that keeps reading it back has the lead repeat it
+	// to the user. It stays live, and searchable.
+	issues, err := s.OpenIssues(ctx, req.Project, time.Now().Add(-StaleAfter), contextIssues)
 	if err != nil {
 		return nil, err
 	}
-	issues = firstN(issues, contextIssues)
 	for _, it := range issues {
 		seen[it.ID] = true
 	}

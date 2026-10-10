@@ -1874,6 +1874,25 @@ export interface ConsolidateRequest {
   distil?: boolean;
 }
 
+export interface TidyMemoryRequest {
+  olderThanHours?: number;
+  apply?: boolean;
+}
+
+export interface TidyMemoryResult {
+  applied: boolean;
+  resolved: Memory[];
+  merged: MemoryMerge[];
+  kept: number;
+}
+
+export interface MemoryMerge {
+  memory: Memory;
+  into: Memory;
+  score: number;
+  why: string;
+}
+
 export interface ConsolidationPass {
   id: string;
   project: string;

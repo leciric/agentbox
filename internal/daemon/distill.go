@@ -254,6 +254,7 @@ func (s *Server) applyDistillation(ctx context.Context, a state.Agent, pass *mem
 		m := memory.Memory{
 			Project: a.Project, Kind: item.kind(), Title: title, Content: content,
 			Importance: item.importance(), SupersedesID: replacing, SourceEventID: event.ID,
+			Anchors: item.anchors(),
 		}
 		_, err := store.AddMemory(ctx, m)
 		if err != nil && replacing != "" {
@@ -321,6 +322,21 @@ type distilled struct {
 	Detail     string `json:"detail"`
 	Importance int    `json:"importance"`
 	Replaces   string `json:"replaces"`
+	// Anchors are what would close an issue, as the model wrote them:
+	// "#234", "branch agentbox/fix-x", "question 1a2b3c4d".
+	Anchors []string `json:"anchors"`
+}
+
+// anchors are the ones the model named that name something; the rest of an
+// issue's anchors come from its text (memory.AddMemory).
+func (d distilled) anchors() []memory.Anchor {
+	var out []memory.Anchor
+	for _, s := range d.Anchors {
+		if a, ok := memory.ParseAnchor(s); ok {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // resolution is one issue the model says is over, with no replacement to name.
@@ -451,7 +467,8 @@ const distillShape = `Answer with one JSON object and nothing else, in this shap
     {"kind": "project|decision|discovery|issue|episodic",
      "title": "one line somebody would recognise it by",
      "detail": "the fact in full, and what somebody should do about it",
-     "importance": 3}
+     "importance": 3,
+     "anchors": ["#234", "branch agentbox/fix-x", "question 1a2b3c4d"]}
   ],
   "supersede": [
     {"replaces": "mem_… the id of the memory that is no longer right",
@@ -468,5 +485,6 @@ const distillShape = `Answer with one JSON object and nothing else, in this shap
 - **memories** is what the project didn't know before. Nothing that is already in the list above, and nothing that will be false next week.
 - **supersede** is for a memory that is now wrong or out of date: name its id and say what is true instead. The old one stops coming back from searches and stays readable.
 - **resolve** is for an issue that is simply over, with nothing to put in its place — the bug was fixed, the test was deleted, it stopped mattering. Don't invent a replacement memory for it; that is what this list is for.
+- **anchors**, for an issue only, are what would close it: the pull requests, branches and question ids it waits on. AgentBox closes the issue by itself once every one of them is merged, closed or answered, so name only what it waits on, never a pull request it merely mentions. Leave it out when nothing would close it.
 - **importance** is 1 to 5. 3 is ordinary. 5 is for what nobody should work on this project without knowing, and spending it freely makes it worthless.
 - Every list may be empty. Answering with three empty lists is a fine answer if this stretch genuinely established nothing.`

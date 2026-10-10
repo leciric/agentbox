@@ -288,3 +288,10 @@ func (m *MemoryClient) Consolidate(ctx context.Context, distil bool) ([]Consolid
 	var out []ConsolidationPass
 	return out, m.c.do(ctx, http.MethodPost, m.base+"/consolidate", ConsolidateRequest{Distil: distil}, &out)
 }
+
+// Tidy resolves the project's open items older than a cutoff and merges the
+// rest by topic, or with Apply false says what it would.
+func (m *MemoryClient) Tidy(ctx context.Context, req TidyMemoryRequest) (TidyMemoryResult, error) {
+	var out TidyMemoryResult
+	return out, m.c.do(ctx, http.MethodPost, m.base+"/tidy", req, &out)
+}
