@@ -8,18 +8,18 @@ import (
 	"testing"
 )
 
-// The tasks written before the list became the user's alone can't be told
-// apart from the ones the user wrote, so the migration clears the list.
-func TestUserManagedTasksMigrationClearsTheList(t *testing.T) {
+// The user's task list went with the Tasks tab: an installation that had
+// tasks, blocking edges and a "tasks go to" loses all three on upgrade.
+func TestTheTaskListIsDroppedOnUpgrade(t *testing.T) {
 	ctx := context.Background()
 	db, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	clear := slices.Index(migrations, "DELETE FROM task_dependencies")
-	if clear < 0 {
-		t.Fatal("no migration clears the task list")
+	drop := slices.Index(migrations, "DROP TABLE task_dependencies")
+	if drop < 0 {
+		t.Fatal("no migration drops the task list")
 	}
 	run := func(qs ...string) {
 		t.Helper()
@@ -29,20 +29,27 @@ func TestUserManagedTasksMigrationClearsTheList(t *testing.T) {
 			}
 		}
 	}
-	run(migrations[:clear]...)
-	run(`INSERT INTO tasks (id, project, agent, status, goal, created_at, updated_at) VALUES
-			('task_a', 'p', 'agent-01', 'active', 'Written by the agent''s creation', 1, 1),
-			('task_b', 'p', '', 'open', 'Written by the lead or the user', 1, 1)`,
-		`INSERT INTO task_dependencies (project, task_id, depends_on_id, created_at) VALUES ('p', 'task_a', 'task_b', 1)`)
-	run(migrations[clear:]...)
+	run(migrations[:drop]...)
+	run(`INSERT INTO tasks (id, project, status, goal, created_at, updated_at) VALUES
+			('task_a', 'p', 'open', 'Paginate the reminders page', 1, 1),
+			('task_b', 'p', 'open', 'Index the count query', 1, 1)`,
+		`INSERT INTO task_dependencies (project, task_id, depends_on_id, created_at) VALUES ('p', 'task_a', 'task_b', 1)`,
+		`INSERT INTO settings (key, value) VALUES ('task_target', 'lead')`)
+	run(migrations[drop:]...)
 
-	for _, table := range []string{"tasks", "task_dependencies"} {
-		var n int
-		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table).Scan(&n); err != nil {
-			t.Fatal(err)
-		}
-		if n != 0 {
-			t.Errorf("%s has %d rows after the migration, want none", table, n)
-		}
+	var tables int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE name IN ('tasks', 'task_dependencies') OR tbl_name IN ('tasks', 'task_dependencies')`).Scan(&tables); err != nil {
+		t.Fatal(err)
+	}
+	if tables != 0 {
+		t.Errorf("%d tables or indexes of the task list are left after the migration, want none", tables)
+	}
+	var settings int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM settings WHERE key = 'task_target'`).Scan(&settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings != 0 {
+		t.Error(`"tasks go to" is still set after the migration`)
 	}
 }

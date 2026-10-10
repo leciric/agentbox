@@ -15,7 +15,6 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/github"
-	"agentbox/internal/memory"
 	"agentbox/internal/state"
 )
 
@@ -256,42 +255,6 @@ func TestPRWatchTellsTheAgentOnTransitionsOnly(t *testing.T) {
 	}
 	if said, leads := rec.take(); len(said) != 0 || len(leads) != 0 {
 		t.Fatalf("a merge was announced: %v %v", said, leads)
-	}
-}
-
-// A merge the watch sees is the agent's open tasks implemented, with the pull
-// request they landed in; nobody else's task moves.
-func TestPRWatchMergeImplementsTheAgentsTasks(t *testing.T) {
-	t.Parallel()
-	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	gh := newFakeGraphQL(t, d)
-	recordPRWatch(d)
-	_, agents := pullsProject(t, d, "agent-01")
-	head := commitOn(t, agents["agent-01"], "reminders.txt")
-	ctx := context.Background()
-	mine, err := d.srv.memory().AddTask(ctx, memory.Task{Project: "hello-stack", Agent: "agent-01", Goal: "Reminders page"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	other, err := d.srv.memory().AddTask(ctx, memory.Task{Project: "hello-stack", Goal: "Something else"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gh.set(9, head, "OPEN", "MERGEABLE", "SUCCESS", "")
-	pollNow(d)
-	if got := taskOf(t, d, "hello-stack", mine.ID); got.Status != memory.TaskOpen {
-		t.Fatalf("an open pull request closed the task: %s", got.Status)
-	}
-
-	gh.set(9, head, "MERGED", "UNKNOWN", "SUCCESS", "")
-	pollNow(d)
-	got := taskOf(t, d, "hello-stack", mine.ID)
-	if got.Status != memory.TaskDone || got.PullNumber != 9 || got.PullURL != "https://github.com/acme/hello-stack/pull/9" {
-		t.Errorf("after the merge the task is %s, %q #%d; want done by #9", got.Status, got.PullURL, got.PullNumber)
-	}
-	if got := taskOf(t, d, "hello-stack", other.ID); got.Status != memory.TaskOpen {
-		t.Errorf("another task moved to %s", got.Status)
 	}
 }
 

@@ -95,12 +95,14 @@ func TestProjectMemoryTools(t *testing.T) {
 			t.Errorf("%s has no description: it is all a model reads", want)
 		}
 	}
-	// The task list is the user's: the project's chat reads it in
-	// project_state, and has nothing to write it with.
+	// There is no task list, to write or to read.
 	for _, gone := range []string{"add_task", "link_tasks", "set_task_status"} {
 		if _, ok := byName[gone]; ok {
-			t.Errorf("the project chat has %s: only the user writes tasks", gone)
+			t.Errorf("the project chat has %s: there are no tasks", gone)
 		}
+	}
+	if strings.Contains(byName["project_state"].Description, "task list") {
+		t.Error("project_state still offers the user's task list")
 	}
 	// remember is not append_note, and says so: the two are easy to confuse,
 	// and the wrong one puts a paragraph in every agent's brief.

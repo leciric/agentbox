@@ -69,7 +69,6 @@ func TestNoSecretIsStored(t *testing.T) {
 	must(s.SetWorkingMemory(ctx, "pawly", memory.WorkingMemoryPatch{Notes: &notes, Blockers: &blockers}))
 	must(s.AddArtifact(ctx, memory.Artifact{Project: "pawly", Type: "screenshot",
 		Path: "https://lint:s3cr3t@example.com/shot.png", Metadata: json.RawMessage(`{"cookie":"hunter2"}`)}))
-	must(s.AddTask(ctx, memory.Task{Project: "pawly", Goal: "Rotate ghp_0123456789abcdefABCDEF0123456789abcd", Detail: secretProse}))
 	other, err := s.AddMemory(ctx, memory.Memory{Project: "pawly", Kind: memory.KindIssue, Title: "Another"})
 	if err != nil {
 		t.Fatal(err)

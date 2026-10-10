@@ -851,7 +851,7 @@ function pageBridge(): void {
   type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
   const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
   const inner = bridge.request;
-  const lists = /^\/v1\/projects\/[^/]+\/memory\/(memories|events|artifacts|reports|duplicates|tasks)(\?|$)/;
+  const lists = /^\/v1\/projects\/[^/]+\/memory\/(memories|events|artifacts|reports|duplicates)(\?|$)/;
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && lists.test(path)) return { status: 200, body: '[]', contentType: 'application/json' };
     if (method === 'GET' && path.endsWith('/diff?stat=true')) return { status: 200, body: JSON.stringify(' desktop/src/renderer/lib/tabs.ts | 46 ++++++\n 1 file changed, 46 insertions(+)'), contentType: 'application/json' };

@@ -12,11 +12,9 @@ import (
 
 // What an earlier release left queued. It had an agent queue: a create could
 // wait for one of its project's slots, with its agent's name, title, branch
-// and task given at once and its machine later, and a task of the Tasks tab
-// could wait for the lead behind the agents queued before it. Nothing queues
-// any more, so as the daemon starts it starts every agent left queued, the
-// way the queue would have once a slot came free, and hands the lead every
-// task left waiting for it.
+// and task given at once and its machine later. Nothing queues any more, so
+// as the daemon starts it starts every agent left queued, the way the queue
+// would have once a slot came free.
 
 // queuedRequest is what a queued agent is started from: the create request as
 // it was made, and whether the project's chat made it, which the chat is still
@@ -35,16 +33,6 @@ func (s *Server) startLeftoverQueue(ctx context.Context) {
 	for _, q := range queue {
 		if err := s.startQueuedAgent(ctx, q); err != nil {
 			s.logf("agents left queued: starting %s: %v", q.Ref(), err)
-		}
-	}
-	tasks, err := s.memory().LeadQueue(ctx, "")
-	if err != nil {
-		s.logf("tasks left queued for the lead: %v", err)
-		return
-	}
-	for _, t := range tasks {
-		if _, err := s.taskToLead(ctx, t); err != nil {
-			s.logf("tasks left queued for the lead: sending task %s to %s's chat: %v", t.ID, t.Project, err)
 		}
 	}
 }
@@ -72,7 +60,6 @@ func (s *Server) startQueuedAgent(ctx context.Context, q state.QueuedAgent) erro
 			if cur, getErr := s.store.Agent(ctx, q.Project, q.Name); getErr == nil && cur.Status == state.AgentQueued {
 				_ = s.store.RemoveAgent(context.WithoutCancel(ctx), q.Project, q.Name)
 			}
-			s.releaseQueuedTasks(context.WithoutCancel(ctx), a)
 		}
 		return out, err
 	}); err != nil {

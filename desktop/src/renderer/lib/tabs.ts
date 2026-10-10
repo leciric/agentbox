@@ -5,7 +5,7 @@
 // the same panel. A project's Agents tab is gone (the sidebar lists its
 // agents), and lands on its chat.
 
-export type ProjectTab = 'chat' | 'tasks' | 'pulls' | 'media' | 'settings';
+export type ProjectTab = 'chat' | 'pulls' | 'media' | 'settings';
 export type ProjectSection = 'repository' | 'general' | 'brief' | 'memory' | 'tokens' | 'secrets' | 'connectors' | 'skills';
 
 export type AgentTab = 'chat' | 'terminal' | 'browser' | 'android' | 'media' | 'settings' | 'snapshots';
@@ -22,7 +22,7 @@ export type AgentPlaceName = AgentTab | AgentSection | 'overview';
 export const projectSections: readonly ProjectSection[] = ['repository', 'general', 'brief', 'memory', 'tokens', 'secrets', 'connectors', 'skills'];
 export const agentSections: readonly AgentSection[] = ['machine', 'code', 'ai', 'secrets', 'connectors'];
 
-const projectTabs: readonly string[] = ['chat', 'tasks', 'pulls', 'media', 'settings'];
+const projectTabs: readonly string[] = ['chat', 'pulls', 'media', 'settings'];
 const agentTabs: readonly string[] = ['chat', 'terminal', 'browser', 'android', 'media', 'settings', 'snapshots'];
 
 export type Place<Tab, Section> = { tab: Tab; section: Section };
