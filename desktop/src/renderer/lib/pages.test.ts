@@ -8,6 +8,7 @@ import {
   arrivals,
   byAgent,
   countByAgent,
+  countByProject,
   isExpired,
   isNew,
   isPageCall,
@@ -153,6 +154,20 @@ test('a search matches every word in the title or the agent', () => {
   assert.ok(matchesPage(p, 'agent-12'));
   assert.ok(matchesPage(p, 'sidebar', 'Sidebar button'));
   assert.ok(!matchesPage(p, 'usage flame'));
+});
+
+test('a search also matches the project names when given', () => {
+  const p = page({ title: 'Q3 usage report' });
+  assert.ok(matchesPage(p, 'pawly usage', '', 'pawly Pawly Pets'));
+  assert.ok(matchesPage(p, 'pets', '', 'pawly Pawly Pets'));
+  assert.ok(!matchesPage(p, 'pets', ''));
+  assert.ok(!matchesPage(p, 'other', '', 'pawly Pawly Pets'));
+});
+
+test('pages are counted by project in the order they appear', () => {
+  const counts = countByProject([{ project: 'b' }, { project: 'a' }, { project: 'b' }]);
+  assert.deepEqual([...counts], [['b', 2], ['a', 1]]);
+  assert.equal(countByProject([]).size, 0);
 });
 
 test('isPageCall knows publish_page and update_page whatever the AI tool calls them', () => {

@@ -1,11 +1,12 @@
 import { Check, Images } from 'lucide-react';
 import { useDeferredValue, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
-import { isNew, markSeen, matchesPage, openPage, pagesFor } from '../../lib/pages';
+import { countByProject, isNew, markSeen, matchesPage, openPage, pagesFor } from '../../lib/pages';
 import { useT } from '../../lib/i18n';
 import { projectLabel } from '../../lib/projectName';
 import { useNow } from '../../lib/useNow';
 import { cn, timeAgo } from '../../lib/utils';
+import { FilterChip } from '../MediaTab';
 import { Button } from '../ui/button';
 import { PageSearch } from './PageList';
 import { PageIcon, PageThumb, useAgentLabel } from './PageThumb';
@@ -97,8 +98,12 @@ function TabButton({ active, onClick, children, ...rest }: { active: boolean; on
   );
 }
 
+// The project chosen in global Media's Pages tab, kept while the app runs:
+// switching to Media and back, or to another view, doesn't reset it.
+let chosenProject = '';
+
 // PagesGallery is the Pages tab: the pages as cards, newest first, with a
-// search; the new ones ringed and marked until you open them. Thumbnails
+// search (and, in global Media, a filter by project); the new ones ringed and marked until you open them. Thumbnails
 // are drawn as cards come near the screen, and cards off it are skipped.
 function PagesGallery({ entries, showProject }: { entries: Entry[]; showProject?: boolean }) {
   const t = useT();
@@ -107,15 +112,36 @@ function PagesGallery({ entries, showProject }: { entries: Entry[]; showProject?
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: !!showProject });
   const [query, setQuery] = useState('');
   const search = useDeferredValue(query);
+  const [picked, setPicked] = useState(chosenProject);
+  const counts = countByProject(entries);
+  // A project whose pages are all gone is no longer a choice: show them all.
+  const project = showProject && counts.has(picked) ? picked : '';
+  const choose = (name: string) => {
+    chosenProject = name;
+    setPicked(name);
+  };
   const sorted = [...entries].sort((a, b) => new Date(b.page.updatedAt).getTime() - new Date(a.page.updatedAt).getTime());
-  const found = sorted.filter((e) => matchesPage(e.page, search, label(e.page.agent)));
+  const found = sorted.filter(
+    (e) => (!project || e.project === project) && matchesPage(e.page, search, label(e.page.agent), showProject ? `${e.project} ${projectLabel(e.project, projects.data)}` : ''),
+  );
   const fresh = entries.filter((e) => isNew(e.page));
 
   return (
     <div className="flex flex-col gap-4" data-media-pages>
       <div className="flex flex-wrap items-center gap-2 px-1">
-        <span className="text-[13px] text-muted">{t('pages.media.count', { count: entries.length })}</span>
         <PageSearch value={query} onChange={setQuery} className="w-56" />
+        {showProject && counts.size > 0 && (
+          <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('pages.media.projectFilter')} data-media-pages-projects>
+            <FilterChip active={!project} count={entries.length} onClick={() => choose('')}>
+              {t('pages.media.allProjects')}
+            </FilterChip>
+            {[...counts].map(([name, n]) => (
+              <FilterChip key={name} active={project === name} count={n} onClick={() => choose(project === name ? '' : name)}>
+                <span className="max-w-48 truncate">{projectLabel(name, projects.data)}</span>
+              </FilterChip>
+            ))}
+          </div>
+        )}
         {fresh.length > 0 && (
           <Button size="sm" variant="ghost" className="ml-auto" onClick={() => markSeen(fresh.map((e) => e.page))}>
             <Check />
