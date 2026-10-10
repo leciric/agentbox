@@ -9,7 +9,7 @@ import type { HostSetupStatus, VMMigration, VMPower, VMPowerAction, VMPowerState
 import type * as T from '../../shared/api';
 import type { FreeRun } from '../components/ResourceControls';
 import { freeTargets } from '../lib/freeResources';
-import { artifactPageUrl, artifactRequest } from './artifacts';
+import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 
 export const PROJECT = 'agentbox';
 
@@ -1734,8 +1734,8 @@ export function installDevBridge(): void {
   (window as unknown as { agentbox: unknown }).agentbox = {
     request: async (method: string, path: string, body?: unknown) => {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
-      const artifact = artifactRequest(method, path);
-      if (artifact) return artifact;
+      const page = pageRequest(method, path);
+      if (page) return page;
       // Renaming a Claude account answers with what it carried over (the
       // ?accounts=1 scenario), and refuses a name one of the fixtures has.
       const rename = method === 'POST' ? /^\/v1\/auth\/claude\/([^/]+)\/rename$/.exec(path) : null;
@@ -1826,7 +1826,8 @@ export function installDevBridge(): void {
     hubs: { list: async () => [], login: async () => ({}), logout: async () => {}, environments: async () => [], addEnvironment: async () => ({}) },
     target: { get: async () => ({ kind: 'local' }), set: async (t: unknown) => t, onChange: () => () => {} },
     mediaUrl: (id: string) => mediaFiles.get(id) ?? '',
-    chatImageUrl: (path: string) => artifactPageUrl(path) ?? '',
+    chatImageUrl: (path: string) => pagePageUrl(path) ?? '',
+    pageThumb: (path: string) => pageThumbUrl(path),
     report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '' },
     pickDirectory: async () => null,
     setLanguage: () => {},

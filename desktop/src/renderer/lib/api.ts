@@ -1,7 +1,6 @@
 // Typed calls to the daemon's HTTP API, sent through the main process.
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
-import { artifactPagePath } from './artifacts.ts';
 import { errorMessage } from './utils.ts';
 import { ensureVMRunning } from './vm.ts';
 
@@ -43,6 +42,11 @@ async function call<R>(method: string, path: string, body?: unknown): Promise<R>
 async function text(method: string, path: string): Promise<string> {
   return (await call<string | undefined>(method, path)) ?? '';
 }
+
+// pagePath is the daemon path of a Hatch page's HTML, which the app frames
+// through agentbox-media://api (main/media.ts).
+export const pagePath = (name: string, id: string) =>
+  `/v1/projects/${encodeURIComponent(name)}/artifacts/${encodeURIComponent(id)}/page`;
 
 const project = (name: string) => `/v1/projects/${encodeURIComponent(name)}`;
 const agent = (ref: string) => `/v1/agents/${ref.split('/').map(encodeURIComponent).join('/')}`;
@@ -258,10 +262,13 @@ export const api = {
     call<T.Connector>('PUT', `${connectorPath(projectName, name)}/override`, { override } satisfies T.ConnectorOverrideRequest),
 
   // The pages a project's chats published on Hatch, and one of them brought
-  // up to date from Hatch; its HTML is framed from artifactUrl.
-  artifacts: (name: string) => call<T.Artifacts>('GET', `${project(name)}/artifacts`),
-  artifactPreview: (name: string, id: string) => call<T.ArtifactPreview>('GET', `${project(name)}/artifacts/${encodeURIComponent(id)}`),
-  artifactUrl: (name: string, id: string) => window.agentbox.chatImageUrl(artifactPagePath(name, id)),
+  // up to date from Hatch; its HTML is framed from pageUrl, and snapshotted
+  // for its thumbnail by the main process (main/pagethumbs.ts).
+  pages: (name: string) => call<T.Artifacts>('GET', `${project(name)}/artifacts`),
+  pagePreview: (name: string, id: string) => call<T.ArtifactPreview>('GET', `${project(name)}/artifacts/${encodeURIComponent(id)}`),
+  pageUrl: (name: string, id: string) => window.agentbox.chatImageUrl(pagePath(name, id)),
+  pageThumb: (name: string, id: string, key: string): Promise<string | null> =>
+    window.agentbox.pageThumb(pagePath(name, id), key),
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
 

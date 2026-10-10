@@ -4,7 +4,8 @@ import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import type { ConnectionState } from '../../preload';
 import * as T from '../../shared/api.ts';
-import { onChatItem as onArtifactCall } from './artifacts.ts';
+import { api } from './api.ts';
+import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
 
 const listeners = new Set<() => void>();
@@ -81,8 +82,8 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventChat: {
         const chat = event.data as T.ChatEvent;
         applyChatEvent(queryClient, chat);
-        // A page published on Hatch joins the project's artifacts.
-        if (chat.item) onArtifactCall(queryClient, chat.agent, chat.item);
+        // A page published on Hatch joins the project's pages.
+        if (chat.item) onPageCall(queryClient, chat.agent, chat.item, api.pages);
         break;
       }
       case T.EventChatCache: {
@@ -113,7 +114,7 @@ export function connectEvents(queryClient: QueryClient): void {
         // the project's agents', which carry the project's connectors too —
         // and for an AgentBox-wide one (project ''), every list.
         const connector = event.data as T.Connector;
-        for (const key of ['connectors', 'artifacts']) {
+        for (const key of ['connectors', 'pages']) {
           void queryClient.invalidateQueries({
             queryKey: [key],
             predicate: (query) => connector.project === '' || String(query.queryKey[1]).split('/')[0] === connector.project,

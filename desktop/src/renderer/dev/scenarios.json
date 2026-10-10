@@ -1015,23 +1015,30 @@
     "height": 300
   },
   {
-    "id": "artifacts-lead-dark",
-    "description": "The project's chat with Hatch connected: its artifacts tray over the composer, each with the agent that made it, one expiring soon and one expired — dark",
-    "query": "artifacts=lead&theme=dark",
+    "id": "pages-lead-dark",
+    "description": "The project's chat with Hatch connected: three new pages piled at the composer's corner, the Pages tab beside Agents, page icons on the agents that published — dark",
+    "query": "pages=lead&theme=dark",
     "width": 1280,
     "height": 900
   },
   {
-    "id": "artifacts-lead-light",
-    "description": "Same as artifacts-lead-dark — light",
-    "query": "artifacts=lead&theme=light",
+    "id": "pages-lead-light",
+    "description": "Same as pages-lead-dark — light",
+    "query": "pages=lead&theme=light",
     "width": 1280,
     "height": 900
   },
   {
-    "id": "artifacts-agent-dark",
-    "description": "agent-12's chat: only the artifacts it made or updated — dark",
-    "query": "artifacts=agent-12&theme=dark",
+    "id": "pages-agent-dark",
+    "description": "agent-12's chat: only its own new page on the stack — dark",
+    "query": "pages=agent-12&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "pages-media-project-dark",
+    "description": "A project's Media panel with its Pages tab and the count of new pages — dark",
+    "query": "pages=lead&media=project&theme=dark",
     "width": 1280,
     "height": 900
   }

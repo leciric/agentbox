@@ -5,6 +5,7 @@
 import { Readable } from 'node:stream';
 import { protocol } from 'electron';
 import { requestOptions } from './connection';
+import { thumbScheme } from './pagethumbs';
 
 export const mediaScheme = 'agentbox-media';
 
@@ -12,6 +13,8 @@ export const mediaScheme = 'agentbox-media';
 export function registerMediaScheme(): void {
   protocol.registerSchemesAsPrivileged([
     { scheme: mediaScheme, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+    // A Hatch page drawn for its thumbnail, in its own session (main/pagethumbs.ts).
+    { scheme: thumbScheme, privileges: { standard: true, secure: true } },
   ]);
 }
 
@@ -28,7 +31,7 @@ const cors = {
 // reaches: a picture sent in an agent's chat, or in a project's, or a SnapShot
 // waiting to be; and the HTML of a page a project's chats published on Hatch,
 // which the daemon sends with a sandboxing Content-Security-Policy, framed by
-// the chat's artifact preview.
+// the page's preview.
 const chatImage = /^\/v1\/((projects\/[^/]+|agents\/[^/]+\/[^/]+)\/chat\/images\/[0-9a-f]{16}|snaps\/[0-9a-f]{16}\/image)$/;
 const artifactPage = /^\/v1\/projects\/[^/]+\/artifacts\/[A-Za-z0-9_-]+\/page$/;
 
@@ -38,7 +41,7 @@ export function handleMedia(): void {
     const url = new URL(request.url);
     let path: string;
     if (url.host === 'api') {
-      // A picture sent in a chat, or an artifact's page, and nothing else of the daemon's API.
+      // A picture sent in a chat, or a Hatch page, and nothing else of the daemon's API.
       if (!chatImage.test(url.pathname) && !artifactPage.test(url.pathname)) return new Response('not found', { status: 404, headers: cors });
       path = url.pathname;
     } else {
