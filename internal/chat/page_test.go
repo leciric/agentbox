@@ -217,3 +217,67 @@ func TestSearchFindsWhatIsNotStoredYet(t *testing.T) {
 		t.Errorf("Search(done) = %d hits, want the two answers", len(found.Hits))
 	}
 }
+
+// A search result opens the chat around it: a few messages on each side, in
+// whole turns, and pages forward from there reach the end, every item once.
+func TestAroundAnItemPagesBothWays(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	all := longConversation(25)
+	storeConversation(t, store, testAgent, all)
+	m := &Manager{Store: store}
+
+	// u10's answer, with two messages each side: u9's answer and u10's
+	// message before it (from u9's turn on), u11's two after it (through
+	// u11's turn).
+	around, err := m.Around(testAgent, "u10-said", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := ids(around.Items), ids(all[9*6:12*6]); !slices.Equal(got, want) {
+		t.Fatalf("Around(u10-said, 2) = %v, want %v", got, want)
+	}
+	if !around.Older || !around.Newer {
+		t.Errorf("Around(u10-said, 2): older %v, newer %v; want both", around.Older, around.Newer)
+	}
+
+	// Paging forward ends at the conversation's end, with nothing newer.
+	got := around.Items
+	for page := around; page.Newer; {
+		page, err = m.PageAfter(testAgent, page.Items[len(page.Items)-1].ID, 4)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Items) == 0 || page.Items[0].Kind != "user" {
+			t.Fatalf("a page forward doesn't start at a turn: %v", ids(page.Items))
+		}
+		got = append(got, page.Items...)
+	}
+	if want := ids(all[9*6:]); !slices.Equal(ids(got), want) {
+		t.Errorf("forward from u9 = %v, want %v", ids(got), want)
+	}
+
+	// At the ends there is nothing older, or nothing newer.
+	first, err := m.Around(testAgent, "u0", 2)
+	if err != nil || first.Older || !first.Newer || !slices.Equal(ids(first.Items), ids(all[:2*6])) {
+		t.Errorf("Around(u0, 2) = %v, older %v, newer %v, %v; want the first two turns and newer only", ids(first.Items), first.Older, first.Newer, err)
+	}
+	last, err := m.Around(testAgent, "u24-said", 2)
+	if err != nil || !last.Older || last.Newer || !slices.Equal(ids(last.Items), ids(all[23*6:])) {
+		t.Errorf("Around(u24-said, 2) = %v, older %v, newer %v, %v; want the last two turns and older only", ids(last.Items), last.Older, last.Newer, err)
+	}
+	// The latest page has nothing newer.
+	if latest, err := m.Page(testAgent, "", 4); err != nil || latest.Newer {
+		t.Errorf("the latest page: newer %v, %v", latest.Newer, err)
+	}
+
+	// An item the conversation doesn't have is an empty page either way.
+	for name, read := range map[string]func() (api.ChatThread, error){
+		"Around":    func() (api.ChatThread, error) { return m.Around(testAgent, "nowhere", 2) },
+		"PageAfter": func() (api.ChatThread, error) { return m.PageAfter(testAgent, "nowhere", 2) },
+	} {
+		if page, err := read(); err != nil || len(page.Items) != 0 || page.Older || page.Newer {
+			t.Errorf("%s(an unknown item) = %v, older %v, newer %v, %v; want an empty page", name, ids(page.Items), page.Older, page.Newer, err)
+		}
+	}
+}

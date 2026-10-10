@@ -1,7 +1,7 @@
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import type * as T from '../../../shared/api';
-import { loadThrough } from '../../lib/chat';
+import { chatWindowKey, dropWindow, holds, openWindow } from '../../lib/chat';
 import { matchesIn } from '../../lib/chatFind';
 
 // ChatOpenAt opens a chat at one of its items rather than at its end: what
@@ -12,12 +12,19 @@ export interface ChatOpenAt {
   query?: string;
 }
 
-// useRevealItem's reveal brings an item of a chat into view:
-// if the chat hasn't loaded it, it reads the chat back to it (loadThrough),
-// then, once its row is on the page, scrolls it a third of the way down the
-// view — to the first match of query in it, given one. onJump is called as
-// it does, for the chat to stop following its end. An item the chat can't
-// read back to (cleared meanwhile) is let go. loading is while it reads.
+// useChatWindow is the window the chat shows instead of its end, if any
+// (openWindow).
+export function useChatWindow(chatRef: string): T.ChatThread | null {
+  return useQuery<T.ChatThread | null>({ queryKey: chatWindowKey(chatRef), queryFn: () => null, enabled: false, staleTime: Infinity }).data ?? null;
+}
+
+// useRevealItem's reveal brings an item of a chat into view: one the chat
+// doesn't hold, it opens a window on (openWindow), and one the chat holds
+// while a window is open, it goes back to the chat for. Once its row is on
+// the page, it scrolls it a third of the way down the view — to the first
+// match of query in it, given one. onJump is called as it does, for the chat
+// to stop following its end. An item the daemon no longer has (cleared
+// meanwhile) is let go. loading is while it reads.
 export function useRevealItem(
   chatRef: string,
   thread: T.ChatThread | undefined,
@@ -25,6 +32,7 @@ export function useRevealItem(
   onJump: () => void,
 ): { reveal: (item: string, query?: string) => void; loading: boolean } {
   const queryClient = useQueryClient();
+  const win = useChatWindow(chatRef);
   const target = useRef<{ item: string; query?: string }>(undefined);
   const [asked, setAsked] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -36,13 +44,17 @@ export function useRevealItem(
     if (!want || !box) return;
     const row = box.querySelector(`[data-chat-id="${CSS.escape(want.item)}"]`);
     if (!row) {
-      if (loading || thread?.items.some((it) => it.id === want.item)) return;
+      if (loading || holds(win ?? thread, want.item)) return;
       jump.current();
+      if (win && holds(thread, want.item)) {
+        dropWindow(queryClient, chatRef);
+        return;
+      }
       setLoading(true);
       const forget = () => {
         if (target.current === want) target.current = undefined;
       };
-      loadThrough(queryClient, chatRef, want.item)
+      openWindow(queryClient, chatRef, want.item)
         .then((ok) => ok || forget())
         .catch(forget)
         .finally(() => setLoading(false));
@@ -54,7 +66,7 @@ export function useRevealItem(
     const rect = (first ?? row).getBoundingClientRect();
     const view = box.getBoundingClientRect();
     box.scrollTo({ top: box.scrollTop + rect.top - view.top - box.clientHeight / 3 });
-  }, [asked, thread, loading, chatRef, queryClient, scroller]);
+  }, [asked, thread, win, loading, chatRef, queryClient, scroller]);
   const reveal = useCallback((item: string, query?: string) => {
     target.current = { item, query };
     setAsked((n) => n + 1);

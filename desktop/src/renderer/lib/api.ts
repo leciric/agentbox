@@ -82,6 +82,15 @@ const connectorPath = (target: string, name: string) => `${connectorsBase(target
 
 export type AgentAction = 'start' | 'stop' | 'pause' | 'resume';
 
+// ChatPage is which part of a chat to read (api.chat), by item id.
+export interface ChatPage {
+  limit: number;
+  before?: string;
+  from?: string;
+  around?: string;
+  after?: string;
+}
+
 // A part of the token ledger: every project, one project, or one agent, since
 // a time or a stretch back from now ("5h", "7d"); no since is all of it.
 export interface TokenQuery {
@@ -169,15 +178,13 @@ export const api = {
   diffStat: (ref: string) => text('GET', `${agent(ref)}/diff?stat=true`),
 
   // A chat is read a page at a time: the latest limit messages, the ones
-  // before an item, or everything from an item on. Without a page it is the
-  // whole conversation.
-  chat: (ref: string, page?: { before?: string; from?: string; limit: number }) =>
-    call<T.ChatThread>(
-      'GET',
-      page
-        ? `${chatBase(ref)}?${new URLSearchParams({ limit: String(page.limit), ...(page.before ? { before: page.before } : {}), ...(page.from ? { from: page.from } : {}) })}`
-        : chatBase(ref),
-    ),
+  // before an item, everything from an item on, limit messages on each side
+  // of an item (around), or the ones after it. Without a page it is the whole
+  // conversation.
+  chat: (ref: string, page?: ChatPage) => {
+    const q = page && Object.entries({ ...page, limit: String(page.limit) }).filter((kv): kv is [string, string] => !!kv[1]);
+    return call<T.ChatThread>('GET', q ? `${chatBase(ref)}?${new URLSearchParams(q)}` : chatBase(ref));
+  },
   // What in a chat holds query, loaded or not: its items, oldest first.
   searchChat: (ref: string, query: string) => call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query })}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),

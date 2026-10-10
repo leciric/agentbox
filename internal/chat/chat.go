@@ -289,6 +289,45 @@ func (m *Manager) Reread(a state.Agent, from string, limit int) (api.ChatThread,
 	return c.page(start, end), nil
 }
 
+// Around returns the part of an agent's conversation around the item id,
+// which a search found: n messages before it and n after it, so the app opens
+// a long chat at an old message without reading everything since. Like a
+// page, it starts where a turn does, and it ends where one does too. An id the
+// conversation doesn't have (cleared meanwhile) is an empty page; n of 0 is
+// the whole conversation.
+func (m *Manager) Around(a state.Agent, id string, n int) (api.ChatThread, error) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return api.ChatThread{}, err
+	}
+	defer c.mu.Unlock()
+	c.flush(false)
+	i := slices.IndexFunc(c.items, func(it *api.ChatItem) bool { return it.ID == id })
+	if i < 0 {
+		return c.page(0, 0), nil
+	}
+	start, _ := pageOf(c.items, id, n)
+	return c.page(start, pageAfter(c.items, i, n)), nil
+}
+
+// PageAfter returns the page after the item called after: forward far enough to
+// hold limit messages, ending where a turn does, so the app reads on from an
+// opened search result towards the end. An item the conversation doesn't have
+// is an empty page.
+func (m *Manager) PageAfter(a state.Agent, after string, limit int) (api.ChatThread, error) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return api.ChatThread{}, err
+	}
+	defer c.mu.Unlock()
+	c.flush(false)
+	i := slices.IndexFunc(c.items, func(it *api.ChatItem) bool { return it.ID == after })
+	if i < 0 {
+		return c.page(0, 0), nil
+	}
+	return c.page(i+1, pageAfter(c.items, i, limit)), nil
+}
+
 // Search finds query in an agent's conversation, in its order (see
 // state.Store.SearchChats), with at most limit hits. What the conversation
 // holds and hasn't stored yet, like an answer still streaming in, is stored
@@ -314,13 +353,14 @@ func (m *Manager) Search(ctx context.Context, a state.Agent, query string, limit
 	return out, nil
 }
 
-// page is items[start:end] as a thread. The conversation is locked.
+// page is items[start:end] as a thread. The conversation is locked. An empty
+// page, of an item the conversation doesn't have, has nothing around it.
 func (c *conversation) page(start, end int) api.ChatThread {
 	items := make([]api.ChatItem, 0, end-start)
 	for _, it := range c.items[start:end] {
 		items = append(items, clone(*it))
 	}
-	return api.ChatThread{Agent: c.agent.Ref(), Seq: c.seq, Session: clone(c.session), Items: items, Older: start > 0}
+	return api.ChatThread{Agent: c.agent.Ref(), Seq: c.seq, Session: clone(c.session), Items: items, Older: start > 0, Newer: start < end && end < len(c.items)}
 }
 
 // pageOf is where Page's page lies in items: items[start:end].
@@ -343,6 +383,25 @@ func pageOf(items []*api.ChatItem, before string, limit int) (start, end int) {
 		}
 	}
 	return turnStart(items, start), end
+}
+
+// pageAfter is where a page forward from items[i] ends: past limit more
+// messages (every one when limit is 0) and the rest of the turn the last of
+// them is in, at the next user message.
+func pageAfter(items []*api.ChatItem, i, limit int) int {
+	if limit <= 0 {
+		return len(items)
+	}
+	end := i + 1
+	for n := 0; end < len(items) && n < limit; end++ {
+		if isMessage(*items[end]) {
+			n++
+		}
+	}
+	for end < len(items) && items[end].Kind != "user" {
+		end++
+	}
+	return end
 }
 
 // turnStart is where the turn that items[i] belongs to begins: the user
