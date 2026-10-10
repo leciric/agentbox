@@ -81,6 +81,8 @@
 //                           accounts: on Home (the default account), on a
 //                           project that uses the other one, on a Claude
 //                           agent, and on a Codex agent (no meter)
+//   ?home=1                 the Home chat, whose Memory tab lists AgentBox-wide
+//                           memories (the filter box narrows them)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
 //   ?tokens=1               a project's Settings → Tokens: headline (with average
@@ -194,10 +196,11 @@ import { connectEvents, seedConnection } from '../lib/events';
 import { applyLanguage, useLanguage } from '../lib/i18n';
 import { ChatHeaderControls, ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
+import { HomeChatPanel } from '../components/HomeChatPanel';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
-import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
@@ -226,6 +229,7 @@ const github = params.get('github') === '1';
 const usage = params.get('usage') === '1';
 const topbar = params.get('topbar');
 const pulls = params.get('pulls') === '1';
+const home = params.get('home') === '1';
 const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
@@ -329,6 +333,18 @@ if (artifacts) {
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
+if (home) {
+  const at = new Date().toISOString();
+  const memory = (id: string, title: string, content: string, origin: string): T.Memory => ({ id, project: '', global: true, origin, kind: 'preference', title, content, importance: 4, createdAt: at, updatedAt: at });
+  queryClient.setQueryData(['projectChat', '_home'], { project: '_home', ref: '_home/lead', started: true, chat: 'running' } satisfies T.ProjectChat);
+  queryClient.setQueryData(['skills', ''], []);
+  queryClient.setQueryData(['chat', '_home/lead'], { ...leadChat(), agent: '_home/lead' });
+  queryClient.setQueryData(['globalMemories'], [
+    memory('g1', 'One agent at a time', 'In all my projects, run only one agent at a time unless I say otherwise.', ''),
+    memory('g2', 'Commit style', 'Use conventional commits, and write PR titles for someone reading the changelog.', PROJECT),
+    memory('g3', 'Answer in Portuguese', 'Reply in Brazilian Portuguese when I write to you in it.', ''),
+  ]);
+}
 if (media === 'all') seedAllMedia(queryClient);
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
@@ -577,6 +593,14 @@ function Preview() {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-ink)', font: '13px var(--font-sans)' }}>
         <TopBar view={{ kind: 'home' }} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
+      </div>
+    );
+  }
+
+  if (home) {
+    return (
+      <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
+        <HomeChatPanel />
       </div>
     );
   }
