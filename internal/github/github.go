@@ -21,6 +21,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 // What GitHub's refusals mean, so a caller can tell "you are not this account"
@@ -70,6 +72,16 @@ type PullRequest struct {
 	// pull request whose account was since deleted.
 	Author       string `json:"author,omitempty"`
 	AuthorAvatar string `json:"authorAvatar,omitempty"`
+	// Labels are the labels on it, in GitHub's order.
+	Labels []Label `json:"labels,omitempty"`
+}
+
+// Label is one of a repository's labels: its name, its colour as six hex
+// digits with no #, and what it is for, when someone said.
+type Label struct {
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+	Description string `json:"description,omitempty"`
 }
 
 // rawPR is a pull request as GitHub's API shapes it, whichever endpoint sent
@@ -86,6 +98,7 @@ type rawPR struct {
 	Deletions int       `json:"deletions"`
 	UpdatedAt time.Time `json:"updated_at"`
 	MergedAt  *string   `json:"merged_at"`
+	Labels    []Label   `json:"labels"`
 	User      *struct {
 		Login     string `json:"login"`
 		AvatarURL string `json:"avatar_url"`
@@ -104,6 +117,7 @@ func (pr rawPR) pullRequest() PullRequest {
 		Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.HTMLURL,
 		Draft: pr.Draft, Comments: pr.Comments, Additions: pr.Additions, Deletions: pr.Deletions,
 		UpdatedAt: &pr.UpdatedAt, BaseBranch: pr.Base.Ref, HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA,
+		Labels: pr.Labels,
 	}
 	if pr.User != nil {
 		out.Author, out.AuthorAvatar = pr.User.Login, pr.User.AvatarURL
@@ -213,7 +227,7 @@ func apiError(path string, res *http.Response) error {
 		return fmt.Errorf("%w: %s", ErrNoCommit, body.Message)
 	case res.StatusCode == http.StatusForbidden, res.StatusCode == http.StatusNotFound:
 		if body.Message != "" {
-			return fmt.Errorf("%w: %s (%s): %s — check agentbox auth github", ErrNoAccess, path, res.Status, body.Message)
+			return &refusal{fmt.Errorf("%w: %s (%s): %s — check agentbox auth github", ErrNoAccess, path, res.Status, body.Message), body.Message}
 		}
 		return fmt.Errorf("%w: %s (%s) — check agentbox auth github", ErrNoAccess, path, res.Status)
 	case body.Message != "":
@@ -221,6 +235,27 @@ func apiError(path string, res *http.Response) error {
 	default:
 		return fmt.Errorf("GitHub %s for %s", res.Status, path)
 	}
+}
+
+// refusal is a 403 or 404 with GitHub's own reason, kept apart so a caller
+// whose read just worked can say the reason without "can't see it".
+type refusal struct {
+	err    error
+	reason string
+}
+
+func (r *refusal) Error() string { return r.err.Error() }
+func (r *refusal) Unwrap() error { return r.err }
+
+// Refused is GitHub's own reason for a 403 or 404, or "" for any other error.
+// After a read of the same repository worked, a refusal is about what the
+// account may do — add a label only maintainers may — not about seeing it.
+func Refused(err error) string {
+	var r *refusal
+	if errors.As(err, &r) {
+		return r.reason
+	}
+	return ""
 }
 
 // Login is the account the token belongs to, for the Setup page.
@@ -278,17 +313,33 @@ func (c Client) PullRequests(ctx context.Context, repo Repo) ([]PullRequest, err
 	if err := c.get(ctx, path, &list); err != nil {
 		return nil, err
 	}
-	out := make([]PullRequest, 0, len(list))
-	for _, raw := range list {
-		item := raw.pullRequest()
-		if item.State == "open" {
-			item.Checks = c.checks(ctx, repo, raw.Head.SHA)
-			item.Additions, item.Deletions, item.Comments = c.prStats(ctx, repo, item.Number)
+	out := make([]PullRequest, len(list))
+	// Two calls per open pull request, a few hundred milliseconds each: one
+	// after the other, a busy repository took most of a minute to re-read,
+	// and the tab sat on "refreshing" all that time. They go out together.
+	var g errgroup.Group
+	g.SetLimit(pullRequestEnrichers)
+	for i, raw := range list {
+		out[i] = raw.pullRequest()
+		if out[i].State != "open" {
+			continue
 		}
-		out = append(out, item)
+		g.Go(func() error {
+			out[i].Checks = c.checks(ctx, repo, raw.Head.SHA)
+			return nil
+		})
+		g.Go(func() error {
+			out[i].Additions, out[i].Deletions, out[i].Comments = c.prStats(ctx, repo, out[i].Number)
+			return nil
+		})
 	}
+	_ = g.Wait()
 	return out, nil
 }
+
+// pullRequestEnrichers is how many of PullRequests' per pull request calls
+// run at once.
+const pullRequestEnrichers = 8
 
 // PullRequestByNumber reads one pull request fresh, for a check right before
 // merging it: whether it's still open, and not a draft.
@@ -400,4 +451,50 @@ func (c Client) Merge(ctx context.Context, repo Repo, number int, method MergeMe
 		MergeMethod string `json:"merge_method,omitempty"`
 	}{MergeMethod: string(method)}
 	return c.do(ctx, http.MethodPut, path, body, nil)
+}
+
+// labelPages bounds how many pages of 100 Labels reads: a repository with more
+// than 500 labels shows its first 500.
+const labelPages = 5
+
+// Labels lists a repository's labels, for picking one to put on a pull
+// request.
+func (c Client) Labels(ctx context.Context, repo Repo) ([]Label, error) {
+	out := []Label{}
+	for page := 1; page <= labelPages; page++ {
+		var list []Label
+		path := fmt.Sprintf("/repos/%s/%s/labels?per_page=100&page=%d", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), page)
+		if err := c.get(ctx, path, &list); err != nil {
+			return nil, err
+		}
+		out = append(out, list...)
+		if len(list) < 100 {
+			break
+		}
+	}
+	return out, nil
+}
+
+// PullRequestLabels reads the labels on a pull request fresh. GitHub keeps a
+// pull request's labels on the issue behind it, so that is what is read.
+func (c Client) PullRequestLabels(ctx context.Context, repo Repo, number int) ([]Label, error) {
+	out := []Label{}
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/labels?per_page=100", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), number)
+	return out, c.get(ctx, path, &out)
+}
+
+// SetPullRequestLabels replaces a pull request's labels with names, and
+// returns them as GitHub now has them. Replacing the whole set, rather than
+// adding and removing one by one, makes taking off a label someone else
+// already took off a no-op rather than a 404.
+func (c Client) SetPullRequestLabels(ctx context.Context, repo Repo, number int, names []string) ([]Label, error) {
+	if names == nil {
+		names = []string{}
+	}
+	body := struct {
+		Labels []string `json:"labels"`
+	}{Labels: names}
+	out := []Label{}
+	path := fmt.Sprintf("/repos/%s/%s/issues/%d/labels", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), number)
+	return out, c.do(ctx, http.MethodPut, path, body, &out)
 }

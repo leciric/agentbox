@@ -111,6 +111,31 @@ func TestCollectPublishAfterUpdate(t *testing.T) {
 	}
 }
 
+// Two pages of the same title, the second permanent, with a get_page of the
+// first between them, as a lead published them: two pages, the second at
+// version 1 with no expiry.
+func TestCollectSameTitleThenPermanent(t *testing.T) {
+	t0 := time.Date(2026, 10, 10, 13, 50, 0, 0, time.UTC)
+	out := func(id string) string {
+		return "Published \"Plan\" (id " + id + ", version 1): https://hatch.linting.dev/p/" + id + "\n{\"id\": \"" + id + "\", \"version\": 1}"
+	}
+	got := Collect([]Call{
+		{Agent: "p/lead", Item: "a", At: t0, Tool: api.ChatTool{Name: "mcp__hatch__publish_page", Status: "completed", Output: out("dR6ygVLcOlGuJfYu"), Page: &api.ChatPage{Title: "Plan"}}},
+		{Agent: "p/lead", Item: "g", At: t0.Add(3 * time.Minute), Tool: api.ChatTool{Name: "mcp__hatch__get_page", Status: "completed", Output: `{"url": "https://hatch.linting.dev/p/dR6ygVLcOlGuJfYu", "version": 4}`}},
+		{Agent: "p/lead", Item: "b", At: t0.Add(7 * time.Minute), Tool: api.ChatTool{Name: "mcp__hatch__publish_page", Status: "completed", Output: out("sVhkyBNMvUt3KxuV"), Page: &api.ChatPage{Title: "Plan", ExpiresInHours: -1}}},
+	}, Host, t0.Add(8*time.Minute))
+	if len(got) != 2 {
+		t.Fatalf("got %+v", got)
+	}
+	b, a := got[0], got[1]
+	if b.ID != "sVhkyBNMvUt3KxuV" || b.Version != 1 || !b.Permanent || b.ExpiresAt != nil || b.Expired || b.Title != "Plan" {
+		t.Errorf("the second page is %+v", b)
+	}
+	if a.ID != "dR6ygVLcOlGuJfYu" || a.Version != 1 || a.Permanent || a.Expired || a.Item != "a" {
+		t.Errorf("the first page is %+v", a)
+	}
+}
+
 func TestIsHatch(t *testing.T) {
 	for url, want := range map[string]bool{
 		"https://hatch.linting.dev/mcp":  true,

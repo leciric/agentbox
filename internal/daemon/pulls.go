@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strconv"
 	"sync"
@@ -175,7 +176,11 @@ type pullsCache struct {
 	// look through what the cache holds without asking git for every
 	// project's origin again.
 	projects map[string][]string
-	now      func() time.Time
+	// edits serialises label edits per repository: each reads a pull
+	// request's labels and writes the whole set back, so two at once would
+	// lose one.
+	edits map[string]*sync.Mutex
+	now   func() time.Time
 }
 
 type pullsEntry struct {
@@ -215,7 +220,7 @@ func newPullsCache() *pullsCache {
 	return &pullsCache{
 		ttl: pullsTTL, branchTTL: pullsBranchTTL,
 		byRepo: map[string]pullsEntry{}, fetching: map[string]bool{}, gen: map[string]int{},
-		projects: map[string][]string{}, now: time.Now,
+		projects: map[string][]string{}, edits: map[string]*sync.Mutex{}, now: time.Now,
 	}
 }
 
@@ -271,22 +276,23 @@ func (c *pullsCache) claim(key string, heads []agentHead) (int, bool) {
 	return c.gen[key], true
 }
 
-// finish stores a refresh's answer, and reports whether anything a client can
-// see moved. An answer for a generation the cache has moved past — a merge
-// overtook it while the refresh was in flight — is dropped.
-func (c *pullsCache) finish(key string, gen int, e pullsEntry) (pullsEntry, bool) {
+// finish stores a refresh's answer, and reports whether it was stored and
+// whether anything a client can see moved. An answer for a generation the
+// cache has moved past — a merge or a label edit overtook it while the refresh
+// was in flight — is dropped.
+func (c *pullsCache) finish(key string, gen int, e pullsEntry) (entry pullsEntry, stored, changed bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.fetching, key)
 	if c.gen[key] != gen {
-		return pullsEntry{}, false
+		return pullsEntry{}, false, false
 	}
 	e.at = c.now()
 	before, had := c.byRepo[key]
 	c.byRepo[key] = e
 	// A stale answer was being served as "reading GitHub": the read that
 	// replaces it is news even when GitHub agrees with it.
-	return e, !had || before.stale || !before.same(e)
+	return e, true, !had || before.stale || !before.same(e)
 }
 
 // merged records that a pull request of a repository was merged, and makes
@@ -297,6 +303,21 @@ func (c *pullsCache) finish(key string, gen int, e pullsEntry) (pullsEntry, bool
 // stale instead, so the next request re-reads GitHub behind it, and the one
 // pull request is marked merged on it, which the merge has just proved.
 func (c *pullsCache) merged(key string, number int) {
+	c.edit(key, number, true, func(pr *api.PullRequest) { pr.State = "merged" })
+}
+
+// labelled records a pull request's labels as GitHub answered an edit of
+// them. Nothing else about the repository moved, so it isn't marked stale;
+// only a refresh in flight, which may have read the labels before the edit,
+// is ignored.
+func (c *pullsCache) labelled(key string, number int, labels []api.Label) {
+	c.edit(key, number, false, func(pr *api.PullRequest) { pr.Labels = labels })
+}
+
+// edit changes one pull request of what the cache holds for a repository, on
+// what AgentBox itself just did to it, and makes the cache ignore any refresh
+// already in flight, which read GitHub before the change.
+func (c *pullsCache) edit(key string, number int, stale bool, change func(*api.PullRequest)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gen[key]++
@@ -304,15 +325,53 @@ func (c *pullsCache) merged(key string, number int) {
 	if !ok {
 		return
 	}
-	// e.prs is shared with whoever is reading it, so the mark goes on a copy.
+	// e.prs is shared with whoever is reading it, so the change goes on a copy.
 	e.prs = slices.Clone(e.prs)
 	for i := range e.prs {
 		if e.prs[i].Number == number {
-			e.prs[i].State = "merged"
+			change(&e.prs[i])
 		}
 	}
-	e.stale = true
+	e.stale = e.stale || stale
 	c.byRepo[key] = e
+}
+
+// invalidate marks what the cache holds for a repository stale, so the next
+// request re-reads GitHub whatever its age: something outside AgentBox moved
+// it, or the user asked.
+func (c *pullsCache) invalidate(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.byRepo[key]; ok {
+		e.stale = true
+		c.byRepo[key] = e
+	}
+}
+
+// reposOf is the repositories the cache read for a project.
+func (c *pullsCache) reposOf(project string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []string
+	for key, projects := range c.projects {
+		if slices.Contains(projects, project) {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// editing locks a repository's label edits; the caller unlocks.
+func (c *pullsCache) editing(key string) *sync.Mutex {
+	c.mu.Lock()
+	m, ok := c.edits[key]
+	if !ok {
+		m = &sync.Mutex{}
+		c.edits[key] = m
+	}
+	c.mu.Unlock()
+	m.Lock()
+	return m
 }
 
 // reset forgets everything, for when the GitHub account behind it changed:
@@ -411,11 +470,12 @@ func (e pullsEntry) same(o pullsEntry) bool {
 }
 
 func samePullRequest(a, b api.PullRequest) bool {
-	if !sameTime(a.UpdatedAt, b.UpdatedAt) {
+	if !sameTime(a.UpdatedAt, b.UpdatedAt) || !slices.Equal(a.Labels, b.Labels) {
 		return false
 	}
 	a.UpdatedAt, b.UpdatedAt = nil, nil
-	return a == b // every other field is comparable
+	a.Labels, b.Labels = nil, nil
+	return reflect.DeepEqual(a, b) // what is left is plain values
 }
 
 func sameTime(a, b *time.Time) bool {
@@ -433,6 +493,12 @@ func sameTime(a, b *time.Time) bool {
 // It returns the heads of the agents it was given, which is what its answer is
 // matched against; they are only read when there is a repository to read.
 func (s *Server) projectPulls(p state.Project, agents []state.Agent) (github.Repo, pullsEntry, []agentHead, bool, error) {
+	return s.projectPullsFresh(p, agents, false)
+}
+
+// projectPullsFresh is projectPulls, re-reading GitHub behind its answer
+// whatever the age of what it has when fresh is set.
+func (s *Server) projectPullsFresh(p state.Project, agents []state.Agent, fresh bool) (github.Repo, pullsEntry, []agentHead, bool, error) {
 	client, repo, err := s.githubFor(p)
 	if err != nil {
 		return repo, pullsEntry{}, nil, false, err
@@ -440,6 +506,9 @@ func (s *Server) projectPulls(p state.Project, agents []state.Agent) (github.Rep
 	heads := agentHeads(p.Root, agents)
 	key := repo.String()
 	s.pulls.readFor(key, p.Name)
+	if fresh {
+		s.pulls.invalidate(key)
+	}
 	if gen, ok := s.pulls.claim(key, heads); ok {
 		go s.refreshPulls(p.Name, client, repo, gen, heads)
 	}
@@ -455,22 +524,42 @@ func (s *Server) refreshPulls(project string, client github.Client, repo github.
 	before, _ := s.pulls.state(key)
 	ctx, cancel := context.WithTimeout(s.background(), pullsFetchTimeout)
 	defer cancel()
-	entry, changed := s.pulls.finish(key, gen, s.fetchPulls(ctx, client, repo, heads, before))
-	if !changed {
+	entry, stored, changed := s.pulls.finish(key, gen, s.fetchPulls(ctx, client, repo, heads, before))
+	if !stored {
 		// A merge overtook this read, so what it read was dropped. Nothing
 		// else will read again until the app next polls, and it is showing
 		// the pre-merge list, "reading GitHub", meanwhile: read again now.
 		if e, _ := s.pulls.state(key); e.stale || e.at.IsZero() {
 			if gen, ok := s.pulls.claim(key, heads); ok {
 				s.refreshPulls(project, client, repo, gen, heads)
+				return
 			}
 		}
+		// Not read again: whoever was told "refreshing" still hears it ended.
+		s.events.publish(api.EventPulls, api.PullsChange{Project: project, GitHub: key, Unchanged: true})
+		return
+	}
+	if !changed {
+		// Nothing moved, but the app is showing "refreshing" until it hears
+		// so, and without this it heard at its next poll, a minute later:
+		// the list looked stuck.
+		s.events.publish(api.EventPulls, api.PullsChange{Project: project, GitHub: key, FetchedAt: entry.at, Unchanged: true})
 		return
 	}
 	// Something moved — a pull request opened, pushed to, its checks — so
 	// the watch looks now rather than when it next meant to.
 	s.prWatch.poke(project)
 	s.events.publish(api.EventPulls, api.PullsChange{Project: project, GitHub: key, FetchedAt: entry.at})
+}
+
+// pullsMoved says a project's pull requests have probably moved on GitHub —
+// an agent finished, and has often just pushed or opened one — so what the
+// cache holds is re-read on the next request, and the app, told, makes it.
+func (s *Server) pullsMoved(project string) {
+	for _, key := range s.pulls.reposOf(project) {
+		s.pulls.invalidate(key)
+		s.events.publish(api.EventPulls, api.PullsChange{Project: project, GitHub: key})
+	}
 }
 
 // background is the context a refresh runs under: the daemon's own, not the
@@ -610,11 +699,13 @@ func (s *Server) projectPullRequests(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return err
 	}
-	account, _ := s.githubAccountFor(p)
-	out := api.ProjectPullRequests{Project: project, GitHubAccount: account, PullRequests: []api.PullRequest{}}
+	account, login := s.githubAccountFor(p)
+	out := api.ProjectPullRequests{Project: project, GitHubAccount: account, GitHubLogin: login, PullRequests: []api.PullRequest{}}
 
 	agents, _ := s.store.Agents(ctx, project)
-	repo, entry, heads, refreshing, err := s.projectPulls(p, agents)
+	// ?refresh=1 is the tab's refresh button: re-read GitHub now, not when
+	// the cache's answer is old enough.
+	repo, entry, heads, refreshing, err := s.projectPullsFresh(p, agents, r.URL.Query().Get("refresh") == "1")
 	if err != nil {
 		out.GitHubError = s.githubErrorFor(p, repo, err)
 		out.NoOrigin, out.NonGitHubRemote = remoteProblemOf(err)
@@ -680,8 +771,21 @@ func toAPIPullRequests(prs []github.PullRequest) []api.PullRequest {
 			Number: pr.Number, Title: pr.Title, State: pr.State, Checks: pr.Checks, URL: pr.URL,
 			Draft: pr.Draft, Additions: pr.Additions, Deletions: pr.Deletions, Comments: pr.Comments,
 			UpdatedAt: pr.UpdatedAt, BaseBranch: pr.BaseBranch, HeadBranch: pr.HeadBranch, HeadSHA: pr.HeadSHA,
-			Author: pr.Author, AuthorAvatar: pr.AuthorAvatar,
+			Author: pr.Author, AuthorAvatar: pr.AuthorAvatar, Labels: toAPILabels(pr.Labels),
 		}
+	}
+	return out
+}
+
+// toAPILabels converts labels, keeping none as nil, so a pull request with no
+// labels compares and encodes the same however it was read.
+func toAPILabels(labels []github.Label) []api.Label {
+	if len(labels) == 0 {
+		return nil
+	}
+	out := make([]api.Label, len(labels))
+	for i, l := range labels {
+		out[i] = api.Label{Name: l.Name, Color: l.Color, Description: l.Description}
 	}
 	return out
 }
@@ -714,10 +818,7 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 
 	client, repo, err := s.githubFor(p)
 	if err != nil {
-		if errors.Is(err, errNoGitHubToken) {
-			return errors.New("this project has no GitHub token: add one with agentbox auth github")
-		}
-		return err
+		return noGitHubToken(err)
 	}
 
 	pr, err := client.PullRequestByNumber(ctx, repo, number)
@@ -746,4 +847,99 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	s.countFeature(api.FeaturePullMerge)
 	out := toAPIPullRequests([]github.PullRequest{*pr})[0]
 	return writeJSON(w, http.StatusOK, out)
+}
+
+// projectLabels lists the labels of a project's repository, read with the
+// project's GitHub account, for the label picker. It reads GitHub every time:
+// it is asked when the picker opens, and the app keeps the answer.
+func (s *Server) projectLabels(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	p, err := s.store.Project(ctx, r.PathValue("project"))
+	if err != nil {
+		return err
+	}
+	client, repo, err := s.githubFor(p)
+	if err != nil {
+		return noGitHubToken(err)
+	}
+	labels, err := client.Labels(ctx, repo)
+	if err != nil {
+		return err
+	}
+	out := api.ProjectLabels{Labels: []api.Label{}}
+	if l := toAPILabels(labels); l != nil {
+		out.Labels = l
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// editPullRequestLabels puts labels on one of a project repository's pull
+// requests and takes others off, with the project's GitHub account, and
+// answers with the labels it has now. The labels are read fresh and written
+// back whole, one edit per repository at a time, so a label someone else
+// changed meanwhile isn't lost, and the cache is told at once, so the list
+// shows the edit without a re-read of GitHub.
+func (s *Server) editPullRequestLabels(w http.ResponseWriter, r *http.Request) error {
+	ctx := r.Context()
+	project := r.PathValue("project")
+	p, err := s.store.Project(ctx, project)
+	if err != nil {
+		return err
+	}
+	number, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		return fmt.Errorf("invalid pull request number %q", r.PathValue("number"))
+	}
+	var req api.EditLabelsRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	client, repo, err := s.githubFor(p)
+	if err != nil {
+		return noGitHubToken(err)
+	}
+	key := repo.String()
+	defer s.pulls.editing(key).Unlock()
+
+	current, err := client.PullRequestLabels(ctx, repo, number)
+	if err != nil {
+		return err
+	}
+	names := make([]string, 0, len(current)+len(req.Add))
+	for _, l := range current {
+		if !slices.Contains(req.Remove, l.Name) {
+			names = append(names, l.Name)
+		}
+	}
+	for _, name := range req.Add {
+		if name != "" && !slices.Contains(names, name) && !slices.Contains(req.Remove, name) {
+			names = append(names, name)
+		}
+	}
+	labels, err := client.SetPullRequestLabels(ctx, repo, number, names)
+	if reason := github.Refused(err); reason != "" {
+		// The labels were just read with this account, so it sees the
+		// repository: GitHub is refusing the change itself.
+		return fmt.Errorf("GitHub refused: %s", reason)
+	}
+	if err != nil {
+		return err
+	}
+	out := toAPILabels(labels)
+	s.pulls.labelled(key, number, out)
+	s.events.publish(api.EventPulls, api.PullsChange{Project: project, GitHub: key})
+	s.countFeature(api.FeaturePullLabels)
+	if out == nil {
+		out = []api.Label{}
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// noGitHubToken turns githubFor's quiet "no token" into the sentence an
+// action needs: reading can say nothing, doing something can't.
+func noGitHubToken(err error) error {
+	if errors.Is(err, errNoGitHubToken) {
+		return errors.New("this project has no GitHub token: add one with agentbox auth github")
+	}
+	return err
 }

@@ -110,11 +110,7 @@ func (s *Server) pullRequestDetail(w http.ResponseWriter, r *http.Request) error
 		PullRequest:  toAPIPullRequests([]github.PullRequest{pr.PullRequest})[0],
 		Body:         pr.Body,
 		ChangedFiles: pr.ChangedFiles,
-		Labels:       []api.PullLabel{},
 		CheckRuns:    []api.PullCheck{},
-	}
-	for _, l := range pr.Labels {
-		out.Labels = append(out.Labels, api.PullLabel{Name: l.Name, Color: l.Color, Description: l.Description})
 	}
 	for _, c := range pr.CheckRuns {
 		out.CheckRuns = append(out.CheckRuns, api.PullCheck{Name: c.Name, Status: c.Status, Conclusion: c.Conclusion, URL: c.URL})

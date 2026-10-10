@@ -8,6 +8,7 @@ import {
   arrivals,
   byAgent,
   countByAgent,
+  countByProject,
   isExpired,
   isNew,
   isPageCall,
@@ -155,6 +156,20 @@ test('a search matches every word in the title or the agent', () => {
   assert.ok(!matchesPage(p, 'usage flame'));
 });
 
+test('a search also matches the project names when given', () => {
+  const p = page({ title: 'Q3 usage report' });
+  assert.ok(matchesPage(p, 'pawly usage', '', 'pawly Pawly Pets'));
+  assert.ok(matchesPage(p, 'pets', '', 'pawly Pawly Pets'));
+  assert.ok(!matchesPage(p, 'pets', ''));
+  assert.ok(!matchesPage(p, 'other', '', 'pawly Pawly Pets'));
+});
+
+test('pages are counted by project in the order they appear', () => {
+  const counts = countByProject([{ project: 'b' }, { project: 'a' }, { project: 'b' }]);
+  assert.deepEqual([...counts], [['b', 2], ['a', 1]]);
+  assert.equal(countByProject([]).size, 0);
+});
+
 test('isPageCall knows publish_page and update_page whatever the AI tool calls them', () => {
   assert.ok(isPageCall({ name: 'mcp__hatch__publish_page', title: '' }));
   assert.ok(isPageCall({ title: 'hatch.update_page' }));
@@ -194,6 +209,44 @@ test('a finished publish reads its project\'s pages again, nothing else does', a
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(reads, 1);
   assert.deepEqual(client.getQueryData(pagesKey('pawly')), hatch());
+});
+
+// The lead's sequence that lost a page: a publish, get_page on it, a
+// ToolSearch, then a second permanent page of the same title, whose first
+// read came before the daemon had stored the call.
+test('a page the first read after its publish lacks is read again, and arrives', async () => {
+  const client = new QueryClient();
+  const first = page({ id: 'dR6ygVLcOlGuJfYu', title: 'Plan', updatedAt: '2026-10-09T11:50:00Z' });
+  const second = page({ id: 'sVhkyBNMvUt3KxuV', title: 'Plan', updatedAt: '2026-10-09T11:57:00Z', permanent: true, expiresAt: undefined });
+  const link = (id: string) => `Published "Plan" (id ${id}, version 1): https://hatch.linting.dev/p/${id}\n{"id": "${id}", "version": 1}`;
+  const item = (t: Partial<T.ChatTool>): T.ChatItem => ({ id: 'i', turn: 't', kind: 'tool', createdAt: '', updatedAt: '', tool: tool(t) });
+  const reads: T.Artifacts[] = [];
+  let answers: T.Artifacts[] = [];
+  const fetch = async () => answers.shift() ?? reads[reads.length - 1];
+  client.getQueryCache().subscribe((e) => {
+    if (e.type === 'updated' && e.action.type === 'success') reads.push(e.query.state.data as T.Artifacts);
+  });
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  // What the app had read when the lead's chat was opened.
+  client.setQueryData(pagesKey('pawly'), hatch());
+  knowProject('pawly', hatch());
+
+  answers = [hatch(first)];
+  onChatItem(client, 'pawly/lead', item({ output: link(first.id), page: { title: 'Plan' } }), fetch, 1);
+  await settle();
+  onChatItem(client, 'pawly/lead', item({ name: 'mcp__hatch__get_page', output: '{"url": "https://hatch.linting.dev/p/dR6ygVLcOlGuJfYu"}' }), fetch, 1);
+  onChatItem(client, 'pawly/lead', item({ name: 'ToolSearch', output: 'mcp__hatch__update_page' }), fetch, 1);
+  await settle();
+  assert.equal(reads.length, 2, 'get_page and ToolSearch read nothing');
+  assert.deepEqual(ids(arrivals(reads[0], reads[1], now)), [first.id]);
+
+  answers = [hatch(first), hatch(second, first)];
+  onChatItem(client, 'pawly/lead', item({ output: link(second.id), page: { title: 'Plan', expiresInHours: -1 } }), fetch, 1);
+  await settle();
+  assert.equal(reads.length, 4, 'read again while the page is missing, then no more');
+  assert.deepEqual(arrivals(reads[1], reads[2], now), []);
+  assert.deepEqual(ids(arrivals(reads[2], reads[3], now)), [second.id], 'the toast');
+  assert.deepEqual(ids(stackPages(reads[3], 'pawly/lead', now)), [second.id, first.id], 'the stack');
 });
 
 test('a page keeps its tile colour', () => {

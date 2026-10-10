@@ -413,6 +413,20 @@ func (c *Client) MergePullRequest(ctx context.Context, project string, number in
 	return out, c.do(ctx, http.MethodPost, path, MergePullRequestRequest{Method: method}, &out)
 }
 
+// ProjectLabels lists the labels of a project's repository.
+func (c *Client) ProjectLabels(ctx context.Context, project string) (ProjectLabels, error) {
+	var out ProjectLabels
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/labels", nil, &out)
+}
+
+// EditPullRequestLabels puts labels on a pull request and takes others off,
+// and returns the labels it has now.
+func (c *Client) EditPullRequestLabels(ctx context.Context, project string, number int, req EditLabelsRequest) ([]Label, error) {
+	var out []Label
+	path := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/labels"
+	return out, c.do(ctx, http.MethodPost, path, req, &out)
+}
+
 // SaveGitHubToken stores a GitHub token under an account, and returns who it
 // belongs to.
 func (c *Client) SaveGitHubToken(ctx context.Context, account, token string) (string, error) {

@@ -351,20 +351,6 @@ func renumber(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// renumberProjects is renumber in a transaction of its own, for the callers
-// that only removed something.
-func (s *Store) renumberProjects(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err := renumber(ctx, tx); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 func sectionName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	switch {

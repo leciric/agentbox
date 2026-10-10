@@ -44,11 +44,12 @@ export function pagesFor(list: T.Artifacts | undefined, ref: string, now = Date.
 }
 
 // matchesPage is a page a search finds: every word in its title or in the
-// name of the agent that made it.
-export function matchesPage(a: T.Artifact, query: string, agentLabel = ''): boolean {
+// name of the agent that made it, and in its project's names when given
+// (global Media, where pages of every project are mixed).
+export function matchesPage(a: T.Artifact, query: string, agentLabel = '', project = ''): boolean {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const hay = `${a.title} ${a.agent.split('/')[1] ?? ''} ${agentLabel}`.toLowerCase();
+  const hay = `${a.title} ${a.agent.split('/')[1] ?? ''} ${agentLabel} ${project}`.toLowerCase();
   return words.every((w) => hay.includes(w));
 }
 
@@ -66,6 +67,14 @@ export function byAgent(list: T.Artifact[]): [string, T.Artifact[]][] {
 export function countByAgent(list: T.Artifact[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const a of list) out.set(a.agent, (out.get(a.agent) ?? 0) + 1);
+  return out;
+}
+
+// countByProject is how many pages each project has, in the order projects
+// first appear in the list, for the project chips of global Media's Pages.
+export function countByProject(list: readonly { project: string }[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const e of list) out.set(e.project, (out.get(e.project) ?? 0) + 1);
   return out;
 }
 
@@ -94,11 +103,25 @@ export const readPages = (project: string, fetch: (project: string) => Promise<T
 // onChatItem reads a project's pages again when one of its chats finished
 // a call to publish_page or update_page, whether or not anything on screen
 // shows them: a new page is told about wherever you are (PageArrivals).
-export function onChatItem(queryClient: QueryClient, chatRef: string, item: T.ChatItem, fetch: (project: string) => Promise<T.Artifacts>): void {
+// While what's read lacks the page the call links to, it reads again a few
+// times: a daemon from before it stored such a call first told of it up to
+// a second before it stored it, and a read already under way when the call
+// finished is the one fetchQuery answers with.
+export function onChatItem(queryClient: QueryClient, chatRef: string, item: T.ChatItem, fetch: (project: string) => Promise<T.Artifacts>, wait = rereadAfter): void {
   if (item.kind !== 'tool' || item.tool?.status !== 'completed' || !isPageCall(item.tool)) return;
   const project = chatRef.split('/')[0];
-  void queryClient.fetchQuery({ queryKey: pagesKey(project), queryFn: readPages(project, fetch), staleTime: 0 }).catch(() => {});
+  const id = pageIdOf(item.tool);
+  const read = (left: number): Promise<void> =>
+    queryClient
+      .fetchQuery({ queryKey: pagesKey(project), queryFn: readPages(project, fetch), staleTime: 0 })
+      .then((list) => {
+        if (id && left > 0 && list.connector && !list.artifacts.some((a) => a.id === id)) setTimeout(() => void read(left - 1), wait);
+      })
+      .catch(() => {});
+  void read(rereads);
 }
+const rereads = 3;
+const rereadAfter = 1_000;
 
 // Which version of each page you have seen, kept in this browser: a page
 // is new until you open it, and new again when an agent updates it. The

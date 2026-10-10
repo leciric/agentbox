@@ -2543,11 +2543,19 @@ func (c *conversation) emit(ev api.ChatEvent) {
 
 // flush publishes what changed, in the order it happened: text added to items
 // first, then items published whole, in conversation order, then the session.
-// It stores changed items at most once a second, unless save is set.
+// It stores changed items at most once a second, unless save is set, and a
+// finished Hatch page call before anything is published.
 func (c *conversation) flush(save bool) {
 	if c.timer != nil {
 		c.timer.Stop()
 		c.timer = nil
+	}
+	if c.pageCallDone() {
+		// The app reads the project's pages again from the store the moment
+		// it hears a publish_page or update_page finished (lib/pages.ts
+		// onChatItem): told first and stored up to a second later, the call
+		// wasn't among them, so its page never showed as new.
+		c.save()
 	}
 	var merged []api.ChatAppend
 	for _, ap := range c.appends {
@@ -2584,6 +2592,18 @@ func (c *conversation) flush(save bool) {
 	default:
 		c.schedule(saveInterval)
 	}
+}
+
+// pageCallDone is whether a publish_page or update_page about to be
+// published as finished isn't stored yet.
+func (c *conversation) pageCallDone() bool {
+	for id := range c.dirty {
+		it := c.byID[id]
+		if it != nil && c.unsaved[id] && it.Kind == "tool" && it.Tool != nil && it.Tool.Status == "completed" && hatch.Op(it.Tool.Name, it.Tool.Title) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *conversation) save() {

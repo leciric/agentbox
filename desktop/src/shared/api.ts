@@ -589,6 +589,7 @@ export interface PullsChange {
   project: string;
   github: string;
   fetchedAt: string;
+  unchanged?: boolean;
 }
 
 export interface Self {
@@ -1120,6 +1121,22 @@ export interface PullRequest {
   conflict?: boolean;
   review?: string;
   watched?: boolean;
+  labels?: Label[];
+}
+
+export interface Label {
+  name: string;
+  color: string;
+  description?: string;
+}
+
+export interface ProjectLabels {
+  labels: Label[];
+}
+
+export interface EditLabelsRequest {
+  add?: string[];
+  remove?: string[];
 }
 
 export interface GitHubError {
@@ -1134,6 +1151,7 @@ export interface ProjectPullRequests {
   project: string;
   github?: string;
   githubAccount?: string;
+  githubLogin?: string;
   githubError?: GitHubError;
   pullRequests: PullRequest[];
   noOrigin?: boolean;
@@ -1169,16 +1187,10 @@ export interface PullRequestDetail {
   conflict?: boolean;
   review?: string;
   watched?: boolean;
+  labels?: Label[];
   body: string;
-  labels: PullLabel[];
   checkRuns: PullCheck[];
   changedFiles: number;
-}
-
-export interface PullLabel {
-  name: string;
-  color?: string;
-  description?: string;
 }
 
 export interface PullCheck {

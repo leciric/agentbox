@@ -35,7 +35,7 @@ var tsTypes = []any{
 	BrowserProfile{}, BrowserProfiles{}, ImportFromBrowserRequest{},
 	SnapRequest{}, Snap{}, SnapSendRequest{},
 	Connector{}, SetConnectorRequest{}, ConnectorOverrideRequest{}, ConnectResult{}, SelfConnector{}, ConnectorRequest{},
-	PullRequest{}, GitHubError{}, ProjectPullRequests{}, MergePullRequestRequest{}, PullRequestDetail{}, PullLabel{}, PullCheck{}, PullRequestFiles{}, PullFile{}, PullFileDiff{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{},
+	PullRequest{}, Label{}, ProjectLabels{}, EditLabelsRequest{}, GitHubError{}, ProjectPullRequests{}, MergePullRequestRequest{}, PullRequestDetail{}, PullCheck{}, PullRequestFiles{}, PullFile{}, PullFileDiff{}, AgentChanges{}, RetireAdvice{}, FleetAgent{}, Fleet{},
 	RetireRequest{}, RetiredAgent{}, RetireResult{},
 	Question{}, AskRequest{}, AnswerQuestionRequest{}, EscalateQuestionRequest{}, CredentialRequest{}, AnswerCredentialRequest{}, AgentEvent{},
 	AndroidStatus{}, AndroidStartRequest{}, AndroidInstallRequest{}, AndroidInstallResult{},

@@ -505,6 +505,7 @@ export function pullRequests(): T.ProjectPullRequests {
     project: PROJECT,
     github: 'leciric/agentbox',
     githubAccount: 'default',
+    githubLogin: 'someone',
     fetchedAt: new Date().toISOString(),
     canMerge: true,
     canMergeKnown: true,
@@ -528,6 +529,11 @@ export function pullRequests(): T.ProjectPullRequests {
         author: WIDE.longLogin,
         authorAvatar: 'https://avatars.githubusercontent.com/u/1?v=4',
         agent: 'agent-99',
+        labels: [
+          { name: 'ci:full', color: '0e8a16' },
+          { name: 'deploy-dev', color: 'fbca04' },
+          { name: 'a-label-whose-name-is-long-enough-to-overflow-a-narrow-row-on-its-own', color: '5319e7' },
+        ],
       },
       {
         number: 65,

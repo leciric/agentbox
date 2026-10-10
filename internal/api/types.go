@@ -1211,6 +1211,30 @@ type PullRequest struct {
 	Conflict bool   `json:"conflict,omitempty"`
 	Review   string `json:"review,omitempty"`
 	Watched  bool   `json:"watched,omitempty"`
+	// Labels are the labels on it, with GitHub's colours.
+	Labels []Label `json:"labels,omitempty"`
+}
+
+// Label is one of a repository's GitHub labels. Color is six hex digits, with
+// no #, as GitHub gives it.
+type Label struct {
+	Name        string `json:"name"`
+	Color       string `json:"color"`
+	Description string `json:"description,omitempty"`
+}
+
+// ProjectLabels is every label of a project's repository, for the Pull
+// requests tab's label picker.
+type ProjectLabels struct {
+	Labels []Label `json:"labels"`
+}
+
+// EditLabelsRequest puts labels on a pull request and takes others off, by
+// name. A label it already has, or one it hasn't, is no error: two edits that
+// cross each other both land.
+type EditLabelsRequest struct {
+	Add    []string `json:"add,omitempty"`
+	Remove []string `json:"remove,omitempty"`
 }
 
 // Why a project's pull requests couldn't be read. The app says a different
@@ -1250,9 +1274,13 @@ type ProjectPullRequests struct {
 	GitHub string `json:"github,omitempty"`
 	// GitHubAccount is the stored account they were read with: the project's,
 	// or the machine's default when it doesn't pick one.
-	GitHubAccount string        `json:"githubAccount,omitempty"`
-	GitHubError   *GitHubError  `json:"githubError,omitempty"` // why they couldn't be read
-	PullRequests  []PullRequest `json:"pullRequests"`
+	GitHubAccount string `json:"githubAccount,omitempty"`
+	// GitHubLogin is who that account is on GitHub, which is what the tab's
+	// Mine filter matches authors against. Empty for an account stored before
+	// AgentBox remembered logins.
+	GitHubLogin  string        `json:"githubLogin,omitempty"`
+	GitHubError  *GitHubError  `json:"githubError,omitempty"` // why they couldn't be read
+	PullRequests []PullRequest `json:"pullRequests"`
 	// Why there is no repository to read, when there is none. NoOrigin is a
 	// checkout with no origin remote at all; NonGitHubRemote is the origin it
 	// does have, with any credentials redacted, when that origin doesn't
@@ -1288,23 +1316,15 @@ type MergePullRequestRequest struct {
 }
 
 // PullRequestDetail is one pull request as the app's pull request view shows
-// it: the list's fields, read fresh, and its description, labels and check
+// it: the list's fields, read fresh, and its description and check
 // runs. Body is GitHub markdown; its pictures are read through the
 // daemon's /pulls/image, since a private repository's need the token.
 type PullRequestDetail struct {
 	PullRequest
 	Body      string      `json:"body"`
-	Labels    []PullLabel `json:"labels"`
 	CheckRuns []PullCheck `json:"checkRuns"`
 	// ChangedFiles is how many files it changes, before they are listed.
 	ChangedFiles int `json:"changedFiles"`
-}
-
-// PullLabel is a label on a pull request; Color is GitHub's hex, without "#".
-type PullLabel struct {
-	Name        string `json:"name"`
-	Color       string `json:"color,omitempty"`
-	Description string `json:"description,omitempty"`
 }
 
 // PullCheck is one check run on a pull request's head. Status is queued,
@@ -1749,6 +1769,9 @@ type PullsChange struct {
 	Project   string    `json:"project"`
 	GitHub    string    `json:"github"`
 	FetchedAt time.Time `json:"fetchedAt"`
+	// Unchanged is a re-read that found what was already there. It is still
+	// sent, so a client showing "refreshing" can stop.
+	Unchanged bool `json:"unchanged,omitempty"`
 }
 
 // ProjectChange reports a project added or removed, from the CLI or the app.
@@ -2370,6 +2393,7 @@ const (
 	FeatureProjectAdd          = "project.add"
 	FeatureNotesSave           = "notes.save"
 	FeaturePullMerge           = "pr.merge"
+	FeaturePullLabels          = "pr.labels"
 	FeatureQuestionAnswer      = "question.answer"
 	FeatureSecretSet           = "secret.set"
 	FeatureImageBuild          = "image.build"

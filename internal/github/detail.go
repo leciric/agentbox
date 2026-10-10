@@ -13,19 +13,13 @@ import (
 )
 
 // PullRequestDetail is one pull request as the app's pull request view shows
-// it: what the list carries, and its description, labels and every check run
+// it: what the list carries (labels included), and its description and every check run
 // on its head, which the list leaves out.
 type PullRequestDetail struct {
 	PullRequest
 	Body         string
-	Labels       []Label
 	CheckRuns    []CheckRun
 	ChangedFiles int
-}
-
-// Label is a label on a pull request; Color is GitHub's hex, without "#".
-type Label struct {
-	Name, Color, Description string
 }
 
 // CheckRun is one check on a commit. Status is queued, in_progress or
@@ -44,18 +38,13 @@ type PullFile struct {
 	Patch                      string
 }
 
-// PullRequestDetail reads one pull request with its description, labels and
+// PullRequestDetail reads one pull request with its description and
 // check runs.
 func (c Client) PullRequestDetail(ctx context.Context, repo Repo, number int) (PullRequestDetail, error) {
 	var raw struct {
 		rawPR
 		ChangedFiles int     `json:"changed_files"`
 		Body         *string `json:"body"`
-		Labels       []struct {
-			Name        string `json:"name"`
-			Color       string `json:"color"`
-			Description string `json:"description"`
-		} `json:"labels"`
 	}
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), number)
 	if err := c.get(ctx, path, &raw); err != nil {
@@ -64,9 +53,6 @@ func (c Client) PullRequestDetail(ctx context.Context, repo Repo, number int) (P
 	out := PullRequestDetail{PullRequest: raw.pullRequest(), ChangedFiles: raw.ChangedFiles}
 	if raw.Body != nil {
 		out.Body = *raw.Body
-	}
-	for _, l := range raw.Labels {
-		out.Labels = append(out.Labels, Label{Name: l.Name, Color: l.Color, Description: l.Description})
 	}
 	if raw.Head.SHA != "" {
 		// Like checks, never a reason to fail: a pull request whose checks

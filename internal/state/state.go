@@ -1548,17 +1548,29 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 }
 
 func (s *Store) RemoveProject(ctx context.Context, name string) error {
+	// One transaction, so a project is never left half removed. The store's
+	// connection takes the write lock when it begins, which also keeps an
+	// agent from being added between the count and the delete.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
 	var agents int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM agents WHERE project = ?`, name).Scan(&agents); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM agents WHERE project = ?`, name).Scan(&agents); err != nil {
 		return err
 	}
 	if agents > 0 {
 		return fmt.Errorf("project %q still has %d agent(s): destroy them first", name, agents)
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM pr_watches WHERE project = ?`, name); err != nil {
-		return err
+	// Rows that reference the project come out first, then the project.
+	for _, table := range projectOwned {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE project = ?`, name); err != nil {
+			return fmt.Errorf("removing project %q's %s: %w", name, table, err)
+		}
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, name)
+	res, err := tx.ExecContext(ctx, `DELETE FROM projects WHERE name = ?`, name)
 	if err != nil {
 		return err
 	}
@@ -1566,19 +1578,59 @@ func (s *Store) RemoveProject(ctx context.Context, name string) error {
 		return fmt.Errorf("project %q: %w", name, ErrNotFound)
 	}
 	// The hole it left in its list is closed up, so positions stay 1..n (D79).
-	if err := s.renumberProjects(ctx); err != nil {
+	if err := renumber(ctx, tx); err != nil {
 		return err
 	}
-	// Its secrets and connectors go with it: nothing left can read them, and
-	// a project added again at the same path shouldn't inherit the old one's
-	// keys or sign-ins.
-	if err := s.RemoveProjectConnectors(ctx, name); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM skill_projects WHERE project = ?`, name); err != nil {
-		return err
-	}
-	return s.RemoveProjectSecrets(ctx, name)
+	return tx.Commit()
+}
+
+// projectOwned is every table with a project column that goes when the
+// project does, so a project added again under the same name starts from
+// nothing: not its old chat, memory, keys, sign-ins or agent numbering, and
+// nothing that references projects(name) is left to fail the delete. A new
+// table keyed by project must be listed here or in projectKept
+// (TestEveryProjectTableIsRemovedOrKept).
+var projectOwned = []string{
+	// agent_seq has a foreign key to projects: an agent ever made leaves a row.
+	"agent_seq",
+	"pr_watches",
+	"agent_queue",
+	"agent_events",
+	"checkpoints",
+	"questions",
+	"notifications",
+	"running_turns",
+	"chat_items",
+	"chats",
+	// Its secrets and connectors can't be read by anything once it's gone.
+	"secrets",
+	"connectors",
+	"connector_projects",
+	"skill_projects",
+	// Project memory (D72).
+	"memory_serves",
+	"memory_anchors",
+	"memory_duplicates",
+	"consolidation_passes",
+	"working_memory",
+	"memories",
+	"agent_reports",
+	"artifacts",
+	"events",
+}
+
+// projectKept is the project-keyed tables a removed project leaves alone, and
+// why.
+var projectKept = map[string]string{
+	// agents is no exception to the rule: RemoveProject refuses while one is left.
+	"agents": "a project with agents can't be removed",
+	// Media has files on disk, and its favorites outlive their agents on
+	// purpose; the retention sweep owns it, and deleting rows here would
+	// strand the files.
+	"media": "files on disk, swept by the media retention",
+	// The ledger of what was spent, which `agentbox tokens` totals across
+	// projects: a removed project's spending still happened.
+	"token_usage": "spend history",
 }
 
 // SetProjectClaudeAccount picks the Claude Code account a project's new agents

@@ -29,6 +29,7 @@ import {
   firstToReview,
   initiallyOpen,
   isGitHubImage,
+  labelHex,
   languageOfPath,
   nextToLoad,
   parsePatch,
@@ -186,7 +187,7 @@ function Detail({
             )}
             {listed.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
             {listed.review === 'changes_requested' && <Badge variant="warning">{t('memory.pulls.changesRequested')}</Badge>}
-            {detail.data?.labels.map((label) => (
+            {detail.data?.labels?.map((label) => (
               <LabelChip key={label.name} label={label} />
             ))}
           </div>
@@ -243,14 +244,14 @@ function Detail({
 
 // LabelChip is a label in its GitHub colour, as a dot, so it reads in either
 // theme.
-function LabelChip({ label }: { label: T.PullLabel }) {
+function LabelChip({ label }: { label: T.Label }) {
   return (
     <span
       title={label.description || undefined}
       className="inline-flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[11.5px] font-medium text-secondary"
       data-pull-label={label.name}
     >
-      <span className="size-2 rounded-full" style={{ backgroundColor: /^[0-9a-f]{6}$/i.test(label.color ?? '') ? `#${label.color}` : undefined }} />
+      <span className="size-2 rounded-full" style={{ backgroundColor: labelHex(label.color) }} />
       {label.name}
     </span>
   );
