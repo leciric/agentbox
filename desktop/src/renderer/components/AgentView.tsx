@@ -45,6 +45,7 @@ import { ChatHeaderControls, ChatTab } from './chat/ChatTab';
 import { ConnectorsTab } from './ConnectorsTab';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { MediaTab } from './MediaTab';
+import { ScopedMediaPages } from './pages/MediaPages';
 import { OverviewTab } from './OverviewTab';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
@@ -292,7 +293,9 @@ export function AgentView({
             </TabsContent>
           )}
           <TabsContent value="media" className="flex flex-col">
-            <MediaTab agent={agent} />
+            <ScopedMediaPages project={agent.project} agent={agent.ref} variant="fill">
+              <MediaTab agent={agent} />
+            </ScopedMediaPages>
           </TabsContent>
           <TabsContent value="settings" className="flex flex-col">
             <SettingsSections label={t('agent.view.settingsOf', { name: agent.title || agent.name })} sections={agentSettingsSections(t)} value={place.section} onValueChange={onTab}>

@@ -16,13 +16,22 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
-import { memo, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { createContext, memo, use, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
+import { isHomeChat } from '../../lib/api';
 import { entryLabel, isActive, isWork, liveLabel, workSummary } from '../../lib/chat';
+import { livePageOf, openPage, pageIdOf } from '../../lib/pages';
 import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
+import { PageIcon } from '../pages/PageThumb';
+import { pagesQuery } from '../pages/usePages';
 import { DiffView } from './ChangedFiles';
 import { Markdown } from './Markdown';
+
+// ChatRefContext is the chat a timeline is of, for a publish_page line to
+// find its page among the project's.
+export const ChatRefContext = createContext('');
 
 const rowClass =
   'group/row flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-sm leading-relaxed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/40';
@@ -108,6 +117,44 @@ function EntryList({ items, root }: { items: T.ChatItem[]; root: string }) {
 }
 
 function Entry({ item, root }: { item: T.ChatItem; root: string }) {
+  if (pageIdOf(item.tool)) return <PageEntry item={item} root={root} />;
+  return <ToolEntry item={item} root={root} />;
+}
+
+// PageEntry is a finished publish_page or update_page: while Hatch is
+// connected and still has the page, the line opens it, and the chevron
+// still shows what Hatch answered; otherwise it's a line like any other.
+function PageEntry({ item, root }: { item: T.ChatItem; root: string }) {
+  const t = useT();
+  const chatRef = use(ChatRefContext);
+  const project = chatRef.split('/')[0];
+  const enabled = !!project && !isHomeChat(chatRef);
+  const pages = useQuery({ ...pagesQuery(project), enabled });
+  const page = enabled ? livePageOf(pages.data, item.tool) : undefined;
+  const [open, setOpen] = useState(false);
+  if (!page) return <ToolEntry item={item} root={root} />;
+  const detail = detailOf(item, root);
+  return (
+    <div className="min-w-0" data-chat-entry={item.kind}>
+      <div className="flex min-w-0 items-center">
+        <button className={cn(rowClass, 'min-w-0 flex-1 hover:bg-surface-faint')} onClick={() => openPage(project, page)} data-chat-page={page.id} aria-label={t('pages.openPage', { title: page.title })}>
+          <span className="flex size-6 shrink-0 items-center justify-center text-amber-300/80">
+            <PageIcon className="size-4" />
+          </span>
+          <span className="min-w-0 truncate text-subtle underline decoration-line-strong underline-offset-[3px] group-hover/row:text-primary group-hover/row:decoration-current">{entryLabel(item)}</span>
+        </button>
+        {detail && (
+          <button className="flex size-6 shrink-0 items-center justify-center rounded-md text-faint hover:bg-surface-faint hover:text-muted" aria-expanded={open} aria-label={t('pages.callDetails')} onClick={() => setOpen(!open)}>
+            <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
+          </button>
+        )}
+      </div>
+      {open && detail && <div className="mb-1.5 ml-7 mt-0.5 overflow-hidden rounded-lg border border-line-faint bg-sunken">{detail}</div>}
+    </div>
+  );
+}
+
+function ToolEntry({ item, root }: { item: T.ChatItem; root: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const detail = detailOf(item, root);

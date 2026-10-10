@@ -15,6 +15,8 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { MediaPlace } from "./components/MediaPlace";
 import { MediaViewer } from "./components/MediaTab";
 import { NoticeToast } from "./components/Notifications";
+import { PageArrivals } from "./components/pages/PageArrivals";
+import { PagePreviewHost } from "./components/pages/PagePreview";
 import { markSeen as markNoticesSeen, noticeText, noticeView } from "./lib/notifications";
 import { projectLabel } from "./lib/projectName";
 import type * as T from "../shared/api";
@@ -453,6 +455,15 @@ export function App() {
           await api.deleteMedia(deleting!.id);
           setViewing(null);
         }}
+      />
+      <PagePreviewHost onSelect={select} />
+      <PageArrivals
+        onNotified={(id, open) =>
+          waiting.current.set(id, () => {
+            waiting.current.delete(id);
+            open();
+          })
+        }
       />
       <SearchPalette open={searching} onOpenChange={setSearching} onOpen={openFound} />
       <ErrorReports />

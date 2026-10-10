@@ -1588,6 +1588,14 @@ export interface ChatTool {
   paths?: string[];
   output?: string;
   diffs?: ChatDiff[];
+  page?: ChatPage;
+}
+
+export interface ChatPage {
+  id?: string;
+  title?: string;
+  public?: boolean;
+  expiresInHours?: number;
 }
 
 export interface ChatDiff {
@@ -2218,6 +2226,34 @@ export interface SearchHit {
   media?: MediaItem;
 }
 
+export interface Artifact {
+  id: string;
+  title: string;
+  url: string;
+  agent: string;
+  item: string;
+  agents: string[];
+  version: number;
+  public?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt?: string;
+  permanent?: boolean;
+  expired?: boolean;
+}
+
+export interface Artifacts {
+  connector: string;
+  artifacts: Artifact[];
+}
+
+export interface ArtifactPreview {
+  artifact: Artifact;
+  status: string;
+  page: boolean;
+  error?: string;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -2275,6 +2311,9 @@ export const ConnectorConnecting = "connecting";
 export const ConnectorError = "error";
 export const EventConnector = "connector";
 export const QuestionConnector = "connector";
+export const ArtifactActive = "active";
+export const ArtifactExpired = "expired";
+export const ArtifactUnavailable = "unavailable";
 export const GitHubNoAccount = "noAccount";
 export const GitHubNoAccess = "noAccess";
 export const GitHubBadToken = "badToken";
