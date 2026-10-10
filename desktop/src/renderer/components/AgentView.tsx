@@ -331,7 +331,6 @@ function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect:
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['agents'] });
     await queryClient.invalidateQueries({ queryKey: ['queue', agent.project] });
-    await queryClient.invalidateQueries({ queryKey: ['memoryTasks', agent.project] });
   };
   const moveToFront = useMutation({
     mutationFn: () => api.moveQueued(agent.project, agent.name, 1),

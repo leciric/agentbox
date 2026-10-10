@@ -471,11 +471,6 @@ type Settings struct {
 	// turned on, and off, no slots are enforced; an agent the VM has no
 	// memory for queues either way (CreateAgentRequest.Size).
 	AgentQueue bool `json:"agentQueue"`
-	// TaskTarget is "tasks go to": where a task of the Tasks tab goes when
-	// it starts, unless the task chose for itself (Task.Route) — "agent", a
-	// new agent of its own, the default, or "lead", the project's chat, which
-	// may split it across several agents.
-	TaskTarget string `json:"taskTarget"`
 	// LeadRecheck is "lead rechecks agents": while on, every
 	// LeadRecheckMinutes the daemon wakes each project's chat with a short
 	// status of its running agents and its queue — only when an agent has
@@ -566,8 +561,6 @@ type UpdateSettingsRequest struct {
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
 	// AgentQueue turns "agent queue" on or off.
 	AgentQueue *bool `json:"agentQueue,omitempty"`
-	// TaskTarget sets "tasks go to": "agent" or "lead".
-	TaskTarget *string `json:"taskTarget,omitempty"`
 	// LeadRecheck turns "lead rechecks agents" on or off, and
 	// LeadRecheckMinutes is how often, from 5 to 1440.
 	LeadRecheck        *bool `json:"leadRecheck,omitempty"`
@@ -739,10 +732,6 @@ type CreateAgentRequest struct {
 	// memory to spare. Whatever Queue
 	// says, an agent that doesn't fit in the VM's memory waits in the queue.
 	Size string `json:"size,omitempty"`
-	// TaskID is the task in the project's plan the agent is made for, which
-	// it then works on rather than a task of its own. Task defaults to that
-	// task's goal and detail, and Title to its goal.
-	TaskID string `json:"taskId,omitempty"`
 	// Connectors limits which of the project's connectors the agent is
 	// given, by name; absent gives it every one, and an empty list none. An
 	// agent's own connectors, added to it later, aren't limited by it.
@@ -814,7 +803,6 @@ type QueuedAgent struct {
 	Title    string    `json:"title"`
 	Branch   string    `json:"branch"`
 	Task     string    `json:"task,omitempty"`
-	TaskID   string    `json:"taskId,omitempty"`
 	Position int       `json:"position"` // 1 is next
 	QueuedAt time.Time `json:"queuedAt"`
 	// Waiting is why it hasn't started yet (Agent.Waiting), and Reserved what

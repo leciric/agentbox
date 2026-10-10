@@ -12,7 +12,6 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
-	"agentbox/internal/memory"
 	"agentbox/internal/state"
 )
 
@@ -290,8 +289,7 @@ func TestProjectQueueSettings(t *testing.T) {
 
 // A queued create, end to end through the API: the agent has its name,
 // title, branch and task at once and no machine, and the queue loop then
-// makes it with the branch it was queued with. A task of the plan queued the
-// same way is made for that task.
+// makes it with the branch it was queued with.
 func TestQueuedCreateStartsWhenASlotIsFree(t *testing.T) {
 	t.Parallel()
 	// Both machines answer as running as soon as they're copied, which is
@@ -325,34 +323,11 @@ func TestQueuedCreateStartsWhenASlotIsFree(t *testing.T) {
 		t.Errorf("queued agent = %s #%d on %s", queuedAgent.State, queuedAgent.QueuePosition, queuedAgent.Branch)
 	}
 
-	task, err := d.srv.memory().AddTask(ctx, memoryTask("hello-stack", "Fix the login redirect"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	job, err = d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none", TaskID: task.ID, Queue: ptr(true)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var forTask api.Agent
-	_ = json.Unmarshal(job.Result, &forTask)
-	if forTask.Title != "Fix the login redirect" {
-		t.Errorf("an agent for a task is titled %q", forTask.Title)
-	}
-	if got, _ := d.srv.memory().Task(ctx, "hello-stack", task.ID); got.Agent != forTask.Name {
-		t.Errorf("the task is %q's, want the queued %s's", got.Agent, forTask.Name)
-	}
-	// Given to one agent, a task can't be queued again.
-	if _, err := d.client.CreateAgent(ctx, api.CreateAgentRequest{Project: "hello-stack", AI: "none", TaskID: task.ID, Queue: ptr(true)}); err == nil {
-		t.Error("queued the same task twice")
-	}
-
-	// Nothing holds either slot, so the loop makes both.
-	for _, a := range []api.Agent{queuedAgent, forTask} {
-		waitFor(t, a.Name+" to be made", func() bool {
-			got, err := d.srv.store.Agent(ctx, "hello-stack", a.Name)
-			return err == nil && got.Status == state.AgentReady
-		})
-	}
+	// Nothing holds a slot, so the loop makes it.
+	waitFor(t, queuedAgent.Name+" to be made", func() bool {
+		got, err := d.srv.store.Agent(ctx, "hello-stack", queuedAgent.Name)
+		return err == nil && got.Status == state.AgentReady
+	})
 	made, err := d.srv.store.Agent(ctx, "hello-stack", queuedAgent.Name)
 	if err != nil {
 		t.Fatal(err)
@@ -363,21 +338,9 @@ func TestQueuedCreateStartsWhenASlotIsFree(t *testing.T) {
 	if _, err := os.Stat(made.Worktree); err != nil {
 		t.Errorf("its worktree: %v", err)
 	}
-	// The task stays the user's: it's linked to its agent and otherwise left
-	// as it was, and the agent made with a task of its own wrote none.
-	if got, err := d.srv.memory().Task(ctx, "hello-stack", task.ID); err != nil || got.Status != memory.TaskOpen || got.Agent != forTask.Name {
-		t.Errorf("the task once its agent started = %+v, %v; want it open and %s's", got, err, forTask.Name)
-	}
-	if tasks, err := d.srv.memory().Tasks(ctx, "hello-stack", memory.TaskFilter{}); err != nil || len(tasks) != 1 {
-		t.Errorf("the task list after two creates = %d tasks, %v; want only the user's one", len(tasks), err)
-	}
 	if q, _ := d.srv.store.Queue(ctx, ""); len(q) != 0 {
 		t.Errorf("still queued: %v", q)
 	}
-}
-
-func memoryTask(project, goal string) memory.Task {
-	return memory.Task{Project: project, Goal: goal, Status: memory.TaskOpen}
 }
 
 // With "agent queue" off, which it is until turned on, everything is as it

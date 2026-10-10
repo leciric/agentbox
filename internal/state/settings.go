@@ -206,10 +206,6 @@ const (
 	// turns it on, and off, nothing queues and no slots are enforced — an
 	// agent already queued starts at once.
 	SettingAgentQueue = "agent_queue"
-	// SettingTaskTarget is "tasks go to": where a task of the Tasks tab goes
-	// when it starts and chose nothing itself, "agent" or "lead". Empty is
-	// "agent", what a task always did before there was a choice.
-	SettingTaskTarget = "task_target"
 	// SettingLeadRecheck says whether the daemon wakes each project's chat
 	// every SettingLeadRecheckMinutes with a short status of its running
 	// agents and its queue, when there is something to act on. Off until the

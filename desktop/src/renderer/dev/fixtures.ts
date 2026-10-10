@@ -1204,7 +1204,6 @@ let defaultsSettings = {
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
   agentQueue: false,
-  taskTarget: 'agent',
   leadRecheck: false,
   leadRecheckMinutes: 20,
   imageCache: true,
@@ -1251,7 +1250,6 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'dockerPruneOnStop',
     'mediaRetention',
     'agentQueue',
-    'taskTarget',
     'leadRecheck',
     'leadRecheckMinutes',
   ] as const) {
@@ -1496,7 +1494,7 @@ export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
   queryClient.setQueryData(['vmPower'], devState.vmPower);
 }
 
-// --- The agent queue (?queue=busy|alone|demo|off|settings|tasks) -----------
+// --- The agent queue (?queue=busy|alone|demo|off|settings) -----------
 //
 // Two projects sharing one 18 GiB budget (2.25 GiB reserved, so 15.75 GiB to
 // split): "organic", whose agents run ~6 GiB each, and "agentbox" itself,
@@ -1595,31 +1593,11 @@ function queuedAgentFixture(name: string, position: number): T.QueuedAgent {
     title: queueTaskGoals[name] ?? name,
     branch: `agentbox/${name}`,
     task: queueTaskGoals[name],
-    taskId: `t-${name}`,
     position,
     queuedAt: new Date(Date.now() - position * 5_000).toISOString(),
     reserved: agentboxPeakBytes,
     waiting: 'queued: 6 agents in 2 projects reserve 15 of 18 GB; starts when ~4 GB is free',
   };
-}
-
-// queueTasks is agentbox's plan for the Tasks tab (?queue=tasks): three
-// queued, one running, one unassigned, one done.
-function queueTasks(running: string[], queued: string[]): T.Task[] {
-  const now = new Date().toISOString();
-  const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
-  const task = (id: string, goal: string, status: string, agentName?: string): T.Task => ({ id, project: PROJECT, agent: agentName, status, goal, createdAt: now, updatedAt: now });
-  return [
-    task('t1', 'Ship the release notes', 'active', running[0]),
-    ...queued.map((name, i) => task(`t${i + 2}`, queueTaskGoals[name] ?? name, 'open', name)),
-    task('t5', 'Audit third-party licenses', 'open'),
-    { ...task('t6', 'Bump the base image', 'done'), closedAt: now },
-    // The Done list's three endings: implemented by a merged pull request,
-    // done by hand, and abandoned.
-    { ...task('t7', 'Split the Tasks tab into Open and Done', 'done'), closedAt: ago(40), pullUrl: 'https://github.com/leciric/agentbox/pull/155', pullNumber: 155 },
-    { ...task('t8', 'Retry a failed image build from Setup', 'done'), closedAt: ago(60 * 26), pullUrl: 'https://github.com/leciric/agentbox/pull/149', pullNumber: 149 },
-    { ...task('t9', 'Try Vulkan transcription on every GPU', 'abandoned'), closedAt: ago(60 * 50) },
-  ];
 }
 
 // seedQueue seeds the agent queue scenarios: 'busy' is agentbox at 4 of 4
@@ -1659,7 +1637,6 @@ export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'de
     return;
   }
 
-  const runningNames = [1, 2, 3, 4].map((i) => `agent-${i}`);
   const queuedNames = ['agent-q5', 'agent-q6', 'agent-q7'];
   let agents: T.Agent[] = [
     running(PROJECT, 1, 'Ship the release notes'),
@@ -1678,7 +1655,6 @@ export function seedQueue(queryClient: QueryClient, mode: 'busy' | 'alone' | 'de
     const status = queueStatus(enabled, 4, abRunning, queued, abAgents, 1, 1, organicSlotAgentsBusy);
     queryClient.setQueryData(['queue', PROJECT], status);
     queryClient.setQueryData(['queue', 'organic'], status);
-    queryClient.setQueryData(['memoryTasks', PROJECT], queueTasks(runningNames, queued.map((q) => q.name)));
   };
   publish(4);
 

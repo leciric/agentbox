@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, ListTodo, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Trash } from 'lucide-react';
+import { Brain, Wand2, Coins, Ellipsis, FileText, FolderGit2, FolderOpen, GitPullRequest, Image, KeyRound, MessagesSquare, Moon, NotebookPen, Plug, Plus, SlidersHorizontal, Trash } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
@@ -18,7 +18,6 @@ import { ProjectBasePanel } from './ProjectBasePanel';
 import { ProjectMediaPanel } from './ProjectMediaPanel';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
-import { ProjectTasksPanel } from './ProjectTasksPanel';
 import { PullRequestsPanel } from './PullRequestsPanel';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
@@ -192,10 +191,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
               <MessagesSquare />
               {t('project.view.tab.chat')}
             </TabsTrigger>
-            <TabsTrigger value="tasks">
-              <ListTodo />
-              {t('project.view.tab.tasks')}
-            </TabsTrigger>
             <TabsTrigger value="pulls">
               <GitPullRequest />
               {t('project.view.tab.pulls')}
@@ -221,10 +216,6 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
         <div className="mx-2 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-line md:mx-6 md:mb-6">
           <ProjectChatPanel project={project} />
         </div>
-      </TabsContent>
-
-      <TabsContent value="tasks" className="overflow-y-auto">
-        <ProjectTasksPanel project={name} onSelect={onSelect} onOpenChat={() => setWhere('chat')} />
       </TabsContent>
 
       <TabsContent value="pulls" className="overflow-y-auto">

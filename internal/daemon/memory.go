@@ -67,46 +67,28 @@ var memoryRoutes = []struct {
 	path    string
 	action  string
 	inAgent bool
-	// userOnly marks the routes served on the user's socket alone, and not
-	// on a project chat's either: the task list is the user's to write.
-	userOnly bool
 }{
-	{http.MethodGet, "/events", "events", true, false},
-	{http.MethodPost, "/events", "append-event", true, false},
-	{http.MethodGet, "/memories", "memories", true, false},
-	{http.MethodPost, "/memories", "add-memory", false, false},
-	{http.MethodPost, "/search", "search", true, false},
-	{http.MethodGet, "/working", "working", true, false},
-	{http.MethodPatch, "/working", "set-working", false, false},
-	{http.MethodGet, "/artifacts", "artifacts", true, false},
-	{http.MethodPost, "/artifacts", "add-artifact", true, false},
-	{http.MethodGet, "/reports", "reports", true, false},
-	{http.MethodPost, "/reports", "add-report", true, false},
-	{http.MethodPost, "/context", "context", true, false},
-	{http.MethodGet, "/context/stats", "context-stats", true, false},
+	{http.MethodGet, "/events", "events", true},
+	{http.MethodPost, "/events", "append-event", true},
+	{http.MethodGet, "/memories", "memories", true},
+	{http.MethodPost, "/memories", "add-memory", false},
+	{http.MethodPost, "/search", "search", true},
+	{http.MethodGet, "/working", "working", true},
+	{http.MethodPatch, "/working", "set-working", false},
+	{http.MethodGet, "/artifacts", "artifacts", true},
+	{http.MethodPost, "/artifacts", "add-artifact", true},
+	{http.MethodGet, "/reports", "reports", true},
+	{http.MethodPost, "/reports", "add-report", true},
+	{http.MethodPost, "/context", "context", true},
+	{http.MethodGet, "/context/stats", "context-stats", true},
 	// Consolidation (D76). An agent reads how its project's memory is being
 	// kept, the same way it reads the memory itself; closing an issue and
 	// spending the project's tokens on a distillation are curation, and stay
 	// with the user and the lead.
-	{http.MethodGet, "/consolidation", "consolidation", true, false},
-	{http.MethodGet, "/duplicates", "duplicates", true, false},
-	{http.MethodPost, "/resolve", "resolve-memory", false, false},
-	{http.MethodPost, "/consolidate", "consolidate", false, false},
-	// The project's tasks (D77), which are the user's own list: an agent and
-	// the project's chat may read it, and only the user writes it, from the
-	// app's Tasks tab. Nothing in the daemon writes a task on its own either,
-	// beyond linking one to the agent the user started or queued for it.
-	{http.MethodGet, "/tasks", "tasks", true, false},
-	{http.MethodGet, "/tasks/{task}", "task", true, false},
-	{http.MethodPost, "/tasks", "add-task", false, true},
-	{http.MethodPatch, "/tasks/{task}", "update-task", false, true},
-	{http.MethodDelete, "/tasks/{task}", "delete-task", false, true},
-	{http.MethodPost, "/tasks/link", "link-tasks", false, true},
-	{http.MethodPost, "/tasks/unlink", "unlink-tasks", false, true},
-	// Starting a task sends it where it goes (tasks.go): a new agent, or the
-	// project's chat. Unqueueing takes it back out of the queue either way.
-	{http.MethodPost, "/tasks/{task}/start", "start-task", false, true},
-	{http.MethodPost, "/tasks/{task}/unqueue", "unqueue-task", false, true},
+	{http.MethodGet, "/consolidation", "consolidation", true},
+	{http.MethodGet, "/duplicates", "duplicates", true},
+	{http.MethodPost, "/resolve", "resolve-memory", false},
+	{http.MethodPost, "/consolidate", "consolidate", false},
 }
 
 // memoryHandler is one route of the memory surface, for whichever scope the
@@ -311,133 +293,6 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 
 		case "context-stats":
 			return writeJSON(w, http.StatusOK, apiContextAccount(m.ContextBuilds(who.project)))
-
-		case "tasks":
-			filter, err := taskFilter(r)
-			if err != nil {
-				return err
-			}
-			tasks, err := m.Tasks(ctx, who.project, filter)
-			if err != nil {
-				return err
-			}
-			return writeJSON(w, http.StatusOK, apiTasks(tasks))
-
-		case "task":
-			task, err := m.Task(ctx, who.project, r.PathValue("task"))
-			if err != nil {
-				return err
-			}
-			return writeJSON(w, http.StatusOK, apiTask(task))
-
-		case "add-task":
-			var req api.AddTaskRequest
-			if err := readJSON(r, &req); err != nil {
-				return err
-			}
-			out, err := m.AddTask(ctx, memory.Task{
-				Project: who.project, Agent: strings.TrimSpace(req.Agent), ParentID: req.ParentID,
-				Status: req.Status, Goal: req.Goal, Detail: req.Detail,
-			})
-			if err != nil {
-				return err
-			}
-			// A task written down with its blockers already named is one
-			// call, not three. An edge that would close a cycle is refused
-			// and the task stays: the plan gained a row, not a loop.
-			for _, on := range req.DependsOn {
-				if err := m.LinkTasks(ctx, who.project, out.ID, on); err != nil {
-					return err
-				}
-			}
-			if out, err = m.Task(ctx, who.project, out.ID); err != nil {
-				return err
-			}
-			s.captureTaskCreated(ctx, out)
-			if len(out.DependsOn) > 0 {
-				s.captureTaskBlocked(ctx, who.project, out, out.DependsOn)
-			}
-			return writeJSON(w, http.StatusCreated, apiTask(out))
-
-		case "update-task":
-			var req api.UpdateTaskRequest
-			if err := readJSON(r, &req); err != nil {
-				return err
-			}
-			id := r.PathValue("task")
-			was, err := m.Task(ctx, who.project, id)
-			if err != nil {
-				return err
-			}
-			patch := memory.TaskPatch{Status: req.Status, Goal: req.Goal,
-				Detail: req.Detail, Agent: req.Agent, ParentID: req.ParentID, Route: req.Route}
-			// A queued task closed before it started leaves the queue: nothing
-			// should start for work that's over.
-			if req.Status != nil && memory.TaskClosed(*req.Status) && was.Open() {
-				unqueued, err := s.unqueueAgentForTask(ctx, was)
-				if err != nil {
-					return err
-				}
-				if unqueued {
-					patch.Agent = ptr("")
-				}
-			}
-			out, err := m.UpdateTask(ctx, who.project, id, patch)
-			if err != nil {
-				return err
-			}
-			if out.Status != was.Status {
-				s.captureTaskStatus(ctx, out, was.Status)
-			}
-			return writeJSON(w, http.StatusOK, apiTask(out))
-
-		case "delete-task":
-			if err := s.deleteTask(ctx, who.project, r.PathValue("task")); err != nil {
-				return err
-			}
-			w.WriteHeader(http.StatusNoContent)
-			return nil
-
-		case "start-task":
-			var req api.StartTaskRequest
-			if err := readJSON(r, &req); err != nil {
-				return err
-			}
-			out, err := s.startTask(ctx, who.project, r.PathValue("task"), req)
-			if err != nil {
-				return err
-			}
-			return writeJSON(w, http.StatusOK, out)
-
-		case "unqueue-task":
-			out, err := s.unqueueTask(ctx, who.project, r.PathValue("task"))
-			if err != nil {
-				return err
-			}
-			return writeJSON(w, http.StatusOK, apiTask(out))
-
-		case "link-tasks", "unlink-tasks":
-			var req api.LinkTasksRequest
-			if err := readJSON(r, &req); err != nil {
-				return err
-			}
-			if action == "unlink-tasks" {
-				if err := m.UnlinkTasks(ctx, who.project, req.TaskID, req.DependsOnID); err != nil {
-					return err
-				}
-			} else {
-				if err := m.LinkTasks(ctx, who.project, req.TaskID, req.DependsOnID); err != nil {
-					return err
-				}
-			}
-			task, err := m.Task(ctx, who.project, req.TaskID)
-			if err != nil {
-				return err
-			}
-			if action == "link-tasks" {
-				s.captureTaskBlocked(ctx, who.project, task, []string{req.DependsOnID})
-			}
-			return writeJSON(w, http.StatusOK, apiTask(task))
 		}
 		return fmt.Errorf("unknown memory action %q", action)
 	}
@@ -475,44 +330,6 @@ func (s *Server) buildContext(ctx context.Context, m *memory.Store, who memorySc
 		return api.ContextResult{}, err
 	}
 	return apiContext(built), nil
-}
-
-// taskFilter reads the query parameters of a task listing. ?open=true is the
-// common one: a plan is what is left to do.
-func taskFilter(r *http.Request) (memory.TaskFilter, error) {
-	q := r.URL.Query()
-	f := memory.TaskFilter{Agent: q.Get("agent"), Statuses: q["status"], Parent: q.Get("parent")}
-	if raw := q.Get("open"); raw != "" {
-		open, err := strconv.ParseBool(raw)
-		if err != nil {
-			return f, fmt.Errorf("invalid open %q: it is true or false", raw)
-		}
-		f.OpenOnly = open
-	}
-	if raw := q.Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil {
-			return f, fmt.Errorf("invalid limit %q", raw)
-		}
-		f.Limit = n
-	}
-	return f, nil
-}
-
-func apiTask(t memory.Task) api.Task {
-	return api.Task{
-		ID: t.ID, Project: t.Project, Agent: t.Agent, ParentID: t.ParentID, Status: t.Status,
-		Goal: t.Goal, Detail: t.Detail, Route: t.Route, LeadQueuedAt: t.LeadQueuedAt, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
-		ClosedAt: t.ClosedAt, PullURL: t.PullURL, PullNumber: t.PullNumber, DependsOn: t.DependsOn, Blocks: t.Blocks,
-	}
-}
-
-func apiTasks(tasks []memory.Task) []api.Task {
-	out := make([]api.Task, 0, len(tasks))
-	for _, t := range tasks {
-		out = append(out, apiTask(t))
-	}
-	return out
 }
 
 // agentOf is which agent a written row belongs to. Inside an agent it is the

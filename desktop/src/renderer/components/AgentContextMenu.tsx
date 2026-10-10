@@ -51,9 +51,6 @@ export function AgentContextMenu({
     await queryClient.invalidateQueries({ queryKey: ['agents'] });
     await queryClient.invalidateQueries({ queryKey: ['fleet', agent.project] });
     await queryClient.invalidateQueries({ queryKey: ['queue', agent.project] });
-    // Leaving the queue frees whatever task the agent was given (the daemon
-    // unassigns it), so the Tasks tab's list has to catch up too.
-    await queryClient.invalidateQueries({ queryKey: ['memoryTasks', agent.project] });
   };
 
   const action = useMutation({

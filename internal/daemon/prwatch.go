@@ -330,10 +330,7 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		pr, ok := read[n]
 		if !ok || pr.State != "open" {
 			// Merged or closed — or gone from GitHub altogether: nothing more
-			// to watch. Merged is its agent's tasks done.
-			if ok && pr.State == "merged" {
-				s.tasksImplemented(ctx, p.Name, prev.Agent, pr.URL, pr.Number)
-			}
+			// to watch.
 			if err := s.store.ForgetPRWatch(ctx, p.Name, n); err != nil {
 				s.logf("pull request watch in %s: %v", p.Name, err)
 			}

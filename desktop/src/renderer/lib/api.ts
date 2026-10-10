@@ -335,21 +335,6 @@ export const api = {
   memoryConsolidation: (name: string) => call<T.MemoryConsolidation>('GET', `${project(name)}/memory/consolidation`),
   memoryDuplicates: (name: string) => call<T.MemoryDuplicate[]>('GET', `${project(name)}/memory/duplicates`),
   resolveMemory: (name: string, req: T.ResolveMemoryRequest) => call<T.Memory>('POST', `${project(name)}/memory/resolve`, req),
-  // The task graph (D77): the plan, and what is blocked on what. A bare call
-  // is the whole graph, edges both ways, which is what a tree view needs.
-  memoryTasks: (name: string) => call<T.Task[]>('GET', `${project(name)}/memory/tasks`),
-  addTask: (name: string, req: T.AddTaskRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks`, req),
-  updateTask: (name: string, id: string, req: T.UpdateTaskRequest) => call<T.Task>('PATCH', `${project(name)}/memory/tasks/${encodeURIComponent(id)}`, req),
-  deleteTask: (name: string, id: string) => call<void>('DELETE', `${project(name)}/memory/tasks/${encodeURIComponent(id)}`),
-  linkTasks: (name: string, req: T.LinkTasksRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks/link`, req),
-  unlinkTasks: (name: string, req: T.LinkTasksRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks/unlink`, req),
-  // Starting a task sends it where it goes, a new agent or the project's
-  // chat, and the daemon decides which; unqueueing takes it back either way.
-  startTask: async (name: string, id: string, req: T.StartTaskRequest) => {
-    await ensureVMRunning();
-    return call<T.StartTaskResponse>('POST', `${project(name)}/memory/tasks/${encodeURIComponent(id)}/start`, req);
-  },
-  unqueueTask: (name: string, id: string) => call<T.Task>('POST', `${project(name)}/memory/tasks/${encodeURIComponent(id)}/unqueue`),
 
   snapshots: (ref: string) => call<T.Snapshot[]>('GET', `${agent(ref)}/snapshots`),
   takeSnapshot: (ref: string, req: T.SnapshotRequest) => call<T.Snapshot>('POST', `${agent(ref)}/snapshots`, req),

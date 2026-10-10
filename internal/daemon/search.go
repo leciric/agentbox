@@ -80,7 +80,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	if err := add(api.SearchProjects, searchProjects(projects, words), nil); err != nil {
 		return err
 	}
-	found, err := s.searchAgents(ctx, projects, agents, words)
+	found, err := s.searchAgents(ctx, agents, words)
 	if err := add(api.SearchAgents, found, err); err != nil {
 		return err
 	}
@@ -266,22 +266,25 @@ func searchProjects(projects []state.Project, ws searchWords) []searchFound {
 }
 
 // searchAgents finds agents by what they're called, their branch, and the
-// task the lead gave them (the newest one, when there were several).
-func (s *Server) searchAgents(ctx context.Context, projects []state.Project, agents []state.Agent, ws searchWords) ([]searchFound, error) {
-	tasks := map[string]string{}
+// task they were given, as the agent_created event recorded it (the same one
+// an agent's brief reads back).
+func (s *Server) searchAgents(ctx context.Context, agents []state.Agent, ws searchWords) ([]searchFound, error) {
 	mem := s.memory()
-	for _, p := range projects {
-		list, err := mem.Tasks(ctx, p.Name, memory.TaskFilter{})
+	tasks := map[string]string{}
+	for _, a := range agents {
+		if a.IsLead() {
+			continue
+		}
+		events, err := mem.Events(ctx, a.Project, memory.EventFilter{Agent: a.Name, Types: []string{"agent_created"}, Limit: 1})
 		if err != nil {
 			return nil, err
 		}
-		newest := map[string]time.Time{}
-		for _, t := range list {
-			if t.Agent == "" || t.CreatedAt.Before(newest[t.Agent]) {
-				continue
+		if len(events) > 0 {
+			var payload struct {
+				Task string `json:"task"`
 			}
-			newest[t.Agent] = t.CreatedAt
-			tasks[p.Name+"/"+t.Agent] = t.Goal
+			_ = json.Unmarshal(events[0].Payload, &payload)
+			tasks[a.Ref()] = payload.Task
 		}
 	}
 	var out []searchFound

@@ -930,6 +930,13 @@ var migrations = []string{
 			SELECT new.rowid, new.search_text WHERE new.search_text IS NOT NULL;
 	END`,
 	`INSERT INTO chat_items_fts (rowid, search_text) SELECT rowid, search_text FROM chat_items WHERE search_text IS NOT NULL`,
+
+	// The user's task list (the Tasks tab) is gone, and with it the tables
+	// that held it, their indexes, and "tasks go to". The task_* events it
+	// captured stay: events are history, never rewritten.
+	`DROP TABLE task_dependencies`,
+	`DROP TABLE tasks`,
+	`DELETE FROM settings WHERE key = 'task_target'`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

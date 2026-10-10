@@ -151,8 +151,6 @@ export function connectEvents(queryClient: QueryClient): void {
         const { project } = event.data as T.PullsChange;
         void queryClient.invalidateQueries({ queryKey: ['pulls', project] });
         void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
-        // A merge the watch saw has closed the tasks its agent was given.
-        void queryClient.invalidateQueries({ queryKey: ['memoryTasks', project] });
         break;
       }
       case T.EventAgent: {
@@ -171,11 +169,9 @@ export function connectEvents(queryClient: QueryClient): void {
           void queryClient.invalidateQueries({ queryKey: ['android', change.ref] });
         }
         // A queue move, a create or a start changes a project's slots: how
-        // many are in use, and who's waiting. The rail and the Tasks tab both
-        // read the same query, keyed by the project the agent's ref names.
+        // many are in use, and who's waiting. The rail reads it, keyed by the
+        // project the agent's ref names.
         void queryClient.invalidateQueries({ queryKey: ['queue', change.ref.split('/')[0]] });
-        // An agent removed after its pull request merged has closed its tasks.
-        if (change.removed) void queryClient.invalidateQueries({ queryKey: ['memoryTasks', change.ref.split('/')[0]] });
         break;
       }
       case T.EventJob: {

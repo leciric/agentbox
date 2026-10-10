@@ -730,13 +730,6 @@
     "height": 900
   },
   {
-    "id": "queue-tasks-dark",
-    "description": "agentbox's Tasks tab: the slots strip, the composer and the plan, three tasks queued — dark",
-    "query": "queue=tasks&theme=dark",
-    "width": 900,
-    "height": 900
-  },
-  {
     "id": "queue-settings-dark",
     "description": "agentbox's Settings, at the slots row: Auto's slot size and the running agents its peak is learned from, memory and CPU now and at their peak — dark",
     "query": "queue=settings&theme=dark",

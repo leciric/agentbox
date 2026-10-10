@@ -11,7 +11,6 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
-	"agentbox/internal/memory"
 	"agentbox/internal/state"
 )
 
@@ -198,7 +197,7 @@ func (s *Server) slotStatus(ctx context.Context) (api.QueueStatus, error) {
 		_ = json.Unmarshal(q.Request, &req)
 		out.Queued = append(out.Queued, api.QueuedAgent{
 			Ref: q.Ref(), Project: q.Project, Name: q.Name, Title: a.Title, Branch: a.Branch,
-			Task: req.Request.Task, TaskID: req.Request.TaskID, Position: q.Position, QueuedAt: q.QueuedAt,
+			Task: req.Request.Task, Position: q.Position, QueuedAt: q.QueuedAt,
 		})
 	}
 	return out, nil
@@ -227,8 +226,7 @@ func (s *Server) slotAgents(ctx context.Context, project string, statuses []agen
 
 // admitQueued starts the queued agents that have a free slot and fit in the
 // VM's free memory, in the order they joined across every project, each
-// project's in its queue's order (admission.go), and hands the lead the tasks
-// queued for it that have reached the front (taskroute.go).
+// project's in its queue's order (admission.go).
 func (s *Server) admitQueued(ctx context.Context) {
 	s.queueMu.Lock()
 	defer s.queueMu.Unlock()
@@ -237,11 +235,6 @@ func (s *Server) admitQueued(ctx context.Context) {
 		s.logf("agent queue: %v", err)
 		return
 	}
-	// Before the agents: a task for the lead needs neither a slot nor room on
-	// a disk, and the agents queued ahead of it are only behind it once
-	// they've started, which is the next look at the queue.
-	queueOn, _ := s.store.Flag(ctx, state.SettingAgentQueue)
-	s.admitLeadTasks(ctx, queue, queueOn)
 	waking := s.anyWaking(ctx)
 	if len(queue) == 0 && !waking {
 		return
@@ -326,7 +319,6 @@ func (s *Server) startQueuedAgent(ctx context.Context, q state.QueuedAgent) erro
 			if cur, getErr := s.store.Agent(ctx, q.Project, q.Name); getErr == nil && cur.Status == state.AgentQueued {
 				_ = s.store.RemoveAgent(context.WithoutCancel(ctx), q.Project, q.Name)
 			}
-			s.releaseQueuedTasks(context.WithoutCancel(ctx), a)
 		}
 		return out, err
 	}); err != nil {
@@ -371,9 +363,6 @@ func (s *Server) enqueueAgent(ctx context.Context, req api.CreateAgentRequest, b
 	if err != nil {
 		return api.Job{}, err
 	}
-	if req.TaskID != "" {
-		s.assignTask(ctx, a.Project, req.TaskID, a.Name)
-	}
 	s.captureEvent(ctx, a.Project, a.Name, "agent_queued", map[string]any{"title": a.Title, "task": strings.TrimSpace(req.Task), "branch": a.Branch}, "")
 	// Why it waits, for the answer below and the sidebar.
 	s.queueMu.Lock()
@@ -395,115 +384,6 @@ func (s *Server) enqueueAgent(ctx context.Context, req api.CreateAgentRequest, b
 	// It has nothing left to do: answer with it done, and the queued agent in
 	// its result, so a caller can say where in line it is without asking.
 	return j.follow(ctx, 0, func(string) error { return nil })
-}
-
-// taskForAgent fills in a create request made for a task of the plan: the
-// task must be open and nobody's, and its words are the agent's task and
-// title unless the request has its own.
-func (s *Server) taskForAgent(ctx context.Context, req *api.CreateAgentRequest) error {
-	t, err := s.memory().Task(ctx, req.Project, req.TaskID)
-	if err != nil {
-		return err
-	}
-	if !t.Open() {
-		return fmt.Errorf("task %s is %s: only an open task can be given to an agent", t.ID, t.Status)
-	}
-	if !t.LeadQueuedAt.IsZero() {
-		return fmt.Errorf("task %s is queued for the lead", t.ID)
-	}
-	if t.Agent != "" {
-		return fmt.Errorf("task %s is already %s's", t.ID, t.Agent)
-	}
-	if strings.TrimSpace(req.Task) == "" {
-		req.Task = t.Goal
-		if t.Detail != "" && t.Detail != t.Goal {
-			req.Task += "\n\n" + t.Detail
-		}
-	}
-	if strings.TrimSpace(req.Title) == "" {
-		req.Title = titleFromTask(t.Goal)
-	}
-	return nil
-}
-
-// titleFromTask makes an agent's title from a task's words: its first line,
-// cut to fit agent.CleanTitle's 80 characters at a word.
-func titleFromTask(goal string) string {
-	line, _, _ := strings.Cut(strings.TrimSpace(goal), "\n")
-	line = strings.Join(strings.Fields(line), " ")
-	if len([]rune(line)) <= 80 {
-		return line
-	}
-	r := []rune(line)[:79]
-	if i := strings.LastIndex(string(r), " "); i > 40 {
-		return string(r)[:i] + "…"
-	}
-	return string(r) + "…"
-}
-
-// assignTask gives a task of the plan to an agent. A failure only loses the
-// link, which the task tab shows, so it's logged rather than failing a create.
-func (s *Server) assignTask(ctx context.Context, project, id, agentName string) {
-	if _, err := s.memory().UpdateTask(ctx, project, id, memory.TaskPatch{Agent: &agentName}); err != nil {
-		s.logf("memory: giving task %s to %s/%s: %v", id, project, agentName, err)
-	}
-}
-
-// releaseQueuedTasks hands back the open tasks a queued agent that's leaving
-// the queue unstarted was given, so they can be queued again.
-func (s *Server) releaseQueuedTasks(ctx context.Context, a state.Agent) {
-	open, err := s.memory().Tasks(ctx, a.Project, memory.TaskFilter{Agent: a.Name, OpenOnly: true})
-	if err != nil {
-		return
-	}
-	nobody := ""
-	for _, t := range open {
-		if _, err := s.memory().UpdateTask(ctx, a.Project, t.ID, memory.TaskPatch{Agent: &nobody}); err != nil {
-			s.logf("memory: handing back task %s: %v", t.ID, err)
-		}
-	}
-}
-
-// deleteTask takes one of the user's tasks off their list. A task that's
-// queued takes its queued agent out of the queue with it: the user deleted the
-// work, so nothing should start for it. An agent already running on it keeps
-// running; only the row goes.
-func (s *Server) deleteTask(ctx context.Context, project, id string) error {
-	t, err := s.memory().Task(ctx, project, id)
-	if err != nil {
-		return err
-	}
-	if _, err := s.unqueueAgentForTask(ctx, t); err != nil {
-		return err
-	}
-	return s.memory().DeleteTask(ctx, project, id)
-}
-
-// unqueueAgentForTask takes a task's agent out of the queue when it is still
-// waiting there, for a task deleted or closed before it started, and says
-// whether it did. An agent that has started is left alone. This is distinct
-// from the public unqueue-task endpoint (taskroute.go's unqueueTask), which
-// also takes a task waiting for the lead out of its queue, and errors rather
-// than silently doing nothing when the task isn't queued.
-func (s *Server) unqueueAgentForTask(ctx context.Context, t memory.Task) (bool, error) {
-	if t.Agent == "" {
-		return false, nil
-	}
-	a, err := s.store.Agent(ctx, t.Project, t.Agent)
-	if err != nil || a.Status != state.AgentQueued {
-		return false, nil
-	}
-	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
-	if s.queueStarting(a.Ref()) {
-		return false, fmt.Errorf("%s is starting already", a.Ref())
-	}
-	if err := s.store.RemoveAgent(ctx, a.Project, a.Name); err != nil {
-		return false, err
-	}
-	s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": "unqueued", "branch": a.Branch}, "")
-	s.refreshAgents(ctx)
-	return true, nil
 }
 
 // HTTP
@@ -626,7 +506,6 @@ func (s *Server) removeQueued(w http.ResponseWriter, r *http.Request) error {
 	if err := s.store.RemoveAgent(r.Context(), a.Project, a.Name); err != nil {
 		return err
 	}
-	s.releaseQueuedTasks(r.Context(), a)
 	s.captureEvent(r.Context(), a.Project, a.Name, "agent_retired", map[string]any{"how": "unqueued", "branch": a.Branch}, "")
 	s.refreshAgents(r.Context())
 	w.WriteHeader(http.StatusNoContent)

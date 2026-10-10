@@ -850,41 +850,6 @@ export function AgentQueue() {
   );
 }
 
-// TaskTarget is where a task of the Tasks tab goes when it starts: a new agent
-// of its own, the way it always did, or the project's lead, which can split
-// it across several agents. A task can choose for itself on its row; until it
-// does, it goes where this says.
-export function TaskTarget() {
-  const t = useT();
-  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (taskTarget: string) => api.updateSettings({ taskTarget }),
-    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  return (
-    <SettingRow
-      label={t('defaults.newAgent.taskLabel')}
-      description={t('defaults.newAgent.taskDescription')}
-      control={
-        <Select
-          data-task-target
-          aria-label={t('defaults.newAgent.taskLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          placeholder={t('common.loading')}
-          value={settings.data?.taskTarget ?? ''}
-          onChange={(next) => save.mutate(next)}
-        >
-          <SelectOption value="agent">{t('defaults.newAgent.taskAgent')}</SelectOption>
-          <SelectOption value="lead">{t('defaults.newAgent.taskLead')}</SelectOption>
-        </Select>
-      }
-    />
-  );
-}
-
 // leadRecheckFallback is the minutes it defaults to once you turn it on.
 const leadRecheckFallback = 20;
 

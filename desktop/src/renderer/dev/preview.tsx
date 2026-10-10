@@ -150,10 +150,6 @@
 //                           content with the one slot Auto leaves it
 //   ?queue=alone            Only organic has work: Auto gives it two slots
 //                           instead of one, with nobody to share the budget
-//   ?queue=tasks            agentbox's Tasks tab: the slots strip, the
-//                           composer and the plan, three tasks queued, and
-//                           a Done list with each way a task ends; Done and
-//                           Reopen work against the fixture
 //   ?queue=demo             Starts like busy, then plays the queue draining
 //                           on a timer (~4s a step) — a slot frees, the next
 //                           queued agent starts, the rest move up — until
@@ -168,9 +164,7 @@
 //   ?queue=organic-busy     organic's Settings beside a busy agentbox: one
 //   ?queue=off              Like busy, but with the installation's Agent
 //                           queue switch off: Settings and New agent's Queue
-//                           show disabled with a pointer, the Tasks tab's
-//                           toggle is "Start" instead of "Queue" and its
-//                           slots strip is gone, and the sidebar's three
+//                           show disabled with a pointer, and the sidebar's three
 //                           already-queued agents still show Queued #N
 //   ?page=settings          the project's page itself, beside the sidebar,
 //                           open at a tab or a section of its Settings tab
@@ -201,7 +195,6 @@ import { MediaTab } from '../components/MediaTab';
 import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
 import { AllMediaView } from '../components/AllMediaView';
 import { ProjectSettings } from '../components/ProjectSettings';
-import { ProjectTasksPanel } from '../components/ProjectTasksPanel';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
@@ -261,7 +254,7 @@ const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
-const queue = params.get('queue'); // 'busy' | 'alone' | 'tasks' | 'demo' | 'settings' | 'settings-fixed' | 'organic-alone' | 'organic-busy' | 'off' | null
+const queue = params.get('queue'); // 'busy' | 'alone' | 'demo' | 'settings' | 'settings-fixed' | 'organic-alone' | 'organic-busy' | 'off' | null
 // Whose Settings ?queue=settings and the organic ones show.
 const queueSettingsProject = queue?.startsWith('organic-') ? 'organic' : PROJECT;
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
@@ -402,14 +395,13 @@ if (meters) {
   }
 }
 
-const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { tasks: 'busy', settings: 'busy', 'settings-fixed': 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
+const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { settings: 'busy', 'settings-fixed': 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
 if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
 if (queue === 'settings-fixed') {
   queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, slots: 2 } : p)));
   queryClient.setQueryData<T.QueueStatus>(['queue', PROJECT], (q) => q && { ...q, projects: q.projects.map((p) => (p.project === PROJECT ? { ...p, slots: 2, pinned: 2 } : p)) });
 }
 if (queue) startNowBridge();
-if (queue === 'tasks') tasksBridge();
 if (settingsPage && !queue) settingsBridge();
 if (page) pageBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
@@ -616,14 +608,6 @@ function Preview() {
     return (
       <div style={{ maxWidth: 420, padding: 24, font: '13px var(--font-sans)' }}>
         <PullRequestsPanel project={PROJECT} onSelect={() => {}} onOpenAccount={() => {}} />
-      </div>
-    );
-  }
-
-  if (queue === 'tasks') {
-    return (
-      <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
-        <ProjectTasksPanel project={PROJECT} onSelect={() => {}} onOpenChat={() => {}} />
       </div>
     );
   }
@@ -919,39 +903,6 @@ function settingsBridge(): void {
   };
 }
 
-// tasksBridge answers the Tasks tab from what seedQueue put in the cache, so
-// its 5s queue refetch and the refresh after each action read the fixtures
-// back rather than the dev bridge's generic {}; marking a task done and
-// reopening it change the fixture, so both can be clicked through.
-function tasksBridge(): void {
-  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
-  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
-  const inner = bridge.request;
-  const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
-  const tasksPath = `/v1/projects/${PROJECT}/memory/tasks`;
-  bridge.request = async (method, path, body) => {
-    const tasks = queryClient.getQueryData<T.Task[]>(['memoryTasks', PROJECT]) ?? [];
-    if (method === 'GET' && path.startsWith('/v1/queue')) return answer(queryClient.getQueryData(['queue', PROJECT]));
-    if (method === 'GET' && path === '/v1/agents') return answer(queryClient.getQueryData(['agents']));
-    if (method === 'GET' && path === '/v1/settings') return answer(queryClient.getQueryData(['settings']));
-    if (method === 'GET' && path === tasksPath) return answer(tasks);
-    if (method === 'PATCH' && path.startsWith(`${tasksPath}/`)) {
-      const id = decodeURIComponent(path.slice(tasksPath.length + 1));
-      const req = (typeof body === 'string' ? JSON.parse(body) : body) as T.UpdateTaskRequest;
-      const now = new Date().toISOString();
-      const next = tasks.map((t) => {
-        if (t.id !== id) return t;
-        const status = req.status ?? t.status;
-        const closed = status === 'done' || status === 'abandoned';
-        return { ...t, status, agent: req.agent ?? t.agent, updatedAt: now, closedAt: closed ? now : undefined, pullUrl: closed ? t.pullUrl : undefined, pullNumber: closed ? t.pullNumber : undefined };
-      });
-      queryClient.setQueryData(['memoryTasks', PROJECT], next);
-      return answer(next.find((t) => t.id === id));
-    }
-    return inner(method, path, body);
-  };
-}
-
 // pageBridge answers what a page's sections read and no fixture has: a
 // project's memory lists, with none, and an agent's diff, rather than the dev
 // bridge's generic {}.
@@ -959,7 +910,7 @@ function pageBridge(): void {
   type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
   const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
   const inner = bridge.request;
-  const lists = /^\/v1\/projects\/[^/]+\/memory\/(memories|events|artifacts|reports|duplicates|tasks)(\?|$)/;
+  const lists = /^\/v1\/projects\/[^/]+\/memory\/(memories|events|artifacts|reports|duplicates)(\?|$)/;
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && lists.test(path)) return { status: 200, body: '[]', contentType: 'application/json' };
     if (method === 'GET' && path.endsWith('/diff?stat=true')) return { status: 200, body: JSON.stringify(' desktop/src/renderer/lib/tabs.ts | 46 ++++++\n 1 file changed, 46 insertions(+)'), contentType: 'application/json' };
