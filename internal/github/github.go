@@ -375,27 +375,11 @@ func (c Client) prStats(ctx context.Context, repo Repo, number int) (additions, 
 // checks folds a commit's check runs into one word. It never fails the call:
 // a pull request with unknown checks is still worth showing.
 func (c Client) checks(ctx context.Context, repo Repo, sha string) string {
-	var runs struct {
-		Total int `json:"total_count"`
-		Runs  []struct {
-			Status     string `json:"status"`
-			Conclusion string `json:"conclusion"`
-		} `json:"check_runs"`
-	}
-	path := fmt.Sprintf("/repos/%s/%s/commits/%s/check-runs", url.PathEscape(repo.Owner), url.PathEscape(repo.Name), url.PathEscape(sha))
-	if err := c.get(ctx, path, &runs); err != nil || runs.Total == 0 {
+	runs, err := c.checkRuns(ctx, repo, sha)
+	if err != nil {
 		return ""
 	}
-	state := "passing"
-	for _, run := range runs.Runs {
-		switch {
-		case run.Status != "completed":
-			return "pending"
-		case run.Conclusion == "failure", run.Conclusion == "timed_out", run.Conclusion == "cancelled":
-			state = "failing"
-		}
-	}
-	return state
+	return foldChecks(runs)
 }
 
 // RepoInfo is what a repository allows: whether the token can push to it,

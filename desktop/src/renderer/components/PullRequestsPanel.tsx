@@ -14,6 +14,7 @@ import { FilterChip } from './MediaTab';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Code, EmptyState, Notice } from './ui/card';
+import { PullRequestModal } from './PullRequestModal';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Select, SelectOption } from './ui/select';
 import { Tip } from './ui/tooltip';
@@ -77,6 +78,9 @@ export function PullRequestsPanel({
     if (revealedState && revealedState !== 'open') setFilter('all');
   }, [revealedState, reveal]);
   const [merging, setMerging] = useState<T.PullRequest | null>(null);
+  // The pull request open in the modal, by number, so it follows the list as
+  // it's re-read: merged under it, say.
+  const [viewing, setViewing] = useState<number | null>(null);
   const [method, setMethod] = useState('merge');
   // What each merge is doing, by pull request number. The confirmation closes
   // the moment it's confirmed, and the row says the rest: a spinner on its
@@ -169,6 +173,8 @@ export function PullRequestsPanel({
   const others = byState(scoped, 'closed');
   const visible = byState(scoped, filter);
   const methods = data.mergeMethods?.length ? data.mergeMethods : allMethods;
+  const canOfferMerge = (pr: T.PullRequest) => pr.state === 'open' && !pr.draft && (!data.canMergeKnown || !!data.canMerge);
+  const viewed = prs.find((pr) => pr.number === viewing) ?? null;
   const refreshing = data.refreshing || refresh.isPending;
 
   return (
@@ -267,7 +273,6 @@ export function PullRequestsPanel({
           ) : (
             <div className="flex flex-col gap-2">
               {visible.map((pr) => {
-                const canOfferMerge = pr.state === 'open' && !pr.draft && (!data.canMergeKnown || !!data.canMerge);
                 return (
                   <PullRequestRow
                     key={pr.number}
@@ -275,7 +280,7 @@ export function PullRequestsPanel({
                     project={project}
                     labels={withEdits(pr.labels, pr.number, edits)}
                     onToggleLabel={(label, on) => toggleLabel(pr, label, on)}
-                    canMerge={canOfferMerge}
+                    canMerge={canOfferMerge(pr)}
                     mergeRunning={running.has(pr.number)}
                     mergeError={failed[pr.number]}
                     onOpenAgent={pr.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${pr.agent}` }) : undefined}
@@ -283,6 +288,7 @@ export function PullRequestsPanel({
                       setMethod(methods[0]);
                       setMerging(pr);
                     }}
+                    onOpen={() => setViewing(pr.number)}
                   />
                 );
               })}
@@ -290,6 +296,20 @@ export function PullRequestsPanel({
           )}
         </>
       )}
+
+      <PullRequestModal
+        project={project}
+        pr={viewed}
+        onClose={() => setViewing(null)}
+        canMerge={!!viewed && canOfferMerge(viewed)}
+        mergeRunning={!!viewed && running.has(viewed.number)}
+        mergeError={viewed ? failed[viewed.number] : undefined}
+        onMerge={() => {
+          setMethod(methods[0]);
+          setMerging(viewed);
+        }}
+        onOpenAgent={viewed?.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${viewed.agent}` }) : undefined}
+      />
 
       <ConfirmDialog
         open={merging !== null}
@@ -383,6 +403,7 @@ function PullRequestRow({
   mergeError,
   onOpenAgent,
   onMerge,
+  onOpen,
 }: {
   pr: T.PullRequest;
   project: string;
@@ -393,16 +414,30 @@ function PullRequestRow({
   mergeError?: string;
   onOpenAgent?: () => void;
   onMerge: () => void;
+  onOpen: () => void;
 }) {
   const t = useT();
   return (
-    <div className="panel rounded-2xl px-4 py-3.5" data-pull-request={pr.number}>
+    // A click anywhere on the row but its buttons opens the pull request in the
+    // app, its title included; the arrow beside the title still goes to GitHub.
+    <div
+      className="panel cursor-pointer rounded-2xl px-4 py-3.5 transition-colors hover:border-line-strong"
+      data-pull-request={pr.number}
+      onClick={(event) => {
+        // The label picker's popover is portalled out of the row, but its clicks still bubble here.
+        const target = event.target as Element;
+        if (event.currentTarget.contains(target) && !target.closest('button, [data-external]')) {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
       <div className="flex flex-wrap items-start gap-3">
         <GitPullRequest className="mt-0.5 size-4 shrink-0 text-subtle" />
         <div className="min-w-0 flex-1">
           <a href={pr.url} target="_blank" rel="noreferrer" className="group flex min-w-0 items-center gap-1.5 text-[14px] font-medium text-primary hover:text-brand-300">
             <span className="truncate">{pr.title}</span>
-            <ExternalLink className="size-3.5 shrink-0 text-faint group-hover:text-brand-300" />
+            <ExternalLink data-external className="size-3.5 shrink-0 text-faint group-hover:text-brand-300" />
           </a>
           <p className="truncate font-mono text-[11.5px] text-subtle">
             #{pr.number} · {pr.headBranch} → {pr.baseBranch}

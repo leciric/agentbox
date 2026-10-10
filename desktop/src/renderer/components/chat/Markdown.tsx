@@ -1,23 +1,64 @@
-import { Check, Copy } from 'lucide-react';
-import { memo, useEffect, useState } from 'react';
+import { Check, Copy, ImageOff } from 'lucide-react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ThemedToken } from 'shiki/core';
 import { highlight, languageOf } from '../../lib/highlight';
 import { useT } from '../../lib/i18n';
+import { remarkHTMLImages } from '../../lib/pulls';
 import { useMode } from '../../lib/theme';
 import { cn } from '../../lib/utils';
 
 // Markdown renders an AI tool's message. While it streams, new blocks fade in.
-export const Markdown = memo(function Markdown({ text, streaming, className }: { text: string; streaming?: boolean; className?: string }) {
+//
+// Given imageSrc, it shows pictures too — the ones written as HTML <img> as
+// well, as GitHub's uploader writes them — loading each from where imageSrc
+// says, or as a link to it when that is nowhere. Without it, as in a chat, a
+// picture is only its alt text.
+export const Markdown = memo(function Markdown({
+  text,
+  streaming,
+  className,
+  imageSrc,
+}: {
+  text: string;
+  streaming?: boolean;
+  className?: string;
+  imageSrc?: (src: string) => string | undefined;
+}) {
+  const withImages = useMemo<Components>(
+    () => (imageSrc ? { ...components, img: ({ src, alt, width }) => <MarkdownImage src={typeof src === 'string' ? src : ''} alt={alt} width={width} imageSrc={imageSrc} /> } : components),
+    [imageSrc],
+  );
   return (
     <div className={cn('chat-markdown', className)} data-streaming={streaming || undefined}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={imageSrc ? [remarkGfm, remarkHTMLImages] : [remarkGfm]} components={withImages}>
         {text}
       </ReactMarkdown>
     </div>
   );
 });
+
+function MarkdownImage({ src, alt, width, imageSrc }: { src: string; alt?: string; width?: number | string; imageSrc: (src: string) => string | undefined }) {
+  const [failed, setFailed] = useState(false);
+  const url = imageSrc(src);
+  if (!url || failed) {
+    return (
+      <a
+        href={src}
+        className="inline-flex items-center gap-1.5"
+        onClick={(event) => {
+          event.preventDefault();
+          if (/^https?:/.test(src)) void window.agentbox.openExternal(src);
+        }}
+      >
+        <ImageOff className="size-3.5 shrink-0" />
+        {alt || src}
+      </a>
+    );
+  }
+  return <img src={url} alt={alt ?? ''} width={width} loading="lazy" className="chat-markdown-image" onError={() => setFailed(true)} />;
+}
 
 const components: Components = {
   a: ({ href, children }) => (
