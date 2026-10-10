@@ -68,7 +68,7 @@ var memoryRoutes = []struct {
 	action  string
 	inAgent bool
 	// userOnly marks the routes served on the user's socket alone, and not
-	// on a project chat's either.
+	// on a project chat's either: tidying is the user's to decide.
 	userOnly bool
 }{
 	{http.MethodGet, "/events", "events", true, false},
