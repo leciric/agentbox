@@ -94,11 +94,25 @@ export const readPages = (project: string, fetch: (project: string) => Promise<T
 // onChatItem reads a project's pages again when one of its chats finished
 // a call to publish_page or update_page, whether or not anything on screen
 // shows them: a new page is told about wherever you are (PageArrivals).
-export function onChatItem(queryClient: QueryClient, chatRef: string, item: T.ChatItem, fetch: (project: string) => Promise<T.Artifacts>): void {
+// While what's read lacks the page the call links to, it reads again a few
+// times: a daemon from before it stored such a call first told of it up to
+// a second before it stored it, and a read already under way when the call
+// finished is the one fetchQuery answers with.
+export function onChatItem(queryClient: QueryClient, chatRef: string, item: T.ChatItem, fetch: (project: string) => Promise<T.Artifacts>, wait = rereadAfter): void {
   if (item.kind !== 'tool' || item.tool?.status !== 'completed' || !isPageCall(item.tool)) return;
   const project = chatRef.split('/')[0];
-  void queryClient.fetchQuery({ queryKey: pagesKey(project), queryFn: readPages(project, fetch), staleTime: 0 }).catch(() => {});
+  const id = pageIdOf(item.tool);
+  const read = (left: number): Promise<void> =>
+    queryClient
+      .fetchQuery({ queryKey: pagesKey(project), queryFn: readPages(project, fetch), staleTime: 0 })
+      .then((list) => {
+        if (id && left > 0 && list.connector && !list.artifacts.some((a) => a.id === id)) setTimeout(() => void read(left - 1), wait);
+      })
+      .catch(() => {});
+  void read(rereads);
 }
+const rereads = 3;
+const rereadAfter = 1_000;
 
 // Which version of each page you have seen, kept in this browser: a page
 // is new until you open it, and new again when an agent updates it. The
