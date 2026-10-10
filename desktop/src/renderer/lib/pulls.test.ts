@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Root } from 'mdast';
 import type * as T from '../../shared/api';
-import { byAuthor, byState, labelHex, labelStyle, matchLabels, readMine, withEdits, withLabels, writeMine, fileKind, fileTree, firstToReview, imagesInHTML, initiallyOpen, isGitHubImage, languageOfPath, nextToLoad, parsePatch, remarkHTMLImages, treeOrder } from './pulls.ts';
+import { byAuthor, byState, labelHex, labelStyle, matchLabels, readMine, labelToggle, withEdits, withLabels, writeMine, fileKind, fileTree, firstToReview, imagesInHTML, initiallyOpen, isGitHubImage, languageOfPath, nextToLoad, parsePatch, remarkHTMLImages, treeOrder } from './pulls.ts';
 
 test('imagesInHTML reads what GitHub’s uploader writes', () => {
   assert.deepEqual(imagesInHTML('<img width="640" alt="The &quot;modal&quot;" src="https://github.com/user-attachments/assets/abc" />'), [
@@ -183,4 +183,12 @@ test('Mine is remembered per project', () => {
   assert.equal(readMine('b', storage), false);
   writeMine('a', false, storage);
   assert.equal(readMine('a', storage), false);
+});
+
+test('labelToggle builds the edit for putting a label on or taking it off', () => {
+  assert.deepEqual(labelToggle(4, 9, ciFull, true), { id: 4, number: 9, add: [ciFull], remove: [] });
+  const off = labelToggle(5, 9, ciFull, false);
+  assert.deepEqual(off, { id: 5, number: 9, add: [], remove: [ciFull.name] });
+  assert.deepEqual(withEdits([ciFull, nightly], 9, [off]), [nightly]);
+  assert.deepEqual(withEdits([ciFull, nightly], 8, [off]), [ciFull, nightly]);
 });

@@ -289,6 +289,12 @@ export interface LabelEdit {
   remove: string[];
 }
 
+// labelToggle is the edit a click on a label makes: putting it on, or
+// taking it off (the X on a chip, the picker's checked row).
+export function labelToggle(id: number, number: number, label: T.Label, on: boolean): LabelEdit {
+  return { id, number, add: on ? [label] : [], remove: on ? [] : [label.name] };
+}
+
 export function withEdits(labels: readonly T.Label[] | undefined, number: number, edits: readonly LabelEdit[]): T.Label[] {
   let out = [...(labels ?? [])];
   for (const edit of edits) {

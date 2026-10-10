@@ -7,13 +7,14 @@ import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { useReveal } from '../lib/reveal';
-import { byAuthor, byState, labelHex, labelStyle, matchLabels, readMine, withEdits, withLabels, writeMine, type LabelEdit, type PullsState } from '../lib/pulls';
+import { byAuthor, byState, labelHex, labelStyle, labelToggle, matchLabels, readMine, withEdits, withLabels, writeMine, type LabelEdit, type PullsState } from '../lib/pulls';
 import { cn, errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FilterChip } from './MediaTab';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Code, EmptyState, Notice } from './ui/card';
+import { LabelRemoveButton } from './LabelRemoveButton';
 import { PullRequestModal } from './PullRequestModal';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Select, SelectOption } from './ui/select';
@@ -96,12 +97,15 @@ export function PullRequestsPanel({
   const labels = useMutation({
     mutationFn: (edit: LabelEdit) => api.editPullRequestLabels(project, edit.number, { add: edit.add.map((l) => l.name), remove: edit.remove }),
     onMutate: (edit) => setEdits((e) => [...e, edit]),
-    onSuccess: (now, edit) => queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withLabels(d, edit.number, now)),
+    onSuccess: (now, edit) => {
+      queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withLabels(d, edit.number, now));
+      queryClient.setQueryData<T.PullRequestDetail>(['pull', project, edit.number], (d) => d && { ...d, labels: now });
+    },
     onError: (err, edit) => toast.error(t('memory.pulls.labels.failed', { number: edit.number, error: errorMessage(err) })),
     onSettled: (_now, _err, edit) => setEdits((e) => e.filter((x) => x.id !== edit.id)),
   });
   const toggleLabel = (pr: T.PullRequest, label: T.Label, on: boolean) =>
-    labels.mutate({ id: nextEdit.current++, number: pr.number, add: on ? [label] : [], remove: on ? [] : [label.name] });
+    labels.mutate(labelToggle(nextEdit.current++, pr.number, label, on));
 
   const merge = useMutation({
     mutationFn: ({ number, method }: { number: number; method: string }) => api.mergePullRequest(project, number, method),
@@ -308,6 +312,8 @@ export function PullRequestsPanel({
           setMethod(methods[0]);
           setMerging(viewed);
         }}
+        edits={edits}
+        onToggleLabel={(label, on) => viewed && toggleLabel(viewed, label, on)}
         onOpenAgent={viewed?.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${viewed.agent}` }) : undefined}
       />
 
@@ -512,7 +518,7 @@ function PullRequestLabels({ project, labels, onToggle }: { project: string; lab
   return (
     <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()} data-pull-labels>
       {labels.map((l) => (
-        <LabelPill key={l.name} label={l} />
+        <LabelPill key={l.name} label={l} onRemove={() => onToggle(l, false)} />
       ))}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
@@ -537,14 +543,15 @@ function PullRequestLabels({ project, labels, onToggle }: { project: string; lab
   );
 }
 
-function LabelPill({ label }: { label: T.Label }) {
+function LabelPill({ label, onRemove }: { label: T.Label; onRemove: () => void }) {
   const pill = (
     <span
-      className="inline-flex h-5 max-w-48 items-center truncate rounded-full border px-2 text-[11px] font-medium leading-none"
+      className="group inline-flex h-5 max-w-48 items-center rounded-full border px-2 text-[11px] font-medium leading-none"
       style={labelStyle(label.color)}
       data-label={label.name}
     >
-      {label.name}
+      <span className="truncate">{label.name}</span>
+      <LabelRemoveButton name={label.name} onRemove={onRemove} />
     </span>
   );
   return label.description ? <Tip label={label.description}>{pill}</Tip> : pill;

@@ -1139,6 +1139,7 @@ export const enUS = {
   'memory.pulls.refresh': 'Read GitHub again now',
   'memory.pulls.labels.add': 'Label',
   'memory.pulls.labels.edit': 'Edit labels',
+  'memory.pulls.labels.remove': 'Remove label {name}',
   'memory.pulls.labels.search': 'Find a label',
   'memory.pulls.labels.loading': 'Reading the repository’s labels…',
   'memory.pulls.labels.none': 'This repository has no labels.',

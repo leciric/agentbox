@@ -34,12 +34,15 @@ import {
   nextToLoad,
   parsePatch,
   treeOrder,
+  withEdits,
   type DiffLine,
   type FileKind,
+  type LabelEdit,
   type TreeNode,
 } from '../lib/pulls';
 import { useMode } from '../lib/theme';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
+import { LabelRemoveButton } from './LabelRemoveButton';
 import { Markdown } from './chat/Markdown';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
@@ -86,6 +89,8 @@ export function PullRequestModal({
   mergeRunning,
   mergeError,
   onMerge,
+  edits,
+  onToggleLabel,
   onOpenAgent,
 }: {
   project: string;
@@ -95,6 +100,8 @@ export function PullRequestModal({
   mergeRunning: boolean;
   mergeError?: string;
   onMerge: () => void;
+  edits: readonly LabelEdit[];
+  onToggleLabel: (label: T.Label, on: boolean) => void;
   onOpenAgent?: () => void;
 }) {
   return (
@@ -108,6 +115,8 @@ export function PullRequestModal({
             mergeRunning={mergeRunning}
             mergeError={mergeError}
             onMerge={onMerge}
+            edits={edits}
+            onToggleLabel={onToggleLabel}
             onOpenAgent={onOpenAgent}
           />
         )}
@@ -123,6 +132,8 @@ function Detail({
   mergeRunning,
   mergeError,
   onMerge,
+  edits,
+  onToggleLabel,
   onOpenAgent,
 }: {
   project: string;
@@ -131,6 +142,8 @@ function Detail({
   mergeRunning: boolean;
   mergeError?: string;
   onMerge: () => void;
+  edits: readonly LabelEdit[];
+  onToggleLabel: (label: T.Label, on: boolean) => void;
   onOpenAgent?: () => void;
 }) {
   const t = useT();
@@ -187,8 +200,8 @@ function Detail({
             )}
             {listed.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
             {listed.review === 'changes_requested' && <Badge variant="warning">{t('memory.pulls.changesRequested')}</Badge>}
-            {detail.data?.labels?.map((label) => (
-              <LabelChip key={label.name} label={label} />
+            {withEdits(detail.data?.labels, pr.number, edits).map((label) => (
+              <LabelChip key={label.name} label={label} onRemove={() => onToggleLabel(label, false)} />
             ))}
           </div>
           <TabsList className="mt-1 justify-self-start">
@@ -244,15 +257,16 @@ function Detail({
 
 // LabelChip is a label in its GitHub colour, as a dot, so it reads in either
 // theme.
-function LabelChip({ label }: { label: T.Label }) {
+function LabelChip({ label, onRemove }: { label: T.Label; onRemove: () => void }) {
   return (
     <span
       title={label.description || undefined}
-      className="inline-flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[11.5px] font-medium text-secondary"
+      className="group inline-flex items-center gap-1.5 rounded-full border border-line px-2 py-0.5 text-[11.5px] font-medium text-secondary"
       data-pull-label={label.name}
     >
       <span className="size-2 rounded-full" style={{ backgroundColor: labelHex(label.color) }} />
       {label.name}
+      <LabelRemoveButton name={label.name} onRemove={onRemove} />
     </span>
   );
 }
