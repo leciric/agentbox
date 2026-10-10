@@ -172,9 +172,9 @@ func (m *Manager) BalanceCPU(ctx context.Context) (changed int, err error) {
 // projects' scripts often pass on. It runs in every shell that starts (the env
 // file, and BASH_ENV for the Bash tool's shells), so the counts follow the
 // share as agents start and stop rather than staying what they were when the
-// AI tool started. A variable set to something else, by the user or by a
-// heavy phase's lease (heavyhooks.go), is left alone: only the value this
-// script set last, remembered in AGENTBOX_CPUS, is replaced.
+// AI tool started. A variable set to something else, by the user or a
+// project's scripts, is left alone: only the value this script set last,
+// remembered in AGENTBOX_CPUS, is replaced.
 const workersScript = `# Worker counts follow this machine's share of the VM's cores (nproc).
 _ab_n=$(nproc 2>/dev/null)
 if [ -n "$_ab_n" ]; then
@@ -195,8 +195,8 @@ unset _ab_n _ab_v _ab_c _ab_f _ab_w
 `
 
 // BashEnvPath is the file BASH_ENV names in an agent's Claude Code, which
-// every Bash tool call's shell reads: the worker counts, and a heavy phase's
-// lease when it holds one.
+// every Bash tool call's shell reads: the worker counts, and the heavy
+// command's join into its run's cgroup when one just started (heavyhooks.go).
 func (m *Manager) BashEnvPath() string { return "/home/" + m.User.Name + "/.config/agentbox/bash_env" }
 
 func (m *Manager) bashEnv() string {
