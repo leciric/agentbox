@@ -1299,6 +1299,8 @@ export const enUS = {
   'chat.find.newer': 'Later match (Shift+Enter)',
   'chat.find.close': 'Close (Esc)',
   'chat.tab.loadingOlder': 'Loading earlier messages',
+  'chat.tab.loadingNewer': 'Loading later messages',
+  'chat.tab.jumpToLatest': 'Jump to latest',
   'chat.tab.scrollToEnd': 'Scroll to end',
   'chat.tab.newChatTip': 'Start a new conversation',
   'chat.tab.newChat': 'New chat',

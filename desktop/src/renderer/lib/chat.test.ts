@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
-import { api } from './api.ts';
+import { api, type ChatPage } from './api.ts';
 import {
   applyChatEvent,
   asleep,
@@ -23,7 +23,15 @@ import {
   lineCounts,
   liveLabel,
   loadOlder,
-  loadThrough,
+  loadWindowNewer,
+  loadWindowOlder,
+  openWindow,
+  dropWindow,
+  chatWindowKey,
+  joinWindow,
+  applyWindowEvent,
+  appendPage,
+  windowSide,
   pageSize,
   pendingPermissions,
   prependPage,
@@ -424,29 +432,136 @@ for (const honourFrom of [true, false]) {
   });
 }
 
-test('a search hit older than anything loaded is read back to in one read', async (t) => {
-  const all = turns(25);
+// The daemon's paging around an item and after one, for messages that are
+// all shown, a message and an answer to a turn: whole turns either way.
+const windowed = (all: T.ChatItem[]) => {
   const read = daemon(all);
-  const pages: { before?: string; from?: string; limit: number }[] = [];
-  t.mock.method(api, 'chat', async (ref: string, page?: { before?: string; from?: string; limit: number }) => {
+  return async (ref: string, page?: ChatPage) => {
+    const at = all.findIndex((it) => it.id === (page?.around ?? page?.after));
+    if (!page || (page.around === undefined && page.after === undefined)) return read(ref, page);
+    if (at < 0) return { agent: ref, seq: 0, session: {} as T.ChatSession, items: [] };
+    let start = page.around === undefined ? at + 1 : Math.max(0, at - page.limit);
+    while (start > 0 && all[start].kind !== 'user') start--;
+    let end = Math.min(all.length, at + 1 + page.limit);
+    while (end < all.length && all[end].kind !== 'user') end++;
+    return { agent: ref, seq: 0, session: {} as T.ChatSession, items: all.slice(start, end), older: start > 0, newer: end < all.length };
+  };
+};
+const ids = (thread?: T.ChatThread | null) => thread?.items.map((it) => it.id);
+
+test('a search hit older than anything loaded opens a window on it, not the whole chat back to it', async (t) => {
+  const all = turns(100);
+  const pages: ChatPage[] = [];
+  const read = windowed(all);
+  t.mock.method(api, 'chat', async (ref: string, page?: ChatPage) => {
     pages.push(page!);
     return read(ref, page);
   });
   const queryClient = new QueryClient();
-  const ref = 'p/agent-find';
+  const ref = 'p/agent-window';
   queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
-  assert.ok(await loadThrough(queryClient, ref, 'a3'));
-  const held = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!;
-  // From the hit's turn to the end, nothing missing between.
-  assert.deepEqual(
-    held.items.map((it) => it.id),
-    all.slice(all.findIndex((it) => it.id === 'u3')).map((it) => it.id),
-  );
-  assert.equal(held.older, true);
-  assert.equal(pages.at(-1)!.from, 'a3');
-  // One the chat holds already costs nothing.
-  assert.ok(await loadThrough(queryClient, ref, 'u20'));
-  assert.equal(pages.length, 2);
+  assert.ok(await openWindow(queryClient, ref, 'a30'));
+  assert.deepEqual(pages.at(-1), { around: 'a30', limit: windowSide });
+  // Five messages before it and five after, in whole turns: u28 to a33.
+  const win = queryClient.getQueryData<T.ChatThread>(chatWindowKey(ref))!;
+  assert.deepEqual(ids(win), all.slice(56, 68).map((it) => it.id));
+  assert.equal(win.older, true);
+  assert.equal(win.newer, true);
+  // The chat itself is still its latest page.
+  assert.equal(queryClient.getQueryData<T.ChatThread>(chatKey(ref))!.items.length, pageSize);
+
+  // Scrolling up reads the page before it, and down the page after it.
+  assert.ok(await loadWindowOlder(queryClient, ref));
+  assert.deepEqual(pages.at(-1), { before: 'u28', limit: pageSize });
+  assert.ok(await loadWindowNewer(queryClient, ref));
+  assert.deepEqual(pages.at(-1), { after: 'a33', limit: pageSize });
+  assert.deepEqual(ids(queryClient.getQueryData(chatWindowKey(ref))), all.slice(36, 88).map((it) => it.id));
+
+  // Reading on until it reaches the chat's latest page joins the two: no
+  // window, and the chat holds everything from the window's start on.
+  while (await loadWindowNewer(queryClient, ref));
+  assert.equal(queryClient.getQueryData(chatWindowKey(ref)), null);
+  const chat = queryClient.getQueryData<T.ChatThread>(chatKey(ref))!;
+  assert.deepEqual(ids(chat), all.slice(36).map((it) => it.id));
+  assert.equal(chat.older, true);
+
+  // A hit the daemon no longer has opens nothing.
+  assert.equal(await openWindow(queryClient, ref, 'gone'), false);
+  assert.equal(queryClient.getQueryData(chatWindowKey(ref)), null);
+});
+
+test('a window next to the latest page is joined to the chat at once', async (t) => {
+  const all = turns(30);
+  t.mock.method(api, 'chat', windowed(all));
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-window-near';
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  // The latest page is u20 on; around a17 reaches u20.
+  assert.ok(await openWindow(queryClient, ref, 'a17'));
+  assert.equal(queryClient.getQueryData(chatWindowKey(ref)), null);
+  assert.deepEqual(ids(queryClient.getQueryData(chatKey(ref))), all.slice(30).map((it) => it.id));
+});
+
+test('dropping a window goes back to the chat\'s end', async (t) => {
+  t.mock.method(api, 'chat', windowed(turns(100)));
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-window-drop';
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  assert.ok(await openWindow(queryClient, ref, 'u10'));
+  dropWindow(queryClient, ref);
+  assert.equal(queryClient.getQueryData(chatWindowKey(ref)), null);
+  assert.equal(await loadWindowNewer(queryClient, ref), false, 'with no window there is nothing to read on');
+  assert.equal(ids(queryClient.getQueryData(chatKey(ref)))![0], 'u90');
+});
+
+test('joinWindow joins a window that reaches the chat, and only then', () => {
+  const live = { ...thread(turns(10, 20)), seq: 5, older: true };
+  const reaching = { ...thread(turns(12, 10)), seq: 5, older: true, newer: true };
+  assert.deepEqual(ids(joinWindow(reaching, live)), [...turns(10, 10), ...turns(10, 20)].map((it) => it.id));
+  const short = { ...thread(turns(5, 10)), seq: 5, older: true, newer: true };
+  assert.equal(joinWindow(short, live), undefined);
+  // A window that runs to the chat's end is its latest part itself.
+  const tail = { ...thread(turns(3, 27)), seq: 5, older: true, newer: false };
+  assert.deepEqual(ids(joinWindow(tail, { ...live, items: [] })), ids(tail));
+});
+
+test('events change what a window holds, and a clear or a rollback before it drops it', () => {
+  const win = { ...thread(turns(5, 10)), seq: 3, older: true, newer: true };
+  const ev = (over: Partial<T.ChatEvent>): T.ChatEvent => ({ agent: 'p/agent-01', seq: 4, ...over });
+  const edited = applyWindowEvent(win, ev({ item: { ...win.items[1], text: 'edited' } }), false)!;
+  assert.equal(edited.items[1].text, 'edited');
+  assert.equal(applyWindowEvent(edited, ev({ append: { id: 'a10', text: '!' } }), false)!.items[1].text, 'edited', 'an event it already has changes nothing');
+  assert.equal(applyWindowEvent(win, ev({ append: { id: 'a10', text: ' more' } }), false)!.items[1].text, ' more');
+  // A new item belongs at the chat's end, not the window's.
+  assert.deepEqual(ids(applyWindowEvent(win, ev({ item: item({ id: 'new' }) }), false)), ids(win));
+  assert.equal(applyWindowEvent(win, ev({ cleared: true }), false), null);
+  // A rollback into it leaves it at the chat's end; one after it, alone; one before it drops it.
+  const back = applyWindowEvent(win, ev({ after: 'a12' }), false)!;
+  assert.deepEqual(ids(back), ['u10', 'a10', 'u11', 'a11', 'u12', 'a12']);
+  assert.equal(back.newer, false);
+  assert.deepEqual(ids(applyWindowEvent(win, ev({ after: 'a40' }), true)), ids(win));
+  assert.equal(applyWindowEvent(win, ev({ after: 'a2' }), false), null);
+});
+
+test('a rollback into a window makes it the chat', async (t) => {
+  t.mock.method(api, 'chat', windowed(turns(100)));
+  const queryClient = new QueryClient();
+  const ref = 'p/agent-window-rollback';
+  queryClient.setQueryData(chatKey(ref), await fetchThread(queryClient, ref));
+  assert.ok(await openWindow(queryClient, ref, 'a30'));
+  applyChatEvent(queryClient, { agent: ref, seq: 1, after: 'a30' });
+  assert.equal(queryClient.getQueryData(chatWindowKey(ref)), null);
+  assert.deepEqual(ids(queryClient.getQueryData(chatKey(ref))), ['u28', 'a28', 'u29', 'a29', 'u30', 'a30']);
+});
+
+test('appendPage puts a newer page at the end, once, with the events after it', () => {
+  const win = { ...thread(turns(2)), seq: 10, newer: true };
+  const page = { ...thread(turns(2, 2)), seq: 9, newer: false };
+  const next = appendPage(win, page, [{ agent: 'p/agent-01', seq: 10, append: { id: 'a3', text: ' later' } }]);
+  assert.deepEqual(ids(next), ['u0', 'a0', 'u1', 'a1', 'u2', 'a2', 'u3', 'a3']);
+  assert.equal(next.items.at(-1)!.text, ' later');
+  assert.equal(next.newer, false);
+  assert.equal(appendPage(next, page, []), next);
 });
 
 test('a page loaded while the chat is read again stays', async (t) => {

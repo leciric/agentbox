@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
-import { asleep, chatKey, fetchThread, isSilent, loadOlder, toolsReload } from '../../lib/chat';
+import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage } from '../../lib/utils';
@@ -17,7 +17,7 @@ import { Notice } from '../ui/card';
 import { Tip } from '../ui/tooltip';
 import { Composer } from './Composer';
 import { FindBar } from './FindBar';
-import { useRevealItem, type ChatOpenAt } from './reveal';
+import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { ReadAloudControls } from './ReadAloud';
 import { Timeline } from './Timeline';
 
@@ -51,6 +51,12 @@ export function ChatTab({
   // button that starts it on the composer, which also wakes it by sending.
   const sleeping = asleep(agent);
   useReadAloud(agent.ref, thread.data?.items);
+  // A search result older than the chat's latest page opens a window on it,
+  // which the timeline shows instead of the chat's end until you go back
+  // there (lib/chat's openWindow). The session is the chat's own, as of now.
+  const win = useChatWindow(agent.ref);
+  const view = win && thread.data ? { ...win, session: thread.data.session } : thread.data;
+  useEffect(() => () => dropWindow(queryClient, agent.ref), [queryClient, agent.ref]);
   const start = useMutation({
     mutationFn: () => api.startChat(agent.ref),
     // Starting a project's chat for the first time makes its lead, with a
@@ -82,9 +88,15 @@ export function ChatTab({
   const scrollToEnd = () => {
     following.current = true;
     setAtEnd(true);
+    // Out of a window, the chat's end replaces it, and is followed as it lays out.
+    if (win) return dropWindow(queryClient, agent.ref);
     const box = scroller.current;
     if (box) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
   };
+  useLayoutEffect(() => {
+    const box = scroller.current;
+    if (box && !win && following.current) box.scrollTop = box.scrollHeight;
+  }, [win]);
 
   useLayoutEffect(() => {
     const box = scroller.current;
@@ -116,18 +128,31 @@ export function ChatTab({
   // distance from the end is kept across it instead: what was on screen stays
   // where it was. (The scroller has overflow-anchor off, for following the end.)
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const [loadingNewer, setLoadingNewer] = useState(false);
   const fromEnd = useRef<number | null>(null);
-  const older = thread.data?.older ?? false;
+  const older = view?.older ?? false;
   const loadMore = () => {
     const box = scroller.current;
-    if (!box || !older || loadingOlder) return;
+    if (!box || !older || loadingOlder || loadingNewer) return;
     setLoadingOlder(true);
     fromEnd.current = box.scrollHeight - box.scrollTop;
-    loadOlder(queryClient, agent.ref)
+    (win ? loadWindowOlder : loadOlder)(queryClient, agent.ref)
       .catch(() => {})
       .finally(() => setLoadingOlder(false));
   };
-  const firstId = thread.data?.items[0]?.id;
+  // A window reads on towards the chat's end the same way, as you get near
+  // its bottom. What goes on after what you are reading doesn't move it, but
+  // it would move the end a page in front is kept from: one at a time.
+  const newer = win?.newer ?? false;
+  const loadNewer = () => {
+    if (!newer || loadingNewer || loadingOlder) return;
+    setLoadingNewer(true);
+    loadWindowNewer(queryClient, agent.ref)
+      .catch(() => {})
+      .finally(() => setLoadingNewer(false));
+  };
+  const firstId = view?.items[0]?.id;
+  const lastId = view?.items.at(-1)?.id;
   useLayoutEffect(() => {
     const box = scroller.current;
     if (!box || fromEnd.current === null) return;
@@ -135,12 +160,15 @@ export function ChatTab({
     fromEnd.current = null;
   }, [firstId]);
   // A first page too short to scroll has no top to get near: keep reading
-  // back until the chat fills its view, or there is nothing older.
+  // back until the chat fills its view, or there is nothing older, and a
+  // window on forward too.
   useEffect(() => {
     const box = scroller.current;
-    if (box && older && !loadingOlder && box.scrollHeight <= box.clientHeight + 200) loadMore();
+    if (!box || box.scrollHeight > box.clientHeight + 200) return;
+    if (older) loadMore();
+    else loadNewer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [older, loadingOlder, firstId]);
+  }, [older, loadingOlder, newer, loadingNewer, firstId, lastId]);
 
   // Ctrl+F (⌘F) finds in the chat on screen. Every chat open in the app
   // listens, and only one is visible.
@@ -180,7 +208,7 @@ export function ChatTab({
   // A conversation of nothing but notices — a project's chat whose only agent
   // finished without waking it — has items and still nothing to show, so the
   // hero belongs there too.
-  const empty = !thread.data?.items.some((it) => !isSilent(it));
+  const empty = !view?.items.some((it) => !isSilent(it));
   return (
     <div ref={root} className="relative flex h-full min-h-0 flex-col bg-chat" data-chat={agent.ref}>
       {finding && (
@@ -206,11 +234,13 @@ export function ChatTab({
           const end = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
           // Scrolling up stops following, and getting back to the end follows again.
           // A smooth scroll down to the end passes the middle, which doesn't count.
-          if (end) following.current = true;
+          // A window's end isn't the chat's: it reads on instead.
+          if (end && !win) following.current = true;
           else if (box.scrollTop < lastTop.current - 1) following.current = false;
           lastTop.current = box.scrollTop;
-          setAtEnd(end || following.current);
+          setAtEnd(!win && (end || following.current));
           if (box.scrollTop < 400) loadMore();
+          if (win && box.scrollHeight - box.scrollTop - box.clientHeight < 400) loadNewer();
         }}
       >
         <div ref={content} className="mx-auto w-full max-w-4xl px-4 pt-6 md:px-6" style={{ paddingBottom: composerHeight + 28 }}>
@@ -222,17 +252,23 @@ export function ChatTab({
             </div>
           ) : thread.error ? (
             <Notice>{errorMessage(thread.error)}</Notice>
-          ) : empty ? (
+          ) : empty || !view ? (
             <Hero agent={agent} />
           ) : (
             <>
-              {thread.data.older && (
+              {view.older && (
                 <div className="flex h-8 items-center justify-center gap-1.5 pb-4 text-[12px] text-subtle" data-chat-older>
                   {loadingOlder && <LoaderCircle className="size-3.5 animate-spin" />}
                   {loadingOlder ? t('chat.tab.loadingOlder') : ''}
                 </div>
               )}
-              <Timeline agent={agent} thread={thread.data} onOpenAgent={onOpenAgent} />
+              <Timeline agent={agent} thread={view} onOpenAgent={onOpenAgent} />
+              {view.newer && (
+                <div className="flex h-8 items-center justify-center gap-1.5 pt-4 text-[12px] text-subtle" data-chat-newer>
+                  {loadingNewer && <LoaderCircle className="size-3.5 animate-spin" />}
+                  {loadingNewer ? t('chat.tab.loadingNewer') : ''}
+                </div>
+              )}
             </>
           )}
           {/* What the project's agents are waiting on you for, at the end of
@@ -241,14 +277,15 @@ export function ChatTab({
         </div>
       </div>
 
-      {!atEnd && (
+      {(win || !atEnd) && (
         <button
           className="absolute left-1/2 z-20 flex -translate-x-1/2 animate-fade-in items-center gap-1.5 rounded-full border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-tertiary shadow-lg backdrop-blur-xl transition hover:text-title"
           style={{ bottom: composerHeight + 18 }}
           onClick={scrollToEnd}
+          data-chat-to-end={win ? 'latest' : 'end'}
         >
           <ArrowDown className="size-3.5" />
-          {t('chat.tab.scrollToEnd')}
+          {t(win ? 'chat.tab.jumpToLatest' : 'chat.tab.scrollToEnd')}
         </button>
       )}
 
