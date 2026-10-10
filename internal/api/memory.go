@@ -78,11 +78,34 @@ type Memory struct {
 	// DecayedAt is the last time a consolidation took a point off this
 	// memory's importance.
 	DecayedAt time.Time `json:"decayedAt,omitzero,omitempty"`
+	// Confirmations is how many times this memory was written down again and
+	// the restatement merged into it. Search and agents' briefs weigh it.
+	Confirmations int `json:"confirmations,omitempty"`
 	// Promotion is where it stands as a candidate project note: "" until the
 	// lead is offered it, then "offered", "promoted" (it is a note now, and
 	// no brief serves it again) or "dismissed" (never offered again).
 	Promotion   string    `json:"promotion,omitempty"`
 	PromotionAt time.Time `json:"promotionAt,omitzero,omitempty"`
+}
+
+// MemoryFeedbackRequest is a reader's verdict on a memory it was handed:
+// "wrong" and "stale" drop it to the lowest importance at once (stale also
+// closes an open item), "helpful" raises it a point, up to 4.
+type MemoryFeedbackRequest struct {
+	// Memory is its id, or its title exactly as it was shown.
+	Memory  string `json:"memory"`
+	Verdict string `json:"verdict"`
+	// Why is what the reader found, in a line; required unless helpful.
+	Why string `json:"why,omitempty"`
+}
+
+// MemoryFeedbackResult is what feedback did to the memory.
+type MemoryFeedbackResult struct {
+	Memory Memory `json:"memory"` // as it is now
+	// Was is its importance before.
+	Was int `json:"was"`
+	// Resolved is true when the feedback closed it.
+	Resolved bool `json:"resolved,omitempty"`
 }
 
 // NoteSuggestion is a memory enough of a project's agents were handed in their
@@ -123,8 +146,9 @@ type ResolveMemoryRequest struct {
 
 // TidyMemoryRequest cleans a project's open items in one go: every live
 // issue (or item waiting on something) last mentioned before the cutoff is
-// resolved as "tidied", and what is left is merged by topic. No model is
-// asked.
+// resolved as "tidied", and what is left is merged by topic. Before that,
+// secrets are removed from every row stored before memory removed them on
+// the way in. No model is asked.
 type TidyMemoryRequest struct {
 	// OlderThanHours is the cutoff; 0 is seven days.
 	OlderThanHours int `json:"olderThanHours,omitempty"`
@@ -141,6 +165,17 @@ type TidyMemoryResult struct {
 	Merged []MemoryMerge `json:"merged"`
 	// Kept is how many open items are left.
 	Kept int `json:"kept"`
+	// Scrubbed is how many stored rows of each kind still held a secret.
+	Scrubbed MemoryScrub `json:"scrubbed"`
+}
+
+// MemoryScrub counts the rows a tidy removed secrets from, or would.
+type MemoryScrub struct {
+	Events        int `json:"events"`
+	Memories      int `json:"memories"`
+	Reports       int `json:"reports"`
+	Artifacts     int `json:"artifacts"`
+	WorkingMemory int `json:"workingMemory"`
 }
 
 // MemoryMerge is one open item folded into another that says the same thing.

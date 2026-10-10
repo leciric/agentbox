@@ -88,6 +88,7 @@ otherwise; a quote that matches nothing, or more than one, changes nothing and s
 A note is pasted into **every** agent's brief; a memory (`remember`) is searched, so it costs nothing
 until needed. Notes are for standing conventions; a gotcha with an error, a cause or a filename is a
 memory. When in doubt, `remember`. **Say which of the two you used, and why, in a sentence.**
+When a memory turns out wrong or stale, `memory_feedback` drops it at once (then `remember` what is true).
 
 `remember` with scope `all` keeps a memory for every project, not just this one: **only when the user
 asks for something to apply to all their projects**. Every project's chat and agents then read it, and

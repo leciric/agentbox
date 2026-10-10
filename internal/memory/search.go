@@ -204,9 +204,10 @@ func searchError(err error) error {
 }
 
 // Reranking. bm25 answers "is this row about the query"; it has never been
-// told that a memory a person marked important outranks one nobody rated, or
-// that this week beats six months ago. Both are columns the store already
-// has, so a reranking pass over bm25's own shortlist can use them without a
+// told that a memory a person marked important outranks one nobody rated,
+// that one written down three times is likelier true than one written once,
+// or that this week beats six months ago. All three are columns the store
+// already has, so a reranking pass over bm25's own shortlist can use them without a
 // model, an embedding or a second index.
 //
 // Superseded and resolved memories need no weight here at all: `live`, in the
@@ -240,6 +241,11 @@ const (
 	// which is what the doc means by a decision from last week beating an
 	// episodic memory from six months ago. Memories only.
 	weightKind = 0.05
+	// weightConfirmed is how many times dedup folded a restatement into a
+	// memory (confirmed.go), on a curve that saturates: at three
+	// restatements it is worth about one point of importance, and no count
+	// is worth more than two. Memories only.
+	weightConfirmed = 0.05
 
 	// recencyHalfLife is how old a row has to be before recency's contribution
 	// to its score halves. 14 days: short enough that this week outranks last
@@ -266,7 +272,8 @@ func rerank(r Results, limit int) Results {
 	r.Memories = rerankRows(r.Memories, limit, func(m Memory) (time.Time, float64) {
 		return m.CreatedAt, weightRecency*recencyScore(m.CreatedAt) +
 			weightImportance*importanceScore(m.Importance) +
-			weightKind*kindScore(m.Kind)
+			weightKind*kindScore(m.Kind) +
+			weightConfirmed*confirmationScore(m.Confirmations)
 	})
 	r.Events = rerankRows(r.Events, limit, func(e Event) (time.Time, float64) {
 		return e.At, 0

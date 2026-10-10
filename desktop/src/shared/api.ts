@@ -1709,6 +1709,7 @@ export interface Memory {
   resolvedBy?: string;
   referencedAt?: string;
   decayedAt?: string;
+  confirmations?: number;
   promotion?: string;
   promotionAt?: string;
 }
@@ -1854,6 +1855,7 @@ export interface TidyMemoryResult {
   resolved: Memory[];
   merged: MemoryMerge[];
   kept: number;
+  scrubbed: MemoryScrub;
 }
 
 export interface MemoryMerge {
@@ -1861,6 +1863,14 @@ export interface MemoryMerge {
   into: Memory;
   score: number;
   why: string;
+}
+
+export interface MemoryScrub {
+  events: number;
+  memories: number;
+  reports: number;
+  artifacts: number;
+  workingMemory: number;
 }
 
 export interface ConsolidationPass {

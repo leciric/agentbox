@@ -39,7 +39,7 @@ func newMemoryTidyCmd(a *app) *cobra.Command {
 	var apply bool
 	cmd := &cobra.Command{
 		Use:   "tidy <project>",
-		Short: "Resolve a project's stale open issues and merge duplicate ones (a dry run without --apply)",
+		Short: "Resolve a project's stale open issues, merge duplicate ones and remove stored secrets (a dry run without --apply)",
 		Long: `Cleans up the open issues a project's memory has collected, without asking a model.
 
 Every live issue, and every memory whose title says it is waiting on something
@@ -47,6 +47,11 @@ Every live issue, and every memory whose title says it is waiting on something
 --older-than is resolved, with "tidied" as what closed it. Of the ones left,
 those about the same problem are merged into the newest, even when their
 titles differ. Facts, decisions and discoveries are never touched.
+
+Memory removes secrets (tokens, passwords, keys) from anything written to it,
+but what it stored before it did still holds them. Tidy removes them from the
+project's events, memories, reports, artifacts and working memory, rewriting
+only the rows that hold one.
 
 Nothing is deleted: a resolved memory stays readable by id. Without --apply
 this only prints what it would do.`,
@@ -115,6 +120,7 @@ func describeTidy(project, olderThan string, plan api.TidyMemoryResult, now time
 		project, verb, len(plan.Resolved), plural(len(plan.Resolved), "item", "items"), olderThan,
 		merge, len(plan.Merged), plural(len(plan.Merged), "duplicate", "duplicates"),
 		plan.Kept, plural(plan.Kept, "stays", "stay"))
+	b.WriteString(describeScrub(plan.Scrubbed, plan.Applied))
 	if len(plan.Resolved) > 0 {
 		fmt.Fprintf(&b, "\nResolved as tidied:\n")
 		for _, m := range plan.Resolved {
@@ -128,10 +134,43 @@ func describeTidy(project, olderThan string, plan api.TidyMemoryResult, now time
 				mg.Into.ID, oneLine(mg.Into.Title), mg.Why, mg.Score)
 		}
 	}
-	if !plan.Applied && len(plan.Resolved)+len(plan.Merged) > 0 {
+	if !plan.Applied && len(plan.Resolved)+len(plan.Merged)+scrubTotal(plan.Scrubbed) > 0 {
 		b.WriteString("\nNothing was changed: run it again with --apply to do this.\n")
 	}
 	return b.String()
+}
+
+// describeScrub says which stored rows still held a secret: "Would remove
+// secrets from 3 events and 1 report."
+func describeScrub(s api.MemoryScrub, applied bool) string {
+	if scrubTotal(s) == 0 {
+		return "No secrets left in what it has stored.\n"
+	}
+	var parts []string
+	for _, k := range []struct {
+		n         int
+		one, many string
+	}{
+		{s.Events, "event", "events"}, {s.Memories, "memory", "memories"}, {s.Reports, "report", "reports"},
+		{s.Artifacts, "artifact", "artifacts"}, {s.WorkingMemory, "working memory", "working memories"},
+	} {
+		if k.n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", k.n, plural(k.n, k.one, k.many)))
+		}
+	}
+	list := parts[0]
+	if len(parts) > 1 {
+		list = strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+	}
+	verb := "Would remove"
+	if applied {
+		verb = "Removed"
+	}
+	return fmt.Sprintf("%s secrets from %s.\n", verb, list)
+}
+
+func scrubTotal(s api.MemoryScrub) int {
+	return s.Events + s.Memories + s.Reports + s.Artifacts + s.WorkingMemory
 }
 
 func plural(n int, one, many string) string {
@@ -202,6 +241,7 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				return describeSearch(in.Query, results), nil
 			},
 		},
+		memoryFeedbackTool(ctx, m),
 		{
 			Name: "report",
 			Description: "File what you did, as you finish. This is not your final message to the user — it is the " +
@@ -343,6 +383,45 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				}
 				return fmt.Sprintf("Recorded %s as %s. Name that id in your report's artifacts.", a.Path, a.ID), nil
 			},
+		},
+	}
+}
+
+// memoryFeedbackTool is how an agent or the lead says that a memory it was
+// handed is wrong, stale or helpful (memory/feedback.go). A brief lists
+// memories by title, so the tool takes one as readily as an id.
+func memoryFeedbackTool(ctx context.Context, m *api.MemoryClient) mcp.Tool {
+	return mcp.Tool{
+		Name: "memory_feedback",
+		Description: "Say that a memory you were handed — in your brief or from search_memory — is wrong, stale " +
+			"or helpful, as soon as you find out. \"wrong\" (it says something untrue) and \"stale\" (it was true and " +
+			"no longer is) drop it to the bottom of every search and brief at once; stale also closes an open " +
+			"problem. \"helpful\" (it saved you the work) raises it a little. Who said it and why is kept. When you " +
+			"know what is true instead, the lead can write that down; this only says the old one can't be trusted.",
+		Schema: object([]string{"memory", "verdict"}, map[string]any{
+			"memory":  str("the memory's id from search_memory, or its title exactly as you were shown it"),
+			"verdict": choiceOf("what you found", "wrong", "stale", "helpful"),
+			"why":     str("what you found, in a line: the file, command or pull request that shows it; required unless helpful"),
+		}),
+		Run: func(args json.RawMessage) (string, error) {
+			var in api.MemoryFeedbackRequest
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &in); err != nil {
+					return "", err
+				}
+			}
+			out, err := m.Feedback(ctx, in)
+			if err != nil {
+				return "", err
+			}
+			switch {
+			case out.Resolved:
+				return fmt.Sprintf("Closed %s (%q) as %s: it no longer comes back from a search.", out.Memory.ID, out.Memory.Title, in.Verdict), nil
+			case out.Memory.Importance == out.Was:
+				return fmt.Sprintf("Noted %s (%q) as %s; its importance stays %d.", out.Memory.ID, out.Memory.Title, in.Verdict, out.Was), nil
+			}
+			return fmt.Sprintf("Noted %s (%q) as %s: importance %d, was %d.", out.Memory.ID, out.Memory.Title, in.Verdict,
+				out.Memory.Importance, out.Was), nil
 		},
 	}
 }

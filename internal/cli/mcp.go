@@ -950,6 +950,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				return describeResolved(m), nil
 			},
 		},
+		memoryFeedbackTool(ctx, c.LeadMemory()),
 		{
 			Name: "promote_memory",
 			Description: "Make a memory one of this project's notes, when your brief offers it under \"Memories that " +
@@ -1563,7 +1564,7 @@ func describeSearch(query string, results api.MemorySearchResults) string {
 			if m.Global {
 				scope = ", all projects"
 			}
-			fmt.Fprintf(&b, "- [%s] %s (%s, importance %d%s)\n", m.ID, m.Title, m.Kind, m.Importance, scope)
+			fmt.Fprintf(&b, "- [%s] %s (%s, importance %d%s%s)\n", m.ID, m.Title, m.Kind, m.Importance, scope, confirmed(m.Confirmations))
 			if m.Content != "" {
 				fmt.Fprintf(&b, "  %s\n", oneLine(m.Content))
 			}
@@ -1608,6 +1609,14 @@ func describeRemembered(m api.Memory, supersedes string) string {
 		return fmt.Sprintf("Remembered as %s, replacing %s, which no longer comes back from a search. search_memory finds it, %s.", m.ID, supersedes, who)
 	}
 	return fmt.Sprintf("Remembered as %s. search_memory finds it, %s.", m.ID, who)
+}
+
+// confirmed says how many times a memory was written down again, when it was.
+func confirmed(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(", said %d more %s", n, plural(n, "time", "times"))
 }
 
 func describeWorking(w api.WorkingMemory) string {

@@ -93,7 +93,7 @@ func TestAgentMemoryTools(t *testing.T) {
 			t.Errorf("%s has no description: it is all a model reads", tool.Name)
 		}
 	}
-	for _, want := range []string{"search_memory", "report", "record_artifact"} {
+	for _, want := range []string{"search_memory", "memory_feedback", "report", "record_artifact"} {
 		if _, ok := byName[want]; !ok {
 			t.Errorf("a worker agent has no %s tool", want)
 		}
@@ -115,6 +115,18 @@ func TestAgentMemoryTools(t *testing.T) {
 	}
 	if got := <-calls; got != "POST /v1/self/memory/reports" {
 		t.Errorf("report called %s", got)
+	}
+
+	// Feedback goes to the agent's own routes too, and says what it did.
+	out, err = tools[byName["memory_feedback"]].Run(json.RawMessage(`{"memory":"The API listens on 7777","verdict":"wrong","why":"8080"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != `Noted mem_1 ("The API listens on 7777") as wrong: importance 1, was 5.` {
+		t.Errorf("memory_feedback = %q", out)
+	}
+	if got := <-calls; got != "POST /v1/self/memory/feedback" {
+		t.Errorf("memory_feedback called %s", got)
 	}
 
 	// A report with nothing in it is refused here, before the round trip.
@@ -164,6 +176,11 @@ func serveFakeAgentAPI(t *testing.T, socket string, calls chan<- string) {
 			_ = json.NewEncoder(w).Encode(api.MemoryArtifact{ID: "art_test", Path: "x"})
 		case "/v1/self":
 			_ = json.NewEncoder(w).Encode(api.Self{Ref: "pawly/agent-01", Agent: "agent-01", Project: "pawly"})
+		case "/v1/self/memory/feedback":
+			var in api.MemoryFeedbackRequest
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			_ = json.NewEncoder(w).Encode(api.MemoryFeedbackResult{Was: 5,
+				Memory: api.Memory{ID: "mem_1", Title: in.Memory, Importance: 1}})
 		case "/v1/self/credential":
 			_ = json.NewEncoder(w).Encode(api.Question{ID: "q1", Answer: "use work", Status: "answered"})
 		case "/v1/self/connector":
@@ -200,10 +217,12 @@ func TestDescribeTidy(t *testing.T) {
 		Resolved: []api.Memory{{ID: "mem_1", Kind: "issue", Title: "Stale --model help text", CreatedAt: now.Add(-12 * 24 * time.Hour)}},
 		Merged: []api.MemoryMerge{{Memory: api.Memory{ID: "mem_2", Title: "Agent-name reuse bug unfixed"},
 			Into: api.Memory{ID: "mem_3", Title: "Agent names are reused as soon as an agent is gone"}, Score: 0.48, Why: "says the same thing"}},
-		Kept: 4,
+		Kept:     4,
+		Scrubbed: api.MemoryScrub{Events: 3, Memories: 1, Reports: 2},
 	}
 	out := describeTidy("agentbox", "7d", plan, now)
 	for _, want := range []string{
+		"Would remove secrets from 3 events, 1 memory and 2 reports.",
 		"agentbox: would resolve 1 open item nobody has mentioned in 7d, and would merge 1 duplicate. 4 stay open.",
 		"mem_1  [issue] Stale --model help text (12 days old)",
 		"→ mem_3  Agent names are reused as soon as an agent is gone (says the same thing, 0.48)",
@@ -214,7 +233,16 @@ func TestDescribeTidy(t *testing.T) {
 		}
 	}
 	plan.Applied = true
-	if out := describeTidy("agentbox", "7d", plan, now); strings.Contains(out, "--apply") || !strings.Contains(out, "resolved 1") {
+	if out := describeTidy("agentbox", "7d", plan, now); strings.Contains(out, "--apply") || !strings.Contains(out, "resolved 1") ||
+		!strings.Contains(out, "Removed secrets from 3 events") {
 		t.Errorf("applied:\n%s", out)
+	}
+	// Secrets alone are still something a dry run would change.
+	plan = api.TidyMemoryResult{Scrubbed: api.MemoryScrub{WorkingMemory: 1}}
+	if out := describeTidy("agentbox", "7d", plan, now); !strings.Contains(out, "from 1 working memory.") || !strings.Contains(out, "--apply") {
+		t.Errorf("scrub only:\n%s", out)
+	}
+	if out := describeTidy("agentbox", "7d", api.TidyMemoryResult{}, now); !strings.Contains(out, "No secrets left") {
+		t.Errorf("nothing to do:\n%s", out)
 	}
 }

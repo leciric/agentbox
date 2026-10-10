@@ -42,6 +42,20 @@ type memoryScope struct {
 	project string
 	agent   string
 	origin  string
+	// lead is set on a project chat's own socket.
+	lead bool
+}
+
+// who names whoever is asking, for a record of it: the agent, the lead, or
+// the user on the daemon's socket.
+func (w memoryScope) who() string {
+	switch {
+	case w.agent != "":
+		return w.agent
+	case w.lead:
+		return "lead"
+	}
+	return "user"
 }
 
 // projectMemoryScope reads the project from the route, and checks it exists so
@@ -52,6 +66,13 @@ func (s *Server) projectMemoryScope(r *http.Request) (memoryScope, error) {
 		return memoryScope{}, err
 	}
 	return memoryScope{project: project}, nil
+}
+
+// leadMemoryScope is projectMemoryScope on a project chat's socket.
+func (s *Server) leadMemoryScope(r *http.Request) (memoryScope, error) {
+	who, err := s.projectMemoryScope(r)
+	who.lead = true
+	return who, err
 }
 
 // agentMemoryScope is the agent behind a socket, and its project.
@@ -123,6 +144,10 @@ var memoryRoutes = []struct {
 	{http.MethodGet, "/consolidation", "consolidation", true, false},
 	{http.MethodGet, "/duplicates", "duplicates", true, false},
 	{http.MethodPost, "/resolve", "resolve-memory", false, false},
+	// Feedback is a reader's verdict on what it was handed, and agents are
+	// most of the readers: it moves a memory's ranking, and closes an open
+	// item only when it says it is over (memory/feedback.go).
+	{http.MethodPost, "/feedback", "feedback", true, false},
 	{http.MethodPost, "/consolidate", "consolidate", false, false},
 	// Memories offered as notes (memory/promote.go). Writing the notes is the
 	// lead's and the user's, so an agent doesn't get these.
@@ -325,6 +350,22 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			}
 			return writeJSON(w, http.StatusOK, apiMemory(out))
 
+		case "feedback":
+			var req api.MemoryFeedbackRequest
+			if err := readJSON(r, &req); err != nil {
+				return err
+			}
+			out, err := m.Feedback(ctx, memory.FeedbackRequest{
+				Project: who.project, Memory: req.Memory, Verdict: req.Verdict, Why: req.Why,
+				Agent: who.agent, By: who.who(),
+			})
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusOK, api.MemoryFeedbackResult{
+				Memory: apiMemory(out.Memory), Was: out.Was, Resolved: out.Resolved,
+			})
+
 		case "note-suggestions":
 			found, err := m.NoteSuggestions(ctx, who.project, memory.NoteSuggestionsShown)
 			if err != nil {
@@ -370,7 +411,7 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 				return err
 			}
 			out := api.TidyMemoryResult{Applied: plan.Applied, Resolved: apiMemories(plan.Resolved), Kept: plan.Kept,
-				Merged: make([]api.MemoryMerge, 0, len(plan.Merged))}
+				Merged: make([]api.MemoryMerge, 0, len(plan.Merged)), Scrubbed: api.MemoryScrub(plan.Scrubbed)}
 			for _, mg := range plan.Merged {
 				out.Merged = append(out.Merged, api.MemoryMerge{
 					Memory: apiMemory(mg.Memory), Into: apiMemory(mg.Into), Score: mg.Score, Why: mg.Why,
@@ -513,7 +554,7 @@ func apiMemory(m memory.Memory) api.Memory {
 		Importance: m.Importance, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
 		SupersedesID: m.SupersedesID, SourceEventID: m.SourceEventID, Superseded: m.Superseded,
 		ResolvedAt: m.ResolvedAt, ResolvedBy: m.ResolvedBy,
-		ReferencedAt: m.ReferencedAt, DecayedAt: m.DecayedAt,
+		ReferencedAt: m.ReferencedAt, DecayedAt: m.DecayedAt, Confirmations: m.Confirmations,
 		Promotion: m.Promotion, PromotionAt: m.PromotionAt,
 	}
 }

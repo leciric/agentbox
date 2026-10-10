@@ -192,6 +192,10 @@ type Memory struct {
 	// StaleAfter drops out of the lead's "Still open" (still searchable).
 	// Zero reads as CreatedAt.
 	MentionedAt time.Time `json:"mentionedAt,omitzero,omitempty"`
+	// Confirmations is how many times this memory was written down again and
+	// the restatement folded into it (MergeDuplicates, Consolidate's exact
+	// merge). Search and the context builder weigh it, bounded (confirmed.go).
+	Confirmations int `json:"confirmations,omitempty"`
 	// Promotion is where this memory stands as a candidate project note
 	// (promote.go): "" until the lead is offered it, then PromotionOffered,
 	// PromotionPromoted or PromotionDismissed. PromotionAt is when that

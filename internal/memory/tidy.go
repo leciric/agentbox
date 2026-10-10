@@ -329,15 +329,18 @@ func (s *Store) mergeDuplicates(ctx context.Context, project string, items, corp
 }
 
 // mergeInto resolves one duplicate and keeps what it had worth keeping on the
-// item that stays: its importance, if higher, the latest mention, and what
-// would close it, if the one that stays names nothing.
+// item that stays: its importance, if higher, the latest mention, its
+// confirmations plus this one (confirmed.go), and what would close it, if the
+// one that stays names nothing.
 func (s *Store) mergeInto(ctx context.Context, project string, m Merge, anchors map[string][]Anchor) error {
 	if _, err := s.ResolveMemory(ctx, project, m.Memory.ID, "duplicate of "+m.Into.ID+" ("+m.Why+")"); err != nil {
 		return err
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE memories SET importance = max(importance, ?), mentioned_at = max(mentioned_at, ?, ?) WHERE project = ? AND id = ?`,
-		m.Memory.Importance, millis(m.Memory.LastMentioned()), millis(m.Into.CreatedAt), project, m.Into.ID); err != nil {
+		`UPDATE memories SET importance = max(importance, ?), mentioned_at = max(mentioned_at, ?, ?),
+			confirmations = confirmations + 1 + ? WHERE project = ? AND id = ?`,
+		m.Memory.Importance, millis(m.Memory.LastMentioned()), millis(m.Into.CreatedAt), m.Memory.Confirmations,
+		project, m.Into.ID); err != nil {
 		return err
 	}
 	if len(Anchored{Anchors: anchors[m.Into.ID]}.Closers()) == 0 && len(anchors[m.Memory.ID]) > 0 {
@@ -369,13 +372,17 @@ type TidyPlan struct {
 	Merged []Merge `json:"merged"`
 	// Kept is how many open items are left.
 	Kept int `json:"kept"`
+	// Scrubbed are the rows, of every kind, that still held a secret
+	// (scrub.go).
+	Scrubbed Scrubbed `json:"scrubbed"`
 }
 
 // Tidy cleans a store that is already full of stale open items, in one go and
 // without a model: every live open item last mentioned before the cutoff is
 // resolved as ResolvedByTidy, then what is left is merged by topic. Facts,
 // decisions and discoveries are never touched, and neither is anything
-// resolved or superseded already.
+// resolved or superseded already. First, every row of the project stored
+// before secrets were removed on the way in has them removed now.
 func (s *Store) Tidy(ctx context.Context, project string, opts TidyOptions) (TidyPlan, error) {
 	if err := requireProject(project); err != nil {
 		return TidyPlan{}, err
@@ -389,11 +396,15 @@ func (s *Store) Tidy(ctx context.Context, project string, opts TidyOptions) (Tid
 		now = time.Now()
 	}
 	cutoff := now.Add(-age)
+	scrubbed, err := s.scrub(ctx, project, opts.Apply)
+	if err != nil {
+		return TidyPlan{}, err
+	}
 	items, corpus, err := s.openItems(ctx, project)
 	if err != nil {
 		return TidyPlan{}, err
 	}
-	plan := TidyPlan{Applied: opts.Apply, Resolved: []Memory{}, Merged: []Merge{}}
+	plan := TidyPlan{Applied: opts.Apply, Resolved: []Memory{}, Merged: []Merge{}, Scrubbed: scrubbed}
 	var recent []Memory
 	for _, m := range items {
 		if m.LastMentioned().Before(cutoff) {
@@ -421,13 +432,13 @@ func (s *Store) Tidy(ctx context.Context, project string, opts TidyOptions) (Tid
 }
 
 // OpenIssues are the live issues something has mentioned since a moment,
-// most important first: what the lead's recap carries as "Still open".
+// highest Standing first: what the lead's recap carries as "Still open".
 func (s *Store) OpenIssues(ctx context.Context, project string, since time.Time, limit int) ([]Memory, error) {
 	if err := requireProject(project); err != nil {
 		return nil, err
 	}
 	return s.queryMemories(ctx, `WHERE m.project = ? AND m.kind = ? AND `+live+`
 		AND max(m.created_at, m.mentioned_at) >= ?
-		ORDER BY m.importance DESC, m.created_at DESC, m.rowid DESC LIMIT ?`,
+		ORDER BY `+standingSQL+` DESC, m.importance DESC, m.created_at DESC, m.rowid DESC LIMIT ?`,
 		project, KindIssue, millis(since), limitOf(limit))
 }

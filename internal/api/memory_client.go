@@ -186,6 +186,12 @@ func (m *MemoryClient) ResolveMemory(ctx context.Context, id, why string) (Memor
 	return out, m.c.do(ctx, http.MethodPost, m.base+"/resolve", ResolveMemoryRequest{ID: id, Why: why}, &out)
 }
 
+// Feedback says a memory its reader was handed is wrong, stale or helpful.
+func (m *MemoryClient) Feedback(ctx context.Context, req MemoryFeedbackRequest) (MemoryFeedbackResult, error) {
+	var out MemoryFeedbackResult
+	return out, m.c.do(ctx, http.MethodPost, m.base+"/feedback", req, &out)
+}
+
 // NoteSuggestions are the memories its agents keep being handed that could be
 // project notes instead, most widely served first.
 func (m *MemoryClient) NoteSuggestions(ctx context.Context) ([]NoteSuggestion, error) {
