@@ -10,17 +10,12 @@
 // memory (global.go): a few memories the user asked to hold in every project,
 // which every project's searches and contexts read beside its own.
 //
-// Six things are kept, and they are deliberately not the same thing:
+// Five things are kept, and they are deliberately not the same thing:
 //
 //   - Events are raw history, appended and never rewritten.
 //   - Memories are what somebody decided is worth keeping, written on purpose.
 //     A memory that another one supersedes stops coming back from search.
 //   - Working memory is one small document per project: what it is doing now.
-//   - Tasks are the project's state as a graph: what is to be done, who is on
-//     it, what contains it and what it is waiting on
-//     (D77). They are the one
-//     thing here that is closed rather than superseded, because a task is the
-//     work and a memory is the judgement that outlives it.
 //   - Artifacts are references to what was produced — a path, a branch, a pull
 //     request — never the thing itself.
 //   - Reports are what an agent said when it finished, in a shape that can be

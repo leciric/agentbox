@@ -20,7 +20,7 @@ test("a project's old tabs open their section of Settings", () => {
 });
 
 test("a project's remaining tabs and sections open as themselves", () => {
-  for (const name of ['chat', 'tasks', 'pulls', 'media', 'settings'] as const) assert.equal(projectPlace(name).tab, name);
+  for (const name of ['chat', 'pulls', 'media', 'settings'] as const) assert.equal(projectPlace(name).tab, name);
   assert.deepEqual(projectPlace('general'), { tab: 'settings', section: 'general' });
   assert.deepEqual(projectPlace('brief'), { tab: 'settings', section: 'brief' });
 });

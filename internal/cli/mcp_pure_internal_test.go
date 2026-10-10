@@ -76,29 +76,6 @@ func TestCredentialWanted(t *testing.T) {
 	}
 }
 
-func TestDescribeTasksAndHelpers(t *testing.T) {
-	tasks := []api.Task{
-		{ID: "t1", Goal: "Fix login", Status: "active", Agent: "agent-01", DependsOn: []string{"t2"}},
-		{ID: "t2", Goal: "Add tests", Status: "open", ParentID: "t1", Blocks: []string{"t1"}, Detail: "cover the happy path"},
-	}
-	got := describeTasks(tasks)
-	for _, want := range []string{
-		"[t1] Fix login (active, agent-01)", "waiting on: Add tests (t2)",
-		"[t2] Add tests (open)", "part of: Fix login (t1)", "holding up: Fix login (t1)", "cover the happy path",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("describeTasks missing %q:\n%s", want, got)
-		}
-	}
-
-	if got := taskName("t9", map[string]string{"t9": "Do it"}); got != "Do it (t9)" {
-		t.Errorf("taskName(known) = %q", got)
-	}
-	if got := taskName("t9", nil); got != "t9" {
-		t.Errorf("taskName(unknown) = %q", got)
-	}
-}
-
 func TestDescribeSearchAndWorkingMemory(t *testing.T) {
 	if got := describeSearch("ports", api.MemorySearchResults{}); !strings.Contains(got, `Nothing remembered about "ports" yet`) {
 		t.Errorf("describeSearch(nothing) = %q", got)

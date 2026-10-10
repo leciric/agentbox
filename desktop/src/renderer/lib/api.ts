@@ -342,21 +342,6 @@ export const api = {
   // every project reads beside its own. Deleting one is the user's alone.
   globalMemories: () => call<T.Memory[]>('GET', '/v1/global/memory/memories'),
   deleteGlobalMemory: (id: string) => call<void>('DELETE', `/v1/global/memory/memories/${encodeURIComponent(id)}`),
-  // The task graph (D77): the plan, and what is blocked on what. A bare call
-  // is the whole graph, edges both ways, which is what a tree view needs.
-  memoryTasks: (name: string) => call<T.Task[]>('GET', `${project(name)}/memory/tasks`),
-  addTask: (name: string, req: T.AddTaskRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks`, req),
-  updateTask: (name: string, id: string, req: T.UpdateTaskRequest) => call<T.Task>('PATCH', `${project(name)}/memory/tasks/${encodeURIComponent(id)}`, req),
-  deleteTask: (name: string, id: string) => call<void>('DELETE', `${project(name)}/memory/tasks/${encodeURIComponent(id)}`),
-  linkTasks: (name: string, req: T.LinkTasksRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks/link`, req),
-  unlinkTasks: (name: string, req: T.LinkTasksRequest) => call<T.Task>('POST', `${project(name)}/memory/tasks/unlink`, req),
-  // Starting a task sends it where it goes, a new agent or the project's
-  // chat, and the daemon decides which; unqueueing takes it back either way.
-  startTask: async (name: string, id: string, req: T.StartTaskRequest) => {
-    await ensureVMRunning();
-    return call<T.StartTaskResponse>('POST', `${project(name)}/memory/tasks/${encodeURIComponent(id)}/start`, req);
-  },
-  unqueueTask: (name: string, id: string) => call<T.Task>('POST', `${project(name)}/memory/tasks/${encodeURIComponent(id)}/unqueue`),
 
   snapshots: (ref: string) => call<T.Snapshot[]>('GET', `${agent(ref)}/snapshots`),
   takeSnapshot: (ref: string, req: T.SnapshotRequest) => call<T.Snapshot>('POST', `${agent(ref)}/snapshots`, req),

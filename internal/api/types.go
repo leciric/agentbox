@@ -446,11 +446,6 @@ type Settings struct {
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
-	// TaskTarget is "tasks go to": where a task of the Tasks tab goes when
-	// it starts, unless the task chose for itself (Task.Route) — "agent", a
-	// new agent of its own, the default, or "lead", the project's chat, which
-	// may split it across several agents.
-	TaskTarget string `json:"taskTarget"`
 	// LeadRecheck is "lead rechecks agents": while on, every
 	// LeadRecheckMinutes the daemon wakes each project's chat with a short
 	// status of its running agents — only when an agent has been idle a
@@ -539,8 +534,6 @@ type UpdateSettingsRequest struct {
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
-	// TaskTarget sets "tasks go to": "agent" or "lead".
-	TaskTarget *string `json:"taskTarget,omitempty"`
 	// LeadRecheck turns "lead rechecks agents" on or off, and
 	// LeadRecheckMinutes is how often, from 5 to 1440.
 	LeadRecheck        *bool `json:"leadRecheck,omitempty"`
@@ -691,10 +684,6 @@ type CreateAgentRequest struct {
 	// pressure, not a size, decides when its heavy commands run.
 	Queue *bool  `json:"queue,omitempty"`
 	Size  string `json:"size,omitempty"`
-	// TaskID is the task in the project's plan the agent is made for, which
-	// it then works on rather than a task of its own. Task defaults to that
-	// task's goal and detail, and Title to its goal.
-	TaskID string `json:"taskId,omitempty"`
 	// Connectors limits which of the project's connectors the agent is
 	// given, by name; absent gives it every one, and an empty list none. An
 	// agent's own connectors, added to it later, aren't limited by it.

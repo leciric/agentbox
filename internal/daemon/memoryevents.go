@@ -115,44 +115,6 @@ func (s *Server) captureAgentFinished(ctx context.Context, a state.Agent, change
 	s.removeActiveAgent(ctx, a.Project, a.Name)
 }
 
-// The task graph's own history (D77).
-// A task row is project *state*: it is rewritten as the work moves, so by
-// itself it can't say when something was picked up or what it was blocked on
-// last week. These three put that in events, through the same door as
-// everything else, so consolidation reads the plan's history beside the rest
-// of what happened.
-
-// captureTaskCreated records a task the project now has.
-func (s *Server) captureTaskCreated(ctx context.Context, t memory.Task) {
-	s.captureEvent(ctx, t.Project, t.Agent, "task_created", map[string]any{
-		"taskId": t.ID, "goal": t.Goal, "status": t.Status,
-		"parentTaskId": t.ParentID, "dependsOn": t.DependsOn,
-	}, "")
-}
-
-// captureTaskStatus records a task moving, and only when it really moved:
-// a write that leaves the status as it was is not a transition, and the
-// caller checks that before calling this.
-func (s *Server) captureTaskStatus(ctx context.Context, t memory.Task, was string) {
-	s.captureEvent(ctx, t.Project, t.Agent, "task_status_changed", map[string]any{
-		"taskId": t.ID, "goal": t.Goal, "from": was, "to": t.Status,
-	}, "")
-	if t.Status == memory.TaskBlocked {
-		s.captureTaskBlocked(ctx, t.Project, t, t.DependsOn)
-	}
-}
-
-// captureTaskBlocked records that a task is waiting on something. It happens
-// twice over: when a task's status becomes blocked, and when an edge is drawn
-// to something unfinished. Both are the same fact — this can't move yet — and
-// a reader of the history wants them under one type rather than having to
-// know which of the two shapes meant it.
-func (s *Server) captureTaskBlocked(ctx context.Context, project string, t memory.Task, on []string) {
-	s.captureEvent(ctx, project, t.Agent, "task_blocked", map[string]any{
-		"taskId": t.ID, "goal": t.Goal, "status": t.Status, "dependsOn": on,
-	}, "")
-}
-
 // ptr is a pointer to a value, for the merge patches this package fills in.
 func ptr[T any](v T) *T { return &v }
 

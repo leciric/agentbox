@@ -26,7 +26,7 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	if err := store.SetAgentTitle(ctx, a.Project, a.Name, "Hatch connector preset"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mem.AddTask(ctx, memory.Task{Project: a.Project, Agent: a.Name, Goal: "Add a Hatch preset to the connectors grid"}); err != nil {
+	if _, err := mem.AppendEvent(ctx, memory.Event{Project: a.Project, Agent: a.Name, Type: "agent_created", Payload: json.RawMessage(`{"task":"Add a Hatch preset to the connectors grid"}`)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := mem.AddMemory(ctx, memory.Memory{Project: a.Project, Kind: memory.KindIssue, Title: "Hatch has no remote MCP endpoint", Content: "Blocked until it ships."}); err != nil {
