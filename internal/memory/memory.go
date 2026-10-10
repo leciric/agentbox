@@ -29,6 +29,7 @@
 package memory
 
 import (
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -37,6 +38,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"agentbox/internal/redact"
 )
 
 // ErrNotFound is returned when a project has nothing under the id asked for,
@@ -295,9 +298,18 @@ func attime(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-// text trims a field and refuses one that is longer than max.
+// Secrets never reach a row. Every field anybody writes — an agent through
+// the MCP tools, the daemon's events, a report — goes through text, cleanList
+// or jsonDocument on its way in, and those three are where redact.Secrets
+// runs: what memory keeps is shown to every later agent, in its brief and its
+// searches, so a token pasted into a summary would be handed out for good.
+// The normalisers are the boundary; TestNoSecretIsStored writes through each
+// path and reads the database back.
+
+// text trims a field, removes its secrets, and refuses one that is longer
+// than max.
 func text(what, s string, max int) (string, error) {
-	s = strings.TrimSpace(s)
+	s = strings.TrimSpace(redact.Secrets(s))
 	if len(s) > max {
 		return "", fmt.Errorf("%s is %d bytes, longer than the %d allowed: write less, or put the rest in an artifact", what, len(s), max)
 	}
@@ -325,7 +337,54 @@ func jsonDocument(what string, raw json.RawMessage) (string, error) {
 	if !json.Valid(raw) {
 		return "", fmt.Errorf("%s isn't valid JSON", what)
 	}
-	return string(raw), nil
+	return scrubJSON(raw)
+}
+
+// scrubJSON is a JSON document with the secrets taken out of its strings, and
+// out of any string whose key says it's secret ({"apiKey": "…"}). Running the
+// patterns over the encoded text instead could cut an escape in half; a
+// document with nothing to remove is kept byte for byte.
+func scrubJSON(raw json.RawMessage) (string, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var doc any
+	if err := dec.Decode(&doc); err != nil {
+		return "", err
+	}
+	doc, changed := scrubValue("", doc)
+	if !changed {
+		return string(raw), nil
+	}
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(doc); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(out.String(), "\n"), nil
+}
+
+func scrubValue(key string, v any) (any, bool) {
+	switch v := v.(type) {
+	case string:
+		clean := redact.Named(key, v)
+		return clean, clean != v
+	case map[string]any:
+		changed := false
+		for k, item := range v {
+			clean, c := scrubValue(k, item)
+			v[k], changed = clean, changed || c
+		}
+		return v, changed
+	case []any:
+		changed := false
+		for i, item := range v {
+			clean, c := scrubValue(key, item)
+			v[i], changed = clean, changed || c
+		}
+		return v, changed
+	}
+	return v, false
 }
 
 // jsonList stores a list of strings, dropping the empty ones so a model that
@@ -333,7 +392,7 @@ func jsonDocument(what string, raw json.RawMessage) (string, error) {
 func jsonList(items []string) (string, error) {
 	out := make([]string, 0, len(items))
 	for _, it := range items {
-		if it = strings.TrimSpace(it); it != "" {
+		if it = strings.TrimSpace(redact.Secrets(it)); it != "" {
 			out = append(out, it)
 		}
 	}
