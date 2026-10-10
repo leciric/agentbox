@@ -257,23 +257,6 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
-			Name: "my_task",
-			Description: "The task from the user's task list you were made for, when the user started you from " +
-				"one: what it is, in their words. The list is the user's, and only they change it. It can also show " +
-				"the rest of the list, so you can see what else is planned before you touch the same files.",
-			Schema: object(nil, map[string]any{
-				"all": map[string]any{"type": "boolean",
-					"description": "show every open task on the user's list, not only yours"},
-			}),
-			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ All bool }
-				if err := decode(args, &in); err != nil {
-					return "", err
-				}
-				return describeMyTask(ctx, c, in.All), nil
-			},
-		},
-		{
 			Name: "request_credential",
 			Description: "Ask the user for a credential you lack, and wait for their answer. Use it when something fails " +
 				"on auth: a push or gh answering \"Repository not found\", 403 or \"permission denied\" (kind github), or " +
@@ -363,58 +346,6 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 	}
-}
-
-// myTask is the task this agent is on: the open one the project's plan has
-// against its name. An agent is made for one thing at a time, so the newest
-// open task of its own is the one it means — and an agent with none is an
-// agent nobody wrote work down for, which is worth saying rather than
-// answering with the first task it can see.
-func myTask(ctx context.Context, c *api.Client) (api.Task, error) {
-	tasks, err := c.SelfMemory().Tasks(ctx, api.TaskQuery{Agent: selfAgent(ctx, c), OpenOnly: true})
-	if err != nil {
-		return api.Task{}, err
-	}
-	if len(tasks) == 0 {
-		return api.Task{}, errors.New("the user's task list has no open task against your name: " +
-			"your task is the one in your first message")
-	}
-	return tasks[0], nil
-}
-
-// selfAgent is this agent's name, which its own socket already knows. An
-// empty answer means the listing isn't narrowed, and my_task then says the
-// plan has nothing for it rather than claiming somebody else's.
-func selfAgent(ctx context.Context, c *api.Client) string {
-	self, err := c.Self(ctx)
-	if err != nil {
-		return ""
-	}
-	return self.Agent
-}
-
-// describeMyTask is what an agent reads about its own work, and optionally
-// about everybody's. Each part fails quietly: an agent that can't be told its
-// task should still be told the plan.
-func describeMyTask(ctx context.Context, c *api.Client, all bool) string {
-	var b strings.Builder
-	mine, err := myTask(ctx, c)
-	if err != nil {
-		b.WriteString(err.Error() + "\n")
-	} else {
-		b.WriteString("Your task:\n")
-		b.WriteString(describeTasks([]api.Task{mine}))
-	}
-	if !all {
-		return b.String()
-	}
-	tasks, err := c.SelfMemory().Tasks(ctx, api.TaskQuery{OpenOnly: true})
-	if err != nil || len(tasks) == 0 {
-		return b.String()
-	}
-	b.WriteString("\nEverything still open on the user's list:\n")
-	b.WriteString(describeTasks(tasks))
-	return b.String()
 }
 
 // memoryFeedbackTool is how an agent or the lead says that a memory it was

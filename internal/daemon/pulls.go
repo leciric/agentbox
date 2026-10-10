@@ -741,7 +741,6 @@ func (s *Server) mergePullRequest(w http.ResponseWriter, r *http.Request) error 
 	s.captureEvent(ctx, project, by, "pr_merged", map[string]any{
 		"number": pr.Number, "url": pr.URL, "branch": pr.HeadBranch, "method": string(method),
 	}, "")
-	s.tasksImplemented(ctx, project, by, pr.URL, pr.Number)
 	s.closeAnchoredSoon(project)
 
 	s.countFeature(api.FeaturePullMerge)

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"agentbox/internal/api"
-	"agentbox/internal/memory"
 	"agentbox/internal/state"
 )
 
@@ -173,15 +172,6 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.DockerPruneOnStop != nil {
 		if err := s.store.SetFlag(r.Context(), state.SettingDockerPruneOnStop, *req.DockerPruneOnStop); err != nil {
-			return err
-		}
-	}
-	if req.TaskTarget != nil {
-		target := strings.TrimSpace(*req.TaskTarget)
-		if target != memory.TaskRouteAgent && target != memory.TaskRouteLead {
-			return fmt.Errorf("tasks go to %q or %q; %q isn't either", memory.TaskRouteAgent, memory.TaskRouteLead, target)
-		}
-		if err := s.store.SetSetting(r.Context(), state.SettingTaskTarget, target); err != nil {
 			return err
 		}
 	}
@@ -447,10 +437,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	taskTarget, err := s.taskTarget(r.Context())
-	if err != nil {
-		return api.Settings{}, err
-	}
 	imageCache, imageCacheChosen, err := s.store.ImageCache(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -502,7 +488,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		DockerPruneOnStop: dockerPrune,
 
-		TaskTarget:         taskTarget,
 		LeadRecheck:        leadRecheck,
 		LeadRecheckMinutes: int(recheckEvery / time.Minute),
 

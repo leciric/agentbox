@@ -987,9 +987,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		},
 		{
 			Name: "project_state",
-			Description: "Where this project stands: what it is doing now, the user's own task list — which only " +
-				"the user writes, in the app's Tasks tab — the problems nobody has fixed, and what its agents reported " +
-				"as they finished. Short on purpose — read it at the start of a conversation, before deciding what " +
+			Description: "Where this project stands: what it is doing now, the problems nobody has fixed, and what " +
+				"its agents reported as they finished. Short on purpose — read it at the start of a conversation, before deciding what " +
 				"to do next, and use search_memory when you need the detail behind a line of it.",
 			Run: func(json.RawMessage) (string, error) {
 				return projectState(ctx, c), nil
@@ -1565,7 +1564,7 @@ func describeWorking(w api.WorkingMemory) string {
 	return b.String()
 }
 
-// projectState is working memory, the plan, the issues nobody has fixed, and
+// projectState is working memory, the issues nobody has fixed, and
 // the last few reports: the least a chat needs before it decides what happens
 // next. Each part fails quietly on its own, because a state that is missing
 // one section is worth more than an error.
@@ -1574,13 +1573,6 @@ func projectState(ctx context.Context, c *api.Client) string {
 	var b strings.Builder
 	if w, err := m.WorkingMemory(ctx); err == nil {
 		b.WriteString(describeWorking(w))
-	}
-	if tasks, err := m.Tasks(ctx, api.TaskQuery{OpenOnly: true, Limit: projectStateTasks}); err == nil && len(tasks) > 0 {
-		b.WriteString("\nThe user's task list — theirs to write and change, in the app's Tasks tab, not yours:\n")
-		b.WriteString(describeTasks(tasks))
-		if len(tasks) == projectStateTasks {
-			b.WriteString("(the list is longer than this)\n")
-		}
 	}
 	if issues, err := m.Memories(ctx, api.MemoryKindIssue); err == nil && len(issues) > 0 {
 		b.WriteString("\nKnown problems nobody has fixed:\n")
@@ -1599,55 +1591,6 @@ func projectState(ctx context.Context, c *api.Client) string {
 	}
 	b.WriteString("\nsearch_memory has the detail behind any of this, and remember writes something new down.\n")
 	return b.String()
-}
-
-// projectStateTasks is how much of a plan project_state carries. A project
-// with more open tasks than this has a plan its chat should be closing, and
-// the ones that come first are the ones in the way.
-const projectStateTasks = 20
-
-// describeTasks renders a plan for a model: what each task is, who is on it,
-// and what it is waiting on, by id. The ids are there because the next thing
-// anybody does with a task is name it — to link it, to close it, to hand it
-// over — and a plan whose rows can't be named is a plan nobody can change.
-//
-// It is one flat list rather than a tree: the graph has two kinds of edge and
-// a nested rendering can only show one of them, so both are said in words.
-func describeTasks(tasks []api.Task) string {
-	goals := make(map[string]string, len(tasks))
-	for _, t := range tasks {
-		goals[t.ID] = t.Goal
-	}
-	var b strings.Builder
-	for _, t := range tasks {
-		fmt.Fprintf(&b, "- [%s] %s (%s", t.ID, t.Goal, t.Status)
-		if t.Agent != "" {
-			fmt.Fprintf(&b, ", %s", t.Agent)
-		}
-		b.WriteString(")\n")
-		if t.ParentID != "" {
-			fmt.Fprintf(&b, "  part of: %s\n", taskName(t.ParentID, goals))
-		}
-		for _, on := range t.DependsOn {
-			fmt.Fprintf(&b, "  waiting on: %s\n", taskName(on, goals))
-		}
-		for _, waiting := range t.Blocks {
-			fmt.Fprintf(&b, "  holding up: %s\n", taskName(waiting, goals))
-		}
-		if t.Detail != "" {
-			fmt.Fprintf(&b, "  %s\n", oneLine(t.Detail))
-		}
-	}
-	return b.String()
-}
-
-// taskName is a task by goal when it is one of the ones in hand, and by id
-// when it isn't — a closed task still shows up as something's blocker.
-func taskName(id string, goals map[string]string) string {
-	if goal := goals[id]; goal != "" {
-		return goal + " (" + id + ")"
-	}
-	return id
 }
 
 // oneLine folds text onto one line and cuts it, so a list of results stays a

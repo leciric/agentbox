@@ -121,8 +121,7 @@ var sectionOrder = []string{
 // keptSections is how many of that order are never given up: what the project
 // is doing, the story of its chat, and what is in the way. All three are
 // bounded queries, so the floor a build can't drop below is a fixed size
-// rather than a growing one. The user's task list isn't among them, or in a
-// build at all: it is the user's own, and an agent reads it with my_task.
+// rather than a growing one.
 const keptSections = 3
 
 // ContextRequest asks for a bounded context.

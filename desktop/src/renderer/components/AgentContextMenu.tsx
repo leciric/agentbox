@@ -49,9 +49,6 @@ export function AgentContextMenu({
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['agents'] });
     await queryClient.invalidateQueries({ queryKey: ['fleet', agent.project] });
-    // Retiring an agent frees whatever task it was given (the daemon
-    // unassigns it), so the Tasks tab's list has to catch up too.
-    await queryClient.invalidateQueries({ queryKey: ['memoryTasks', agent.project] });
   };
 
   const action = useMutation({

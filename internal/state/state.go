@@ -959,6 +959,13 @@ var migrations = []string{
 	`ALTER TABLE agents DROP COLUMN size`,
 	`DELETE FROM settings WHERE key = 'agent_queue' OR key LIKE 'usage\_queued.%' ESCAPE '\'`,
 
+	// The user's task list (the Tasks tab) is gone, and with it the tables
+	// that held it, their indexes, and "tasks go to". The task_* events it
+	// captured stay: events are history, never rewritten.
+	`DROP TABLE task_dependencies`,
+	`DROP TABLE tasks`,
+	`DELETE FROM settings WHERE key = 'task_target'`,
+
 	// How many times a memory has been said again (internal/memory): each
 	// restatement folded into it by dedup adds one, and the restatement's own
 	// count with it. Search and the context builder weigh it, bounded.
