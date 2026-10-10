@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Root } from 'mdast';
-import { fileKind, imagesInHTML, initiallyOpen, isGitHubImage, languageOfPath, nextToLoad, parsePatch, remarkHTMLImages } from './pulls.ts';
+import { fileKind, fileTree, firstToReview, imagesInHTML, initiallyOpen, isGitHubImage, languageOfPath, nextToLoad, parsePatch, remarkHTMLImages, treeOrder } from './pulls.ts';
 
 test('imagesInHTML reads what GitHub’s uploader writes', () => {
   assert.deepEqual(imagesInHTML('<img width="640" alt="The &quot;modal&quot;" src="https://github.com/user-attachments/assets/abc" />'), [
@@ -90,4 +90,29 @@ test('nextToLoad is the first open file whose diff hasn’t loaded, one at a tim
   assert.equal(nextToLoad(files, open, new Set(['a.go'])), 'c.go');
   assert.equal(nextToLoad(files, open, new Set(['a.go', 'c.go'])), undefined);
   assert.equal(nextToLoad(files, new Set(['b.go', 'c.go']), new Set(['a.go'])), 'b.go');
+});
+
+test('fileTree puts folders first, by name, and folds single-folder chains', () => {
+  const files = ['desktop/src/renderer/lib/pulls.ts', 'desktop/src/renderer/components/Modal.tsx', 'go.mod', 'internal/github/detail.go', 'README.md'].map((path) => ({ path }));
+  const names = (nodes: ReturnType<typeof fileTree<{ path: string }>>): unknown =>
+    nodes.map((n) => (n.kind === 'dir' ? { [n.name]: names(n.children) } : n.name));
+  assert.deepEqual(names(fileTree(files)), [
+    { 'desktop/src/renderer': [{ components: ['Modal.tsx'] }, { lib: ['pulls.ts'] }] },
+    { 'internal/github': ['detail.go'] },
+    'go.mod',
+    'README.md',
+  ]);
+  const tree = fileTree(files);
+  assert.equal(tree[0].kind === 'dir' && tree[0].children[0].kind === 'dir' && tree[0].children[0].path, 'desktop/src/renderer/components');
+  assert.deepEqual(
+    treeOrder(tree).map((f) => f.path),
+    ['desktop/src/renderer/components/Modal.tsx', 'desktop/src/renderer/lib/pulls.ts', 'internal/github/detail.go', 'go.mod', 'README.md'],
+  );
+});
+
+test('firstToReview skips what a program wrote', () => {
+  const f = (path: string) => ({ path, additions: 1, deletions: 0, hasDiff: true });
+  assert.equal(firstToReview([f('desktop/package-lock.json'), f('desktop/src/shared/api.ts'), f('internal/x.go')])?.path, 'internal/x.go');
+  assert.equal(firstToReview([f('go.sum')])?.path, 'go.sum');
+  assert.equal(firstToReview([]), undefined);
 });

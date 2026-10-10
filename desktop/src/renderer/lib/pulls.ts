@@ -203,3 +203,54 @@ export function languageOfPath(path: string): string | undefined {
 export function nextToLoad(files: { path: string; hasDiff: boolean }[], open: ReadonlySet<string>, loaded: ReadonlySet<string>): string | undefined {
   return files.find((f) => f.hasDiff && open.has(f.path) && !loaded.has(f.path))?.path;
 }
+
+// A pull request's files as a tree of folders, the way a review goes through
+// them: folders first, then files, each by name, with a folder that holds only
+// one folder folded into it (desktop/src/renderer), as GitHub shows them.
+export type TreeNode<F extends { path: string }> = { kind: 'dir'; name: string; path: string; children: TreeNode<F>[] } | { kind: 'file'; name: string; file: F };
+
+export function fileTree<F extends { path: string }>(files: F[]): TreeNode<F>[] {
+  type Dir = { dirs: Map<string, Dir>; files: F[] };
+  const root: Dir = { dirs: new Map(), files: [] };
+  for (const f of files) {
+    const parts = f.path.split('/');
+    let dir = root;
+    for (const part of parts.slice(0, -1)) {
+      let next = dir.dirs.get(part);
+      if (!next) dir.dirs.set(part, (next = { dirs: new Map(), files: [] }));
+      dir = next;
+    }
+    dir.files.push(f);
+  }
+  const byName = (a: string, b: string) => a.localeCompare(b);
+  const build = (dir: Dir, prefix: string): TreeNode<F>[] => [
+    ...[...dir.dirs.entries()]
+      .sort(([a], [b]) => byName(a, b))
+      .map(([name, sub]): TreeNode<F> => {
+        // Fold a chain of folders that each hold only the next one.
+        while (sub.files.length === 0 && sub.dirs.size === 1) {
+          const [only, inner] = [...sub.dirs.entries()][0];
+          name = `${name}/${only}`;
+          sub = inner;
+        }
+        const path = prefix + name;
+        return { kind: 'dir', name, path, children: build(sub, `${path}/`) };
+      }),
+    ...dir.files
+      .map((file): TreeNode<F> => ({ kind: 'file', name: file.path.slice(file.path.lastIndexOf('/') + 1), file }))
+      .sort((a, b) => byName(a.name, b.name)),
+  ];
+  return build(root, '');
+}
+
+// treeOrder is the files in the order the tree shows them, top to bottom.
+export function treeOrder<F extends { path: string }>(nodes: TreeNode<F>[]): F[] {
+  return nodes.flatMap((n) => (n.kind === 'file' ? [n.file] : treeOrder(n.children)));
+}
+
+// firstToReview is the file a review starts on: the tree's first that
+// somebody wrote by hand, or its first at all.
+export function firstToReview<F extends FileShape>(files: F[]): F | undefined {
+  const order = treeOrder(fileTree(files));
+  return order.find((f) => fileKind(f) === 'code') ?? order[0];
+}

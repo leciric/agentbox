@@ -7,18 +7,36 @@ import {
   CircleX,
   ExternalLink,
   FileDiff,
+  FileText,
+  Folder,
+  FolderOpen,
+  FolderTree,
+  List,
   GitMerge,
   GitPullRequest,
   LoaderCircle,
   User,
 } from 'lucide-react';
-import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import type { ThemedToken } from 'shiki/core';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { highlight } from '../lib/highlight';
 import { useT, type MessageKey } from '../lib/i18n';
-import { fileKind, initiallyOpen, isGitHubImage, languageOfPath, nextToLoad, parsePatch, type DiffLine, type FileKind } from '../lib/pulls';
+import {
+  fileKind,
+  fileTree,
+  firstToReview,
+  initiallyOpen,
+  isGitHubImage,
+  languageOfPath,
+  nextToLoad,
+  parsePatch,
+  treeOrder,
+  type DiffLine,
+  type FileKind,
+  type TreeNode,
+} from '../lib/pulls';
 import { useMode } from '../lib/theme';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
@@ -55,8 +73,9 @@ const kindLabels: Record<Exclude<FileKind, 'code'>, MessageKey> = {
 // GitHub for it: what it is, who opened it and where it merges, its checks
 // and labels, its description as GitHub renders it — pictures included, read
 // through the daemon with the project's account — and, on a tab of their own,
-// its files. Those are only read once that tab is opened, and their diffs one
-// file at a time. Its actions are the row's: merge, and GitHub itself for
+// its files. Those are only read once that tab is opened, and shown as a tree
+// to review one file at a time, or as one list of every diff, loaded one after
+// another. Its actions are the row's: merge, and GitHub itself for
 // anything else.
 export function PullRequestModal({
   project,
@@ -79,7 +98,7 @@ export function PullRequestModal({
 }) {
   return (
     <Dialog open={pr !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="flex h-[88vh] max-w-4xl flex-col gap-0 overflow-hidden p-0" data-pull-detail={pr?.number}>
+      <DialogContent className="flex h-[88vh] max-w-6xl flex-col gap-0 overflow-hidden p-0" data-pull-detail={pr?.number}>
         {pr && (
           <Detail
             project={project}
@@ -116,10 +135,9 @@ function Detail({
   const t = useT();
   const detail = useQuery({ queryKey: ['pull', project, listed.number], queryFn: () => api.pullRequestDetail(project, listed.number) });
   const [tab, setTab] = useState<'description' | 'files'>('description');
-  // Which files are open and which diffs have loaded outlive the Files tab,
-  // which unmounts whenever the Description tab is shown.
-  const [open, setOpen] = useState<ReadonlySet<string> | null>(null);
-  const [loaded, setLoaded] = useState<ReadonlySet<string>>(() => new Set());
+  // Where the review is outlives the Files tab, which unmounts whenever the
+  // Description tab is shown.
+  const [files, setFiles] = useState<FilesState>(() => ({ open: null, loaded: new Set(), folded: new Set() }));
   // What the list had shows at once; what's read fresh replaces it.
   const pr: T.PullRequest = detail.data ?? listed;
   const imageSrc = useCallback((src: string) => (isGitHubImage(src) ? api.pullImageUrl(project, src) : undefined), [project]);
@@ -183,24 +201,26 @@ function Detail({
         </header>
 
         <TabsContent value="description" className="overflow-y-auto px-6 py-5" data-pull-body>
-          {detail.error && <Notice className="mb-4">{t('pulls.detail.unavailable', { error: errorMessage(detail.error) })}</Notice>}
-          {detail.data ? (
-            detail.data.body.trim() ? (
-              <Markdown text={detail.data.body} imageSrc={imageSrc} className="text-[13.5px]" />
+          <div className="mx-auto max-w-4xl">
+            {detail.error && <Notice className="mb-4">{t('pulls.detail.unavailable', { error: errorMessage(detail.error) })}</Notice>}
+            {detail.data ? (
+              detail.data.body.trim() ? (
+                <Markdown text={detail.data.body} imageSrc={imageSrc} className="text-[13.5px]" />
+              ) : (
+                <p className="text-[13px] italic text-subtle">{t('pulls.detail.noDescription')}</p>
+              )
             ) : (
-              <p className="text-[13px] italic text-subtle">{t('pulls.detail.noDescription')}</p>
-            )
-          ) : (
-            !detail.error && <p className="text-[13px] text-subtle">{t('common.loading')}</p>
-          )}
+              !detail.error && <p className="text-[13px] text-subtle">{t('common.loading')}</p>
+            )}
 
-          {detail.data && detail.data.checkRuns.length > 0 && <Checks runs={detail.data.checkRuns} />}
+            {detail.data && detail.data.checkRuns.length > 0 && <Checks runs={detail.data.checkRuns} />}
+          </div>
         </TabsContent>
 
         {/* Radix mounts a tab's content only while it's shown, so the files are
           first read when this tab is first opened. */}
-        <TabsContent value="files" className="overflow-y-auto px-6 py-5">
-          <Files project={project} pr={pr} open={open} setOpen={setOpen} loaded={loaded} setLoaded={setLoaded} />
+        <TabsContent value="files" className="flex flex-col">
+          <Files project={project} pr={pr} state={files} setState={setFiles} />
         </TabsContent>
       </Tabs>
 
@@ -291,67 +311,277 @@ function Checks({ runs }: { runs: T.PullCheck[] }) {
   );
 }
 
-function Files({
-  project,
-  pr,
-  open,
-  setOpen,
-  loaded,
-  setLoaded,
-}: {
-  project: string;
-  pr: T.PullRequest;
-  open: ReadonlySet<string> | null;
-  setOpen: Dispatch<SetStateAction<ReadonlySet<string> | null>>;
-  loaded: ReadonlySet<string>;
-  setLoaded: Dispatch<SetStateAction<ReadonlySet<string>>>;
-}) {
+// FilesState is where a review of the files is: which are open in the list,
+// which diffs have loaded, the one picked in the tree, and the tree's folded
+// folders.
+type FilesState = { open: ReadonlySet<string> | null; loaded: ReadonlySet<string>; selected?: string; folded: ReadonlySet<string> };
+
+type FilesView = 'tree' | 'list';
+const filesViewKey = 'agentbox.pulls.filesView';
+
+// useFilesView is how the files are shown, kept across pull requests and
+// restarts: a tree to pick a file from, as a review goes, unless the user
+// chose the list of every diff.
+function useFilesView(): [FilesView, (view: FilesView) => void] {
+  const [view, set] = useState<FilesView>(() => (localStorage.getItem(filesViewKey) === 'list' ? 'list' : 'tree'));
+  return [
+    view,
+    useCallback((next: FilesView) => {
+      localStorage.setItem(filesViewKey, next);
+      set(next);
+    }, []),
+  ];
+}
+
+const toggled = (set: ReadonlySet<string> | null, key: string) => {
+  const next = new Set(set);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
+};
+
+function Files({ project, pr, state, setState }: { project: string; pr: T.PullRequest; state: FilesState; setState: Dispatch<SetStateAction<FilesState>> }) {
   const t = useT();
+  const [view, setView] = useFilesView();
   const query = useQuery({ queryKey: ['pullFiles', project, pr.number], queryFn: () => api.pullRequestFiles(project, pr.number) });
   const files = query.data;
-  // The first few small files start open, once they're known.
+  // The first few small files start open in the list, once they're known.
   useEffect(() => {
-    if (files && open === null) setOpen(initiallyOpen(files.files));
-  }, [files, open, setOpen]);
-  const next = files && open ? nextToLoad(files.files, open, loaded) : undefined;
-  const onLoaded = useCallback((path: string) => setLoaded((l) => (l.has(path) ? l : new Set(l).add(path))), [setLoaded]);
+    if (files && state.open === null) setState((s) => ({ ...s, open: initiallyOpen(files.files) }));
+  }, [files, state.open, setState]);
+  const onLoaded = useCallback((path: string) => setState((s) => (s.loaded.has(path) ? s : { ...s, loaded: new Set(s.loaded).add(path) })), [setState]);
 
   const additions = files?.files.reduce((n, f) => n + f.additions, 0) ?? 0;
   const deletions = files?.files.reduce((n, f) => n + f.deletions, 0) ?? 0;
   return (
-    <section data-pull-files>
-      <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-subtle">
-        {files ? t('pulls.detail.files', { count: files.files.length }) : !query.error && t('common.loading')}
-        {files && (
-          <span className="font-mono normal-case tracking-normal">
-            <span className="text-emerald-400">+{additions}</span> <span className="text-rose-400">−{deletions}</span>
-          </span>
-        )}
-      </h3>
-      {query.error && <Notice>{t('pulls.detail.filesFailed', { error: errorMessage(query.error) })}</Notice>}
-      {files?.truncated && <p className="mb-2 text-[12px] text-subtle">{t('pulls.detail.filesTruncated', { count: files.files.length })}</p>}
-      <div className="grid gap-2">
-        {files?.files.map((f) => (
-          <FileRow
-            key={f.path}
-            project={project}
-            pr={pr}
-            file={f}
-            open={open?.has(f.path) ?? false}
-            mayLoad={loaded.has(f.path) || f.path === next}
-            onLoaded={onLoaded}
-            onToggle={() =>
-              setOpen((o) => {
-                const next = new Set(o);
-                if (next.has(f.path)) next.delete(f.path);
-                else next.add(f.path);
-                return next;
-              })
-            }
-          />
-        ))}
+    <section className="flex min-h-0 flex-1 flex-col" data-pull-files data-view={view}>
+      <div className="flex items-center gap-2 border-b border-line-faint px-6 py-2">
+        <h3 className="flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-subtle">
+          {files ? t('pulls.detail.files', { count: files.files.length }) : !query.error && t('common.loading')}
+          {files && (
+            <span className="font-mono normal-case tracking-normal">
+              <span className="text-emerald-400">+{additions}</span> <span className="text-rose-400">−{deletions}</span>
+            </span>
+          )}
+        </h3>
+        <div role="radiogroup" aria-label={t('pulls.detail.view')} className="ml-auto flex items-center gap-0.5 rounded-lg border border-line p-0.5">
+          {(
+            [
+              ['tree', FolderTree, 'pulls.detail.view.tree'],
+              ['list', List, 'pulls.detail.view.list'],
+            ] as const
+          ).map(([v, Icon, label]) => (
+            <button
+              key={v}
+              type="button"
+              role="radio"
+              aria-checked={view === v}
+              data-files-view={v}
+              onClick={() => setView(v)}
+              className={cn(
+                'flex h-6 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-muted transition-colors hover:text-primary',
+                view === v && 'bg-surface-strong text-title',
+              )}
+            >
+              <Icon className="size-3.5" />
+              {t(label)}
+            </button>
+          ))}
+        </div>
       </div>
+      {query.error && <Notice className="mx-6 mt-3">{t('pulls.detail.filesFailed', { error: errorMessage(query.error) })}</Notice>}
+      {files?.truncated && <p className="px-6 pt-2 text-[12px] text-subtle">{t('pulls.detail.filesTruncated', { count: files.files.length })}</p>}
+      {files &&
+        (view === 'tree' ? (
+          <FilesTree project={project} pr={pr} files={files.files} state={state} setState={setState} onLoaded={onLoaded} />
+        ) : (
+          <FilesList project={project} pr={pr} files={files.files} state={state} setState={setState} onLoaded={onLoaded} />
+        ))}
     </section>
+  );
+}
+
+type FilesViewProps = {
+  project: string;
+  pr: T.PullRequest;
+  files: T.PullFile[];
+  state: FilesState;
+  setState: Dispatch<SetStateAction<FilesState>>;
+  onLoaded: (path: string) => void;
+};
+
+// FilesList is every file, one under the other, the open ones' diffs loading
+// one at a time.
+function FilesList({ project, pr, files, state, setState, onLoaded }: FilesViewProps) {
+  const next = state.open ? nextToLoad(files, state.open, state.loaded) : undefined;
+  return (
+    <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto px-6 py-4">
+      {files.map((f) => (
+        <FileRow
+          key={f.path}
+          project={project}
+          pr={pr}
+          file={f}
+          open={state.open?.has(f.path) ?? false}
+          mayLoad={state.loaded.has(f.path) || f.path === next}
+          onLoaded={onLoaded}
+          onToggle={() => setState((s) => ({ ...s, open: toggled(s.open, f.path) }))}
+        />
+      ))}
+    </div>
+  );
+}
+
+// FilesTree is the files as folders on the left, and the diff of the one
+// picked on the right: a review goes file by file, and only that file's diff
+// is read. The arrow keys move through the files.
+function FilesTree({ project, pr, files, state, setState, onLoaded }: FilesViewProps) {
+  const t = useT();
+  const tree = fileTree(files);
+  const order = treeOrder(tree);
+  const selected = files.find((f) => f.path === state.selected) ?? firstToReview(files);
+  const select = (path: string) => setState((s) => ({ ...s, selected: path }));
+  const diffPane = useRef<HTMLDivElement>(null);
+  // In braces: an effect's return is its cleanup, and Chromium's scrollTo
+  // returns a promise now.
+  useEffect(() => {
+    diffPane.current?.scrollTo({ top: 0 });
+  }, [selected?.path]);
+
+  return (
+    <div className="flex min-h-0 flex-1">
+      <nav
+        className="w-72 shrink-0 overflow-y-auto border-r border-line-faint py-2"
+        data-pull-tree
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+          event.preventDefault();
+          const i = order.findIndex((f) => f.path === selected?.path);
+          const to = order[Math.min(order.length - 1, Math.max(0, i + (event.key === 'ArrowDown' ? 1 : -1)))];
+          if (to) {
+            select(to.path);
+            event.currentTarget.querySelector<HTMLElement>(`[data-tree-file="${CSS.escape(to.path)}"]`)?.focus();
+          }
+        }}
+      >
+        <TreeLevel
+          nodes={tree}
+          depth={0}
+          selected={selected?.path}
+          folded={state.folded}
+          onSelect={select}
+          onFold={(path) => setState((s) => ({ ...s, folded: toggled(s.folded, path) }))}
+        />
+      </nav>
+      <div ref={diffPane} className="min-w-0 flex-1 overflow-y-auto p-4">
+        {selected ? (
+          <SelectedFile key={selected.path} project={project} pr={pr} file={selected} onLoaded={onLoaded} />
+        ) : (
+          <p className="text-[13px] text-subtle">{t('pulls.detail.pickFile')}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const statusTints: Record<string, string> = { added: 'text-emerald-400', removed: 'text-rose-400', renamed: 'text-sky-400' };
+
+function TreeLevel({
+  nodes,
+  depth,
+  selected,
+  folded,
+  onSelect,
+  onFold,
+}: {
+  nodes: TreeNode<T.PullFile>[];
+  depth: number;
+  selected?: string;
+  folded: ReadonlySet<string>;
+  onSelect: (path: string) => void;
+  onFold: (path: string) => void;
+}) {
+  const indent = { paddingLeft: `${0.75 + depth * 0.85}rem` };
+  return (
+    <ul>
+      {nodes.map((node) =>
+        node.kind === 'dir' ? (
+          <li key={`d:${node.path}`}>
+            <button
+              type="button"
+              style={indent}
+              onClick={() => onFold(node.path)}
+              className="flex w-full min-w-0 items-center gap-1.5 py-1 pr-3 text-left text-[12.5px] text-muted hover:bg-surface-raised hover:text-primary"
+              title={node.path}
+            >
+              <ChevronRight className={cn('size-3 shrink-0 transition-transform', !folded.has(node.path) && 'rotate-90')} />
+              {folded.has(node.path) ? <Folder className="size-3.5 shrink-0" /> : <FolderOpen className="size-3.5 shrink-0" />}
+              <span className="min-w-0 truncate">{node.name}</span>
+            </button>
+            {!folded.has(node.path) && (
+              <TreeLevel nodes={node.children} depth={depth + 1} selected={selected} folded={folded} onSelect={onSelect} onFold={onFold} />
+            )}
+          </li>
+        ) : (
+          <li key={`f:${node.file.path}`}>
+            <button
+              type="button"
+              style={{ paddingLeft: `${0.75 + depth * 0.85 + 1.125}rem` }}
+              onClick={() => onSelect(node.file.path)}
+              data-tree-file={node.file.path}
+              aria-current={node.file.path === selected || undefined}
+              className={cn(
+                'flex w-full min-w-0 items-center gap-1.5 py-1 pr-3 text-left text-[12.5px] text-secondary hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-400/50',
+                node.file.path === selected && 'bg-surface-strong text-title',
+              )}
+              title={node.file.path}
+            >
+              <FileText className={cn('size-3.5 shrink-0', statusTints[node.file.status] ?? 'text-subtle')} />
+              <span className={cn('min-w-0 truncate', node.file.status === 'removed' && 'line-through decoration-rose-400/60')}>{node.name}</span>
+            </button>
+          </li>
+        ),
+      )}
+    </ul>
+  );
+}
+
+// SelectedFile is the file picked in the tree, its diff read at once.
+function SelectedFile({ project, pr, file, onLoaded }: { project: string; pr: T.PullRequest; file: T.PullFile; onLoaded: (path: string) => void }) {
+  const t = useT();
+  return (
+    <div className="min-w-0 overflow-hidden rounded-xl border border-line-faint" data-pull-file={file.path} data-open>
+      <div className="flex w-full min-w-0 items-center gap-2 bg-surface-raised/40 px-3 py-2 text-[12.5px]">
+        <FileSummary file={file} />
+      </div>
+      {file.hasDiff ? (
+        <Diff project={project} pr={pr} path={file.path} enabled onLoaded={onLoaded} />
+      ) : (
+        <p className="px-3 py-2 text-[12px] text-subtle">{t('pulls.detail.noDiff')}</p>
+      )}
+    </div>
+  );
+}
+
+// FileSummary is what a file's header says: its path, what happened to it, and
+// how much.
+function FileSummary({ file }: { file: T.PullFile }) {
+  const t = useT();
+  const kind = fileKind(file);
+  return (
+    <>
+      <span className="min-w-0 truncate font-mono text-secondary" title={file.path}>
+        {file.path}
+      </span>
+      {file.previousPath && (
+        <span className="hidden min-w-0 truncate font-mono text-faint sm:inline">{t('pulls.detail.renamedFrom', { path: file.previousPath })}</span>
+      )}
+      {statusLabels[file.status] && <span className="shrink-0 text-faint">{t(statusLabels[file.status])}</span>}
+      {kind !== 'code' && <span className="shrink-0 rounded bg-surface-raised px-1.5 text-[11px] text-subtle">{t(kindLabels[kind])}</span>}
+      <span className="ml-auto shrink-0 font-mono text-[11.5px]">
+        <span className="text-emerald-400">+{file.additions}</span> <span className="text-rose-400">−{file.deletions}</span>
+      </span>
+    </>
   );
 }
 
@@ -373,7 +603,6 @@ function FileRow({
   onToggle: () => void;
 }) {
   const t = useT();
-  const kind = fileKind(file);
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-line-faint" data-pull-file={file.path} data-open={open || undefined}>
       <button
@@ -382,17 +611,7 @@ function FileRow({
         className="flex w-full min-w-0 items-center gap-2 bg-surface-raised/40 px-3 py-2 text-left text-[12.5px] hover:bg-surface-raised"
       >
         <ChevronRight className={cn('size-3.5 shrink-0 text-subtle transition-transform', open && 'rotate-90')} />
-        <span className="min-w-0 truncate font-mono text-secondary" title={file.path}>
-          {file.path}
-        </span>
-        {file.previousPath && (
-          <span className="hidden min-w-0 truncate font-mono text-faint sm:inline">{t('pulls.detail.renamedFrom', { path: file.previousPath })}</span>
-        )}
-        {statusLabels[file.status] && <span className="shrink-0 text-faint">{t(statusLabels[file.status])}</span>}
-        {kind !== 'code' && <span className="shrink-0 rounded bg-surface-raised px-1.5 text-[11px] text-subtle">{t(kindLabels[kind])}</span>}
-        <span className="ml-auto shrink-0 font-mono text-[11.5px]">
-          <span className="text-emerald-400">+{file.additions}</span> <span className="text-rose-400">−{file.deletions}</span>
-        </span>
+        <FileSummary file={file} />
       </button>
       {open &&
         (file.hasDiff ? (
