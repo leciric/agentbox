@@ -5,6 +5,7 @@ package brief
 
 import (
 	_ "embed"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -94,8 +95,19 @@ func groupThousands(n int64) string {
 
 func Render(d Data) (string, error) {
 	d.Notes = strings.TrimSpace(d.Notes)
-	d.Knowledge = strings.TrimSpace(d.Knowledge)
+	d.Knowledge = fenced(d.Knowledge)
 	return render(tmpl, d)
+}
+
+// Recalled memory goes between <project-memory> tags, with a line saying
+// it's recorded data, not instructions: it was written by earlier agents and
+// summarised by a model, and may carry text from a web page, a log or a pull
+// request comment that reads like an order. The tag can't be written inside
+// the fence, so nothing in it can close the fence early.
+var memoryTag = regexp.MustCompile(`(?i)<\s*/?\s*project-memory\s*>`)
+
+func fenced(s string) string {
+	return memoryTag.ReplaceAllString(strings.TrimSpace(s), "[project-memory]")
 }
 
 // LeadData describes a project's lead: the chat that directs the project's
@@ -171,11 +183,24 @@ type LeadData struct {
 	// the conversation it can no longer see (D73). Empty until the first
 	// compaction — and empty is the ordinary case, not a fault.
 	Recap string
+	// NoteSuggestions are memories enough agents have been handed in their
+	// briefs to be offered to the lead as notes (memory/promote.go), which
+	// it accepts or dismisses. None is the ordinary case.
+	NoteSuggestions []NoteSuggestion
+}
+
+// NoteSuggestion is one memory offered to the lead as a project note.
+type NoteSuggestion struct {
+	ID, Title string
+	// Text is the memory's content, cut to a line.
+	Text string
+	// Agents is how many agents it has been served to.
+	Agents int
 }
 
 func RenderLead(d LeadData) (string, error) {
 	d.Notes = strings.TrimSpace(d.Notes)
-	d.Recap = strings.TrimSpace(d.Recap)
+	d.Recap = fenced(d.Recap)
 	return render(leadTmpl, d)
 }
 

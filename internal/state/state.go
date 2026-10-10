@@ -965,6 +965,23 @@ var migrations = []string{
 	`DROP TABLE tasks`,
 	`DELETE FROM settings WHERE key = 'task_target'`,
 
+	// A memory the context builder keeps handing to agents is offered to the
+	// lead as a project note (internal/memory/promote.go). memory_serves is
+	// which agents' briefs carried which memory, one row per pair however
+	// often the brief was rewritten; promotion is '' until the lead is
+	// offered it, then 'offered', 'promoted' (it is a note now, and no
+	// context serves it again) or 'dismissed' (never offered again), and
+	// promotion_at is when it last changed.
+	`CREATE TABLE memory_serves (
+		project   TEXT NOT NULL,
+		memory_id TEXT NOT NULL,
+		agent     TEXT NOT NULL,
+		served_at INTEGER NOT NULL,
+		PRIMARY KEY (memory_id, agent)
+	)`,
+	`ALTER TABLE memories ADD COLUMN promotion TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE memories ADD COLUMN promotion_at INTEGER NOT NULL DEFAULT 0`,
+
 	// AgentBox-wide memory (memory.Global): memories kept under the project
 	// "*", which no project can be called, for what holds in every project —
 	// the user's preferences, conventions they want everywhere. origin is

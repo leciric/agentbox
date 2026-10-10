@@ -116,6 +116,9 @@ erDiagram
 - **memory_duplicates** — near-duplicate candidates the mechanical consolidation pass finds
   (migration 30).
 - **consolidation_passes** — a log of each consolidation run and what it did (migration 32).
+- **memory_serves** — which agents' briefs carried which memory, one row per memory and agent
+  (see [Memories that could be notes](#memories-that-could-be-notes)). `memories.promotion` says
+  where a memory stands as a candidate note.
 
 ## Search
 
@@ -188,11 +191,30 @@ The lead gets the full budget (`context_budget`, default 4000 tokens); an agent 
 it, since its task is narrower. This is the slice that lands in an agent's brief — see
 [Project notes and the brief](notes-and-brief.md).
 
+### Memories that could be notes
+
+When the context builder hands the same memory to agent after agent, the project is paying for it in
+every brief anyway, and a project note might say it better. So each agent brief records which agents
+the "What the project knows" memories reached (a brief that is only previewed counts for nobody, and
+one agent's brief rewritten ten times counts once). A project, decision or discovery memory served to
+**5 different agents** is offered to the lead, at most 3 at a time, under "Memories that could be
+notes" in its brief (`promote.go`).
+
+Nothing is promoted on its own: a note costs every agent context. The lead answers each offer once:
+
+- `promote_memory` appends it to the notes (worded by the lead, or the memory's title and the start
+  of its content) and marks the memory `promoted`, so no brief serves it beside the note.
+  `search_memory` still finds it.
+- `dismiss_promotion` marks it `dismissed`: it stays an ordinary memory and is never offered again.
+
+An offer nobody answers lapses after two weeks and isn't made again.
+
 ## Who can call what
 
 - **Agent-facing** (`agentbox-memory` MCP server, `internal/cli/memory.go`): `search_memory`,
   `report`, `record_artifact` — an agent's view is scoped to its own task.
 - **Lead-facing** (`agentbox` MCP server, `internal/cli/mcp.go`): `search_memory`, `remember`,
-  `resolve_memory`, `update_working_memory`, `project_state` — the lead can write memory directly,
-  for its project or (scope `all`) for every project; see
+  `resolve_memory`, `promote_memory`, `dismiss_promotion`, `update_working_memory`,
+  `project_state` — the lead can write memory directly, for its project or (scope `all`) for every
+  project; see
   [The lead and its MCP tools](lead.md).

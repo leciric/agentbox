@@ -2,6 +2,7 @@ package memory_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -43,6 +44,14 @@ var template = sync.OnceValues(func() (string, error) {
 // migrates the real one, and a memory store on the handle it opened.
 func open(t *testing.T) *memory.Store {
 	t.Helper()
+	s, _ := openDB(t)
+	return s
+}
+
+// openDB is open with the database under the store, for a test that reads
+// the rows back itself.
+func openDB(t *testing.T) (*memory.Store, *sql.DB) {
+	t.Helper()
 	tmpl, err := template()
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +69,7 @@ func open(t *testing.T) *memory.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return memory.New(st.DB())
+	return memory.New(st.DB()), st.DB()
 }
 
 func TestEvents(t *testing.T) {

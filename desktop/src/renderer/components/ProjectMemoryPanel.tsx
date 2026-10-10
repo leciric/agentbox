@@ -1224,7 +1224,9 @@ function PassRow({ pass }: { pass: T.ConsolidationPass }) {
       <td className="px-2 py-1.5 text-right align-top tabular-nums text-tertiary">{pass.memoriesDecayed}</td>
       <td className="px-2 py-1.5 text-right align-top tabular-nums text-tertiary">{pass.duplicatesFound}</td>
       <td className="py-1.5 pl-2 pr-3 text-right align-top tabular-nums whitespace-nowrap text-muted">
-        {pass.kind === A.ConsolidationMechanical ? (
+        {/* A distillation of a window that was all noise asks no model (distillfilter.go): it
+            sent nothing, and costs what a mechanical pass does. */}
+        {pass.kind === A.ConsolidationMechanical || (pass.inputBytes === 0 && !pass.error) ? (
           <span className="text-faint">{t('memory.context.pass.free')}</span>
         ) : (
           <>
