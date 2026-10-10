@@ -116,8 +116,9 @@ type ResolveMemoryRequest struct {
 
 // TidyMemoryRequest cleans a project's open items in one go: every live
 // issue (or item waiting on something) last mentioned before the cutoff is
-// resolved as "tidied", and what is left is merged by topic. No model is
-// asked.
+// resolved as "tidied", and what is left is merged by topic. Before that,
+// secrets are removed from every row stored before memory removed them on
+// the way in. No model is asked.
 type TidyMemoryRequest struct {
 	// OlderThanHours is the cutoff; 0 is seven days.
 	OlderThanHours int `json:"olderThanHours,omitempty"`
@@ -134,6 +135,17 @@ type TidyMemoryResult struct {
 	Merged []MemoryMerge `json:"merged"`
 	// Kept is how many open items are left.
 	Kept int `json:"kept"`
+	// Scrubbed is how many stored rows of each kind still held a secret.
+	Scrubbed MemoryScrub `json:"scrubbed"`
+}
+
+// MemoryScrub counts the rows a tidy removed secrets from, or would.
+type MemoryScrub struct {
+	Events        int `json:"events"`
+	Memories      int `json:"memories"`
+	Reports       int `json:"reports"`
+	Artifacts     int `json:"artifacts"`
+	WorkingMemory int `json:"workingMemory"`
 }
 
 // MemoryMerge is one open item folded into another that says the same thing.

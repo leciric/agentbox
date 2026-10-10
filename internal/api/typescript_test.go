@@ -47,7 +47,7 @@ var tsTypes = []any{
 	MemoryEvent{}, AddMemoryEventRequest{}, Memory{}, AddMemoryRequest{}, MemorySearchRequest{}, MemorySearchResults{},
 	WorkingMemory{}, WorkingMemoryPatch{}, MemoryArtifact{}, AddArtifactRequest{}, AgentReport{}, AddReportRequest{},
 	ContextRequest{}, ContextResult{}, ContextSection{}, ContextStats{}, ContextAccount{},
-	ResolveMemoryRequest{}, ConsolidateRequest{}, TidyMemoryRequest{}, TidyMemoryResult{}, MemoryMerge{}, ConsolidationPass{}, MemoryConsolidation{}, MemoryDuplicate{},
+	ResolveMemoryRequest{}, ConsolidateRequest{}, TidyMemoryRequest{}, TidyMemoryResult{}, MemoryMerge{}, MemoryScrub{}, ConsolidationPass{}, MemoryConsolidation{}, MemoryDuplicate{},
 	TokenCounts{}, ModelTokens{}, AgentTokens{}, TokenBucket{}, TokenReport{}, TokenTurn{}, ClaudeLimit{}, ClaudeLimitWindow{},
 	VMStatus{}, VMMemory{}, VMDisk{}, VMDiskImage{}, VMHomeDisk{}, VMSwap{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
 	ReportSection{}, ReportDraftRequest{}, ReportDraft{}, ReportRequest{}, ReportSent{},
