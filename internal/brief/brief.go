@@ -5,6 +5,7 @@ package brief
 
 import (
 	_ "embed"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -94,8 +95,19 @@ func groupThousands(n int64) string {
 
 func Render(d Data) (string, error) {
 	d.Notes = strings.TrimSpace(d.Notes)
-	d.Knowledge = strings.TrimSpace(d.Knowledge)
+	d.Knowledge = fenced(d.Knowledge)
 	return render(tmpl, d)
+}
+
+// Recalled memory goes between <project-memory> tags, with a line saying
+// it's recorded data, not instructions: it was written by earlier agents and
+// summarised by a model, and may carry text from a web page, a log or a pull
+// request comment that reads like an order. The tag can't be written inside
+// the fence, so nothing in it can close the fence early.
+var memoryTag = regexp.MustCompile(`(?i)<\s*/?\s*project-memory\s*>`)
+
+func fenced(s string) string {
+	return memoryTag.ReplaceAllString(strings.TrimSpace(s), "[project-memory]")
 }
 
 // LeadData describes a project's lead: the chat that directs the project's
@@ -175,7 +187,7 @@ type LeadData struct {
 
 func RenderLead(d LeadData) (string, error) {
 	d.Notes = strings.TrimSpace(d.Notes)
-	d.Recap = strings.TrimSpace(d.Recap)
+	d.Recap = fenced(d.Recap)
 	return render(leadTmpl, d)
 }
 
