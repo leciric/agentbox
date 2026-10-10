@@ -36,6 +36,8 @@ func (s *Server) watch(ctx context.Context) {
 
 // refreshAgents publishes an event for every agent whose state changed.
 func (s *Server) refreshAgents(ctx context.Context) {
+	// Whatever changed changes how many agents share the VM's cores.
+	s.kickCPU()
 	if s.events.subscribers() == 0 {
 		return
 	}

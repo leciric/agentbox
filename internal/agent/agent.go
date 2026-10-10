@@ -265,6 +265,9 @@ type Manager struct {
 	// PackageCacheDir, when set, returns the directory of the package caches
 	// agents share, or "" while they're off (pkgcache.go).
 	PackageCacheDir func(ctx context.Context) string
+	// Cores is how many cores the agents share (cpushare.go); 0 for the
+	// machine the daemon runs on, which is the VM.
+	Cores int
 
 	// ghReleases, when set, is where the lead's GitHub CLI is downloaded from
 	// instead of GitHub's releases (hostgh.go). Tests point it at a server.
@@ -756,7 +759,10 @@ func (m *Manager) makeMachine(ctx context.Context, a state.Agent, repo gitrepo.R
 	// A copy of a machine made by an earlier release, or of a base saved from
 	// one, carries the limits that release set on it.
 	steps = append(steps, oldLimitSteps(a.Instance, copied.Config, copied.Devices)...)
-	steps = append(steps, func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) })
+	steps = append(steps,
+		func(ctx context.Context, _ incus.Client) error { return m.setStartShare(ctx, a.Instance) },
+		func(ctx context.Context, c incus.Client) error { return c.Start(ctx, a.Instance) },
+	)
 	for _, step := range steps {
 		if err := run(step); err != nil {
 			return "instance", err
@@ -1075,6 +1081,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 	}
 	files = append(files,
 		file{home + "/.config/agentbox/env", env, 0o600},
+		file{m.BashEnvPath(), m.bashEnv(), 0o644},
 		file{m.SecretsPath(), secretsEnv, 0o600},
 		file{home + "/.tmux.conf", tmuxConfig, 0o644},
 	)
@@ -1195,9 +1202,7 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 				// Heavy commands wait while the VM's memory is under
 				// pressure, by themselves (heavyhooks.go).
 				withHeavyHooks,
-				func(b []byte) ([]byte, error) {
-					return withClaudeEnv(b, map[string]string{"BASH_ENV": "/home/" + m.User.Name + "/" + HeavyEnvFile})
-				},
+				m.withBashEnv,
 			)
 		}); err != nil {
 			return err
@@ -1444,6 +1449,7 @@ func (m *Manager) agentEnv(a state.Agent) (string, error) {
 	// a project base finds the containers and volumes it was copied with.
 	env := "# Written by AgentBox.\nexport COMPOSE_PROJECT_NAME=" + shellQuote(a.Project) + "\n"
 	env += m.packageCacheEnv()
+	env += workersScript
 	// The GitHub token, when the agent has an account, so gh and the API work in it.
 	gh, err := m.Creds.GitHubToken(a.GitHubAccount)
 	if err != nil {
@@ -1476,7 +1482,10 @@ func (m *Manager) writeAgentEnv(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
-	return m.Incus.WriteFile(ctx, a.Instance, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600)
+	if err := m.Incus.WriteFile(ctx, a.Instance, m.EnvPath(), []byte(env), m.User.UID, m.User.GID, 0o600); err != nil {
+		return err
+	}
+	return m.writeBashEnv(ctx, a)
 }
 
 // writeAgentEnvIfRunning writes an agent's env file when its machine is up.
@@ -1810,6 +1819,9 @@ func (m *Manager) Start(ctx context.Context, a state.Agent) (incus.Instance, err
 		// A machine only changes cgroup when it starts: this is when one an
 		// earlier release put in its shared budget moves out of it.
 		if err := m.dropOldLimits(ctx, a.Instance); err != nil {
+			return inst, err
+		}
+		if err := m.setStartShare(ctx, a.Instance); err != nil {
 			return inst, err
 		}
 		if err := m.Incus.Start(ctx, a.Instance); err != nil {

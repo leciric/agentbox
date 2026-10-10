@@ -14,8 +14,14 @@ import (
 
 // fakeCursor stands in for the adapter's host commands with a shell script:
 // "models" lists two models, "check-key" takes the key "good" and writes it
-// where it was told, and "login" names a page and finishes.
-func fakeCursor(t *testing.T, d testDaemon) {
+// where it was told, and "login" names a page and finishes. useCursor hands it
+// to a daemon.
+//
+// It is written before the daemon starts: a daemon's background work forks
+// (the fake incus), and a child forked while the script is still open for
+// writing holds it open, so running it fails with "text file busy" — the
+// sign-in then fails rather than finishing.
+func fakeCursor(t *testing.T) cursor.Helper {
 	t.Helper()
 	dir := t.TempDir()
 	node := filepath.Join(dir, "node")
@@ -36,9 +42,11 @@ esac
 	if err := os.WriteFile(node, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d.srv.cursorHelperFor = func(context.Context) (cursor.Helper, error) {
-		return cursor.Helper{Node: node, Script: filepath.Join(dir, cursor.ScriptName), SDK: dir}, nil
-	}
+	return cursor.Helper{Node: node, Script: filepath.Join(dir, cursor.ScriptName), SDK: dir}
+}
+
+func useCursor(d testDaemon, helper cursor.Helper) {
+	d.srv.cursorHelperFor = func(context.Context) (cursor.Helper, error) { return helper, nil }
 }
 
 func eventually(t *testing.T, what string, ok func() bool) {
@@ -56,8 +64,9 @@ func eventually(t *testing.T, what string, ok func() bool) {
 // effort levels. A key Cursor refuses is refused, and signing out forgets
 // the sign-in and the menu.
 func TestCursorSignInWithAKey(t *testing.T) {
+	helper := fakeCursor(t)
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	fakeCursor(t, d)
+	useCursor(d, helper)
 	ctx := context.Background()
 
 	if c := setupCheck(t, d, "cursor"); c.Status != api.SetupOptional || c.Fix != "agentbox auth cursor" {
@@ -96,8 +105,9 @@ func TestCursorSignInWithAKey(t *testing.T) {
 
 // Cursor's browser sign-in names the page to open, then finishes by itself.
 func TestCursorBrowserSignIn(t *testing.T) {
+	helper := fakeCursor(t)
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
-	fakeCursor(t, d)
+	useCursor(d, helper)
 	ctx := context.Background()
 	if status, err := d.client.CursorLoginStatus(ctx); err != nil || status.State != api.CursorLoginIdle {
 		t.Fatalf("before starting: %+v, %v", status, err)

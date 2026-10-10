@@ -42,17 +42,18 @@ var tsTypes = []any{
 	HubUser{}, HubSignupRequest{}, HubLoginRequest{}, HubSession{}, HubEnvironment{}, HubCreateEnvironmentRequest{}, HubEnvironmentToken{},
 	RemoteStatus{}, RemoteConnectRequest{}, UsageStatsPending{},
 	LANStatus{}, LANTunnel{}, LANPhone{}, UpdateLANRequest{}, LANPairing{}, LANHostReport{}, LANPairRequest{}, LANSession{},
-	ChatThread{}, ChatSearch{}, ChatSearchHit{}, ChatSnippetPart{}, ChatSession{}, ChatOption{}, ChatOptionChoice{}, ChatCommand{}, ChatItem{}, ChatTool{}, ChatDiff{}, ChatPlanEntry{},
+	ChatThread{}, ChatSearch{}, ChatSearchHit{}, ChatSnippetPart{}, ChatSession{}, ChatOption{}, ChatOptionChoice{}, ChatCommand{}, ChatItem{}, ChatTool{}, ChatPage{}, ChatDiff{}, ChatPlanEntry{},
 	ChatPermission{}, ChatPermissionOption{}, ChatSubagent{}, ChatCompaction{}, ChatTurnResult{}, ChatMessageRequest{}, ChatImage{}, ChatImageUpload{}, ChatAnswerRequest{}, ChatOptionRequest{}, ChatEvent{}, ChatAppend{}, ProjectChat{}, ChatCache{}, ChatCacheChoice{},
 	MemoryEvent{}, AddMemoryEventRequest{}, Memory{}, AddMemoryRequest{}, MemorySearchRequest{}, MemorySearchResults{},
 	WorkingMemory{}, WorkingMemoryPatch{}, MemoryArtifact{}, AddArtifactRequest{}, AgentReport{}, AddReportRequest{},
 	ContextRequest{}, ContextResult{}, ContextSection{}, ContextStats{}, ContextAccount{},
-	ResolveMemoryRequest{}, ConsolidateRequest{}, ConsolidationPass{}, MemoryConsolidation{}, MemoryDuplicate{},
+	ResolveMemoryRequest{}, ConsolidateRequest{}, TidyMemoryRequest{}, TidyMemoryResult{}, MemoryMerge{}, ConsolidationPass{}, MemoryConsolidation{}, MemoryDuplicate{},
 	Task{}, AddTaskRequest{}, UpdateTaskRequest{}, LinkTasksRequest{}, StartTaskRequest{}, StartTaskResponse{},
 	TokenCounts{}, ModelTokens{}, AgentTokens{}, TokenBucket{}, TokenReport{}, TokenTurn{}, ClaudeLimit{}, ClaudeLimitWindow{},
 	VMStatus{}, VMMemory{}, VMDisk{}, VMDiskImage{}, VMHomeDisk{}, VMSwap{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
 	ReportSection{}, ReportDraftRequest{}, ReportDraft{}, ReportRequest{}, ReportSent{},
 	SearchResults{}, SearchGroup{}, SearchHit{},
+	Artifact{}, Artifacts{}, ArtifactPreview{},
 }
 
 var tsConstants = [][2]string{
@@ -69,6 +70,7 @@ var tsConstants = [][2]string{
 	{"ConnectorOAuth", ConnectorOAuth}, {"ConnectorSecret", ConnectorSecret}, {"ConnectorNone", ConnectorNone}, {"ConnectorWide", ConnectorWide},
 	{"ConnectorConnected", ConnectorConnected}, {"ConnectorDisconnected", ConnectorDisconnected}, {"ConnectorConnecting", ConnectorConnecting}, {"ConnectorError", ConnectorError},
 	{"EventConnector", EventConnector}, {"QuestionConnector", QuestionConnector},
+	{"ArtifactActive", ArtifactActive}, {"ArtifactExpired", ArtifactExpired}, {"ArtifactUnavailable", ArtifactUnavailable},
 	{"GitHubNoAccount", GitHubNoAccount}, {"GitHubNoAccess", GitHubNoAccess}, {"GitHubBadToken", GitHubBadToken}, {"GitHubOtherErr", GitHubOtherErr},
 	{"ChatOff", ChatOff}, {"ChatStarting", ChatStarting}, {"ChatReady", ChatReady}, {"ChatRunning", ChatRunning}, {"ChatWaiting", ChatWaiting}, {"ChatError", ChatError},
 	{"MemoryKindProject", MemoryKindProject}, {"MemoryKindEpisodic", MemoryKindEpisodic}, {"MemoryKindDecision", MemoryKindDecision},

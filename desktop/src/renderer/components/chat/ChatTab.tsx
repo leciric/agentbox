@@ -15,6 +15,7 @@ import { AIIcon, aiLabel } from '../state';
 import { Button } from '../ui/button';
 import { Notice } from '../ui/card';
 import { Tip } from '../ui/tooltip';
+import { PageStack } from '../pages/PageStack';
 import { Composer } from './Composer';
 import { FindBar } from './FindBar';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
@@ -290,7 +291,8 @@ export function ChatTab({
       )}
 
       <div ref={composer} className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pb-3 md:px-6 md:pb-5">
-        <div className="pointer-events-auto mx-auto w-full max-w-4xl">
+        <div className="pointer-events-auto relative mx-auto w-full max-w-4xl">
+          <PageStack agent={agent} />
           <Composer
             agent={agent}
             thread={thread.data}

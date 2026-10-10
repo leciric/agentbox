@@ -880,6 +880,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"update_working_memory), and anything that will be false next week. One fact at a time, with a title " +
 				"somebody would recognise it by. When this corrects something already remembered, pass supersedes — " +
 				"the old memory stops coming back from searches, and stays readable so the change is followable. " +
+				"For a problem, name the pull requests (#234), branches and question ids it waits on: AgentBox closes " +
+				"it by itself once they are all merged, closed or answered. " +
 				"This is not append_note: notes are the short standing brief every agent is handed, and memory is the " +
 				"much larger store they search.",
 			Schema: object([]string{"title"}, map[string]any{
@@ -1700,11 +1702,4 @@ func describeSkill(detail api.SkillDetail) string {
 		b.WriteString("\n\nOther files:\n" + strings.Join(others, "\n"))
 	}
 	return b.String()
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }

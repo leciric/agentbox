@@ -130,6 +130,11 @@ type Server struct {
 	// connectors are the remote MCP servers agents use, signed in to here
 	// (connectors.go, internal/connectors).
 	connectors *connectors.Service
+	// pageLinks are the links to the HTML of the Hatch artifacts last
+	// previewed (artifacts.go).
+	pageLinks pageLinks
+	// hatchHost is the host:port a test's Hatch is at; "" for Hatch's own.
+	hatchHost string
 
 	// firstSweeps is done once the sweeps Run starts have each made their
 	// first pass, the one at startup: what a test waits for, so that pass
@@ -198,6 +203,11 @@ type Server struct {
 
 	terminalMu       sync.Mutex
 	terminalActivity map[string]time.Time // last input typed into a terminal, by ref (autostopidle.go)
+
+	// The agents' CPU shares (cpushare.go): kicked when an agent changes,
+	// and on a timer, cpuShareInterval; 0 runs no loop.
+	cpuKick  chan struct{}
+	cpuEvery time.Duration
 
 	// The usage loop (usageloop.go): usageNow is what each agent used when
 	// last sampled, by ref, under mu.
@@ -282,6 +292,8 @@ func New(cfg Config) (*Server, error) {
 		oomVictim:        agent.LastOOMVictim,
 		oomSeen:          map[string]agent.MemoryCounts{},
 		loggedOnce:       map[string]string{},
+		cpuKick:          make(chan struct{}, 1),
+		cpuEvery:         cpuShareInterval,
 		recheckedAt:      map[string]time.Time{},
 		recheckedWhat:    map[string]string{},
 		stalls:           map[string]*stallTrack{},
@@ -404,6 +416,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
 	loops.Go(func() { s.dropOldLimits(ctx) })
+	loops.Go(func() { s.balanceCPU(ctx) })
 	loops.Go(func() { s.watchDisk(ctx) })
 	loops.Go(func() { s.watchPackageCache(ctx) })
 	loops.Go(func() { s.refreshConnectors(ctx) })
@@ -642,6 +655,10 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
+	// The pages the project's chats published on Hatch (artifacts.go).
+	h("GET /v1/projects/{project}/artifacts", s.listArtifacts)
+	h("GET /v1/projects/{project}/artifacts/{id}", s.previewArtifact)
+	h("GET /v1/projects/{project}/artifacts/{id}/page", s.artifactPage)
 	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
 	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
 	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))

@@ -978,5 +978,33 @@
     "query": "power=running&theme=dark",
     "width": 760,
     "height": 300
+  },
+  {
+    "id": "pages-lead-dark",
+    "description": "The project's chat with Hatch connected: three new pages piled at the composer's corner, the Pages tab beside Agents, page icons on the agents that published — dark",
+    "query": "pages=lead&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "pages-lead-light",
+    "description": "Same as pages-lead-dark — light",
+    "query": "pages=lead&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "pages-agent-dark",
+    "description": "agent-12's chat: only its own new page on the stack — dark",
+    "query": "pages=agent-12&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "pages-media-project-dark",
+    "description": "A project's Media panel with its Pages tab and the count of new pages — dark",
+    "query": "pages=lead&media=project&theme=dark",
+    "width": 1280,
+    "height": 900
   }
 ]

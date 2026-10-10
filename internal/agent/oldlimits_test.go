@@ -161,7 +161,8 @@ exit 0`)
 			unset = append(unset, strings.TrimSpace(after))
 		}
 	}
-	want := []string{"ab-hello-stack-agent-01 limits.cpu", "ab-hello-stack-agent-01 limits.memory", "ab-hello-stack-agent-01 raw.lxc"}
+	// limits.cpu is the agent's CPU share now, which BalanceCPU replaces.
+	want := []string{"ab-hello-stack-agent-01 limits.memory", "ab-hello-stack-agent-01 raw.lxc"}
 	if !slices.Equal(unset, want) {
 		t.Errorf("unset %q, want %q", unset, want)
 	}

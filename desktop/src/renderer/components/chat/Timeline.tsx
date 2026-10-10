@@ -16,7 +16,7 @@ import { ChangedFiles } from './ChangedFiles';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
 import { TurnMarker } from './TurnMarker';
-import { SubagentCard, WorkGroup } from './Work';
+import { ChatRefContext, SubagentCard, WorkGroup } from './Work';
 
 export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; thread: T.ChatThread; onOpenAgent?: (ref: string) => void }) {
   const t = useT();
@@ -40,15 +40,17 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
   );
   const starting = thread.session.state === 'starting' ? thread.session.detail || t('chat.timeline.startingTool', { tool: aiLabel(agent.ai) }) : undefined;
   return (
-    <div className="flex flex-col" data-chat-timeline>
-      {rows.map((row) =>
-        row.type === 'turn' ? (
-          <TurnMarker key={row.key} agent={agent} checkpoint={row.checkpoint} latest={row.checkpoint.number === latest} onOpenAgent={onOpenAgent} />
-        ) : (
-          <TimelineRow key={row.key} row={row} chatRef={agent.ref} root={agent.worktree} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
-        ),
-      )}
-    </div>
+    <ChatRefContext value={agent.ref}>
+      <div className="flex flex-col" data-chat-timeline>
+        {rows.map((row) =>
+          row.type === 'turn' ? (
+            <TurnMarker key={row.key} agent={agent} checkpoint={row.checkpoint} latest={row.checkpoint.number === latest} onOpenAgent={onOpenAgent} />
+          ) : (
+            <TimelineRow key={row.key} row={row} chatRef={agent.ref} root={agent.worktree} starting={row.type === 'thinking' ? starting : undefined} onToggleTurn={toggleTurn} />
+          ),
+        )}
+      </div>
+    </ChatRefContext>
   );
 }
 

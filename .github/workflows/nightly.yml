@@ -133,7 +133,7 @@ jobs:
         with:
           ref: ${{ steps.pick.outputs.sha }}
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         if: steps.pick.outputs.build == 'true'
         with:
           install_args: node
@@ -172,7 +172,7 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           install_args: go node
 
@@ -223,7 +223,7 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           install_args: go node
 
@@ -289,7 +289,7 @@ jobs:
         with:
           ref: ${{ needs.resolve.outputs.sha }}
 
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@v5
         with:
           install_args: go node
 

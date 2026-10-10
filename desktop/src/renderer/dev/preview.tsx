@@ -17,6 +17,12 @@
 //                           unless ?open names an agent in it)
 //   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
 //                           credential request
+//   ?pages=lead             the project's chat with Hatch connected: the stack
+//                           of new pages at the composer's corner, the Pages
+//                           tab and the agents' page icons (dev/pages.ts), and
+//                           a "Publish a page" button to watch one arrive;
+//                           ?pages=agent-12 that agent's chat, its own; with
+//                           ?media=project|all|agent, that Media view's Pages tab
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
 //   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
@@ -192,6 +198,10 @@ import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { publishOne, seedPages } from './pages';
+import { PageArrivals } from '../components/pages/PageArrivals';
+import { PagePreviewHost } from '../components/pages/PagePreview';
+import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 
@@ -313,6 +323,11 @@ seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 // Before the first render, so the chat reads it rather than the dev bridge.
 if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
+const artifacts = params.get('pages');
+if (artifacts) {
+  seedPages(queryClient);
+  if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
+}
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media === 'all') seedAllMedia(queryClient);
 else if (media) seedMedia(queryClient);
@@ -577,7 +592,9 @@ function Preview() {
   if (media === 'project') {
     return (
       <div style={{ padding: 24, font: '13px var(--font-sans)' }}>
-        <ProjectMediaPanel project={PROJECT} />
+        <ScopedMediaPages project={PROJECT} variant="page">
+          <ProjectMediaPanel project={PROJECT} />
+        </ScopedMediaPages>
       </div>
     );
   }
@@ -593,7 +610,9 @@ function Preview() {
   if (media === 'agent') {
     return (
       <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
-        <MediaTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+        <ScopedMediaPages project={PROJECT} agent={`${PROJECT}/agent-12`} variant="fill">
+          <MediaTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+        </ScopedMediaPages>
       </div>
     );
   }
@@ -701,6 +720,19 @@ function Preview() {
               <ChatHeaderControls agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} />
             </div>
             <ChatTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} starting={false} autoStart={false} onStart={() => {}} />
+          </div>
+        ) : artifacts ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <ChatTab
+              agent={
+                artifacts === 'lead'
+                  ? leadAgentFrom(fixtures.projects.find((p) => p.name === PROJECT)!, { ref: `${PROJECT}/lead`, started: true } as T.ProjectChat)
+                  : fixtures.agents.find((a) => a.ref === `${PROJECT}/${artifacts}`)!
+              }
+              starting={false}
+              autoStart={false}
+              onStart={() => {}}
+            />
           </div>
         ) : chat === 'lead' ? (
           <div style={{ height: '100%', margin: -24 }}>
@@ -986,6 +1018,20 @@ if (loading) {
     <TooltipProvider delayDuration={250}>
       <Languaged />
       <Toaster position="bottom-right" />
+      {artifacts && (
+        <>
+          <PagePreviewHost onSelect={() => {}} />
+          <PageArrivals onNotified={() => {}} />
+          <button
+            onClick={() => publishOne(queryClient)}
+            data-dev-publish
+            style={{ position: 'fixed', left: 12, bottom: 12, zIndex: 60 }}
+            className="rounded-lg border border-line-strong bg-overlay px-3 py-1.5 text-[12px] text-secondary shadow-md hover:text-title"
+          >
+            Publish a page
+          </button>
+        </>
+      )}
     </TooltipProvider>
   </QueryClientProvider>,
 );

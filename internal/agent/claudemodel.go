@@ -240,7 +240,14 @@ func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model str
 		if a.IsLead() {
 			return m.prepareLeadClaudeSettings(a, merge)
 		}
-		return m.prepareAgentClaudeSettings(ctx, a, merge)
+		// An agent made before BASH_ENV named bash_env gets it here, with the
+		// file, so its Bash tool's worker counts follow its CPU share.
+		if err := m.writeBashEnv(ctx, a); err != nil {
+			return err
+		}
+		return m.prepareAgentClaudeSettings(ctx, a, func(b []byte) ([]byte, error) {
+			return withClaudeSettings(b, merge, m.withBashEnv)
+		})
 	case "codex":
 		return m.prepareAgentCodexSettings(ctx, a, compactWindow)
 	case "opencode":

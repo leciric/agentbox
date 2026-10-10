@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { api } from '../lib/api';
+import { countByAgent, livePages } from '../lib/pages';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { avatarMood, chatLabel, isAsking, memoryHold, prChecksText, prState, rank, settled, usageTip, type Mood } from '../lib/agentStatus';
@@ -11,6 +12,9 @@ import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
+import { PageIcon } from './pages/PageThumb';
+import { PagesPanel } from './pages/PagesPanel';
+import { useProjectPages } from './pages/usePages';
 import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
 import { Skeleton, skeletonWidths } from './ui/skeleton';
@@ -58,6 +62,11 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   const history = useCpuHistory(usage.data);
   const [folded, setFolded] = useFolded();
   const [showFinished, setShowFinished] = useShowFinished();
+  // The Pages tab, beside Agents while Hatch is connected and the project has
+  // a page Hatch still has; an agent's page icon opens it on that agent.
+  const pagesQuery = useProjectPages(project);
+  const [railTab, setRailTab] = useState<'agents' | 'pages'>('agents');
+  const [pagesAgent, setPagesAgent] = useState('');
 
   // The events arrive newest first, so the first one seen is each agent's last.
   // Freeing its Docker space on stop is the daemon's doing, not a report.
@@ -65,6 +74,15 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   for (const ev of events.data ?? []) if (ev.kind !== 'docker_pruned' && !lastReport.has(ev.ref)) lastReport.set(ev.ref, ev.at);
 
   if (!project) return null;
+  const pages = livePages(pagesQuery.data);
+  const pageCounts = countByAgent(pages);
+  const tab = pages.length > 0 ? railTab : 'agents';
+  const leadRef = `${project}/lead`;
+  const leadPages = pageCounts.get(leadRef) ?? 0;
+  const openPages = (ref: string) => {
+    setPagesAgent(ref);
+    setRailTab('pages');
+  };
   const mine = (agents.data ?? []).filter((a) => a.project === project).toSorted((a, b) => rank(a) - rank(b));
   const asking = (agent: T.Agent) => isAsking(questions.data, agent.ref);
   // An agent with a question waiting on you stays on top, whatever its chat is doing.
@@ -96,6 +114,8 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
       sample={usage.data?.agents.find((u) => u.ref === agent.ref)}
       cpuHistory={history.get(agent.ref) ?? []}
       pr={prs.get(agent.ref)}
+      pages={pageCounts.get(agent.ref) ?? 0}
+      onPages={() => openPages(agent.ref)}
       at={lastReport.get(agent.ref)}
       asking={asking(agent)}
       mood={mood(agent)}
@@ -144,8 +164,29 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   return (
     <aside className="flex w-[268px] shrink-0 flex-col border-l border-line bg-rail backdrop-blur-xl xl:w-[312px]" data-agent-rail="open" aria-label={t('agent.rail.agentsOf', { project })}>
       <div className="flex h-12 shrink-0 items-center gap-2 px-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('agent.rail.agents')}</span>
-        {mine.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{mine.length}</span>}
+        {pages.length > 0 ? (
+          <div className="flex items-center gap-0.5" role="tablist" aria-label={t('agent.rail.agentsOf', { project })}>
+            <RailTab active={tab === 'agents'} count={mine.length} onClick={() => setRailTab('agents')} data-rail-tab="agents">
+              {t('agent.rail.agents')}
+            </RailTab>
+            <RailTab
+              active={tab === 'pages'}
+              count={pages.length}
+              onClick={() => {
+                setPagesAgent('');
+                setRailTab('pages');
+              }}
+              data-rail-tab="pages"
+            >
+              {t('pages.rail.tab')}
+            </RailTab>
+          </div>
+        ) : (
+          <>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle">{t('agent.rail.agents')}</span>
+            {mine.length > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] tabular-nums text-subtle">{mine.length}</span>}
+          </>
+        )}
         <Tip label={t('agent.rail.newAgentIn', { project: projectName })}>
           <button
             aria-label={t('agent.rail.newAgentIn', { project: projectName })}
@@ -167,65 +208,91 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
         </Tip>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
-        <button
-          onClick={() => onSelect({ kind: 'project', project })}
-          className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', onLead ? 'bg-surface-strong' : 'hover:bg-surface')}
-        >
-          {onLead && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
-          <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} />
-          <span className="min-w-0 flex-1">
-            <span className={cn('block truncate text-[13px] font-medium', onLead ? 'text-title' : 'text-secondary')}>{t('agent.rail.projectChat')}</span>
-            <span className="block truncate text-[11px] text-subtle">{t('agent.rail.leadConversation')}</span>
-          </span>
-        </button>
-
-        {(moving.length > 0 || !agents.data) && <div className="my-1.5 border-t border-line-faint" />}
-
-        {/* Until the first list arrives, rows where the agents will be: "No
-            agents yet" would be a guess. */}
-        {!agents.data && (
-          <div aria-busy data-rail-loading>
-            {skeletonWidths.slice(0, 3).map((width) => (
-              <div key={width} className="flex items-center gap-2.5 px-2.5 py-2 xl:py-2.5">
-                <Skeleton className="size-10 shrink-0 rounded-xl" />
-                <span className="grid min-w-0 flex-1 gap-1.5">
-                  <Skeleton className={cn('h-3.5', width)} />
-                  <Skeleton className="h-2.5 w-1/3" />
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {moving.map(row)}
-
-        {finished.length > 0 && (
-          <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-finished={finishedOpen ? 'open' : 'closed'}>
+      {tab === 'pages' ? (
+        <PagesPanel project={project} pages={pages} agents={mine} agent={pagesAgent} onAgent={setPagesAgent} />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
+          <div className="relative">
             <button
-              aria-expanded={finishedOpen}
-              className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle transition hover:bg-surface hover:text-primary"
-              onClick={() => setShowFinished(!finishedOpen)}
+              onClick={() => onSelect({ kind: 'project', project })}
+              className={cn('group relative flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors xl:py-2.5', onLead ? 'bg-surface-strong' : 'hover:bg-surface')}
             >
-              <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', finishedOpen && 'rotate-90')} />
-              {t('agent.rail.finished')}
-              <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{finished.length}</span>
+              {onLead && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
+              <AgentAvatar ai="claude" mood={leadMood} seed={`${project}/lead`} />
+              <span className="min-w-0 flex-1">
+                <span className={cn('block truncate text-[13px] font-medium', onLead ? 'text-title' : 'text-secondary')}>{t('agent.rail.projectChat')}</span>
+                <span className="block truncate text-[11px] text-subtle">{t('agent.rail.leadConversation')}</span>
+              </span>
             </button>
-            {finishedOpen && finished.map(row)}
-          </section>
-        )}
-
-        {agents.data && mine.length === 0 && (
-          <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
-            <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.rail.empty', { project: projectName })}</p>
-            <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={() => onNewAgent(project)}>
-              <Plus className="size-3.5" />
-              {t('agent.rail.newAgent')}
-            </button>
+            {leadPages > 0 && <PagesBadge count={leadPages} onClick={() => openPages(leadRef)} />}
           </div>
-        )}
-      </div>
+
+          {(moving.length > 0 || !agents.data) && <div className="my-1.5 border-t border-line-faint" />}
+
+          {/* Until the first list arrives, rows where the agents will be: "No
+              agents yet" would be a guess. */}
+          {!agents.data && (
+            <div aria-busy data-rail-loading>
+              {skeletonWidths.slice(0, 3).map((width) => (
+                <div key={width} className="flex items-center gap-2.5 px-2.5 py-2 xl:py-2.5">
+                  <Skeleton className="size-10 shrink-0 rounded-xl" />
+                  <span className="grid min-w-0 flex-1 gap-1.5">
+                    <Skeleton className={cn('h-3.5', width)} />
+                    <Skeleton className="h-2.5 w-1/3" />
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {moving.map(row)}
+
+          {finished.length > 0 && (
+            <section className="mt-1.5 border-t border-line-faint pt-1.5" data-rail-finished={finishedOpen ? 'open' : 'closed'}>
+              <button
+                aria-expanded={finishedOpen}
+                className="flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.08em] text-subtle transition hover:bg-surface hover:text-primary"
+                onClick={() => setShowFinished(!finishedOpen)}
+              >
+                <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', finishedOpen && 'rotate-90')} />
+                {t('agent.rail.finished')}
+                <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums">{finished.length}</span>
+              </button>
+              {finishedOpen && finished.map(row)}
+            </section>
+          )}
+
+          {agents.data && mine.length === 0 && (
+            <div className="mt-2 grid justify-items-center gap-2 px-2 py-8 text-center">
+              <p className="text-[12.5px] leading-relaxed text-subtle">{t('agent.rail.empty', { project: projectName })}</p>
+              <button className="flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-[12.5px] text-tertiary transition hover:bg-surface-raised" onClick={() => onNewAgent(project)}>
+                <Plus className="size-3.5" />
+                {t('agent.rail.newAgent')}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </aside>
+  );
+}
+
+// RailTab is Agents or Pages at the top of the column.
+function RailTab({ active, count, onClick, children, ...rest }: { active: boolean; count: number; onClick: () => void; children: React.ReactNode; 'data-rail-tab': string }) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] transition-colors',
+        active ? 'bg-surface-strong text-secondary' : 'text-subtle hover:bg-surface hover:text-primary',
+      )}
+      {...rest}
+    >
+      {children}
+      {count > 0 && <span className="rounded-full bg-surface-raised px-1.5 text-[10.5px] font-normal normal-case tracking-normal tabular-nums text-subtle">{count}</span>}
+    </button>
   );
 }
 
@@ -235,6 +302,8 @@ function AgentRow({
   sample,
   cpuHistory,
   pr,
+  pages,
+  onPages,
   at,
   asking,
   mood,
@@ -246,6 +315,8 @@ function AgentRow({
   sample?: T.AgentUsage;
   cpuHistory: number[];
   pr?: T.PullRequest;
+  pages: number;
+  onPages: () => void;
   at?: string;
   asking: boolean;
   mood: Mood;
@@ -302,7 +373,7 @@ function AgentRow({
               </span>
               {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
             </span>
-            <span className="mt-1 flex items-center gap-1 font-mono text-[10.5px] text-faint" data-rail-branch>
+            <span className={cn('mt-1 flex items-center gap-1 font-mono text-[10.5px] text-faint', pages > 0 && 'pr-9')} data-rail-branch>
               <GitBranch className="size-3 shrink-0" />
               <span className="min-w-0 truncate">{agent.branch}</span>
             </span>
@@ -317,6 +388,7 @@ function AgentRow({
           </span>
         </button>
         {pr && <PullRequestBadge pr={pr} />}
+        {pages > 0 && <PagesBadge count={pages} onClick={onPages} />}
       </div>
     </AgentContextMenu>
   );
@@ -350,6 +422,26 @@ function useShowFinished(): [boolean, (open: boolean) => void] {
       set(next);
     },
   ];
+}
+
+// PagesBadge is a tiny page on an agent's row when it published pages Hatch
+// still has, with how many when there's more than one. Clicking it opens the
+// Pages tab on that agent.
+function PagesBadge({ count, onClick }: { count: number; onClick: () => void }) {
+  const t = useT();
+  return (
+    <Tip label={t('pages.rail.agentPages', { count })}>
+      <button
+        data-rail-pages-badge={count}
+        aria-label={t('pages.rail.agentPages', { count })}
+        onClick={onClick}
+        className="absolute bottom-2 right-2 flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[10.5px] tabular-nums text-subtle transition hover:bg-surface-vivid hover:text-primary xl:bottom-2.5"
+      >
+        <PageIcon className="size-3.5" />
+        {count > 1 && count}
+      </button>
+    </Tip>
+  );
 }
 
 const checkMark: Record<string, string> = { passing: '✓', failing: '✕', pending: '•' };
