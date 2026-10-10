@@ -22,3 +22,12 @@ export function useAllPages(): PageAt[] {
   useSeenPages();
   return allLivePages(lists.map((q, i) => [names[i], q.data]));
 }
+
+// useHatchConnected is whether any project has Hatch connected, for a
+// setting that's global but only means something with it.
+export function useHatchConnected(): boolean {
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const names = (projects.data ?? []).map((p) => p.name);
+  const lists = useQueries({ queries: names.map(pagesQuery) });
+  return lists.some((q) => !!q.data?.connector);
+}

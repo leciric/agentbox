@@ -253,3 +253,19 @@ test('a page keeps its tile colour', () => {
   assert.equal(tileHue('abc'), tileHue('abc'));
   assert.ok(tileHue('abc') >= 0 && tileHue('abc') < 360);
 });
+
+test('the stack follows its mode: always every live page, new ones marked; new only the unseen; never none', () => {
+  const a = page({ id: 'a', updatedAt: '2026-10-09T11:10:00Z' });
+  const b = page({ id: 'b', updatedAt: '2026-10-09T11:50:00Z' });
+  const list = hatch(a, b, expired);
+  markSeen([a]);
+  assert.deepEqual(ids(stackPages(list, 'pawly/lead', now, 'new')), ['b']);
+  assert.deepEqual(ids(stackPages(list, 'pawly/lead', now)), ['b'], 'new is the default');
+  assert.deepEqual(ids(stackPages(list, 'pawly/lead', now, 'always')), ['b', 'a']);
+  assert.deepEqual(ids(stackPages(list, 'pawly/lead', now, 'always').filter(isNew)), ['b'], 'new ones stay marked');
+  assert.deepEqual(stackPages(list, 'pawly/lead', now, 'never'), []);
+  assert.deepEqual(stackPages(noHatch(a, b), 'pawly/lead', now, 'always'), [], 'nothing without Hatch');
+  markSeen([b]);
+  assert.deepEqual(stackPages(list, 'pawly/lead', now, 'new'), []);
+  assert.deepEqual(ids(stackPages(list, 'pawly/lead', now, 'always')), ['b', 'a'], 'always outlives seeing');
+});

@@ -7,6 +7,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useSyncExternalStore } from 'react';
 import * as T from '../../shared/api.ts';
+import type { PageStackMode } from './pageStackMode.ts';
 
 export const pagesKey = (project: string) => ['pages', project] as const;
 
@@ -195,12 +196,14 @@ export function useSeenPages(): number {
   );
 }
 
-// stackPages is what a chat's stack holds: the pages it shows that you
-// haven't opened since they were published or updated, newest first.
-export function stackPages(list: T.Artifacts | undefined, ref: string, now = Date.now()): T.Artifact[] {
-  return pagesFor(list, ref, now)
-    .filter(isNew)
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+// stackPages is what a chat's stack holds. By default (mode "new") the pages
+// it shows that you haven't opened since they were published or updated;
+// "always" all of them, new ones included (isNew marks which); "never" none.
+// Newest first.
+export function stackPages(list: T.Artifacts | undefined, ref: string, now = Date.now(), mode: PageStackMode = 'new'): T.Artifact[] {
+  if (mode === 'never') return [];
+  const pages = pagesFor(list, ref, now);
+  return (mode === 'always' ? pages.slice() : pages.filter(isNew)).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 }
 
 // livePageOf is the page a publish_page or update_page line opens: one the
