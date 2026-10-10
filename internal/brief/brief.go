@@ -183,6 +183,19 @@ type LeadData struct {
 	// the conversation it can no longer see (D73). Empty until the first
 	// compaction — and empty is the ordinary case, not a fault.
 	Recap string
+	// NoteSuggestions are memories enough agents have been handed in their
+	// briefs to be offered to the lead as notes (memory/promote.go), which
+	// it accepts or dismisses. None is the ordinary case.
+	NoteSuggestions []NoteSuggestion
+}
+
+// NoteSuggestion is one memory offered to the lead as a project note.
+type NoteSuggestion struct {
+	ID, Title string
+	// Text is the memory's content, cut to a line.
+	Text string
+	// Agents is how many agents it has been served to.
+	Agents int
 }
 
 func RenderLead(d LeadData) (string, error) {

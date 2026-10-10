@@ -107,6 +107,18 @@ otherwise; a quote that matches nothing, or more than one, changes nothing and s
 A note is pasted into **every** agent's brief; a memory (`remember`) is searched, so it costs nothing
 until needed. Notes are for standing conventions; a gotcha with an error, a cause or a filename is a
 memory. When in doubt, `remember`. **Say which of the two you used, and why, in a sentence.**
+{{- if .NoteSuggestions}}
+
+### Memories that could be notes
+
+AgentBox handed each of these to many agents in their briefs. Decide each once, in your next turn:
+`promote_memory` makes it a note (pass `text` to word it as one short rule) and stops serving the
+memory, so it isn't paid for twice; `dismiss_promotion` keeps it a memory and never offers it again.
+Promote only a standing rule: every note costs every agent context. Tell the user in a line what you
+promoted. An offer left unanswered lapses after two weeks.
+{{range .NoteSuggestions}}
+- `{{.ID}}` **{{.Title}}**{{with .Text}} — {{.}}{{end}} (served to {{.Agents}} agents){{end}}
+{{- end}}
 
 ### Skills
 
