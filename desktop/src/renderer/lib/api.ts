@@ -338,6 +338,10 @@ export const api = {
   memoryConsolidation: (name: string) => call<T.MemoryConsolidation>('GET', `${project(name)}/memory/consolidation`),
   memoryDuplicates: (name: string) => call<T.MemoryDuplicate[]>('GET', `${project(name)}/memory/duplicates`),
   resolveMemory: (name: string, req: T.ResolveMemoryRequest) => call<T.Memory>('POST', `${project(name)}/memory/resolve`, req),
+  // AgentBox-wide memory: what the user asked to hold in every project, which
+  // every project reads beside its own. Deleting one is the user's alone.
+  globalMemories: () => call<T.Memory[]>('GET', '/v1/global/memory/memories'),
+  deleteGlobalMemory: (id: string) => call<void>('DELETE', `/v1/global/memory/memories/${encodeURIComponent(id)}`),
   // The task graph (D77): the plan, and what is blocked on what. A bare call
   // is the whole graph, edges both ways, which is what a tree view needs.
   memoryTasks: (name: string) => call<T.Task[]>('GET', `${project(name)}/memory/tasks`),

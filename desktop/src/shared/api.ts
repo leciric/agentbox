@@ -1697,6 +1697,8 @@ export interface AddMemoryEventRequest {
 export interface Memory {
   id: string;
   project: string;
+  global?: boolean;
+  origin?: string;
   kind: string;
   title: string;
   content: string;
@@ -1719,6 +1721,7 @@ export interface AddMemoryRequest {
   importance?: number;
   supersedesId?: string;
   sourceEventId?: string;
+  scope?: string;
 }
 
 export interface MemorySearchRequest {

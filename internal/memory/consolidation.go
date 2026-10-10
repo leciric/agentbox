@@ -568,8 +568,15 @@ func nonEmpty(items []string) []string {
 // A resolved memory stops coming back from Memories and Search, exactly as a
 // superseded one does, and stays readable by id so the project's history of
 // being wrong is still followable.
+//
+// A project's chat may close an AgentBox-wide memory too (global.go): every
+// project reads them, so any project's chat can say one stopped being true.
 func (s *Store) ResolveMemory(ctx context.Context, project, id, why string) (Memory, error) {
 	if err := requireProject(project); err != nil {
+		return Memory{}, err
+	}
+	project, err := s.scopeOf(ctx, project, id)
+	if err != nil {
 		return Memory{}, err
 	}
 	m, err := s.Memory(ctx, project, id)

@@ -179,6 +179,21 @@ Events accumulate; consolidation turns them into fewer, longer-lived memories
 Every pass, mechanical or distillation, is logged to `consolidation_passes` with its cost
 (events read, memories written/superseded/resolved/decayed, duplicates found, bytes in/out).
 
+## Memory for every project
+
+A few memories hold in every project rather than one: the user's preferences ("Agent preference:
+only one agent at a time") and conventions they want everywhere. They are written only on purpose
+— a project's lead uses `remember` with scope `all` when the user asks for something to apply to
+all their projects, and the Home chat's `remember` writes nothing else — and nothing is ever
+promoted there automatically. They are kept in the same `memories` table under the project `*`
+(`global.go`), with the project or chat that wrote them in `origin`.
+
+Every project's `search_memory` returns them beside its own memories, marked "all projects", and
+every context has a "What holds in every project" section of them, after the open issues and
+within the same budget. A lead can supersede one (with scope `all` again) or resolve it; the user
+sees them in **Settings → Memory** and deletes them there. Decay, distillation and tidy never touch
+them.
+
 ## The context builder
 
 `BuildContext()` (`context.go`) assembles what an agent or the lead is actually told, within a
@@ -186,8 +201,8 @@ token budget:
 
 1. Load working memory, and a search query — either given, or derived from the project's goal and
    current task.
-2. Gather bounded sections: 8 open issues, 8 high-importance project/decision
-   memories, 5 search hits per kind, 5 newest reports, 5 newest artifacts.
+2. Gather bounded sections: 8 open issues, 8 memories for every project, 8 high-importance
+   project/decision memories, 5 search hits per kind, 5 newest reports, 5 newest artifacts.
 3. If the budget's exceeded, drop sections by priority — working memory, the project's
    story and open issues are never dropped.
 4. Mark whatever memories were actually used as referenced, resetting their decay timer.
@@ -216,5 +231,6 @@ either.
   the user's task list without changing it.
 - **Lead-facing** (`agentbox` MCP server, `internal/cli/mcp.go`): `search_memory`, `remember`,
   `resolve_memory`, `update_working_memory`, `project_state` — the lead can write memory directly,
+  for its project or (scope `all`) for every project,
   and reads the user's task list without changing it; see
   [The lead and its MCP tools](lead.md).

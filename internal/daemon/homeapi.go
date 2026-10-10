@@ -17,8 +17,8 @@ import (
 // project's (serveLeadAPI) but reaching every project. Its routes are the
 // user's own, at the same paths, so `agentbox mcp` reaches them with the
 // client's ordinary methods — but only the few its tools need: it reads
-// projects, their agents and their memory, makes agents, tells a project's
-// lead, and adds projects. It can't change a project's settings, retire an
+// projects, their agents and their memory, keeps AgentBox-wide memory, makes
+// agents, tells a project's lead, and adds projects. It can't change a project's settings, retire an
 // agent or reach the daemon itself.
 func (s *Server) homeRoutes() http.Handler {
 	mux := http.NewServeMux()
@@ -34,6 +34,13 @@ func (s *Server) homeRoutes() http.Handler {
 	h("POST /v1/projects", s.homeAddProject)
 	h("GET /v1/projects/{project}/fleet", s.fleet)
 	h("POST /v1/projects/{project}/memory/search", s.memoryHandler("search", s.projectMemoryScope))
+	// AgentBox-wide memory is the Home chat's own: what it remembers is for
+	// every project, since it belongs to none.
+	for _, route := range globalMemoryRoutes {
+		if route.home {
+			h(route.method+" /v1/global/memory"+route.path, s.memoryHandler(route.action, globalMemoryScope(state.HomeProject)))
+		}
+	}
 	h("POST /v1/projects/{project}/lead/messages", s.homeTellLead)
 	h("POST /v1/agents", s.homeCreateAgent)
 	h("GET /v1/agents/{project}/{agent}/chat", s.leadAgentChat)

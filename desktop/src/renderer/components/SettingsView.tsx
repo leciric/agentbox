@@ -4,6 +4,7 @@ import {
   Languages,
   ArrowRight,
   Bot,
+  Brain,
   Check,
   ChevronDown,
   CircleCheck,
@@ -76,6 +77,7 @@ import { Code, Notice, Panel } from "./ui/card";
 import { projectSection } from "./ProjectSettings";
 import { SkillsPanel } from "./SkillsPanel";
 import { ConnectorsTab } from "./ConnectorsTab";
+import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { useVoiceSettings } from "../lib/voice/settings";
@@ -1015,6 +1017,28 @@ function InstalledSettings({
       ],
     },
     {
+      id: "memory",
+      title: t("settings.section.memory.title"),
+      description: t("settings.section.memory.description"),
+      scope: "installation",
+      groups: [
+        {
+          id: "memory",
+          title: t("settings.group.memory.title"),
+          description: t("settings.group.memory.description"),
+          cards: true,
+          entries: [
+            {
+              id: "global-memory",
+              label: t("settings.section.memory.title"),
+              keywords: t("settings.entry.memory.keywords"),
+              render: () => <GlobalMemoryPanel />,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "voice",
       title: t("settings.section.voice.title"),
       description: t("settings.section.voice.description"),
@@ -1415,6 +1439,7 @@ const sectionIcons: SectionIcons = {
   voice: Mic,
   skills: Wand2,
   connectors: Plug,
+  memory: Brain,
   phone: Smartphone,
   agents: Bot,
   resources: Cpu,

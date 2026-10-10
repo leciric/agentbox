@@ -958,6 +958,13 @@ var migrations = []string{
 	`ALTER TABLE projects DROP COLUMN agent_size`,
 	`ALTER TABLE agents DROP COLUMN size`,
 	`DELETE FROM settings WHERE key = 'agent_queue' OR key LIKE 'usage\_queued.%' ESCAPE '\'`,
+
+	// AgentBox-wide memory (memory.Global): memories kept under the project
+	// "*", which no project can be called, for what holds in every project —
+	// the user's preferences, conventions they want everywhere. origin is
+	// where one was written: the project whose chat (or user) wrote it, or the
+	// Home chat's key, so the app can say where a preference came from.
+	`ALTER TABLE memories ADD COLUMN origin TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

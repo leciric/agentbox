@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"agentbox/internal/api"
@@ -137,8 +138,9 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "search_memory",
 			Description: "Search what a project remembers: its memories, the events its agents recorded and the " +
-				"reports they filed. Exact words work: a filename, a port, an error string. Leave project out to " +
-				"search every project.",
+				"reports they filed, with what is remembered for all projects beside them. Exact words work: a " +
+				"filename, a port, an error string. Leave project out to search every project, and what is " +
+				"remembered for all of them.",
 			Schema: object([]string{"query"}, map[string]any{
 				"project": str("the project to search, as list_projects names it; every project when left out"),
 				"query":   str("what you are looking for"),
@@ -167,9 +169,18 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return "", err
 				}
 				var b strings.Builder
+				// What holds everywhere first, once: each project's search
+				// returns it too, and it is left out of theirs below.
+				if global, err := c.GlobalMemory().Search(ctx, in.Query, in.Limit); err == nil && len(global.Memories) > 0 {
+					fmt.Fprintf(&b, "## All projects\n\n%s\n\n", strings.TrimSpace(describeSearch(in.Query, global)))
+				}
 				for _, p := range projects {
 					results, err := c.ProjectMemory(p.Name).Search(ctx, in.Query, in.Limit)
-					if err != nil || len(results.Memories)+len(results.Events)+len(results.Reports) == 0 {
+					if err != nil {
+						continue
+					}
+					results.Memories = slices.DeleteFunc(results.Memories, func(m api.Memory) bool { return m.Global })
+					if len(results.Memories)+len(results.Events)+len(results.Reports) == 0 {
 						continue
 					}
 					fmt.Fprintf(&b, "## %s\n\n%s\n\n", p.Name, strings.TrimSpace(describeSearch(in.Query, results)))
@@ -178,6 +189,66 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return fmt.Sprintf("No project remembers anything about %q.", in.Query), nil
 				}
 				return strings.TrimSpace(b.String()), nil
+			},
+		},
+		{
+			Name: "remember",
+			Description: "Write down something that holds in every project: a preference of the user's (\"Agent " +
+				"preference: one agent at a time\"), a convention they want everywhere. Every project's chat and " +
+				"agents read it beside their own memory, and the user sees it in Settings → Memory. Only what the " +
+				"user asked for, in their words; something about one project is that project's, so pass it to its " +
+				"chat with tell_lead instead. When this corrects something already remembered, pass supersedes.",
+			Schema: object([]string{"title"}, map[string]any{
+				"title":   str("one line somebody would recognise this by, like \"Agent preference: Sonnet for small fixes\""),
+				"content": str("the preference or convention in full, in the user's words"),
+				"kind": choiceOf("\"decision\" for a preference or a choice the user made, \"project\" for a standing "+
+					"fact or convention (the default)", "project", "decision"),
+				"importance": map[string]any{"type": "integer", "description": "1 to 5; 4 for a preference the user " +
+					"stated, which is what decides it is read before a project's own knowledge"},
+				"supersedes": str("the id of the memory for all projects this replaces, from search_memory"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct {
+					Title, Content, Kind, Supersedes string
+					Importance                       int
+				}
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(in.Title) == "" {
+					return "", errors.New("a memory needs a title: one line somebody would recognise it by")
+				}
+				m, err := c.GlobalMemory().AddMemory(ctx, api.AddMemoryRequest{
+					Kind: in.Kind, Title: in.Title, Content: in.Content,
+					Importance: in.Importance, SupersedesID: in.Supersedes,
+				})
+				if err != nil {
+					return "", err
+				}
+				return describeRemembered(m, in.Supersedes), nil
+			},
+		},
+		{
+			Name: "resolve_memory",
+			Description: "Close something remembered for all projects that no longer holds — the user dropped the " +
+				"preference — with nothing to put in its place. It stops coming back from every project's searches.",
+			Schema: object([]string{"id"}, map[string]any{
+				"id":  str("the id of the memory to close, from search_memory, marked \"all projects\""),
+				"why": str("what closed it, in a line"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ ID, Why string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(in.ID) == "" {
+					return "", errors.New("say which memory to close, by its id from search_memory")
+				}
+				m, err := c.GlobalMemory().ResolveMemory(ctx, in.ID, in.Why)
+				if err != nil {
+					return "", err
+				}
+				return describeResolved(m), nil
 			},
 		},
 		{

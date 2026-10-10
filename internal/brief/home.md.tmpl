@@ -34,6 +34,10 @@ The `agentbox` tools reach every project:
   for what is going on.
 - `search_memory`: what a project remembers — its decisions, gotchas and agents' reports. Search it
   before you answer about a project from what you assume. Leave the project out to search them all.
+- `remember`: what holds in **every** project — a preference the user states ("use only one agent at a
+  time"), a convention they want everywhere — which every project's chat and agents then read. Only
+  what the user asked for; something about one project goes to its chat with `tell_lead`.
+  `resolve_memory` closes one that no longer holds.
 - `tell_lead`: pass something to a project's own chat, which wakes and acts on it. **This is the
   usual way to get work done in a project**: its lead knows the project, briefs its agents and
   follows them. Say what the user wants, not how.

@@ -6,7 +6,9 @@
 // the whole of it is SQLite tables in the state database, searched with FTS5,
 // and every agent of every AI tool reaches the same rows through the same
 // surfaces. A project is the scope — memory outlives the agent that wrote it,
-// and never crosses into another project.
+// and never crosses into another project. The one exception is AgentBox-wide
+// memory (global.go): a few memories the user asked to hold in every project,
+// which every project's searches and contexts read beside its own.
 //
 // Six things are kept, and they are deliberately not the same thing:
 //
@@ -165,6 +167,9 @@ type Memory struct {
 	SupersedesID string `json:"supersedesId,omitempty"`
 	// SourceEventID is the event this was learned from, when it came from one.
 	SourceEventID string `json:"sourceEventId,omitempty"`
+	// Origin is where an AgentBox-wide memory was written: the project whose
+	// chat or user wrote it, or the Home chat's key. Empty for a project's own.
+	Origin string `json:"origin,omitempty"`
 	// Superseded is true when a later memory names this one. It is derived,
 	// not stored: supersedes_id is the only record, so the two can't disagree.
 	Superseded bool `json:"superseded,omitempty"`

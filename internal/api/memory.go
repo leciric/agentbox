@@ -45,6 +45,13 @@ type AddMemoryEventRequest struct {
 type Memory struct {
 	ID      string `json:"id"`
 	Project string `json:"project"`
+	// Global is true for an AgentBox-wide memory, which every project reads
+	// beside its own; its Project is "*".
+	Global bool `json:"global,omitempty"`
+	// Origin is where an AgentBox-wide memory was written: the project whose
+	// chat or user wrote it, "_home" for the Home chat, empty for the user's
+	// own from the app.
+	Origin string `json:"origin,omitempty"`
 	// Kind is project, episodic, decision, discovery or issue.
 	Kind       string    `json:"kind"`
 	Title      string    `json:"title"`
@@ -214,7 +221,17 @@ type AddMemoryRequest struct {
 	Importance    int    `json:"importance,omitempty"` // 3 by default
 	SupersedesID  string `json:"supersedesId,omitempty"`
 	SourceEventID string `json:"sourceEventId,omitempty"`
+	// Scope is MemoryScopeProject (the default) or MemoryScopeAll, for a
+	// memory every project reads: a preference the user asked to hold
+	// everywhere. A supersedes names a memory of the same scope.
+	Scope string `json:"scope,omitempty"`
 }
+
+// Memory scopes: where AddMemoryRequest writes.
+const (
+	MemoryScopeProject = "project"
+	MemoryScopeAll     = "all"
+)
 
 // MemorySearchRequest looks through a project's memories, events and reports.
 type MemorySearchRequest struct {

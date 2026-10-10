@@ -33,10 +33,13 @@ func (s *Server) memory() *memory.Store { return memory.New(s.store.DB()) }
 
 // memoryScope is whose memory a request is about. project is always set;
 // agent is set only inside an agent, where the socket says which one is
-// asking and nothing it sends can claim to be another.
+// asking and nothing it sends can claim to be another. origin is set on the
+// AgentBox-wide surface, for what is written there: the Home chat's key, or
+// empty for the user's own.
 type memoryScope struct {
 	project string
 	agent   string
+	origin  string
 }
 
 // projectMemoryScope reads the project from the route, and checks it exists so
@@ -58,6 +61,33 @@ func (s *Server) agentMemoryScope(instance string) func(*http.Request) (memorySc
 		}
 		return memoryScope{project: a.Project, agent: a.Name}, nil
 	}
+}
+
+// globalMemoryScope is AgentBox-wide memory (memory.Global), written from
+// origin.
+func globalMemoryScope(origin string) func(*http.Request) (memoryScope, error) {
+	return func(*http.Request) (memoryScope, error) {
+		return memoryScope{project: memory.Global, origin: origin}, nil
+	}
+}
+
+// globalMemoryRoutes are AgentBox-wide memory's surface, at /v1/global/memory
+// on the user's socket and the Home chat's: the same handlers as a project's,
+// for the few things a store of preferences needs. home marks what the Home
+// chat gets; deleting one for good is the user's, from the app. A project's
+// chat reaches it through its own surface instead (remember's scope, and
+// resolve finding it by id), and an agent only reads it, in its searches.
+var globalMemoryRoutes = []struct {
+	method string
+	path   string
+	action string
+	home   bool
+}{
+	{http.MethodGet, "/memories", "memories", true},
+	{http.MethodPost, "/memories", "add-memory", true},
+	{http.MethodPost, "/search", "search", true},
+	{http.MethodPost, "/resolve", "resolve-memory", true},
+	{http.MethodDelete, "/memories/{id}", "delete-memory", false},
 }
 
 // memoryRoutes are the memory surface. inAgent marks the ones an agent gets on
@@ -164,14 +194,34 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			if err := readJSON(r, &req); err != nil {
 				return err
 			}
-			out, err := m.AddMemory(ctx, memory.Memory{
-				Project: who.project, Kind: req.Kind, Title: req.Title, Content: req.Content,
+			add := memory.Memory{
+				Project: who.project, Origin: who.origin, Kind: req.Kind, Title: req.Title, Content: req.Content,
 				Importance: req.Importance, SupersedesID: req.SupersedesID, SourceEventID: req.SourceEventID,
-			})
+			}
+			switch req.Scope {
+			case "", api.MemoryScopeProject:
+			case api.MemoryScopeAll:
+				// For every project, from this one: it is where the
+				// user asked for it, which the app shows beside it.
+				if who.project != memory.Global {
+					add.Project, add.Origin = memory.Global, who.project
+				}
+			default:
+				return fmt.Errorf("a memory's scope is %q: it is %q (this project, the default) or %q (every project)",
+					req.Scope, api.MemoryScopeProject, api.MemoryScopeAll)
+			}
+			out, err := m.AddMemory(ctx, add)
 			if err != nil {
 				return err
 			}
 			return writeJSON(w, http.StatusCreated, apiMemory(out))
+
+		case "delete-memory":
+			if err := m.DeleteMemory(ctx, who.project, r.PathValue("id")); err != nil {
+				return err
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return nil
 
 		case "search":
 			var req api.MemorySearchRequest
@@ -595,7 +645,8 @@ func apiEvents(events []memory.Event) []api.MemoryEvent {
 
 func apiMemory(m memory.Memory) api.Memory {
 	return api.Memory{
-		ID: m.ID, Project: m.Project, Kind: m.Kind, Title: m.Title, Content: m.Content,
+		ID: m.ID, Project: m.Project, Global: m.Project == memory.Global, Origin: m.Origin,
+		Kind: m.Kind, Title: m.Title, Content: m.Content,
 		Importance: m.Importance, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt,
 		SupersedesID: m.SupersedesID, SourceEventID: m.SourceEventID, Superseded: m.Superseded,
 		ResolvedAt: m.ResolvedAt, ResolvedBy: m.ResolvedBy,
