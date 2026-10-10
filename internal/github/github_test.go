@@ -494,3 +494,58 @@ func TestRefusalsAreToldApartByStatus(t *testing.T) {
 		})
 	}
 }
+
+// Labels reads every page of a repository's labels, the list carries each pull
+// request's labels, and SetPullRequestLabels replaces the whole set on the
+// issue behind the pull request, an empty set as [] rather than null.
+func TestLabels(t *testing.T) {
+	t.Parallel()
+	var put []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/repos/acme/x/labels" && r.URL.Query().Get("page") == "1":
+			var page []string
+			for i := range 100 {
+				page = append(page, fmt.Sprintf(`{"name":"l%d","color":"ededed"}`, i))
+			}
+			_, _ = w.Write([]byte("[" + strings.Join(page, ",") + "]"))
+		case r.URL.Path == "/repos/acme/x/labels" && r.URL.Query().Get("page") == "2":
+			_, _ = w.Write([]byte(`[{"name":"nightly","color":"5319e7","description":"Every night"}]`))
+		case r.URL.Path == "/repos/acme/x/pulls":
+			_, _ = w.Write([]byte(`[{"number":1,"state":"closed","labels":[{"name":"ci:full","color":"0e8a16"}],"head":{"sha":"a"}}]`))
+		case r.URL.Path == "/repos/acme/x/issues/1/labels" && r.Method == http.MethodPut:
+			var body struct {
+				Labels []string `json:"labels"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Labels == nil {
+				t.Errorf("PUT body: labels %v, err %v", body.Labels, err)
+			}
+			put = body.Labels
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			t.Errorf("unexpected call %s %s", r.Method, r.URL)
+		}
+	}))
+	defer srv.Close()
+	c := github.Client{BaseURL: srv.URL}
+	repo := github.Repo{Owner: "acme", Name: "x"}
+	ctx := context.Background()
+
+	labels, err := c.Labels(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(labels) != 101 || labels[100] != (github.Label{Name: "nightly", Color: "5319e7", Description: "Every night"}) {
+		t.Errorf("Labels() = %d labels, last %+v", len(labels), labels[len(labels)-1])
+	}
+	prs, err := c.PullRequests(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []github.Label{{Name: "ci:full", Color: "0e8a16"}}; !slices.Equal(prs[0].Labels, want) {
+		t.Errorf("PullRequests() labels = %+v, want %+v", prs[0].Labels, want)
+	}
+	if got, err := c.SetPullRequestLabels(ctx, repo, 1, nil); err != nil || got == nil || len(put) != 0 {
+		t.Errorf("SetPullRequestLabels(nil) = %v, %v; sent %v", got, err, put)
+	}
+}

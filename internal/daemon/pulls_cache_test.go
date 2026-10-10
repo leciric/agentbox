@@ -516,7 +516,8 @@ func TestAgentHeadsFromAStaleMain(t *testing.T) {
 
 // A refresh that finds something new says so on the event stream, so the app
 // redraws then rather than at its next poll. One that finds nothing new says
-// nothing: an event per poll would be the polling it replaces.
+// that it ended, and only that: the app stops showing "refreshing", without
+// redrawing the fleet for nothing.
 func TestPullRequestRefreshAnnouncesWhatMoved(t *testing.T) {
 	t.Parallel()
 	d := startTestDaemon(t, t.TempDir(), fakeIncus)
@@ -545,23 +546,25 @@ func TestPullRequestRefreshAnnouncesWhatMoved(t *testing.T) {
 	}
 	select {
 	case change := <-events:
-		if change.Project != "hello-stack" || change.GitHub != "acme/hello-stack" || change.FetchedAt.IsZero() {
+		if change.Project != "hello-stack" || change.GitHub != "acme/hello-stack" || change.FetchedAt.IsZero() || change.Unchanged {
 			t.Errorf("first event = %+v", change)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("the first read never announced itself")
 	}
 
-	// A refresh that finds the same list again is not news.
+	// A refresh that finds the same list again says only that it ended.
 	offset.Store(int64(2 * pullsTTL))
 	if _, err := d.client.ProjectPullRequests(ctx, "hello-stack"); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the second read", func() bool { return gh.count("/repos/acme/hello-stack/pulls") == 2 })
 	select {
 	case change := <-events:
-		t.Errorf("nothing moved, but an event went out: %+v", change)
-	case <-time.After(500 * time.Millisecond):
+		if !change.Unchanged {
+			t.Errorf("nothing moved, but the event says something did: %+v", change)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a refresh that found nothing new never said it ended")
 	}
 
 	// A refresh that finds a new pull request is.
@@ -571,7 +574,10 @@ func TestPullRequestRefreshAnnouncesWhatMoved(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-events:
+	case change := <-events:
+		if change.Unchanged {
+			t.Errorf("a new pull request was announced as nothing new: %+v", change)
+		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("a new pull request never announced itself")
 	}
@@ -591,7 +597,7 @@ func TestPullsCacheClaimsOneRefreshAtATime(t *testing.T) {
 	if _, ok := c.claim("acme/x", nil); ok {
 		t.Error("a second refresh was claimed while the first was still running")
 	}
-	if _, changed := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1}}}); !changed {
+	if _, _, changed := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1}}}); !changed {
 		t.Error("the first answer wasn't news")
 	}
 	if _, ok := c.claim("acme/x", nil); ok {
@@ -603,7 +609,7 @@ func TestPullsCacheClaimsOneRefreshAtATime(t *testing.T) {
 	if !ok {
 		t.Fatal("a stale entry wasn't refreshed")
 	}
-	if _, changed := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1}}}); changed {
+	if _, _, changed := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1}}}); changed {
 		t.Error("the same answer was reported as a change")
 	}
 	if entry, refreshing := c.state("acme/x"); refreshing || len(entry.prs) != 1 {
@@ -618,7 +624,7 @@ func TestPullsCacheDropsARefreshAMergeOvertook(t *testing.T) {
 	c := newPullsCache()
 	gen, _ := c.claim("acme/x", nil)
 	c.merged("acme/x", 1)
-	if _, changed := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1, State: "open"}}}); changed {
+	if _, _, changed := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1, State: "open"}}}); changed {
 		t.Error("a refresh that a merge overtook was stored anyway")
 	}
 	if entry, _ := c.state("acme/x"); len(entry.prs) != 0 {
@@ -636,7 +642,7 @@ func TestPullsCacheKeepsItsAnswerOverAMerge(t *testing.T) {
 	t.Parallel()
 	c := newPullsCache()
 	gen, _ := c.claim("acme/x", nil)
-	read, _ := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1, State: "open"}, {Number: 2, State: "open"}}})
+	read, _, _ := c.finish("acme/x", gen, pullsEntry{prs: []api.PullRequest{{Number: 1, State: "open"}, {Number: 2, State: "open"}}})
 
 	c.merged("acme/x", 1)
 	entry, _ := c.state("acme/x")
@@ -653,7 +659,7 @@ func TestPullsCacheKeepsItsAnswerOverAMerge(t *testing.T) {
 	}
 	// GitHub agreeing with the mark is still news: the app was told the
 	// list was being read, and has to hear that it has been.
-	if _, changed := c.finish("acme/x", gen, pullsEntry{prs: entry.prs}); !changed {
+	if _, _, changed := c.finish("acme/x", gen, pullsEntry{prs: entry.prs}); !changed {
 		t.Error("the read after a merge wasn't announced")
 	}
 	if _, ok := c.claim("acme/x", nil); ok {

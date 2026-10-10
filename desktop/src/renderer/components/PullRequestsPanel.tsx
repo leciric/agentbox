@@ -1,21 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, GitBranch, GitMerge, GitPullRequest, LoaderCircle, MessageSquare, User } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { Check, ExternalLink, GitBranch, GitMerge, GitPullRequest, LoaderCircle, MessageSquare, RotateCw, Tag, User } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { View } from '../App';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { useReveal } from '../lib/reveal';
-import { errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
+import { byAuthor, byState, labelHex, labelStyle, matchLabels, readMine, withEdits, withLabels, writeMine, type LabelEdit, type PullsState } from '../lib/pulls';
+import { cn, errorMessage, githubAccountLabel, githubErrorSentence, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FilterChip } from './MediaTab';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Code, EmptyState, Notice } from './ui/card';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Select, SelectOption } from './ui/select';
-
-type Filter = 'open' | 'closed' | 'all';
+import { Tip } from './ui/tooltip';
 
 const methodLabels: Record<string, MessageKey> = {
   merge: 'memory.pulls.method.merge',
@@ -48,11 +49,26 @@ export function PullRequestsPanel({
   const t = useT();
   const queryClient = useQueryClient();
   // The daemon answers from its cache and re-reads GitHub behind the answer,
-  // announcing what moved on the event stream, so this polls as a backstop
-  // rather than as the way the list stays current (D54).
-  const pulls = useQuery({ queryKey: ['pulls', project], queryFn: () => api.projectPullRequests(project), refetchInterval: 60_000 });
+  // announcing on the event stream when that read ends, so this polls as a
+  // backstop rather than as the way the list stays current (D54): every
+  // minute, or every few seconds while a read is out, so "refreshing" never
+  // outlives it by more than that even if the event is missed. Coming back to
+  // the window asks again, which re-reads GitHub when the cache is old.
+  const pulls = useQuery({
+    queryKey: ['pulls', project],
+    queryFn: () => api.projectPullRequests(project),
+    refetchInterval: (query) => (query.state.data?.refreshing ? 4_000 : 60_000),
+    refetchOnWindowFocus: true,
+  });
   const auth = useQuery({ queryKey: ['auth'], queryFn: api.auth });
-  const [filter, setFilter] = useState<Filter>('open');
+  const [filter, setFilter] = useState<PullsState>('open');
+  const [mine, setMine] = useMine(project);
+  // The refresh button: GitHub is re-read now, whatever the cache's age, and
+  // the answer that says so replaces the list at once.
+  const refresh = useMutation({
+    mutationFn: () => api.projectPullRequests(project, true),
+    onSuccess: (data) => queryClient.setQueryData(['pulls', project], data),
+  });
   // A search result for one that's closed or merged: list them all, so it is
   // there to be brought forward.
   const reveal = useReveal();
@@ -68,6 +84,20 @@ export function PullRequestsPanel({
   // so every other row stays usable meanwhile.
   const [running, setRunning] = useState<ReadonlySet<number>>(() => new Set());
   const [failed, setFailed] = useState<Readonly<Record<number, string>>>({});
+  // Label edits GitHub hasn't answered yet, shown over the list as though
+  // they had landed (lib/pulls.ts withEdits). One that fails is dropped,
+  // which puts the row back as it was, and says why.
+  const [edits, setEdits] = useState<readonly LabelEdit[]>([]);
+  const nextEdit = useRef(0);
+  const labels = useMutation({
+    mutationFn: (edit: LabelEdit) => api.editPullRequestLabels(project, edit.number, { add: edit.add.map((l) => l.name), remove: edit.remove }),
+    onMutate: (edit) => setEdits((e) => [...e, edit]),
+    onSuccess: (now, edit) => queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withLabels(d, edit.number, now)),
+    onError: (err, edit) => toast.error(t('memory.pulls.labels.failed', { number: edit.number, error: errorMessage(err) })),
+    onSettled: (_now, _err, edit) => setEdits((e) => e.filter((x) => x.id !== edit.id)),
+  });
+  const toggleLabel = (pr: T.PullRequest, label: T.Label, on: boolean) =>
+    labels.mutate({ id: nextEdit.current++, number: pr.number, add: on ? [label] : [], remove: on ? [] : [label.name] });
 
   const merge = useMutation({
     mutationFn: ({ number, method }: { number: number; method: string }) => api.mergePullRequest(project, number, method),
@@ -130,10 +160,16 @@ export function PullRequestsPanel({
   const login = auth.data?.githubAccounts.find((a) => a.name === data.githubAccount)?.login;
 
   const prs = data.pullRequests;
-  const open = prs.filter((pr) => pr.state === 'open');
-  const others = prs.filter((pr) => pr.state !== 'open');
-  const visible = filter === 'open' ? open : filter === 'closed' ? others : prs;
+  // Mine is who the project's GitHub account is; an account stored before
+  // AgentBox remembered logins has none known, and no Mine chip.
+  const me = data.githubLogin || login;
+  const mineOn = mine && !!me;
+  const scoped = mineOn ? byAuthor(prs, me) : prs;
+  const open = byState(scoped, 'open');
+  const others = byState(scoped, 'closed');
+  const visible = byState(scoped, filter);
   const methods = data.mergeMethods?.length ? data.mergeMethods : allMethods;
+  const refreshing = data.refreshing || refresh.isPending;
 
   return (
     <div className="flex flex-col gap-3">
@@ -187,11 +223,42 @@ export function PullRequestsPanel({
             <FilterChip active={filter === 'closed'} count={others.length} onClick={() => setFilter('closed')}>
               {t('memory.pulls.filter.closed')}
             </FilterChip>
-            <FilterChip active={filter === 'all'} count={prs.length} onClick={() => setFilter('all')}>
+            <FilterChip active={filter === 'all'} count={scoped.length} onClick={() => setFilter('all')}>
               {t('memory.pulls.filter.all')}
             </FilterChip>
-            <span className="ml-auto pr-1 text-[11.5px] text-faint" data-pulls-age>
-              {data.refreshing ? t('memory.pulls.refreshing') : data.fetchedAt ? t('memory.pulls.readAgo', { when: timeAgo(data.fetchedAt) }) : ''}
+            {me && (
+              <>
+                <span className="mx-1 h-4 w-px bg-line-strong" aria-hidden />
+                <Tip label={t('memory.pulls.filter.mineTip', { login: me })}>
+                  <span data-pulls-mine={mineOn || undefined}>
+                    <FilterChip icon={User} active={mineOn} count={byState(byAuthor(prs, me), filter).length} onClick={() => setMine(!mineOn)}>
+                      {t('memory.pulls.filter.mine')}
+                    </FilterChip>
+                  </span>
+                </Tip>
+              </>
+            )}
+            <span className="ml-auto flex items-center gap-1.5 pr-1 text-[11.5px] text-faint" data-pulls-age data-refreshing={refreshing || undefined}>
+              {refreshing ? (
+                <>
+                  <LoaderCircle className="size-3 animate-spin" />
+                  {t('memory.pulls.refreshing')}
+                </>
+              ) : (
+                data.fetchedAt && t('memory.pulls.readAgo', { when: timeAgo(data.fetchedAt) })
+              )}
+              <Tip label={t('memory.pulls.refresh')}>
+                <button
+                  type="button"
+                  aria-label={t('memory.pulls.refresh')}
+                  disabled={refreshing}
+                  onClick={() => refresh.mutate()}
+                  className="grid size-6 place-items-center rounded-md text-subtle transition hover:bg-surface hover:text-primary disabled:pointer-events-none disabled:opacity-40"
+                  data-pulls-refresh
+                >
+                  <RotateCw className="size-3.5" />
+                </button>
+              </Tip>
             </span>
           </div>
 
@@ -205,6 +272,9 @@ export function PullRequestsPanel({
                   <PullRequestRow
                     key={pr.number}
                     pr={pr}
+                    project={project}
+                    labels={withEdits(pr.labels, pr.number, edits)}
+                    onToggleLabel={(label, on) => toggleLabel(pr, label, on)}
                     canMerge={canOfferMerge}
                     mergeRunning={running.has(pr.number)}
                     mergeError={failed[pr.number]}
@@ -290,8 +360,24 @@ function without(errors: Readonly<Record<number, string>>, number: number): Reco
 const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
 const checksVariants: Record<string, BadgeVariant> = { passing: 'success', failing: 'danger', pending: 'warning' };
 
+// useMine is the Mine filter, remembered per project.
+function useMine(project: string): [boolean, (on: boolean) => void] {
+  const [state, setState] = useState(() => ({ project, on: readMine(project) }));
+  const on = state.project === project ? state.on : readMine(project);
+  return [
+    on,
+    (next) => {
+      writeMine(project, next);
+      setState({ project, on: next });
+    },
+  ];
+}
+
 function PullRequestRow({
   pr,
+  project,
+  labels,
+  onToggleLabel,
   canMerge,
   mergeRunning,
   mergeError,
@@ -299,6 +385,9 @@ function PullRequestRow({
   onMerge,
 }: {
   pr: T.PullRequest;
+  project: string;
+  labels: T.Label[];
+  onToggleLabel: (label: T.Label, on: boolean) => void;
   canMerge: boolean;
   mergeRunning: boolean;
   mergeError?: string;
@@ -318,6 +407,7 @@ function PullRequestRow({
           <p className="truncate font-mono text-[11.5px] text-subtle">
             #{pr.number} · {pr.headBranch} → {pr.baseBranch}
           </p>
+          <PullRequestLabels project={project} labels={labels} onToggle={onToggleLabel} />
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-1.5">
           {pr.draft ? (
@@ -374,6 +464,114 @@ function PullRequestRow({
       {mergeError && (
         <Notice className="mt-2.5">{t('memory.pulls.mergeFailed', { error: mergeError })}</Notice>
       )}
+    </div>
+  );
+}
+
+// PullRequestLabels is a pull request's labels in GitHub's colours, and the
+// picker that puts the repository's labels on it and takes them off. Clicks
+// in it stay in it, so they never reach whatever a click on the row does.
+function PullRequestLabels({ project, labels, onToggle }: { project: string; labels: T.Label[]; onToggle: (label: T.Label, on: boolean) => void }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()} data-pull-labels>
+      {labels.map((l) => (
+        <LabelPill key={l.name} label={l} />
+      ))}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={labels.length ? t('memory.pulls.labels.edit') : t('memory.pulls.labels.add')}
+            className={cn(
+              'flex h-5 items-center gap-1 rounded-full border border-dashed border-line-strong px-1.5 text-[11px] text-subtle transition hover:border-line-vivid hover:text-primary',
+              open && 'border-line-vivid text-primary',
+            )}
+            data-labels-edit
+          >
+            <Tag className="size-3" />
+            {labels.length === 0 && t('memory.pulls.labels.add')}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 p-0">
+          {open && <LabelPicker project={project} applied={labels} onToggle={onToggle} />}
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function LabelPill({ label }: { label: T.Label }) {
+  const pill = (
+    <span
+      className="inline-flex h-5 max-w-48 items-center truncate rounded-full border px-2 text-[11px] font-medium leading-none"
+      style={labelStyle(label.color)}
+      data-label={label.name}
+    >
+      {label.name}
+    </span>
+  );
+  return label.description ? <Tip label={label.description}>{pill}</Tip> : pill;
+}
+
+// LabelPicker lists the repository's labels, read with the project's GitHub
+// account when it first opens and kept a few minutes after, with a search.
+// Each click puts one on or takes it off at once; the picker stays open for
+// the next.
+function LabelPicker({ project, applied, onToggle }: { project: string; applied: T.Label[]; onToggle: (label: T.Label, on: boolean) => void }) {
+  const t = useT();
+  const all = useQuery({ queryKey: ['labels', project], queryFn: () => api.projectLabels(project), staleTime: 5 * 60_000 });
+  const [query, setQuery] = useState('');
+  const shown = matchLabels(all.data?.labels ?? [], query);
+  const has = (l: T.Label) => applied.some((a) => a.name === l.name);
+  return (
+    <div className="grid" data-label-picker>
+      <div className="border-b border-line p-2">
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && shown[0]) onToggle(shown[0], !has(shown[0]));
+          }}
+          placeholder={t('memory.pulls.labels.search')}
+          className="h-8 w-full rounded-md border border-line-strong bg-sunken px-2.5 text-[12.5px] text-primary placeholder:text-faint focus-visible:border-brand-400/60 focus-visible:outline-none"
+        />
+      </div>
+      <div className="max-h-72 overflow-y-auto p-1">
+        {all.isPending ? (
+          <p className="flex items-center gap-2 px-2 py-2 text-[12px] text-subtle">
+            <LoaderCircle className="size-3.5 animate-spin" />
+            {t('memory.pulls.labels.loading')}
+          </p>
+        ) : all.error ? (
+          <p className="px-2 py-2 text-[12px] text-rose-300">{t('memory.pulls.labels.unavailable', { error: errorMessage(all.error) })}</p>
+        ) : shown.length === 0 ? (
+          <p className="px-2 py-2 text-[12px] text-subtle">{all.data?.labels.length ? t('memory.pulls.labels.noMatch') : t('memory.pulls.labels.none')}</p>
+        ) : (
+          shown.map((l) => {
+            const on = has(l);
+            return (
+              <button
+                key={l.name}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onToggle(l, !on)}
+                className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-surface"
+                data-label-option={l.name}
+              >
+                <Check className={cn('mt-0.5 size-3.5 shrink-0 text-brand-300', !on && 'invisible')} />
+                <span className="mt-[3px] size-2.5 shrink-0 rounded-full" style={{ backgroundColor: labelHex(l.color) }} />
+                <span className="grid min-w-0">
+                  <span className="truncate text-[12.5px] text-primary">{l.name}</span>
+                  {l.description && <span className="truncate text-[11px] text-subtle">{l.description}</span>}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
