@@ -53,7 +53,6 @@ import { ReportDialog } from "./ReportDialog";
 import { UsageSentDialog } from "./UsageSentDialog";
 import { WhatsNewDialog } from "./WhatsNewDialog";
 import {
-  AgentQueue,
   AutoStopIdle,
   DockerPruneOnStop,
   CompactWindow,
@@ -1162,17 +1161,10 @@ function InstalledSettings({
           ],
         },
         {
-          id: "queue",
-          title: t("settings.group.queue.title"),
-          description: t("settings.group.queue.description"),
+          id: "recheck",
+          title: t("settings.group.recheck.title"),
+          description: t("settings.group.recheck.description"),
           entries: [
-            {
-              id: "agent-queue",
-              label: t("settings.entry.agent-queue.label"),
-              keywords: t("settings.entry.agent-queue.keywords"),
-              modified: changed((s) => s.agentQueue),
-              render: () => <AgentQueue />,
-            },
             {
               id: "lead-recheck",
               label: t("settings.entry.lead-recheck.label"),

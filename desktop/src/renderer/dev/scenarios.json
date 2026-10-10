@@ -716,41 +716,6 @@
     "height": 1600
   },
   {
-    "id": "queue-busy-dark",
-    "description": "The agent queue: agentbox at 4 of 4 slots with three queued below them, and organic — a second project sharing the budget — content with its own single slot — dark",
-    "query": "queue=busy&finished=1&theme=dark",
-    "width": 1280,
-    "height": 900
-  },
-  {
-    "id": "queue-alone-light",
-    "description": "Only organic has work: Auto gives it two slots instead of one, with nobody to share the budget — light",
-    "query": "queue=alone&theme=light",
-    "width": 1280,
-    "height": 900
-  },
-  {
-    "id": "queue-settings-dark",
-    "description": "agentbox's Settings, at the slots row: Auto's slot size and the running agents its peak is learned from, memory and CPU now and at their peak — dark",
-    "query": "queue=settings&theme=dark",
-    "width": 900,
-    "height": 1100
-  },
-  {
-    "id": "queue-settings-fixed-dark",
-    "description": "agentbox's Settings, at the slots row, pinned to 2 agents at once: the hard cap and what happens to agents beyond it — dark",
-    "query": "queue=settings-fixed&theme=dark",
-    "width": 900,
-    "height": 1100
-  },
-  {
-    "id": "queue-off-light",
-    "description": "Agent queue off in Settings: the rail's already-queued agents still show Queued #N, but the queue UI otherwise steps out of the way — light",
-    "query": "queue=off&finished=1&theme=light",
-    "width": 1280,
-    "height": 900
-  },
-  {
     "id": "nightly-sidebar-dark",
     "description": "A nightly build: the sidebar's starry header and Nightly badge, and a newer nightly on offer at its foot — dark",
     "query": "nightly=1&theme=dark",
@@ -789,6 +754,13 @@
     "id": "stalled-agent-light",
     "description": "The same — light",
     "query": "theme=light",
+    "width": 1280,
+    "height": 1100
+  },
+  {
+    "id": "memory-paused-dark",
+    "description": "The rail with agent-86, whose test run is paused while the VM's memory is under pressure: amber Paused for memory instead of green Working — dark",
+    "query": "theme=dark",
     "width": 1280,
     "height": 1100
   },

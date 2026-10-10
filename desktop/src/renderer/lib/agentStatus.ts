@@ -8,17 +8,22 @@ import type * as T from '../../shared/api';
 import { t, type MessageKey } from '../../shared/i18n/index.ts';
 import { api } from './api.ts';
 
-export type StatusTone = 'urgent' | 'error' | 'live' | 'muted';
+export type StatusTone = 'urgent' | 'error' | 'warning' | 'live' | 'muted';
 
 export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   if (agent.chat === 'waiting') return { text: t('agent.status.needsYou'), tone: 'urgent' };
   if (agent.state === 'incomplete') return { text: t('agent.status.needsAttention'), tone: 'error' };
   if (agent.state === 'missing') return { text: t('agent.status.missing'), tone: 'error' };
-  if (agent.state === 'queued') return { text: t('agent.status.queued', { position: agent.queuePosition ?? '?' }), tone: 'muted' };
-  if (agent.state === 'initializing') return { text: t('agent.status.initializing'), tone: 'live' };
+  // 'queued' is only ever a leftover from an earlier release, started as the
+  // daemon starts: it reads like an agent that is on its way up.
+  if (agent.state === 'initializing' || agent.state === 'queued') return { text: t('agent.status.initializing'), tone: 'live' };
   // A stalled turn still says running: the daemon's stall watch found no
   // progress on it for long enough that it is stuck, not working.
   if (agent.chat === 'running' && agent.stalledSince) return { text: t('agent.status.stalled'), tone: 'error' };
+  // The VM is short of memory and the agent's tests or builds are held back
+  // (T.Agent.memory): paused mid-run, or not yet started.
+  const held = memoryHold(agent);
+  if (held) return { text: held.text, tone: 'warning' };
   if (agent.chat === 'running') return { text: t('agent.status.working'), tone: 'live' };
   // Its turn ended on work it left running — a background command, a
   // monitor, a watcher — whose end wakes it to carry on. Not idle, and not
@@ -30,6 +35,17 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? t('agent.status.starting') : t('agent.status.idle'), tone: 'muted' };
   if (agent.state === 'paused') return { text: t('agent.status.paused'), tone: 'muted' };
   return { text: t('agent.status.stopped'), tone: 'muted' };
+}
+
+// memoryHold is what the VM's memory pressure is doing to a running agent's
+// heavy commands, in words, with the sentence that explains it for a tooltip;
+// undefined when nothing is held. Pausing wins over waiting: a paused command
+// has already started.
+export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: string; tip: string } | undefined {
+  if (agent.state !== 'running' || !agent.memory) return undefined;
+  if ((agent.memory.paused ?? 0) > 0) return { text: t('agent.status.memoryPaused'), tip: t('agent.status.memoryPausedTip') };
+  if ((agent.memory.waiting ?? 0) > 0) return { text: t('agent.status.memoryWaiting'), tip: t('agent.status.memoryWaitingTip') };
+  return undefined;
 }
 
 // awaiting is an agent between turns with background work still running
@@ -78,7 +94,7 @@ export function usageTip(sample: T.AgentUsage, humanBytes: (n: number) => string
 // (an unfinished create with nothing left running) does.
 export function rank(agent: T.Agent): number {
   if (agent.chat === 'waiting' || agent.state === 'incomplete' || agent.state === 'missing') return 0;
-  if (agent.state === 'running' || agent.state === 'initializing') return 1;
+  if (agent.state === 'running' || agent.state === 'initializing' || agent.state === 'queued') return 1;
   if (agent.state === 'paused') return 2;
   return 3;
 }
@@ -91,7 +107,7 @@ export function settled(agent: T.Agent): boolean {
   return chatLabel(agent).tone === 'muted' && agent.chat !== 'starting';
 }
 
-const toneOrder: StatusTone[] = ['urgent', 'error', 'live', 'muted'];
+const toneOrder: StatusTone[] = ['urgent', 'error', 'warning', 'live', 'muted'];
 
 // projectTone is the most urgent tone among a set of agents, standing in for
 // all of them: the same priority the rail sorts by, collapsed to one signal

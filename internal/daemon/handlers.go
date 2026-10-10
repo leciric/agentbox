@@ -45,7 +45,7 @@ func (s *Server) projectInfo(ctx context.Context, p state.Project) api.Project {
 		AgentModel: p.AgentModel, BranchPrefix: p.BranchPrefix, FinishNotices: p.FinishNotices,
 		RolloverThreshold: p.RolloverThreshold, ContextBudget: p.ContextBudget,
 		Consolidation: p.Consolidation, ConsolidationModel: p.ConsolidationModel,
-		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, Slots: p.Slots, AlwaysQueue: p.AlwaysQueue, AgentSize: p.AgentSize, CreatedAt: p.CreatedAt}
+		Section: p.Section, Position: p.Position, Nesting: p.Nesting, AgentPRs: p.AgentPRs, SyncBase: !p.BaseSyncOff, CreatedAt: p.CreatedAt}
 	if repo, err := gitrepo.Open(p.Root); err == nil {
 		info.Branch = repo.CurrentBranch()
 		if files, err := repo.EnvFiles(); err == nil && files != nil {
@@ -458,36 +458,6 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 			go s.syncBase(s.background(), p)
 		}
 	}
-	if req.Slots != nil {
-		if *req.Slots < 0 || *req.Slots > maxPinnedSlots {
-			return fmt.Errorf("slots is 0 for auto, or a number of agents from 1 to %d", maxPinnedSlots)
-		}
-		if err := s.store.SetProjectSlots(r.Context(), p.Name, *req.Slots); err != nil {
-			return err
-		}
-		p.Slots = *req.Slots
-		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
-		// More slots may let a queued agent start now.
-		s.kickQueue()
-	}
-	if req.AlwaysQueue != nil {
-		if err := s.store.SetProjectAlwaysQueue(r.Context(), p.Name, *req.AlwaysQueue); err != nil {
-			return err
-		}
-		p.AlwaysQueue = *req.AlwaysQueue
-		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
-	}
-	if req.AgentSize != nil {
-		size, err := agent.CheckSize(strings.TrimSpace(*req.AgentSize))
-		if err != nil {
-			return err
-		}
-		if err := s.store.SetProjectAgentSize(r.Context(), p.Name, size); err != nil {
-			return err
-		}
-		p.AgentSize = size
-		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
-	}
 	return writeJSON(w, http.StatusOK, s.projectInfo(r.Context(), p))
 }
 
@@ -897,11 +867,9 @@ func toAPIAgent(st agent.Status) api.Agent {
 		GitHubAccount: a.GitHubAccount,
 		Interface:     a.Interface,
 
-		State:         st.State,
-		QueuePosition: st.QueuePosition,
-		Size:          a.Size,
-		IP:            st.IP,
-		CreatedAt:     a.CreatedAt,
+		State:     st.State,
+		IP:        st.IP,
+		CreatedAt: a.CreatedAt,
 	}
 }
 
@@ -1081,52 +1049,14 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 			return api.Job{}, err
 		}
 	}
-	// The size the user chose for the agents the chat creates wins over the
-	// chat's own; left to the chat, its choice stands, and auto is normal.
-	if byLead && p.AgentSize != "" {
-		req.Size = p.AgentSize
-	}
-	size, err := agent.CheckSize(req.Size)
-	if err != nil {
-		return api.Job{}, err
-	}
-	req.Size = size
-	queue := p.AlwaysQueue
-	if req.Queue != nil {
-		queue = *req.Queue
-	}
-	// With the agent queue off, nothing queues for a slot: every create that
-	// fits makes its agent now, as it always has.
-	if on, err := s.store.Flag(ctx, state.SettingAgentQueue); err != nil || !on {
-		queue = false
-	}
-	if queue {
-		// A queued agent waits while a disk is at its floor (admitQueued).
-		return s.enqueueAgent(ctx, req, byLead)
-	}
+	// Every agent starts at once: Queue and Size are accepted and do
+	// nothing (CreateAgentRequest). The VM's memory pressure holds back
+	// heavy commands, not agents (pressure.go).
 	if err := s.diskRefusal("creating an agent"); err != nil {
 		return api.Job{}, err
 	}
-	// Whatever it asked, an agent the VM has no memory for waits for it in
-	// the queue (admission.go), and so does one beyond the number of agents
-	// its project is pinned to.
-	done, wait, err := s.admitCreate(ctx, req, p.Slots > 0)
-	if err != nil {
-		return api.Job{}, err
-	}
-	if done == nil {
-		s.logf("agent queue: %s waits: %s", req.Project, wait)
-		return s.enqueueAgent(ctx, req, byLead)
-	}
 	create := s.createJob(req, byLead, "")
-	j, err := s.launchJob("create", req.Project, func(ctx context.Context, log io.Writer) (any, error) {
-		defer done()
-		return create(ctx, log)
-	})
-	if err != nil {
-		done()
-	}
-	return j, err
+	return s.launchJob("create", req.Project, create)
 }
 
 // createJob is the job that makes an agent from req: a new one, or, when
@@ -1152,13 +1082,6 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			ran = &tailWriter{max: catchUpTail}
 			log = io.MultiWriter(log, ran)
 		}
-		// A queued agent's row is as old as its place in the queue.
-		var queuedAt time.Time
-		if req.Name != "" && queued != "" {
-			if q, err := s.store.Agent(ctx, req.Project, req.Name); err == nil && q.Status == state.AgentQueued {
-				queuedAt = q.CreatedAt
-			}
-		}
 		a, err := s.manager(log).Create(ctx, req.Project, agent.CreateOptions{
 			Name:          req.Name,
 			Branch:        req.Branch,
@@ -1179,7 +1102,6 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 
 			FinishNotice: req.FinishNotice,
 			Connectors:   connectors,
-			Size:         req.Size,
 			Task:         strings.TrimSpace(req.Task),
 			Queued:       queued != "",
 		})
@@ -1198,9 +1120,6 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 		s.countCreatedModel(ctx, a)
 		s.notePeakAgents(ctx)
 		s.setupStep(ctx, setupFirstAgent)
-		if !queuedAt.IsZero() {
-			s.noteAgentQueued(ctx, a, time.Since(queuedAt))
-		}
 		if byLead {
 			s.countFeature(api.FeatureAgentCreateByLead)
 		}
@@ -1250,9 +1169,6 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	deleteBranch, _ := strconv.ParseBool(q.Get("deleteBranch"))
 	deleteMedia, _ := strconv.ParseBool(q.Get("deleteMedia"))
 	opts := agent.DestroyOptions{Force: force, DeleteBranch: deleteBranch, DeleteMedia: deleteMedia}
-	if a.Status == state.AgentQueued && s.queueStarting(a.Ref()) {
-		return fmt.Errorf("%s is leaving the queue and being made now: destroy it once it's made", a.Ref())
-	}
 	if err := s.destroyAgentNow(r.Context(), s.manager(s.cfg.Log), a, opts); err != nil {
 		return err
 	}
@@ -1284,7 +1200,6 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 				s.recordError(errStartFailed, a.AI)
 			}
 		case "stop":
-			s.dropWaking(a, "the agent was stopped")
 			s.chat.Stop(a.Ref(), "the agent was stopped")
 			err = s.stopAgent(ctx, m, a)
 		case "pause":
@@ -1296,12 +1211,6 @@ func (s *Server) agentAction(action string) func(http.ResponseWriter, *http.Requ
 		}
 		if err != nil {
 			return err
-		}
-		switch action {
-		case "start", "resume":
-			// Whatever was held for it until there was memory to start it
-			// (wake.go) can go now.
-			s.releaseWaking(a)
 		}
 		s.refreshAgents(ctx)
 		info, err := s.describe(ctx, a)

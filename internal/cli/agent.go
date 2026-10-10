@@ -172,10 +172,6 @@ func newCreateCmd(a *app) *cobra.Command {
 			if f.Changed("context-window") {
 				req.ContextWindow = &window
 			}
-			// Left off, the project's "always queue new agents" decides.
-			if f.Changed("queue") {
-				req.Queue = &queue
-			}
 			c, err := a.client(cmd)
 			if err != nil {
 				return err
@@ -201,8 +197,10 @@ func newCreateCmd(a *app) *cobra.Command {
 	f.StringVar(&req.From, "from", "", "branch or commit to start from (default: the branch checked out in the project)")
 	f.StringVar(&req.ClaudeAccount, "claude-account", "", "a stored Claude Code account for this agent (default: the project's, then this machine's default)")
 	f.StringVar(&req.GitHubAccount, "github-account", "", "a stored GitHub account for this agent (default: the project's, then this machine's default, then none)")
-	f.BoolVar(&queue, "queue", false, "queue it: it gets its name, branch and task now, and its machine when one of the project's slots is free (agentbox queue); --queue=false makes it now even in a project that always queues (default: the project's setting)")
-	f.StringVar(&req.Size, "size", "", "how much of the VM's memory it reserves in its heavy phases (tests, builds, the browser, a recording), which wait for it: auto (the default, the project's), light (~2 GB), normal (what the project's agents were seen to need) or heavy (~8 GB, like a recording). A reservation, not a cap")
+	f.BoolVar(&queue, "queue", false, "accepted and ignored: every agent starts at once")
+	f.StringVar(&req.Size, "size", "", "accepted and ignored: the VM's memory pressure, not a size, decides when an agent's tests and builds run")
+	_ = f.MarkHidden("queue")
+	_ = f.MarkHidden("size")
 	f.StringVar(&req.Task, "task", "", "its first message, sent once it's ready: what to do")
 	f.BoolVar(&req.NoEnv, "no-env", false, "don't copy gitignored env files from the project")
 	f.BoolVar(&req.Clean, "clean", false, "start from the base image even if the project has a saved base")
@@ -226,15 +224,6 @@ func finishAgentJob(cmd *cobra.Command, c *api.Client, j api.Job, start time.Tim
 
 func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 	out := cmd.OutOrStdout()
-	if ag.State == "queued" {
-		why := ag.Waiting
-		if why == "" {
-			why = fmt.Sprintf("queued: it starts when one of %s's slots is free", ag.Project)
-		}
-		_, _ = fmt.Fprintf(out, "\nAgent %s %s (#%d in line, agentbox queue %s)\n", ag.Ref, why, ag.QueuePosition, ag.Project)
-		_, _ = fmt.Fprintf(out, "  branch  %s (made when it starts)\n", ag.Branch)
-		return
-	}
 	_, _ = fmt.Fprintf(out, "\nAgent %s ready in %s\n\n", ag.Ref, took.Round(100*time.Millisecond))
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if ag.Title != "" {
@@ -428,15 +417,6 @@ func newActionCmd(a *app, action, short, done string) *cobra.Command {
 			if all {
 				return stopAll(cmd, c)
 			}
-			if now {
-				if ag, err := c.Agent(cmd.Context(), args[0]); err == nil && ag.State == "queued" {
-					if err := c.StartQueued(cmd.Context(), args[0]); err != nil {
-						return err
-					}
-					_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Starting "+ag.Ref+" now; it's left the queue")
-					return nil
-				}
-			}
 			ag, err := c.AgentAction(cmd.Context(), args[0], action)
 			if err != nil {
 				return err
@@ -454,7 +434,9 @@ func newActionCmd(a *app, action, short, done string) *cobra.Command {
 		cmd.Flags().BoolVar(&all, "all", false, "stop every running or paused agent of every project")
 	}
 	if action == "start" {
-		cmd.Flags().BoolVar(&now, "now", false, "start a queued agent now, even if the VM's memory or its project's slots say it should wait")
+		// Accepted for scripts that still pass it: every agent starts at once.
+		cmd.Flags().BoolVar(&now, "now", false, "accepted and ignored: nothing waits to start")
+		_ = cmd.Flags().MarkHidden("now")
 	}
 	return cmd
 }

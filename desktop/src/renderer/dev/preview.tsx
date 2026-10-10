@@ -148,30 +148,6 @@
 //                           the Cloud Hypervisor VM's size, running with room
 //                           to resize it live, started by an older AgentBox
 //                           (a resize restarts it), or off
-//   ?queue=busy             The agent queue (D.. the per-project slots): the
-//                           rail and sidebar with agentbox at 4 of 4 slots,
-//                           three queued below them, and organic — a second
-//                           project sharing the same budget, learned at ~6
-//                           GiB an agent against agentbox's own ~2 GiB —
-//                           content with the one slot Auto leaves it
-//   ?queue=alone            Only organic has work: Auto gives it two slots
-//                           instead of one, with nobody to share the budget
-//   ?queue=demo             Starts like busy, then plays the queue draining
-//                           on a timer (~4s a step) — a slot frees, the next
-//                           queued agent starts, the rest move up — until
-//                           it's empty, for a recording; the per-agent usage
-//                           table follows the same stops and starts
-//   ?queue=settings         agentbox's Settings → General, at the slots
-//                           row: Auto's slot size and the running agents its
-//                           peak is learned from, memory and CPU now and at
-//                           their peak
-//   ?queue=settings-fixed   The same, with agentbox pinned to 2 agents at once
-//   ?queue=organic-alone    organic's Settings at the slots row, alone: two
-//   ?queue=organic-busy     organic's Settings beside a busy agentbox: one
-//   ?queue=off              Like busy, but with the installation's Agent
-//                           queue switch off: Settings and New agent's Queue
-//                           show disabled with a pointer, and the sidebar's three
-//                           already-queued agents still show Queued #N
 //   ?page=settings          the project's page itself, beside the sidebar,
 //                           open at a tab or a section of its Settings tab
 //                           (?page=tokens, ?page=general…); with ?open=agent-99,
@@ -200,7 +176,6 @@ import { PullRequestsPanel } from '../components/PullRequestsPanel';
 import { MediaTab } from '../components/MediaTab';
 import { ProjectMediaPanel } from '../components/ProjectMediaPanel';
 import { AllMediaView } from '../components/AllMediaView';
-import { ProjectSettings } from '../components/ProjectSettings';
 import { AgentTokensCard, TokensPanel } from '../components/TokensPanel';
 import { ClaudeAccounts, GitHubAccounts, SettingsView } from '../components/SettingsView';
 import { SettingsGroup } from '../components/ui/settings';
@@ -222,7 +197,7 @@ import { Timeline } from '../components/chat/Timeline';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
-import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
@@ -264,9 +239,6 @@ const imageUpdate = params.get('setup') === 'updating';
 const settingsPage = params.get('settings'); // a section of Settings, or a project's name
 const linuxHost = params.get('linux'); // 'setup' | 'nokvm' | 'move' | null
 const chvSize = params.get('chv'); // 'live' | 'old' | 'off' | null
-const queue = params.get('queue'); // 'busy' | 'alone' | 'demo' | 'settings' | 'settings-fixed' | 'organic-alone' | 'organic-busy' | 'off' | null
-// Whose Settings ?queue=settings and the organic ones show.
-const queueSettingsProject = queue?.startsWith('organic-') ? 'organic' : PROJECT;
 if (chvSize) localStorage.setItem('agentbox.settings.section', 'resources');
 if (settingsPage) localStorage.setItem('agentbox.settings.section', settingsPage);
 
@@ -363,15 +335,14 @@ if (notify) seedNotifications(queryClient, mockMedia());
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
-if (params.get('enforce') === '1') { queryClient.setQueryData(['queue', PROJECT], { projects: [] }); seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
+if (params.get('enforce') === '1') { seedDefaults(queryClient); queryClient.setQueryData<T.Settings>(['settings'], (s) => s && { ...s, enforceAgentDefaults: true }); }
 if (params.get('nightly') === '1') seedNightly(queryClient);
 if (chvSize) seedLinuxVM(queryClient, chvSize);
 // ?page= shows whole pages, and their sections ask for what no other
-// scenario seeds: no limits read yet, an empty queue, and no secrets or
+// scenario seeds: no limits read yet, and no secrets or
 // connectors.
 if (page) {
   queryClient.setQueryData(['claudeLimits'], []);
-  queryClient.setQueryData(['queue', PROJECT], { enabled: true, budget: 0, reserve: 0, projects: [], queued: [], reserved: 0 } satisfies T.QueueStatus);
   for (const target of [PROJECT, `${PROJECT}/${openAgent ?? 'agent-99'}`]) {
     queryClient.setQueryData(['secrets', target], []);
     queryClient.setQueryData(['connectors', target], []);
@@ -410,14 +381,7 @@ if (meters) {
   }
 }
 
-const queueSeed: Record<string, 'busy' | 'alone' | 'demo' | 'off'> = { settings: 'busy', 'settings-fixed': 'busy', 'organic-alone': 'alone', 'organic-busy': 'busy' };
-if (queue) seedQueue(queryClient, queueSeed[queue] ?? (queue as 'busy' | 'alone' | 'demo' | 'off'));
-if (queue === 'settings-fixed') {
-  queryClient.setQueryData<T.Project[]>(['projects'], (ps) => ps?.map((p) => (p.name === PROJECT ? { ...p, slots: 2 } : p)));
-  queryClient.setQueryData<T.QueueStatus>(['queue', PROJECT], (q) => q && { ...q, projects: q.projects.map((p) => (p.project === PROJECT ? { ...p, slots: 2, pinned: 2 } : p)) });
-}
-if (queue) startNowBridge();
-if (settingsPage && !queue) settingsBridge();
+if (settingsPage) settingsBridge();
 if (page) pageBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
@@ -495,9 +459,7 @@ if (account) {
   queryClient.setQueryData<T.Agent[]>(['agents'], (as) => as?.map((a) => (a.project === PROJECT && a.ai === 'claude' ? { ...a, claudeAccount: account } : a)));
 }
 
-// ?queue=alone has nothing left in agentbox: organic is the project worth
-// looking at, so the rail follows it instead of the default project.
-const view: View = openAgent ? { kind: 'agent', ref: `${PROJECT}/${openAgent}` } : { kind: 'project', project: queue === 'alone' ? 'organic' : PROJECT };
+const view: View = openAgent ? { kind: 'agent', ref: `${PROJECT}/${openAgent}` } : { kind: 'project', project: PROJECT };
 
 // UsagePreview stands the top bar up once per kind of view, so each one's
 // meter can be compared, and hovered for its tooltip.
@@ -623,14 +585,6 @@ function Preview() {
     return (
       <div style={{ maxWidth: 420, padding: 24, font: '13px var(--font-sans)' }}>
         <PullRequestsPanel project={PROJECT} onSelect={() => {}} onOpenAccount={() => {}} />
-      </div>
-    );
-  }
-
-  if (queue === 'settings' || queue === 'settings-fixed' || queue === 'organic-alone' || queue === 'organic-busy') {
-    return (
-      <div style={{ maxWidth: 720, padding: 24, font: '13px var(--font-sans)' }}>
-        <QueueSettingsPreview />
       </div>
     );
   }
@@ -834,9 +788,6 @@ function Preview() {
   );
 }
 
-// QueueSettingsPreview is agentbox's Settings → General (?queue=settings):
-// the same ProjectSettings the real Settings tab renders, against whatever
-// seedQueue put in the projects query.
 // AsleepChatPreview wakes its agent the way the daemon does: Start, or a
 // message sent, runs it after a moment, and the message joins the chat.
 function AsleepChatPreview({ state: initial, agent }: { state: 'stopped' | 'paused'; agent: T.Agent }) {
@@ -862,12 +813,6 @@ function AsleepChatPreview({ state: initial, agent }: { state: 'stopped' | 'paus
   return <ChatTab agent={{ ...agent, ref: asleepRef, name: 'agent-97', title: 'Add a dark mode toggle', state }} starting={starting} autoStart={false} onStart={onStart} />;
 }
 
-function QueueSettingsPreview() {
-  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const project = projects.data?.find((p) => p.name === queueSettingsProject);
-  return project ? <ProjectSettings project={project} /> : null;
-}
-
 // GitHubPreview reads the project and the accounts through their queries, so
 // a pick or a rename shows what the dev bridge answered once they refetch.
 function GitHubPreview() {
@@ -885,51 +830,15 @@ function GitHubPreview() {
   );
 }
 
-// startNowBridge answers a queued agent's "Start now": it leaves the queue
-// and starts initializing, the rest moving up a place. The agents and the
-// queue are read back from the cache, so the refresh after it shows that.
-function startNowBridge(): void {
-  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
-  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
-  const inner = bridge.request;
-  const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
-  bridge.request = async (method, path, body) => {
-    if (method === 'GET' && path.startsWith('/v1/queue')) return answer(queryClient.getQueryData(['queue', PROJECT]));
-    if (method === 'GET' && path === '/v1/agents') return answer(queryClient.getQueryData(['agents']));
-    const start = method === 'POST' ? /^\/v1\/queue\/([^/]+)\/([^/]+)\/start$/.exec(path) : null;
-    if (start) {
-      const ref = `${decodeURIComponent(start[1])}/${decodeURIComponent(start[2])}`;
-      const status = queryClient.getQueryData<T.QueueStatus>(['queue', PROJECT]);
-      if (status) {
-        const queued = status.queued.filter((q) => q.ref !== ref).map((q, i) => ({ ...q, position: i + 1 }));
-        queryClient.setQueryData(['queue', PROJECT], { ...status, queued });
-      }
-      const agents = queryClient.getQueryData<T.Agent[]>(['agents']) ?? [];
-      let position = 0;
-      const next = agents.map((a) => {
-        if (a.ref === ref) return { ...a, state: 'initializing', queuePosition: undefined, waiting: undefined };
-        if (a.state === 'queued' && a.project === PROJECT) return { ...a, queuePosition: ++position };
-        return a;
-      });
-      queryClient.setQueryData(['agents'], next);
-      return { status: 204, body: '', contentType: 'application/json' };
-    }
-    return inner(method, path, body);
-  };
-}
-
 // settingsBridge answers what Settings polls and the dev bridge would answer
-// with a bare {}: a project's queue (its "Agents at once" row reads the
-// projects in it) and the phone's LAN status, off and unpaired.
+// with a bare {}: the phone's LAN status, off and unpaired.
 function settingsBridge(): void {
   type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
   const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
   const inner = bridge.request;
   const answer = (value: unknown) => ({ status: 200, body: JSON.stringify(value), contentType: 'application/json' });
-  const queue: T.QueueStatus = { enabled: false, budget: 0, reserve: 0, projects: [], queued: [], reserved: 0 };
   const lan: T.LANStatus = { enabled: false, port: 7780, listening: false, urls: [], tunnel: { enabled: false, named: false, state: 'off', origin: 'http://localhost:7780' }, phones: [] };
   bridge.request = async (method, path, body) => {
-    if (method === 'GET' && path.startsWith('/v1/queue')) return answer(queryClient.getQueryData(['queue', PROJECT]) ?? queue);
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
     return inner(method, path, body);
   };

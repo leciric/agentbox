@@ -307,10 +307,6 @@ type TellResult struct {
 	// Woke is "started" or "resumed" when the agent's machine wasn't
 	// running and had to be, before its chat could take the message.
 	Woke string `json:"woke,omitempty"`
-	// Waiting is why the agent's stopped machine waits to start: the VM
-	// hasn't the memory for it now. The message is held in its chat and
-	// delivered once it starts.
-	Waiting string `json:"waiting,omitempty"`
 }
 
 type ChatMessageRequest struct {

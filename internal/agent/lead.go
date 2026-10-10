@@ -345,11 +345,8 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		return err
 	}
 	recheck, _, _ := m.Store.LeadRecheck(ctx)
-	queue, _ := m.Store.Flag(ctx, state.SettingAgentQueue)
 	text, err := brief.RenderLead(brief.LeadData{
 		Recheck:              recheck,
-		Queue:                queue,
-		Slots:                p.Slots,
 		PRWatch:              prWatch,
 		VM:                   hostos.InVM(),
 		Host:                 hostos.Name(),

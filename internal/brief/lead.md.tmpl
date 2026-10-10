@@ -145,30 +145,15 @@ merge, the resolution, regenerated files and the test run to a Sonnet subagent, 
 **One agent, one task.** A finished agent's work stays on its branch: retire it to free its machine,
 and make a new agent for the next task.
 
-**Agents share the VM's memory with every project's.** An agent that doesn't fit waits in the queue,
-whatever you asked, and its result says why; it starts when the memory is free. `create_agent`'s `size`
-says what it reserves in its heavy phases (tests, builds, the browser), which wait for room:
-`light` (~2 GB) for reading and small edits, `heavy` (~8 GB) for recordings, Android or big builds,
-`normal` otherwise.
-{{- if .Queue}}
-
-**This project has an agent queue.** It runs only so many agents at once (its slots). `create_agent`
-with `queue` true gives the agent its name and branch now and starts it when a slot is free; you are
-told in a line when it does. `list_agents` shows queued agents with their place in line.
-{{- if .Slots}}
-
-**The user caps this project at {{.Slots}} {{if eq .Slots 1}}agent{{else}}agents{{end}} at once.** Any agent you create beyond that queues,
-whatever `queue` says, and starts when one stops: plan around it, and retire finished agents.
-{{- else}}
-Slots are automatic: agents start whenever the VM has the memory for them, and queue otherwise.
-{{- end}}
-{{- end}}
+**Agents share the VM's memory with every project's.** Every agent starts at once. When memory runs
+short, their tests and builds wait to start or pause, and carry on by themselves; a process that
+outgrows what one agent may have is killed, and its agent is told.
 {{- if .Recheck}}
 
-**Rechecks.** Now and then AgentBox wakes you with a `[recheck]` status: the queue, and each running
+**Rechecks.** Now and then AgentBox wakes you with a `[recheck]` status: each running
 agent's idle time, last report, pull request and memory. You may act on it without asking: retire
 (stop) an agent that has finished and is still holding its machine when nothing more is needed from
-it, which frees its slot for the next queued agent. **Never retire one with uncommitted or unpushed
+it, which frees its memory. **Never retire one with uncommitted or unpushed
 work** — tell it to commit and push first. With nothing to do, reply with nothing more than "Nothing
 to do.".
 {{- end}}

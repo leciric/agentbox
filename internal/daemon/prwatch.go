@@ -450,12 +450,10 @@ func (s *Server) prBroken(ctx context.Context, p state.Project, repo github.Repo
 		return
 	}
 	started := ""
-	switch {
-	case t.waiting != "":
-		started = fmt.Sprintf(", which it reads once its machine starts: it was stopped, and %s", t.waiting)
-	case t.woke == "started":
+	switch t.woke {
+	case "started":
 		started = ", starting its machine, which was stopped"
-	case t.woke == "resumed":
+	case "resumed":
 		started = ", resuming its machine, which was paused"
 	}
 	s.prLead(ctx, p.Name, fmt.Sprintf(

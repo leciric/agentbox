@@ -111,11 +111,6 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				if job.Kind == "queue" {
-					var ag api.Agent
-					_ = json.Unmarshal(job.Result, &ag)
-					return queuedLine(in.Title, in.Project+"'s", ag), nil
-				}
 				return fmt.Sprintf("Creating %q in %s; it starts on the task by itself. Job %s.", in.Title, in.Project, job.ID), nil
 			},
 		},

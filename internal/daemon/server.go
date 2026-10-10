@@ -33,6 +33,7 @@ import (
 	"agentbox/internal/omarchy"
 	"agentbox/internal/paths"
 	"agentbox/internal/pkgcache"
+	"agentbox/internal/pressure"
 	"agentbox/internal/remote"
 	"agentbox/internal/secrets"
 	"agentbox/internal/state"
@@ -208,39 +209,30 @@ type Server struct {
 	cpuKick  chan struct{}
 	cpuEvery time.Duration
 
-	// The agent queue (queue.go). queueMu makes one pass of it at a time;
-	// startingQueued, under mu, are the queued agents handed to a create job
-	// that hasn't ended. queueStart, slotBudget and projectPeak are
-	// startQueuedAgent and the manager's, or a test's.
-	queueKick      chan struct{}
-	queueEvery     time.Duration // queueInterval; 0 runs no loop
-	queueMu        sync.Mutex
-	startingQueued map[string]bool
-	queueStart     func(ctx context.Context, q state.QueuedAgent) error
-	slotBudget     func(ctx context.Context) (int64, error)
-	projectPeak    func(ctx context.Context, project string) (int64, bool, error)
-	// projectShape is the manager's ProjectShape, or a test's: admission's
-	// baselines and the burst pool's bursts (burst.go).
-	projectShape func(ctx context.Context, project string) (agent.Shape, error)
-	// memAvailable is agent.MemAvailable, or a test's: Admit's sanity bound,
-	// the VM's real spare memory regardless of what admission's bookkeeping
-	// adds up to.
-	memAvailable func() int64
-	burst        *burstPool
-	// usageNow is what each agent used when last sampled, by ref, under mu.
-	usageNow map[string]agent.AgentUsage
-	// Admission (admission.go), under mu: the creates admitted straight to
-	// their machines whose jobs haven't ended, by a number of their own, and
-	// why each queued agent waits, by ref. setMemoryHigh is
-	// agent.SetMemoryHigh, or a test's.
-	pendingCreates map[int]pendingCreate
-	pendingSeq     int
-	waitReasons    map[string]string
-	setMemoryHigh  func(instance string, high int64) error
-	// Stopped agents told something (wake.go): waking, under mu, are those
-	// whose machines wait for memory, with messages held for them, by ref;
-	// wakeMu makes one start of a stopped machine for a message at a time.
-	waking map[string]*wakingAgent
+	// The usage loop (usageloop.go): usageNow is what each agent used when
+	// last sampled, by ref, under mu.
+	usageEvery time.Duration // usageInterval; 0 runs no loop
+	usageNow   map[string]agent.AgentUsage
+	// Memory (pressure.go): the heavy commands the VM's pressure holds back,
+	// and what reads and applies it, agent's and package pressure's
+	// functions or a test's. oomSeen, under mu, is each machine's count of
+	// processes killed for its memory.max when last looked at, and
+	// loggedOnce what logOnce last logged under each key.
+	heavy          *heavyRuns
+	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
+	readPressure   func() (pressure.PSI, error)
+	runCgroups     runCgroups
+	vmMemory       func() int64
+	setMemoryLimit func(instance string, limit int64) error
+	memoryEvents   func(instance string) (agent.MemoryCounts, bool)
+	oomVictim      func(instance string) (agent.OOMVictim, bool)
+	oomSeen        map[string]agent.MemoryCounts
+	loggedOnce     map[string]string
+	// taskMu makes one hand-over of a task to the lead at a time
+	// (taskroute.go).
+	taskMu sync.Mutex
+	// wakeMu makes one start of a stopped machine for a message at a time
+	// (wake.go).
 	wakeMu sync.Mutex
 	// The lead recheck (leadrecheck.go), under mu: when each project's lead
 	// was last rechecked, and what it was told then, so the same state isn't
@@ -289,15 +281,19 @@ func New(cfg Config) (*Server, error) {
 		updates:          updates{now: make(chan struct{}, 1)},
 		terminalActivity: map[string]time.Time{},
 		lan:              newLANState(),
-		queueKick:        make(chan struct{}, 1),
-		queueEvery:       queueInterval,
+		usageEvery:       usageInterval,
+		heavy:            newHeavyRuns(),
+		pressureEvery:    pressureInterval,
+		readPressure:     func() (pressure.PSI, error) { return pressure.Read(pressure.File) },
+		runCgroups:       agentRunCgroups{},
+		vmMemory:         agent.HostMemory,
+		setMemoryLimit:   agent.SetMemoryLimit,
+		memoryEvents:     agent.MemoryEvents,
+		oomVictim:        agent.LastOOMVictim,
+		oomSeen:          map[string]agent.MemoryCounts{},
+		loggedOnce:       map[string]string{},
 		cpuKick:          make(chan struct{}, 1),
 		cpuEvery:         cpuShareInterval,
-		startingQueued:   map[string]bool{},
-		pendingCreates:   map[int]pendingCreate{},
-		waitReasons:      map[string]string{},
-		waking:           map[string]*wakingAgent{},
-		setMemoryHigh:    agent.SetMemoryHigh,
 		recheckedAt:      map[string]time.Time{},
 		recheckedWhat:    map[string]string{},
 		stalls:           map[string]*stallTrack{},
@@ -306,18 +302,8 @@ func New(cfg Config) (*Server, error) {
 	}
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
-	s.queueStart = s.startQueuedAgent
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
 	s.stallTell = s.recheckTell
-	s.slotBudget = func(context.Context) (int64, error) { return agent.SlotBudget(), nil }
-	s.projectPeak = func(ctx context.Context, project string) (int64, bool, error) {
-		return s.manager(nil).ProjectPeak(ctx, project)
-	}
-	s.projectShape = func(ctx context.Context, project string) (agent.Shape, error) {
-		return s.manager(nil).ProjectShape(ctx, project)
-	}
-	s.memAvailable = agent.MemAvailable
-	s.burst = newBurstPool()
 	s.connectors = s.newConnectors()
 	s.disks = newAgentDiskCache(func(ctx context.Context, a state.Agent) agent.AgentDisk { return s.manager(nil).AgentDisk(ctx, a) })
 	s.prTell, s.prLead = s.prTellAgent, s.tellLead
@@ -417,7 +403,11 @@ func (s *Server) Run(ctx context.Context) error {
 	loops.Go(func() { s.sweepFinishedAgents(ctx) })
 	loops.Go(func() { s.sweepMemories(ctx) })
 	loops.Go(func() { s.sweepIdleAgents(ctx) })
-	loops.Go(func() { s.runQueue(ctx) })
+	loops.Go(func() { s.runUsage(ctx) })
+	loops.Go(func() {
+		s.giveZram()
+		s.runPressure(ctx)
+	})
 	loops.Go(func() { s.watchUpdates(ctx) })
 	loops.Go(func() { s.watchUsage(ctx, realUsageClock()) })
 	loops.Go(func() { s.watchStalls(ctx) })
@@ -435,6 +425,8 @@ func (s *Server) Run(ctx context.Context) error {
 	// The turns the last daemon left running carry on (restart.go), once the
 	// API that their chats' tools call back is up.
 	loops.Go(func() { s.continueTurns(ctx) })
+	// What an earlier release left queued starts now (leftoverqueue.go).
+	loops.Go(func() { s.startLeftoverQueue(ctx) })
 	s.startRemote(ctx)
 	// A new AgentBox may pin newer agent tools than the base image has: they
 	// are moved on in the background, while agents go on being made from it.
@@ -710,10 +702,7 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/projects/{project}/base", s.removeBase)
 	h("POST /v1/projects/{project}/base/revert", s.revertBase)
 
-	h("GET /v1/queue", s.getQueue)
-	h("POST /v1/queue/{project}/{agent}/move", s.moveQueued)
-	h("POST /v1/queue/{project}/{agent}/start", s.startQueuedNow)
-	h("DELETE /v1/queue/{project}/{agent}", s.removeQueued)
+	h("GET /v1/pressure", s.getPressure)
 	h("GET /v1/agents", s.listAgents)
 	h("POST /v1/agents", s.createAgent)
 	h("POST /v1/agents/stop", s.stopAgents)

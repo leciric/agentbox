@@ -201,11 +201,6 @@ const (
 	// SettingIdleTime is how long SettingAutoStopIdle waits, as a count of
 	// seconds. Empty means DefaultIdleTime.
 	SettingIdleTime = "idle_time"
-	// SettingAgentQueue turns the agent queue on: creates may queue, and
-	// queued agents wait for one of their project's slots. Off until the user
-	// turns it on, and off, nothing queues and no slots are enforced — an
-	// agent already queued starts at once.
-	SettingAgentQueue = "agent_queue"
 	// SettingLeadRecheck says whether the daemon wakes each project's chat
 	// every SettingLeadRecheckMinutes with a short status of its running
 	// agents and its queue, when there is something to act on. Off until the

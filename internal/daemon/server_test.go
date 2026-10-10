@@ -28,6 +28,7 @@ import (
 	"agentbox/internal/image"
 	"agentbox/internal/incus"
 	"agentbox/internal/paths"
+	"agentbox/internal/pressure"
 	"agentbox/internal/state"
 	"agentbox/internal/testutil"
 )
@@ -80,9 +81,9 @@ type testConfig struct {
 	previewAddr string
 	// updateURL is Config.UpdateURL; empty is a port nothing listens on.
 	updateURL string
-	// queue, when set, is given the daemon before it runs, so its queue loop
-	// never sees the real hooks (queue_test.go).
-	queue func(*Server)
+	// setup, when set, is given the daemon before it runs, so its loops
+	// never see the real hooks.
+	setup func(*Server)
 	// dockerPruneTimeout, when set, is the daemon's own (dockerprune.go).
 	dockerPruneTimeout time.Duration
 	// releasesURL is Config.ReleasesURL; empty is a port nothing listens on.
@@ -177,17 +178,16 @@ func startTestDaemon(t *testing.T, root, script string, config ...testConfig) te
 	srv.askAside = func(context.Context, state.Agent, string, string) (string, string, error) {
 		return "", "", errors.New("this test starts no AI tool")
 	}
-	// Admission (admission.go) works from this machine's memory, which would
-	// queue a test's creates on a small one: a test about it says otherwise.
-	// Nor does a test write a cgroup.
-	srv.slotBudget = func(context.Context) (int64, error) { return 1 << 50, nil }
-	srv.setMemoryHigh = func(string, int64) error { return nil }
-	// Admit's sanity bound (admission.go) reads this machine's real spare
-	// memory too, which has nothing to do with a test's small, made-up VM: a
-	// test about the bound sets its own.
-	srv.memAvailable = func() int64 { return 0 }
-	if tc.queue != nil {
-		tc.queue(srv)
+	// Memory (pressure.go) reads this machine's pressure and writes cgroups:
+	// a test does neither, and steps the pressure loop itself.
+	srv.pressureEvery = 0
+	srv.readPressure = func() (pressure.PSI, error) { return pressure.PSI{}, nil }
+	srv.runCgroups = &fakeRunCgroups{}
+	srv.setMemoryLimit = func(string, int64) error { return nil }
+	srv.memoryEvents = func(string) (agent.MemoryCounts, bool) { return agent.MemoryCounts{}, false }
+	srv.oomVictim = func(string) (agent.OOMVictim, bool) { return agent.OOMVictim{}, false }
+	if tc.setup != nil {
+		tc.setup(srv)
 	}
 	srv.loginCallbackUnreachable = tc.loginCallbackUnreachable
 	if tc.dockerPruneTimeout > 0 {

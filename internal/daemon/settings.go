@@ -175,13 +175,6 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if req.AgentQueue != nil {
-		if err := s.store.SetFlag(r.Context(), state.SettingAgentQueue, *req.AgentQueue); err != nil {
-			return err
-		}
-		// Off starts whatever is queued; on may have work to look at.
-		s.kickQueue()
-	}
 	if req.LeadRecheckMinutes != nil {
 		if n := *req.LeadRecheckMinutes; n < 5 || n > 1440 {
 			return fmt.Errorf("the recheck is every 5 to 1440 minutes; %d isn't", n)
@@ -195,8 +188,8 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if req.AgentQueue != nil || req.LeadRecheck != nil {
-		// Every chat's brief says whether it has a queue and rechecks.
+	if req.LeadRecheck != nil {
+		// Every chat's brief says whether it has rechecks.
 		if projects, err := s.store.Projects(r.Context()); err == nil {
 			for _, p := range projects {
 				if err := s.manager(nil).ReconfigureLead(r.Context(), p.Name); err != nil {
@@ -440,10 +433,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	agentQueue, err := s.store.Flag(r.Context(), state.SettingAgentQueue)
-	if err != nil {
-		return api.Settings{}, err
-	}
 	leadRecheck, recheckEvery, err := s.store.LeadRecheck(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -499,7 +488,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		DockerPruneOnStop: dockerPrune,
 
-		AgentQueue:         agentQueue,
 		LeadRecheck:        leadRecheck,
 		LeadRecheckMinutes: int(recheckEvery / time.Minute),
 

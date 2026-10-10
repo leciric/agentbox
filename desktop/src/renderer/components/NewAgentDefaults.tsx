@@ -819,37 +819,6 @@ export function DockerPruneOnStop() {
   );
 }
 
-// AgentQueue turns the per-project running limit on for the installation:
-// off, every agent starts right away, the way AgentBox always worked; on, a
-// project's own slots (its Overview settings) and New agent's Queue switch
-// take effect. Off by default, so nothing changes until you ask for it.
-export function AgentQueue() {
-  const t = useT();
-  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
-  const queryClient = useQueryClient();
-  const save = useMutation({
-    mutationFn: (agentQueue: boolean) => api.updateSettings({ agentQueue }),
-    onSuccess: (next) => queryClient.setQueryData(['settings'], next),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  return (
-    <SettingRow
-      label={t('defaults.newAgent.queueLabel')}
-      description={t('defaults.newAgent.queueDescription')}
-      control={
-        <Switch
-          data-agent-queue
-          aria-label={t('defaults.newAgent.queueLabel')}
-          disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.agentQueue ?? false}
-          onCheckedChange={(agentQueue) => save.mutate(agentQueue)}
-        />
-      }
-    />
-  );
-}
-
 // leadRecheckFallback is the minutes it defaults to once you turn it on.
 const leadRecheckFallback = 20;
 

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"agentbox/internal/acp"
-	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
 	"agentbox/internal/state"
@@ -92,11 +91,7 @@ func restartDaemon(t *testing.T, root, status string, launch chat.Launcher) test
 	t.Helper()
 	instances := fmt.Sprintf(`[{"name":"ab-hello-stack-agent-01","status":%q,"config":{},"expanded_config":{},`+
 		`"state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.8.8.2"}]}}}}]`, status)
-	return startTestDaemon(t, root, wakeIncus, testConfig{instances: instances, queue: func(s *Server) {
-		s.queueEvery = 0
-		s.projectShape = func(context.Context, string) (agent.Shape, error) {
-			return agent.Shape{Baseline: 4 * gib, Burst: 2 * gib}, nil
-		}
+	return startTestDaemon(t, root, wakeIncus, testConfig{instances: instances, setup: func(s *Server) {
 		// Set before Run, which is when the turns are carried on.
 		s.chat.Launch = launch
 		s.chat.Prepare = func(context.Context, state.Agent, string, int64) error { return nil }

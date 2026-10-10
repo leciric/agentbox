@@ -13,7 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -24,21 +24,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Heavy phases inside an agent: a test run, a build, the browser, a
-// recording take the agent's burst from the VM's burst pool as a lease, and
-// wait for one when the pool is full (internal/daemon/burst.go). Claude Code
-// agents take them by themselves through heavy-hook, which their settings
-// run around tool calls (internal/agent/heavyhooks.go); `agentbox heavy`
-// takes one around any other command.
+// Heavy commands inside an agent: a test run or a build asks the daemon
+// before it starts, waits while the VM's memory is under pressure, and joins
+// a cgroup of its own as it starts, so the daemon can pause it alone if
+// pressure stays high (internal/daemon/pressure.go). Claude Code agents ask
+// by themselves through heavy-hook, which their settings run around Bash
+// tool calls (internal/agent/heavyhooks.go); `agentbox heavy` asks around any
+// other command.
 
-// burstClient is the part of the in-agent API leases go through.
-type burstClient interface {
-	AcquireBurst(ctx context.Context, req api.BurstRequest) (api.BurstLease, error)
-	ReleaseBurst(ctx context.Context, key string) (api.BurstLease, error)
+// heavyClient is the part of the in-agent API heavy commands go through.
+type heavyClient interface {
+	StartHeavy(ctx context.Context, req api.HeavyRequest) (api.HeavyStart, error)
+	JoinHeavy(ctx context.Context, key string, pid int) error
+	EndHeavy(ctx context.Context, key string) error
 }
 
-// heavyRenew is how often `agentbox heavy` renews its key, well inside its
-// TTL, so a lease outlives the command only by that TTL if it's killed.
+// heavyRenew is how often `agentbox heavy` asks again for its command while
+// it runs, well inside heavyTTL, which only matters for a command that
+// couldn't join a cgroup of its own: the daemon counts it as running for
+// that long after it's killed.
 const (
 	heavyRenew = 30 * time.Second
 	heavyTTL   = 2 * time.Minute
@@ -47,21 +51,19 @@ const (
 func newHeavyCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "heavy [--] <command> [args...]",
-		Short: "Run a heavy command with memory from the VM's burst pool",
+		Short: "Run a heavy command, waiting while the VM's memory is under pressure",
 		Long: `Runs a command that needs a lot of memory for a while (a test suite, a big
-build, an emulator) with this agent's burst from the VM's burst pool, and gives
-it back when the command ends.
+build, an emulator) the way an agent's tests and builds run: it waits to start
+while the VM's memory is under pressure, saying why once, starts in turn as it
+eases, and may be paused, and resumed, if pressure stays high while it runs.
 
-Run it inside an agent. When other agents' heavy phases hold the pool, it waits
-for room, saying why once, and runs the command with its test runners'
-parallelism held to the lease (GOFLAGS=-p, VITEST_MAX_THREADS, ...). Claude
-Code agents take a lease by themselves around tests, builds and the browser;
-use this for anything else.`,
+Run it inside an agent. Claude Code agents do this by themselves around tests
+and builds; use it for anything else.`,
 		Example: `  agentbox heavy -- ./gradlew assembleDebug
   agentbox heavy make -j4`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var c burstClient
+			var c heavyClient
 			if socket := inAgentSocket(); fileExists(socket) {
 				c = api.NewClient(socket)
 			}
@@ -84,31 +86,41 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// runHeavy runs args under a lease. With no in-agent API (c nil), outside
-// an agent, it just runs them.
-func runHeavy(ctx context.Context, c burstClient, args []string, stderr io.Writer) (int, error) {
-	var env map[string]string
+// runHeavy runs args once the daemon says it may start. With no in-agent API
+// (c nil), outside an agent, it just runs them.
+func runHeavy(ctx context.Context, c heavyClient, args []string, stderr io.Writer) (int, error) {
+	if args[0] == "--" {
+		args = args[1:]
+	}
+	if len(args) == 0 {
+		return 0, errors.New("say which command to run")
+	}
 	if c != nil {
 		key := "heavy-" + randomKey()
-		lease, err := c.AcquireBurst(ctx, api.BurstRequest{Key: key, TTLSeconds: int(heavyTTL.Seconds()), WaitSeconds: 2})
-		if err == nil && !lease.Granted {
-			_, _ = fmt.Fprintf(stderr, "agentbox heavy: waiting for memory: %s\n", lease.Why)
-			lease, err = c.AcquireBurst(ctx, api.BurstRequest{Key: key, TTLSeconds: int(heavyTTL.Seconds())})
+		req := api.HeavyRequest{Key: key, Command: strings.Join(args, " "), TTLSeconds: int(heavyTTL.Seconds())}
+		start, err := c.StartHeavy(ctx, withWait(req, 2))
+		if err == nil && !start.Started {
+			_, _ = fmt.Fprintf(stderr, "agentbox heavy: waiting for memory: %s\n", start.Why)
+			// Each ask waits up to 10 minutes; asking again keeps its place.
+			for err == nil && !start.Started {
+				start, err = c.StartHeavy(ctx, req)
+			}
 		}
-		switch {
-		case err != nil:
-			// The daemon is unreachable: the command still runs, unleased.
-			_, _ = fmt.Fprintf(stderr, "agentbox heavy: no lease (%v); running anyway\n", err)
-		case !lease.Granted:
-			return 1, fmt.Errorf("no memory for it after 10 minutes: %s. Try again later", lease.Why)
-		default:
-			env = lease.Env
+		if err != nil {
+			if ctx.Err() != nil {
+				return 0, ctx.Err()
+			}
+			// The daemon is unreachable: the command still runs.
+			_, _ = fmt.Fprintf(stderr, "agentbox heavy: couldn't ask the daemon (%v); running anyway\n", err)
+		} else {
+			// In its cgroup before the command starts, so all it starts is.
+			_ = c.JoinHeavy(ctx, key, os.Getpid())
 			stop := make(chan struct{})
 			defer func() {
 				close(stop)
-				release, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				end, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 				defer cancel()
-				_, _ = c.ReleaseBurst(release, key)
+				_ = c.EndHeavy(end, key)
 			}()
 			go func() {
 				tick := time.NewTicker(heavyRenew)
@@ -118,26 +130,19 @@ func runHeavy(ctx context.Context, c burstClient, args []string, stderr io.Write
 					case <-stop:
 						return
 					case <-tick.C:
-						_, _ = c.AcquireBurst(ctx, api.BurstRequest{Key: key, TTLSeconds: int(heavyTTL.Seconds()), WaitSeconds: 1})
+						_, _ = c.StartHeavy(ctx, withWait(req, 1))
 					}
 				}
 			}()
 		}
 	}
-	if args[0] == "--" {
-		args = args[1:]
-	}
-	if len(args) == 0 {
-		return 0, errors.New("say which command to run")
-	}
 	child := exec.Command(args[0], args[1:]...)
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
-	child.Env = withBurstEnv(os.Environ(), env)
 	if err := child.Start(); err != nil {
 		return 0, err
 	}
-	// Ctrl-C and a kill reach the command; this waits for it to end, to give
-	// the lease back after.
+	// Ctrl-C and a kill reach the command; this waits for it to end, to say
+	// so after.
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(signals)
@@ -154,61 +159,22 @@ func runHeavy(ctx context.Context, c burstClient, args []string, stderr io.Write
 	return 0, err
 }
 
+func withWait(req api.HeavyRequest, seconds int) api.HeavyRequest {
+	req.WaitSeconds = seconds
+	return req
+}
+
 func randomKey() string {
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
-// withBurstEnv is environ with a lease's variables set: GOFLAGS added to,
-// the rest replaced.
-func withBurstEnv(environ []string, env map[string]string) []string {
-	if len(env) == 0 {
-		return environ
-	}
-	out := make([]string, 0, len(environ)+len(env))
-	for _, kv := range environ {
-		name, value, _ := strings.Cut(kv, "=")
-		if v, ok := env[name]; ok {
-			if name == "GOFLAGS" && value != "" {
-				v = value + " " + v
-			}
-			out = append(out, name+"="+v)
-			continue
-		}
-		out = append(out, kv)
-	}
-	for _, name := range sortedKeys(env) {
-		if !hasVar(environ, name) {
-			out = append(out, name+"="+env[name])
-		}
-	}
-	return out
-}
-
-func hasVar(environ []string, name string) bool {
-	for _, kv := range environ {
-		if strings.HasPrefix(kv, name+"=") {
-			return true
-		}
-	}
-	return false
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-// The hook. Claude Code runs it before and after Bash and the browser's
-// tools (agent.withHeavyHooks), with the call as JSON on stdin. It must cost
-// the conversation nothing: it prints nothing and exits 0 whenever it gets a
-// lease, isn't needed, or can't reach the daemon. Only when the wait for a
-// lease runs out does it print one line, and exit 2, which keeps the tool
+// The hook. Claude Code runs it before and after Bash tool calls
+// (agent.withHeavyHooks), with the call as JSON on stdin. It must cost the
+// conversation nothing: it prints nothing and exits 0 whenever the command
+// may start, isn't heavy, or the daemon can't be reached. Only when the wait
+// to start runs out does it print one line, and exit 2, which keeps the tool
 // from running and tells the model why.
 
 // heavyCommand matches a Bash command that runs tests, builds or the app:
@@ -233,37 +199,27 @@ type hookCall struct {
 	} `json:"tool_input"`
 }
 
-// Bash commands hold their own key for as long as they run; the browser one
-// key between them, renewed by each call and dropped when idle.
-const (
-	bashLeaseTTL    = 15 * time.Minute
-	browserLeaseTTL = 5 * time.Minute
-	browserKey      = "browser"
-)
-
-// leaseKey is the key a call takes its lease under, and for how long; "" for
-// a call that needs none.
-func leaseKey(call hookCall) (key string, ttl time.Duration, sticky bool) {
-	switch {
-	case call.Tool == "Bash":
-		if !heavyCommand.MatchString(call.Input.Command) {
-			return "", 0, false
-		}
-		id := call.ToolUseID
-		if id == "" {
-			id = randomKey()
-		}
-		return "bash-" + id, bashLeaseTTL, false
-	case strings.HasPrefix(call.Tool, "mcp__playwright__"), strings.HasPrefix(call.Tool, "mcp__desktop__"):
-		return browserKey, browserLeaseTTL, true
+// heavyKey is the key a call's command runs under, "" for a call that isn't
+// a heavy command.
+func heavyKey(call hookCall) string {
+	if call.Tool != "Bash" || !heavyCommand.MatchString(call.Input.Command) {
+		return ""
 	}
-	return "", 0, false
+	id := call.ToolUseID
+	if id == "" {
+		id = randomKey()
+	}
+	return "bash-" + id
 }
+
+// bashTTL is how long a Bash command that couldn't join a cgroup of its own
+// counts as running, unless it ends first.
+const bashTTL = 15 * time.Minute
 
 func newHeavyHookCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:    "heavy-hook",
-		Short:  "Claude Code's hook for heavy phases (internal)",
+		Short:  "Claude Code's hook for heavy commands (internal)",
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -284,52 +240,55 @@ func newHeavyHookCmd() *cobra.Command {
 }
 
 // heavyHook handles one hook call, and answers its exit code.
-func heavyHook(ctx context.Context, in io.Reader, stderr io.Writer, c burstClient, envFile string) int {
+func heavyHook(ctx context.Context, in io.Reader, stderr io.Writer, c heavyClient, envFile string) int {
 	var call hookCall
 	if err := json.NewDecoder(io.LimitReader(in, 4<<20)).Decode(&call); err != nil {
 		return 0
 	}
-	key, ttl, sticky := leaseKey(call)
+	key := heavyKey(call)
 	if key == "" {
 		return 0
 	}
 	switch call.Event {
 	case "PreToolUse":
-		lease, err := c.AcquireBurst(ctx, api.BurstRequest{Key: key, TTLSeconds: int(ttl.Seconds())})
+		start, err := c.StartHeavy(ctx, api.HeavyRequest{Key: key, Command: call.Input.Command, TTLSeconds: int(bashTTL.Seconds())})
 		if err != nil {
 			return 0
 		}
-		if !lease.Granted {
-			_, _ = fmt.Fprintf(stderr, "Not run: no memory for it after 10 minutes, %s. Try it again later.\n", lease.Why)
+		if !start.Started {
+			_, _ = fmt.Fprintf(stderr, "Not run: it waited 10 minutes to start, as %s. Try it again later, or with fewer packages or workers at once.\n", start.Why)
 			return 2
 		}
-		writeBurstEnv(envFile, lease.Env)
+		writeJoin(envFile, key)
 	case "PostToolUse", "PostToolUseFailure":
-		if sticky {
-			return 0
-		}
-		left, err := c.ReleaseBurst(ctx, key)
-		if err != nil {
-			return 0
-		}
-		writeBurstEnv(envFile, left.Env)
+		clearJoin(envFile, key)
+		_ = c.EndHeavy(ctx, key)
 	}
 	return 0
 }
 
-// writeBurstEnv leaves env where BASH_ENV points, as a script the Bash tool's
-// shell sources, or empties it. Written beside it and renamed over it, so a
-// shell starting meanwhile reads all of it or none.
-func writeBurstEnv(path string, env map[string]string) {
-	var b strings.Builder
-	for _, name := range sortedKeys(env) {
-		value := strings.ReplaceAll(env[name], `"`, `\"`)
-		if name == "GOFLAGS" {
-			fmt.Fprintf(&b, "export GOFLAGS=\"${GOFLAGS:+$GOFLAGS }%s\"\n", value)
-			continue
-		}
-		fmt.Fprintf(&b, "export %s=\"%s\"\n", name, value)
+// joinLine is what the env file holds while a command that started hasn't
+// joined its run yet: the Bash tool's next shell runs it as it starts
+// (BASH_ENV), which puts that shell, and so the command, in the run's
+// cgroup, and empties the file so no shell after it does.
+func joinLine(key string) string {
+	return fmt.Sprintf("%s heavy-join %s \"$$\" 2>/dev/null || :\n", agent.AgentBinaryPath, shellQuote(key))
+}
+
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// writeJoin leaves key's join line where BASH_ENV points. Written beside it
+// and renamed over it, so a shell starting meanwhile reads all of it or none.
+func writeJoin(path, key string) { writeEnvFile(path, joinLine(key)) }
+
+// clearJoin empties the env file if it still holds key's join line.
+func clearJoin(path, key string) {
+	if b, err := os.ReadFile(path); err == nil && string(b) == joinLine(key) {
+		writeEnvFile(path, "")
 	}
+}
+
+func writeEnvFile(path, text string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return
 	}
@@ -338,8 +297,37 @@ func writeBurstEnv(path string, env map[string]string) {
 		return
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.WriteString(b.String()); err != nil || tmp.Close() != nil {
+	if _, err := tmp.WriteString(text); err != nil || tmp.Close() != nil {
 		return
 	}
 	_ = os.Rename(tmp.Name(), path)
+}
+
+func newHeavyJoinCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "heavy-join <key> <pid>",
+		Short:  "Put a shell in its heavy command's cgroup (internal)",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			socket := inAgentSocket()
+			pid, err := strconv.Atoi(args[1])
+			if !fileExists(socket) || err != nil {
+				return nil
+			}
+			home, _ := os.UserHomeDir()
+			heavyJoin(cmd.Context(), api.NewClient(socket), filepath.Join(home, agent.HeavyEnvFile), args[0], pid)
+			return nil
+		},
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
+}
+
+// heavyJoin empties the env file first, so the shells the command starts
+// don't join again, then puts pid in key's cgroup. It says nothing whatever
+// happens: the command runs either way.
+func heavyJoin(ctx context.Context, c heavyClient, envFile, key string, pid int) {
+	clearJoin(envFile, key)
+	_ = c.JoinHeavy(ctx, key, pid)
 }

@@ -8,12 +8,10 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"agentbox/internal/acp"
-	"agentbox/internal/agent"
 	"agentbox/internal/api"
 	"agentbox/internal/chat"
 	"agentbox/internal/state"
@@ -85,16 +83,14 @@ func (p *promptTool) got(text string) bool {
 // machine isn't running.
 type wakeTest struct {
 	testDaemon
-	tool   *promptTool
-	agent  state.Agent
-	budget atomic.Int64
-	log    string
+	tool  *promptTool
+	agent state.Agent
+	log   string
 }
 
 func newWakeTest(t *testing.T) *wakeTest {
 	t.Helper()
 	w := &wakeTest{tool: &promptTool{}}
-	w.budget.Store(1 << 50)
 	instance := func(name, status string) string {
 		// The address is there whatever the status, which is all WaitReady
 		// waits for once the machine has started.
@@ -102,13 +98,7 @@ func newWakeTest(t *testing.T) *wakeTest {
 			`"state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.8.8.2"}]}}}}`, name, status)
 	}
 	instances := "[" + instance("ab-hello-stack-agent-01", "Stopped") + "," + instance("ab-hello-stack-agent-02", "Running") + "]"
-	w.testDaemon = startTestDaemon(t, t.TempDir(), wakeIncus, testConfig{instances: instances, queue: func(s *Server) {
-		s.queueEvery = 0 // the test looks at the queue itself
-		s.slotBudget = func(context.Context) (int64, error) { return w.budget.Load(), nil }
-		s.projectShape = func(context.Context, string) (agent.Shape, error) {
-			return agent.Shape{Baseline: 4 * gib, Burst: 2 * gib}, nil
-		}
-	}})
+	w.testDaemon = startTestDaemon(t, t.TempDir(), wakeIncus, testConfig{instances: instances})
 	w.log = w.root + "/incus.log"
 	ctx := context.Background()
 	repo := w.fixtureRepo(t, "hello-stack")
@@ -168,8 +158,8 @@ func TestTellingAStoppedAgentStartsItsMachineFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Woke != "started" || res.Waiting != "" || res.Kind != "user" {
-		t.Errorf("tell_agent = woke %q, waiting %q, a %s item; want its machine started and the message a turn", res.Woke, res.Waiting, res.Kind)
+	if res.Woke != "started" || res.Kind != "user" {
+		t.Errorf("tell_agent = woke %q, a %s item; want its machine started and the message a turn", res.Woke, res.Kind)
 	}
 	waitFor(t, "the message to reach the AI tool", func() bool { return w.tool.got("Add a test for the second page.") })
 	at := w.order(t, "incus start ab-hello-stack-agent-01", "prepare hello-stack/agent-01")
@@ -191,45 +181,20 @@ func TestTellingAStoppedAgentStartsItsMachineFirst(t *testing.T) {
 	}
 }
 
-// When the VM hasn't the memory to start a stopped agent's machine, the
-// message waits in its chat and the sender is told why; once there's room,
-// the queue starts the machine and the chat delivers it.
-func TestTellingAStoppedAgentWaitsForMemory(t *testing.T) {
+// A message typed into a stopped agent's chat starts its machine too, at
+// once, however many agents already run.
+func TestAChatMessageToAStoppedAgentStartsItsMachine(t *testing.T) {
 	t.Parallel()
 	w := newWakeTest(t)
 	ctx := context.Background()
-	// agent-02 holds 4 GiB of 5: agent-01's 4 don't fit.
-	w.budget.Store(5 * gib)
-	res, err := w.client.SendChat(ctx, w.agent.Ref(), "Carry on with the reminders page.")
-	if err != nil {
+	if _, err := w.client.SendChat(ctx, w.agent.Ref(), "Carry on with the reminders page."); err != nil {
 		t.Fatal(err)
 	}
-	if res.Delivery != api.ChatAsideWaking {
-		t.Errorf("the message is %s, delivery %q; want it held for the machine", res.Kind, res.Delivery)
-	}
-	lead := api.NewClient(w.srv.leadSocketPath("hello-stack"))
-	told, err := lead.TellAgent(ctx, "agent-01", "And its tests.")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(told.Waiting, "waits for memory") {
-		t.Errorf("tell_agent's waiting = %q", told.Waiting)
-	}
-	w.srv.admitQueued(ctx)
-	if at := w.order(t, "incus start ab-hello-stack-agent-01", "prepare"); at[0] >= 0 || at[1] >= 0 {
-		t.Fatalf("with no room, the machine started (%d) or the chat prepared (%d)", at[0], at[1])
-	}
-
-	w.budget.Store(1 << 50)
-	w.srv.admitQueued(ctx)
-	waitFor(t, "the held messages to reach the AI tool", func() bool {
-		return w.tool.got("Carry on with the reminders page.") && w.tool.got("And its tests.")
-	})
+	waitFor(t, "the message to reach the AI tool", func() bool { return w.tool.got("Carry on with the reminders page.") })
 	at := w.order(t, "incus start ab-hello-stack-agent-01", "prepare hello-stack/agent-01")
 	if at[0] < 0 || at[0] > at[1] {
 		t.Errorf("start at line %d, the chat's preparation at %d: the machine has to start first", at[0], at[1])
 	}
-	waitFor(t, "the agent to stop waiting", func() bool { return !w.srv.isWaking(w.agent.Ref()) })
 }
 
 // notices are what agent-01's chat said on its own: a failure to prepare its

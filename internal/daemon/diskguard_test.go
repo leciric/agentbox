@@ -110,24 +110,3 @@ func TestDiskGuardRefusesPausesAndResumes(t *testing.T) {
 		t.Errorf("back to the default: %+v, %v", settings, err)
 	}
 }
-
-// Queued agents wait while a disk is at its floor.
-func TestDiskGuardHoldsTheQueue(t *testing.T) {
-	t.Parallel()
-	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
-	ctx := context.Background()
-	d.srv.disk.measure = func(context.Context) []agent.DiskSpace {
-		return []agent.DiskSpace{{Label: "Storage pool", Free: 1 << 30, Total: 100 << 30}}
-	}
-	d.srv.disk.writers = func(context.Context) ([]agent.DiskWriter, error) { return nil, nil }
-	d.srv.checkDisk(ctx)
-	if err := d.srv.diskRefusal("creating an agent"); err == nil || !isDiskFull(err) {
-		t.Fatalf("diskRefusal = %v", err)
-	}
-	started := false
-	d.srv.queueStart = func(context.Context, state.QueuedAgent) error { started = true; return nil }
-	d.srv.admitQueued(ctx)
-	if started {
-		t.Error("a queued agent started at the floor")
-	}
-}

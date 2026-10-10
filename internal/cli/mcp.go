@@ -408,14 +408,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					"from the title. A branch that is already taken gets -2, -3… appended."),
 				"from":     str("the branch or agent branch to start from; the project's branch by default"),
 				"research": map[string]any{"type": "boolean", "description": "it only investigates, so it gets no branch of its own"},
-				"queue": map[string]any{"type": "boolean", "description": "put it in this project's queue instead of starting it now: " +
-					"it gets its name and branch at once, and its machine and task when one of the project's slots is free " +
-					"(you're told in one line when it starts). Use it for work that can wait, so agents don't all compete for " +
-					"memory at once. Left out, the project's own setting decides, which is to start now unless the user " +
-					"chose to always queue. False doesn't get past the queue: an agent the VM has no memory for, or one " +
-					"beyond the number of agents at once the user fixed for this project, queues whatever this says, " +
-					"and the result says why."},
-				"size": sizeParam,
+				"queue":    map[string]any{"type": "boolean", "description": "accepted and ignored: every agent starts at once"},
+				"size":     sizeParam,
 				"notify": choiceOf("what a genuine finish does to your chat: \"chat\" to be told and woken when this agent finishes, "+
 					"\"off\" to only have the finish recorded — for a small, mechanical job you don't need to react to. This only "+
 					"matters when this project's finish notices are set to \"lead\"; otherwise the project's own setting decides for "+
@@ -488,11 +482,6 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				if job.Kind == "queue" {
-					var ag api.Agent
-					_ = json.Unmarshal(job.Result, &ag)
-					return queuedLine(in.Title, "this project's", ag), nil
-				}
 				return fmt.Sprintf("Creating %q%s; it starts on the task by itself. Job %s.",
 					in.Title, describeChoices(ai, in.Model, in.Effort, autonomous, notify, in.ClaudeAccount)+windowChoice(in.ContextWindow)+connectorChoice(in.Connectors), job.ID), nil
 			},
@@ -516,8 +505,6 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 					return "", err
 				}
 				switch {
-				case it.Waiting != "":
-					return fmt.Sprintf("%s is stopped, and %s. The message waits in its chat and is delivered when it starts; nothing to do meanwhile.", in.Agent, it.Waiting), nil
 				case it.Kind == "aside":
 					return fmt.Sprintf("Told %s, mid-work; it decides when to act on it.", in.Agent), nil
 				case it.Woke != "":
@@ -1182,23 +1169,23 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 	}
 }
 
-// sizeParam is create_agent's size: what the agent reserves of the VM's
-// memory in its heavy phases (agent.Burst).
-var sizeParam = choiceOf("what the agent reserves of the VM's memory, which every project's agents share, in its heavy "+
-	"phases: tests, builds, the browser, a recording. Those wait while the VM has no room for them. \"light\" reserves "+
-	"~2 GB: reading, reviewing, small edits. \"normal\" reserves what this project's agents were seen to need. "+
-	"\"heavy\" reserves ~8 GB: a recording, a big build, Android or Docker. It isn't a cap. Left out or \"auto\" is normal.",
-	"auto", "light", "normal", "heavy")
+// sizeParam is create_agent's size, accepted from leads that still send it
+// and ignored: the VM's memory pressure decides when an agent's tests and
+// builds run, not a size.
+var sizeParam = map[string]any{"type": "string", "description": "accepted and ignored"}
 
-// queuedLine is what create_agent says about an agent that was queued
-// rather than started: where it is in line, and why it waits.
-func queuedLine(title, queue string, ag api.Agent) string {
-	why := ag.Waiting
-	if why == "" {
-		why = "queued: it starts when it fits"
+// memoryHeld says what the VM's memory pressure holds of an agent's tests and
+// builds, "" for nothing.
+func memoryHeld(h *api.MemoryHold) string {
+	switch {
+	case h == nil:
+		return ""
+	case h.Paused > 0 && h.Waiting > 0:
+		return fmt.Sprintf("%d test/build %s paused and %d waiting for memory", h.Paused, plural(h.Paused, "command", "commands"), h.Waiting)
+	case h.Paused > 0:
+		return fmt.Sprintf("%d test/build %s paused for memory", h.Paused, plural(h.Paused, "command", "commands"))
 	}
-	return fmt.Sprintf("Queued %q as %s, #%d in %s queue (%s). It starts on the task by itself, and you're told in one line when it does.",
-		title, ag.Name, ag.QueuePosition, queue, why)
+	return fmt.Sprintf("%d test/build %s waiting for memory", h.Waiting, plural(h.Waiting, "command", "commands"))
 }
 
 func describeFleet(fleet api.Fleet) string {
@@ -1214,17 +1201,12 @@ func describeFleet(fleet api.Fleet) string {
 		if f.Title != "" {
 			fmt.Fprintf(&b, " — %s", f.Title)
 		}
-		if f.State == "queued" {
-			why := f.Waiting
-			if why == "" {
-				why = "queued: no machine until it fits"
-			}
-			fmt.Fprintf(&b, "\n  #%d %s, branch: %s\n", f.QueuePosition, why, dash(f.Branch))
-			continue
-		}
 		fmt.Fprintf(&b, "\n  branch: %s, machine: %s", dash(f.Branch), f.State)
 		if doing := agentDoing(f.Agent); doing != "" {
 			fmt.Fprintf(&b, ", %s", doing)
+		}
+		if held := memoryHeld(f.Memory); held != "" {
+			fmt.Fprintf(&b, ", %s", held)
 		}
 		if f.AI == "claude" && f.ClaudeAccount != "" {
 			fmt.Fprintf(&b, ", account: %s", f.ClaudeAccount)
