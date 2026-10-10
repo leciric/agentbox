@@ -299,6 +299,14 @@ export const api = {
   projectPullRequests: (project: string) => call<T.ProjectPullRequests>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls`),
   mergePullRequest: (project: string, number: number, method: string) =>
     call<T.PullRequest>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge`, { method } satisfies T.MergePullRequestRequest),
+  pullRequestDetail: (project: string, number: number) => call<T.PullRequestDetail>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}`),
+  pullRequestFiles: (project: string, number: number) => call<T.PullRequestFiles>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/files`),
+  pullFileDiff: (project: string, number: number, path: string) =>
+    call<T.PullFileDiff>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/diff?path=${encodeURIComponent(path)}`),
+  // pullImageUrl is where the renderer loads a picture in a pull request's
+  // description: the daemon reads it with the project's GitHub account.
+  pullImageUrl: (project: string, src: string) =>
+    window.agentbox.chatImageUrl(`/v1/projects/${encodeURIComponent(project)}/pulls/image?src=${encodeURIComponent(src)}`),
 
   saveGitHubToken: (token: string, account?: string) => call<{ user: string }>('POST', '/v1/auth/github', { token, account } satisfies T.GitHubTokenRequest),
   removeGitHubAccount: (account: string) => call<void>('DELETE', `/v1/auth/github/${encodeURIComponent(account)}`),

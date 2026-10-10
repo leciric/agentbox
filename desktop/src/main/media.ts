@@ -1,7 +1,8 @@
 // Serves media to the renderer as agentbox-media://media/<id>[/<path in a directory>],
 // streamed from the daemon with range requests, so videos can seek and HTML
 // reports can load their own files; and the pictures sent in a chat, as
-// agentbox-media://api/v1/.../chat/images/<id>.
+// agentbox-media://api/v1/.../chat/images/<id>; and the pictures in a pull
+// request's description, as agentbox-media://api/v1/projects/<name>/pulls/image?src=<url>.
 import { Readable } from 'node:stream';
 import { protocol } from 'electron';
 import { requestOptions } from './connection';
@@ -34,6 +35,10 @@ const cors = {
 // the page's preview.
 const chatImage = /^\/v1\/((projects\/[^/]+|agents\/[^/]+\/[^/]+)\/chat\/images\/[0-9a-f]{16}|snaps\/[0-9a-f]{16}\/image)$/;
 const artifactPage = /^\/v1\/projects\/[^/]+\/artifacts\/[A-Za-z0-9_-]+\/page$/;
+// pullImage is a picture in a pull request's description, which the daemon
+// reads from GitHub with the project's account: a private repository's
+// attachments need its token, which never reaches the renderer.
+const pullImage = /^\/v1\/projects\/[^/]+\/pulls\/image$/;
 
 export function handleMedia(): void {
   protocol.handle(mediaScheme, (request) => {
@@ -41,9 +46,10 @@ export function handleMedia(): void {
     const url = new URL(request.url);
     let path: string;
     if (url.host === 'api') {
-      // A picture sent in a chat, or a Hatch page, and nothing else of the daemon's API.
-      if (!chatImage.test(url.pathname) && !artifactPage.test(url.pathname)) return new Response('not found', { status: 404, headers: cors });
-      path = url.pathname;
+      // A picture sent in a chat or in a pull request, or a Hatch page, and nothing else of the daemon's API.
+      if (pullImage.test(url.pathname)) path = url.pathname + url.search;
+      else if (chatImage.test(url.pathname) || artifactPage.test(url.pathname)) path = url.pathname;
+      else return new Response('not found', { status: 404, headers: cors });
     } else {
       const [id = '', ...rest] = url.pathname.replace(/^\//, '').split('/');
       const sub = rest.map(decodeURIComponent).join('/');
