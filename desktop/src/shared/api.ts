@@ -1710,6 +1710,8 @@ export interface Memory {
   resolvedBy?: string;
   referencedAt?: string;
   decayedAt?: string;
+  promotion?: string;
+  promotionAt?: string;
 }
 
 export interface AddMemoryRequest {

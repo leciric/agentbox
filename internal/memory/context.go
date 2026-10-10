@@ -138,6 +138,11 @@ type ContextRequest struct {
 	Budget int
 	// For is who is reading it. ForTool when unset.
 	For Audience
+	// Agent is the worker whose brief this is being written into, for a
+	// build ForAgent. It is what promotion counts (promote.go): which
+	// agents a memory reached. Empty for a brief that is only being shown,
+	// which reaches nobody.
+	Agent string
 }
 
 // ContextSection is one part of a built context, and what it cost.
@@ -313,6 +318,16 @@ func (s *Store) BuildContext(ctx context.Context, req ContextRequest) (Context, 
 	// decay off the memories a project is actually reading (D76). A build is
 	// worth more than its bookkeeping, so a failure here doesn't fail it.
 	_ = s.MarkReferenced(ctx, req.Project, built.Referenced...)
+	// What the project knows about this agent's task is what a note could
+	// say instead (promote.go). Working memory, the story and what is still
+	// open are in every brief by design, and none of it is a standing rule.
+	if req.For == ForAgent && req.Agent != "" {
+		for _, sec := range built.Sections {
+			if sec.Kind == SectionKnowledge {
+				_ = s.recordServes(ctx, req.Project, req.Agent, sec.Memories)
+			}
+		}
+	}
 	return built, nil
 }
 
@@ -363,7 +378,8 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 
 	// What the project knows: the facts and decisions it can't be worked on
 	// without, then whatever the query found, minus anything already said
-	// above. A memory repeated twice is context spent twice.
+	// above. A memory repeated twice is context spent twice, which is also
+	// why a memory promoted to a note is left out: the notes say it already.
 	standing, err := s.Memories(ctx, req.Project, []string{KindProject, KindDecision})
 	if err != nil {
 		return nil, err
@@ -373,7 +389,7 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 		if len(knowledge) == contextKnowledge {
 			break
 		}
-		if m.Importance >= HighImportance && !seen[m.ID] {
+		if m.Importance >= HighImportance && !seen[m.ID] && m.Promotion != PromotionPromoted {
 			knowledge, seen[m.ID] = append(knowledge, m), true
 		}
 	}
@@ -384,7 +400,7 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 	// what it has decided is worth having on its own.
 	found := s.contextSearch(ctx, req.Project, query)
 	for _, m := range found.Memories {
-		if !seen[m.ID] {
+		if !seen[m.ID] && m.Promotion != PromotionPromoted {
 			knowledge, seen[m.ID] = append(knowledge, m), true
 		}
 	}
