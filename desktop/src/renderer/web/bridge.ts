@@ -207,6 +207,8 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
   mediaUrl: (id: string, path?: string) =>
     `${apiBase()}/v1/media/${encodeURIComponent(id)}/file${path ? `?path=${encodeURIComponent(path)}` : ''}`,
   chatImageUrl: (path: string) => `${apiBase()}${path}`,
+  // No offscreen window to draw a page in: its tile is drawn from its title.
+  pageThumb: () => Promise.resolve(null),
   // The web app has no main process: a report carries only the daemon's
   // sections and the page's own errors.
   report: {

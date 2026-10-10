@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
 )
@@ -177,4 +178,43 @@ func serveFakeAgentAPI(t *testing.T, socket string, calls chan<- string) {
 	srv := &http.Server{Handler: mux}
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
+}
+
+func TestParseAge(t *testing.T) {
+	for in, want := range map[string]time.Duration{"7d": 7 * 24 * time.Hour, "2w": 14 * 24 * time.Hour, "36h": 36 * time.Hour} {
+		got, err := parseAge(in)
+		if err != nil || got != want {
+			t.Errorf("parseAge(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "d", "soon", "10m", "-3d"} {
+		if _, err := parseAge(in); err == nil {
+			t.Errorf("parseAge(%q) should fail", in)
+		}
+	}
+}
+
+func TestDescribeTidy(t *testing.T) {
+	now := time.Now()
+	plan := api.TidyMemoryResult{
+		Resolved: []api.Memory{{ID: "mem_1", Kind: "issue", Title: "Stale --model help text", CreatedAt: now.Add(-12 * 24 * time.Hour)}},
+		Merged: []api.MemoryMerge{{Memory: api.Memory{ID: "mem_2", Title: "Agent-name reuse bug unfixed"},
+			Into: api.Memory{ID: "mem_3", Title: "Agent names are reused as soon as an agent is gone"}, Score: 0.48, Why: "says the same thing"}},
+		Kept: 4,
+	}
+	out := describeTidy("agentbox", "7d", plan, now)
+	for _, want := range []string{
+		"agentbox: would resolve 1 open item nobody has mentioned in 7d, and would merge 1 duplicate. 4 stay open.",
+		"mem_1  [issue] Stale --model help text (12 days old)",
+		"→ mem_3  Agent names are reused as soon as an agent is gone (says the same thing, 0.48)",
+		"--apply",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	plan.Applied = true
+	if out := describeTidy("agentbox", "7d", plan, now); strings.Contains(out, "--apply") || !strings.Contains(out, "resolved 1") {
+		t.Errorf("applied:\n%s", out)
+	}
 }

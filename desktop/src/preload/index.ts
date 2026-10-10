@@ -255,8 +255,6 @@ const bridge = {
   // mediaUrl is where the renderer loads a media item's file from; main/media.ts serves it.
   mediaUrl: (id: string, path?: string): string =>
     `agentbox-media://media/${encodeURIComponent(id)}${path ? '/' + path.split('/').map(encodeURIComponent).join('/') : ''}`,
-  // chatImageUrl is where the renderer loads a picture sent in a chat, given
-  // its daemon path (.../chat/images/<id>); main/media.ts serves it too.
   // Updating the app in place (main/updater.ts): whether this install can,
   // and the update itself, which restarts the app when it succeeds.
   appUpdate: {
@@ -264,7 +262,14 @@ const bridge = {
     start: (): Promise<AppUpdateResult> => ipcRenderer.invoke('appUpdate:start'),
     onProgress: (fn: (progress: AppUpdateProgress) => void) => listen('appUpdate:progress', fn),
   },
+  // chatImageUrl is where the renderer loads a picture sent in a chat, given
+  // its daemon path (.../chat/images/<id>), or frames a Hatch page
+  // (.../artifacts/<id>/page); main/media.ts serves it too.
   chatImageUrl: (path: string): string => `agentbox-media://api${path}`,
+  // pageThumb is a Hatch page's thumbnail as a data: URL, drawn offscreen from
+  // its daemon path and kept by key (<id>@<version>), or null when its HTML
+  // can't be had (main/pagethumbs.ts).
+  pageThumb: (path: string, key: string): Promise<string | null> => ipcRenderer.invoke('pageThumb:get', path, key),
   // Problem reports: the app's own sections of one (main/applog.ts), a
   // window's uncaught error to keep with them, the main process's uncaught
   // errors as they happen, and the folder the app's logs are in.
