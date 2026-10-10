@@ -68,7 +68,6 @@ import {
   OpenCodeInImage,
   ResumeAfterLimit,
   ContinueAfterRestart,
-  TaskTarget,
 } from "./NewAgentDefaults";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -1162,17 +1161,10 @@ function InstalledSettings({
           ],
         },
         {
-          id: "tasks",
-          title: t("settings.group.tasks.title"),
-          description: t("settings.group.tasks.description"),
+          id: "recheck",
+          title: t("settings.group.recheck.title"),
+          description: t("settings.group.recheck.description"),
           entries: [
-            {
-              id: "task-target",
-              label: t("settings.entry.task-target.label"),
-              keywords: t("settings.entry.task-target.keywords"),
-              modified: changed((s) => s.taskTarget === "lead"),
-              render: () => <TaskTarget />,
-            },
             {
               id: "lead-recheck",
               label: t("settings.entry.lead-recheck.label"),

@@ -59,8 +59,7 @@ flowchart TB
   [Memories that could be notes](memory.md#memories-that-could-be-notes)).
 - `update_working_memory` — merge a patch into the project's single working-memory row (goal,
   current task, active agents, blockers, notes).
-- `project_state` — a read-only snapshot: working memory, the user's open tasks, open issues,
-  recent reports. The task list is the user's own: the lead has no tool to change it.
+- `project_state` — a read-only snapshot: working memory, open issues, recent reports.
 
 **Project notes**
 - `read_notes`, `append_note`, `edit_note`, `remove_note` — read and add to the project's notes
@@ -78,7 +77,7 @@ flowchart TB
 
 Two further MCP servers exist for an agent's own AI tool, not the lead's:
 
-- `agentbox-memory` (`internal/cli/memory.go`) — `search_memory`, `my_task`,
+- `agentbox-memory` (`internal/cli/memory.go`) — `search_memory`,
   `report`, `record_artifact`: an agent's narrower view of memory, scoped to its own task.
 - `agentbox-desktop` (`internal/cli/desktop.go`) — the desktop/browser tools an agent's AI tool
   uses to see and drive its virtual display.

@@ -51,7 +51,7 @@ const agent12Done = `The code change is done: a Plus "New project" button in the
 
 Pushing failed: origin is git@github.com:leciric/agentbox-hub.git, SSH host key verification fails for github.com from this machine, and the GH_TOKEN here (leciric-work) can't see the repository over HTTPS ("Repository not found"), so there's no branch on GitHub and no pull request yet.`;
 
-const agent12Stuck = `I don't have a request_credential tool: the memory server here lists search_memory, report, my_task and update_my_task only, so I can't ask for a GitHub account the way the brief says. The branch is committed and unchanged; it still needs a push from an account that can reach leciric/agentbox-hub, and the pull request after it.`;
+const agent12Stuck = `I don't have a request_credential tool: the memory server here lists search_memory and report only, so I can't ask for a GitHub account the way the brief says. The branch is committed and unchanged; it still needs a push from an account that can reach leciric/agentbox-hub, and the pull request after it.`;
 
 function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
   return {
@@ -1203,7 +1203,6 @@ let defaultsSettings = {
   autoStopIdle: false,
   dockerPruneOnStop: true,
   idleTimeSeconds: 2 * 60 * 60,
-  taskTarget: 'agent',
   leadRecheck: false,
   leadRecheckMinutes: 20,
   imageCache: true,
@@ -1249,7 +1248,6 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
     'prWatch',
     'dockerPruneOnStop',
     'mediaRetention',
-    'taskTarget',
     'leadRecheck',
     'leadRecheckMinutes',
   ] as const) {

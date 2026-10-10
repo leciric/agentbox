@@ -2,8 +2,8 @@
 
 [← back to the index](README.md)
 
-Project memory is what the project knows, kept across agents: events, memories, tasks, artifacts
-and reports, all in `state.db` and searched with SQLite's FTS5 — the store itself calls no model
+Project memory is what the project knows, kept across agents: events, memories, artifacts and
+reports, all in `state.db` and searched with SQLite's FTS5 — the store itself calls no model
 and embeds nothing. It lives in [`internal/memory`](../internal/memory), fed automatically from
 the daemon's own chokepoints, thinned by consolidation, and sliced per-agent by a context builder.
 
@@ -13,7 +13,6 @@ flowchart LR
     Events -- "mechanical + distillation passes\ninternal/memory/consolidation.go" --> Memories[("memories")]
     Events --> Reports[("agent_reports")]
     Memories --> Context["Context builder\ninternal/memory/context.go"]
-    Tasks[("tasks")] --> Context
     Reports --> Context
     Context -- "brief.md\nbudgeted slice" --> Agent["An agent's AI tool"]
     Context -- "full budget" --> Lead["The lead"]
@@ -23,12 +22,11 @@ flowchart LR
 
 ## Package layout
 
-- `memory.go` — the core types: `Event`, `Memory`, `Report`, `WorkingMemory`, `Task`, `Artifact`.
+- `memory.go` — the core types: `Event`, `Memory`, `Report`, `WorkingMemory`, `Artifact`.
 - `search.go` — the FTS5 search used by `search_memory`.
 - `consolidation.go` — the mechanical pass (duplicates, decay, exact merges) plus the `Pass`/
   `Stats` types logged to `consolidation_passes`.
 - `context.go` — the context builder.
-- `tasks.go` — the task graph's states and dependency handling.
 - `events.go`, `memories.go`, `artifacts.go`, `reports.go`, `working.go` — CRUD/query methods for
   each table.
 
@@ -40,8 +38,6 @@ erDiagram
     memories ||--o{ memories : "supersedes_id"
     memories ||--o{ memory_duplicates : "memory_id / duplicate_of"
     events ||--o{ consolidation_passes : "through_event watermark"
-    tasks ||--o{ tasks : "parent_task_id"
-    tasks ||--o{ task_dependencies : "task_id / depends_on_id"
 
     events {
         int id PK
@@ -104,21 +100,6 @@ erDiagram
         int through_event FK
         string model
     }
-    tasks {
-        int id PK
-        string project FK
-        string agent
-        int parent_task_id FK
-        string status
-        string goal
-        string detail
-        string closed_at
-    }
-    task_dependencies {
-        string project FK
-        int task_id FK
-        int depends_on_id FK
-    }
 ```
 
 - **events** — append-only raw history (`internal/state/state.go`, migration 23), one row per
@@ -138,8 +119,6 @@ erDiagram
 - **memory_serves** — which agents' briefs carried which memory, one row per memory and agent
   (see [Memories that could be notes](#memories-that-could-be-notes)). `memories.promotion` says
   where a memory stands as a candidate note.
-- **tasks** / **task_dependencies** — the user's task list for the project, and its blocking edges
-  (migrations 35, 36). Only the user writes it.
 
 ## Search
 
@@ -157,9 +136,7 @@ The daemon writes events at its own chokepoints, not something an agent has to r
 [`internal/daemon/memoryevents.go`](../internal/daemon/memoryevents.go)'s `captureEvent()` is the
 generic entry point, called after things like:
 
-- an agent finishing (`captureAgentFinished()`) — diff stats, PR link, its report's summary;
-- the user creating a task, changing its status, or blocking it (`captureTaskCreated/Status/
-  Blocked()`).
+- an agent finishing (`captureAgentFinished()`) — diff stats, PR link, its report's summary.
 
 `captureArtifact()` records a reference whenever something citable is produced.
 
@@ -217,26 +194,11 @@ Nothing is promoted on its own: a note costs every agent context. The lead answe
 
 An offer nobody answers lapses after two weeks and isn't made again.
 
-## Tasks
-
-A project's tasks are a list only the user manages, in the app's Tasks tab: they create, edit and
-delete them, and a task's **Start** makes its agent at once (or sends it to the project's chat,
-as "Tasks go to" says): nothing waits in a queue. Nothing else
-writes a task: not an agent's creation or finish, not the lead, not consolidation. The lead reads
-the list in `project_state`, and an agent reads its own with `my_task`; neither can change it, and
-it isn't part of an agent's brief.
-
-A task's status (`tasks.go`) is one of `open`, `active`, `blocked`, `done` or `abandoned` — the
-first three count as open, the last two as closed, and `closed_at` is set the moment a task enters
-either.
-
 ## Who can call what
 
 - **Agent-facing** (`agentbox-memory` MCP server, `internal/cli/memory.go`): `search_memory`,
-  `my_task`, `report`, `record_artifact` — an agent's view is scoped to its own task, and it reads
-  the user's task list without changing it.
+  `report`, `record_artifact` — an agent's view is scoped to its own task.
 - **Lead-facing** (`agentbox` MCP server, `internal/cli/mcp.go`): `search_memory`, `remember`,
   `resolve_memory`, `promote_memory`, `dismiss_promotion`, `update_working_memory`,
-  `project_state` — the lead can write memory directly,
-  and reads the user's task list without changing it; see
+  `project_state` — the lead can write memory directly; see
   [The lead and its MCP tools](lead.md).

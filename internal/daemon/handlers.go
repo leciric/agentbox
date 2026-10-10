@@ -1049,13 +1049,6 @@ func (s *Server) createAgentJob(ctx context.Context, req api.CreateAgentRequest,
 			return api.Job{}, err
 		}
 	}
-	// A task of the plan the agent is for: its words are the agent's task
-	// unless the request brings its own.
-	if req.TaskID != "" {
-		if err := s.taskForAgent(ctx, &req); err != nil {
-			return api.Job{}, err
-		}
-	}
 	// Every agent starts at once: Queue and Size are accepted and do
 	// nothing (CreateAgentRequest). The VM's memory pressure holds back
 	// heavy commands, not agents (pressure.go).
@@ -1151,11 +1144,6 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			"title": a.Title, "task": task, "model": model, "branch": a.Branch,
 		}, "")
 		s.addActiveAgent(ctx, a.Project, a.Name)
-		// The user's task it was made for, from the Tasks tab, is its task.
-		// Nothing else writes a task: the list is the user's alone.
-		if req.TaskID != "" {
-			s.assignTask(ctx, a.Project, req.TaskID, a.Name)
-		}
 		if task != "" {
 			if byLead {
 				s.leadAsked(a)
@@ -1183,9 +1171,6 @@ func (s *Server) destroyAgent(w http.ResponseWriter, r *http.Request) error {
 	opts := agent.DestroyOptions{Force: force, DeleteBranch: deleteBranch, DeleteMedia: deleteMedia}
 	if err := s.destroyAgentNow(r.Context(), s.manager(s.cfg.Log), a, opts); err != nil {
 		return err
-	}
-	if a.Status == state.AgentQueued {
-		s.releaseQueuedTasks(r.Context(), a)
 	}
 	s.captureEvent(r.Context(), a.Project, a.Name, "agent_retired", map[string]any{"how": "destroy", "branch": a.Branch}, "")
 	s.countFeature(api.FeatureAgentDestroy)
