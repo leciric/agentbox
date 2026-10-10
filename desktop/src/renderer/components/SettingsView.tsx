@@ -84,6 +84,8 @@ import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
+import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
+import { useHatchConnected } from "./pages/usePages";
 import { VMMigrate } from "./VMMigrate";
 import { CHVSize, VMSize } from "./VMSize";
 import { VMSwap } from "./VMSwap";
@@ -808,6 +810,8 @@ function InstalledSettings({
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const readAloud = useReadAloudGroup();
   const topBarDetailed = useTopBarDetailed();
+  const pageStack = usePageStackMode();
+  const hatchConnected = useHatchConnected();
   // On a Mac, the VM everything runs in, whose size can be changed here.
   const hostSetup = useQuery({
     queryKey: ["host-setup"],
@@ -897,6 +901,17 @@ function InstalledSettings({
               modified: topBarDetailed,
               render: () => <TopBarDetailedSetting />,
             },
+            ...(hatchConnected
+              ? [
+                  {
+                    id: "pages-stack",
+                    label: t("settings.entry.pages-stack.label"),
+                    keywords: t("settings.entry.pages-stack.keywords"),
+                    modified: pageStack !== "new",
+                    render: () => <PagesStackSetting />,
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -1734,6 +1749,41 @@ function TopBarDetailedSetting() {
         />
       }
     />
+  );
+}
+
+// PagesStackSetting is when the pages stack by the composer shows
+// (lib/pageStackMode.ts); with Hatch connected only.
+function PagesStackSetting() {
+  const t = useT();
+  const mode = usePageStackMode();
+  return (
+    <SettingRow label={t("settings.entry.pages-stack.label")} description={t("settings.pagesStack.description")}>
+      <div
+        className="inline-flex w-fit flex-wrap rounded-xl border border-line bg-rail p-0.5"
+        role="radiogroup"
+        aria-label={t("settings.entry.pages-stack.label")}
+        data-pages-stack-choice
+      >
+        {pageStackModes.map((m) => (
+          <button
+            key={m}
+            role="radio"
+            aria-checked={mode === m}
+            data-pages-stack={m}
+            onClick={() => setPageStackMode(m)}
+            className={cn(
+              "inline-flex h-8 items-center gap-1.5 rounded-[10px] px-3 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
+              mode === m
+                ? "bg-surface-strong text-title shadow-[inset_0_1px_0_rgb(255_255_255/0.08)]"
+                : "text-muted hover:text-primary",
+            )}
+          >
+            {t(`settings.pagesStack.${m}`)}
+          </button>
+        ))}
+      </div>
+    </SettingRow>
   );
 }
 

@@ -2,8 +2,9 @@ import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type * as T from '../../../shared/api';
 import { isHomeChat } from '../../lib/api';
-import { isLeadRef, markSeen, matchesPage, openPage, stackPages, thumbKey, watchChat } from '../../lib/pages';
+import { isLeadRef, isNew, markSeen, matchesPage, openPage, stackPages, thumbKey, watchChat } from '../../lib/pages';
 import { useT } from '../../lib/i18n';
+import { usePageStackMode } from '../../lib/pageStackMode';
 import { useNow } from '../../lib/useNow';
 import { cn } from '../../lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -39,7 +40,9 @@ export function PageStack({ agent }: { agent: T.Agent }) {
   const project = agent.project;
   const query = useProjectPages(isHomeChat(agent.ref) ? null : project);
   const now = useNow(60_000);
-  const list = stackPages(query.data, agent.ref, now);
+  const mode = usePageStackMode();
+  const list = stackPages(query.data, agent.ref, now, mode);
+  const unseen = list.filter(isNew);
   const [open, setOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const leave = useRef<number>(undefined);
@@ -47,7 +50,9 @@ export function PageStack({ agent }: { agent: T.Agent }) {
   // wasn't drops in.
   const known = useRef<Set<string> | null>(null);
   const keys = list.map(thumbKey);
-  const arrived = known.current ? new Set(keys.filter((k) => !known.current!.has(k))) : new Set(keys);
+  // Only a new page drops in; in "always" the stack also holds pages already seen.
+  const newKeys = new Set(unseen.map(thumbKey));
+  const arrived = new Set(keys.filter((k) => newKeys.has(k) && !known.current?.has(k)));
   useEffect(() => {
     known.current = new Set(keys);
   });
@@ -66,7 +71,7 @@ export function PageStack({ agent }: { agent: T.Agent }) {
       className="pointer-events-none absolute bottom-full right-2 z-10 mb-3 md:right-3"
       style={{ width: cardW, height: cardW * 0.625 + 40 }}
       data-page-stack={fanned ? 'open' : 'closed'}
-      aria-label={t('pages.stack.label', { count: list.length })}
+      aria-label={mode === 'always' ? t('pages.stack.labelAll', { count: list.length }) : t('pages.stack.label', { count: list.length })}
       role="group"
       onMouseEnter={() => {
         window.clearTimeout(leave.current);
@@ -89,6 +94,9 @@ export function PageStack({ agent }: { agent: T.Agent }) {
               className="pointer-events-auto absolute bottom-0 right-0 origin-bottom-right transition-transform duration-300 ease-[cubic-bezier(.2,.9,.25,1)] motion-reduce:transition-none"
               style={{ width: cardW, transform, zIndex: shownMax - i, transitionDelay: fanned ? `${i * 25}ms` : '0ms' }}
             >
+              {mode === 'always' && newKeys.has(thumbKey(page)) && (
+                <span data-stack-new className="pointer-events-none absolute -left-1 -top-1 z-10 size-3 rounded-full border-2 border-composer bg-brand-500" />
+              )}
               <button
                 onClick={() => openPage(project, page)}
                 data-stack-page={page.id}
@@ -144,12 +152,12 @@ export function PageStack({ agent }: { agent: T.Agent }) {
         </span>
       )}
 
-      {fanned && (
+      {fanned && unseen.length > 0 && (
         <Tip label={t('pages.stack.dismiss')}>
           <button
             aria-label={t('pages.stack.dismiss')}
             data-stack-dismiss
-            onClick={() => markSeen(list)}
+            onClick={() => markSeen(unseen)}
             className="pointer-events-auto absolute -right-2 -top-2 z-20 flex size-6 animate-fade-in items-center justify-center rounded-full border border-line-strong bg-overlay text-subtle shadow-md transition hover:text-primary"
             style={{ top: -8 }}
           >
