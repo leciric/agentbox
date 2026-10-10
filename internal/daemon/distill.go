@@ -129,10 +129,16 @@ func (s *Server) distill(ctx context.Context, p state.Project, a state.Agent, wa
 	}
 
 	started := time.Now()
-	ask := distillAsk(events, known)
+	ask, shown := distillAsk(events, known)
+	events = events[:shown]
 	pass := memory.Pass{
 		Project: a.Project, Kind: memory.PassDistill, At: started,
 		EventsRead: len(events), InputBytes: len(ask),
+	}
+	if ask == "" {
+		// Everything in the window was noise the filter dropped: there is
+		// nothing to ask about, and the pass is done without a model.
+		return s.passWorked(ctx, pass, events, started)
 	}
 	answer, model, askErr := s.askDistiller(ctx, p, a, ask)
 	pass.OutputBytes, pass.Model = len(answer), model
@@ -149,19 +155,27 @@ func (s *Server) distill(ctx context.Context, p state.Project, a state.Agent, wa
 	if err := s.applyDistillation(ctx, a, &pass, result, answer); err != nil {
 		return s.failedPass(ctx, pass, started, err)
 	}
-	// The watermark is the last event the model was actually shown. Events
-	// that arrived while it thought are left for the next pass rather than
-	// skipped, which is the whole point of keeping one.
-	last := events[len(events)-1]
-	pass.ThroughEventID, pass.ThroughAt = last.ID, last.At
-	pass.Duration = time.Since(started)
-	if _, err := s.memory().RecordPass(ctx, pass); err != nil {
+	if err := s.passWorked(ctx, pass, events, started); err != nil {
 		return err
 	}
 	s.logf("consolidating %s: %d events became %d memories (%d replaced, %d closed)%s",
 		a.Project, pass.EventsRead, pass.MemoriesWritten, pass.MemoriesSuperseded, pass.MemoriesResolved,
 		ranOnWords(pass.Model))
 	return nil
+}
+
+// passWorked records a pass that worked, with its watermark.
+//
+// The watermark is the last event the model was actually shown, or that the
+// filter dropped on its way there (distillfilter.go). Events that arrived
+// while it thought, or that didn't fit, are left for the next pass rather than
+// skipped, which is the whole point of keeping one.
+func (s *Server) passWorked(ctx context.Context, pass memory.Pass, events []memory.Event, started time.Time) error {
+	last := events[len(events)-1]
+	pass.ThroughEventID, pass.ThroughAt = last.ID, last.At
+	pass.Duration = time.Since(started)
+	_, err := s.memory().RecordPass(ctx, pass)
+	return err
 }
 
 // ranOnWords names the model a pass ran on, for a log line. A pass on the
@@ -406,14 +420,17 @@ func parseDistillation(answer string) (distillation, error) {
 const maxDistillPrompt = 60 << 10
 
 // distillAsk builds the hidden prompt: what the project already knows, then
-// the stretch of history nobody has read yet.
+// the stretch of history nobody has read yet, through the filter that keeps
+// what says little out of it (distillfilter.go). It answers how many of the
+// window's events the prompt covers: the rest didn't fit. A window the filter
+// drops entirely is no prompt at all, "", and covered whole.
 //
 // The current memories go first and in full, because the job being asked for
 // is mostly *not* writing things down — it is noticing that twenty events say
 // one thing the project already knows, or that an issue from last month is
 // visibly fixed in this one. A model shown only the events writes twenty new
 // memories and the store grows exactly as fast as before.
-func distillAsk(events []memory.Event, known []memory.Memory) string {
+func distillAsk(events []memory.Event, known []memory.Memory) (string, int) {
 	var b strings.Builder
 	b.WriteString(distillPreamble)
 	b.WriteString("\n\n## What this project already remembers\n\n")
@@ -427,27 +444,33 @@ func distillAsk(events []memory.Event, known []memory.Memory) string {
 		}
 		b.WriteString("\n")
 	}
+	lines := distillLines(events)
+	if len(lines) == 0 {
+		return "", len(events)
+	}
 	b.WriteString("\n## What has happened since the last pass\n\n")
-	kept := 0
-	for _, e := range events {
-		line := fmt.Sprintf("- %s %s", e.At.Format("2006-01-02 15:04"), e.Type)
-		if e.Agent != "" {
-			line += " (" + e.Agent + ")"
-		}
-		if payload := collapseLines(string(e.Payload)); payload != "" && payload != "{}" {
-			line += " " + truncate(payload, 600)
-		}
-		if b.Len()+len(line) > maxDistillPrompt {
+	// How many lines fit is decided first, so a line's count of repeats
+	// leaves out the ones that will be read again next time. Each line is
+	// rendered at its longest to decide it. The first line always goes in,
+	// however long what the project remembers is: a pass that can't move the
+	// watermark would read the same window for ever.
+	fit, size := 0, b.Len()
+	for fit < len(lines) {
+		size += len(lines[fit].render(events, len(events))) + 1
+		if fit > 0 && size > maxDistillPrompt {
 			break
 		}
-		b.WriteString(line + "\n")
-		kept++
+		fit++
 	}
-	if kept < len(events) {
-		fmt.Fprintf(&b, "\n(%d more events didn't fit; they will be read next time.)\n", len(events)-kept)
+	through := lastShown(lines, fit, len(events))
+	for _, l := range lines[:fit] {
+		b.WriteString(l.render(events, through) + "\n")
+	}
+	if through < len(events) {
+		fmt.Fprintf(&b, "\n(%d more events didn't fit; they will be read next time.)\n", len(events)-through)
 	}
 	b.WriteString("\n" + distillShape)
-	return b.String()
+	return b.String(), through
 }
 
 // collapseLines puts a payload or a body on one line, so one event is one
