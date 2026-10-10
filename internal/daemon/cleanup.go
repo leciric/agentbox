@@ -170,11 +170,6 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 			f.FinishedAt = &at
 		}
 		f.Unpushed = unpushed(repo, st.Agent, f.PR)
-		if pr := f.PR; pr != nil && pr.State == "merged" && (pr.UpdatedAt == nil || !pr.UpdatedAt.Before(st.CreatedAt)) {
-			// Before the agent can go: a task whose agent is gone is back in
-			// the backlog, and this one is done.
-			s.tasksImplemented(ctx, p.Name, st.Name, pr.URL, pr.Number)
-		}
 		reason := removeReason(f, now)
 		if reason == "" {
 			continue

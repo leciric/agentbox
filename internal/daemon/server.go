@@ -228,9 +228,6 @@ type Server struct {
 	oomVictim      func(instance string) (agent.OOMVictim, bool)
 	oomSeen        map[string]agent.MemoryCounts
 	loggedOnce     map[string]string
-	// taskMu makes one hand-over of a task to the lead at a time
-	// (taskroute.go).
-	taskMu sync.Mutex
 	// wakeMu makes one start of a stopped machine for a message at a time
 	// (wake.go).
 	wakeMu sync.Mutex

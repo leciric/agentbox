@@ -60,20 +60,6 @@ func fill(t *testing.T, s *memory.Store, project string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// The user's task list, which a context leaves out: it is theirs, and an
-	// agent reads it with my_task.
-	index, err := s.AddTask(ctx, memory.Task{Project: project, Goal: "Index the count query"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	paginate, err := s.AddTask(ctx, memory.Task{Project: project, Agent: "agent-04",
-		Status: memory.TaskActive, Goal: "Paginate the reminders page"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.LinkTasks(ctx, project, paginate.ID, index.ID); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -140,9 +126,6 @@ func TestBuildContextKeepsEverythingItCan(t *testing.T) {
 		if !strings.Contains(built.Text, phrase) {
 			t.Errorf("the context doesn't mention %q:\n%s", phrase, built.Text)
 		}
-	}
-	if strings.Contains(built.Text, "Index the count query") || strings.Contains(built.Text, "The plan") {
-		t.Errorf("the context carries the user's task list:\n%s", built.Text)
 	}
 	if built.Stats.Dropped != 0 || built.Stats.Truncated {
 		t.Errorf("a context that fits dropped something: %+v", built.Stats)

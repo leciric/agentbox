@@ -14,11 +14,10 @@ import (
 	"agentbox/internal/api"
 )
 
-// TestMyTaskTools covers my_task, request_credential and request_connector
-// against the fake agent API: what an agent reads about its own work, that it
-// has nothing to change the user's task list with, and how it asks for a
-// credential or a connector it lacks.
-func TestMyTaskTools(t *testing.T) {
+// TestRequestTools covers request_credential, request_connector and
+// record_artifact against the fake agent API: how an agent asks for a
+// credential or a connector it lacks, and records what it made.
+func TestRequestTools(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "agent2.sock")
 	calls := make(chan string, 8)
 	serveFakeAgentAPI(t, socket, calls)
@@ -28,18 +27,8 @@ func TestMyTaskTools(t *testing.T) {
 		byName[tool.Name] = i
 	}
 
-	out, err := tools[byName["my_task"]].Run(json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "Fix login") || !strings.Contains(out, "task_1") {
-		t.Errorf("my_task = %q", out)
-	}
-	<-calls // /v1/self
-	<-calls // /v1/self/memory/tasks
-
-	if _, ok := byName["update_my_task"]; ok {
-		t.Error("an agent has update_my_task: the task list is the user's to change")
+	if _, ok := byName["my_task"]; ok {
+		t.Error("an agent still has my_task: there is no task list to read")
 	}
 
 	if _, ok := byName["request_credential"]; !ok {
@@ -168,29 +157,16 @@ func serveFakeAgentAPI(t *testing.T, socket string, calls chan<- string) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		calls <- r.Method + " " + r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.URL.Path == "/v1/self/memory/reports":
+		switch r.URL.Path {
+		case "/v1/self/memory/reports":
 			_ = json.NewEncoder(w).Encode(api.AgentReport{ID: "rep_test", Status: "partial", RemainingIssues: []string{"Pagination"}})
-		case r.URL.Path == "/v1/self/memory/artifacts":
+		case "/v1/self/memory/artifacts":
 			_ = json.NewEncoder(w).Encode(api.MemoryArtifact{ID: "art_test", Path: "x"})
-		case r.URL.Path == "/v1/self":
+		case "/v1/self":
 			_ = json.NewEncoder(w).Encode(api.Self{Ref: "pawly/agent-01", Agent: "agent-01", Project: "pawly"})
-		case r.URL.Path == "/v1/self/memory/tasks" && r.Method == http.MethodGet:
-			_ = json.NewEncoder(w).Encode([]api.Task{{ID: "task_1", Agent: "agent-01", Status: "active", Goal: "Fix login"}})
-		case strings.HasPrefix(r.URL.Path, "/v1/self/memory/tasks/") && r.Method == http.MethodPatch:
-			var in api.UpdateTaskRequest
-			_ = json.NewDecoder(r.Body).Decode(&in)
-			out := api.Task{ID: "task_1", Agent: "agent-01", Goal: "Fix login", Status: "active"}
-			if in.Status != nil {
-				out.Status = *in.Status
-			}
-			if in.Detail != nil {
-				out.Detail = *in.Detail
-			}
-			_ = json.NewEncoder(w).Encode(out)
-		case r.URL.Path == "/v1/self/credential":
+		case "/v1/self/credential":
 			_ = json.NewEncoder(w).Encode(api.Question{ID: "q1", Answer: "use work", Status: "answered"})
-		case r.URL.Path == "/v1/self/connector":
+		case "/v1/self/connector":
 			var in api.ConnectorRequest
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			_ = json.NewEncoder(w).Encode(api.Question{ID: "q2", Kind: api.QuestionConnector, Connector: in.Name,

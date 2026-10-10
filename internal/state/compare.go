@@ -12,7 +12,7 @@ import (
 // which follow their tables.
 var carriedTables = []string{
 	"projects", "agents", "chats", "chat_items", "questions", "settings", "secrets", "media",
-	"events", "memories", "working_memory", "artifacts", "agent_reports", "tasks",
+	"events", "memories", "working_memory", "artifacts", "agent_reports",
 	"project_sections", "token_usage", "claude_limits", "pr_watches",
 }
 

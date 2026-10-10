@@ -128,7 +128,6 @@ export interface Settings {
   autoStopIdle: boolean;
   dockerPruneOnStop: boolean;
   idleTimeSeconds: number;
-  taskTarget: string;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
   imageCache: boolean;
@@ -163,7 +162,6 @@ export interface UpdateSettingsRequest {
   autoStopIdle?: boolean;
   dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
-  taskTarget?: string;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
   diskFloorMin?: number;
@@ -227,7 +225,6 @@ export interface CreateAgentRequest {
   finishNotice?: string;
   queue?: boolean;
   size?: string;
-  taskId?: string;
   connectors?: string[];
 }
 
@@ -1910,59 +1907,6 @@ export interface MemoryDuplicate {
   foundAt: string;
 }
 
-export interface Task {
-  id: string;
-  project: string;
-  agent?: string;
-  parentId?: string;
-  status: string;
-  goal: string;
-  detail?: string;
-  route?: string;
-  leadQueuedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  closedAt?: string;
-  pullUrl?: string;
-  pullNumber?: number;
-  dependsOn?: string[];
-  blocks?: string[];
-}
-
-export interface AddTaskRequest {
-  goal: string;
-  detail?: string;
-  agent?: string;
-  parentId?: string;
-  status?: string;
-  dependsOn?: string[];
-}
-
-export interface UpdateTaskRequest {
-  status?: string;
-  goal?: string;
-  detail?: string;
-  agent?: string;
-  parentId?: string;
-  route?: string;
-}
-
-export interface LinkTasksRequest {
-  taskId: string;
-  dependsOnId: string;
-}
-
-export interface StartTaskRequest {
-  queue?: boolean;
-  ai?: string;
-}
-
-export interface StartTaskResponse {
-  target: string;
-  task: Task;
-  job?: Job;
-}
-
 export interface TokenCounts {
   input: number;
   output: number;
@@ -2306,11 +2250,6 @@ export const ContextForAgent = "agent";
 export const ContextForTool = "tool";
 export const ConsolidationMechanical = "mechanical";
 export const ConsolidationDistill = "distill";
-export const TaskOpen = "open";
-export const TaskActive = "active";
-export const TaskBlocked = "blocked";
-export const TaskDone = "done";
-export const TaskAbandoned = "abandoned";
 export const SearchProjects = "projects";
 export const SearchAgents = "agents";
 export const SearchChats = "chats";
