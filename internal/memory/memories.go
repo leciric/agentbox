@@ -132,10 +132,10 @@ func (s *Store) Memories(ctx context.Context, project string, kinds []string) ([
 			args = append(args, k)
 		}
 	}
-	// Importance first, then recency: what a project can't be worked on
+	// Standing first, then recency: what a project can't be worked on
 	// without comes before what merely happened most recently.
 	return s.queryMemories(ctx, `WHERE `+strings.Join(where, " AND ")+
-		` ORDER BY m.importance DESC, m.created_at DESC, m.rowid DESC LIMIT ?`, append(args, MaxLimit)...)
+		` ORDER BY `+standingSQL+` DESC, m.importance DESC, m.created_at DESC, m.rowid DESC LIMIT ?`, append(args, MaxLimit)...)
 }
 
 // Memory is one memory by id, whether or not something supersedes it and
@@ -200,7 +200,7 @@ const live = notSuperseded + ` AND m.resolved_at = 0`
 
 const memoryColumns = `m.id, m.project, m.kind, m.title, m.content, m.importance, m.created_at, m.updated_at,
 	m.supersedes_id, m.source_event_id, EXISTS (SELECT 1 FROM memories r WHERE r.supersedes_id = m.id),
-	m.resolved_at, m.resolved_by, m.referenced_at, m.decayed_at, m.mentioned_at`
+	m.resolved_at, m.resolved_by, m.referenced_at, m.decayed_at, m.mentioned_at, m.confirmations`
 
 func (s *Store) queryMemories(ctx context.Context, clause string, args ...any) ([]Memory, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+memoryColumns+` FROM memories m `+clause, args...)
@@ -226,7 +226,7 @@ func scanMemory(rows scanner) (Memory, error) {
 	var resolved, referenced, decayed, mentioned int64
 	if err := rows.Scan(&m.ID, &m.Project, &m.Kind, &m.Title, &m.Content, &m.Importance,
 		&created, &updated, &supersedes, &source, &m.Superseded,
-		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned); err != nil {
+		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned, &m.Confirmations); err != nil {
 		return Memory{}, err
 	}
 	m.CreatedAt, m.UpdatedAt = attime(created), attime(updated)

@@ -104,7 +104,7 @@ func TestAgentMemoryTools(t *testing.T) {
 			t.Errorf("%s has no description: it is all a model reads", tool.Name)
 		}
 	}
-	for _, want := range []string{"search_memory", "report", "record_artifact"} {
+	for _, want := range []string{"search_memory", "memory_feedback", "report", "record_artifact"} {
 		if _, ok := byName[want]; !ok {
 			t.Errorf("a worker agent has no %s tool", want)
 		}
@@ -126,6 +126,18 @@ func TestAgentMemoryTools(t *testing.T) {
 	}
 	if got := <-calls; got != "POST /v1/self/memory/reports" {
 		t.Errorf("report called %s", got)
+	}
+
+	// Feedback goes to the agent's own routes too, and says what it did.
+	out, err = tools[byName["memory_feedback"]].Run(json.RawMessage(`{"memory":"The API listens on 7777","verdict":"wrong","why":"8080"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != `Noted mem_1 ("The API listens on 7777") as wrong: importance 1, was 5.` {
+		t.Errorf("memory_feedback = %q", out)
+	}
+	if got := <-calls; got != "POST /v1/self/memory/feedback" {
+		t.Errorf("memory_feedback called %s", got)
 	}
 
 	// A report with nothing in it is refused here, before the round trip.
@@ -188,6 +200,11 @@ func serveFakeAgentAPI(t *testing.T, socket string, calls chan<- string) {
 				out.Detail = *in.Detail
 			}
 			_ = json.NewEncoder(w).Encode(out)
+		case r.URL.Path == "/v1/self/memory/feedback":
+			var in api.MemoryFeedbackRequest
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			_ = json.NewEncoder(w).Encode(api.MemoryFeedbackResult{Was: 5,
+				Memory: api.Memory{ID: "mem_1", Title: in.Memory, Importance: 1}})
 		case r.URL.Path == "/v1/self/credential":
 			_ = json.NewEncoder(w).Encode(api.Question{ID: "q1", Answer: "use work", Status: "answered"})
 		case r.URL.Path == "/v1/self/connector":

@@ -86,7 +86,7 @@ func TestProjectMemoryTools(t *testing.T) {
 	for _, tool := range tools {
 		byName[tool.Name] = tool
 	}
-	for _, want := range []string{"search_memory", "remember", "update_working_memory", "project_state"} {
+	for _, want := range []string{"search_memory", "remember", "memory_feedback", "update_working_memory", "project_state"} {
 		tool, ok := byName[want]
 		if !ok {
 			t.Fatalf("the project chat has no %s tool", want)

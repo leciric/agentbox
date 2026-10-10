@@ -265,6 +265,12 @@ func (m *MemoryClient) ResolveMemory(ctx context.Context, id, why string) (Memor
 	return out, m.c.do(ctx, http.MethodPost, m.base+"/resolve", ResolveMemoryRequest{ID: id, Why: why}, &out)
 }
 
+// Feedback says a memory its reader was handed is wrong, stale or helpful.
+func (m *MemoryClient) Feedback(ctx context.Context, req MemoryFeedbackRequest) (MemoryFeedbackResult, error) {
+	var out MemoryFeedbackResult
+	return out, m.c.do(ctx, http.MethodPost, m.base+"/feedback", req, &out)
+}
+
 // Consolidation is what the project's consolidation has done and what is
 // waiting: the numbers a compression ratio is made of.
 func (m *MemoryClient) Consolidation(ctx context.Context) (MemoryConsolidation, error) {

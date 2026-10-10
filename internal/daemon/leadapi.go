@@ -131,7 +131,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 			continue
 		}
 		mux.HandleFunc(route.method+" /v1/project/memory"+route.path,
-			withProject(s.memoryHandler(route.action, s.projectMemoryScope)))
+			withProject(s.memoryHandler(route.action, s.leadMemoryScope)))
 	}
 	// Skills: reading and adding them is the lead's; changing, deleting or
 	// turning off one waits for the user's approval (leadskills.go).

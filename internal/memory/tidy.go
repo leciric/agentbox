@@ -329,15 +329,18 @@ func (s *Store) mergeDuplicates(ctx context.Context, project string, items, corp
 }
 
 // mergeInto resolves one duplicate and keeps what it had worth keeping on the
-// item that stays: its importance, if higher, the latest mention, and what
-// would close it, if the one that stays names nothing.
+// item that stays: its importance, if higher, the latest mention, its
+// confirmations plus this one (confirmed.go), and what would close it, if the
+// one that stays names nothing.
 func (s *Store) mergeInto(ctx context.Context, project string, m Merge, anchors map[string][]Anchor) error {
 	if _, err := s.ResolveMemory(ctx, project, m.Memory.ID, "duplicate of "+m.Into.ID+" ("+m.Why+")"); err != nil {
 		return err
 	}
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE memories SET importance = max(importance, ?), mentioned_at = max(mentioned_at, ?, ?) WHERE project = ? AND id = ?`,
-		m.Memory.Importance, millis(m.Memory.LastMentioned()), millis(m.Into.CreatedAt), project, m.Into.ID); err != nil {
+		`UPDATE memories SET importance = max(importance, ?), mentioned_at = max(mentioned_at, ?, ?),
+			confirmations = confirmations + 1 + ? WHERE project = ? AND id = ?`,
+		m.Memory.Importance, millis(m.Memory.LastMentioned()), millis(m.Into.CreatedAt), m.Memory.Confirmations,
+		project, m.Into.ID); err != nil {
 		return err
 	}
 	if len(Anchored{Anchors: anchors[m.Into.ID]}.Closers()) == 0 && len(anchors[m.Memory.ID]) > 0 {
@@ -421,13 +424,13 @@ func (s *Store) Tidy(ctx context.Context, project string, opts TidyOptions) (Tid
 }
 
 // OpenIssues are the live issues something has mentioned since a moment,
-// most important first: what the lead's recap carries as "Still open".
+// highest Standing first: what the lead's recap carries as "Still open".
 func (s *Store) OpenIssues(ctx context.Context, project string, since time.Time, limit int) ([]Memory, error) {
 	if err := requireProject(project); err != nil {
 		return nil, err
 	}
 	return s.queryMemories(ctx, `WHERE m.project = ? AND m.kind = ? AND `+live+`
 		AND max(m.created_at, m.mentioned_at) >= ?
-		ORDER BY m.importance DESC, m.created_at DESC, m.rowid DESC LIMIT ?`,
+		ORDER BY `+standingSQL+` DESC, m.importance DESC, m.created_at DESC, m.rowid DESC LIMIT ?`,
 		project, KindIssue, millis(since), limitOf(limit))
 }
