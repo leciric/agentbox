@@ -24,9 +24,13 @@ const cors = {
   'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Content-Type',
 };
 
-// chatImage is the one daemon path agentbox-media://api/... reaches: a picture
-// sent in an agent's chat, or in a project's, or a SnapShot waiting to be.
+// chatImage and artifactPage are the daemon paths agentbox-media://api/...
+// reaches: a picture sent in an agent's chat, or in a project's, or a SnapShot
+// waiting to be; and the HTML of a page a project's chats published on Hatch,
+// which the daemon sends with a sandboxing Content-Security-Policy, framed by
+// the chat's artifact preview.
 const chatImage = /^\/v1\/((projects\/[^/]+|agents\/[^/]+\/[^/]+)\/chat\/images\/[0-9a-f]{16}|snaps\/[0-9a-f]{16}\/image)$/;
+const artifactPage = /^\/v1\/projects\/[^/]+\/artifacts\/[A-Za-z0-9_-]+\/page$/;
 
 export function handleMedia(): void {
   protocol.handle(mediaScheme, (request) => {
@@ -34,8 +38,8 @@ export function handleMedia(): void {
     const url = new URL(request.url);
     let path: string;
     if (url.host === 'api') {
-      // A picture sent in a chat, and nothing else of the daemon's API.
-      if (!chatImage.test(url.pathname)) return new Response('not found', { status: 404, headers: cors });
+      // A picture sent in a chat, or an artifact's page, and nothing else of the daemon's API.
+      if (!chatImage.test(url.pathname) && !artifactPage.test(url.pathname)) return new Response('not found', { status: 404, headers: cors });
       path = url.pathname;
     } else {
       const [id = '', ...rest] = url.pathname.replace(/^\//, '').split('/');

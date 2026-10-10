@@ -129,6 +129,11 @@ type Server struct {
 	// connectors are the remote MCP servers agents use, signed in to here
 	// (connectors.go, internal/connectors).
 	connectors *connectors.Service
+	// pageLinks are the links to the HTML of the Hatch artifacts last
+	// previewed (artifacts.go).
+	pageLinks pageLinks
+	// hatchHost is the host:port a test's Hatch is at; "" for Hatch's own.
+	hatchHost string
 
 	// firstSweeps is done once the sweeps Run starts have each made their
 	// first pass, the one at startup: what a test waits for, so that pass
@@ -650,6 +655,10 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/chat/cancel", s.cancelChat(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/reload", s.reloadChatTools(s.leadFromPath))
 	h("POST /v1/projects/{project}/chat/rollover", s.rolloverChat)
+	// The pages the project's chats published on Hatch (artifacts.go).
+	h("GET /v1/projects/{project}/artifacts", s.listArtifacts)
+	h("GET /v1/projects/{project}/artifacts/{id}", s.previewArtifact)
+	h("GET /v1/projects/{project}/artifacts/{id}/page", s.artifactPage)
 	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
 	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
 	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))

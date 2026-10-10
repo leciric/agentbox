@@ -23,6 +23,7 @@ import (
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
+	"agentbox/internal/hatch"
 	"agentbox/internal/state"
 )
 
@@ -2390,6 +2391,11 @@ func applyTool(t *api.ChatTool, u acp.SessionUpdate) {
 	}
 	if command := commandOf(u.RawInput); command != "" {
 		t.Command = command
+	}
+	if hatch.Op(t.Name, t.Title) != "" {
+		if page := hatch.Args(u.RawInput); page != nil {
+			t.Page = page
+		}
 	}
 	if content, ok := u.ToolContent(); ok {
 		var texts []string

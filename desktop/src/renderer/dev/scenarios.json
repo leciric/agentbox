@@ -1013,5 +1013,26 @@
     "query": "power=running&theme=dark",
     "width": 760,
     "height": 300
+  },
+  {
+    "id": "artifacts-lead-dark",
+    "description": "The project's chat with Hatch connected: its artifacts tray over the composer, each with the agent that made it, one expiring soon and one expired — dark",
+    "query": "artifacts=lead&theme=dark",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "artifacts-lead-light",
+    "description": "Same as artifacts-lead-dark — light",
+    "query": "artifacts=lead&theme=light",
+    "width": 1280,
+    "height": 900
+  },
+  {
+    "id": "artifacts-agent-dark",
+    "description": "agent-12's chat: only the artifacts it made or updated — dark",
+    "query": "artifacts=agent-12&theme=dark",
+    "width": 1280,
+    "height": 900
   }
 ]

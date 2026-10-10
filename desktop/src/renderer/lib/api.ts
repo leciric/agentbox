@@ -1,6 +1,7 @@
 // Typed calls to the daemon's HTTP API, sent through the main process.
 import type { ApiResponse } from '../../preload';
 import * as T from '../../shared/api.ts';
+import { artifactPagePath } from './artifacts.ts';
 import { errorMessage } from './utils.ts';
 import { ensureVMRunning } from './vm.ts';
 
@@ -255,6 +256,12 @@ export const api = {
   // A project's say on an AgentBox-wide connector: 'on', 'off', or '' to follow AgentBox's.
   setConnectorOverride: (projectName: string, name: string, override: '' | 'on' | 'off') =>
     call<T.Connector>('PUT', `${connectorPath(projectName, name)}/override`, { override } satisfies T.ConnectorOverrideRequest),
+
+  // The pages a project's chats published on Hatch, and one of them brought
+  // up to date from Hatch; its HTML is framed from artifactUrl.
+  artifacts: (name: string) => call<T.Artifacts>('GET', `${project(name)}/artifacts`),
+  artifactPreview: (name: string, id: string) => call<T.ArtifactPreview>('GET', `${project(name)}/artifacts/${encodeURIComponent(id)}`),
+  artifactUrl: (name: string, id: string) => window.agentbox.chatImageUrl(artifactPagePath(name, id)),
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
 

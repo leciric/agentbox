@@ -227,6 +227,21 @@ type ChatTool struct {
 	Paths   []string   `json:"paths,omitempty"`
 	Output  string     `json:"output,omitempty"` // the end of its output
 	Diffs   []ChatDiff `json:"diffs,omitempty"`
+	// Page, on a call to Hatch's publish_page or update_page, is what it was
+	// asked to publish, without the HTML: what the project's artifacts are
+	// read from (Artifacts), with what Hatch answered in Output.
+	Page *ChatPage `json:"page,omitempty"`
+}
+
+// ChatPage is the arguments of a call to Hatch's publish_page or
+// update_page that its answer doesn't repeat.
+type ChatPage struct {
+	ID     string `json:"id,omitempty"`    // update_page's: the page it updates
+	Title  string `json:"title,omitempty"` // publish_page's
+	Public bool   `json:"public,omitempty"`
+	// ExpiresInHours is how long publish_page asked the page to last: 0 for
+	// Hatch's default (24 hours), -1 for ever.
+	ExpiresInHours int `json:"expiresInHours,omitempty"`
 }
 
 type ChatDiff struct {

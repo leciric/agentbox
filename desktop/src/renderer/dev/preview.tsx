@@ -17,6 +17,9 @@
 //                           unless ?open names an agent in it)
 //   ?chat=agent-12          agent-12's conversation in the middle, blocked on a
 //                           credential request
+//   ?artifacts=lead         the project's chat with Hatch connected, its
+//                           artifacts tray over the composer (dev/artifacts.ts);
+//                           ?artifacts=agent-12 that agent's chat, its own
 //   ?chat=lead              the project's chat, with the credential requests
 //                           its agents are waiting on at its end
 //   ?vm=create|lima|vz      a Mac's first screen in the middle: the VM to set up,
@@ -224,6 +227,7 @@ import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedQueue, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { seedArtifacts } from './artifacts';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
 
@@ -348,6 +352,11 @@ seedQueryClient(queryClient, fixtures);
 if (defaults) seedDefaults(queryClient);
 // Before the first render, so the chat reads it rather than the dev bridge.
 if (chat === 'stopped' || chat === 'paused') queryClient.setQueryData(['chat', asleepRef], asleepChat(asleepRef));
+const artifacts = params.get('artifacts');
+if (artifacts) {
+  seedArtifacts(queryClient);
+  if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
+}
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
 if (media === 'all') seedAllMedia(queryClient);
 else if (media) seedMedia(queryClient);
@@ -763,6 +772,19 @@ function Preview() {
               <ChatHeaderControls agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} />
             </div>
             <ChatTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} starting={false} autoStart={false} onStart={() => {}} />
+          </div>
+        ) : artifacts ? (
+          <div style={{ height: '100%', margin: -24 }}>
+            <ChatTab
+              agent={
+                artifacts === 'lead'
+                  ? leadAgentFrom(fixtures.projects.find((p) => p.name === PROJECT)!, { ref: `${PROJECT}/lead`, started: true } as T.ProjectChat)
+                  : fixtures.agents.find((a) => a.ref === `${PROJECT}/${artifacts}`)!
+              }
+              starting={false}
+              autoStart={false}
+              onStart={() => {}}
+            />
           </div>
         ) : chat === 'lead' ? (
           <div style={{ height: '100%', margin: -24 }}>
