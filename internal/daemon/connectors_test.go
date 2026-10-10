@@ -22,13 +22,14 @@ import (
 
 // connectorsIncus is oneAgentIncus that also keeps the AI tools'
 // configuration files the daemon writes into the agent, in $CAPTURE, so a test
-// can read what the agent was given.
+// can read what the agent was given, and the daemon can read them back.
 const connectorsIncus = `case "$1" in
   list) echo '[{"name": "ab-hello-stack-agent-01", "status": "Running", "state": {"network": {"eth0": {"addresses": [{"family": "inet", "address": "10.1.2.3"}]}}}}]' ;;
   query) echo '[]' ;;
   exec)
     for arg in "$@"; do
       case "$arg" in
+        "cat '"*) f=${arg#"cat '"}; f=${f%%"'"*}; cat "$CAPTURE/$(basename "$f")" 2>/dev/null; exit 0 ;;
         */.claude.json|*/config.toml|*/opencode.json) cat > "$CAPTURE/$(basename "$arg").tmp" && mv "$CAPTURE/$(basename "$arg").tmp" "$CAPTURE/$(basename "$arg")"; exit 0 ;;
       esac
     done ;;

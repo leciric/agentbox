@@ -60,3 +60,44 @@ func TestWithMCPServers(t *testing.T) {
 		t.Error("a ~/.claude.json that isn't JSON was overwritten")
 	}
 }
+
+// sameMCPServers looks only at the MCP servers in each tool's file: what else
+// the tool keeps there may change without its chat needing a restart.
+func TestSameMCPServers(t *testing.T) {
+	t.Parallel()
+	servers := agentMCPServers("/home/dev", []string{"notion"})
+	more := agentMCPServers("/home/dev", []string{"notion", "linear"})
+	claude := func(state string, s []mcpServer) []byte {
+		b, err := withMCPServers([]byte(state), claudeMCPServers(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	opencode := func(s []mcpServer, autonomous bool) []byte {
+		b, err := openCodeConfig(s, autonomous)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	for _, c := range []struct {
+		name, ai string
+		was, now []byte
+		same     bool
+	}{
+		{"claude, its own state changed", "claude", claude(`{"numStartups":1}`, servers), claude(`{"numStartups":7,"projects":{}}`, servers), true},
+		{"claude, a connector added", "claude", claude(`{}`, servers), claude(`{}`, more), false},
+		{"claude, no file before", "claude", nil, claude(`{}`, servers), false},
+		{"codex, the compact window changed", "codex", []byte(codexConfigFor("/w", servers, 100)), []byte(codexConfigFor("/w", servers, 200) + "\n[notice]\nhide = true\n"), true},
+		{"codex, a connector added", "codex", []byte(codexConfigFor("/w", servers, 100)), []byte(codexConfigFor("/w", more, 100)), false},
+		{"opencode, permissions changed", "opencode", opencode(servers, false), opencode(servers, true), true},
+		{"opencode, a connector added", "opencode", opencode(servers, false), opencode(more, false), false},
+		{"cursor, unchanged", "cursor", cursorMCPConfig(servers), cursorMCPConfig(servers), true},
+		{"cursor, a connector added", "cursor", cursorMCPConfig(servers), cursorMCPConfig(more), false},
+	} {
+		if got := sameMCPServers(c.ai, c.was, c.now); got != c.same {
+			t.Errorf("%s: sameMCPServers = %v, want %v", c.name, got, c.same)
+		}
+	}
+}
