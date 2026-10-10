@@ -1140,6 +1140,7 @@ export const ptBR: Messages = {
   'memory.pulls.refresh': 'Ler o GitHub de novo agora',
   'memory.pulls.labels.add': 'Etiqueta',
   'memory.pulls.labels.edit': 'Editar etiquetas',
+  'memory.pulls.labels.remove': 'Remover etiqueta {name}',
   'memory.pulls.labels.search': 'Procurar uma etiqueta',
   'memory.pulls.labels.loading': 'Lendo as etiquetas do repositório…',
   'memory.pulls.labels.none': 'Este repositório não tem etiquetas.',
