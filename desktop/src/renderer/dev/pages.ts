@@ -53,6 +53,17 @@ export function seedPages(queryClient: QueryClient): void {
   knowProject(PROJECT, { connector: 'hatch', artifacts: pageFixtures().slice(newCount) });
   queryClient.setQueryData(['pages', PROJECT], { connector: 'hatch', artifacts: pageFixtures() } satisfies T.Artifacts);
   queryClient.setQueryData(['chat', `${PROJECT}/lead`], pagesLeadChat());
+  // The fixtures' other project (a very long name) has two pages of its own,
+  // for global Media's project filter.
+  const other = queryClient.getQueryData<T.Project[]>(['projects'])?.find((p) => p.name !== PROJECT);
+  if (other) {
+    const mine = (id: string, title: string, agent: string, updated: number): T.Artifact => {
+      const ref = `${other.name}/${agent}`;
+      return { ...pageFixtures()[0], id, title, url: link(id), agent: ref, item: `${agent}-${id}`, agents: [ref], createdAt: ago(updated + 20 * min), updatedAt: ago(updated), expiresAt: later(24 * hour - updated) };
+    };
+    knowProject(other.name, { connector: 'hatch', artifacts: [] });
+    queryClient.setQueryData(['pages', other.name], { connector: 'hatch', artifacts: [mine('othrA1x', 'Billing export: schema options', 'agent-3', 40 * min), mine('othrB2y', 'Invoice PDF layout', 'lead', 4 * hour)] } satisfies T.Artifacts);
+  }
 }
 
 // publishOne is an agent publishing another page, as the daemon's next read

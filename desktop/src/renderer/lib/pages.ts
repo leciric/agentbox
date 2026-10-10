@@ -44,11 +44,12 @@ export function pagesFor(list: T.Artifacts | undefined, ref: string, now = Date.
 }
 
 // matchesPage is a page a search finds: every word in its title or in the
-// name of the agent that made it.
-export function matchesPage(a: T.Artifact, query: string, agentLabel = ''): boolean {
+// name of the agent that made it, and in its project's names when given
+// (global Media, where pages of every project are mixed).
+export function matchesPage(a: T.Artifact, query: string, agentLabel = '', project = ''): boolean {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return true;
-  const hay = `${a.title} ${a.agent.split('/')[1] ?? ''} ${agentLabel}`.toLowerCase();
+  const hay = `${a.title} ${a.agent.split('/')[1] ?? ''} ${agentLabel} ${project}`.toLowerCase();
   return words.every((w) => hay.includes(w));
 }
 
@@ -66,6 +67,14 @@ export function byAgent(list: T.Artifact[]): [string, T.Artifact[]][] {
 export function countByAgent(list: T.Artifact[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const a of list) out.set(a.agent, (out.get(a.agent) ?? 0) + 1);
+  return out;
+}
+
+// countByProject is how many pages each project has, in the order projects
+// first appear in the list, for the project chips of global Media's Pages.
+export function countByProject(list: readonly { project: string }[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const e of list) out.set(e.project, (out.get(e.project) ?? 0) + 1);
   return out;
 }
 
