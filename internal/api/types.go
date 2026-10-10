@@ -1287,6 +1287,61 @@ type MergePullRequestRequest struct {
 	Method string `json:"method"`
 }
 
+// PullRequestDetail is one pull request as the app's pull request view shows
+// it: the list's fields, read fresh, and its description, labels and check
+// runs. Body is GitHub markdown; its pictures are read through the
+// daemon's /pulls/image, since a private repository's need the token.
+type PullRequestDetail struct {
+	PullRequest
+	Body      string      `json:"body"`
+	Labels    []PullLabel `json:"labels"`
+	CheckRuns []PullCheck `json:"checkRuns"`
+}
+
+// PullLabel is a label on a pull request; Color is GitHub's hex, without "#".
+type PullLabel struct {
+	Name        string `json:"name"`
+	Color       string `json:"color,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// PullCheck is one check run on a pull request's head. Status is queued,
+// in_progress or completed; Conclusion, once completed, is GitHub's: success,
+// failure, neutral, cancelled, skipped, timed_out or action_required.
+type PullCheck struct {
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	Conclusion string `json:"conclusion,omitempty"`
+	URL        string `json:"url,omitempty"`
+}
+
+// PullRequestFiles is the files a pull request changes, without their diffs:
+// each is read on its own, from PullRequestFileDiff. Truncated is set when
+// GitHub had more than it lists.
+type PullRequestFiles struct {
+	Files     []PullFile `json:"files"`
+	Truncated bool       `json:"truncated,omitempty"`
+}
+
+// PullFile is one file a pull request changes. Status is GitHub's: added,
+// removed, modified, renamed, copied, changed or unchanged. HasDiff is false
+// for a binary file and for one whose diff GitHub found too big to send.
+type PullFile struct {
+	Path         string `json:"path"`
+	PreviousPath string `json:"previousPath,omitempty"`
+	Status       string `json:"status"`
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
+	HasDiff      bool   `json:"hasDiff"`
+}
+
+// PullFileDiff is one file's unified diff, hunks only, without the file
+// header.
+type PullFileDiff struct {
+	Path  string `json:"path"`
+	Patch string `json:"patch"`
+}
+
 // FleetAgent is one agent of a project, with enough to follow it without
 // opening it: what it is, what its chat is doing, what it has changed, what it
 // has shown, and where its branch stands on GitHub.

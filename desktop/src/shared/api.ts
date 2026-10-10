@@ -1149,6 +1149,63 @@ export interface MergePullRequestRequest {
   method: string;
 }
 
+export interface PullRequestDetail {
+  number: number;
+  title: string;
+  state: string;
+  checks: string;
+  url: string;
+  draft?: boolean;
+  additions?: number;
+  deletions?: number;
+  comments?: number;
+  updatedAt?: string;
+  baseBranch?: string;
+  headBranch?: string;
+  headSha?: string;
+  author?: string;
+  authorAvatar?: string;
+  agent?: string;
+  conflict?: boolean;
+  review?: string;
+  watched?: boolean;
+  body: string;
+  labels: PullLabel[];
+  checkRuns: PullCheck[];
+}
+
+export interface PullLabel {
+  name: string;
+  color?: string;
+  description?: string;
+}
+
+export interface PullCheck {
+  name: string;
+  status: string;
+  conclusion?: string;
+  url?: string;
+}
+
+export interface PullRequestFiles {
+  files: PullFile[];
+  truncated?: boolean;
+}
+
+export interface PullFile {
+  path: string;
+  previousPath?: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  hasDiff: boolean;
+}
+
+export interface PullFileDiff {
+  path: string;
+  patch: string;
+}
+
 export interface AgentChanges {
   files: number;
   insertions: number;

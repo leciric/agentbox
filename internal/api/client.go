@@ -1060,3 +1060,24 @@ func (c *Client) SendReport(ctx context.Context, req ReportRequest) (ReportSent,
 	var sent ReportSent
 	return sent, c.do(ctx, http.MethodPost, "/v1/reports", req, &sent)
 }
+
+// PullRequestDetail reads one of a project repository's pull requests with its
+// description, labels and check runs.
+func (c *Client) PullRequestDetail(ctx context.Context, project string, number int) (PullRequestDetail, error) {
+	var out PullRequestDetail
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/pulls/"+strconv.Itoa(number), nil, &out)
+}
+
+// PullRequestFiles lists the files one of a project repository's pull
+// requests changes.
+func (c *Client) PullRequestFiles(ctx context.Context, project string, number int) (PullRequestFiles, error) {
+	var out PullRequestFiles
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/pulls/"+strconv.Itoa(number)+"/files", nil, &out)
+}
+
+// PullFileDiff reads the diff of one file a pull request changes.
+func (c *Client) PullFileDiff(ctx context.Context, project string, number int, path string) (PullFileDiff, error) {
+	var out PullFileDiff
+	p := "/v1/projects/" + url.PathEscape(project) + "/pulls/" + strconv.Itoa(number) + "/diff?path=" + url.QueryEscape(path)
+	return out, c.do(ctx, http.MethodGet, p, nil, &out)
+}

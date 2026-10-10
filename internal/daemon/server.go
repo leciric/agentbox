@@ -85,6 +85,7 @@ type Server struct {
 	jobs         *jobs
 	chat         *chat.Manager // the agents' conversations in the app's Chat tab
 	pulls        *pullsCache   // what GitHub said about each repository, served stale
+	pullFiles    pullFiles     // the files of the pull requests the app opened, for their diffs
 	prWatch      *prWatcher    // the agents' pull requests being watched (prwatch.go)
 	// prTell sends an agent a message from the pull request watch, waking it
 	// first, and says what that took: tellAgent, or a test's recorder.
@@ -673,6 +674,10 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)
 	h("GET /v1/projects/{project}/pulls", s.projectPullRequests)
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
+	h("GET /v1/projects/{project}/pulls/{number}", s.pullRequestDetail)
+	h("GET /v1/projects/{project}/pulls/{number}/files", s.pullRequestFiles)
+	h("GET /v1/projects/{project}/pulls/{number}/diff", s.pullFileDiff)
+	h("GET /v1/projects/{project}/pulls/image", s.pullRequestImage)
 	h("GET /v1/skills", s.listSkills)
 	h("POST /v1/skills/scan", s.scanSkills)
 	h("POST /v1/skills/import", s.importSkills)
