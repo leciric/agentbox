@@ -951,6 +951,57 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		},
 		memoryFeedbackTool(ctx, c.LeadMemory()),
 		{
+			Name: "promote_memory",
+			Description: "Make a memory one of this project's notes, when your brief offers it under \"Memories that " +
+				"could be notes\": AgentBox kept handing it to agent after agent, and a note says it to every agent " +
+				"instead. The note is added like append_note's, and the memory stops being served in briefs, so the " +
+				"fact isn't paid for twice; search_memory still finds it. Promote only a standing rule — every note " +
+				"costs every agent context — and word it as one short sentence in text: without it the note is the " +
+				"memory's title and the start of its content. dismiss_promotion is the other answer.",
+			Schema: object([]string{"id"}, map[string]any{
+				"id":   str("the memory's id, from the offer in your brief"),
+				"text": str("the note as every agent should read it, in a sentence"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ ID, Text string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(in.ID) == "" {
+					return "", errors.New("say which memory to promote, by its id")
+				}
+				out, err := c.LeadMemory().PromoteMemory(ctx, in.ID, in.Text)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("%s (%q) is a note now: new agents get it in their brief, running ones from their "+
+					"next session, and no brief serves the memory beside it.", out.Memory.ID, out.Memory.Title), nil
+			},
+		},
+		{
+			Name: "dismiss_promotion",
+			Description: "Answer an offer under \"Memories that could be notes\" in your brief with no: the memory " +
+				"stays an ordinary memory, served to the agents whose tasks it matches, and is never offered as a " +
+				"note again. For one that matters to many tasks for now but isn't a standing rule.",
+			Schema: object([]string{"id"}, map[string]any{
+				"id": str("the memory's id, from the offer in your brief"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ ID string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(in.ID) == "" {
+					return "", errors.New("say which memory, by its id")
+				}
+				m, err := c.LeadMemory().DismissPromotion(ctx, in.ID)
+				if err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("%s (%q) stays a memory and won't be offered as a note again.", m.ID, m.Title), nil
+			},
+		},
+		{
 			Name: "update_working_memory",
 			Description: "Keep the one short note of what this project is doing right now: the goal, the task in " +
 				"hand, who is on it, what is in the way. It is what you and every agent read first, so it has to be " +

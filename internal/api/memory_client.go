@@ -178,6 +178,26 @@ func (m *MemoryClient) Feedback(ctx context.Context, req MemoryFeedbackRequest) 
 	return out, m.c.do(ctx, http.MethodPost, m.base+"/feedback", req, &out)
 }
 
+// NoteSuggestions are the memories its agents keep being handed that could be
+// project notes instead, most widely served first.
+func (m *MemoryClient) NoteSuggestions(ctx context.Context) ([]NoteSuggestion, error) {
+	var out []NoteSuggestion
+	return out, m.c.do(ctx, http.MethodGet, m.base+"/suggestions", nil, &out)
+}
+
+// PromoteMemory writes a memory into the project's notes, worded as text or
+// as the memory says it, and stops serving it in briefs.
+func (m *MemoryClient) PromoteMemory(ctx context.Context, id, text string) (PromoteMemoryResult, error) {
+	var out PromoteMemoryResult
+	return out, m.c.do(ctx, http.MethodPost, m.base+"/promote", PromoteMemoryRequest{ID: id, Text: text}, &out)
+}
+
+// DismissPromotion keeps a memory a memory, and never offers it as a note again.
+func (m *MemoryClient) DismissPromotion(ctx context.Context, id string) (Memory, error) {
+	var out Memory
+	return out, m.c.do(ctx, http.MethodPost, m.base+"/dismiss-promotion", DismissPromotionRequest{ID: id}, &out)
+}
+
 // Consolidation is what the project's consolidation has done and what is
 // waiting: the numbers a compression ratio is made of.
 func (m *MemoryClient) Consolidation(ctx context.Context) (MemoryConsolidation, error) {

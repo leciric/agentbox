@@ -1708,6 +1708,8 @@ export interface Memory {
   referencedAt?: string;
   decayedAt?: string;
   confirmations?: number;
+  promotion?: string;
+  promotionAt?: string;
 }
 
 export interface AddMemoryRequest {

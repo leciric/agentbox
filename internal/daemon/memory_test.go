@@ -3,10 +3,12 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
 	"agentbox/internal/api"
+	"agentbox/internal/memory"
 )
 
 // One project memory, reached from three places: the user's routes, the
@@ -353,5 +355,69 @@ func TestMemoryFeedbackOnAllThreeSurfaces(t *testing.T) {
 	}
 	if events[2].Agent != a.Name || events[1].Agent != "" {
 		t.Errorf("only the agent's feedback is its event: %q, %q", events[2].Agent, events[1].Agent)
+	}
+}
+
+// TestTheLeadPromotesAMemoryServedToManyAgents: once enough agents' briefs
+// have carried a memory, the lead is offered it as a note, and promoting it
+// writes the note and stops it being served. An agent can't do either.
+func TestTheLeadPromotesAMemoryServedToManyAgents(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	if err := d.srv.serveAgentAPI(a.Instance); err != nil {
+		t.Fatal(err)
+	}
+	project := a.Project
+	leadClient := api.NewClient(d.srv.leadSocketPath(project))
+	lead := leadClient.LeadMemory()
+	agent := api.NewClient(d.srv.agentSocketPath(a.Instance)).SelfMemory()
+
+	rule, err := lead.AddMemory(ctx, api.AddMemoryRequest{
+		Kind: api.MemoryKindDecision, Importance: 5,
+		Title: "Pets are soft-deleted", Content: "Set deleted_at; never DELETE a pet row.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range memory.PromoteAfterAgents {
+		if _, err := d.srv.memory().BuildContext(ctx, memory.ContextRequest{
+			Project: project, Query: "pets", For: memory.ForAgent, Agent: fmt.Sprintf("agent-%02d", i+1),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	offered, err := lead.NoteSuggestions(ctx)
+	if err != nil || len(offered) != 1 || offered[0].Memory.ID != rule.ID || offered[0].Agents != memory.PromoteAfterAgents {
+		t.Fatalf("NoteSuggestions() = %+v, %v; want the rule, served to %d agents", offered, err, memory.PromoteAfterAgents)
+	}
+	if _, err := agent.PromoteMemory(ctx, rule.ID, ""); err == nil {
+		t.Error("an agent promoted a memory to a note")
+	}
+
+	out, err := lead.PromoteMemory(ctx, rule.ID, "Pets are soft-deleted: set deleted_at, never DELETE a row.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Memory.Promotion != "promoted" || !strings.Contains(out.Notes.Text, "never DELETE a row") {
+		t.Errorf("PromoteMemory() = %q with notes %q", out.Memory.Promotion, out.Notes.Text)
+	}
+	notes, err := leadClient.ProjectNotes(ctx)
+	if err != nil || !strings.Contains(notes.Text, "Pets are soft-deleted: set deleted_at") {
+		t.Errorf("the project's notes are %q, %v", notes.Text, err)
+	}
+	if offered, err := lead.NoteSuggestions(ctx); err != nil || len(offered) != 0 {
+		t.Errorf("NoteSuggestions() after promotion = %+v, %v", offered, err)
+	}
+	// A second answer to the same offer is refused, and writes nothing.
+	if _, err := lead.PromoteMemory(ctx, rule.ID, "again"); err == nil {
+		t.Error("PromoteMemory() twice succeeded")
+	}
+	if _, err := lead.DismissPromotion(ctx, rule.ID); err == nil {
+		t.Error("DismissPromotion() of a note succeeded")
+	}
+	if again, _ := leadClient.ProjectNotes(ctx); strings.Contains(again.Text, "again") {
+		t.Errorf("a refused promotion wrote a note: %q", again.Text)
 	}
 }

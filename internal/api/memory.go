@@ -74,6 +74,11 @@ type Memory struct {
 	// Confirmations is how many times this memory was written down again and
 	// the restatement merged into it. Search and agents' briefs weigh it.
 	Confirmations int `json:"confirmations,omitempty"`
+	// Promotion is where it stands as a candidate project note: "" until the
+	// lead is offered it, then "offered", "promoted" (it is a note now, and
+	// no brief serves it again) or "dismissed" (never offered again).
+	Promotion   string    `json:"promotion,omitempty"`
+	PromotionAt time.Time `json:"promotionAt,omitzero,omitempty"`
 }
 
 // MemoryFeedbackRequest is a reader's verdict on a memory it was handed:
@@ -94,6 +99,34 @@ type MemoryFeedbackResult struct {
 	Was int `json:"was"`
 	// Resolved is true when the feedback closed it.
 	Resolved bool `json:"resolved,omitempty"`
+}
+
+// NoteSuggestion is a memory enough of a project's agents were handed in their
+// briefs to be offered to its lead as a note.
+type NoteSuggestion struct {
+	Memory Memory `json:"memory"`
+	// Agents is how many different agents it was served to.
+	Agents int `json:"agents"`
+}
+
+// PromoteMemoryRequest makes a memory a project note.
+type PromoteMemoryRequest struct {
+	ID string `json:"id"`
+	// Text is the note as every agent should read it; the memory's title and
+	// content when empty.
+	Text string `json:"text,omitempty"`
+}
+
+// PromoteMemoryResult is the memory, marked promoted, and the notes with it in.
+type PromoteMemoryResult struct {
+	Memory Memory `json:"memory"`
+	Notes  Notes  `json:"notes"`
+}
+
+// DismissPromotionRequest keeps a memory a memory: it is never offered as a
+// note again.
+type DismissPromotionRequest struct {
+	ID string `json:"id"`
 }
 
 // ResolveMemoryRequest closes a memory without replacing it.

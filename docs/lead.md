@@ -54,6 +54,9 @@ flowchart TB
   older one.
 - `resolve_memory` — close a memory without replacing it (a bug got fixed, something stopped
   mattering).
+- `promote_memory` / `dismiss_promotion` — answer an offer in the lead's brief to make a memory
+  many agents were handed into a project note, or to keep it a memory for good (see
+  [Memories that could be notes](memory.md#memories-that-could-be-notes)).
 - `update_working_memory` — merge a patch into the project's single working-memory row (goal,
   current task, active agents, blockers, notes).
 - `project_state` — a read-only snapshot: working memory, open issues, recent reports.

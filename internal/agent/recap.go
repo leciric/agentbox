@@ -37,7 +37,7 @@ import (
 // A project whose memory is empty gets "", and the section isn't rendered at
 // all. That is every project before its first compaction.
 func (m *Manager) leadRecap(ctx context.Context, project string) (string, error) {
-	built, err := m.buildContext(ctx, project, "", memory.ForLead)
+	built, err := m.buildContext(ctx, project, "", memory.ForLead, "")
 	if err != nil {
 		return "", err
 	}
@@ -55,10 +55,17 @@ func (m *Manager) leadRecap(ctx context.Context, project string) (string, error)
 // captured. An agent whose task nobody recorded falls back to its title, and
 // then to what the project says it is working on.
 func (m *Manager) projectKnowledge(ctx context.Context, a state.Agent, task string) (string, error) {
+	return m.knowledge(ctx, a, task, a.Name)
+}
+
+// knowledge is projectKnowledge for a brief that reaches servedTo, which is
+// what offers a memory to the lead as a note once enough agents have been
+// handed it (memory/promote.go); "" for a brief nobody will read.
+func (m *Manager) knowledge(ctx context.Context, a state.Agent, task, servedTo string) (string, error) {
 	if task == "" {
 		task = m.recordedTask(ctx, a)
 	}
-	built, err := m.buildContext(ctx, a.Project, joinWords(a.Title, task), memory.ForAgent)
+	built, err := m.buildContext(ctx, a.Project, joinWords(a.Title, task), memory.ForAgent, servedTo)
 	if err != nil {
 		return "", err
 	}
@@ -81,7 +88,7 @@ func (m *Manager) recordedTask(ctx context.Context, a state.Agent) string {
 // buildContext is one build against the project's own budget, or a worker's
 // share of it. The share is applied here rather than by the caller so that
 // every brief AgentBox writes spends the same way.
-func (m *Manager) buildContext(ctx context.Context, project, query string, who memory.Audience) (memory.Context, error) {
+func (m *Manager) buildContext(ctx context.Context, project, query string, who memory.Audience, agent string) (memory.Context, error) {
 	budget, err := m.contextBudget(ctx, project)
 	if err != nil {
 		return memory.Context{}, err
@@ -90,7 +97,7 @@ func (m *Manager) buildContext(ctx context.Context, project, query string, who m
 		budget = memory.AgentBudget(budget)
 	}
 	return m.memory().BuildContext(ctx, memory.ContextRequest{
-		Project: project, Query: query, Budget: budget, For: who,
+		Project: project, Query: query, Budget: budget, For: who, Agent: agent,
 	})
 }
 
@@ -133,5 +140,5 @@ func payloadString(payload json.RawMessage, field string) string {
 // agent made now would read, and an agent that doesn't exist yet has a name
 // and a project and nothing else.
 func (m *Manager) ProjectKnowledge(ctx context.Context, a state.Agent) (string, error) {
-	return m.projectKnowledge(ctx, a, "")
+	return m.knowledge(ctx, a, "", "")
 }

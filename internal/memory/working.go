@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"agentbox/internal/redact"
 )
 
 // WorkingMemory is what a project is doing right now: one small document, kept
@@ -130,7 +132,7 @@ func (s *Store) SetWorkingMemory(ctx context.Context, project string, patch Work
 func cleanList(items []string) []string {
 	out := make([]string, 0, len(items))
 	for _, it := range items {
-		if it = strings.TrimSpace(it); it != "" {
+		if it = strings.TrimSpace(redact.Secrets(it)); it != "" {
 			out = append(out, it)
 		}
 	}
