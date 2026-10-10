@@ -194,14 +194,15 @@ func (s *Server) overrideConnector(ctx context.Context, project, name string, on
 		s.events.publish(api.EventConnector, info)
 	}
 	s.resolveConnectorRequests(ctx, project)
-	go func() {
+	s.connectorSyncs.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := s.manager(nil).SyncConnectors(ctx, project, ""); err != nil {
+		changed, err := s.manager(nil).SyncConnectors(ctx, project, "")
+		if err != nil {
 			s.logf("connector %s: %v", name, err)
 		}
-		s.chat.ToolsChanged(project, "")
-	}()
+		s.toolsChanged(project, changed)
+	})
 	return nil
 }
 
@@ -430,19 +431,31 @@ func (s *Server) connectorChanged(c state.Connector, removed bool) {
 	if known && was == given {
 		return
 	}
-	// A connector the daemon hasn't seen since it started may or may not be
-	// in the agents' configuration already: rewriting it is harmless.
-	go func() {
+	// A connector the daemon hasn't seen since it started — the first token
+	// refresh or status change after a restart — may or may not be in the
+	// agents' configuration already: rewriting it is harmless, and only the
+	// chats whose tool's MCP servers it changes are marked, so a refresh
+	// restarts none.
+	s.connectorSyncs.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		for _, project := range projects {
-			if err := s.manager(nil).SyncConnectors(ctx, project, c.Agent); err != nil {
+			changed, err := s.manager(nil).SyncConnectors(ctx, project, c.Agent)
+			if err != nil {
 				s.logf("connector %s: %v", c.Name, err)
 			}
-			// Running chats read MCP servers only as they start.
-			s.chat.ToolsChanged(project, c.Agent)
+			s.toolsChanged(project, changed)
 		}
-	}()
+	})
+}
+
+// toolsChanged marks the running chats of a project's agents whose MCP
+// servers SyncConnectors changed, as they read them only as they start.
+func (s *Server) toolsChanged(project string, agents []string) {
+	for _, name := range agents {
+		s.logf("%s's MCP servers changed: its chat reloads its tools", scopeRef(project, name))
+		s.chat.ToolsChanged(project, name)
+	}
 }
 
 func scopeRef(project, agent string) string {

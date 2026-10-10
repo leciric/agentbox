@@ -214,10 +214,13 @@ func (s *Server) answerConnectorFor(ctx context.Context, q state.Question, req a
 		}
 	}
 	if c.Agent == "" && !a.GetsConnector(name) {
-		if err := s.manager(nil).GrantConnector(ctx, a, name); err != nil {
+		changed, err := s.manager(nil).GrantConnector(ctx, a, name)
+		if err != nil {
 			return q, err
 		}
-		s.chat.ToolsChanged(a.Project, a.Name)
+		if changed {
+			s.chat.ToolsChanged(a.Project, a.Name)
+		}
 		if a, err = s.store.Agent(ctx, q.Project, q.Agent); err != nil {
 			return q, err
 		}

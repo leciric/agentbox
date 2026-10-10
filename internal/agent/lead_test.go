@@ -791,6 +791,15 @@ func TestLeadIsGivenItsProjectsConnectors(t *testing.T) {
 		t.Error("the lead was given an agent's own connector")
 	}
 
+	// Nothing changed since the lead was set up, so its chat needn't restart.
+	lead, err := f.m.Lead(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := f.m.SyncConnectors(ctx, "hello-stack", ""); err != nil || len(changed) != 0 {
+		t.Errorf("SyncConnectors with nothing changed = %v, %v; want no chat changed", changed, err)
+	}
+
 	// Claude Code writes its own state here too, which a change leaves alone.
 	b, _ := os.ReadFile(path)
 	var state0 map[string]json.RawMessage
@@ -803,8 +812,12 @@ func TestLeadIsGivenItsProjectsConnectors(t *testing.T) {
 	if err := f.st.SetConnector(ctx, state.Connector{Project: "hello-stack", Name: "linear", URL: "https://mcp.linear.app/mcp", Auth: "oauth", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.m.SyncConnectors(ctx, "hello-stack", ""); err != nil {
+	changed, err := f.m.SyncConnectors(ctx, "hello-stack", "")
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(changed) != 1 || changed[0] != lead.Name {
+		t.Errorf("SyncConnectors after turning linear on changed %v, want the lead's chat (%s)", changed, lead.Name)
 	}
 	if _, ok := servers()["linear"]; !ok {
 		t.Error("linear, turned on, didn't reach the lead")
