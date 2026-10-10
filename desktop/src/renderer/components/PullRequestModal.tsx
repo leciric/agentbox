@@ -416,19 +416,23 @@ type FilesViewProps = {
 function FilesList({ project, pr, files, state, setState, onLoaded }: FilesViewProps) {
   const next = state.open ? nextToLoad(files, state.open, state.loaded) : undefined;
   return (
-    <div className="grid min-h-0 flex-1 content-start gap-2 overflow-y-auto px-6 py-4">
-      {files.map((f) => (
-        <FileRow
-          key={f.path}
-          project={project}
-          pr={pr}
-          file={f}
-          open={state.open?.has(f.path) ?? false}
-          mayLoad={state.loaded.has(f.path) || f.path === next}
-          onLoaded={onLoaded}
-          onToggle={() => setState((s) => ({ ...s, open: toggled(s.open, f.path) }))}
-        />
-      ))}
+    // The scrolling and the grid are two boxes: a grid of a fixed height packs
+    // its rows, which hide their overflow, down to nothing when they don't fit.
+    <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+      <div className="grid gap-2">
+        {files.map((f) => (
+          <FileRow
+            key={f.path}
+            project={project}
+            pr={pr}
+            file={f}
+            open={state.open?.has(f.path) ?? false}
+            mayLoad={state.loaded.has(f.path) || f.path === next}
+            onLoaded={onLoaded}
+            onToggle={() => setState((s) => ({ ...s, open: toggled(s.open, f.path) }))}
+          />
+        ))}
+      </div>
     </div>
   );
 }
