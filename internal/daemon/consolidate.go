@@ -20,7 +20,8 @@ import (
 // a ticker it owns for the length of Run, the way media retention has one,
 // and the chokepoint where a lead turn ends, the way capture does.
 //
-//   - The mechanical pass runs on the ticker, once at startup, and after a
+//   - The mechanical pass runs on the ticker, after closing the open items
+//     whose pull requests and questions are over (anchors.go), once at startup, and after a
 //     lead turn when it hasn't run recently. It costs nothing, so the only
 //     thing worth avoiding is doing it twice in a minute.
 //   - The distillation pass runs after a lead turn, when the project has
@@ -90,14 +91,17 @@ func (s *Server) consolidateMechanically(ctx context.Context, p state.Project, n
 			}
 		}
 	}
+	// Open items whose pull requests, branches and questions are all over
+	// are closed first, so the pass doesn't merge or flag what is done.
+	closed := s.closeAnchored(ctx, p)
 	pass, err := s.memory().Consolidate(ctx, p.Name, memory.ConsolidateOptions{})
 	if err != nil {
 		s.logf("consolidating %s: %v", p.Name, err)
 		return memory.Pass{}, false
 	}
-	if pass.MemoriesSuperseded+pass.MemoriesDecayed > 0 {
-		s.logf("consolidating %s: merged %d memories, aged %d, flagged %d near-duplicates",
-			p.Name, pass.MemoriesSuperseded, pass.MemoriesDecayed, pass.DuplicatesFound)
+	if pass.MemoriesSuperseded+pass.MemoriesDecayed+pass.MemoriesResolved+closed > 0 {
+		s.logf("consolidating %s: closed %d open items, merged %d duplicate ones and %d memories, aged %d, flagged %d near-duplicates",
+			p.Name, closed, pass.MemoriesResolved, pass.MemoriesSuperseded, pass.MemoriesDecayed, pass.DuplicatesFound)
 	}
 	return pass, true
 }

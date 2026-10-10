@@ -183,6 +183,25 @@ type Memory struct {
 	// DecayedAt is the last time the mechanical pass took a point off this
 	// memory's importance, so a pass that runs hourly doesn't decay it hourly.
 	DecayedAt time.Time `json:"decayedAt,omitzero,omitempty"`
+	// MentionedAt is the last time something other than a recap brought this
+	// memory up: it was written, a duplicate was merged into it, or an
+	// agent's event named one of its anchors. An open issue quiet for
+	// StaleAfter drops out of the lead's "Still open" (still searchable).
+	// Zero reads as CreatedAt.
+	MentionedAt time.Time `json:"mentionedAt,omitzero,omitempty"`
+	// Anchors are what would close it (anchors.go). AddMemory takes the ones
+	// its writer names and adds what the text names; listings leave this
+	// empty, and Anchors or OpenAnchored read it back.
+	Anchors []Anchor `json:"anchors,omitempty"`
+}
+
+// LastMentioned is when this memory was last brought up, its creation if
+// nothing has since.
+func (m Memory) LastMentioned() time.Time {
+	if m.MentionedAt.After(m.CreatedAt) {
+		return m.MentionedAt
+	}
+	return m.CreatedAt
 }
 
 // Resolved reports whether this memory was closed without a replacement.

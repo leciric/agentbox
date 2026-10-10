@@ -32,7 +32,11 @@ func (s *Server) captureEvent(ctx context.Context, project, agent, eventType str
 		Project: project, Agent: agent, Type: eventType, Payload: raw, ArtifactID: artifactID,
 	}); err != nil {
 		s.logf("memory: recording a %s event for %s: %v", eventType, project, err)
+		return
 	}
+	// An agent's pull request breaking, a question being answered: whatever
+	// open item names it is still being talked about.
+	s.mentionAnchors(ctx, project, eventType, raw)
 }
 
 // captureArtifact records a reference to something already stored elsewhere —

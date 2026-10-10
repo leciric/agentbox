@@ -81,6 +81,36 @@ type ResolveMemoryRequest struct {
 	Why string `json:"why,omitempty"`
 }
 
+// TidyMemoryRequest cleans a project's open items in one go: every live
+// issue (or item waiting on something) last mentioned before the cutoff is
+// resolved as "tidied", and what is left is merged by topic. No model is
+// asked.
+type TidyMemoryRequest struct {
+	// OlderThanHours is the cutoff; 0 is seven days.
+	OlderThanHours int `json:"olderThanHours,omitempty"`
+	// Apply writes the plan. Without it the answer is what would happen.
+	Apply bool `json:"apply,omitempty"`
+}
+
+// TidyMemoryResult is what a tidy did, or would do.
+type TidyMemoryResult struct {
+	Applied bool `json:"applied"`
+	// Resolved are the open items old enough to close, as they were.
+	Resolved []Memory `json:"resolved"`
+	// Merged are the duplicates folded into another item.
+	Merged []MemoryMerge `json:"merged"`
+	// Kept is how many open items are left.
+	Kept int `json:"kept"`
+}
+
+// MemoryMerge is one open item folded into another that says the same thing.
+type MemoryMerge struct {
+	Memory Memory  `json:"memory"`
+	Into   Memory  `json:"into"`
+	Score  float64 `json:"score"`
+	Why    string  `json:"why"`
+}
+
 // ConsolidateRequest runs a project's consolidation now, whatever its
 // schedule would have decided.
 type ConsolidateRequest struct {
