@@ -67,31 +67,34 @@ var memoryRoutes = []struct {
 	path    string
 	action  string
 	inAgent bool
+	// userOnly marks the routes served on the user's socket alone, and not
+	// on a project chat's either.
+	userOnly bool
 }{
-	{http.MethodGet, "/events", "events", true},
-	{http.MethodPost, "/events", "append-event", true},
-	{http.MethodGet, "/memories", "memories", true},
-	{http.MethodPost, "/memories", "add-memory", false},
-	{http.MethodPost, "/search", "search", true},
-	{http.MethodGet, "/working", "working", true},
-	{http.MethodPatch, "/working", "set-working", false},
-	{http.MethodGet, "/artifacts", "artifacts", true},
-	{http.MethodPost, "/artifacts", "add-artifact", true},
-	{http.MethodGet, "/reports", "reports", true},
-	{http.MethodPost, "/reports", "add-report", true},
-	{http.MethodPost, "/context", "context", true},
-	{http.MethodGet, "/context/stats", "context-stats", true},
+	{http.MethodGet, "/events", "events", true, false},
+	{http.MethodPost, "/events", "append-event", true, false},
+	{http.MethodGet, "/memories", "memories", true, false},
+	{http.MethodPost, "/memories", "add-memory", false, false},
+	{http.MethodPost, "/search", "search", true, false},
+	{http.MethodGet, "/working", "working", true, false},
+	{http.MethodPatch, "/working", "set-working", false, false},
+	{http.MethodGet, "/artifacts", "artifacts", true, false},
+	{http.MethodPost, "/artifacts", "add-artifact", true, false},
+	{http.MethodGet, "/reports", "reports", true, false},
+	{http.MethodPost, "/reports", "add-report", true, false},
+	{http.MethodPost, "/context", "context", true, false},
+	{http.MethodGet, "/context/stats", "context-stats", true, false},
 	// Consolidation (D76). An agent reads how its project's memory is being
 	// kept, the same way it reads the memory itself; closing an issue and
 	// spending the project's tokens on a distillation are curation, and stay
 	// with the user and the lead.
-	{http.MethodGet, "/consolidation", "consolidation", true},
-	{http.MethodGet, "/duplicates", "duplicates", true},
-	{http.MethodPost, "/resolve", "resolve-memory", false},
-	{http.MethodPost, "/consolidate", "consolidate", false},
+	{http.MethodGet, "/consolidation", "consolidation", true, false},
+	{http.MethodGet, "/duplicates", "duplicates", true, false},
+	{http.MethodPost, "/resolve", "resolve-memory", false, false},
+	{http.MethodPost, "/consolidate", "consolidate", false, false},
 	// Tidying resolves a whole store's worth of open items at once, which is
 	// the user's to decide (agentbox memory tidy).
-	{http.MethodPost, "/tidy", "tidy", false},
+	{http.MethodPost, "/tidy", "tidy", false, true},
 }
 
 // memoryHandler is one route of the memory surface, for whichever scope the
