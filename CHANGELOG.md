@@ -3,6 +3,48 @@
 All notable, user-facing changes to AgentBox are documented here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Nothing older than 0.3.0 is listed.
 
+## [0.13.0](https://github.com/leciric/agentbox/compare/v0.12.1...v0.13.0) (2026-10-10)
+
+
+### Added
+
+* agentbox memory tidy removes secrets from what project memory stored before ([#259](https://github.com/leciric/agentbox/issues/259)) ([8a2829e](https://github.com/leciric/agentbox/commit/8a2829e0fbf22e72e3b4214272a05da5429d8818))
+* AgentBox-wide connectors, signed in once in Settings, with a per-project off / inherit / on ([#236](https://github.com/leciric/agentbox/issues/236)) ([192457e](https://github.com/leciric/agentbox/commit/192457ef6d88b832c109de2a1ca688c3fb3ff3ea))
+* agents and the lead can mark a memory wrong, stale or helpful, and memories written down again rank higher ([#255](https://github.com/leciric/agentbox/issues/255)) ([0fbde64](https://github.com/leciric/agentbox/commit/0fbde642a78ea87f1c18cbe1bed033362b0a84b3))
+* agents start at once, and tests wait or pause while the VM's memory is short ([#252](https://github.com/leciric/agentbox/issues/252)) ([ad25737](https://github.com/leciric/agentbox/commit/ad25737ed7873102dcd7784e2c87f068906cf371))
+* Cursor as a fourth AI tool, driven through Cursor's TypeScript SDK ([#226](https://github.com/leciric/agentbox/issues/226)) ([e2c6749](https://github.com/leciric/agentbox/commit/e2c67499427d6d1b29b77ec41d44254179321335))
+* each agent gets a share of the VM's cores, so test runners and builds start fewer workers and use less memory ([#249](https://github.com/leciric/agentbox/issues/249)) ([e127933](https://github.com/leciric/agentbox/commit/e1279333cd39b278e6f8fd585900f0abbdc64a22))
+* find in a chat with Ctrl+F, including messages not loaded yet ([#241](https://github.com/leciric/agentbox/issues/241)) ([2d06581](https://github.com/leciric/agentbox/commit/2d06581ad3be798bd0de8e28980f7cb9766087ef))
+* Hatch is a built-in connector, and the connector grid fits six tiles ([#243](https://github.com/leciric/agentbox/issues/243)) ([2bb5a63](https://github.com/leciric/agentbox/commit/2bb5a6343610d72f7e6f9d12e256b39cc7288afd))
+* memory for every project, kept by any chat and listed in Settings → Memory ([#258](https://github.com/leciric/agentbox/issues/258)) ([a1f1bb7](https://github.com/leciric/agentbox/commit/a1f1bb7590e3ec92abd6281ec1e43b56832ac6dd))
+* project memory removes secrets before storing anything, and briefs fence recalled memory as data ([#253](https://github.com/leciric/agentbox/issues/253)) ([aa80768](https://github.com/leciric/agentbox/commit/aa80768eda990ea4bb85399a085b880048ed5f5e))
+* reload a chat's tools after a connector change without losing the conversation ([#235](https://github.com/leciric/agentbox/issues/235)) ([4676e4a](https://github.com/leciric/agentbox/commit/4676e4a78a9f4e4294c31b73c272df4e66d980c0))
+* search everything in AgentBox from one palette (Ctrl/Cmd+K) ([#242](https://github.com/leciric/agentbox/issues/242)) ([81acf45](https://github.com/leciric/agentbox/commit/81acf45e18c21f08bc0eb33a701e1943a8e7c1f8))
+* see the pages your agents publish on Hatch: a stack by the message box, a Pages tab, and in Media ([#248](https://github.com/leciric/agentbox/issues/248)) ([4a1dc83](https://github.com/leciric/agentbox/commit/4a1dc836853d5e451bccec444f64723d9aec739a))
+* skills for every agent and chat, AgentBox-wide or per project, imported from your AI tools, a folder or git ([#230](https://github.com/leciric/agentbox/issues/230)) ([ee35be9](https://github.com/leciric/agentbox/commit/ee35be9453f19755c73fb4c831057edb0a2c8131))
+* star media to keep it: favorites are never removed automatically, and the Media view filters to them ([#229](https://github.com/leciric/agentbox/issues/229)) ([5e78f75](https://github.com/leciric/agentbox/commit/5e78f7563da382bbd84857ff4fb36fcc79989c11))
+* the lead is offered memories its agents keep being handed as project notes, to accept or dismiss ([#257](https://github.com/leciric/agentbox/issues/257)) ([5d13a87](https://github.com/leciric/agentbox/commit/5d13a874ab29717fdec6484e4c17b2efef490285))
+* Update available installs the new version in place and restarts ([#240](https://github.com/leciric/agentbox/issues/240)) ([0736975](https://github.com/leciric/agentbox/commit/0736975ed3da27aa3824f4bb3ef046d4087289fe))
+
+
+### Fixed
+
+* a search result opens a long chat around it instead of loading everything since ([#247](https://github.com/leciric/agentbox/issues/247)) ([55810a1](https://github.com/leciric/agentbox/commit/55810a13db40d91c88d6e66a257944c0d7034707))
+* an empty job log no longer crashes the app with "reading 'replace'" ([#238](https://github.com/leciric/agentbox/issues/238)) ([e1624d7](https://github.com/leciric/agentbox/commit/e1624d7da136c2672d855cab42cfcfb7b9c78670))
+* build with Go 1.27.2 and golang.org/x/net v0.60.0, fixing net/http vulnerabilities ([#254](https://github.com/leciric/agentbox/issues/254)) ([868ba9f](https://github.com/leciric/agentbox/commit/868ba9fda2e3dbe1f3e2865a0c5339121d4988de))
+* Claude Code chats get Haiku 5.5, with the Claude ACP adapter 0.88.0 ([#232](https://github.com/leciric/agentbox/issues/232)) ([86b5de5](https://github.com/leciric/agentbox/commit/86b5de527a3a520dfa9b29b6fde48a64bdaff3f0))
+* dragging projects and sections in the sidebar lands where they're dropped and stays there ([#228](https://github.com/leciric/agentbox/issues/228)) ([8176fd5](https://github.com/leciric/agentbox/commit/8176fd558118a36f7eb6dd86840feb91f90c948a))
+* memory distillation skips repeats, empty chat turns and status lines, sending the cheap model about half the input ([#256](https://github.com/leciric/agentbox/issues/256)) ([c5ff596](https://github.com/leciric/agentbox/commit/c5ff5966f9452cdddd199727834f23645c5efaec))
+* on Windows, importing skills finds the ones your Windows AI tools have and takes Windows paths ([#237](https://github.com/leciric/agentbox/issues/237)) ([279eb97](https://github.com/leciric/agentbox/commit/279eb978f305b15b797656852cdd6868dfeabcdd))
+* screenshots of an app on the display no longer come out blank ([#227](https://github.com/leciric/agentbox/issues/227)) ([d16c25a](https://github.com/leciric/agentbox/commit/d16c25ae0343b048fd9c315f57775a6b1ff8b49f))
+* skills installed as symlinks (like npx skills add) can be imported ([#234](https://github.com/leciric/agentbox/issues/234)) ([996d3a8](https://github.com/leciric/agentbox/commit/996d3a8c7884eeb10a09eb3db463365d42716205))
+* stale issues in project memory close themselves, age out of the lead's recap, and can be tidied ([#251](https://github.com/leciric/agentbox/issues/251)) ([e0e6c63](https://github.com/leciric/agentbox/commit/e0e6c63ffd9192fd7066a92c9392259b6d5c255a))
+
+
+### Changed
+
+* remove the Tasks tab and the user's task list ([#250](https://github.com/leciric/agentbox/issues/250)) ([07916f3](https://github.com/leciric/agentbox/commit/07916f3f6cacdb0ea0bc35faa4ad990ba3069096))
+
 ## [0.12.1](https://github.com/leciric/agentbox/compare/v0.12.0...v0.12.1) (2026-10-07)
 
 
