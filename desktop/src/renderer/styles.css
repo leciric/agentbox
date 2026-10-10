@@ -335,6 +335,8 @@
   --animate-slide-up: slide-up 220ms cubic-bezier(0.16, 1, 0.3, 1);
   --animate-glow: glow 2.4s ease-in-out infinite;
   --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-page-drop: page-drop 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-page-glow: page-glow 1.6s ease-out 380ms backwards;
 
   @keyframes fade-in {
     from {
@@ -360,6 +362,34 @@
     }
     50% {
       box-shadow: 0 0 0 4px transparent;
+    }
+  }
+  /* A Hatch page arriving on a chat's stack (pages/PageStack.tsx): it drops
+     from a little above, tilted, overshoots a hair, and settles. */
+  @keyframes page-drop {
+    0% {
+      opacity: 0;
+      transform: translateY(-34px) rotate(-7deg) scale(0.94);
+    }
+    55% {
+      opacity: 1;
+      transform: translateY(3px) rotate(1.2deg) scale(1.01);
+    }
+    78% {
+      transform: translateY(-1px) rotate(-0.4deg) scale(1);
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* Then it glows once, softly, to say it's new. */
+  @keyframes page-glow {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ab-brand-400) 55%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 0 10px transparent;
     }
   }
   @keyframes shimmer {
@@ -657,6 +687,10 @@
     animation: none;
     background: none;
     color: var(--ab-muted);
+  }
+  .animate-page-drop,
+  .animate-page-glow {
+    animation: none;
   }
 }
 

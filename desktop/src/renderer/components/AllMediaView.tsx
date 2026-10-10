@@ -10,6 +10,7 @@ import { projectLabel } from '../lib/projectName';
 import { cn } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { MediaPlace } from './MediaPlace';
+import { AllMediaPages } from './pages/MediaPages';
 import { FilterChip, MediaCard, MediaViewer } from './MediaTab';
 import { Button } from './ui/button';
 import { Select, SelectOption } from './ui/select';
@@ -86,6 +87,7 @@ export function AllMediaView({ onSelect }: { onSelect: (view: View) => void }) {
           )}
         </div>
 
+        <AllMediaPages>
         {items.length === 0 ? (
           <div className="panel rounded-2xl">
             <EmptyState icon={Images} title={media.isPending ? t('common.loading') : t('shell.allMedia.emptyTitle')}>
@@ -171,6 +173,7 @@ export function AllMediaView({ onSelect }: { onSelect: (view: View) => void }) {
           </section>
         ))}
         {items.length > 0 && visible.length === 0 && <div className="py-16 text-center text-[13px] text-muted">{t('agent.mediaTab.noMatch')}</div>}
+        </AllMediaPages>
       </div>
 
       <MediaViewer

@@ -36,8 +36,10 @@ func (s *Server) watch(ctx context.Context) {
 
 // refreshAgents publishes an event for every agent whose state changed.
 func (s *Server) refreshAgents(ctx context.Context) {
-	// Whatever changed may have freed a slot for a queued agent.
+	// Whatever changed may have freed a slot for a queued agent, and changes
+	// how many agents share the VM's cores.
 	s.kickQueue()
+	s.kickCPU()
 	if s.events.subscribers() == 0 {
 		return
 	}

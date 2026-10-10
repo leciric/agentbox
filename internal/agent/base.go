@@ -114,6 +114,13 @@ func (m *Manager) SaveBase(ctx context.Context, a state.Agent) (Base, error) {
 			return fail(err)
 		}
 	}
+	// The agent's CPU share comes along in the copy (cpushare.go): a base boots
+	// with every core, and each agent made from it gets a share of its own.
+	if _, ok := copied.Config[cpuShareKey]; ok {
+		if err := m.Incus.UnsetConfig(ctx, next, cpuShareKey); err != nil {
+			return fail(err)
+		}
+	}
 	// `incus copy` copies configuration keys as well as devices, so a base
 	// saved from a machine an earlier release made would carry the limits it
 	// set, and its place in the shared budget's cgroup: started with that

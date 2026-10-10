@@ -67,28 +67,34 @@ var memoryRoutes = []struct {
 	path    string
 	action  string
 	inAgent bool
+	// userOnly marks the routes served on the user's socket alone, and not
+	// on a project chat's either: tidying is the user's to decide.
+	userOnly bool
 }{
-	{http.MethodGet, "/events", "events", true},
-	{http.MethodPost, "/events", "append-event", true},
-	{http.MethodGet, "/memories", "memories", true},
-	{http.MethodPost, "/memories", "add-memory", false},
-	{http.MethodPost, "/search", "search", true},
-	{http.MethodGet, "/working", "working", true},
-	{http.MethodPatch, "/working", "set-working", false},
-	{http.MethodGet, "/artifacts", "artifacts", true},
-	{http.MethodPost, "/artifacts", "add-artifact", true},
-	{http.MethodGet, "/reports", "reports", true},
-	{http.MethodPost, "/reports", "add-report", true},
-	{http.MethodPost, "/context", "context", true},
-	{http.MethodGet, "/context/stats", "context-stats", true},
+	{http.MethodGet, "/events", "events", true, false},
+	{http.MethodPost, "/events", "append-event", true, false},
+	{http.MethodGet, "/memories", "memories", true, false},
+	{http.MethodPost, "/memories", "add-memory", false, false},
+	{http.MethodPost, "/search", "search", true, false},
+	{http.MethodGet, "/working", "working", true, false},
+	{http.MethodPatch, "/working", "set-working", false, false},
+	{http.MethodGet, "/artifacts", "artifacts", true, false},
+	{http.MethodPost, "/artifacts", "add-artifact", true, false},
+	{http.MethodGet, "/reports", "reports", true, false},
+	{http.MethodPost, "/reports", "add-report", true, false},
+	{http.MethodPost, "/context", "context", true, false},
+	{http.MethodGet, "/context/stats", "context-stats", true, false},
 	// Consolidation (D76). An agent reads how its project's memory is being
 	// kept, the same way it reads the memory itself; closing an issue and
 	// spending the project's tokens on a distillation are curation, and stay
 	// with the user and the lead.
-	{http.MethodGet, "/consolidation", "consolidation", true},
-	{http.MethodGet, "/duplicates", "duplicates", true},
-	{http.MethodPost, "/resolve", "resolve-memory", false},
-	{http.MethodPost, "/consolidate", "consolidate", false},
+	{http.MethodGet, "/consolidation", "consolidation", true, false},
+	{http.MethodGet, "/duplicates", "duplicates", true, false},
+	{http.MethodPost, "/resolve", "resolve-memory", false, false},
+	{http.MethodPost, "/consolidate", "consolidate", false, false},
+	// Tidying resolves a whole store's worth of open items at once, which is
+	// the user's to decide (agentbox memory tidy).
+	{http.MethodPost, "/tidy", "tidy", false, true},
 }
 
 // memoryHandler is one route of the memory surface, for whichever scope the
@@ -264,6 +270,31 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 
 		case "consolidate":
 			return s.consolidateProject(w, r, who.project)
+
+		case "tidy":
+			var req api.TidyMemoryRequest
+			if r.ContentLength > 0 {
+				if err := readJSON(r, &req); err != nil {
+					return err
+				}
+			}
+			if req.OlderThanHours < 0 {
+				return fmt.Errorf("olderThanHours is %d: a cutoff is a number of hours back from now", req.OlderThanHours)
+			}
+			plan, err := m.Tidy(ctx, who.project, memory.TidyOptions{
+				OlderThan: time.Duration(req.OlderThanHours) * time.Hour, Apply: req.Apply,
+			})
+			if err != nil {
+				return err
+			}
+			out := api.TidyMemoryResult{Applied: plan.Applied, Resolved: apiMemories(plan.Resolved), Kept: plan.Kept,
+				Merged: make([]api.MemoryMerge, 0, len(plan.Merged))}
+			for _, mg := range plan.Merged {
+				out.Merged = append(out.Merged, api.MemoryMerge{
+					Memory: apiMemory(mg.Memory), Into: apiMemory(mg.Into), Score: mg.Score, Why: mg.Why,
+				})
+			}
+			return writeJSON(w, http.StatusOK, out)
 
 		case "add-report":
 			var req api.AddReportRequest

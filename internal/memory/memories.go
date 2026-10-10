@@ -64,13 +64,22 @@ func (s *Store) AddMemory(ctx context.Context, m Memory) (Memory, error) {
 			return Memory{}, errors.New("a memory can't supersede itself")
 		}
 	}
+	m.MentionedAt = stamp(m.MentionedAt)
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO memories (id, project, kind, title, content, importance, created_at, updated_at, supersedes_id, source_event_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO memories (id, project, kind, title, content, importance, created_at, updated_at, supersedes_id, source_event_id, mentioned_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.Project, m.Kind, m.Title, m.Content, m.Importance,
-		m.CreatedAt.UnixMilli(), m.UpdatedAt.UnixMilli(), nullable(m.SupersedesID), nullable(m.SourceEventID))
+		m.CreatedAt.UnixMilli(), m.UpdatedAt.UnixMilli(), nullable(m.SupersedesID), nullable(m.SourceEventID), millis(m.MentionedAt))
 	if err != nil {
 		return Memory{}, err
+	}
+	// What would close it, for an open item: the daemon resolves it once
+	// every pull request, branch and question it names is over.
+	m.Anchors = anchorsFor(m)
+	if len(m.Anchors) > 0 {
+		if err := s.setAnchors(ctx, m.Project, m.ID, m.Anchors); err != nil {
+			return Memory{}, err
+		}
 	}
 	return m, nil
 }
@@ -191,7 +200,7 @@ const live = notSuperseded + ` AND m.resolved_at = 0`
 
 const memoryColumns = `m.id, m.project, m.kind, m.title, m.content, m.importance, m.created_at, m.updated_at,
 	m.supersedes_id, m.source_event_id, EXISTS (SELECT 1 FROM memories r WHERE r.supersedes_id = m.id),
-	m.resolved_at, m.resolved_by, m.referenced_at, m.decayed_at`
+	m.resolved_at, m.resolved_by, m.referenced_at, m.decayed_at, m.mentioned_at`
 
 func (s *Store) queryMemories(ctx context.Context, clause string, args ...any) ([]Memory, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+memoryColumns+` FROM memories m `+clause, args...)
@@ -214,14 +223,15 @@ func scanMemory(rows scanner) (Memory, error) {
 	var m Memory
 	var created, updated int64
 	var supersedes, source *string
-	var resolved, referenced, decayed int64
+	var resolved, referenced, decayed, mentioned int64
 	if err := rows.Scan(&m.ID, &m.Project, &m.Kind, &m.Title, &m.Content, &m.Importance,
 		&created, &updated, &supersedes, &source, &m.Superseded,
-		&resolved, &m.ResolvedBy, &referenced, &decayed); err != nil {
+		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned); err != nil {
 		return Memory{}, err
 	}
 	m.CreatedAt, m.UpdatedAt = attime(created), attime(updated)
 	m.ResolvedAt, m.ReferencedAt, m.DecayedAt = attime(resolved), attime(referenced), attime(decayed)
+	m.MentionedAt = attime(mentioned)
 	if supersedes != nil {
 		m.SupersedesID = *supersedes
 	}

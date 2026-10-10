@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 )
 
 // ChatItem is one stored entry of an agent's conversation. Package chat decides
@@ -61,6 +62,47 @@ func (s *Store) LastChatItem(ctx context.Context, project, agent string) (ChatIt
 	}
 	it.Data = []byte(data)
 	return it, true, nil
+}
+
+// ProjectChatItem is an item of one of a project's chats, with whose.
+type ProjectChatItem struct {
+	Agent string
+	ChatItem
+}
+
+// ToolCallsNamed returns the tool calls of all of a project's chats, its
+// lead's and its agents', whose name or title ends with one of suffixes,
+// in each chat's order (chats one after another). Matching ignores case.
+func (s *Store) ToolCallsNamed(ctx context.Context, project string, suffixes ...string) ([]ProjectChatItem, error) {
+	if len(suffixes) == 0 {
+		return nil, nil
+	}
+	var match []string
+	args := []any{project}
+	for _, suffix := range suffixes {
+		match = append(match, `lower(coalesce(json_extract(data, '$.tool.name'), '')) LIKE ? ESCAPE '\'`,
+			`lower(coalesce(json_extract(data, '$.tool.title'), '')) LIKE ? ESCAPE '\'`)
+		like := "%" + likeEscaper.Replace(strings.ToLower(suffix))
+		args = append(args, like, like)
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT agent, id, position, data FROM chat_items
+		WHERE project = ? AND json_valid(data) AND json_extract(data, '$.kind') = 'tool' AND (`+strings.Join(match, " OR ")+`)
+		ORDER BY agent, position`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var items []ProjectChatItem
+	for rows.Next() {
+		var it ProjectChatItem
+		var data string
+		if err := rows.Scan(&it.Agent, &it.ID, &it.Position, &data); err != nil {
+			return nil, err
+		}
+		it.Data = []byte(data)
+		items = append(items, it)
+	}
+	return items, rows.Err()
 }
 
 // SaveChatItems adds or replaces items, all of them or none.

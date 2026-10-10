@@ -353,7 +353,7 @@ Answer with one JSON object and nothing else, in this shape:
   "decisions": [{"title": "the choice, in a line", "detail": "why, and what it rules out"}],
   "discoveries": [{"title": "what was found out", "detail": "how it was found, and what it means"}],
   "facts": [{"title": "a long-lived fact about the project", "detail": "the detail"}],
-  "issues": [{"title": "something still wrong or unfinished", "detail": "what is known about it"}],
+  "issues": [{"title": "something still wrong or unfinished", "detail": "what is known about it, naming the pull requests (#234), branches and question ids it waits on: AgentBox closes it once they are all merged, closed or answered"}],
   "working": {
     "goal": "what the project is trying to achieve at the moment",
     "currentTask": "what is being worked on right now",

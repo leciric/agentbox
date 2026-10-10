@@ -324,13 +324,14 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 	}
 
 	live := map[int]github.WatchedPR{}
-	fast, changed := false, false
+	fast, changed, ended := false, false, false
 	for _, n := range slices.Sorted(maps.Keys(followed)) {
 		prev := followed[n]
 		pr, ok := read[n]
 		if !ok || pr.State != "open" {
 			// Merged or closed — or gone from GitHub altogether: nothing more
 			// to watch.
+			ended = ended || ok
 			if err := s.store.ForgetPRWatch(ctx, p.Name, n); err != nil {
 				s.logf("pull request watch in %s: %v", p.Name, err)
 			}
@@ -372,6 +373,10 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		next = watch.Reset
 	}
 	schedule(next, interval, live)
+	if ended {
+		// What the project remembers as waiting on it may be over too.
+		s.closeAnchoredSoon(p.Name)
+	}
 	if !sameLive(before, live) {
 		s.events.publish(api.EventPulls, api.PullsChange{Project: p.Name, GitHub: repo.String(), FetchedAt: now})
 	}

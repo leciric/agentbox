@@ -209,14 +209,18 @@ func (o ConsolidateOptions) now() time.Time {
 // likes; what it changes is deliberately the small set of things that need no
 // judgement.
 //
-//  1. Near-duplicate candidates are found and written down. Nothing is merged
-//     on a score alone: a title is 200 bytes of somebody's summary, and two
-//     summaries that rhyme are not the same fact.
-//  2. Where two memories of one kind have the same title and the newer one's
+//  1. Open items about the same thing are merged (MergeDuplicates), on what
+//     they say rather than their titles. An open item is a problem, not a
+//     fact, and two of them saying it is one problem twice: the duplicate is
+//     resolved, not deleted, and names the item it was folded into.
+//  2. Near-duplicate candidates among the rest are found and written down.
+//     Nothing else is merged on a score alone: a title is 200 bytes of
+//     somebody's summary, and two facts that rhyme are not the same fact.
+//  3. Where two memories of one kind have the same title and the newer one's
 //     content contains the older's word for word, the newer supersedes the
 //     older. That is the one merge with nothing to lose: every word of the
 //     old memory is still being said.
-//  3. Importance decays, a point at a time and floored at 1, for episodic and
+//  4. Importance decays, a point at a time and floored at 1, for episodic and
 //     issue memories that nothing has referenced within DecayAfter. The decay
 //     is stamped, so an hourly pass doesn't take a point every hour.
 func (s *Store) Consolidate(ctx context.Context, project string, opts ConsolidateOptions) (Pass, error) {
@@ -226,6 +230,16 @@ func (s *Store) Consolidate(ctx context.Context, project string, opts Consolidat
 	started := time.Now()
 	now := opts.now()
 	pass := Pass{Project: project, Kind: PassMechanical, At: now}
+
+	// Open items that are one problem written down twice go first, by what
+	// they say rather than by their titles (tidy.go): the newest stays and
+	// the rest are resolved as its duplicates, so the comparison below
+	// doesn't flag what is already merged.
+	folded, err := s.MergeDuplicates(ctx, project)
+	if err != nil {
+		return Pass{}, err
+	}
+	pass.MemoriesResolved = len(folded)
 
 	live, err := s.liveMemories(ctx, project)
 	if err != nil {

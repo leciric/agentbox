@@ -931,6 +931,23 @@ var migrations = []string{
 	END`,
 	`INSERT INTO chat_items_fts (rowid, search_text) SELECT rowid, search_text FROM chat_items WHERE search_text IS NOT NULL`,
 
+	// What would close an open memory (internal/memory/anchors.go): a pull
+	// request, a branch, a question, or a path or symbol it is about. The
+	// daemon resolves the memory once every pull request, branch and question
+	// it names is over. mentioned_at is the last time something other than
+	// a recap brought the memory up — written, merged into, or named by an
+	// agent's event — which is how an open issue nobody talks about any more
+	// drops out of the lead's "Still open". 0 reads as its created_at.
+	`CREATE TABLE memory_anchors (
+		project   TEXT NOT NULL,
+		memory_id TEXT NOT NULL,
+		kind      TEXT NOT NULL,
+		value     TEXT NOT NULL,
+		PRIMARY KEY (memory_id, kind, value)
+	)`,
+	`CREATE INDEX memory_anchors_by_value ON memory_anchors (project, kind, value)`,
+	`ALTER TABLE memories ADD COLUMN mentioned_at INTEGER NOT NULL DEFAULT 0`,
+
 	// The user's task list (the Tasks tab) is gone, and with it the tables
 	// that held it, their indexes, and "tasks go to". The task_* events it
 	// captured stay: events are history, never rewritten.

@@ -90,7 +90,7 @@ func (s *Server) ask(instance string) func(http.ResponseWriter, *http.Request) e
 			return err
 		}
 		s.captureEvent(r.Context(), a.Project, a.Name, "question_asked", map[string]any{
-			"question": q.Text, "context": q.Context,
+			"questionId": q.ID, "question": q.Text, "context": q.Context,
 		}, "")
 		s.events.publish(api.EventQuestion, toAPIQuestion(q))
 		s.record(r.Context(), questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
@@ -124,7 +124,7 @@ func (s *Server) askForTest(ctx context.Context, a state.Agent, question, about 
 		return api.Question{}, err
 	}
 	s.captureEvent(ctx, a.Project, a.Name, "question_asked", map[string]any{
-		"question": q.Text, "context": q.Context,
+		"questionId": q.ID, "question": q.Text, "context": q.Context,
 	}, "")
 	s.record(ctx, questionEvent(q, a.Title, api.AgentAsked, q.CreatedAt))
 	s.tellLead(ctx, a.Project, questionNotice(q), true)
@@ -153,8 +153,9 @@ func (s *Server) answerQuestion(ctx context.Context, id, answer, by string) (sta
 		return q, err
 	}
 	s.captureEvent(ctx, q.Project, q.Agent, "question_answered", map[string]any{
-		"question": q.Text, "answer": q.Answer, "answeredBy": q.AnsweredBy,
+		"questionId": q.ID, "question": q.Text, "answer": q.Answer, "answeredBy": q.AnsweredBy,
 	}, "")
+	s.closeAnchoredSoon(q.Project)
 	if !s.waiting.resolve(q) && !q.Credential() {
 		s.tellAnswer(ctx, q)
 	}
