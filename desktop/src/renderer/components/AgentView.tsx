@@ -1,18 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowUpToLine,
   Box,
   Camera,
   CircleX,
   Copy,
   Ellipsis,
-  FolderGit2,
   FolderOpen,
   GitBranch,
   Hash,
   Images,
   KeyRound,
-  ListTodo,
   LoaderCircle,
   MessageSquare,
   Monitor,
@@ -31,11 +28,9 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
-import { waitingLine } from '../lib/agentSize';
 import { api, type AgentAction } from '../lib/api';
 import { useChatOpenAt } from '../lib/reveal';
 import { useT, type MessageKey } from '../lib/i18n';
-import { useProjectName } from '../lib/useProjectName';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
 import { agentTabFeatures, countFeature } from '../lib/usageStats';
 import { cn, errorMessage } from '../lib/utils';
@@ -114,13 +109,6 @@ export function AgentView({
         {t('agent.view.loading', { ref: agentRef })}
       </div>
     );
-  }
-
-  // A queued agent has no machine yet: nothing here — chat, terminal, browser
-  // — has anything to attach to, so it gets its own quiet placeholder instead
-  // of the tabs below.
-  if (agent.state === 'queued') {
-    return <QueuedAgentPlaceholder agent={agent} onSelect={onSelect} />;
   }
 
   const run = (name: AgentAction) => action.mutate(name);
@@ -313,87 +301,6 @@ export function AgentView({
         onOpenChange={setDestroying}
         onDestroyed={() => onSelect({ kind: 'project', project: agent.project })}
       />
-    </div>
-  );
-}
-
-// QueuedAgentPlaceholder is what a queued agent opens on: no machine exists
-// yet, so there's no chat, terminal or browser to show — only its place in
-// line and its task, read from the project's queue (GET /v1/queue), and the
-// ways out of it (AgentContextMenu offers the same from the rail).
-function QueuedAgentPlaceholder({ agent, onSelect }: { agent: T.Agent; onSelect: (view: View) => void }) {
-  const t = useT();
-  const queryClient = useQueryClient();
-  const projectName = useProjectName(agent.project);
-  const queue = useQuery({ queryKey: ['queue', agent.project], queryFn: () => api.queue(agent.project) });
-  const entry = queue.data?.queued.find((q) => q.name === agent.name);
-
-  const invalidate = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['agents'] });
-    await queryClient.invalidateQueries({ queryKey: ['queue', agent.project] });
-    await queryClient.invalidateQueries({ queryKey: ['memoryTasks', agent.project] });
-  };
-  const moveToFront = useMutation({
-    mutationFn: () => api.moveQueued(agent.project, agent.name, 1),
-    onSuccess: () => void invalidate(),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  // Starts it whatever admission says: the way past a wait the user can see
-  // is wrong, the VM having the memory free.
-  const startNow = useMutation({
-    mutationFn: () => api.startQueued(agent.project, agent.name),
-    onSuccess: () => void invalidate(),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  const remove = useMutation({
-    mutationFn: () => api.removeQueued(agent.project, agent.name),
-    onSuccess: () => {
-      toast(t('agent.queued.removed'));
-      void invalidate();
-      onSelect({ kind: 'project', project: agent.project });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:flex-nowrap md:px-6">
-        <LiveAgentAvatar agent={agent} />
-        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-title">{agent.title || agent.name}</span>
-        <StateBadge state={agent.state} />
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6 pb-10 text-center">
-        <span className="flex size-12 items-center justify-center rounded-2xl border border-line-strong bg-surface-faint text-subtle">
-          <ListTodo className="size-5" />
-        </span>
-        <div className="grid max-w-md gap-1.5">
-          <p className="text-[14px] font-medium text-primary">
-            {t('agent.queued.title', {
-              position: agent.queuePosition ?? entry?.position ?? '?',
-              reason: waitingLine(agent.waiting ?? entry?.waiting) || t('agent.queued.slotFree', { project: projectName }),
-            })}
-          </p>
-          {entry?.task && <p className="text-[13px] leading-relaxed text-subtle">{entry.task}</p>}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" disabled={startNow.isPending} onClick={() => startNow.mutate()}>
-            <Play />
-            {t('agent.queued.startNow')}
-          </Button>
-          <Button variant="ghost" size="sm" disabled={moveToFront.isPending || agent.queuePosition === 1} onClick={() => moveToFront.mutate()}>
-            <ArrowUpToLine />
-            {t('agent.queued.moveToFront')}
-          </Button>
-          <Button variant="ghost" size="sm" disabled={remove.isPending} onClick={() => remove.mutate()}>
-            <CircleX />
-            {t('agent.queued.remove')}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => onSelect({ kind: 'project', project: agent.project })}>
-            <FolderGit2 />
-            {t('agent.queued.back', { project: projectName })}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 }

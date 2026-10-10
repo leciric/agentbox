@@ -6,7 +6,7 @@ import type { View } from '../App';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
-import { avatarMood, chatLabel, isAsking, prChecksText, prState, rank, settled, usageTip, type Mood } from '../lib/agentStatus';
+import { avatarMood, chatLabel, isAsking, memoryHold, prChecksText, prState, rank, settled, usageTip, type Mood } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
@@ -288,10 +288,12 @@ function AgentRow({
               {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
               {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
               <span
+                title={memoryHold(agent)?.tip}
                 className={cn(
                   'shrink-0',
                   status.tone === 'urgent' && 'font-medium text-amber-300',
                   status.tone === 'error' && 'font-medium text-rose-300',
+                  status.tone === 'warning' && 'font-medium text-amber-300/80',
                   status.tone === 'live' && 'chat-shine font-medium',
                   status.tone === 'muted' && 'text-subtle',
                 )}

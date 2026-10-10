@@ -7,7 +7,7 @@ import { Fragment } from 'react';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
 import { projectLabel } from '../lib/projectName';
-import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
+import { chatLabel, memoryHold, rank, type StatusTone } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
@@ -19,7 +19,7 @@ import { Skeleton, skeletonWidths } from './ui/skeleton';
 
 // The tones in the order they should catch your eye: agents that need you
 // first, then whatever's failed, then whatever's working, then the rest.
-const toneOrder: StatusTone[] = ['urgent', 'error', 'live', 'muted'];
+const toneOrder: StatusTone[] = ['urgent', 'error', 'warning', 'live', 'muted'];
 
 function compareAgents(a: T.Agent, b: T.Agent): number {
   const byRank = rank(a) - rank(b);
@@ -177,6 +177,7 @@ function AgentFleetRow({
           'absolute inset-y-1.5 left-0 w-[3px] rounded-full',
           status.tone === 'urgent' && 'bg-amber-400',
           status.tone === 'error' && 'bg-rose-400',
+          status.tone === 'warning' && 'bg-amber-400/70',
           status.tone === 'live' && 'bg-sky-400',
           status.tone === 'muted' && 'bg-transparent',
         )}
@@ -200,10 +201,12 @@ function AgentFleetRow({
         {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
         {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
         <span
+          title={memoryHold(agent)?.tip}
           className={cn(
             'truncate',
             status.tone === 'urgent' && 'font-medium text-amber-300',
             status.tone === 'error' && 'font-medium text-rose-300',
+            status.tone === 'warning' && 'font-medium text-amber-300/80',
             status.tone === 'live' && 'chat-shine font-medium',
             status.tone === 'muted' && 'text-subtle',
           )}

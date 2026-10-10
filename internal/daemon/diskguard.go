@@ -178,10 +178,6 @@ func (s *Server) checkDisk(ctx context.Context) {
 	if step.Pause != nil || len(step.Resume) > 0 {
 		s.refreshAgents(ctx)
 	}
-	if prev.Level == agent.DiskFull && status.Level != agent.DiskFull {
-		// Queued agents waited for room.
-		s.kickQueue()
-	}
 }
 
 func (s *Server) diskTellLead(ctx context.Context, project, notice string) {

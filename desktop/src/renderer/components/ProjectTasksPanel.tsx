@@ -1,7 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowDown,
-  ArrowUp,
   Check,
   GitMerge,
   ListTodo,
@@ -31,7 +29,7 @@ import {
   taskText,
   type TaskTarget,
 } from '../lib/tasks';
-import { cn, errorMessage, humanBytes, timeAgo } from '../lib/utils';
+import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Button } from './ui/button';
 import { EmptyState, Notice, Panel } from './ui/card';
 import { Textarea } from './ui/input';
@@ -40,10 +38,9 @@ import { Select, SelectOption } from './ui/select';
 // ProjectTasksPanel is the project's task list, which only the user writes:
 // nothing in AgentBox adds a task on its own, and neither the project's chat
 // nor an agent can change one. Each task sits in the Backlog, where a new one
-// goes, or in the Queue, which hands it to the agent queue as a queued agent
-// (lib/tasks.ts); queued tasks can be moved up and down or sent back. With the
-// agent queue off there is no Queue: a backlog task's Start makes its agent
-// at once. A task goes to a new agent or to the project's lead, as Settings'
+// goes, or in the Queue (lib/tasks.ts). There is no agent queue any more, so a
+// backlog task's Start makes its agent at once; the Queue only holds what an
+// earlier release left there. A task goes to a new agent or to the project's lead, as Settings'
 // "Tasks go to" says unless the task chose for itself; one the lead has shows
 // the lead as its owner, a link to the chat. What's done — by hand, or by its
 // agent's pull request merging — is a second list, switched to above the
@@ -60,19 +57,15 @@ export function ProjectTasksPanel({
   const t = useT();
   const queryClient = useQueryClient();
   const tasksQuery = useQuery({ queryKey: ['memoryTasks', project], queryFn: () => api.memoryTasks(project) });
-  // Refetching every few seconds keeps the slot count and each task's queue
-  // position live even when nothing here triggers an event; the agent events
-  // stream (queue invalidation in lib/events.ts) is what makes it feel instant.
-  const queueQuery = useQuery({ queryKey: ['queue', project], queryFn: () => api.queue(project), refetchInterval: 5000 });
   const agentsQuery = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
   const [list, setList] = useState<TaskList>('open');
   const [prompt, setPrompt] = useState('');
 
-  // The installation's own switch (Settings → Agents → Agent queue).
-  const queueOn = settings.data?.agentQueue ?? false;
+  // There is no agent queue to switch on: the lane switch stays in the code
+  // until the Tasks tab is reworked.
+  const queueOn = false;
   const target = settings.data?.taskTarget;
-  const slots = queueQuery.data?.projects.find((p) => p.project === project);
   const agentsByName = new Map((agentsQuery.data ?? []).filter((a) => a.project === project).map((a) => [a.name, a] as const));
   const lanes = taskLanes(tasksQuery.data ?? [], agentsByName);
   const total = tasksQuery.data?.length ?? 0;
@@ -81,7 +74,6 @@ export function ProjectTasksPanel({
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['memoryTasks', project] });
-    await queryClient.invalidateQueries({ queryKey: ['queue', project] });
     await queryClient.invalidateQueries({ queryKey: ['agents'] });
   };
   // Every action here is one call and a refresh, and fails the same way.
@@ -98,12 +90,8 @@ export function ProjectTasksPanel({
     },
   });
 
-  // Only a task waiting for its agent moves in the queue: one waiting for the
-  // lead keeps its place behind the agents queued before it.
-  const agentQueue = lanes.queue.filter((q) => !q.leadQueuedAt);
   const row = (task: T.Task, index?: number) => {
     const agent = task.agent ? agentsByName.get(task.agent) : undefined;
-    const moveIndex = agentQueue.indexOf(task);
     return (
       <TaskRow
         key={task.id}
@@ -114,12 +102,9 @@ export function ProjectTasksPanel({
         defaultTarget={taskTarget({}, target)}
         busy={act.isPending}
         place={index}
-        queueIndex={index === undefined || moveIndex < 0 ? undefined : moveIndex}
-        queueLength={agentQueue.length}
         onRoute={(route) => act.mutate(() => actions.setRoute(task, route))}
         onOpenChat={onOpenChat}
         onLane={(lane) => act.mutate(() => actions.setLane(task, agent, lane))}
-        onMove={(position) => agent && act.mutate(() => actions.move(agent.name, position))}
         onStart={() => act.mutate(() => actions.start(task, agent))}
         onEdit={(text) => act.mutateAsync(() => actions.edit(task, text))}
         onDelete={() => act.mutate(() => actions.remove(task))}
@@ -131,15 +116,6 @@ export function ProjectTasksPanel({
 
   return (
     <div className="mx-auto grid max-w-4xl gap-5 px-4 py-6 md:px-8 md:py-7">
-      {queueOn ? (
-        <SlotsStrip slots={slots} loading={queueQuery.isPending} />
-      ) : (
-        settings.data && (
-          <p className="px-1 text-[12px] text-subtle">
-            {t('memory.tasks.queueOff', { target: target === 'lead' ? 'lead' : 'agent' })}
-          </p>
-        )
-      )}
       {settings.data && (
         <p className="-mt-3 px-1 text-[12px] text-subtle" data-task-target={target}>
           {t('memory.tasks.goTo', { target: target === 'lead' ? 'lead' : 'agent' })}
@@ -316,33 +292,6 @@ function Lane({ id, title, count, hint, children }: { id: string; title: string;
   );
 }
 
-// SlotsStrip is a project's queue at a glance: how many of its slots are in
-// use, how many agents are waiting for one, and — when it's Auto — what each
-// one is estimated to cost, learned from this project's own agents once it
-// has run any, else the installation's memory limit.
-function SlotsStrip({ slots, loading }: { slots: T.ProjectSlots | undefined; loading: boolean }) {
-  const t = useT();
-  if (!slots) {
-    return <p className="px-1 text-[12px] text-subtle">{loading ? t('memory.tasks.loadingQueue') : ''}</p>;
-  }
-  const auto = slots.pinned === 0;
-  return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 rounded-xl border border-line bg-surface-faint px-3.5 py-2.5 text-[12.5px] text-secondary">
-      <span className="font-medium text-primary">
-        {t('memory.tasks.slotsInUse', { running: slots.running, count: slots.slots })}
-      </span>
-      <span className="text-subtle">·</span>
-      <span>{t('memory.tasks.queuedCount', { count: slots.queued })}</span>
-      <span className="text-subtle">·</span>
-      <span className="text-subtle">
-        {auto
-          ? t(slots.peakLearned ? 'memory.tasks.autoLearned' : 'memory.tasks.autoLimit', { size: humanBytes(slots.peak) })
-          : t('memory.tasks.fixed', { count: slots.slots })}
-      </span>
-    </div>
-  );
-}
-
 // LaneChoice is a task's Backlog | Queue switch: two buttons, the current one
 // pressed.
 function LaneChoice({ lane, disabled, onChange, goal }: { lane: 'backlog' | 'queue'; disabled: boolean; onChange: (lane: 'backlog' | 'queue') => void; goal: string }) {
@@ -412,12 +361,9 @@ function TaskRow({
   defaultTarget,
   busy,
   place,
-  queueIndex,
-  queueLength,
   onRoute,
   onOpenChat,
   onLane,
-  onMove,
   onStart,
   onEdit,
   onDelete,
@@ -431,12 +377,9 @@ function TaskRow({
   defaultTarget: TaskTarget;
   busy: boolean;
   place?: number;
-  queueIndex?: number;
-  queueLength: number;
   onRoute: (route: '' | TaskTarget) => void;
   onOpenChat: () => void;
   onLane: (lane: 'backlog' | 'queue') => void;
-  onMove: (position: number) => void;
   onStart: () => void;
   onEdit: (text: string) => Promise<unknown>;
   onDelete: () => void;
@@ -505,16 +448,6 @@ function TaskRow({
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         {lane === 'backlog' && <RouteChoice route={task.route} target={target} defaultTarget={defaultTarget} goal={task.goal} disabled={busy} onChange={onRoute} />}
-        {lane === 'queue' && queueIndex !== undefined && (
-          <>
-            <Button size="icon-sm" variant="ghost" aria-label={t('memory.tasks.moveUp', { goal: task.goal })} disabled={busy || queueIndex === 0} onClick={() => onMove(queueIndex)}>
-              <ArrowUp />
-            </Button>
-            <Button size="icon-sm" variant="ghost" aria-label={t('memory.tasks.moveDown', { goal: task.goal })} disabled={busy || queueIndex >= queueLength - 1} onClick={() => onMove(queueIndex + 2)}>
-              <ArrowDown />
-            </Button>
-          </>
-        )}
         {(lane === 'backlog' || lane === 'queue') && queueOn && <LaneChoice lane={lane} goal={task.goal} disabled={busy} onChange={onLane} />}
         {lane === 'queue' && !queueOn && (
           <Button size="sm" variant="ghost" disabled={busy} onClick={() => onLane('backlog')}>

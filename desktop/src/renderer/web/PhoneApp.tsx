@@ -57,6 +57,7 @@ function useRoute(): [Route, (next: Route) => void] {
 const toneText: Record<StatusTone, string> = {
   urgent: 'text-amber-300',
   error: 'text-rose-300',
+  warning: 'text-amber-300/80',
   live: 'text-emerald-300',
   muted: 'text-subtle',
 };

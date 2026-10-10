@@ -296,7 +296,7 @@ func (s *Server) leadTellAgent(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return writeJSON(w, http.StatusAccepted, api.TellResult{ChatItem: t.item, Woke: t.woke, Waiting: t.waiting})
+	return writeJSON(w, http.StatusAccepted, api.TellResult{ChatItem: t.item, Woke: t.woke})
 }
 
 func (s *Server) leadAgentDiff(w http.ResponseWriter, r *http.Request) error {

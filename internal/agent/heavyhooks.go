@@ -7,29 +7,31 @@ import (
 	"strings"
 )
 
-// Heavy phases inside an agent take their memory from the VM's burst pool
-// (admission.go, internal/daemon/burst.go). In Claude Code agents that is
-// automatic: hooks around its tool calls run `agentbox heavy-hook`, which
-// takes a lease before a heavy Bash command or a browser tool and gives it
-// back after (internal/cli/heavy.go). The hook matches commands itself, in
-// process, so a tool call that isn't heavy costs one short exec and nothing
-// in the conversation.
+// Heavy commands inside an agent (tests, builds) ask the daemon before they
+// start, and wait while the VM's memory is under pressure
+// (internal/daemon/pressure.go). In Claude Code agents that is automatic:
+// hooks around its Bash tool run `agentbox heavy-hook`, which asks before a
+// heavy command and says after that it ended (internal/cli/heavy.go). The
+// hook matches commands itself, in process, so a tool call that isn't heavy
+// costs one short exec and nothing in the conversation.
 
 // HeavyHookCommand is the command the hooks run.
 const HeavyHookCommand = AgentBinaryPath + " heavy-hook"
 
-// HeavyEnvFile is where, under the agent user's home, the hook leaves the
-// environment heavy commands run with under a lease (test runners' worker
-// counts), and BASH_ENV points, so the Bash tool's shell reads it. Empty when
-// the agent holds no lease.
+// HeavyEnvFile is where, under the agent user's home, the hook leaves what
+// the next shell the Bash tool starts runs first, and BASH_ENV points there:
+// `agentbox heavy-join`, which puts the shell of the heavy command that just
+// started in its run's cgroup, so it can be paused on its own. Empty
+// otherwise.
 const HeavyEnvFile = ".cache/agentbox/heavy.env"
 
 // heavyHookMatcher is the tools the hooks run for: Bash, whose commands the
-// hook sorts, and the browser's.
-const heavyHookMatcher = "Bash|mcp__playwright__.*|mcp__desktop__.*"
+// hook sorts. The browser's aren't: it isn't a command that can wait or be
+// paused on its own.
+const heavyHookMatcher = "Bash"
 
 // heavyHookTimeout is how long Claude Code lets the PreToolUse hook run, in
-// seconds: beyond the daemon's longest wait for a lease (burstMaxWait, 10
+// seconds: beyond the daemon's longest wait to start (heavyMaxWait, 10
 // minutes), so the wait running out is the hook's to report, not a kill.
 const heavyHookTimeout = 660
 

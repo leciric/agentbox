@@ -11,19 +11,10 @@ import (
 	"agentbox/internal/state"
 )
 
-// leadTaskProject is a project whose lead can be sent a message, with the
-// agent queue on and no slots, so nothing queued ever starts on its own and
-// the test looks at the queue itself.
+// leadTaskProject is a project whose lead can be sent a message.
 func leadTaskProject(t *testing.T) (testDaemon, state.Agent) {
 	t.Helper()
-	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{queue: func(s *Server) {
-		s.queueEvery = 0
-		if err := s.store.SetFlag(context.Background(), state.SettingAgentQueue, true); err != nil {
-			t.Fatal(err)
-		}
-		s.slotBudget = func(context.Context) (int64, error) { return 0, nil }
-		s.queueStart = func(context.Context, state.QueuedAgent) error { return nil }
-	}})
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
 	repo := d.fixtureRepo(t, "hello-stack")
 	if _, err := d.client.AddProject(context.Background(), api.AddProjectRequest{Path: repo}); err != nil {
 		t.Fatal(err)
@@ -145,19 +136,13 @@ func TestATasksRouteOverridesTheSetting(t *testing.T) {
 	}
 }
 
-// Queued, a task for the lead waits behind the agents queued before it, takes
-// no slot, and goes as soon as they've started; taken back out of the queue,
-// it goes nowhere.
-func TestALeadTaskWaitsItsTurnInTheQueue(t *testing.T) {
+// Nothing queues: a task for the lead started with Queue goes at once, and
+// one an earlier release left waiting for the lead goes as the daemon starts.
+func TestALeadTaskGoesAtOnce(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	d, lead := leadTaskProject(t)
 	if _, err := d.client.UpdateSettings(ctx, api.UpdateSettingsRequest{TaskTarget: new(api.TaskRouteLead)}); err != nil {
-		t.Fatal(err)
-	}
-	ahead := state.Agent{Project: "hello-stack", Name: "agent-01", AI: "none", Branch: "agentbox/one",
-		Status: state.AgentQueued, CreatedAt: time.Now().Add(-time.Minute)}
-	if err := d.srv.store.Enqueue(ctx, ahead, []byte(`{}`)); err != nil {
 		t.Fatal(err)
 	}
 	user := d.client.ProjectMemory("hello-stack")
@@ -165,59 +150,33 @@ func TestALeadTaskWaitsItsTurnInTheQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	out, err := user.StartTask(ctx, task.ID, api.StartTaskRequest{Queue: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Target != api.TaskRouteLead || out.Task.LeadQueuedAt.IsZero() || out.Task.Agent != "" {
-		t.Fatalf("the queued start = %+v, want it waiting for the lead", out)
+	if out.Target != api.TaskRouteLead || !out.Task.LeadQueuedAt.IsZero() || out.Task.Agent != state.LeadName {
+		t.Fatalf("the start = %+v, want it the lead's at once", out)
 	}
-	d.srv.admitQueued(ctx)
-	if sentToLead(t, d, lead, "Plan the release") != "" {
-		t.Fatal("the task went to the lead ahead of the agent queued before it")
-	}
-	if status, err := d.client.Queue(ctx, "hello-stack"); err != nil || len(status.Queued) != 1 {
-		t.Errorf("the project's queue = %+v, %v; want only the one agent in it", status.Queued, err)
-	}
-
-	// Back to the backlog and into the queue again: it is behind the agent
-	// still, and unqueueing really takes it out.
-	if got, err := user.UnqueueTask(ctx, task.ID); err != nil || !got.LeadQueuedAt.IsZero() {
-		t.Fatalf("unqueueing = %+v, %v", got, err)
-	}
-	if queue, _ := d.srv.memory().LeadQueue(ctx, ""); len(queue) != 0 {
-		t.Fatalf("the lead's queue after unqueueing = %+v", queue)
-	}
-	if _, err := user.StartTask(ctx, task.ID, api.StartTaskRequest{Queue: true}); err != nil {
-		t.Fatal(err)
-	}
-
-	// The agent ahead leaves the queue (it started, or was taken out): the
-	// task is at the front, and goes.
-	if err := d.srv.store.RemoveAgent(ctx, "hello-stack", "agent-01"); err != nil {
-		t.Fatal(err)
-	}
-	d.srv.admitQueued(ctx)
 	if sentToLead(t, d, lead, "Plan the release") == "" {
-		t.Fatal("the task at the front of the queue didn't go to the lead")
+		t.Fatal("the task didn't go to the lead")
 	}
-	if got := taskOf(t, d, "hello-stack", task.ID); got.Agent != state.LeadName || !got.LeadQueuedAt.IsZero() {
-		t.Errorf("the task once it went = %+v, want it the lead's and out of the queue", got)
+	if _, err := user.UnqueueTask(ctx, task.ID); err == nil {
+		t.Error("unqueued a task that was never queued")
 	}
-}
 
-func TestAgentsAhead(t *testing.T) {
-	t.Parallel()
-	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	queue := []state.QueuedAgent{
-		{Project: "p", Name: "a", QueuedAt: at.Add(-time.Minute)},
-		{Project: "p", Name: "b", QueuedAt: at},
-		{Project: "p", Name: "c", QueuedAt: at.Add(time.Minute)},
-		{Project: "q", Name: "d", QueuedAt: at.Add(-time.Hour)},
+	left, err := user.AddTask(ctx, api.AddTaskRequest{Goal: "Left behind"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	task := memory.Task{Project: "p", LeadQueuedAt: at.Add(500 * time.Millisecond)}
-	if n := agentsAhead(queue, task); n != 1 {
-		t.Errorf("agents ahead = %d, want only the one queued a minute before (same-second ties go to the task)", n)
+	queuedAt := time.Now().Add(-time.Hour)
+	if _, err := d.srv.memory().UpdateTask(ctx, "hello-stack", left.ID, memory.TaskPatch{LeadQueuedAt: &queuedAt}); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.startLeftoverQueue(ctx)
+	if sentToLead(t, d, lead, "Left behind") == "" {
+		t.Fatal("the task left queued for the lead didn't go to it")
+	}
+	if got := taskOf(t, d, "hello-stack", left.ID); got.Agent != state.LeadName || !got.LeadQueuedAt.IsZero() {
+		t.Errorf("the task left queued, once it went = %+v", got)
 	}
 }

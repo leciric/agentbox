@@ -26,10 +26,11 @@ import { Tip } from './ui/tooltip';
 
 // A quieter version of the rail's vocabulary: what to call a project's most
 // urgent agent tone, and how to draw it as a single dot.
-const toneLabel: Record<StatusTone, MessageKey | null> = { urgent: 'shell.sidebar.needsYou', error: 'shell.sidebar.needsAttention', live: 'shell.sidebar.working', muted: null };
+const toneLabel: Record<StatusTone, MessageKey | null> = { urgent: 'shell.sidebar.needsYou', error: 'shell.sidebar.needsAttention', warning: 'shell.sidebar.memoryHeld', live: 'shell.sidebar.working', muted: null };
 const toneDot: Record<StatusTone, string> = {
   urgent: 'bg-amber-400 animate-pulse',
   error: 'bg-rose-400',
+  warning: 'bg-amber-400/70',
   live: 'bg-sky-400 animate-pulse',
   muted: '',
 };

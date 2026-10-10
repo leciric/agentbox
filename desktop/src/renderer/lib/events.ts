@@ -161,7 +161,7 @@ export function connectEvents(queryClient: QueryClient): void {
         if (!change.removed && agents?.some((a) => a.ref === change.ref)) {
           queryClient.setQueryData<T.Agent[]>(
             ['agents'],
-            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', queuePosition: change.queuePosition, waiting: change.waiting } : a)),
+            agents.map((a) => (a.ref === change.ref ? { ...a, state: change.state, ip: change.ip ?? '', memory: change.memory } : a)),
           );
         } else {
           void queryClient.invalidateQueries({ queryKey: ['agents'] });
@@ -170,10 +170,6 @@ export function connectEvents(queryClient: QueryClient): void {
           void queryClient.invalidateQueries({ queryKey: ['browser', change.ref] });
           void queryClient.invalidateQueries({ queryKey: ['android', change.ref] });
         }
-        // A queue move, a create or a start changes a project's slots: how
-        // many are in use, and who's waiting. The rail and the Tasks tab both
-        // read the same query, keyed by the project the agent's ref names.
-        void queryClient.invalidateQueries({ queryKey: ['queue', change.ref.split('/')[0]] });
         // An agent removed after its pull request merged has closed its tasks.
         if (change.removed) void queryClient.invalidateQueries({ queryKey: ['memoryTasks', change.ref.split('/')[0]] });
         break;

@@ -4,12 +4,11 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { AgentModelAuto } from '../../shared/api';
-import { agentSizes } from '../lib/agentSize';
 import { api } from '../lib/api';
 import { t, useT, type MessageKey } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../lib/modelChoices';
-import { cn, errorMessage, humanBytes } from '../lib/utils';
+import { cn, errorMessage } from '../lib/utils';
 import { ModelByName } from './ModelByName';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -61,13 +60,6 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           render: () => <AgentModelPicker project={project} />,
         },
         {
-          id: 'size',
-          label: t('defaults.project.sizeLabel'),
-          keywords: t('defaults.project.sizeKeywords'),
-          modified: project.agentSize !== '',
-          render: () => <AgentSizePicker project={project} />,
-        },
-        {
           id: 'branch-prefix',
           label: t('defaults.project.prefixLabel'),
           keywords: t('defaults.project.prefixKeywords'),
@@ -75,27 +67,6 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           modified: project.branchPrefix !== 'agentbox/',
           // Keyed on the saved value, so a save (or another client's) starts the draft over.
           render: () => <BranchPrefixField key={project.branchPrefix} project={project} />,
-        },
-      ],
-    },
-    {
-      id: 'queue',
-      title: t('defaults.project.groupQueue'),
-      description: t('defaults.project.groupQueueDescription', { name }),
-      entries: [
-        {
-          id: 'slots',
-          label: t('defaults.project.slotsLabel'),
-          keywords: t('defaults.project.slotsKeywords'),
-          modified: project.slots !== 0,
-          render: () => <SlotsSetting project={project} />,
-        },
-        {
-          id: 'always-queue',
-          label: t('defaults.project.alwaysQueueLabel'),
-          keywords: t('defaults.project.alwaysQueueKeywords'),
-          modified: project.alwaysQueue,
-          render: () => <AlwaysQueueToggle project={project} />,
         },
       ],
     },
@@ -393,231 +364,6 @@ function describeAgentModel(project: T.Project): string {
     return t('defaults.project.describeHome', { name: projectLabel(project) });
   }
   return t('defaults.project.describeModel', { name: projectLabel(project), model: project.agentModel });
-}
-
-// queueOffNote is the one-line pointer shown under a queue control once the
-// installation has Agent queue turned off (Settings → Agents): the project's
-// own slots and always-queue don't do anything until it is.
-function QueueOffNote() {
-  const t = useT();
-  return <SettingNote tone="warning">{t('defaults.project.queueOff')}</SettingNote>;
-}
-
-// SlotsSetting chooses how many of this project's agents may run at once: 0
-// (Auto) shares the VM's memory fairly with every other project, by how
-// much memory each one's agents actually use, and its number is only an
-// estimate; a fixed number pins it, whatever else is running, as a hard cap
-// on new agents however they're made. GET /v1/queue's ProjectSlots says what Auto comes
-// to right now, whether the per-agent figure is learned from this project's
-// own agents or still the installation's memory limit, and — below it — the
-// agents that figure is drawn from, refreshed every few seconds. The control
-// itself is disabled, with a pointer, while the installation's Agent queue
-// setting is off — the slot maths still runs and is worth seeing, but
-// changing it here would do nothing until that's on.
-function SlotsSetting({ project }: { project: T.Project }) {
-  const t = useT();
-  const queryClient = useQueryClient();
-  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
-  const queue = useQuery({ queryKey: ['queue', project.name], queryFn: () => api.queue(project.name), refetchInterval: 5_000 });
-  const mine = queue.data?.projects.find((p) => p.project === project.name);
-  const [fixed, setFixed] = useState(String(project.slots || mine?.slots || 1));
-  const queueOn = settings.data?.agentQueue ?? false;
-  const save = useMutation({
-    mutationFn: (slots: number) => api.updateProject(project.name, { slots }),
-    onSuccess: async (updated) => {
-      toast(updated.slots === 0 ? t('defaults.project.slotsAutoToast', { name: updated.name }) : t('defaults.project.slotsFixedToast', { name: updated.name, count: updated.slots }));
-      await queryClient.invalidateQueries({ queryKey: ['projects'] });
-      await queryClient.invalidateQueries({ queryKey: ['queue', updated.name] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  const auto = project.slots === 0;
-  const disabled = save.isPending || !queueOn;
-
-  return (
-    <SettingRow
-      label={t('defaults.project.slotsLabel')}
-      description={
-        auto ? (
-          <>
-            <span className="block">{t('defaults.project.slotsAutoStart')}</span>
-            {mine
-              ? t('defaults.project.slotsAutoNow', { slots: mine.slots, size: humanBytes(mine.peak), learned: mine.peakLearned ? 'yes' : 'no' })
-              : t('defaults.project.slotsAuto')}
-          </>
-        ) : (
-          t('defaults.project.slotsUpTo', { count: project.slots })
-        )
-      }
-      details={t('defaults.project.slotsDetails')}
-      control={
-        <Select
-          aria-label={t('defaults.project.slotsLabel')}
-          disabled={disabled}
-          value={auto ? 'auto' : 'fixed'}
-          onChange={(value) => {
-            if (value === 'auto') save.mutate(0);
-            else save.mutate(Number(fixed) || 1);
-          }}
-        >
-          <SelectOption value="auto">{t('defaults.project.auto')}</SelectOption>
-          <SelectOption value="fixed">{t('defaults.project.fixed')}</SelectOption>
-        </Select>
-      }
-    >
-      {!queueOn && <QueueOffNote />}
-      {!auto && (
-        <div className="flex items-center gap-2">
-          <Input
-            type="number"
-            min={1}
-            max={64}
-            aria-label={t('defaults.project.fixedAria')}
-            className="w-24 font-mono text-[13px]"
-            value={fixed}
-            disabled={disabled}
-            onChange={(e) => setFixed(e.target.value)}
-            onBlur={() => {
-              const n = Math.min(64, Math.max(1, Number(fixed) || 1));
-              setFixed(String(n));
-              if (n !== project.slots) save.mutate(n);
-            }}
-          />
-          {mine && <SettingNote>{t('defaults.project.currentlySlots', { slots: mine.slots })}</SettingNote>}
-        </div>
-      )}
-      {mine && (
-        <div className="mt-3 grid gap-2">
-          <p className="text-[12.5px] text-secondary">
-            {t.rich(mine.peakLearned ? 'defaults.project.slotSizeLearned' : 'defaults.project.slotSizeLimit', {
-              strong: (c) => <span className="font-medium text-primary">{c}</span>,
-              size: humanBytes(mine.peak),
-            })}
-          </p>
-          <SlotAgentsTable agents={mine.agents} />
-        </div>
-      )}
-    </SettingRow>
-  );
-}
-
-// SlotAgentsTable is what the slot maths above is drawn from: each of this
-// project's running agents, its memory and CPU right now beside the peak
-// each has reached (what "learned" learns from). cpu is a percentage of one
-// core (100 = one core busy).
-function SlotAgentsTable({ agents }: { agents: T.SlotAgent[] }) {
-  const t = useT();
-  if (agents.length === 0) return <p className="text-[12px] text-subtle">{t('defaults.project.noAgentsRunning')}</p>;
-  return (
-    <div className="overflow-hidden rounded-lg border border-line-faint">
-      <table className="w-full text-[12px]">
-        <thead>
-          <tr className="text-left text-[10.5px] uppercase tracking-wide text-faint">
-            <th className="px-2.5 py-1.5 font-medium">{t('defaults.project.colAgent')}</th>
-            <th className="px-2.5 py-1.5 font-medium">{t('defaults.project.colMemory')}</th>
-            <th className="px-2.5 py-1.5 font-medium">{t('defaults.project.colCpu')}</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-line-faint">
-          {agents.map((a) => (
-            <tr key={a.name}>
-              <td className="px-2.5 py-1.5">
-                <span className="font-medium text-primary">{a.title || a.name}</span>{' '}
-                <span className="font-mono text-[10.5px] text-faint">{a.name}</span>
-                <div className="text-[10.5px] text-subtle">{a.state}</div>
-              </td>
-              <td className="whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums text-secondary">
-                {humanBytes(a.memory)} / {humanBytes(a.memoryPeak)}
-              </td>
-              <td className="whitespace-nowrap px-2.5 py-1.5 font-mono tabular-nums text-secondary">
-                {a.cpu.toFixed(0)}% / {a.cpuPeak.toFixed(0)}%
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// AlwaysQueueToggle is what a new agent of this project does by default: skip
-// the queue and start right away (off), or queue like the rest until a slot
-// is free (on). Either way, New agent's own Queue switch can override it for
-// one agent. Disabled, with the same pointer, while the installation's Agent
-// queue setting is off.
-function AlwaysQueueToggle({ project }: { project: T.Project }) {
-  const t = useT();
-  const queryClient = useQueryClient();
-  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings });
-  const queueOn = settings.data?.agentQueue ?? false;
-  const save = useMutation({
-    mutationFn: (alwaysQueue: boolean) => api.updateProject(project.name, { alwaysQueue }),
-    onSuccess: async (updated) => {
-      toast(updated.alwaysQueue ? t('defaults.project.alwaysQueueOnToast', { name: updated.name }) : t('defaults.project.alwaysQueueOffToast', { name: updated.name }));
-      await queryClient.invalidateQueries({ queryKey: ['projects'] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  return (
-    <SettingRow
-      label={t('defaults.project.alwaysQueueLabel')}
-      htmlFor="project-always-queue"
-      description={project.alwaysQueue ? t('defaults.project.alwaysQueueOnDescription') : t('defaults.project.alwaysQueueOffDescription')}
-      details={t('defaults.project.alwaysQueueDetails')}
-      control={
-        <Switch
-          id="project-always-queue"
-          data-project-always-queue
-          checked={project.alwaysQueue}
-          disabled={save.isPending || !queueOn}
-          onCheckedChange={(on) => save.mutate(on)}
-        />
-      }
-    >
-      {!queueOn && <QueueOffNote />}
-    </SettingRow>
-  );
-}
-
-// AgentSizePicker chooses the size of the agents this project's chat creates:
-// what each reserves of the VM's memory, which decides whether it starts now
-// or waits in the queue. Auto leaves it to the chat, agent by agent; a size
-// here wins over the chat's.
-function AgentSizePicker({ project }: { project: T.Project }) {
-  const t = useT();
-  const queryClient = useQueryClient();
-  const projectSizes = agentSizes(true);
-  const save = useMutation({
-    mutationFn: (agentSize: string) => api.updateProject(project.name, { agentSize }),
-    onSuccess: async (updated) => {
-      const size = agentSizes(true).find((s) => s.value === updated.agentSize);
-      const name = projectLabel(updated);
-      toast(updated.agentSize ? t('defaults.project.sizeToast', { name, size: (size?.label ?? updated.agentSize).toLowerCase() }) : t('defaults.project.sizeAutoToast', { name }));
-      await queryClient.invalidateQueries({ queryKey: ['projects'] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  const picked = projectSizes.find((s) => s.value === project.agentSize) ?? projectSizes[0];
-
-  return (
-    <SettingRow
-      label={t('defaults.project.sizeLabel')}
-      htmlFor="project-agent-size"
-      description={picked.tip}
-      details={t('defaults.project.sizeDetails')}
-      control={
-        <Select id="project-agent-size" data-project-agent-size value={project.agentSize} disabled={save.isPending} onChange={(value) => save.mutate(value)}>
-          {projectSizes.map((size) => (
-            <SelectOption key={size.value} value={size.value}>
-              {size.label} <span className="text-subtle">· {size.tip}</span>
-            </SelectOption>
-          ))}
-        </Select>
-      }
-    />
-  );
 }
 
 // BranchPrefixField sets what this project's new agents' branches start with,

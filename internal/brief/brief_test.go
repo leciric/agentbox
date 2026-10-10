@@ -711,58 +711,37 @@ func TestRenderLeadShellByHost(t *testing.T) {
 	}
 }
 
-// The queue and the recheck are only in the lead's brief when they're on,
-// and the recheck comes with its one hard rule.
-func TestRenderLeadQueueAndRecheck(t *testing.T) {
-	render := func(queue, recheck bool) string {
+// The recheck is only in the lead's brief when it's on, and comes with its
+// one hard rule; nothing speaks of a queue or slots, which are gone.
+func TestRenderLeadRecheck(t *testing.T) {
+	render := func(recheck bool) string {
 		t.Helper()
 		got, err := brief.RenderLead(brief.LeadData{
 			Project: "pawly", Root: "/src/pawly", Worktree: "/w/pawly/lead", BaseRef: "main",
-			Autonomy: "ask", CanSpawn: true, Queue: queue, Recheck: recheck,
+			Autonomy: "ask", CanSpawn: true, Recheck: recheck,
 		})
 		if err != nil {
 			t.Fatal(err)
 		}
 		return got
 	}
-	off := render(false, false)
-	if strings.Contains(off, "agent queue") || strings.Contains(off, "[recheck]") {
-		t.Errorf("with both off, the brief mentions them:\n%s", off)
+	off := render(false)
+	if strings.Contains(off, "[recheck]") {
+		t.Errorf("with the recheck off, the brief mentions it:\n%s", off)
 	}
-	on := render(true, true)
+	on := render(true)
 	for _, want := range []string{
-		"**This project has an agent queue.**", "`create_agent`\nwith `queue` true",
 		"**Rechecks.**", "`[recheck]`", "**Never retire one with uncommitted or unpushed\nwork**",
+		"Every agent starts at once.",
 	} {
 		if !strings.Contains(on, want) {
-			t.Errorf("with both on, the brief doesn't say %q", want)
+			t.Errorf("with the recheck on, the brief doesn't say %q", want)
 		}
 	}
-}
-
-// A pinned number of agents at once is a cap the lead is told about; auto
-// says agents start as memory allows.
-func TestRenderLeadSlots(t *testing.T) {
-	render := func(slots int) string {
-		t.Helper()
-		got, err := brief.RenderLead(brief.LeadData{
-			Project: "pawly", Root: "/src/pawly", Worktree: "/w/pawly/lead", BaseRef: "main",
-			Autonomy: "ask", CanSpawn: true, Queue: true, Slots: slots,
-		})
-		if err != nil {
-			t.Fatal(err)
+	for _, gone := range []string{"agent queue", "slots", "`size`"} {
+		if strings.Contains(on, gone) {
+			t.Errorf("the brief still says %q", gone)
 		}
-		return got
-	}
-	if got := render(1); !strings.Contains(got, "\n\n**The user caps this project at 1 agent at once.** Any agent you create beyond that queues,\nwhatever `queue` says") {
-		t.Errorf("pinned to 1, the brief doesn't state the cap:\n%s", got)
-	}
-	if got := render(3); !strings.Contains(got, "at 3 agents at once") {
-		t.Error("pinned to 3, the brief doesn't say 3 agents")
-	}
-	auto := render(0)
-	if strings.Contains(auto, "caps this project") || !strings.Contains(auto, "Slots are automatic: agents start whenever the VM has the memory for them, and queue otherwise.") {
-		t.Errorf("auto, the brief says:\n%s", auto)
 	}
 }
 

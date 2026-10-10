@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
-import { ArrowUpToLine, CircleX, GitBranch, GitPullRequest, Info, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
+import { CircleX, GitBranch, GitPullRequest, Info, MessageSquare, Moon, Pause, Play, Square, SquareTerminal } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
@@ -9,7 +9,6 @@ import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentAc
 import { api, type AgentAction } from '../lib/api';
 import { useT, type MessageKey } from '../lib/i18n';
 import { countFeature, type AppFeature } from '../lib/usageStats';
-import { errorMessage } from '../lib/utils';
 import { AgentInfoCard } from './AgentInfoCard';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from './ui/context-menu';
@@ -50,8 +49,7 @@ export function AgentContextMenu({
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ['agents'] });
     await queryClient.invalidateQueries({ queryKey: ['fleet', agent.project] });
-    await queryClient.invalidateQueries({ queryKey: ['queue', agent.project] });
-    // Leaving the queue frees whatever task the agent was given (the daemon
+    // Retiring an agent frees whatever task it was given (the daemon
     // unassigns it), so the Tasks tab's list has to catch up too.
     await queryClient.invalidateQueries({ queryKey: ['memoryTasks', agent.project] });
   };
@@ -84,53 +82,6 @@ export function AgentContextMenu({
   const actions = lifecycleActions(agent.state);
   const lifecycleIcon = { pause: Pause, resume: Play, start: Play, stop: Square };
   const lifecycleLabel: Record<LifecycleAction, MessageKey> = { pause: 'agent.action.pause', resume: 'agent.action.resume', start: 'common.start', stop: 'common.stop' };
-
-  const queued = agent.state === 'queued';
-  const moveToFront = useMutation({
-    mutationFn: () => api.moveQueued(agent.project, agent.name, 1),
-    onSuccess: () => void invalidate(),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  const removeFromQueue = useMutation({
-    mutationFn: () => api.removeQueued(agent.project, agent.name),
-    onSuccess: () => void invalidate(),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-  const startNow = useMutation({
-    mutationFn: () => api.startQueued(agent.project, agent.name),
-    onSuccess: () => void invalidate(),
-    onError: (err) => toast.error(errorMessage(err)),
-  });
-
-  // A queued agent has no machine yet: none of the usual actions apply, and
-  // its own menu is only the ways out of the queue.
-  if (queued) {
-    return (
-      <ContextMenu>
-        <TooltipPrimitive.Root>
-          <ContextMenuTrigger asChild>
-            <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
-          </ContextMenuTrigger>
-          <TooltipPrimitive.Portal>
-            <TooltipPrimitive.Content side={infoSide} sideOffset={6} className="z-[60] max-w-none animate-fade-in rounded-lg border border-line-strong bg-overlay p-3 text-xs text-secondary shadow-xl backdrop-blur">
-              <AgentInfoCard agent={agent} pr={pr} />
-            </TooltipPrimitive.Content>
-          </TooltipPrimitive.Portal>
-        </TooltipPrimitive.Root>
-        <ContextMenuContent>
-          <ContextMenuItem icon={Play} onSelect={() => startNow.mutate()}>
-            {t('agent.queued.startNow')}
-          </ContextMenuItem>
-          <ContextMenuItem icon={ArrowUpToLine} disabled={agent.queuePosition === 1} onSelect={() => moveToFront.mutate()}>
-            {t('agent.queued.moveToFront')}
-          </ContextMenuItem>
-          <ContextMenuItem icon={CircleX} destructive onSelect={() => removeFromQueue.mutate()}>
-            {t('agent.queued.remove')}
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-  }
 
   return (
     <>

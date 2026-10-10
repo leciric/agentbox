@@ -36,8 +36,6 @@ func (s *Server) watch(ctx context.Context) {
 
 // refreshAgents publishes an event for every agent whose state changed.
 func (s *Server) refreshAgents(ctx context.Context) {
-	// Whatever changed may have freed a slot for a queued agent.
-	s.kickQueue()
 	if s.events.subscribers() == 0 {
 		return
 	}
@@ -53,9 +51,9 @@ func (s *Server) publishAgentChanges(statuses []agent.Status) {
 	defer s.mu.Unlock()
 	seen := map[string]bool{}
 	for _, st := range statuses {
-		change := api.AgentChange{Ref: st.Ref(), State: st.State, IP: st.IP, QueuePosition: st.QueuePosition, Waiting: s.waitReasons[st.Ref()]}
+		change := api.AgentChange{Ref: st.Ref(), State: st.State, IP: st.IP, Memory: s.memoryHold(st.Ref())}
 		seen[change.Ref] = true
-		if s.lastStates[change.Ref] != change {
+		if !sameChange(s.lastStates[change.Ref], change) {
 			s.lastStates[change.Ref] = change
 			s.events.publish(api.EventAgent, change)
 		}
@@ -126,4 +124,14 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) error {
 			send(ev)
 		}
 	}
+}
+
+// sameChange reports whether two changes say the same.
+func sameChange(a, b api.AgentChange) bool {
+	am, bm := a.Memory, b.Memory
+	a.Memory, b.Memory = nil, nil
+	if a != b || (am == nil) != (bm == nil) {
+		return false
+	}
+	return am == nil || *am == *bm
 }

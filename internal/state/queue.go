@@ -2,22 +2,19 @@ package state
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 )
 
-// The agent queue: agents a project has asked for but that wait for one of
-// its slots before they get a machine. A queued agent is an agents row with
-// status AgentQueued, so its name and branch are taken from the moment it is
-// queued, and a row here beside it with the create request it starts from and
-// its place in line. The daemon decides when each starts (package daemon,
-// queue.go); this is only what it remembers.
+// What is left of the agent queue, which an earlier release had: agents a
+// project asked for that waited for one of its slots before they got a
+// machine, each an agents row with status AgentQueued and a row in
+// agent_queue with the create request it starts from. Nothing queues any
+// more; the daemon starts whatever an earlier release left queued as it
+// starts (package daemon, leftoverqueue.go), and this is what it reads.
 
-// QueuedAgent is one agent waiting in its project's queue.
+// QueuedAgent is one agent an earlier release left waiting in its project's
+// queue.
 type QueuedAgent struct {
 	Project  string
 	Name     string
@@ -31,57 +28,9 @@ type QueuedAgent struct {
 // Ref is the agent's project/name.
 func (q QueuedAgent) Ref() string { return q.Project + "/" + q.Name }
 
-// Enqueue adds a, whose Status must be AgentQueued, to the end of its
-// project's queue, with the request it will be created from.
-func (s *Store) Enqueue(ctx context.Context, a Agent, request []byte) error {
-	if a.Status != AgentQueued {
-		return fmt.Errorf("agent %s: only a queued agent joins the queue", a.Ref())
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if a.Interface == "" {
-		a.Interface = InterfaceCLI
-	}
-	if a.Role == "" {
-		a.Role = RoleWorker
-	}
-	if a.ID == "" {
-		a.ID = NewAgentID()
-	}
-	connectors, err := connectorLimit(a.Connectors)
-	if err != nil {
-		return err
-	}
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		a.Project, a.Name, a.Instance, a.AI, a.Autonomous, a.Branch, a.BaseRef, a.BaseCommit, a.Worktree, a.Status, a.CreatedAt.Unix(), a.Source, a.Title, a.ClaudeAccount, a.Interface, a.Role, a.GitHubAccount, a.FinishNotice, a.ID, connectors, a.Size)
-	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return fmt.Errorf("agent %s: %w", a.Ref(), ErrExists)
-		}
-		return err
-	}
-	var last int
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(position), 0) FROM agent_queue WHERE project = ?`, a.Project).Scan(&last); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_queue (project, name, position, request, queued_at) VALUES (?, ?, ?, ?, ?)`,
-		a.Project, a.Name, last+1, string(request), a.CreatedAt.Unix()); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	// Whatever an earlier agent of the same name left behind isn't this one's.
-	return removeChat(ctx, s.db, a.Project, a.Name)
-}
-
-// Queue lists the queued agents of one project, or of every project for "",
-// in order: by project, then by place in line.
-func (s *Store) Queue(ctx context.Context, project string) ([]QueuedAgent, error) {
+// LeftoverQueue lists the queued agents of one project, or of every project
+// for "", in order: by project, then by place in line.
+func (s *Store) LeftoverQueue(ctx context.Context, project string) ([]QueuedAgent, error) {
 	query := `SELECT project, name, position, request, queued_at FROM agent_queue`
 	var args []any
 	if project != "" {
@@ -119,59 +68,6 @@ func (s *Store) Queue(ctx context.Context, project string) ([]QueuedAgent, error
 	return out, nil
 }
 
-// QueuedAgentRequest is the request a queued agent starts from.
-func (s *Store) QueuedAgentRequest(ctx context.Context, project, name string) ([]byte, error) {
-	var request string
-	err := s.db.QueryRowContext(ctx, `SELECT request FROM agent_queue WHERE project = ? AND name = ?`, project, name).Scan(&request)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("queued agent %s/%s: %w", project, name, ErrNotFound)
-	}
-	return []byte(request), err
-}
-
-// MoveQueued puts a queued agent at position (1 is next) in its project's
-// queue, moving the others along. A position past the end is the end.
-func (s *Store) MoveQueued(ctx context.Context, project, name string, position int) error {
-	if position < 1 {
-		return errors.New("a place in the queue starts at 1")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	rows, err := tx.QueryContext(ctx, `SELECT name FROM agent_queue WHERE project = ? ORDER BY position, queued_at, name`, project)
-	if err != nil {
-		return err
-	}
-	var names []string
-	found := false
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if n == name {
-			found = true
-			continue
-		}
-		names = append(names, n)
-	}
-	_ = rows.Close()
-	if !found {
-		return fmt.Errorf("%s/%s isn't queued: %w", project, name, ErrNotFound)
-	}
-	at := min(position-1, len(names))
-	names = append(names[:at], append([]string{name}, names[at:]...)...)
-	for i, n := range names {
-		if _, err := tx.ExecContext(ctx, `UPDATE agent_queue SET position = ? WHERE project = ? AND name = ?`, i+1, project, n); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
 // StartQueued takes a queued agent out of the queue as it starts being made:
 // its row becomes a with status AgentCreating, the machine's columns filled
 // in. It fails with ErrNotFound when the agent isn't queued any more, so two
@@ -205,153 +101,4 @@ func (s *Store) StartQueued(ctx context.Context, a Agent) error {
 		return fmt.Errorf("%s isn't queued: %w", a.Ref(), ErrNotFound)
 	}
 	return tx.Commit()
-}
-
-// RecordUsagePeak remembers the most memory an agent's machine was seen to
-// hold, and the most CPU it was seen to use (percent, 100 a core), keeping the
-// larger of what was recorded and each reading.
-func (s *Store) RecordUsagePeak(ctx context.Context, project, agent string, memory int64, cpu float64, at time.Time) error {
-	if memory <= 0 && cpu <= 0 {
-		return nil
-	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_memory_peaks (project, agent, peak, cpu_peak, updated_at) VALUES (?, ?, ?, ?, ?)
-		ON CONFLICT (project, agent) DO UPDATE SET cpu_peak = MAX(cpu_peak, excluded.cpu_peak),
-			updated_at = CASE WHEN excluded.peak > peak THEN excluded.updated_at ELSE updated_at END,
-			peak = MAX(peak, excluded.peak)`,
-		project, agent, max(memory, 0), max(cpu, 0), at.Unix())
-	return err
-}
-
-// UsagePeak is the most an agent was seen to use.
-type UsagePeak struct {
-	Memory int64
-	CPU    float64
-}
-
-// UsagePeaks are the peaks of a project's agents, by name.
-func (s *Store) UsagePeaks(ctx context.Context, project string) (map[string]UsagePeak, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT agent, peak, cpu_peak FROM agent_memory_peaks WHERE project = ?`, project)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	out := map[string]UsagePeak{}
-	for rows.Next() {
-		var name string
-		var p UsagePeak
-		if err := rows.Scan(&name, &p.Memory, &p.CPU); err != nil {
-			return nil, err
-		}
-		out[name] = p
-	}
-	return out, rows.Err()
-}
-
-// memoryPeakSample is how many of a project's agents its typical peak is
-// learned from: the latest ones, so it follows the project as it changes.
-const memoryPeakSample = 10
-
-// TypicalMemoryPeak is the median of the memory peaks of a project's latest
-// agents, or 0 when none was ever seen.
-func (s *Store) TypicalMemoryPeak(ctx context.Context, project string) (int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT peak FROM agent_memory_peaks WHERE project = ? AND peak > 0 ORDER BY updated_at DESC LIMIT ?`, project, memoryPeakSample)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = rows.Close() }()
-	var peaks []int64
-	for rows.Next() {
-		var p int64
-		if err := rows.Scan(&p); err != nil {
-			return 0, err
-		}
-		peaks = append(peaks, p)
-	}
-	if err := rows.Err(); err != nil || len(peaks) == 0 {
-		return 0, err
-	}
-	sort.Slice(peaks, func(i, j int) bool { return peaks[i] < peaks[j] })
-	return peaks[len(peaks)/2], nil
-}
-
-// RecordPhasePeak keeps the most an agent was seen using in one phase: its
-// baseline when burst is false, a heavy phase (a burst lease) when true.
-func (s *Store) RecordPhasePeak(ctx context.Context, project, agent string, memory int64, burst bool, at time.Time) error {
-	if memory <= 0 {
-		return nil
-	}
-	column := "base_peak"
-	if burst {
-		column = "burst_peak"
-	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO agent_memory_peaks (project, agent, peak, cpu_peak, updated_at, `+column+`) VALUES (?, ?, 0, 0, ?, ?)
-		ON CONFLICT (project, agent) DO UPDATE SET `+column+` = MAX(`+column+`, excluded.`+column+`)`,
-		project, agent, at.Unix(), memory)
-	return err
-}
-
-// MemoryShape is what a project's latest agents use, learned apart: the
-// median baseline (writing code), and the median burst, what a heavy phase
-// took beyond its agent's baseline. Either is 0 when none was seen.
-func (s *Store) MemoryShape(ctx context.Context, project string) (baseline, burst int64, err error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT base_peak, burst_peak FROM agent_memory_peaks WHERE project = ? AND base_peak > 0 ORDER BY updated_at DESC LIMIT ?`, project, memoryPeakSample)
-	if err != nil {
-		return 0, 0, err
-	}
-	defer func() { _ = rows.Close() }()
-	var bases, bursts []int64
-	for rows.Next() {
-		var base, peak int64
-		if err := rows.Scan(&base, &peak); err != nil {
-			return 0, 0, err
-		}
-		bases = append(bases, base)
-		if peak > base {
-			bursts = append(bursts, peak-base)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return 0, 0, err
-	}
-	return median(bases), median(bursts), nil
-}
-
-func median(values []int64) int64 {
-	if len(values) == 0 {
-		return 0
-	}
-	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-	return values[len(values)/2]
-}
-
-// SetProjectSlots pins how many of a project's agents run at once; 0 goes
-// back to auto.
-func (s *Store) SetProjectSlots(ctx context.Context, name string, slots int) error {
-	if slots < 0 {
-		return errors.New("slots can't be negative: 0 is auto")
-	}
-	return s.updateProject(ctx, name, `slots = ?`, slots)
-}
-
-// SetProjectAlwaysQueue sets whether a project's new agents queue unless a
-// create says otherwise.
-func (s *Store) SetProjectAlwaysQueue(ctx context.Context, name string, on bool) error {
-	return s.updateProject(ctx, name, `always_queue = ?`, on)
-}
-
-// SetProjectAgentSize sets the size of the agents a project's chat creates:
-// "" lets the chat choose for each.
-func (s *Store) SetProjectAgentSize(ctx context.Context, name, size string) error {
-	return s.updateProject(ctx, name, `agent_size = ?`, size)
-}
-
-func (s *Store) updateProject(ctx context.Context, name, set string, value any) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE projects SET `+set+` WHERE name = ?`, value, name)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return fmt.Errorf("project %q: %w", name, ErrNotFound)
-	}
-	return nil
 }

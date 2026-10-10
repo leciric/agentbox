@@ -17,7 +17,7 @@ import (
 func (s *Server) stopAgent(ctx context.Context, m *agent.Manager, a state.Agent) error {
 	s.pruneDocker(ctx, m, a)
 	err := m.Stop(ctx, a)
-	s.dropBursts(ctx, a.Ref())
+	s.dropHeavy(ctx, a.Ref())
 	return err
 }
 

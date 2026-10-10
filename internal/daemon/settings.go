@@ -176,13 +176,6 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if req.AgentQueue != nil {
-		if err := s.store.SetFlag(r.Context(), state.SettingAgentQueue, *req.AgentQueue); err != nil {
-			return err
-		}
-		// Off starts whatever is queued; on may have work to look at.
-		s.kickQueue()
-	}
 	if req.TaskTarget != nil {
 		target := strings.TrimSpace(*req.TaskTarget)
 		if target != memory.TaskRouteAgent && target != memory.TaskRouteLead {
@@ -205,8 +198,8 @@ func (s *Server) updateSettings(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	if req.AgentQueue != nil || req.LeadRecheck != nil {
-		// Every chat's brief says whether it has a queue and rechecks.
+	if req.LeadRecheck != nil {
+		// Every chat's brief says whether it has rechecks.
 		if projects, err := s.store.Projects(r.Context()); err == nil {
 			for _, p := range projects {
 				if err := s.manager(nil).ReconfigureLead(r.Context(), p.Name); err != nil {
@@ -450,10 +443,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	agentQueue, err := s.store.Flag(r.Context(), state.SettingAgentQueue)
-	if err != nil {
-		return api.Settings{}, err
-	}
 	leadRecheck, recheckEvery, err := s.store.LeadRecheck(r.Context())
 	if err != nil {
 		return api.Settings{}, err
@@ -513,7 +502,6 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 
 		DockerPruneOnStop: dockerPrune,
 
-		AgentQueue:         agentQueue,
 		TaskTarget:         taskTarget,
 		LeadRecheck:        leadRecheck,
 		LeadRecheckMinutes: int(recheckEvery / time.Minute),

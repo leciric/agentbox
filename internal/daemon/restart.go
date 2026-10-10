@@ -14,7 +14,7 @@ import (
 // the next daemon starts. continueTurns carries those turns on: leads and the
 // Home chat at once, since they run beside the daemon, and agents once Incus
 // answers, their machines started the way a message to a stopped agent
-// starts one (wake.go), through admission and the queue.
+// starts one (wake.go).
 //
 // It leaves alone what somebody chose: a turn the user stopped ended on its
 // own and isn't recorded, a paused or retired agent stays as it is, and an
@@ -123,13 +123,6 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 	}
 	s.wakeMu.Lock()
 	defer s.wakeMu.Unlock()
-	if s.isWaking(a.Ref()) {
-		// A message already waits for its machine: the turn waits with it.
-		if err := s.chat.HoldResume(a, rt); err != nil {
-			s.logf("continue after restart: %s: %v", a.Ref(), err)
-		}
-		return
-	}
 	inst, err := s.cfg.Incus.Instance(ctx, a.Instance)
 	if err != nil {
 		s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be found (%v)", err))
@@ -145,27 +138,7 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 			s.notResumed(ctx, rt, err.Error())
 			return
 		}
-		done, wait, err := s.admitWake(ctx, a)
-		if err != nil {
-			s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be started (%v)", err))
-			return
-		}
-		if wait != "" {
-			if err := s.chat.HoldResume(a, rt); err != nil {
-				s.logf("continue after restart: %s: %v", a.Ref(), err)
-				return
-			}
-			s.mu.Lock()
-			s.waking[a.Ref()] = &wakingAgent{agent: a, since: time.Now()}
-			s.waitReasons[a.Ref()] = wait
-			s.mu.Unlock()
-			s.logf("%s waits for memory to start its machine, to carry on its turn: %s", a.Ref(), wait)
-			s.kickQueue()
-			return
-		}
-		err = s.startMachine(ctx, s.manager(s.cfg.Log), a)
-		done()
-		if err != nil {
+		if err := s.startMachine(ctx, s.manager(s.cfg.Log), a); err != nil {
 			s.notResumed(ctx, rt, fmt.Sprintf("its machine couldn't be started (%v)", err))
 			return
 		}

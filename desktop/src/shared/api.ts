@@ -12,7 +12,6 @@ export interface Project {
   githubAccount: string;
   autonomy: string;
   agentModel: string;
-  agentSize: string;
   branchPrefix: string;
   finishNotices: string;
   rolloverThreshold: number;
@@ -25,8 +24,6 @@ export interface Project {
   agentPRs: boolean;
   prWatch: string;
   syncBase: boolean;
-  slots: number;
-  alwaysQueue: boolean;
   prWatching: boolean;
   createdAt: string;
 }
@@ -50,7 +47,6 @@ export interface UpdateProjectRequest {
   moveGitHubAgents?: boolean;
   autonomy?: string;
   agentModel?: string;
-  agentSize?: string;
   branchPrefix?: string;
   finishNotices?: string;
   rolloverThreshold?: number;
@@ -61,8 +57,6 @@ export interface UpdateProjectRequest {
   agentPRs?: boolean;
   prWatch?: string;
   syncBase?: boolean;
-  slots?: number;
-  alwaysQueue?: boolean;
 }
 
 export interface Section {
@@ -134,7 +128,6 @@ export interface Settings {
   autoStopIdle: boolean;
   dockerPruneOnStop: boolean;
   idleTimeSeconds: number;
-  agentQueue: boolean;
   taskTarget: string;
   leadRecheck: boolean;
   leadRecheckMinutes: number;
@@ -170,7 +163,6 @@ export interface UpdateSettingsRequest {
   autoStopIdle?: boolean;
   dockerPruneOnStop?: boolean;
   idleTimeSeconds?: number;
-  agentQueue?: boolean;
   taskTarget?: string;
   leadRecheck?: boolean;
   leadRecheckMinutes?: number;
@@ -204,9 +196,7 @@ export interface Agent {
   stalledSince?: string;
   background?: string[];
   state: string;
-  queuePosition?: number;
-  waiting?: string;
-  size?: string;
+  memory?: MemoryHold;
   ip: string;
   createdAt: string;
 }
@@ -350,52 +340,25 @@ export interface StopAgentFailure {
   error: string;
 }
 
-export interface QueueStatus {
-  enabled: boolean;
-  budget: number;
-  reserve: number;
-  reserved: number;
-  projects: ProjectSlots[];
-  queued: QueuedAgent[];
+export interface MemoryHold {
+  paused?: number;
+  waiting?: number;
+  since: string;
 }
 
-export interface ProjectSlots {
-  project: string;
-  slots: number;
-  pinned: number;
-  peak: number;
-  peakLearned: boolean;
-  running: number;
-  queued: number;
-  agents: SlotAgent[];
+export interface PressureStatus {
+  some: number;
+  full: number;
+  runs: HeavyRun[];
 }
 
-export interface QueuedAgent {
-  ref: string;
-  project: string;
-  name: string;
-  title: string;
-  branch: string;
-  task?: string;
-  taskId?: string;
-  position: number;
-  queuedAt: string;
-  waiting?: string;
-  reserved: number;
-}
-
-export interface MoveQueuedRequest {
-  position: number;
-}
-
-export interface SlotAgent {
-  name: string;
-  title: string;
+export interface HeavyRun {
+  agent: string;
+  key: string;
+  command?: string;
   state: string;
-  memory: number;
-  memoryPeak: number;
-  cpu: number;
-  cpuPeak: number;
+  since: string;
+  placed?: boolean;
 }
 
 export interface Job {
@@ -567,8 +530,7 @@ export interface AgentChange {
   state: string;
   ip?: string;
   removed?: boolean;
-  queuePosition?: number;
-  waiting?: string;
+  memory?: MemoryHold;
 }
 
 export interface Theme {
@@ -1223,9 +1185,7 @@ export interface FleetAgent {
   stalledSince?: string;
   background?: string[];
   state: string;
-  queuePosition?: number;
-  waiting?: string;
-  size?: string;
+  memory?: MemoryHold;
   ip: string;
   createdAt: string;
   changes: AgentChanges;
