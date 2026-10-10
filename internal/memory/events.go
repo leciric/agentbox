@@ -8,7 +8,8 @@ import (
 
 // AppendEvent records one thing that happened. Events are append-only: there
 // is no update and no delete, because the point of raw history is that nothing
-// rewrote it. An event with no id gets one, and an event with no time happened
+// rewrote it. The one exception is Tidy removing a secret stored before
+// AppendEvent removed them itself (scrub.go). An event with no id gets one, and an event with no time happened
 // now.
 func (s *Store) AppendEvent(ctx context.Context, e Event) (Event, error) {
 	if err := requireProject(e.Project); err != nil {

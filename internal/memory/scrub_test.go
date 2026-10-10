@@ -156,3 +156,111 @@ func dump(t *testing.T, db *sql.DB) string {
 	}
 	return b.String()
 }
+
+// Rows stored before secrets were removed on the way in still hold them, and
+// Tidy removes them: a dry run counts the rows, an apply rewrites those and
+// nothing else, keeping search in step, and a second run finds nothing.
+func TestTidyScrubsRowsStoredBefore(t *testing.T) {
+	ctx := context.Background()
+	s, db := openDB(t)
+	payload, _ := json.Marshal(map[string]any{"summary": secretProse, "nested": map[string]any{"apiKey": "cur_abc123"}})
+	list, _ := json.Marshal([]string{secretProse})
+	const cleanPayload = `{"z":1,  "a":"<b>"}`
+	for _, q := range []struct {
+		sql  string
+		args []any
+	}{
+		{`INSERT INTO events (id, project, at, type, payload) VALUES (?, ?, 1, 'agent_finished', ?)`, []any{"ev_old", "pawly", string(payload)}},
+		{`INSERT INTO events (id, project, at, type, payload) VALUES (?, ?, 1, 'pr_merged', ?)`, []any{"ev_clean", "pawly", cleanPayload}},
+		{`INSERT INTO memories (id, project, kind, title, content, created_at, updated_at, resolved_by) VALUES (?, ?, 'fact', ?, ?, 1, 1, ?)`,
+			[]any{"mem_old", "pawly", "Push fails with ghp_0123456789abcdefABCDEF0123456789abcd", secretProse, "rotated password=hunter2"}},
+		{`INSERT INTO memories (id, project, kind, title, content, created_at, updated_at) VALUES (?, ?, 'fact', 'Clean', 'Nothing here', 1, 1)`,
+			[]any{"mem_clean", "pawly"}},
+		{`INSERT INTO agent_reports (id, project, agent, created_at, task, summary, discoveries, artifacts) VALUES (?, ?, 'agent-01', 1, ?, ?, ?, ?)`,
+			[]any{"rep_old", "pawly", "Fix the push, GH_TOKEN=s3cr3t", secretProse, string(list), `["https://lint:s3cr3t@example.com/a.png"]`}},
+		{`INSERT INTO artifacts (id, project, type, path, metadata, created_at) VALUES (?, ?, 'screenshot', ?, ?, 1)`,
+			[]any{"art_old", "pawly", "https://lint:s3cr3t@example.com/shot.png", `{"cookie":"hunter2"}`}},
+		{`INSERT INTO working_memory (project, data, updated_at) VALUES (?, ?, 1)`,
+			[]any{"pawly", `{"blockers":["Authorization: Bearer abc.def-ghi_jkl"]}`}},
+		// Another project's rows are its own tidy's business.
+		{`INSERT INTO memories (id, project, kind, title, content, created_at, updated_at) VALUES (?, ?, 'fact', 'Other', 'password=otherpass9', 1, 1)`,
+			[]any{"mem_other", "other"}},
+	} {
+		if _, err := db.ExecContext(ctx, q.sql, q.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found := func(query string) bool {
+		t.Helper()
+		res, err := s.Search(ctx, "pawly", query, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return !res.Empty()
+	}
+	if !found("hunter2") {
+		t.Fatal("the secret should be searchable before the scrub")
+	}
+
+	want := memory.Scrubbed{Events: 1, Memories: 1, Reports: 1, Artifacts: 1, WorkingMemory: 1}
+	plan, err := s.Tidy(ctx, "pawly", memory.TidyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Scrubbed != want {
+		t.Errorf("dry run scrubbed %+v, want %+v", plan.Scrubbed, want)
+	}
+	if !strings.Contains(dump(t, db), "hunter2") {
+		t.Error("a dry run changed something")
+	}
+
+	if plan, err = s.Tidy(ctx, "pawly", memory.TidyOptions{Apply: true}); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Scrubbed != want {
+		t.Errorf("apply scrubbed %+v, want %+v", plan.Scrubbed, want)
+	}
+	all := dump(t, db)
+	// Every table, the indexes' own included: a term FTS5 was told to
+	// delete stays in its segments until they are merged.
+	for _, secret := range storedSecrets[:6] {
+		if strings.Contains(all, secret) {
+			t.Errorf("%q is still stored", secret)
+		}
+	}
+	for _, kept := range append(keptIDs, cleanPayload, "otherpass9") {
+		if !strings.Contains(all, kept) {
+			t.Errorf("%q was lost", kept)
+		}
+	}
+	var ev string
+	if err := db.QueryRowContext(ctx, `SELECT payload FROM events WHERE id = 'ev_old'`).Scan(&ev); err != nil || !json.Valid([]byte(ev)) {
+		t.Errorf("payload = %s (%v), want JSON", ev, err)
+	}
+
+	// The indexes hold the rows as they are now: the secret is gone from
+	// search, the words around it are still found, and FTS5 agrees.
+	if found("hunter2") || found("s3cr3t") {
+		t.Error("a secret is still searchable")
+	}
+	res, err := s.Search(ctx, "pawly", "retried", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Events) != 1 || len(res.Memories) != 1 || len(res.Reports) != 1 {
+		t.Errorf("searching the scrubbed rows found %d events, %d memories, %d reports, want one each",
+			len(res.Events), len(res.Memories), len(res.Reports))
+	}
+	for _, fts := range []string{"events_fts", "memories_fts", "reports_fts"} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO `+fts+` (`+fts+`, rank) VALUES ('integrity-check', 1)`); err != nil {
+			t.Errorf("%s: %v", fts, err)
+		}
+	}
+
+	if plan, err = s.Tidy(ctx, "pawly", memory.TidyOptions{Apply: true}); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Scrubbed.Total() != 0 {
+		t.Errorf("a second run scrubbed %+v, want nothing", plan.Scrubbed)
+	}
+}

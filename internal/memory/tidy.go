@@ -369,13 +369,17 @@ type TidyPlan struct {
 	Merged []Merge `json:"merged"`
 	// Kept is how many open items are left.
 	Kept int `json:"kept"`
+	// Scrubbed are the rows, of every kind, that still held a secret
+	// (scrub.go).
+	Scrubbed Scrubbed `json:"scrubbed"`
 }
 
 // Tidy cleans a store that is already full of stale open items, in one go and
 // without a model: every live open item last mentioned before the cutoff is
 // resolved as ResolvedByTidy, then what is left is merged by topic. Facts,
 // decisions and discoveries are never touched, and neither is anything
-// resolved or superseded already.
+// resolved or superseded already. First, every row of the project stored
+// before secrets were removed on the way in has them removed now.
 func (s *Store) Tidy(ctx context.Context, project string, opts TidyOptions) (TidyPlan, error) {
 	if err := requireProject(project); err != nil {
 		return TidyPlan{}, err
@@ -389,11 +393,15 @@ func (s *Store) Tidy(ctx context.Context, project string, opts TidyOptions) (Tid
 		now = time.Now()
 	}
 	cutoff := now.Add(-age)
+	scrubbed, err := s.scrub(ctx, project, opts.Apply)
+	if err != nil {
+		return TidyPlan{}, err
+	}
 	items, corpus, err := s.openItems(ctx, project)
 	if err != nil {
 		return TidyPlan{}, err
 	}
-	plan := TidyPlan{Applied: opts.Apply, Resolved: []Memory{}, Merged: []Merge{}}
+	plan := TidyPlan{Applied: opts.Apply, Resolved: []Memory{}, Merged: []Merge{}, Scrubbed: scrubbed}
 	var recent []Memory
 	for _, m := range items {
 		if m.LastMentioned().Before(cutoff) {

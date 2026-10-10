@@ -303,7 +303,7 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 				return err
 			}
 			out := api.TidyMemoryResult{Applied: plan.Applied, Resolved: apiMemories(plan.Resolved), Kept: plan.Kept,
-				Merged: make([]api.MemoryMerge, 0, len(plan.Merged))}
+				Merged: make([]api.MemoryMerge, 0, len(plan.Merged)), Scrubbed: api.MemoryScrub(plan.Scrubbed)}
 			for _, mg := range plan.Merged {
 				out.Merged = append(out.Merged, api.MemoryMerge{
 					Memory: apiMemory(mg.Memory), Into: apiMemory(mg.Into), Score: mg.Score, Why: mg.Why,
