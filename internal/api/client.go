@@ -371,6 +371,21 @@ func (c *Client) AllMedia(ctx context.Context, kinds ...string) ([]MediaItem, er
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
+// MediaPage is one page of a Media list: path is /v1/media, a project's
+// media or an agent's (MediaPath), and q its filters (MediaPage's doc), with
+// limit and cursor.
+func (c *Client) MediaPage(ctx context.Context, path string, q url.Values) (MediaPage, error) {
+	var out MediaPage
+	return out, c.do(ctx, http.MethodGet, path+"?"+q.Encode(), nil, &out)
+}
+
+// MediaCounts is the counts on a Media list's filters, for the same path and
+// filters as MediaPage.
+func (c *Client) MediaCounts(ctx context.Context, path string, q url.Values) (MediaCounts, error) {
+	var out MediaCounts
+	return out, c.do(ctx, http.MethodGet, path+"/counts?"+q.Encode(), nil, &out)
+}
+
 // Notifications is the app's history of what agents did, newest first.
 func (c *Client) Notifications(ctx context.Context) ([]Notification, error) {
 	var out []Notification

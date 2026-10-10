@@ -384,6 +384,9 @@ export const api = {
     call<T.SearchResults>('GET', `/v1/search?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ''}`),
   // Every project's media, of the given kinds, each marked unseen while its notification is.
   allMedia: (kinds: string[] = []) => call<T.MediaItem[]>('GET', `/v1/media${kinds.length ? `?kind=${kinds.join(',')}` : ''}`),
+  // A page of a Media list, and the counts on its filters (lib/mediaPages.ts).
+  mediaPage: (query: URLSearchParams) => call<T.MediaPage>('GET', `/v1/media?${query}`),
+  mediaCounts: (query: URLSearchParams) => call<T.MediaCounts>('GET', `/v1/media/counts?${query}`),
   notifications: () => call<T.Notification[]>('GET', '/v1/notifications'),
   seeNotifications: (req: T.SeeNotificationsRequest) => call<T.SeeNotificationsResult>('POST', '/v1/notifications/seen', req),
   // Bulk deletes: the items named by id, or everything the list filters match.

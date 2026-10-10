@@ -23,13 +23,14 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type RefObject } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { formatDateTime, useT } from '../lib/i18n';
 import { useSeeMedia } from '../lib/notifications';
-import { clock, describeAll, kindInfo, mediaKinds, mediaUrl, searchMedia } from '../lib/media';
+import { clock, describeAll, kindInfo, mediaKinds, mediaUrl } from '../lib/media';
+import { applyMediaEvent, loadedItems, useMediaCounts, useMediaPages, useNextPageNear } from '../lib/mediaPages';
 import { cn, errorMessage, humanBytes, timeAgo, timeUntil } from '../lib/utils';
 import { cachedStill, Unplayable, unplayable, videoStill } from '../lib/videoStills';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -57,7 +58,6 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
   const t = useT();
   const queryClient = useQueryClient();
   const running = agent.state === 'running';
-  const media = useQuery({ queryKey: ['media', agent.ref], queryFn: () => api.media(agent.ref) });
   const recording = useQuery({
     queryKey: ['recording', agent.ref],
     queryFn: () => api.recording(agent.ref),
@@ -97,40 +97,39 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
       }),
   });
 
-  const items = useMemo(() => media.data ?? [], [media.data]);
-  const counts = new Map<string, number>();
-  let total = 0; // what this agent's media takes on disk, since freeing that is why you delete it
-  for (const item of items) {
-    counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
-    total += item.size;
-  }
   const kind = filter === 'all' ? '' : filter;
   const search = useDeferredValue(query);
-  const visible = useMemo(() => searchMedia(kind === '' ? items : items.filter((item) => item.kind === kind), search), [items, kind, search]);
+  // The daemon filters and searches, a page at a time; the counts are of
+  // every item, not the pages loaded.
+  const scope = { project: agent.project, agent: agent.name, only: kind, q: search };
+  const media = useMediaPages(scope);
+  const counts = useMediaCounts(scope);
+  const visible = useMemo(() => loadedItems(media.data), [media.data]);
+  const total = counts.data?.total ?? visible.length;
+  const bytes = counts.data?.bytes ?? 0; // what this agent's media takes on disk, since freeing that is why you delete it
   const index = visible.findIndex((item) => item.id === openId);
+  useNextPageNear(media, index, visible.length);
   const error = shot.error ?? record.error ?? exportAll.error ?? media.error;
-  const refresh = async () => {
-    setOpenId(null);
-    await queryClient.invalidateQueries({ queryKey: ['media', agent.ref] });
-  };
+  // A delete's media events take the items out of the list.
+  const refresh = () => setOpenId(null);
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('agent.mediaTab.filter')}>
-          <FilterChip active={filter === 'all'} count={items.length} onClick={() => setFilter('all')}>
+          <FilterChip active={filter === 'all'} count={total} onClick={() => setFilter('all')}>
             {t('agent.mediaTab.all')}
           </FilterChip>
           {mediaKinds
-            .filter((k) => counts.get(k.kind))
+            .filter((k) => counts.data?.kinds[k.kind] || filter === k.kind)
             .map((k) => (
-              <FilterChip key={k.kind} icon={k.icon} active={filter === k.kind} count={counts.get(k.kind) ?? 0} onClick={() => setFilter(k.kind)}>
+              <FilterChip key={k.kind} icon={k.icon} active={filter === k.kind} count={counts.data?.kinds[k.kind] ?? 0} onClick={() => setFilter(k.kind)}>
                 {k.label}
               </FilterChip>
             ))}
-          {total > 0 && <span className="pl-1.5 text-[12px] tabular-nums text-subtle">{humanBytes(total)}</span>}
+          {bytes > 0 && <span className="pl-1.5 text-[12px] tabular-nums text-subtle">{humanBytes(bytes)}</span>}
         </div>
-        {items.length > 0 && <MediaSearch value={query} onChange={setQuery} />}
+        {total > 0 && <MediaSearch value={query} onChange={setQuery} />}
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {!selecting && (
             <>
@@ -171,7 +170,7 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
                 {t('agent.mediaTab.note')}
               </Button>
               <Tip label={t('agent.mediaTab.exportTip')}>
-                <Button size="sm" variant="ghost" disabled={items.length === 0 || exportAll.isPending} onClick={() => exportAll.mutate()}>
+                <Button size="sm" variant="ghost" disabled={total === 0 || exportAll.isPending} onClick={() => exportAll.mutate()}>
                   {exportAll.isPending ? <LoaderCircle className="animate-spin" /> : <Download />}
                   {t('agent.mediaTab.export')}
                 </Button>
@@ -184,8 +183,10 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
             onSelecting={setSelecting}
             selected={selected}
             onSelected={setSelected}
-            all={search.trim() ? { ids: visible.map((item) => item.id) } : { all: true, kind: kind || undefined }}
-            allLabel={describeAll(visible.length, kind, agent.title || agent.name, search)}
+            all={{ all: true, kind: kind || undefined, query: search.trim() || undefined }}
+            allCount={counts.data?.matching ?? visible.length}
+            allBytes={counts.data?.matchingBytes}
+            allLabel={describeAll(counts.data?.matching ?? visible.length, kind, agent.title || agent.name, search)}
             deleteMedia={(req) => api.deleteAgentMedia(agent.ref, req)}
             onDeleted={refresh}
           />
@@ -198,13 +199,13 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {media.isPending ? (
+        {media.isPending && !media.isPlaceholderData ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
             {Array.from({ length: 6 }, (_, i) => (
               <div key={i} className="skeleton aspect-[4/3] rounded-xl" />
             ))}
           </div>
-        ) : items.length === 0 ? (
+        ) : total === 0 && !kind && !search.trim() ? (
           <EmptyState
             icon={Images}
             title={t('agent.mediaTab.emptyTitle')}
@@ -231,18 +232,21 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
         ) : visible.length === 0 ? (
           <NoMatch query={search} onClear={() => setQuery('')} />
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-            {visible.map((item) => (
-              <MediaCard
-                key={item.id}
-                item={item}
-                onOpen={() => setOpenId(item.id)}
-                selecting={selecting}
-                selected={selected.has(item.id)}
-                onToggle={() => setSelected(toggled(selected, item.id))}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+              {visible.map((item) => (
+                <MediaCard
+                  key={item.id}
+                  item={item}
+                  onOpen={() => setOpenId(item.id)}
+                  selecting={selecting}
+                  selected={selected.has(item.id)}
+                  onToggle={() => setSelected(toggled(selected, item.id))}
+                />
+              ))}
+            </div>
+            <MoreMedia pages={media} />
+          </>
         )}
       </div>
 
@@ -263,11 +267,48 @@ export function MediaTab({ agent }: { agent: T.Agent }) {
         destructive
         onConfirm={async () => {
           await api.deleteMedia(deleting!.id);
-          await refresh();
+          refresh();
         }}
       />
     </div>
   );
+}
+
+// MoreMedia is the end of a gallery read a page at a time: it reads the next
+// page as it nears the screen, with a small row while it's on its way.
+export function MoreMedia({ pages }: { pages: { hasNextPage: boolean; isFetchingNextPage: boolean; fetchNextPage: () => Promise<unknown> } }) {
+  const t = useT();
+  const ref = useRef<HTMLDivElement>(null);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = pages;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !hasNextPage || isFetchingNextPage) return;
+    // Watched from the gallery's own scroller, so the margin reaches below
+    // what it shows; a new observer after each page reads another while the
+    // end is still near.
+    const seen = new IntersectionObserver(([entry]) => entry?.isIntersecting && void fetchNextPage(), { root: scroller(el), rootMargin: '0px 0px 800px 0px' });
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  if (!hasNextPage) return null;
+  return (
+    <div ref={ref} data-media-more className="flex h-12 items-center justify-center gap-2 text-[12.5px] text-subtle">
+      {isFetchingNextPage && (
+        <>
+          <LoaderCircle className="size-3.5 animate-spin" />
+          {t('agent.mediaTab.loadingMore')}
+        </>
+      )}
+    </div>
+  );
+}
+
+// scroller is the nearest element that scrolls el, or none for the page.
+function scroller(el: HTMLElement): HTMLElement | null {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p;
+  }
+  return null;
 }
 
 // MediaSearch narrows a gallery by name, file name, type ("image", "video",
@@ -337,6 +378,8 @@ export function MediaSelection({
   selected,
   onSelected,
   all,
+  allCount,
+  allBytes,
   allLabel,
   deleteMedia,
   onDeleted,
@@ -347,6 +390,10 @@ export function MediaSelection({
   selected: ReadonlySet<string>;
   onSelected: (ids: ReadonlySet<string>) => void;
   all: T.DeleteMediaRequest;
+  // How many items, and bytes, all takes: every one the filters keep, not
+  // only those loaded.
+  allCount: number;
+  allBytes?: number;
   allLabel: string;
   deleteMedia: (req: T.DeleteMediaRequest) => Promise<T.DeleteMediaResult>;
   onDeleted: () => Promise<unknown> | void;
@@ -364,7 +411,7 @@ export function MediaSelection({
   const chosen = visible.filter((item) => selected.has(item.id));
   const everything = confirming === 'all';
   const going = everything ? visible : chosen;
-  const bytes = going.reduce((n, item) => n + item.size, 0);
+  const bytes = everything && allBytes !== undefined ? allBytes : going.reduce((n, item) => n + item.size, 0);
   const allTicked = visible.length > 0 && chosen.length === visible.length;
 
   const remove = async () => {
@@ -388,7 +435,7 @@ export function MediaSelection({
             <Trash />
             {t('agent.mediaTab.deleteSelected', { count: chosen.length })}
           </Button>
-          <Button size="sm" variant="danger" disabled={visible.length === 0} onClick={() => setConfirming('all')}>
+          <Button size="sm" variant="danger" disabled={allCount === 0} onClick={() => setConfirming('all')}>
             {t('agent.mediaTab.deleteAll')}
           </Button>
           <Button
@@ -411,7 +458,7 @@ export function MediaSelection({
       <ConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => !open && setConfirming(null)}
-        title={everything ? t('agent.mediaTab.deleteAllTitle', { what: allLabel }) : t('agent.mediaTab.deleteSomeTitle', { count: going.length })}
+        title={everything ? t('agent.mediaTab.deleteAllTitle', { what: allLabel }) : t('agent.mediaTab.deleteSomeTitle', { count: chosen.length })}
         description={bytes > 0 ? t('agent.mediaTab.goDescriptionSize', { size: humanBytes(bytes) }) : t('agent.mediaTab.goDescription')}
         confirmLabel={t('common.delete')}
         destructive
@@ -553,8 +600,8 @@ export function FavoriteButton({ item, onHover, className }: { item: T.MediaItem
   const queryClient = useQueryClient();
   const toggle = useMutation({
     mutationFn: () => api.setMediaFavorite(item.id, !item.favorite),
-    onSuccess: () =>
-      Promise.all(['allMedia', 'projectMedia', 'media'].map((key) => queryClient.invalidateQueries({ queryKey: [key] }))),
+    // Its media event does the same, in every window.
+    onSuccess: (updated) => applyMediaEvent(queryClient, updated),
     onError: (err) => toast.error(t('agent.mediaTab.favoriteFailed'), { description: errorMessage(err) }),
   });
   const label = item.favorite ? t('agent.mediaTab.unfavorite') : t('agent.mediaTab.favorite');
@@ -596,11 +643,13 @@ function Tick({ checked }: { checked: boolean }) {
 }
 
 function Thumbnail({ item }: { item: T.MediaItem }) {
-  const log = useMediaText(item, item.kind === 'log', 4_096);
+  const ref = useRef<HTMLPreElement>(null);
+  const near = useNear(ref, item.kind === 'log');
+  const log = useMediaText(item, item.kind === 'log' && near, 4_096);
   switch (item.kind) {
     case 'screenshot':
       return /\.(png|jpe?g|gif|webp)$/i.test(item.file ?? '') ? (
-        <img src={mediaUrl(item)} alt="" loading="lazy" className="size-full object-cover object-top transition duration-500 group-hover:scale-[1.03]" />
+        <img src={mediaUrl(item)} alt="" loading="lazy" decoding="async" className="size-full object-cover object-top transition duration-500 group-hover:scale-[1.03]" />
       ) : (
         <IconTile icon={Camera} />
       );
@@ -618,7 +667,11 @@ function Thumbnail({ item }: { item: T.MediaItem }) {
     case 'note':
       return <div className="line-clamp-6 size-full whitespace-pre-wrap bg-gradient-to-br from-amber-300/[0.07] to-transparent p-3 pt-10 text-[12.5px] leading-relaxed text-tertiary">{item.text}</div>;
     case 'log':
-      return <pre className="size-full overflow-hidden whitespace-pre p-3 pt-10 font-mono text-[10.5px] leading-snug text-subtle">{log.data ?? ''}</pre>;
+      return (
+        <pre ref={ref} className="size-full overflow-hidden whitespace-pre p-3 pt-10 font-mono text-[10.5px] leading-snug text-subtle">
+          {log.data ?? ''}
+        </pre>
+      );
     case 'report':
       return (
         <div className="flex size-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-sky-400/[0.08] to-transparent">
@@ -629,6 +682,20 @@ function Thumbnail({ item }: { item: T.MediaItem }) {
     default:
       return <IconTile icon={kindInfo(item.kind).icon} />;
   }
+}
+
+// useNear is whether an element has come near the screen, once: what a
+// card reads its file at, so a long gallery reads only what's scrolled to.
+function useNear(ref: RefObject<HTMLElement | null>, enabled: boolean): boolean {
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!enabled || near || !el) return;
+    const seen = new IntersectionObserver(([entry]) => entry?.isIntersecting && setNear(true), { rootMargin: '400px' });
+    seen.observe(el);
+    return () => seen.disconnect();
+  }, [ref, enabled, near]);
+  return near;
 }
 
 // VideoStill is a recording's frame at 0.5 s, loaded once the tile is near the

@@ -14,7 +14,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
-import { AllMediaView, shownKinds } from '../components/AllMediaView';
+import { AllMediaView } from '../components/AllMediaView';
 import { HomeView } from '../components/HomeView';
 import { MediaPlace } from '../components/MediaPlace';
 import { MediaViewer } from '../components/MediaTab';
@@ -140,7 +140,6 @@ export function seedNotifications(queryClient: QueryClient, media: T.MediaItem[]
   const notices = mockNotices(media);
   setNotifications(notices, media);
   queryClient.setQueryData(['notifications'], notices);
-  queryClient.setQueryData(['allMedia', shownKinds], media);
   queryClient.setQueryData<T.Project[]>(['projects'], (ps) => {
     if (!ps || ps.some((p) => p.name === 'organic')) return ps;
     const base = ps.find((p) => p.name === PROJECT)!;

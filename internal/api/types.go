@@ -2076,6 +2076,59 @@ type DeleteMediaRequest struct {
 	// On an agent's own route the agent is the route's, whatever Agent says.
 	Agent string `json:"agent,omitempty"`
 	Kind  string `json:"kind,omitempty"`
+	// Query narrows All to what the list's search keeps (?q=), so "Delete
+	// all" takes what a search shows, including what isn't loaded yet.
+	Query string `json:"query,omitempty"`
+}
+
+// MediaPage is one page of a Media view: GET /v1/media, a project's or an
+// agent's media with ?limit=, newest first. Next is the cursor (?cursor=)
+// for the page after it, empty on the last one. Without ?limit= those routes
+// answer every item at once, as a plain list.
+//
+// Every route takes the same filters: ?project= (on /v1/media), ?agent= (a
+// project's agent), ?kind= (a comma-separated list), ?only= (one kind of
+// those), ?favorite=1, ?unseen=1 and ?q=, a search every item has to
+// match each word (or "quoted phrase") of in its name, file, kind, type,
+// agent, page URL or a note's text.
+type MediaPage struct {
+	Items []MediaItem `json:"items"`
+	Next  string      `json:"next,omitempty"`
+}
+
+// MediaCounts is GET .../media/counts, with a list's own filters: the counts
+// a Media view puts on its filters, from every item rather than the pages
+// loaded. Total, Bytes, Kinds, Favorites and Unseen count what ?project=,
+// ?agent= and ?kind= keep; Agents what ?project= and ?kind= keep, for
+// choosing an agent; Projects what ?kind= keeps, for choosing a project.
+// Matching is what every filter and the search keep: what the list shows
+// once it's scrolled to its end, and what "Delete all" takes.
+type MediaCounts struct {
+	Total         int                 `json:"total"`
+	Bytes         int64               `json:"bytes"`
+	Kinds         map[string]int      `json:"kinds"`
+	Favorites     int                 `json:"favorites"`
+	Unseen        int                 `json:"unseen"`
+	Agents        []MediaAgentCount   `json:"agents"`
+	Projects      []MediaProjectCount `json:"projects"`
+	Matching      int                 `json:"matching"`
+	MatchingBytes int64               `json:"matchingBytes"`
+}
+
+// MediaAgentCount is one agent's items, newest agent first.
+type MediaAgentCount struct {
+	Agent string `json:"agent"` // project/agent
+	Name  string `json:"name"`
+	Title string `json:"title,omitempty"`
+	Gone  bool   `json:"gone,omitempty"`
+	Count int    `json:"count"`
+	Bytes int64  `json:"bytes"`
+}
+
+// MediaProjectCount is one project's items, newest project first.
+type MediaProjectCount struct {
+	Project string `json:"project"`
+	Count   int    `json:"count"`
 }
 
 // DeleteMediaResult is what a bulk delete took away. Bytes is what that freed
@@ -2125,6 +2178,9 @@ type SeeNotificationsRequest struct {
 	IDs   []string `json:"ids,omitempty"`
 	Media []string `json:"media,omitempty"`
 	All   bool     `json:"all,omitempty"`
+	// AllMedia is every notification about a media item, for the Media
+	// view's "Mark seen", which can't list items it hasn't loaded.
+	AllMedia bool `json:"allMedia,omitempty"`
 }
 
 // SeeNotificationsResult is how many were newly marked seen.

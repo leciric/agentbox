@@ -153,50 +153,22 @@ func changesOf(a state.Agent) api.AgentChanges {
 
 // projectMedia is every agent's media for one project, newest first, each item
 // labelled with the agent it came from so the app can filter without a lookup.
+// ?limit= pages it (media_list.go).
 func (s *Server) projectMedia(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
 	project := r.PathValue("project")
-	if _, err := s.store.Project(ctx, project); err != nil {
+	if _, err := s.store.Project(r.Context(), project); err != nil {
 		return err
 	}
-	retention, err := s.store.MediaRetention(ctx)
-	if err != nil {
+	return s.writeMediaList(w, r, state.MediaFilter{Project: project}, true)
+}
+
+// projectMediaCounts is the counts on a project's Media filters.
+func (s *Server) projectMediaCounts(w http.ResponseWriter, r *http.Request) error {
+	project := r.PathValue("project")
+	if _, err := s.store.Project(r.Context(), project); err != nil {
 		return err
 	}
-	period, forever, _ := state.MediaRetentionPeriod(retention)
-	items, err := s.store.ProjectMedia(ctx, project)
-	if err != nil {
-		return err
-	}
-	titles, err := s.agentTitles(ctx, project)
-	if err != nil {
-		return err
-	}
-	m := s.manager(nil)
-	wanted := r.URL.Query().Get("agent")
-	kind := r.URL.Query().Get("kind")
-	out := make([]api.MediaItem, 0, len(items))
-	for _, it := range items {
-		if (wanted != "" && it.Agent != wanted) || (kind != "" && it.Kind != kind) {
-			continue
-		}
-		item := toAPIMedia(it, m.MediaPath(it))
-		item.AgentName = it.Agent
-		if title, ok := titles[it.Agent]; ok {
-			item.AgentTitle = title
-		} else {
-			// Its agent is gone: it was kept, not deleted, at destroy time.
-			item.AgentGone = true
-		}
-		if !it.OrphanedAt.IsZero() && !forever && !it.Favorite {
-			// Matches Store.ExpiredMedia's own arithmetic, so what's shown here
-			// is exactly when the sweeper will remove the item.
-			expires := it.OrphanedAt.Add(period)
-			item.ExpiresAt = &expires
-		}
-		out = append(out, item)
-	}
-	return writeJSON(w, http.StatusOK, out)
+	return s.writeMediaCounts(w, r, state.MediaFilter{Project: project})
 }
 
 func (s *Server) agentTitles(ctx context.Context, project string) (map[string]string, error) {

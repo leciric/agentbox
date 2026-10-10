@@ -345,7 +345,7 @@ if (home) {
     memory('g3', 'Answer in Portuguese', 'Reply in Brazilian Portuguese when I write to you in it.', ''),
   ]);
 }
-if (media === 'all') seedAllMedia(queryClient);
+if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (imageUpdate) seedImageUpdate(queryClient);

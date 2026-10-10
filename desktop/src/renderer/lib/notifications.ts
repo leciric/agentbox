@@ -9,6 +9,7 @@ import type { View } from '../App.tsx';
 import { api } from './api.ts';
 import { formatDate, t } from '../../shared/i18n/index.ts';
 import { kindInfo } from './media.ts';
+import { isMediaUnseen, setMediaUnseen } from './mediaPages.ts';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -75,16 +76,20 @@ export function byDay<V>(list: readonly V[], at: (v: V) => string, now = Date.no
 // markSeen applies a SeeNotificationsRequest to what's on screen at once,
 // then tells the daemon, which tells every other window.
 export function markSeen(queryClient: QueryClient, req: T.SeeNotificationsRequest): Promise<unknown> {
+  applySeen(queryClient, req);
+  return api.seeNotifications(req).catch(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }));
+}
+
+// applySeen marks what a SeeNotificationsRequest names seen in the cache:
+// the notifications, and the media items they're about in the Media lists.
+export function applySeen(queryClient: QueryClient, req: T.SeeNotificationsRequest): void {
   const ids = new Set(req.ids ?? []);
   const media = new Set(req.media ?? []);
-  const hit = (n: T.Notification) => req.all || ids.has(n.id) || (n.media !== undefined && media.has(n.media.id));
-  queryClient.setQueryData<T.Notification[]>(['notifications'], (list) => list?.map((n) => (hit(n) && !n.seen ? { ...n, seen: true } : n)));
+  const hit = (n: T.Notification) => req.all || ids.has(n.id) || (n.media !== undefined && (req.allMedia || media.has(n.media.id)));
   const seenMedia = new Set(media);
   for (const n of queryClient.getQueryData<T.Notification[]>(['notifications']) ?? []) if (n.media && hit(n)) seenMedia.add(n.media.id);
-  queryClient.setQueriesData<T.MediaItem[]>({ queryKey: ['allMedia'] }, (items) =>
-    items?.map((m) => (m.unseen && (req.all || seenMedia.has(m.id)) ? { ...m, unseen: false } : m)),
-  );
-  return api.seeNotifications(req).catch(() => queryClient.invalidateQueries({ queryKey: ['notifications'] }));
+  queryClient.setQueryData<T.Notification[]>(['notifications'], (list) => list?.map((n) => (hit(n) && !n.seen ? { ...n, seen: true } : n)));
+  setMediaUnseen(queryClient, false, seenMedia, req.all || req.allMedia);
 }
 
 export function useMarkSeen(): (req: T.SeeNotificationsRequest) => Promise<unknown> {
@@ -99,7 +104,7 @@ export function useSeeMedia(): (id: string | null) => void {
   return (id) => {
     if (!id) return;
     const unseen = queryClient.getQueryData<T.Notification[]>(['notifications'])?.some((n) => !n.seen && n.media?.id === id);
-    const marked = queryClient.getQueriesData<T.MediaItem[]>({ queryKey: ['allMedia'] }).some(([, items]) => items?.some((m) => m.id === id && m.unseen));
+    const marked = isMediaUnseen(queryClient, id);
     if (unseen || marked) void markSeen(queryClient, { media: [id] });
   };
 }

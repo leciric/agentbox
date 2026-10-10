@@ -29,6 +29,7 @@ import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
 import { api, type AgentAction } from '../lib/api';
+import { useMediaCounts } from '../lib/mediaPages';
 import { useChatOpenAt } from '../lib/reveal';
 import { useT, type MessageKey } from '../lib/i18n';
 import { agentPlace, type AgentPlaceName, type AgentSection, type AgentTab } from '../lib/tabs';
@@ -77,9 +78,10 @@ export function AgentView({
   const t = useT();
   const queryClient = useQueryClient();
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
-  const media = useQuery({ queryKey: ['media', agentRef], queryFn: () => api.media(agentRef) });
   // A message of this chat the search palette opened.
   const [refProject, refName] = agentRef.split('/');
+  // The tab's count, without reading the items.
+  const mediaCounts = useMediaCounts({ project: refProject, agent: refName });
   const openAt = useChatOpenAt(refProject, refName);
   const agent = agents.data?.find((a) => a.ref === agentRef);
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
@@ -114,7 +116,7 @@ export function AgentView({
 
   const run = (name: AgentAction) => action.mutate(name);
   const busy = action.isPending;
-  const mediaCount = media.data?.length ?? 0;
+  const mediaCount = mediaCounts.data?.total ?? 0;
   const error = action.error ?? rename.error;
   // An agent you use through the chat opens on it; one you use from the terminal has no Chat tab.
   const chatty = usesChat(agent);

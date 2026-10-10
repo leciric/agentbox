@@ -686,6 +686,7 @@ export interface SeeNotificationsRequest {
   ids?: string[];
   media?: string[];
   all?: boolean;
+  allMedia?: boolean;
 }
 
 export interface SeeNotificationsResult {
@@ -756,6 +757,7 @@ export interface DeleteMediaRequest {
   all?: boolean;
   agent?: string;
   kind?: string;
+  query?: string;
 }
 
 export interface DeleteMediaResult {
@@ -765,6 +767,37 @@ export interface DeleteMediaResult {
 
 export interface UpdateMediaRequest {
   favorite?: boolean;
+}
+
+export interface MediaPage {
+  items: MediaItem[];
+  next?: string;
+}
+
+export interface MediaCounts {
+  total: number;
+  bytes: number;
+  kinds: Record<string, number>;
+  favorites: number;
+  unseen: number;
+  agents: MediaAgentCount[];
+  projects: MediaProjectCount[];
+  matching: number;
+  matchingBytes: number;
+}
+
+export interface MediaAgentCount {
+  agent: string;
+  name: string;
+  title?: string;
+  gone?: boolean;
+  count: number;
+  bytes: number;
+}
+
+export interface MediaProjectCount {
+  project: string;
+  count: number;
 }
 
 export interface SetupCheck {

@@ -39,16 +39,22 @@ func TestNotificationsHistoryAndSeen(t *testing.T) {
 	if unseen, err := st.UnseenMedia(ctx); err != nil || !unseen["m1"] {
 		t.Fatalf("UnseenMedia() = %v, %v; want m1", unseen, err)
 	}
-	if n, err := st.SeeNotifications(ctx, nil, []string{"m1"}, false, now); err != nil || n != 1 {
+	if n, err := st.SeeNotifications(ctx, nil, []string{"m1"}, false, false, now); err != nil || n != 1 {
 		t.Fatalf("SeeNotifications(media) = %d, %v; want 1", n, err)
 	}
 	if unseen, _ := st.UnseenMedia(ctx); unseen["m1"] {
 		t.Error("m1 still unseen after its notification was seen")
 	}
-	if n, err := st.SeeNotifications(ctx, nil, nil, false, now); err != nil || n != 0 {
+	if n, err := st.SeeNotifications(ctx, nil, nil, false, false, now); err != nil || n != 0 {
 		t.Errorf("SeeNotifications(nothing) = %d, %v; want 0", n, err)
 	}
-	if n, err := st.SeeNotifications(ctx, []string{"a"}, nil, true, now); err != nil || n != 2 {
+	if err := st.AddNotification(ctx, state.Notification{ID: "c", Project: "pawly", Agent: "agent-02", Kind: "media", MediaID: "m2", CreatedAt: now, Data: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := st.SeeNotifications(ctx, nil, nil, false, true, now); err != nil || n != 1 {
+		t.Errorf("SeeNotifications(allMedia) = %d, %v; want 1, c's, and not a's", n, err)
+	}
+	if n, err := st.SeeNotifications(ctx, []string{"a"}, nil, true, false, now); err != nil || n != 2 {
 		t.Errorf("SeeNotifications(all) = %d, %v; want 2 (a and gone)", n, err)
 	}
 	list, _ = st.Notifications(ctx, now)
