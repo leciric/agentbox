@@ -154,3 +154,22 @@ func TestTidyRoute(t *testing.T) {
 		t.Errorf("resolved_by = %q", got.ResolvedBy)
 	}
 }
+
+// A distillation may name what would close an issue; what names nothing is
+// dropped rather than stored.
+func TestDistilledIssuesKeepTheAnchorsTheModelNamed(t *testing.T) {
+	t.Parallel()
+	d, err := parseDistillation(`{"memories":[{"kind":"issue","title":"Reload tools waits on review",
+		"anchors":["#235","branch agentbox/reload-tools","question 1a2b3c4d","soon"]}]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, a := range d.Memories[0].anchors() {
+		got = append(got, a.Kind+":"+a.Value)
+	}
+	want := []string{"pr:235", "branch:agentbox/reload-tools", "question:1a2b3c4d"}
+	if !slices.Equal(got, want) {
+		t.Errorf("anchors = %v, want %v", got, want)
+	}
+}

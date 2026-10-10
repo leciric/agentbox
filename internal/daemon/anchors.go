@@ -60,7 +60,9 @@ func (s *Server) closeAnchored(ctx context.Context, p state.Project) int {
 	}
 	closed := map[memory.Anchor]memory.Closed{}
 	s.questionsClosed(ctx, p.Name, questions, closed)
-	if len(numbers)+len(branches) > 0 {
+	// GitHub is asked only where the pull request watch is on: a user who
+	// switched it off to spare their account's budget meant this too.
+	if len(numbers)+len(branches) > 0 && s.prWatchOn(ctx, p) {
 		s.pullRequestsClosed(ctx, p, numbers, branches, closed)
 	}
 	if len(closed) == 0 {
