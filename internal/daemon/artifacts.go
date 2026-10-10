@@ -133,8 +133,11 @@ func (s *Server) listArtifacts(w http.ResponseWriter, r *http.Request) error {
 	}
 	out := api.Artifacts{Artifacts: []api.Artifact{}}
 	c, ok, err := s.hatchConnector(ctx, p.Name)
-	if err != nil || !ok {
-		return errors.Join(err, writeJSON(w, http.StatusOK, out))
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return writeJSON(w, http.StatusOK, out)
 	}
 	out.Connector = c.Name
 	list, err := s.projectArtifacts(ctx, p.Name, c)
