@@ -329,7 +329,7 @@ if (artifacts) {
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
-if (media === 'all') seedAllMedia(queryClient);
+if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
 if (imageUpdate) seedImageUpdate(queryClient);

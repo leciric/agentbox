@@ -671,6 +671,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/questions/{id}/credential", s.answerCredential)
 	h("POST /v1/projects/{project}/retire", s.retire)
 	h("GET /v1/projects/{project}/media", s.projectMedia)
+	h("GET /v1/projects/{project}/media/counts", s.projectMediaCounts)
 	h("POST /v1/projects/{project}/media/delete", s.deleteProjectMedia)
 	h("GET /v1/projects/{project}/pulls", s.projectPullRequests)
 	h("POST /v1/projects/{project}/pulls/{number}/merge", s.mergePullRequest)
@@ -766,6 +767,7 @@ func (s *Server) routes() http.Handler {
 	h("DELETE /v1/media/{id}", s.deleteMedia)
 	h("PATCH /v1/media/{id}", s.updateMedia)
 	h("GET /v1/media", s.allMedia)
+	h("GET /v1/media/counts", s.allMediaCounts)
 	h("GET /v1/notifications", s.notifications)
 	h("POST /v1/notifications/seen", s.seeNotifications)
 

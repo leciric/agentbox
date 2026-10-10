@@ -5,6 +5,8 @@ import { useSyncExternalStore } from 'react';
 import type { ConnectionState } from '../../preload';
 import * as T from '../../shared/api.ts';
 import { api } from './api.ts';
+import { applyMediaEvent, setMediaUnseen } from './mediaPages.ts';
+import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
 
@@ -206,19 +208,20 @@ export function connectEvents(queryClient: QueryClient): void {
         );
         if (item.kind === 'recording') void queryClient.invalidateQueries({ queryKey: ['recording', item.agent] });
         for (const fn of mediaListeners) fn(item);
-        void queryClient.invalidateQueries({ queryKey: ['allMedia'] });
+        applyMediaEvent(queryClient, item);
         break;
       }
       case T.EventNotification: {
         const n = event.data as T.Notification;
         queryClient.setQueryData<T.Notification[]>(['notifications'], (list) => list && [n, ...list.filter((x) => x.id !== n.id)]);
         for (const fn of notificationListeners) fn(n);
+        if (n.media && !n.seen) setMediaUnseen(queryClient, true, new Set([n.media.id]));
         break;
       }
       case T.EventNotificationsSeen:
         // Another window, or the Media view, marked some seen.
+        applySeen(queryClient, event.data as T.SeeNotificationsRequest);
         void queryClient.invalidateQueries({ queryKey: ['notifications'] });
-        void queryClient.invalidateQueries({ queryKey: ['allMedia'] });
         break;
       case T.EventSnap:
         // agentbox snap took one: the composer (SnapComposer) opens on it.

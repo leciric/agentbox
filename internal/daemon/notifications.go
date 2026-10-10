@@ -133,7 +133,7 @@ func (s *Server) seeNotifications(w http.ResponseWriter, r *http.Request) error 
 	if err := readJSON(r, &req); err != nil {
 		return err
 	}
-	n, err := s.store.SeeNotifications(r.Context(), req.IDs, req.Media, req.All, time.Now())
+	n, err := s.store.SeeNotifications(r.Context(), req.IDs, req.Media, req.All, req.AllMedia, time.Now())
 	if err != nil {
 		return err
 	}
@@ -145,58 +145,13 @@ func (s *Server) seeNotifications(w http.ResponseWriter, r *http.Request) error 
 
 // allMedia is every project's media, newest first, for the app's Media view:
 // each item labelled with its agent, as projectMedia does, and marked unseen
-// while its notification is. ?kind= takes a comma-separated list.
+// while its notification is. ?kind= takes a comma-separated list, and ?limit=
+// pages it (media_list.go).
 func (s *Server) allMedia(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	retention, err := s.store.MediaRetention(ctx)
-	if err != nil {
-		return err
-	}
-	period, forever, _ := state.MediaRetentionPeriod(retention)
-	var kinds []string
-	for k := range strings.SplitSeq(r.URL.Query().Get("kind"), ",") {
-		if k = strings.TrimSpace(k); k != "" {
-			kinds = append(kinds, k)
-		}
-	}
-	items, err := s.store.AllMedia(ctx, kinds)
-	if err != nil {
-		return err
-	}
-	projects, err := s.store.Projects(ctx)
-	if err != nil {
-		return err
-	}
-	titles := map[string]map[string]string{}
-	for _, p := range projects {
-		if titles[p.Name], err = s.agentTitles(ctx, p.Name); err != nil {
-			return err
-		}
-	}
-	unseen, err := s.store.UnseenMedia(ctx)
-	if err != nil {
-		return err
-	}
-	m := s.manager(nil)
-	out := make([]api.MediaItem, 0, len(items))
-	for _, it := range items {
-		agents, ok := titles[it.Project]
-		if !ok {
-			continue // its project is gone
-		}
-		item := toAPIMedia(it, m.MediaPath(it))
-		item.AgentName = it.Agent
-		if title, ok := agents[it.Agent]; ok {
-			item.AgentTitle = title
-		} else {
-			item.AgentGone = true
-		}
-		if !it.OrphanedAt.IsZero() && !forever && !it.Favorite {
-			expires := it.OrphanedAt.Add(period)
-			item.ExpiresAt = &expires
-		}
-		item.Unseen = unseen[it.ID]
-		out = append(out, item)
-	}
-	return writeJSON(w, http.StatusOK, out)
+	return s.writeMediaList(w, r, state.MediaFilter{}, true)
+}
+
+// allMediaCounts is the counts on the Media view's filters.
+func (s *Server) allMediaCounts(w http.ResponseWriter, r *http.Request) error {
+	return s.writeMediaCounts(w, r, state.MediaFilter{})
 }

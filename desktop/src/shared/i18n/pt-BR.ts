@@ -1854,6 +1854,7 @@ export const ptBR: Messages = {
   'agent.mediaTab.clearSearch': 'Limpar a busca',
   'agent.mediaTab.noMatchQuery': 'Nada corresponde a “{query}”.',
   'agent.mediaTab.noMatch': 'Nada corresponde a esse filtro.',
+  'agent.mediaTab.loadingMore': 'Carregando mais…',
   'agent.mediaTab.deleted': '{count, plural, one {# item excluído} other {# itens excluídos}}',
   'agent.mediaTab.freed': '{size} liberados',
   'agent.mediaTab.clear': 'Limpar',

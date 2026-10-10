@@ -90,14 +90,17 @@ func (s *Store) UnseenMedia(ctx context.Context) (map[string]bool, error) {
 }
 
 // SeeNotifications marks notifications seen at "at": those with the given
-// IDs, those about the given media items, or, with all, every one. It
-// returns how many it changed.
-func (s *Store) SeeNotifications(ctx context.Context, ids, media []string, all bool, at time.Time) (int, error) {
+// IDs, those about the given media items, with allMedia every one about a
+// media item, or, with all, every one. It returns how many it changed.
+func (s *Store) SeeNotifications(ctx context.Context, ids, media []string, all, allMedia bool, at time.Time) (int, error) {
 	var where []string
 	var args []any
 	args = append(args, at.UnixMilli())
 	if all {
 		where = append(where, "1")
+	}
+	if allMedia {
+		where = append(where, "media_id != ''")
 	}
 	if len(ids) > 0 {
 		where = append(where, "id IN (?"+strings.Repeat(", ?", len(ids)-1)+")")
