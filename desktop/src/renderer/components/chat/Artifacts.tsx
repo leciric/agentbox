@@ -231,8 +231,12 @@ function ArtifactPreview({ artifact, chatRef, onReveal }: { artifact: T.Artifact
     <DialogContent
       className="flex h-[86vh] w-[calc(100vw-3rem)] max-w-[1180px] flex-col gap-0 overflow-hidden p-0"
       data-artifact-preview={a.id}
-      // Focusing the first button would open its tooltip over the page.
-      onOpenAutoFocus={(event) => event.preventDefault()}
+      // Focusing the first button would open its tooltip over the page: the
+      // dialog itself takes focus, so Escape and Tab still work from the start.
+      onOpenAutoFocus={(event) => {
+        event.preventDefault();
+        (event.currentTarget as HTMLElement | null)?.focus();
+      }}
     >
       <div className="flex items-start gap-3 border-b border-line px-5 py-4 pr-14">
         <PageTile gone={gone} large />
