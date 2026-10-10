@@ -338,6 +338,10 @@ export const api = {
   memoryConsolidation: (name: string) => call<T.MemoryConsolidation>('GET', `${project(name)}/memory/consolidation`),
   memoryDuplicates: (name: string) => call<T.MemoryDuplicate[]>('GET', `${project(name)}/memory/duplicates`),
   resolveMemory: (name: string, req: T.ResolveMemoryRequest) => call<T.Memory>('POST', `${project(name)}/memory/resolve`, req),
+  // AgentBox-wide memory: what the user asked to hold in every project, which
+  // every project reads beside its own. Deleting one is the user's alone.
+  globalMemories: () => call<T.Memory[]>('GET', '/v1/global/memory/memories'),
+  deleteGlobalMemory: (id: string) => call<void>('DELETE', `/v1/global/memory/memories/${encodeURIComponent(id)}`),
 
   snapshots: (ref: string) => call<T.Snapshot[]>('GET', `${agent(ref)}/snapshots`),
   takeSnapshot: (ref: string, req: T.SnapshotRequest) => call<T.Snapshot>('POST', `${agent(ref)}/snapshots`, req),

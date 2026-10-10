@@ -15,6 +15,7 @@ import (
 //	c.ProjectMemory("pawly") // the user's, on the daemon's socket
 //	c.LeadMemory()           // a project chat's, on its own project's socket
 //	c.SelfMemory()           // an agent's own, on the in-agent socket
+//	c.GlobalMemory()         // AgentBox-wide, on the user's socket or the Home chat's
 //
 // What each surface allows is the daemon's business, not this client's: an
 // agent that tries to curate a project's memories is refused by the route,
@@ -42,6 +43,13 @@ func (c *Client) LeadMemory() *MemoryClient {
 // agent of the project has written.
 func (c *Client) SelfMemory() *MemoryClient {
 	return &MemoryClient{c: c, base: "/v1/self/memory"}
+}
+
+// GlobalMemory is AgentBox-wide memory: what the user asked to hold in every
+// project, which every project's searches read beside its own. It holds
+// memories only, so its Search finds no events or reports.
+func (c *Client) GlobalMemory() *MemoryClient {
+	return &MemoryClient{c: c, base: "/v1/global/memory"}
 }
 
 // EventQuery narrows a listing of events. A zero query is the project's most
@@ -100,6 +108,12 @@ func (m *MemoryClient) Memories(ctx context.Context, kinds ...string) ([]Memory,
 func (m *MemoryClient) AddMemory(ctx context.Context, req AddMemoryRequest) (Memory, error) {
 	var out Memory
 	return out, m.c.do(ctx, http.MethodPost, m.base+"/memories", req, &out)
+}
+
+// DeleteMemory removes a memory for good, with what it superseded. Only
+// AgentBox-wide memory offers it, to the user.
+func (m *MemoryClient) DeleteMemory(ctx context.Context, id string) error {
+	return m.c.do(ctx, http.MethodDelete, m.base+"/memories/"+url.PathEscape(id), nil, nil)
 }
 
 // Search looks through the project's memories, events and reports.

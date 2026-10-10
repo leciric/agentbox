@@ -7,6 +7,7 @@ import {
   FileText,
   FlaskConical,
   Gauge,
+  Globe,
   GitCompare,
   GitMerge,
   History,
@@ -14,6 +15,7 @@ import {
   Plus,
   Search as SearchIcon,
   Sparkles,
+  Trash2,
   TriangleAlert,
   Users,
 } from 'lucide-react';
@@ -414,16 +416,20 @@ function MemoriesSection({ project }: { project: string }) {
   );
 }
 
-function MemoryRow({
+// MemoryRow is one memory, a project's or AgentBox-wide (global, which a
+// project's search returns beside its own and Settings → Memory lists).
+export function MemoryRow({
   memory,
   supersededBy,
   onSupersede,
   onResolve,
+  onDelete,
 }: {
   memory: T.Memory;
   supersededBy?: T.Memory;
   onSupersede?: () => void;
   onResolve?: () => void;
+  onDelete?: () => void;
 }) {
   const t = useT();
   const resolved = Boolean(memory.resolvedAt);
@@ -438,6 +444,12 @@ function MemoryRow({
       <div className="flex flex-wrap items-start gap-2">
         <Badge variant={kindVariant[memory.kind] ?? 'default'}>{kindLabel[memory.kind] ? t(kindLabel[memory.kind]) : memory.kind}</Badge>
         <h4 className="min-w-0 flex-1 text-[13.5px] font-medium text-primary">{memory.title}</h4>
+        {memory.global && !onDelete && (
+          <Badge variant="info" title={t('memory.global.badgeTip')}>
+            <Globe />
+            {t('memory.global.badge')}
+          </Badge>
+        )}
         {resolved && (
           <Badge variant="success">
             <CircleCheck />
@@ -458,10 +470,18 @@ function MemoryRow({
             </MenuContent>
           </Menu>
         )}
+        {onDelete && (
+          <Button size="icon-sm" variant="ghost" aria-label={t('memory.global.delete')} title={t('memory.global.delete')} onClick={onDelete}>
+            <Trash2 />
+          </Button>
+        )}
       </div>
       {memory.content && <Markdown text={memory.content} className="mt-1.5 text-[12.5px] leading-relaxed text-muted" />}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-subtle">
         <span>{timeAgo(memory.createdAt)}</span>
+        {memory.global && memory.origin && (
+          <span>{memory.origin === A.HomeProject ? t('memory.global.fromHome') : t('memory.global.from', { project: memory.origin })}</span>
+        )}
         {memory.updatedAt !== memory.createdAt && <span>{t('memory.updatedAgo', { when: timeAgo(memory.updatedAt) })}</span>}
         {memory.supersedesId && <span className="font-mono text-faint">{t('memory.memories.supersedes', { id: memory.supersedesId })}</span>}
         {supersededBy && <span className="text-amber-300/80">{t('memory.memories.supersededBy', { title: supersededBy.title })}</span>}

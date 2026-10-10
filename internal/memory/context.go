@@ -77,6 +77,7 @@ const (
 // what they returned survives.
 const (
 	contextIssues     = 8 // open issues: what is in the way, not every bug ever filed
+	contextGlobal     = 8 // AgentBox-wide memories, the most important first
 	contextKnowledge  = 8 // high-importance project and decision memories
 	contextSearchHits = 5 // per kind, for the query
 	contextReports    = 5 // the newest reports, the way project_state shows them
@@ -97,6 +98,7 @@ const (
 	SectionWorking   = "working"   // what the project is doing right now
 	SectionStory     = "story"     // the newest narrative of the project's chat
 	SectionOpen      = "open"      // the open issues
+	SectionGlobal    = "global"    // what the user asked to hold in every project
 	SectionKnowledge = "knowledge" // what the project knows about the query
 	SectionEvents    = "events"    // what happened, matching the query
 	SectionReports   = "reports"   // what agents said as they finished
@@ -106,7 +108,8 @@ const (
 // sectionOrder is the order a context is rendered in, which is also its
 // priority: when the budget won't hold everything, a build gives up the tail —
 // artifacts first, then reports, then past events, then the knowledge that
-// matched the query. What survives is always a prefix of this.
+// matched the query, then what holds in every project. What survives is always
+// a prefix of this.
 //
 // The first keptSections of it are never given up for something below them:
 // they are what the project is doing and where it stands, and a context
@@ -115,7 +118,7 @@ const (
 // is cut, and Stats.Truncated says so.
 var sectionOrder = []string{
 	SectionWorking, SectionStory, SectionOpen,
-	SectionKnowledge, SectionEvents, SectionReports, SectionArtifacts,
+	SectionGlobal, SectionKnowledge, SectionEvents, SectionReports, SectionArtifacts,
 }
 
 // keptSections is how many of that order are never given up: what the project
@@ -377,6 +380,33 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 	}
 	add(SectionOpen, "Still open", "", memoryLines(issues), len(issues), MemoryIDs(issues)...)
 
+	// The search is the only part of a build that depends on what the
+	// consumer is about to do. A search that fails costs the context its
+	// query-shaped sections and nothing else: what the project is doing and
+	// what it has decided is worth having on its own.
+	found := s.contextSearch(ctx, req.Project, query)
+
+	// What the user asked to hold in every project (global.go), before the
+	// project's own knowledge: a preference about how agents are run is read
+	// before the facts they work with. The most important, then any the
+	// query found beside them. Search returns them with the project's own, so
+	// they are kept out of the knowledge below: each is said once, here,
+	// where it is labelled as everybody's.
+	global, err := s.Memories(ctx, Global, nil)
+	if err != nil {
+		return nil, err
+	}
+	global = firstN(global, contextGlobal)
+	for _, m := range global {
+		seen[m.ID] = true
+	}
+	for _, m := range found.Memories {
+		if m.Project == Global && !seen[m.ID] {
+			global, seen[m.ID] = append(global, m), true
+		}
+	}
+	add(SectionGlobal, "What holds in every project", "the user's, AgentBox-wide", memoryLines(global), len(global), MemoryIDs(global)...)
+
 	// What the project knows: the facts and decisions it can't be worked on
 	// without, then whatever the query found, minus anything already said
 	// above. A memory repeated twice is context spent twice, which is also
@@ -395,11 +425,6 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 		}
 	}
 
-	// The search is the only part of a build that depends on what the
-	// consumer is about to do. A search that fails costs the context its
-	// query-shaped sections and nothing else: what the project is doing and
-	// what it has decided is worth having on its own.
-	found := s.contextSearch(ctx, req.Project, query)
 	for _, m := range found.Memories {
 		if !seen[m.ID] && m.Promotion != PromotionPromoted {
 			knowledge, seen[m.ID] = append(knowledge, m), true
@@ -722,19 +747,20 @@ func firstN[T any](items []T, n int) []T {
 	return items
 }
 
-// corpusTokens is everything this project remembers, estimated the same way a
-// context is: what a consumer would have had to read if nothing chose for it.
-// It is the denominator of the compression ratio, and it is three SUMs over
-// lengths rather than three listings — the rows are never loaded.
+// corpusTokens is everything this project remembers, the AgentBox-wide memory
+// it reads included, estimated the same way a context is: what a consumer
+// would have had to read if nothing chose for it. It is the denominator of the
+// compression ratio, and it is three SUMs over lengths rather than three
+// listings — the rows are never loaded.
 func (s *Store) corpusTokens(ctx context.Context, project string) (int, error) {
 	var bytes int64
 	err := s.db.QueryRowContext(ctx, `SELECT
 		(SELECT IFNULL(SUM(LENGTH(m.title) + LENGTH(m.content)), 0) FROM memories m
-		  WHERE m.project = ? AND `+notSuperseded+`) +
+		  WHERE m.project IN (?, ?) AND `+notSuperseded+`) +
 		(SELECT IFNULL(SUM(LENGTH(type) + LENGTH(payload)), 0) FROM events WHERE project = ?) +
 		(SELECT IFNULL(SUM(LENGTH(task) + LENGTH(summary) + LENGTH(discoveries) + LENGTH(decisions)
 			+ LENGTH(remaining_issues)), 0) FROM agent_reports WHERE project = ?)`,
-		project, project, project).Scan(&bytes)
+		project, Global, project, project).Scan(&bytes)
 	if err != nil {
 		return 0, err
 	}

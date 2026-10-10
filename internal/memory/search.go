@@ -119,12 +119,17 @@ func prefixQuery(query string) string {
 }
 
 // search runs one MATCH against each index, in one project, or in every
-// project when project is "" (only SearchAll asks for that).
+// project when project is "" (only SearchAll asks for that). A project's
+// memories are searched with the AgentBox-wide ones beside them (global.go):
+// what the user asked to hold everywhere holds in this project too.
 func (s *Store) search(ctx context.Context, project, match string, limit int) (Results, error) {
 	var out Results
 	in := func(table string) (string, []any) {
-		if project == "" {
+		switch {
+		case project == "":
 			return "", []any{match, limit}
+		case table == "m":
+			return " AND m.project IN (?, ?)", []any{match, project, Global, limit}
 		}
 		return " AND " + table + ".project = ?", []any{match, project, limit}
 	}

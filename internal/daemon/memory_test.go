@@ -9,6 +9,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
+	"agentbox/internal/state"
 )
 
 // One project memory, reached from three places: the user's routes, the
@@ -293,6 +294,64 @@ func TestContextRouteOnAllThreeSurfaces(t *testing.T) {
 	}
 	if after.Stats.Budget != 1200 {
 		t.Errorf("a build after the setting changed used a budget of %d", after.Stats.Budget)
+	}
+}
+
+// AgentBox-wide memory: a project's chat writes it with remember's scope, the
+// Home chat writes it as its own, every project searches it, and only the
+// user deletes it.
+func TestGlobalMemorySurfaces(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	lead := api.NewClient(d.srv.leadSocketPath("hello-stack")).LeadMemory()
+	home := api.NewClient(d.srv.leadSocketPath(state.HomeProject)).GlobalMemory()
+	user := d.client.GlobalMemory()
+
+	if _, err := lead.AddMemory(ctx, api.AddMemoryRequest{Title: "x", Scope: "everywhere"}); err == nil {
+		t.Error("remember took a scope that isn't one")
+	}
+	pref, err := lead.AddMemory(ctx, api.AddMemoryRequest{Kind: api.MemoryKindDecision, Importance: 4,
+		Title: "Agent preference: one agent at a time", Scope: api.MemoryScopeAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pref.Global || pref.Origin != "hello-stack" {
+		t.Fatalf("the lead's memory for all projects = %+v", pref)
+	}
+	fromHome, err := home.AddMemory(ctx, api.AddMemoryRequest{Title: "Commit messages are conventional"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fromHome.Global || fromHome.Origin != state.HomeProject {
+		t.Fatalf("the Home chat's memory = %+v", fromHome)
+	}
+	if own, err := d.client.ProjectMemory("hello-stack").Memories(ctx); err != nil || len(own) != 0 {
+		t.Errorf("hello-stack's own memories = %v, %v; want none", own, err)
+	}
+
+	found, err := lead.Search(ctx, "agent preference", 10)
+	if err != nil || len(found.Memories) != 1 || !found.Memories[0].Global {
+		t.Fatalf("the lead's search = %+v, %v", found.Memories, err)
+	}
+	if found, err := home.Search(ctx, "conventional", 10); err != nil || len(found.Memories) != 1 {
+		t.Errorf("the Home chat's search = %+v, %v", found.Memories, err)
+	}
+
+	if closed, err := lead.ResolveMemory(ctx, pref.ID, "the user dropped it"); err != nil || closed.ResolvedAt.IsZero() {
+		t.Errorf("the lead resolving a memory for all projects = %+v, %v", closed, err)
+	}
+	if err := home.DeleteMemory(ctx, fromHome.ID); err == nil {
+		t.Error("the Home chat deleted a memory for good")
+	}
+	if err := user.DeleteMemory(ctx, fromHome.ID); err != nil {
+		t.Fatal(err)
+	}
+	if list, err := user.Memories(ctx); err != nil || len(list) != 0 {
+		t.Errorf("after resolving one and deleting the other: %+v, %v", list, err)
 	}
 }
 

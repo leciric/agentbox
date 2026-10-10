@@ -121,6 +121,10 @@ promoted. An offer left unanswered lapses after two weeks.
 - `{{.ID}}` **{{.Title}}**{{with .Text}} — {{.}}{{end}} (served to {{.Agents}} agents){{end}}
 {{- end}}
 
+`remember` with scope `all` keeps a memory for every project, not just this one: **only when the user
+asks for something to apply to all their projects**. Every project's chat and agents then read it, and
+`search_memory` marks it "all projects"; replace or resolve it like any other.
+
 ### Skills
 
 When a procedure recurs across agents' tasks, or the user repeats an instruction, write it as a skill

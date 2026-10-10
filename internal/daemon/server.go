@@ -694,6 +694,9 @@ func (s *Server) routes() http.Handler {
 	for _, route := range memoryRoutes {
 		h(route.method+" /v1/projects/{project}/memory"+route.path, s.memoryHandler(route.action, s.projectMemoryScope))
 	}
+	for _, route := range globalMemoryRoutes {
+		h(route.method+" /v1/global/memory"+route.path, s.memoryHandler(route.action, globalMemoryScope("")))
+	}
 	h("GET /v1/projects/{project}/base", s.getBase)
 	h("POST /v1/projects/{project}/base", s.saveBase)
 	h("DELETE /v1/projects/{project}/base", s.removeBase)

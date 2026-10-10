@@ -58,23 +58,31 @@ func (s *Store) AddMemory(ctx context.Context, m Memory) (Memory, error) {
 	if m.SupersedesID != "" {
 		old, err := s.Memory(ctx, m.Project, m.SupersedesID)
 		if err != nil {
-			return Memory{}, err
+			return Memory{}, crossScope(ctx, s, m.Project, m.SupersedesID, err)
 		}
 		if old.ID == m.ID {
 			return Memory{}, errors.New("a memory can't supersede itself")
 		}
 	}
 	m.MentionedAt = stamp(m.MentionedAt)
+	if m.Project != Global {
+		m.Origin = ""
+	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO memories (id, project, kind, title, content, importance, created_at, updated_at, supersedes_id, source_event_id, mentioned_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO memories (id, project, kind, title, content, importance, created_at, updated_at, supersedes_id, source_event_id, mentioned_at, origin)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID, m.Project, m.Kind, m.Title, m.Content, m.Importance,
-		m.CreatedAt.UnixMilli(), m.UpdatedAt.UnixMilli(), nullable(m.SupersedesID), nullable(m.SourceEventID), millis(m.MentionedAt))
+		m.CreatedAt.UnixMilli(), m.UpdatedAt.UnixMilli(), nullable(m.SupersedesID), nullable(m.SourceEventID), millis(m.MentionedAt), m.Origin)
 	if err != nil {
 		return Memory{}, err
 	}
 	// What would close it, for an open item: the daemon resolves it once
-	// every pull request, branch and question it names is over.
+	// every pull request, branch and question it names is over. An
+	// AgentBox-wide memory has none: a pull request is one project's, and
+	// what holds everywhere isn't closed by any one of them.
+	if m.Project == Global {
+		return m, nil
+	}
 	m.Anchors = anchorsFor(m)
 	if len(m.Anchors) > 0 {
 		if err := s.setAnchors(ctx, m.Project, m.ID, m.Anchors); err != nil {
@@ -201,7 +209,7 @@ const live = notSuperseded + ` AND m.resolved_at = 0`
 const memoryColumns = `m.id, m.project, m.kind, m.title, m.content, m.importance, m.created_at, m.updated_at,
 	m.supersedes_id, m.source_event_id, EXISTS (SELECT 1 FROM memories r WHERE r.supersedes_id = m.id),
 	m.resolved_at, m.resolved_by, m.referenced_at, m.decayed_at, m.mentioned_at, m.promotion, m.promotion_at,
-	m.confirmations`
+	m.confirmations, m.origin`
 
 func (s *Store) queryMemories(ctx context.Context, clause string, args ...any) ([]Memory, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+memoryColumns+` FROM memories m `+clause, args...)
@@ -227,7 +235,7 @@ func scanMemory(rows scanner) (Memory, error) {
 	var resolved, referenced, decayed, mentioned, promoted int64
 	if err := rows.Scan(&m.ID, &m.Project, &m.Kind, &m.Title, &m.Content, &m.Importance,
 		&created, &updated, &supersedes, &source, &m.Superseded,
-		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned, &m.Promotion, &promoted, &m.Confirmations); err != nil {
+		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned, &m.Promotion, &promoted, &m.Confirmations, &m.Origin); err != nil {
 		return Memory{}, err
 	}
 	m.CreatedAt, m.UpdatedAt = attime(created), attime(updated)

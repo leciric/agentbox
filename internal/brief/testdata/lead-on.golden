@@ -101,6 +101,10 @@ promoted. An offer left unanswered lapses after two weeks.
 - `mem_1a2b3c` **Migrations are appended, never edited** — Tracked with PRAGMA user_version. (served to 7 agents)
 - `mem_4d5e6f` **The e2e tests run against the staging API** (served to 5 agents)
 
+`remember` with scope `all` keeps a memory for every project, not just this one: **only when the user
+asks for something to apply to all their projects**. Every project's chat and agents then read it, and
+`search_memory` marks it "all projects"; replace or resolve it like any other.
+
 ### Skills
 
 When a procedure recurs across agents' tasks, or the user repeats an instruction, write it as a skill

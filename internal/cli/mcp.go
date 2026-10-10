@@ -883,7 +883,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"For a problem, name the pull requests (#234), branches and question ids it waits on: AgentBox closes " +
 				"it by itself once they are all merged, closed or answered. " +
 				"This is not append_note: notes are the short standing brief every agent is handed, and memory is the " +
-				"much larger store they search.",
+				"much larger store they search. scope \"all\" keeps it for every project instead of this one: only " +
+				"when the user asks for something to hold in all their projects.",
 			Schema: object([]string{"title"}, map[string]any{
 				"title":   str("one line somebody would recognise this by, like \"The API listens on port 7777\""),
 				"content": str("the fact in full: what it is, and what somebody should do about it"),
@@ -895,12 +896,16 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"importance": map[string]any{"type": "integer", "description": "1 to 5. 3 is ordinary and the default; " +
 					"5 is for what nobody should work on this project without knowing. It decides what survives when " +
 					"an agent's brief can't hold everything, so don't spend 5 freely."},
-				"supersedes": str("the id of the memory this replaces, from search_memory"),
+				"supersedes": str("the id of the memory this replaces, from search_memory; one marked \"all projects\" " +
+					"is replaced with scope \"all\""),
+				"scope": choiceOf("\"project\", the default, is this project's. \"all\" is AgentBox-wide: every project's "+
+					"chat and agents read it. Use \"all\" only when the user asked for this to apply to all their projects.",
+					api.MemoryScopeProject, api.MemoryScopeAll),
 			}),
 			Run: func(args json.RawMessage) (string, error) {
 				var in struct {
-					Title, Content, Kind, Supersedes string
-					Importance                       int
+					Title, Content, Kind, Supersedes, Scope string
+					Importance                              int
 				}
 				if err := decode(args, &in); err != nil {
 					return "", err
@@ -910,15 +915,12 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				}
 				m, err := c.LeadMemory().AddMemory(ctx, api.AddMemoryRequest{
 					Kind: in.Kind, Title: in.Title, Content: in.Content,
-					Importance: in.Importance, SupersedesID: in.Supersedes,
+					Importance: in.Importance, SupersedesID: in.Supersedes, Scope: in.Scope,
 				})
 				if err != nil {
 					return "", err
 				}
-				if in.Supersedes != "" {
-					return fmt.Sprintf("Remembered as %s, replacing %s, which no longer comes back from a search.", m.ID, in.Supersedes), nil
-				}
-				return fmt.Sprintf("Remembered as %s. search_memory finds it, for you and for every agent of this project.", m.ID), nil
+				return describeRemembered(m, in.Supersedes), nil
 			},
 		},
 		{
@@ -945,8 +947,7 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				if err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("Closed %s (%q). It no longer comes back from a search, for you or for any agent "+
-					"of this project, and is still readable by id.", m.ID, m.Title), nil
+				return describeResolved(m), nil
 			},
 		},
 		memoryFeedbackTool(ctx, c.LeadMemory()),
@@ -1559,7 +1560,11 @@ func describeSearch(query string, results api.MemorySearchResults) string {
 	if len(results.Memories) > 0 {
 		b.WriteString("Remembered:\n")
 		for _, m := range results.Memories {
-			fmt.Fprintf(&b, "- [%s] %s (%s, importance %d%s)\n", m.ID, m.Title, m.Kind, m.Importance, confirmed(m.Confirmations))
+			scope := ""
+			if m.Global {
+				scope = ", all projects"
+			}
+			fmt.Fprintf(&b, "- [%s] %s (%s, importance %d%s%s)\n", m.ID, m.Title, m.Kind, m.Importance, scope, confirmed(m.Confirmations))
 			if m.Content != "" {
 				fmt.Fprintf(&b, "  %s\n", oneLine(m.Content))
 			}
@@ -1582,6 +1587,28 @@ func describeSearch(query string, results api.MemorySearchResults) string {
 		}
 	}
 	return b.String()
+}
+
+// describeResolved is resolve_memory's answer.
+func describeResolved(m api.Memory) string {
+	who := "for you or for any agent of this project"
+	if m.Global {
+		who = "in any project"
+	}
+	return fmt.Sprintf("Closed %s (%q). It no longer comes back from a search %s, and is still readable by id.", m.ID, m.Title, who)
+}
+
+// describeRemembered is remember's answer: where the memory went, and who
+// reads it now.
+func describeRemembered(m api.Memory, supersedes string) string {
+	who := "for you and for every agent of this project"
+	if m.Global {
+		who = "for every project's chat and agents, and in Settings → Memory"
+	}
+	if supersedes != "" {
+		return fmt.Sprintf("Remembered as %s, replacing %s, which no longer comes back from a search. search_memory finds it, %s.", m.ID, supersedes, who)
+	}
+	return fmt.Sprintf("Remembered as %s. search_memory finds it, %s.", m.ID, who)
 }
 
 // confirmed says how many times a memory was written down again, when it was.
