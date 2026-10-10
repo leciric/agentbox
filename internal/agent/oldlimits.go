@@ -22,10 +22,16 @@ import (
 // with nothing in the app saying so, so the daemon takes them off: from every
 // agent when it starts (DropOldLimits), and from one machine whenever it is
 // made, started or restored (oldLimitSteps).
+//
+// Except limits.cpu: it holds each agent's share of the VM's cores now
+// (cpushare.go), which the daemon sets as agents start and stop. An earlier
+// release's value is replaced by the share rather than taken off: as a machine
+// starts (setStartShare), and on every running one as the daemon balances
+// them, the first time just after it starts.
 
 // oldLimitKeys are the Incus keys earlier releases set on an agent's instance.
 var oldLimitKeys = []string{
-	"limits.cpu", "limits.cpu.allowance", "limits.memory", "limits.cpu.priority", "limits.memory.swap",
+	"limits.cpu.allowance", "limits.memory", "limits.cpu.priority", "limits.memory.swap",
 	"user.agentbox.cpu.configured", "user.agentbox.cpu.unlimited",
 	// "GPU for agents" ran an NVIDIA host's agents through its container
 	// runtime, beside oldGPUDevice.

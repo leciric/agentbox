@@ -203,6 +203,11 @@ type Server struct {
 	terminalMu       sync.Mutex
 	terminalActivity map[string]time.Time // last input typed into a terminal, by ref (autostopidle.go)
 
+	// The agents' CPU shares (cpushare.go): kicked when an agent changes,
+	// and on a timer, cpuShareInterval; 0 runs no loop.
+	cpuKick  chan struct{}
+	cpuEvery time.Duration
+
 	// The agent queue (queue.go). queueMu makes one pass of it at a time;
 	// startingQueued, under mu, are the queued agents handed to a create job
 	// that hasn't ended. queueStart, slotBudget and projectPeak are
@@ -286,6 +291,8 @@ func New(cfg Config) (*Server, error) {
 		lan:              newLANState(),
 		queueKick:        make(chan struct{}, 1),
 		queueEvery:       queueInterval,
+		cpuKick:          make(chan struct{}, 1),
+		cpuEvery:         cpuShareInterval,
 		startingQueued:   map[string]bool{},
 		pendingCreates:   map[int]pendingCreate{},
 		waitReasons:      map[string]string{},
@@ -419,6 +426,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
 	loops.Go(func() { s.dropOldLimits(ctx) })
+	loops.Go(func() { s.balanceCPU(ctx) })
 	loops.Go(func() { s.watchDisk(ctx) })
 	loops.Go(func() { s.watchPackageCache(ctx) })
 	loops.Go(func() { s.refreshConnectors(ctx) })
