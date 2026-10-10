@@ -218,8 +218,8 @@ func (o ConsolidateOptions) now() time.Time {
 //     somebody's summary, and two facts that rhyme are not the same fact.
 //  3. Where two memories of one kind have the same title and the newer one's
 //     content contains the older's word for word, the newer supersedes the
-//     older. That is the one merge with nothing to lose: every word of the
-//     old memory is still being said.
+//     older and counts it as a confirmation. That is the one merge with
+//     nothing to lose: every word of the old memory is still being said.
 //  4. Importance decays, a point at a time and floored at 1, for episodic and
 //     issue memories that nothing has referenced within DecayAfter. The decay
 //     is stamped, so an hourly pass doesn't take a point every hour.
@@ -252,6 +252,11 @@ func (s *Store) Consolidate(ctx context.Context, project string, opts Consolidat
 			// something else — is left as a candidate rather than forced.
 			pairs = append(pairs, duplicatePair{newer: m.newer, older: m.older, score: 1})
 			continue
+		}
+		// The newer said every word of the older again: that is a
+		// restatement, and it counts as one (confirmed.go).
+		if err := s.confirm(ctx, project, m.newer, m.older); err != nil {
+			return Pass{}, err
 		}
 		pass.MemoriesSuperseded++
 	}

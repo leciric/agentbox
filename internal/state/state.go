@@ -958,6 +958,7 @@ var migrations = []string{
 	`ALTER TABLE projects DROP COLUMN agent_size`,
 	`ALTER TABLE agents DROP COLUMN size`,
 	`DELETE FROM settings WHERE key = 'agent_queue' OR key LIKE 'usage\_queued.%' ESCAPE '\'`,
+
 	// The user's task list (the Tasks tab) is gone, and with it the tables
 	// that held it, their indexes, and "tasks go to". The task_* events it
 	// captured stay: events are history, never rewritten.
@@ -981,6 +982,11 @@ var migrations = []string{
 	)`,
 	`ALTER TABLE memories ADD COLUMN promotion TEXT NOT NULL DEFAULT ''`,
 	`ALTER TABLE memories ADD COLUMN promotion_at INTEGER NOT NULL DEFAULT 0`,
+
+	// How many times a memory has been said again (internal/memory): each
+	// restatement folded into it by dedup adds one, and the restatement's own
+	// count with it. Search and the context builder weigh it, bounded.
+	`ALTER TABLE memories ADD COLUMN confirmations INTEGER NOT NULL DEFAULT 0`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

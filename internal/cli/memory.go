@@ -241,6 +241,7 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				return describeSearch(in.Query, results), nil
 			},
 		},
+		memoryFeedbackTool(ctx, m),
 		{
 			Name: "report",
 			Description: "File what you did, as you finish. This is not your final message to the user — it is the " +
@@ -382,6 +383,45 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				}
 				return fmt.Sprintf("Recorded %s as %s. Name that id in your report's artifacts.", a.Path, a.ID), nil
 			},
+		},
+	}
+}
+
+// memoryFeedbackTool is how an agent or the lead says that a memory it was
+// handed is wrong, stale or helpful (memory/feedback.go). A brief lists
+// memories by title, so the tool takes one as readily as an id.
+func memoryFeedbackTool(ctx context.Context, m *api.MemoryClient) mcp.Tool {
+	return mcp.Tool{
+		Name: "memory_feedback",
+		Description: "Say that a memory you were handed — in your brief or from search_memory — is wrong, stale " +
+			"or helpful, as soon as you find out. \"wrong\" (it says something untrue) and \"stale\" (it was true and " +
+			"no longer is) drop it to the bottom of every search and brief at once; stale also closes an open " +
+			"problem. \"helpful\" (it saved you the work) raises it a little. Who said it and why is kept. When you " +
+			"know what is true instead, the lead can write that down; this only says the old one can't be trusted.",
+		Schema: object([]string{"memory", "verdict"}, map[string]any{
+			"memory":  str("the memory's id from search_memory, or its title exactly as you were shown it"),
+			"verdict": choiceOf("what you found", "wrong", "stale", "helpful"),
+			"why":     str("what you found, in a line: the file, command or pull request that shows it; required unless helpful"),
+		}),
+		Run: func(args json.RawMessage) (string, error) {
+			var in api.MemoryFeedbackRequest
+			if len(args) > 0 {
+				if err := json.Unmarshal(args, &in); err != nil {
+					return "", err
+				}
+			}
+			out, err := m.Feedback(ctx, in)
+			if err != nil {
+				return "", err
+			}
+			switch {
+			case out.Resolved:
+				return fmt.Sprintf("Closed %s (%q) as %s: it no longer comes back from a search.", out.Memory.ID, out.Memory.Title, in.Verdict), nil
+			case out.Memory.Importance == out.Was:
+				return fmt.Sprintf("Noted %s (%q) as %s; its importance stays %d.", out.Memory.ID, out.Memory.Title, in.Verdict, out.Was), nil
+			}
+			return fmt.Sprintf("Noted %s (%q) as %s: importance %d, was %d.", out.Memory.ID, out.Memory.Title, in.Verdict,
+				out.Memory.Importance, out.Was), nil
 		},
 	}
 }

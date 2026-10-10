@@ -1707,6 +1707,7 @@ export interface Memory {
   resolvedBy?: string;
   referencedAt?: string;
   decayedAt?: string;
+  confirmations?: number;
   promotion?: string;
   promotionAt?: string;
 }

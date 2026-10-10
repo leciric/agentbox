@@ -86,7 +86,9 @@ const (
 // HighImportance is the importance a memory needs before it is worth putting
 // in front of every consumer whether or not they searched for it. 4 and 5 are
 // "the next agent will get this wrong without it"; 3 is ordinary, and ordinary
-// belongs in a search result rather than in everybody's context.
+// belongs in a search result rather than in everybody's context. It is
+// compared with Standing, so an ordinary memory written down again
+// ConfirmedAfter times is in everybody's context too.
 const HighImportance = 4
 
 // Section kinds, which are also the order a context is rendered in and — read
@@ -388,7 +390,7 @@ func (s *Store) contextSections(ctx context.Context, req ContextRequest, working
 		if len(knowledge) == contextKnowledge {
 			break
 		}
-		if m.Importance >= HighImportance && !seen[m.ID] && m.Promotion != PromotionPromoted {
+		if m.Standing() >= HighImportance && !seen[m.ID] && m.Promotion != PromotionPromoted {
 			knowledge, seen[m.ID] = append(knowledge, m), true
 		}
 	}

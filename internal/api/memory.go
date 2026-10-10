@@ -71,11 +71,34 @@ type Memory struct {
 	// DecayedAt is the last time a consolidation took a point off this
 	// memory's importance.
 	DecayedAt time.Time `json:"decayedAt,omitzero,omitempty"`
+	// Confirmations is how many times this memory was written down again and
+	// the restatement merged into it. Search and agents' briefs weigh it.
+	Confirmations int `json:"confirmations,omitempty"`
 	// Promotion is where it stands as a candidate project note: "" until the
 	// lead is offered it, then "offered", "promoted" (it is a note now, and
 	// no brief serves it again) or "dismissed" (never offered again).
 	Promotion   string    `json:"promotion,omitempty"`
 	PromotionAt time.Time `json:"promotionAt,omitzero,omitempty"`
+}
+
+// MemoryFeedbackRequest is a reader's verdict on a memory it was handed:
+// "wrong" and "stale" drop it to the lowest importance at once (stale also
+// closes an open item), "helpful" raises it a point, up to 4.
+type MemoryFeedbackRequest struct {
+	// Memory is its id, or its title exactly as it was shown.
+	Memory  string `json:"memory"`
+	Verdict string `json:"verdict"`
+	// Why is what the reader found, in a line; required unless helpful.
+	Why string `json:"why,omitempty"`
+}
+
+// MemoryFeedbackResult is what feedback did to the memory.
+type MemoryFeedbackResult struct {
+	Memory Memory `json:"memory"` // as it is now
+	// Was is its importance before.
+	Was int `json:"was"`
+	// Resolved is true when the feedback closed it.
+	Resolved bool `json:"resolved,omitempty"`
 }
 
 // NoteSuggestion is a memory enough of a project's agents were handed in their

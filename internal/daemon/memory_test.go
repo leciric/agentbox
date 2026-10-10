@@ -296,6 +296,68 @@ func TestContextRouteOnAllThreeSurfaces(t *testing.T) {
 	}
 }
 
+// Feedback is open to every reader of a memory, agents included, and the
+// record of it says who gave it whatever the request claims.
+func TestMemoryFeedbackOnAllThreeSurfaces(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	if err := d.srv.serveAgentAPI(a.Instance); err != nil {
+		t.Fatal(err)
+	}
+	project := a.Project
+	user := d.client.ProjectMemory(project)
+	lead := api.NewClient(d.srv.leadSocketPath(project)).LeadMemory()
+	agent := api.NewClient(d.srv.agentSocketPath(a.Instance)).SelfMemory()
+
+	port, err := lead.AddMemory(ctx, api.AddMemoryRequest{Kind: api.MemoryKindProject, Importance: 5,
+		Title: "The API listens on port 7777"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue, err := lead.AddMemory(ctx, api.AddMemoryRequest{Kind: api.MemoryKindIssue, Title: "Flaky TestRetire"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := agent.Feedback(ctx, api.MemoryFeedbackRequest{Memory: port.Title, Verdict: "wrong", Why: "it is 8080 now"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Was != 5 || out.Memory.Importance != 1 || out.Resolved {
+		t.Errorf("wrong from an agent = %+v", out)
+	}
+	if out, err := lead.Feedback(ctx, api.MemoryFeedbackRequest{Memory: issue.ID, Verdict: "stale", Why: "fixed in #12"}); err != nil || !out.Resolved {
+		t.Errorf("stale from the lead = %+v, %v", out, err)
+	}
+	if _, err := user.Feedback(ctx, api.MemoryFeedbackRequest{Memory: port.ID, Verdict: "helpful"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.Feedback(ctx, api.MemoryFeedbackRequest{Memory: port.ID, Verdict: "wrong"}); err == nil {
+		t.Error("wrong with no reason was taken")
+	}
+
+	events, err := user.Events(ctx, api.EventQuery{Types: []string{"memory_feedback"}})
+	if err != nil || len(events) != 3 {
+		t.Fatalf("%d feedback events, %v", len(events), err)
+	}
+	var by []string
+	for _, e := range events {
+		var p struct{ By string }
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		by = append(by, p.By)
+	}
+	if want := []string{"user", "lead", a.Name}; strings.Join(by, ",") != strings.Join(want, ",") {
+		t.Errorf("feedback was by %v, want %v (newest first)", by, want)
+	}
+	if events[2].Agent != a.Name || events[1].Agent != "" {
+		t.Errorf("only the agent's feedback is its event: %q, %q", events[2].Agent, events[1].Agent)
+	}
+}
+
 // TestTheLeadPromotesAMemoryServedToManyAgents: once enough agents' briefs
 // have carried a memory, the lead is offered it as a note, and promoting it
 // writes the note and stops it being served. An agent can't do either.
