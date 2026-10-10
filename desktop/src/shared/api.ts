@@ -1489,6 +1489,7 @@ export interface ChatThread {
   session: ChatSession;
   items: ChatItem[];
   older?: boolean;
+  newer?: boolean;
 }
 
 export interface ChatSearch {

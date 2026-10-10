@@ -69,6 +69,23 @@ func (c *Client) ChatPage(ctx context.Context, ref, before string, limit int) (C
 	return out, c.chatDo(ctx, http.MethodGet, ref, "?"+q.Encode(), nil, &out)
 }
 
+// ChatAround returns the part of an agent's conversation around the item id:
+// n messages before it and n after, in whole turns (see ChatThread's Older
+// and Newer). An id the conversation doesn't have is an empty page.
+func (c *Client) ChatAround(ctx context.Context, ref, id string, n int) (ChatThread, error) {
+	q := url.Values{"around": {id}, "limit": {strconv.Itoa(n)}}
+	var out ChatThread
+	return out, c.chatDo(ctx, http.MethodGet, ref, "?"+q.Encode(), nil, &out)
+}
+
+// ChatAfter returns the page after the item called after, going forward far
+// enough to hold limit messages and ending where a turn does.
+func (c *Client) ChatAfter(ctx context.Context, ref, after string, limit int) (ChatThread, error) {
+	q := url.Values{"after": {after}, "limit": {strconv.Itoa(limit)}}
+	var out ChatThread
+	return out, c.chatDo(ctx, http.MethodGet, ref, "?"+q.Encode(), nil, &out)
+}
+
 // SearchChat finds query in a conversation (see ChatSearch), with at most
 // limit hits; 0 is the daemon's default.
 func (c *Client) SearchChat(ctx context.Context, ref, query string, limit int) (ChatSearch, error) {

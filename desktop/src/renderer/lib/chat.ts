@@ -72,16 +72,136 @@ export async function loadOlder(queryClient: QueryClient, ref: string): Promise<
   return next !== now;
 }
 
-// loadThrough reads a chat back as far as the item id, older than anything it
-// holds, which a search found: everything from that item's turn on, in one
-// read, as scrolling up to it would have. It answers whether the chat holds
-// the item now.
-export async function loadThrough(queryClient: QueryClient, ref: string, id: string): Promise<boolean> {
-  const has = (thread?: T.ChatThread) => !!thread?.items.some((it) => it.id === id);
-  if (has(queryClient.getQueryData<T.ChatThread>(chatKey(ref)))) return true;
-  const thread = await fetchThread(queryClient, ref, id);
-  queryClient.setQueryData(chatKey(ref), thread);
-  return has(thread);
+// A search result in a long chat opens a window on it rather than reading the
+// whole chat back to it: the result with windowSide messages on each side
+// (GET …/chat?around=), read further back (loadWindowOlder) and forward
+// (loadWindowNewer) as you scroll. The window is held apart from the chat's
+// thread, which stays its latest page for the composer and everything else
+// that reads the chat's end; the timeline shows the window while there is
+// one. Reaching the chat's end joins the two (joinWindow), and "Jump to
+// latest" drops the window (dropWindow).
+export const windowSide = 5;
+export const chatWindowKey = (ref: string) => ['chatWindow', ref];
+
+export const holds = (thread: T.ChatThread | null | undefined, id: string) => !!thread?.items.some((it) => it.id === id);
+
+// openWindow opens a window on the item id. A window that reaches the chat's
+// thread is joined to it instead. It answers whether the chat shows the item
+// now: false for one the daemon no longer has (cleared meanwhile).
+export async function openWindow(queryClient: QueryClient, ref: string, id: string): Promise<boolean> {
+  const page = await api.chat(ref, { around: id, limit: windowSide });
+  if (!holds(page, id)) return false;
+  const events = recent.get(ref) ?? [];
+  if (events.some((ev) => ev.seq > page.seq && ev.cleared)) return false;
+  setWindow(queryClient, ref, { ...page, items: catchUp(page.items, page.seq, events) });
+  return true;
+}
+
+// loadWindowOlder reads the page before a window and puts it in front, as
+// loadOlder does for the chat. It answers whether it added anything.
+export async function loadWindowOlder(queryClient: QueryClient, ref: string): Promise<boolean> {
+  const held = queryClient.getQueryData<T.ChatThread | null>(chatWindowKey(ref));
+  const first = held?.items[0];
+  if (!held?.older || !first) return false;
+  const page = await api.chat(ref, { before: first.id, limit: pageSize });
+  const now = queryClient.getQueryData<T.ChatThread | null>(chatWindowKey(ref));
+  // Dropped, or another window opened, meanwhile.
+  if (!now || now.items[0]?.id !== first.id) return false;
+  const next = prependPage(now, page, recent.get(ref) ?? []);
+  if (next !== now) queryClient.setQueryData(chatWindowKey(ref), next);
+  return next !== now;
+}
+
+// loadWindowNewer reads the page after a window and puts it at its end,
+// joining the window to the chat once it gets there.
+export async function loadWindowNewer(queryClient: QueryClient, ref: string): Promise<boolean> {
+  const held = queryClient.getQueryData<T.ChatThread | null>(chatWindowKey(ref));
+  const last = held?.items.at(-1);
+  if (!held?.newer || !last) return false;
+  const page = await api.chat(ref, { after: last.id, limit: pageSize });
+  const now = queryClient.getQueryData<T.ChatThread | null>(chatWindowKey(ref));
+  if (!now || now.items.at(-1)?.id !== last.id) return false;
+  const next = appendPage(now, page, recent.get(ref) ?? []);
+  if (next === now) return false;
+  setWindow(queryClient, ref, next);
+  return true;
+}
+
+// dropWindow goes back to the chat's end.
+export function dropWindow(queryClient: QueryClient, ref: string): void {
+  if (queryClient.getQueryData(chatWindowKey(ref))) queryClient.setQueryData(chatWindowKey(ref), null);
+}
+
+// setWindow holds a window, or joins it to the chat when it reaches it.
+function setWindow(queryClient: QueryClient, ref: string, win: T.ChatThread): void {
+  const live = queryClient.getQueryData<T.ChatThread>(chatKey(ref));
+  const joined = live && joinWindow(win, live);
+  if (joined) {
+    queryClient.setQueryData(chatKey(ref), joined);
+    queryClient.setQueryData(chatWindowKey(ref), null);
+  } else queryClient.setQueryData(chatWindowKey(ref), win);
+}
+
+// joinWindow is the chat with a window put in front of it, when the window
+// has reached it: it holds the chat's first item, or it runs to the end of
+// the conversation as of the chat's own events, so it is the chat's latest
+// part itself. Otherwise there is a gap between them, and it is undefined.
+export function joinWindow(win: T.ChatThread, live: T.ChatThread): T.ChatThread | undefined {
+  const first = live.items[0];
+  const k = first ? win.items.findIndex((it) => it.id === first.id) : -1;
+  if (k >= 0) return { ...live, items: [...win.items.slice(0, k), ...live.items], older: win.older };
+  if (!win.newer && win.seq >= live.seq) return { ...live, items: win.items, older: win.older };
+  return undefined;
+}
+
+// appendPage puts a newer page at the end of a window, the way prependPage
+// puts an older one in front.
+export function appendPage(win: T.ChatThread, page: T.ChatThread, events: T.ChatEvent[]): T.ChatThread {
+  if (events.some((ev) => ev.seq > page.seq && ev.cleared)) return win;
+  const held = new Set(win.items.map((it) => it.id));
+  const items = catchUp(
+    page.items.filter((it) => !held.has(it.id)),
+    page.seq,
+    events,
+  );
+  if (items.length === 0 && page.newer === win.newer) return win;
+  return { ...win, items: [...win.items, ...items], newer: page.newer, seq: Math.max(win.seq, page.seq) };
+}
+
+// applyWindowEvent is what an event does to a window, which holds part of the
+// middle of the chat: it changes the items it holds, and nothing arrives at
+// its end, which isn't the chat's. A clear drops it (null), and so does a
+// rollback to before it; one to an item in it makes the rest of it go, and
+// leaves it at the chat's end. liveHeld says the chat's thread holds the
+// rollback's item, which is then after the window, which it leaves alone.
+export function applyWindowEvent(win: T.ChatThread, ev: T.ChatEvent, liveHeld: boolean): T.ChatThread | null {
+  if (ev.seq <= win.seq) return win;
+  if (ev.cleared) return null;
+  if (ev.after) {
+    const i = indexOf(win.items, ev.after);
+    if (i >= 0) return { ...win, seq: ev.seq, items: win.items.slice(0, i + 1), newer: false };
+    return liveHeld ? { ...win, seq: ev.seq } : null;
+  }
+  const id = ev.item?.id ?? ev.append?.id;
+  const i = id === undefined ? -1 : indexOf(win.items, id);
+  if (i < 0) return { ...win, seq: ev.seq };
+  if (ev.item) return { ...win, seq: ev.seq, items: win.items.with(i, ev.item) };
+  if (ev.append) return { ...win, seq: ev.seq, items: win.items.with(i, { ...win.items[i], text: (win.items[i].text ?? '') + ev.append.text }) };
+  return { ...win, seq: ev.seq };
+}
+
+// catchUp applies to a page's items the events after its seq that changed
+// them, which a thread that didn't hold them skipped.
+function catchUp(items: T.ChatItem[], seq: number, events: T.ChatEvent[]): T.ChatItem[] {
+  for (const ev of events) {
+    if (ev.seq <= seq) continue;
+    const id = ev.item?.id ?? ev.append?.id;
+    const i = id === undefined ? -1 : items.findIndex((it) => it.id === id);
+    if (i < 0) continue;
+    if (ev.item) items = items.with(i, ev.item);
+    else if (ev.append) items = items.with(i, { ...items[i], text: (items[i].text ?? '') + ev.append.text });
+  }
+  return items;
 }
 
 // prependPage puts an older page in front of a thread. The page is as of its
@@ -89,19 +209,11 @@ export async function loadThrough(queryClient: QueryClient, ref: string, id: str
 // for not having them, are applied to it here. A chat cleared after it makes
 // it history nobody has any more.
 export function prependPage(thread: T.ChatThread, page: T.ChatThread, events: T.ChatEvent[]): T.ChatThread {
-  const later = events.filter((ev) => ev.seq > page.seq);
-  if (later.some((ev) => ev.cleared)) return thread;
+  if (events.some((ev) => ev.seq > page.seq && ev.cleared)) return thread;
   const held = new Set(thread.items.map((it) => it.id));
-  let items = page.items.filter((it) => !held.has(it.id));
+  const items = page.items.filter((it) => !held.has(it.id));
   if (items.length === 0 && page.older === thread.older) return thread;
-  for (const ev of later) {
-    const id = ev.item?.id ?? ev.append?.id;
-    const i = id === undefined ? -1 : items.findIndex((it) => it.id === id);
-    if (i < 0) continue;
-    if (ev.item) items = items.with(i, ev.item);
-    else if (ev.append) items = items.with(i, { ...items[i], text: (items[i].text ?? '') + ev.append.text });
-  }
-  return { ...thread, items: [...items, ...thread.items], older: page.older };
+  return { ...thread, items: [...catchUp(items, page.seq, events), ...thread.items], older: page.older };
 }
 
 export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void {
@@ -129,10 +241,19 @@ export function applyChatEvent(queryClient: QueryClient, ev: T.ChatEvent): void 
   // A turn's checkpoint was taken, or a rollback dropped the later ones.
   if (ev.checkpoint || ev.after) void queryClient.invalidateQueries({ queryKey: ['checkpoints', ev.agent] });
   const thread = queryClient.getQueryData<T.ChatThread>(chatKey(ev.agent));
+  const win = queryClient.getQueryData<T.ChatThread | null>(chatWindowKey(ev.agent));
+  if (win) {
+    const next = applyWindowEvent(win, ev, !!ev.after && holds(thread, ev.after));
+    if (next === null) dropWindow(queryClient, ev.agent);
+    else if (next !== win) queryClient.setQueryData(chatWindowKey(ev.agent), next);
+  }
   if (!thread) return;
   const next = advance(thread, [ev]);
   if (next === 'gap') void queryClient.invalidateQueries({ queryKey: chatKey(ev.agent) });
   else if (next !== thread) queryClient.setQueryData(chatKey(ev.agent), next);
+  // A rollback into the window leaves it at the chat's end: it is the chat now.
+  const left = queryClient.getQueryData<T.ChatThread | null>(chatWindowKey(ev.agent));
+  if (left && !left.newer && next !== 'gap') setWindow(queryClient, ev.agent, left);
 }
 
 // advance applies events in order. Events the thread already includes are

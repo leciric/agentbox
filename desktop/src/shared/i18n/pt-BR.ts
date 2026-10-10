@@ -1345,6 +1345,8 @@ export const ptBR: Messages = {
   'chat.find.newer': 'Resultado seguinte (Shift+Enter)',
   'chat.find.close': 'Fechar (Esc)',
   'chat.tab.loadingOlder': 'Carregando mensagens anteriores',
+  'chat.tab.loadingNewer': 'Carregando mensagens seguintes',
+  'chat.tab.jumpToLatest': 'Ir para as mais recentes',
   'chat.tab.scrollToEnd': 'Ir para o fim',
   'chat.tab.newChatTip': 'Começar uma nova conversa',
   'chat.tab.newChat': 'Novo chat',

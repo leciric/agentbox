@@ -15,6 +15,10 @@ type ChatThread struct {
 	// it (GET …/chat?limit=&before=), and the next one back starts before
 	// Items[0].
 	Older bool `json:"older,omitempty"`
+	// Newer says the conversation has items after these: a page read around
+	// an item (GET …/chat?around=&limit=) or after one (after=), which the
+	// next one forward continues from Items[len-1]. The latest page has none.
+	Newer bool `json:"newer,omitempty"`
 }
 
 // ChatSearch is what a search of a conversation found (GET …/chat/search?q=):

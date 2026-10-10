@@ -47,6 +47,18 @@ func TestChatIsReadAPageAtATime(t *testing.T) {
 	if err != nil || len(first.Items) != 2 || first.Items[0].ID != "m0-0" || first.Older {
 		t.Fatalf("ChatPage(before m1-0) = %+v, %v; want the first turn, and nothing older", first.Items, err)
 	}
+	// A search result opens around it, and pages forward from there.
+	around, err := d.client.ChatAround(ctx, "hello-stack", "m5-0", 2)
+	if err != nil || len(around.Items) != 6 || around.Items[0].ID != "m4-0" || around.Items[5].ID != "m6-1" || !around.Older || !around.Newer {
+		t.Fatalf("ChatAround(m5-0, 2) = %+v, %v; want m4-0 through m6-1, with more on both sides", around.Items, err)
+	}
+	next, err := d.client.ChatAfter(ctx, "hello-stack", "m6-1", 4)
+	if err != nil || len(next.Items) != 4 || next.Items[0].ID != "m7-0" || !next.Newer {
+		t.Fatalf("ChatAfter(m6-1, 4) = %+v, %v; want m7 and m8, and more", next.Items, err)
+	}
+	if end, err := d.client.ChatAfter(ctx, "hello-stack", "m8-1", 4); err != nil || len(end.Items) != 2 || end.Newer {
+		t.Fatalf("ChatAfter(m8-1, 4) = %+v, %v; want the last turn, and nothing newer", end.Items, err)
+	}
 	if _, err := d.client.ChatPage(ctx, "hello-stack", "", -1); err == nil {
 		t.Error("a limit below 0 was taken")
 	}

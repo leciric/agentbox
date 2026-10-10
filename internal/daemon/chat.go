@@ -72,10 +72,16 @@ func (s *Server) getChat(from agentFrom) func(http.ResponseWriter, *http.Request
 			}
 		}
 		// from is the oldest item the app holds, when it reads the chat again:
-		// it gets everything since, so nothing it shows goes missing.
+		// it gets everything since, so nothing it shows goes missing. around
+		// is what a search found, with limit messages on each side of it, and
+		// after is the next page forward from there.
 		var thread api.ChatThread
 		if from := q.Get("from"); from != "" {
 			thread, err = s.chat.Reread(a, from, limit)
+		} else if around := q.Get("around"); around != "" {
+			thread, err = s.chat.Around(a, around, limit)
+		} else if after := q.Get("after"); after != "" {
+			thread, err = s.chat.PageAfter(a, after, limit)
 		} else {
 			thread, err = s.chat.Page(a, q.Get("before"), limit)
 		}
