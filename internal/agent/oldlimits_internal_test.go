@@ -34,7 +34,8 @@ func stepArgs(t *testing.T, steps []incusStep) [][]string {
 
 // What an earlier release set on a machine comes off, key by key, and its
 // place in the shared budget's cgroup with it; a machine with none of it is
-// left alone, and so is anything else in raw.lxc.
+// left alone, and so is anything else in raw.lxc. limits.cpu stays: it's the
+// agent's CPU share now, which the daemon replaces (cpushare.go).
 func TestOldLimitSteps(t *testing.T) {
 	if steps := oldLimitSteps("i", map[string]string{"raw.idmap": "both 1000 1000"}, map[string]map[string]string{"worktree": {"type": "disk"}}); steps != nil {
 		t.Errorf("nothing of an earlier release's: %d steps", len(steps))
@@ -46,7 +47,6 @@ func TestOldLimitSteps(t *testing.T) {
 	}, map[string]map[string]string{"agentbox-gpu": {"type": "gpu"}}))
 	want := [][]string{
 		{"config", "device", "remove", "i", "agentbox-gpu"},
-		{"config", "unset", "i", "limits.cpu"},
 		{"config", "unset", "i", "limits.memory"},
 		{"config", "unset", "i", "limits.cpu.priority"},
 		{"config", "unset", "i", "limits.memory.swap"},
