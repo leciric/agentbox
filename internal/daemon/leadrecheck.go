@@ -17,19 +17,17 @@ import (
 
 // "Lead rechecks agents": while on, every SettingLeadRecheckMinutes the daemon
 // looks at each project, and when there is something its chat could act on —
-// agents are queued, or an agent has sat idle for a whole recheck — it wakes
-// the chat with a short status: each running agent's idle time, last report,
-// whether it finished, its pull request, what it uses now and at its peak, and
-// the queue's length and free slots. The chat may then retire a finished
-// agent that was never stopped, which frees its slot for the next queued one;
-// its brief says so, and that it must never retire one with uncommitted or
-// unpushed work.
+// an agent has sat idle for a whole recheck — it wakes the chat with a short
+// status: each running agent's idle time, last report, whether it finished,
+// its pull request and what it uses now. The chat may then retire a finished
+// agent that was never stopped, which frees its memory; its brief says so,
+// and that it must never retire one with uncommitted or unpushed work.
 //
 // The status is re-sent on every step of the turn it starts, so it is kept to
 // a line an agent. A project with nothing to act on costs nothing: no turn is
 // started. Nor is one started for the same state twice — an idle agent the
 // chat chose to keep isn't brought up again every twenty minutes, only when
-// something about it or the queue changes.
+// something about it changes.
 
 // recheckAgent is one running agent, as the recheck reports it.
 type recheckAgent struct {
@@ -44,15 +42,12 @@ type recheckAgent struct {
 	Dirty       bool          // uncommitted work
 	Unpushed    bool          // commits that are neither merged nor on a remote
 	Memory      int64
-	MemoryPeak  int64
 	CPU         float64
-	CPUPeak     float64
 }
 
 // recheckInput is one project, as the recheck sees it.
 type recheckInput struct {
-	Queued, Slots, Free int
-	Agents              []recheckAgent
+	Agents []recheckAgent
 }
 
 // recheckNote decides whether a project's chat is worth waking, and with
@@ -69,17 +64,16 @@ func recheckNote(in recheckInput, idleAfter time.Duration) (note, key string, wa
 			idle = append(idle, a)
 		}
 	}
-	if in.Queued == 0 && len(idle) == 0 {
+	if len(idle) == 0 {
 		return "", "", false
 	}
 	var k strings.Builder
-	fmt.Fprintf(&k, "q%d f%d", in.Queued, in.Free)
 	for _, a := range idle {
 		fmt.Fprintf(&k, " %s:%t:%t:%t:%s", a.Name, a.Finished, a.Dirty, a.Unpushed, a.PR)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "[recheck] Queue: %d waiting, %d of %d slots free.", in.Queued, in.Free, in.Slots)
+	b.WriteString("[recheck]")
 	for _, a := range in.Agents {
 		fmt.Fprintf(&b, "\n- %s", a.Name)
 		var parts []string
@@ -107,7 +101,7 @@ func recheckNote(in recheckInput, idleAfter time.Duration) (note, key string, wa
 		case a.Unpushed:
 			parts = append(parts, "UNPUSHED commits")
 		}
-		parts = append(parts, fmt.Sprintf("mem %s/%s peak, cpu %.0f%%/%.0f%%", gibs(a.Memory), gibs(a.MemoryPeak), a.CPU, a.CPUPeak))
+		parts = append(parts, fmt.Sprintf("mem %s, cpu %.0f%%", gibs(a.Memory), a.CPU))
 		b.WriteString(" " + strings.Join(parts, "; "))
 	}
 	b.WriteString("\nRetire (stop) a finished agent still holding its machine, if nothing more is needed from it; never one with uncommitted or unpushed work. Nothing to do: say nothing.")
@@ -137,7 +131,6 @@ func (s *Server) recheckLeads(ctx context.Context, now time.Time) {
 		s.logf("lead recheck: %v", err)
 		return
 	}
-	var slots *api.QueueStatus
 	for _, p := range projects {
 		s.mu.Lock()
 		due := now.Sub(s.recheckedAt[p.Name]) >= every
@@ -151,15 +144,7 @@ func (s *Server) recheckLeads(ctx context.Context, now time.Time) {
 		if _, err := s.manager(nil).Lead(ctx, p.Name); err != nil {
 			continue // no chat to wake: a project never chatted with costs nothing
 		}
-		if slots == nil {
-			st, err := s.slotStatus(ctx)
-			if err != nil {
-				s.logf("lead recheck: %v", err)
-				return
-			}
-			slots = &st
-		}
-		in, err := s.recheckInput(ctx, p, *slots, now)
+		in, err := s.recheckInput(ctx, p, now)
 		if err != nil {
 			s.logf("lead recheck of %s: %v", p.Name, err)
 			continue
@@ -177,13 +162,8 @@ func (s *Server) recheckLeads(ctx context.Context, now time.Time) {
 }
 
 // recheckInput gathers what the recheck reports about one project.
-func (s *Server) recheckInput(ctx context.Context, p state.Project, slots api.QueueStatus, now time.Time) (recheckInput, error) {
+func (s *Server) recheckInput(ctx context.Context, p state.Project, now time.Time) (recheckInput, error) {
 	var in recheckInput
-	for _, ps := range slots.Projects {
-		if ps.Project == p.Name {
-			in.Queued, in.Slots, in.Free = ps.Queued, ps.Slots, max(ps.Slots-ps.Running, 0)
-		}
-	}
 	m := s.manager(nil)
 	statuses, err := m.List(ctx, p.Name)
 	if err != nil {
@@ -226,14 +206,12 @@ func (s *Server) recheckInput(ctx context.Context, p state.Project, slots api.Qu
 			prs[w.Agent] = pr
 		}
 	}
-	peaks, _ := s.store.UsagePeaks(ctx, p.Name)
 	repo, repoErr := gitrepo.Open(p.Root)
 	for _, st := range statuses {
-		if st.IsLead() || !holdsSlot(st.State) {
+		if st.IsLead() || !hasMachine(st.State) {
 			continue
 		}
-		a := recheckAgent{Name: st.Name, Title: st.Title, Finished: finished[st.Name], PR: prs[st.Name],
-			MemoryPeak: peaks[st.Name].Memory, CPUPeak: peaks[st.Name].CPU}
+		a := recheckAgent{Name: st.Name, Title: st.Title, Finished: finished[st.Name], PR: prs[st.Name]}
 		since, busy := s.autoStopIdleSince(ctx, m, st, waiting[st.Name], now)
 		a.Busy = busy || st.State != "running"
 		if !a.Busy && !since.IsZero() {

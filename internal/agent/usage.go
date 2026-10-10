@@ -162,9 +162,7 @@ func HostMemory() int64 {
 // MemAvailable is the guest's real spare memory right now: /proc/meminfo's
 // MemAvailable, what could be given out without swapping, the same figure
 // the host's Cloud Hypervisor supervisor grows the VM ahead of (package
-// hostvm/chv). It is not what admission's bookkeeping of baselines and
-// leases adds up to, which Admit's sanity bound checks it against. 0 when
-// /proc/meminfo can't be read.
+// hostvm/chv). 0 when /proc/meminfo can't be read.
 func MemAvailable() int64 {
 	total, used, err := hostMemory()
 	if err != nil {

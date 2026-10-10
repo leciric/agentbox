@@ -38,7 +38,6 @@ function recorder() {
     deleteTask: record('deleteTask'),
     startTask: record('startTask'),
     unqueueTask: record('unqueueTask'),
-    moveQueued: record('moveQueued'),
   };
   return { calls, actions: taskActions(api, 'p') };
 }
@@ -56,8 +55,8 @@ test("a task's lane follows its agent: queued, running, or gone", () => {
 
 test('the queue is in the order it starts, the backlog newest first', () => {
   const agents = new Map([
-    ['a1', { state: 'queued', queuePosition: 2, createdAt: '2026-10-01T00:00:02Z' }],
-    ['a2', { state: 'queued', queuePosition: 1, createdAt: '2026-10-01T00:00:01Z' }],
+    ['a1', { state: 'queued', createdAt: '2026-10-01T00:00:02Z' }],
+    ['a2', { state: 'queued', createdAt: '2026-10-01T00:00:01Z' }],
     ['a3', { state: 'running', createdAt: '2026-10-01T00:00:00Z' }],
   ]);
   const lanes = taskLanes(
@@ -84,7 +83,7 @@ test('the queue is in the order it starts, the backlog newest first', () => {
 
 test('the Open list is the queue, in progress and the backlog; Done is the rest, latest closed first', () => {
   const agents = new Map([
-    ['a1', { state: 'queued', queuePosition: 1, createdAt: '2026-10-01T00:00:01Z' }],
+    ['a1', { state: 'queued', createdAt: '2026-10-01T00:00:01Z' }],
     ['a2', { state: 'running', createdAt: '2026-10-01T00:00:00Z' }],
   ]);
   const lanes = taskLanes(
@@ -174,8 +173,8 @@ test("a task queued for the lead is queued, one the lead has is running, and nei
 
 test('a task queued for the lead waits behind the agents queued before it', () => {
   const agents = new Map([
-    ['a1', { state: 'queued', queuePosition: 1, createdAt: '2026-10-01T00:00:01Z' }],
-    ['a2', { state: 'queued', queuePosition: 2, createdAt: '2026-10-01T00:00:05Z' }],
+    ['a1', { state: 'queued', createdAt: '2026-10-01T00:00:01Z' }],
+    ['a2', { state: 'queued', createdAt: '2026-10-01T00:00:05Z' }],
   ]);
   const lanes = taskLanes([task('t1', { agent: 'a1' }), task('t2', { agent: 'a2' }), task('t3', { leadQueuedAt: '2026-10-01T00:00:03Z' })], agents);
   assert.deepEqual(
@@ -215,17 +214,7 @@ test('a task whose agent is gone is let go before it is queued again', async () 
   ]);
 });
 
-test('reordering moves the queued agent, never above first', async () => {
-  const { calls, actions } = recorder();
-  await actions.move('a2', 1);
-  await actions.move('a1', 0);
-  assert.deepEqual(calls, [
-    ['moveQueued', 'p', 'a2', 1],
-    ['moveQueued', 'p', 'a1', 1],
-  ]);
-});
-
-test('with the queue off, starting a task sends it now', async () => {
+test('starting a task sends it now', async () => {
   const { calls, actions } = recorder();
   await actions.start(task('t1'), undefined);
   assert.deepEqual(calls, [['startTask', 'p', 't1', {}]]);

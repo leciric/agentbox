@@ -279,17 +279,6 @@ export const api = {
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
 
-  // The agent queue (per-project slots): every project's slots always, and
-  // one project's queued agents when named. queue() without a project is what
-  // the sidebar reads for every project's own slot count; a project's Tasks
-  // tab and Settings pass their own name for the queue itself.
-  queue: (project?: string) => call<T.QueueStatus>('GET', `/v1/queue${project ? `?project=${encodeURIComponent(project)}` : ''}`),
-  moveQueued: (project: string, agent: string, position: number) =>
-    call<T.QueueStatus>('POST', `/v1/queue/${encodeURIComponent(project)}/${encodeURIComponent(agent)}/move`, { position } satisfies T.MoveQueuedRequest),
-  removeQueued: (project: string, agent: string) => call<void>('DELETE', `/v1/queue/${encodeURIComponent(project)}/${encodeURIComponent(agent)}`),
-  // Starts a queued agent whatever the VM's memory and its project's slots say.
-  startQueued: (project: string, agent: string) => call<void>('POST', `/v1/queue/${encodeURIComponent(project)}/${encodeURIComponent(agent)}/start`),
-
   // What a project's agents reported, newest first, which the rail reads for
   // when each last did; and the questions they asked, which the avatars and
   // the credential cards read.

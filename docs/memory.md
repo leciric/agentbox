@@ -199,9 +199,8 @@ it, since its task is narrower. This is the slice that lands in an agent's brief
 ## Tasks
 
 A project's tasks are a list only the user manages, in the app's Tasks tab: they create, edit and
-delete them, and each sits in the **Backlog** (the default) or in the **Queue**. With the agent
-queue on, queueing a task hands it to the queue as a queued agent; queued tasks can be reordered or
-sent back to the backlog. With it off, a task's **Start** makes its agent at once. Nothing else
+delete them, and a task's **Start** makes its agent at once (or sends it to the project's chat,
+as "Tasks go to" says): nothing waits in a queue. Nothing else
 writes a task: not an agent's creation or finish, not the lead, not consolidation. The lead reads
 the list in `project_state`, and an agent reads its own with `my_task`; neither can change it, and
 it isn't part of an agent's brief.

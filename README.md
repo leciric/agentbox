@@ -104,6 +104,17 @@ shared with the VM at the same path, so projects and agents' worktrees stay wher
 the VM's agents when your CPU's KVM module has nested virtualization on (`nested=1`), and boot in
 30–50 seconds rather than 20–25; GPUs aren't available in the VM.
 
+Agents share the VM's memory, and every agent starts at once. Each agent's machine may use all of
+the VM's memory cap but an eighth (at least 1 GiB): a process that outgrows that is stopped at
+once, and its agent is told what was stopped and to run fewer test workers at once. When memory
+runs short, it's the agents' tests and builds that give way: new ones wait to start (in the order
+they asked), and if pressure stays high the newest one already running is paused, its memory moved
+to swap, and resumed once it eases. For that the VM gets compressed swap in memory (zram, a quarter
+of its cap) as AgentBox starts, used before any swapfile from `agentbox vm swap on`. The oldest one
+always keeps running, so they all finish in turn. The agent shows **Paused for memory** or
+**Waiting for memory** meanwhile. Claude Code agents do this around their tests and builds by
+themselves; any other command can join in as `agentbox heavy -- <command>`.
+
 ### Moving an installation from before the VM
 
 Earlier versions could also run agents directly on your computer's own Incus. An installation set
@@ -238,10 +249,10 @@ isn't counted twice:
   reasoning tokens, and whether it used subagents.
 - `heartbeat`, once a day: how many projects and agents there are and the most agents at once,
   how AgentBox runs (`chv`, `lima`, `wsl` or `host`), the VM's memory in a range such as `16_32g`,
-  the app's language, the update channel, whether the agent queue, its shared memory budget and
-  nesting are on, and how many connectors, Claude accounts and GitHub accounts there are.
-- `agent.finished`, as an agent is destroyed or retired: its AI tool, how long it lived and waited
-  in the queue in a range such as `30m_2h`, and whether it opened a pull request and had one merged.
+  the app's language, the update channel, whether nesting is on, and how many connectors, Claude
+  accounts and GitHub accounts there are.
+- `agent.finished`, as an agent is destroyed or retired: its AI tool, how long it lived in a range
+  such as `30m_2h`, and whether it opened a pull request and had one merged.
 - `error`, by a fixed code such as `create_failed`, `image_build_failed`, `adapter_crashed` or
   `auth_failed`, with the AI tool involved, never the error's text.
 - `setup`, the first time a new installation reaches each step (`setup_started`, `image_built`,

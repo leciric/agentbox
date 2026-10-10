@@ -66,8 +66,6 @@ type heartbeatEvent struct {
 	VMMemory       string `json:"vm_memory"`
 	Language       string `json:"language"`
 	UpdateChannel  string `json:"update_channel"`
-	Queue          bool   `json:"queue"`
-	SharedBudget   bool   `json:"shared_budget"`
 	Nesting        bool   `json:"nesting"`
 	Connectors     int    `json:"connectors"`
 	ClaudeAccounts int    `json:"claude_accounts"`
@@ -79,7 +77,6 @@ type agentFinishedEvent struct {
 	Tool     string `json:"tool"`
 	How      string `json:"how"` // destroyed or retired
 	Lifetime string `json:"lifetime"`
-	Queued   string `json:"queued"`
 	PROpened bool   `json:"pr_opened"`
 	PRMerged bool   `json:"pr_merged"`
 }
@@ -119,14 +116,12 @@ const (
 
 // The settings the events keep between days: when the setup began, which of
 // its steps were sent, the day the last heartbeat was for, the most agents
-// there were at once and on which day, and how long each agent waited in the
-// queue (by its id) until it finishes.
+// there were at once and on which day.
 const (
-	settingUsageSetupAt     = "usage_setup_at"
-	settingUsageSetupSteps  = "usage_setup_steps"
-	settingUsageHeartbeat   = "usage_heartbeat_day"
-	settingUsagePeak        = "usage_peak"
-	settingUsageQueuedAgent = "usage_queued."
+	settingUsageSetupAt    = "usage_setup_at"
+	settingUsageSetupSteps = "usage_setup_steps"
+	settingUsageHeartbeat  = "usage_heartbeat_day"
+	settingUsagePeak       = "usage_peak"
 )
 
 // recordEvent keeps one event, when the stats are on. Like a count, one that
@@ -225,15 +220,6 @@ func (s *Server) recordError(code, ai string) {
 	s.recordEvent(eventError, errorEvent{Code: code, Tool: tool})
 }
 
-// noteAgentQueued keeps how long a queued agent waited, for its
-// agent.finished.
-func (s *Server) noteAgentQueued(ctx context.Context, a state.Agent, waited time.Duration) {
-	if a.ID == "" || !s.usageStatsOn(ctx) {
-		return
-	}
-	_ = s.store.SetSetting(ctx, settingUsageQueuedAgent+a.ID, strconv.FormatInt(int64(waited/time.Second), 10))
-}
-
 // recordAgentFinished keeps an agent.finished for a, which was just destroyed
 // or retired (how). Whether it opened a pull request, and whether one was
 // merged, is what the project's memory recorded about it.
@@ -241,20 +227,10 @@ func (s *Server) recordAgentFinished(ctx context.Context, a state.Agent, how str
 	if a.IsLead() {
 		return
 	}
-	queued := "none"
-	if a.ID != "" {
-		key := settingUsageQueuedAgent + a.ID
-		if raw, err := s.store.Setting(ctx, key); err == nil && raw != "" {
-			if secs, err := strconv.ParseInt(raw, 10, 64); err == nil {
-				queued = usageSpan(time.Duration(secs) * time.Second)
-			}
-			_ = s.store.DeleteSetting(ctx, key)
-		}
-	}
 	if !s.usageStatsOn(ctx) {
 		return
 	}
-	e := agentFinishedEvent{Tool: "none", How: how, Lifetime: usageSpan(time.Since(a.CreatedAt)), Queued: queued}
+	e := agentFinishedEvent{Tool: "none", How: how, Lifetime: usageSpan(time.Since(a.CreatedAt))}
 	if a.AI == "claude" || a.AI == "codex" || a.AI == "opencode" || a.AI == "cursor" {
 		e.Tool = a.AI
 	}
@@ -424,12 +400,8 @@ func (s *Server) heartbeat(ctx context.Context) (heartbeatEvent, error) {
 	if channel == update.ChannelStable || channel == update.ChannelNightly {
 		hb.UpdateChannel = channel
 	}
-	hb.Queue, _ = s.store.FlagOn(ctx, state.SettingAgentQueue)
 	for _, p := range projects {
 		hb.Nesting = hb.Nesting || p.Nesting
-		// Auto slots are shared out of the VM's memory; a fixed number is
-		// the project's own.
-		hb.SharedBudget = hb.SharedBudget || (hb.Queue && p.Slots == 0)
 	}
 	if connectors, err := s.store.AllConnectors(ctx); err == nil {
 		hb.Connectors = len(connectors)

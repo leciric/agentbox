@@ -156,18 +156,28 @@ func (c *Client) Fleet(ctx context.Context, project string) (Fleet, error) {
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/fleet", nil, &out)
 }
 
-// AcquireBurst asks, inside an agent, for a lease on the VM's burst pool,
-// waiting for one (BurstRequest).
-func (c *Client) AcquireBurst(ctx context.Context, req BurstRequest) (BurstLease, error) {
-	var out BurstLease
-	return out, c.do(ctx, http.MethodPost, "/v1/self/burst", req, &out)
+// StartHeavy asks, inside an agent, to start a heavy command, waiting while
+// the VM's memory is under pressure (HeavyRequest).
+func (c *Client) StartHeavy(ctx context.Context, req HeavyRequest) (HeavyStart, error) {
+	var out HeavyStart
+	return out, c.do(ctx, http.MethodPost, "/v1/self/heavy", req, &out)
 }
 
-// ReleaseBurst gives a heavy phase's key back, and the lease with it once the
-// agent holds no other.
-func (c *Client) ReleaseBurst(ctx context.Context, key string) (BurstLease, error) {
-	var out BurstLease
-	return out, c.do(ctx, http.MethodDelete, "/v1/self/burst/"+url.PathEscape(key), nil, &out)
+// JoinHeavy puts a process of the agent's in a started heavy command's
+// cgroup, so pausing the command pauses it and what it starts.
+func (c *Client) JoinHeavy(ctx context.Context, key string, pid int) error {
+	return c.do(ctx, http.MethodPost, "/v1/self/heavy/"+url.PathEscape(key)+"/join", HeavyJoin{PID: pid}, nil)
+}
+
+// EndHeavy says a heavy command ended.
+func (c *Client) EndHeavy(ctx context.Context, key string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/self/heavy/"+url.PathEscape(key), nil, nil)
+}
+
+// Pressure is the VM's memory pressure and the heavy commands it holds.
+func (c *Client) Pressure(ctx context.Context) (PressureStatus, error) {
+	var out PressureStatus
+	return out, c.do(ctx, http.MethodGet, "/v1/pressure", nil, &out)
 }
 
 // Ask puts a question to the project's chat and waits for the answer. Only an
@@ -1036,47 +1046,6 @@ func (c *Client) DisconnectRemote(ctx context.Context) error {
 func (c *Client) Self(ctx context.Context) (Self, error) {
 	var out Self
 	return out, c.do(ctx, http.MethodGet, "/v1/self", nil, &out)
-}
-
-// Queue is the agent queue: every project's slots, and the agents waiting for
-// one, all projects' for "".
-func (c *Client) Queue(ctx context.Context, project string) (QueueStatus, error) {
-	var out QueueStatus
-	path := "/v1/queue"
-	if project != "" {
-		path += "?project=" + url.QueryEscape(project)
-	}
-	return out, c.do(ctx, http.MethodGet, path, nil, &out)
-}
-
-// MoveQueued puts a queued agent at position in its project's queue, 1 for
-// next, and returns the queue afterwards.
-func (c *Client) MoveQueued(ctx context.Context, ref string, position int) (QueueStatus, error) {
-	var out QueueStatus
-	project, name, ok := strings.Cut(ref, "/")
-	if !ok {
-		return out, fmt.Errorf("%q isn't project/agent", ref)
-	}
-	return out, c.do(ctx, http.MethodPost, "/v1/queue/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/move", MoveQueuedRequest{Position: position}, &out)
-}
-
-// RemoveQueued takes a queued agent out of the queue before it starts.
-func (c *Client) RemoveQueued(ctx context.Context, ref string) error {
-	project, name, ok := strings.Cut(ref, "/")
-	if !ok {
-		return fmt.Errorf("%q isn't project/agent", ref)
-	}
-	return c.do(ctx, http.MethodDelete, "/v1/queue/"+url.PathEscape(project)+"/"+url.PathEscape(name), nil, nil)
-}
-
-// StartQueued starts a queued agent now, whatever the VM's memory and the
-// project's slots say.
-func (c *Client) StartQueued(ctx context.Context, ref string) error {
-	project, name, ok := strings.Cut(ref, "/")
-	if !ok {
-		return fmt.Errorf("%q isn't project/agent", ref)
-	}
-	return c.do(ctx, http.MethodPost, "/v1/queue/"+url.PathEscape(project)+"/"+url.PathEscape(name)+"/start", nil, nil)
 }
 
 // ReportDraft is the report the user would send, redacted, with the client's

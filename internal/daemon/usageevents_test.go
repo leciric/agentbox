@@ -122,7 +122,7 @@ func TestUsageEventsAreRecordedShownAndSent(t *testing.T) {
 		t.Errorf("first setup step = %v", step)
 	}
 	hb := fake.sentEvents()[eventHeartbeat][0]
-	if len(hb) != 13 || hb["front_end"] == "" || hb["projects"] != float64(0) {
+	if len(hb) != 11 || hb["front_end"] == "" || hb["projects"] != float64(0) {
 		t.Errorf("heartbeat = %v", hb)
 	}
 

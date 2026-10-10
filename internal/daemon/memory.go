@@ -399,17 +399,6 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			}
 			patch := memory.TaskPatch{Status: req.Status, Goal: req.Goal,
 				Detail: req.Detail, Agent: req.Agent, ParentID: req.ParentID, Route: req.Route}
-			// A queued task closed before it started leaves the queue: nothing
-			// should start for work that's over.
-			if req.Status != nil && memory.TaskClosed(*req.Status) && was.Open() {
-				unqueued, err := s.unqueueAgentForTask(ctx, was)
-				if err != nil {
-					return err
-				}
-				if unqueued {
-					patch.Agent = ptr("")
-				}
-			}
 			out, err := m.UpdateTask(ctx, who.project, id, patch)
 			if err != nil {
 				return err

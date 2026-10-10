@@ -31,7 +31,7 @@ func TestWithHeavyHooks(t *testing.T) {
 	}
 	var ours bytes.Buffer
 	_ = json.Compact(&ours, pre[1])
-	if !strings.Contains(ours.String(), `"timeout":660`) || !strings.Contains(string(pre[1]), "mcp__playwright__") {
+	if !strings.Contains(ours.String(), `"timeout":660`) || !strings.Contains(ours.String(), `"matcher":"Bash"`) {
 		t.Errorf("our PreToolUse hook = %s", ours.String())
 	}
 	for _, event := range []string{"PostToolUse", "PostToolUseFailure"} {

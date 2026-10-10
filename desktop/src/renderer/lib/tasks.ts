@@ -49,7 +49,7 @@ export interface TaskLanes {
 // will start, the backlog newest first, so what was just written is on top,
 // and what's done by when it was, latest first. A task queued for the lead
 // sits behind the agents queued before it.
-export function taskLanes(tasks: T.Task[], agents: Map<string, Pick<T.Agent, 'state' | 'queuePosition' | 'createdAt'>>): TaskLanes {
+export function taskLanes(tasks: T.Task[], agents: Map<string, Pick<T.Agent, 'state' | 'createdAt'>>): TaskLanes {
   const lanes: TaskLanes = { queue: [], running: [], backlog: [], done: [] };
   for (const task of tasks) lanes[taskLane(task, task.agent ? agents.get(task.agent) : undefined)].push(task);
   const queued = [...agents.values()].filter((a) => a.state === 'queued');
@@ -58,7 +58,9 @@ export function taskLanes(tasks: T.Task[], agents: Map<string, Pick<T.Agent, 'st
       const at = Date.parse(t.leadQueuedAt);
       return queued.filter((a) => Date.parse(a.createdAt) < at).length + 0.5;
     }
-    return agents.get(t.agent ?? '')?.queuePosition ?? Number.MAX_SAFE_INTEGER;
+    // An agent left queued by an earlier release: they started in the order they were made.
+    const agent = agents.get(t.agent ?? '');
+    return agent ? queued.filter((a) => Date.parse(a.createdAt) < Date.parse(agent.createdAt)).length + 1 : Number.MAX_SAFE_INTEGER;
   };
   lanes.queue.sort((a, b) => position(a) - position(b));
   lanes.backlog.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -104,7 +106,6 @@ export interface TasksApi {
   deleteTask: (project: string, id: string) => Promise<unknown>;
   startTask: (project: string, id: string, req: T.StartTaskRequest) => Promise<unknown>;
   unqueueTask: (project: string, id: string) => Promise<unknown>;
-  moveQueued: (project: string, agent: string, position: number) => Promise<unknown>;
 }
 
 export function taskActions(api: TasksApi, project: string) {
@@ -144,8 +145,6 @@ export function taskActions(api: TasksApi, project: string) {
       if (lane === 'backlog' && now === 'queue') return api.unqueueTask(project, task.id);
       throw new Error(`a ${now} task can't move to the ${lane}`);
     },
-    // move puts a queued task's agent at a position in the queue, 1 for next.
-    move: (agentName: string, position: number) => api.moveQueued(project, agentName, Math.max(1, position)),
   };
 
   // A task still naming an agent that's gone has to be let go first: the

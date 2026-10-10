@@ -223,8 +223,8 @@ func (m *MemoryClient) UpdateTask(ctx context.Context, id string, req UpdateTask
 	return out, m.c.do(ctx, http.MethodPatch, m.base+"/tasks/"+url.PathEscape(id), req, &out)
 }
 
-// DeleteTask takes a task off the user's list, and out of the agent queue
-// when it was queued. The user's routes only, like AddTask.
+// DeleteTask takes a task off the user's list. The user's routes only, like
+// AddTask.
 func (m *MemoryClient) DeleteTask(ctx context.Context, id string) error {
 	return m.c.do(ctx, http.MethodDelete, m.base+"/tasks/"+url.PathEscape(id), nil, nil)
 }

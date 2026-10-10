@@ -201,11 +201,6 @@ const (
 	// SettingIdleTime is how long SettingAutoStopIdle waits, as a count of
 	// seconds. Empty means DefaultIdleTime.
 	SettingIdleTime = "idle_time"
-	// SettingAgentQueue turns the agent queue on: creates may queue, and
-	// queued agents wait for one of their project's slots. Off until the user
-	// turns it on, and off, nothing queues and no slots are enforced — an
-	// agent already queued starts at once.
-	SettingAgentQueue = "agent_queue"
 	// SettingTaskTarget is "tasks go to": where a task of the Tasks tab goes
 	// when it starts and chose nothing itself, "agent" or "lead". Empty is
 	// "agent", what a task always did before there was a choice.

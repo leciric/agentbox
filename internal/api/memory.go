@@ -344,8 +344,9 @@ type Task struct {
 	// Route is where it goes when it starts: "agent", "lead", or absent to
 	// follow Settings.TaskTarget, which is how every task starts out.
 	Route string `json:"route,omitempty"`
-	// LeadQueuedAt is when it joined its project's queue on its way to the
-	// lead, and absent when it isn't waiting there.
+	// LeadQueuedAt is when an earlier release's queue took it on its way to
+	// the lead, and absent when it isn't waiting there; the daemon hands such
+	// a task to the lead as it starts.
 	LeadQueuedAt time.Time `json:"leadQueuedAt,omitzero,omitempty"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
@@ -390,8 +391,8 @@ type UpdateTaskRequest struct {
 
 // StartTaskRequest starts one of the user's tasks where it goes
 // (Task.Route, else Settings.TaskTarget): a new agent made for it, or the
-// project's chat, sent it as a message. With Queue, and the agent queue on,
-// it waits its turn in the project's queue instead of starting now.
+// project's chat, sent it as a message. Queue is accepted and does nothing:
+// nothing waits in a queue any more.
 type StartTaskRequest struct {
 	Queue bool `json:"queue,omitempty"`
 	// AI is the tool of the agent made for it, Claude Code when absent. The

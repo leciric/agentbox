@@ -343,10 +343,6 @@ type CreateOptions struct {
 	// given, by name: nil for every one, empty for none. Each must be one
 	// of the project's.
 	Connectors []string
-	// Size is how much of the VM's memory the agent reserves while it runs:
-	// SizeLight, SizeNormal, SizeHeavy, or "" or SizeAuto for its project's
-	// learned peak (Reservation).
-	Size string
 	// Task is what the agent is about to be asked to do. It is not stored and
 	// not sent — the daemon sends it as the agent's first message — it only
 	// seeds the "What the project knows" section of the brief, so an agent
@@ -354,9 +350,10 @@ type CreateOptions struct {
 	// (D75). Every brief written afterwards recovers it from the agent_created
 	// event instead.
 	Task string
-	// Queued makes the agent Name, which is waiting in its project's queue
-	// (Enqueue), rather than a new one: it keeps the name, title and branch
-	// it was queued with.
+	// Queued makes the agent Name, which an earlier release left waiting in
+	// its project's queue, rather than a new one: it keeps the name, title
+	// and branch it was queued with. The daemon starts every one of them as
+	// it starts (leftoverqueue.go).
 	Queued bool
 }
 
@@ -386,10 +383,6 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		return state.Agent{}, err
 	}
 	iface, err := interfaceFor(opts.AI, opts.Interface)
-	if err != nil {
-		return state.Agent{}, err
-	}
-	size, err := CheckSize(opts.Size)
 	if err != nil {
 		return state.Agent{}, err
 	}
@@ -483,7 +476,6 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 		copyEnv:       opts.CopyEnv,
 		finishNotice:  opts.FinishNotice,
 		connectors:    opts.Connectors,
-		size:          size,
 		task:          opts.Task,
 		queued:        queued,
 	})
@@ -561,7 +553,6 @@ type plan struct {
 	copyEnv       bool
 	finishNotice  string       // this agent's own choice; see CreateOptions.FinishNotice
 	connectors    []string     // see CreateOptions.Connectors
-	size          string       // see CreateOptions.Size
 	task          string       // what it is about to be asked to do; see CreateOptions.Task
 	queued        *state.Agent // the queued agent this makes, when it isn't a new one
 }
@@ -604,7 +595,6 @@ func (m *Manager) build(ctx context.Context, pl plan) (state.Agent, error) {
 		Interface:     pl.iface,
 		FinishNotice:  pl.finishNotice,
 		Connectors:    pl.connectors,
-		Size:          pl.size,
 	}
 	if _, err := os.Stat(a.Worktree); err == nil {
 		return state.Agent{}, fmt.Errorf("%s already exists: remove it or choose another --name", a.Worktree)
@@ -1209,8 +1199,8 @@ func (m *Manager) configure(ctx context.Context, a state.Agent, ip string, envFi
 				func(b []byte) ([]byte, error) { return withClaudeCompactWindow(b, window) },
 				func(b []byte) ([]byte, error) { return withClaudeEnv(b, subagentLimits) },
 				func(b []byte) ([]byte, error) { return withClaudeEnv(b, outputCaps) },
-				// Heavy phases take a lease from the VM's burst pool by
-				// themselves (heavyhooks.go).
+				// Heavy commands wait while the VM's memory is under
+				// pressure, by themselves (heavyhooks.go).
 				withHeavyHooks,
 				m.withBashEnv,
 			)
@@ -2045,9 +2035,6 @@ type Status struct {
 	state.Agent
 	State string // running, stopped, paused, initializing (create job still running), incomplete (unfinished create, nothing running) or missing
 	IP    string
-	// QueuePosition is a queued agent's place in its project's queue, 1 for
-	// next; 0 for every agent that isn't queued.
-	QueuePosition int
 }
 
 func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
@@ -2101,34 +2088,7 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 		}
 		statuses = append(statuses, s)
 	}
-	if err := m.fillQueuePositions(ctx, project, statuses); err != nil {
-		return nil, err
-	}
 	return statuses, nil
-}
-
-// fillQueuePositions gives each queued agent in statuses its place in line,
-// reading the queue only when something is in it.
-func (m *Manager) fillQueuePositions(ctx context.Context, project string, statuses []Status) error {
-	queued := false
-	for _, st := range statuses {
-		queued = queued || st.Status == state.AgentQueued
-	}
-	if !queued {
-		return nil
-	}
-	queue, err := m.Store.Queue(ctx, project)
-	if err != nil {
-		return err
-	}
-	at := make(map[string]int, len(queue))
-	for _, q := range queue {
-		at[q.Ref()] = q.Position
-	}
-	for i := range statuses {
-		statuses[i].QueuePosition = at[statuses[i].Ref()]
-	}
-	return nil
 }
 
 func displayState(status string) string {

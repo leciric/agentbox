@@ -2,10 +2,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { avatarMood, awaiting, chatLabel, isAsking, projectTone, rank, settled, summarizeStatus } from './agentStatus.ts';
+import { avatarMood, awaiting, chatLabel, isAsking, memoryHold, projectTone, rank, settled, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
-const queuedAgent = (position: number): T.Agent => ({ state: 'queued', queuePosition: position }) as T.Agent;
 
 test('chat waiting for you beats everything else', () => {
   assert.deepEqual(chatLabel(agent('running', 'waiting')), { text: 'Needs you', tone: 'urgent' });
@@ -37,11 +36,25 @@ test('a stalled turn is Stalled, not Working, and a stopped chat is not Idle', (
   assert.deepEqual(chatLabel(agent('stopped', 'error')), { text: 'Stopped', tone: 'muted' });
 });
 
-test('a queued agent shows its position, quietly', () => {
-  assert.deepEqual(chatLabel(queuedAgent(1)), { text: 'Queued #1', tone: 'muted' });
-  assert.deepEqual(chatLabel(queuedAgent(3)), { text: 'Queued #3', tone: 'muted' });
-  assert.equal(settled(queuedAgent(1)), true);
-  assert.equal(avatarMood(queuedAgent(1)), 'sleeping');
+test('a queued agent, left by an earlier release, reads like one starting', () => {
+  assert.deepEqual(chatLabel(agent('queued')), { text: 'Initializing', tone: 'live' });
+});
+
+test('memory pressure holding back a running agent’s commands shows as a warning', () => {
+  const since = '2026-10-10T10:00:00Z';
+  const paused = { ...agent('running', 'running'), memory: { paused: 1, since } } as T.Agent;
+  assert.deepEqual(chatLabel(paused), { text: 'Paused for memory', tone: 'warning' });
+  assert.match(memoryHold(paused)?.tip ?? '', /resume by themselves/);
+  const waiting = { ...agent('running', 'ready'), memory: { waiting: 2, since } } as T.Agent;
+  assert.deepEqual(chatLabel(waiting), { text: 'Waiting for memory', tone: 'warning' });
+  // Paused wins over waiting; neither shows once nothing is held or the machine isn't running.
+  assert.equal(chatLabel({ ...paused, memory: { paused: 1, waiting: 1, since } } as T.Agent).text, 'Paused for memory');
+  assert.deepEqual(chatLabel({ ...paused, memory: { since } } as T.Agent), { text: 'Working', tone: 'live' });
+  assert.equal(memoryHold({ ...paused, state: 'stopped' }), undefined);
+  // Needing you still comes first, and a hold isn't settled.
+  assert.deepEqual(chatLabel({ ...paused, chat: 'waiting' } as T.Agent), { text: 'Needs you', tone: 'urgent' });
+  assert.equal(settled(waiting), false);
+  assert.equal(projectTone([agent('running'), waiting]), 'warning');
 });
 
 test('paused and stopped machines show their own state', () => {

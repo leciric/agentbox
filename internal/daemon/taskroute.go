@@ -19,10 +19,10 @@ import (
 // (state.SettingTaskTarget) until somebody chooses for that task
 // (memory.Task.Route).
 //
-// A task for the lead takes no slot, since the lead has no machine, but it
-// still keeps its place in the queue: queued, it waits until every agent its
-// project queued before it has started, and then goes. With the agent queue
-// off nothing waits, here as for agents.
+// Nothing waits: a task goes as it starts, whichever way it goes. The queue
+// a start could ask for (StartTaskRequest.Queue) is accepted and does
+// nothing; an earlier release's queue is emptied as the daemon starts
+// (leftoverqueue.go).
 
 // taskTarget is the installation's "tasks go to": "agent" unless it says
 // "lead".
@@ -35,8 +35,7 @@ func (s *Server) taskTarget(ctx context.Context) (string, error) {
 }
 
 // startTask sends one of the user's tasks where it goes: to a new agent, made
-// or queued the way a create is, or to the project's lead, now or once its
-// turn in the queue comes.
+// the way a create makes one, or to the project's lead.
 func (s *Server) startTask(ctx context.Context, project, id string, req api.StartTaskRequest) (api.StartTaskResponse, error) {
 	t, err := s.memory().Task(ctx, project, id)
 	if err != nil {
@@ -51,8 +50,7 @@ func (s *Server) startTask(ctx context.Context, project, id string, req api.Star
 	}
 	target := memory.EffectiveTaskRoute(t.Route, setting)
 	if target == memory.TaskRouteAgent {
-		queue := req.Queue
-		j, err := s.createAgentJob(ctx, api.CreateAgentRequest{Project: project, TaskID: t.ID, Queue: &queue, AI: req.AI}, false)
+		j, err := s.createAgentJob(ctx, api.CreateAgentRequest{Project: project, TaskID: t.ID, AI: req.AI}, false)
 		if err != nil {
 			return api.StartTaskResponse{}, err
 		}
@@ -61,24 +59,17 @@ func (s *Server) startTask(ctx context.Context, project, id string, req api.Star
 		}
 		return api.StartTaskResponse{Target: target, Task: apiTask(t), Job: &j}, nil
 	}
-	// Under the queue's lock, so the queue and a second start can't hand the
-	// same task over while this one does.
-	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
+	// Under the tasks' lock, so a second start can't hand the same task over
+	// while this one does.
+	s.taskMu.Lock()
+	defer s.taskMu.Unlock()
 	if t, err = s.memory().Task(ctx, project, id); err != nil {
 		return api.StartTaskResponse{}, err
 	}
 	if err := startable(t); err != nil {
 		return api.StartTaskResponse{}, err
 	}
-	if queueOn, _ := s.store.Flag(ctx, state.SettingAgentQueue); req.Queue && queueOn {
-		now := time.Now()
-		if t, err = s.memory().UpdateTask(ctx, project, id, memory.TaskPatch{LeadQueuedAt: &now}); err != nil {
-			return api.StartTaskResponse{}, err
-		}
-		// It goes at once when nothing was queued before it.
-		s.kickQueue()
-	} else if t, err = s.taskToLead(ctx, t); err != nil {
+	if t, err = s.taskToLead(ctx, t); err != nil {
 		return api.StartTaskResponse{}, err
 	}
 	return api.StartTaskResponse{Target: target, Task: apiTask(t)}, nil
@@ -98,82 +89,21 @@ func startable(t memory.Task) error {
 	return nil
 }
 
-// unqueueTask takes a queued task back to the backlog: one waiting for the
-// lead leaves the queue, and one waiting for its agent takes the agent out of
-// the queue, which hands the task back.
+// unqueueTask took a queued task back to the backlog. Nothing is queued any
+// more: it only finds one an earlier release left waiting for the lead
+// before the daemon has handed it over.
 func (s *Server) unqueueTask(ctx context.Context, project, id string) (memory.Task, error) {
+	s.taskMu.Lock()
+	defer s.taskMu.Unlock()
 	t, err := s.memory().Task(ctx, project, id)
 	if err != nil {
 		return memory.Task{}, err
 	}
-	s.queueMu.Lock()
-	defer s.queueMu.Unlock()
-	if !t.LeadQueuedAt.IsZero() {
-		// Re-read under the lock: the queue may have just handed it over.
-		if t, err = s.memory().Task(ctx, project, id); err != nil {
-			return memory.Task{}, err
-		}
-		if t.LeadQueuedAt.IsZero() {
-			return memory.Task{}, fmt.Errorf("task %s has gone to the lead already", id)
-		}
-		var none time.Time
-		return s.memory().UpdateTask(ctx, project, id, memory.TaskPatch{LeadQueuedAt: &none})
+	if t.LeadQueuedAt.IsZero() {
+		return memory.Task{}, fmt.Errorf("task %s isn't queued: nothing is", id)
 	}
-	if t.Agent == "" {
-		return memory.Task{}, fmt.Errorf("task %s isn't queued", id)
-	}
-	a, err := s.store.Agent(ctx, project, t.Agent)
-	if err != nil || a.Status != state.AgentQueued || s.queueStarting(a.Ref()) {
-		return memory.Task{}, fmt.Errorf("task %s isn't queued: %s has started", id, t.Agent)
-	}
-	if err := s.store.RemoveAgent(ctx, a.Project, a.Name); err != nil {
-		return memory.Task{}, err
-	}
-	s.releaseQueuedTasks(ctx, a)
-	s.captureEvent(ctx, a.Project, a.Name, "agent_retired", map[string]any{"how": "unqueued", "branch": a.Branch}, "")
-	s.refreshAgents(ctx)
-	return s.memory().Task(ctx, project, id)
-}
-
-// admitLeadTasks hands the lead every task queued for it that has reached the
-// front of its project's queue: no agent queued before it is still waiting.
-// With the queue off, every one of them has. The caller holds queueMu.
-func (s *Server) admitLeadTasks(ctx context.Context, queue []state.QueuedAgent, queueOn bool) {
-	waiting, err := s.memory().LeadQueue(ctx, "")
-	if err != nil {
-		s.logf("agent queue: %v", err)
-		return
-	}
-	// An agent the queue is starting already has left it, as far as what
-	// waits behind it is concerned.
-	var still []state.QueuedAgent
-	for _, q := range queue {
-		if !s.queueStarting(q.Ref()) {
-			still = append(still, q)
-		}
-	}
-	for _, t := range waiting {
-		if queueOn && agentsAhead(still, t) > 0 {
-			continue
-		}
-		if _, err := s.taskToLead(ctx, t); err != nil {
-			s.logf("agent queue: sending task %s to %s's chat: %v", t.ID, t.Project, err)
-		}
-	}
-}
-
-// agentsAhead is how many agents of t's project were queued before it and are
-// still waiting.
-func agentsAhead(queue []state.QueuedAgent, t memory.Task) int {
-	n := 0
-	for _, q := range queue {
-		// The queue keeps seconds; a task queued in the same second as an
-		// agent goes first, which only ever lets the lead start sooner.
-		if q.Project == t.Project && q.QueuedAt.Before(t.LeadQueuedAt.Truncate(time.Second)) {
-			n++
-		}
-	}
-	return n
+	var none time.Time
+	return s.memory().UpdateTask(ctx, project, id, memory.TaskPatch{LeadQueuedAt: &none})
 }
 
 // taskToLead sends a task to its project's lead as a message from the user,

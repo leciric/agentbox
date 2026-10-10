@@ -152,6 +152,7 @@ function SectionTitle({ children }: { children: ReactNode }) {
 const pillTone: Record<StatusTone, string> = {
   urgent: 'border-amber-400/25 bg-amber-400/[0.08] text-amber-200',
   error: 'border-rose-400/25 bg-rose-400/[0.08] text-rose-200',
+  warning: 'border-amber-400/20 bg-amber-400/[0.05] text-amber-200/80',
   live: 'border-sky-400/20 bg-sky-400/[0.07] text-sky-200',
   muted: 'border-line-strong bg-surface-faint text-muted',
 };
@@ -159,6 +160,7 @@ const pillTone: Record<StatusTone, string> = {
 const pillDot: Record<StatusTone, string> = {
   urgent: 'bg-amber-400 animate-pulse',
   error: 'bg-rose-400',
+  warning: 'bg-amber-400/70',
   live: 'bg-sky-400 animate-pulse',
   muted: 'bg-faint',
 };

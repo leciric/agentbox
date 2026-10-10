@@ -67,10 +67,6 @@ type Project struct {
 	// every agent of this project gets unless one is named for it, and "auto"
 	// asks the project's chat to choose per task.
 	AgentModel string `json:"agentModel"`
-	// AgentSize is the size of the agents the project's chat creates
-	// (CreateAgentRequest.Size): "" lets the chat choose for each, "light",
-	// "normal" or "heavy" is what each gets whatever the chat asks for.
-	AgentSize string `json:"agentSize"`
 	// BranchPrefix comes before the slug in the branch an agent is created
 	// on: "agentbox/" (the default) makes agentbox/fix-login. It may be empty,
 	// or nested like "thiago/agentbox/". Existing agents keep their branches.
@@ -127,12 +123,6 @@ type Project struct {
 	// behind — never a diverged branch, and a checked-out one only when its
 	// checkout has no changes. On by default.
 	SyncBase bool `json:"syncBase"`
-	// Slots is how many of the project's agents may run at once before its
-	// queued ones wait: 0 is auto, shared out from memory (QueueStatus).
-	Slots int `json:"slots"`
-	// AlwaysQueue queues the project's new agents unless a create says
-	// otherwise (CreateAgentRequest.Queue).
-	AlwaysQueue bool `json:"alwaysQueue"`
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -247,9 +237,6 @@ type UpdateProjectRequest struct {
 	// AgentModel is the model the project's new agents are created on: "" to
 	// follow the model new agents start on, a model name, or "auto".
 	AgentModel *string `json:"agentModel,omitempty"`
-	// AgentSize is the size of the agents the project's chat creates: "" to
-	// let it choose, or "light", "normal" or "heavy".
-	AgentSize *string `json:"agentSize,omitempty"`
 	// BranchPrefix is what the project's new agents' branches are named with,
 	// before the agent's name: "" for none. It must make a valid branch name.
 	BranchPrefix *string `json:"branchPrefix,omitempty"`
@@ -281,12 +268,6 @@ type UpdateProjectRequest struct {
 	// SyncBase turns on or off keeping this project's base branch up to date
 	// with its remote.
 	SyncBase *bool `json:"syncBase,omitempty"`
-	// Slots pins how many of the project's agents run at once; 0 goes back
-	// to auto.
-	Slots *int `json:"slots,omitempty"`
-	// AlwaysQueue sets whether the project's new agents queue unless a
-	// create says otherwise.
-	AlwaysQueue *bool `json:"alwaysQueue,omitempty"`
 }
 
 type AddProjectRequest struct {
@@ -465,12 +446,6 @@ type Settings struct {
 	// IdleTimeSeconds is how long an agent may go idle before AutoStopIdle
 	// stops it; DefaultIdleTimeSeconds when nobody chose.
 	IdleTimeSeconds int `json:"idleTimeSeconds"`
-	// AgentQueue is "agent queue": while on, a create may queue its agent
-	// (CreateAgentRequest.Queue, Project.AlwaysQueue) and queued agents wait
-	// for one of their project's slots (QueueStatus). Off unless it was
-	// turned on, and off, no slots are enforced; an agent the VM has no
-	// memory for queues either way (CreateAgentRequest.Size).
-	AgentQueue bool `json:"agentQueue"`
 	// TaskTarget is "tasks go to": where a task of the Tasks tab goes when
 	// it starts, unless the task chose for itself (Task.Route) — "agent", a
 	// new agent of its own, the default, or "lead", the project's chat, which
@@ -478,9 +453,9 @@ type Settings struct {
 	TaskTarget string `json:"taskTarget"`
 	// LeadRecheck is "lead rechecks agents": while on, every
 	// LeadRecheckMinutes the daemon wakes each project's chat with a short
-	// status of its running agents and its queue — only when an agent has
-	// been idle a while or agents are queued, and not twice for the same
-	// state — so it can retire finished agents and free their slots.
+	// status of its running agents — only when an agent has been idle a
+	// while, and not twice for the same state — so it can retire finished
+	// agents.
 	LeadRecheck        bool `json:"leadRecheck"`
 	LeadRecheckMinutes int  `json:"leadRecheckMinutes"`
 	// ImageCache is "shared image cache": while on, every agent's Docker
@@ -564,8 +539,6 @@ type UpdateSettingsRequest struct {
 	// IdleTimeSeconds is how long AutoStopIdle waits before stopping an idle
 	// agent, at least 60.
 	IdleTimeSeconds *int `json:"idleTimeSeconds,omitempty"`
-	// AgentQueue turns "agent queue" on or off.
-	AgentQueue *bool `json:"agentQueue,omitempty"`
 	// TaskTarget sets "tasks go to": "agent" or "lead".
 	TaskTarget *string `json:"taskTarget,omitempty"`
 	// LeadRecheck turns "lead rechecks agents" on or off, and
@@ -639,20 +612,13 @@ type Agent struct {
 	// While any runs, an agent whose chat is ready is awaiting, not idle: the
 	// work's end wakes it, and it hasn't finished.
 	Background []string `json:"background,omitempty"`
-	State      string   `json:"state"` // running, stopped, paused, initializing, incomplete, missing or queued
-	// QueuePosition is a queued agent's place in its project's queue, 1 for
-	// the next to start; absent for any other agent.
-	QueuePosition int `json:"queuePosition,omitempty"`
-	// Waiting says, in one line, why a queued agent hasn't started yet: its
-	// project's slots, or the VM's memory, which every project's agents
-	// share. Absent for any other agent.
-	Waiting string `json:"waiting,omitempty"`
-	// Size is how much of the VM's burst pool the agent takes in its heavy
-	// phases (tests, builds, the browser, a recording): "light", "normal" or
-	// "heavy", or "" for its project's learned burst (agent.Burst).
-	Size      string    `json:"size,omitempty"`
-	IP        string    `json:"ip"`
-	CreatedAt time.Time `json:"createdAt"`
+	State      string   `json:"state"` // running, stopped, paused, initializing, incomplete or missing; queued only for one an earlier release left queued, as the daemon starts it
+	// Memory is what the daemon holds of the agent's heavy commands for
+	// memory: paused or waiting to start (package pressure). Absent when it
+	// holds nothing.
+	Memory    *MemoryHold `json:"memory,omitempty"`
+	IP        string      `json:"ip"`
+	CreatedAt time.Time   `json:"createdAt"`
 }
 
 // WorktreeFiles is an agent's or a project's lead's worktree files, for @
@@ -720,25 +686,11 @@ type CreateAgentRequest struct {
 	// agent and this is ignored. Empty defers to the project, which for
 	// "lead" means the same as "chat".
 	FinishNotice string `json:"finishNotice,omitempty"`
-	// Queue puts the agent in its project's queue rather than making it now:
-	// it is given its name, title, branch and task at once, and its machine
-	// when one of the project's slots is free and the VM has its memory
-	// (QueueStatus). Absent follows
-	// the project's AlwaysQueue; false makes it now whatever that says. The
-	// job the request starts ends as soon as the agent is queued, with the
-	// agent in state "queued".
-	Queue *bool `json:"queue,omitempty"`
-	// Size is what the agent reserves of the VM's memory in its heavy
-	// phases, tests, builds, the browser or a recording, which take it from
-	// the VM's burst pool and wait when that has none: "light" (~2 GB in
-	// all), "heavy" (~8 GB), "normal" (its project's learned burst), or
-	// "auto", like absent, which is normal unless the project chose a size
-	// for the agents its chat creates (Project.AgentSize). Whether it starts
-	// at all waits on its project's learned baseline, what an agent writing
-	// code uses. Neither is a cap: an agent may use more while the VM has
-	// memory to spare. Whatever Queue
-	// says, an agent that doesn't fit in the VM's memory waits in the queue.
-	Size string `json:"size,omitempty"`
+	// Queue and Size are accepted for the callers that still send them,
+	// and do nothing: every agent starts at once, and the VM's memory
+	// pressure, not a size, decides when its heavy commands run.
+	Queue *bool  `json:"queue,omitempty"`
+	Size  string `json:"size,omitempty"`
 	// TaskID is the task in the project's plan the agent is made for, which
 	// it then works on rather than a task of its own. Task defaults to that
 	// task's goal and detail, and Title to its goal.
@@ -749,84 +701,41 @@ type CreateAgentRequest struct {
 	Connectors *[]string `json:"connectors,omitempty"`
 }
 
-// QueueStatus is the agent queue: how many agents each project may run at
-// once, and the agents waiting for one of those slots.
-type QueueStatus struct {
-	// Enabled is Settings.AgentQueue: off, nothing queues and the slots
-	// below are only what they would be.
-	Enabled bool `json:"enabled"`
-	// Budget is the memory auto slots are shared from, in bytes: the VM's
-	// memory. Reserve is what's kept free of it, so auto slots share Budget -
-	// Reserve.
-	Budget  int64 `json:"budget"`
-	Reserve int64 `json:"reserve"`
-	// Reserved is what the agents that hold memory, in every project, count
-	// for out of Budget - Reserve: each the larger of its reservation and
-	// what it uses now. An agent starts only when its own reservation fits
-	// beside them.
-	Reserved int64 `json:"reserved"`
-	// Projects is every project, the ones with nothing queued or running
-	// included: their Slots say what they would get alongside the others.
-	Projects []ProjectSlots `json:"projects"`
-	// Queued is every queued agent, by project and then place in line.
-	Queued []QueuedAgent `json:"queued"`
+// MemoryHold is what the daemon holds of an agent's heavy commands (test
+// runs, builds) for memory.
+type MemoryHold struct {
+	// Paused is how many of them are paused (frozen) while the VM's memory
+	// is under pressure, and Waiting how many wait to start until it eases.
+	Paused  int `json:"paused,omitempty"`
+	Waiting int `json:"waiting,omitempty"`
+	// Since is when the oldest of them was paused or began to wait.
+	Since time.Time `json:"since"`
 }
 
-// ProjectSlots is one project's share of the agents that run at once.
-type ProjectSlots struct {
-	Project string `json:"project"`
-	// Slots is how many of its agents may run at once: Pinned when the user
-	// chose a number, otherwise its share of the budget.
-	Slots  int `json:"slots"`
-	Pinned int `json:"pinned"` // 0 is auto
-	// Peak is the memory one of its agents is expected to reach, in bytes:
-	// the median of its latest agents' peaks when PeakLearned, and before any
-	// was seen, the memory limit new agents get.
-	Peak        int64 `json:"peak"`
-	PeakLearned bool  `json:"peakLearned"`
-	// Running is how many of its agents hold a slot: running, paused or
-	// being made. Queued is how many wait.
-	Running int `json:"running"`
-	Queued  int `json:"queued"`
-	// Agents are its agents that hold a slot, with what they use, as last
-	// sampled (every half a minute while the queue or the recheck is on).
-	Agents []SlotAgent `json:"agents"`
+// PressureStatus is the VM's memory pressure and the heavy commands the
+// daemon decides about from it: GET /v1/pressure.
+type PressureStatus struct {
+	// Some and Full are the VM's memory PSI, avg10: the share of the last 10
+	// seconds, in percent, some task (Some) or every task (Full) stalled
+	// waiting for memory.
+	Some float64 `json:"some"`
+	Full float64 `json:"full"`
+	// Runs are the heavy commands running, oldest first, then those
+	// waiting, in the order they start.
+	Runs []HeavyRun `json:"runs"`
 }
 
-// SlotAgent is what one agent holding a slot uses: now, as last sampled, and
-// the most it was ever seen at, which is what its project's peak is learned
-// from.
-type SlotAgent struct {
-	Name       string  `json:"name"`
-	Title      string  `json:"title"`
-	State      string  `json:"state"`
-	Memory     int64   `json:"memory"`     // bytes
-	MemoryPeak int64   `json:"memoryPeak"` // bytes
-	CPU        float64 `json:"cpu"`        // percent; 100 is one core
-	CPUPeak    float64 `json:"cpuPeak"`
-}
-
-// QueuedAgent is one agent waiting in its project's queue.
-type QueuedAgent struct {
-	Ref      string    `json:"ref"`
-	Project  string    `json:"project"`
-	Name     string    `json:"name"`
-	Title    string    `json:"title"`
-	Branch   string    `json:"branch"`
-	Task     string    `json:"task,omitempty"`
-	TaskID   string    `json:"taskId,omitempty"`
-	Position int       `json:"position"` // 1 is next
-	QueuedAt time.Time `json:"queuedAt"`
-	// Waiting is why it hasn't started yet (Agent.Waiting), and Reserved what
-	// it will reserve of the VM's memory when it does.
-	Waiting  string `json:"waiting,omitempty"`
-	Reserved int64  `json:"reserved"`
-}
-
-// MoveQueuedRequest puts a queued agent at Position in its project's queue,
-// 1 for next; past the end is the end.
-type MoveQueuedRequest struct {
-	Position int `json:"position"`
+// HeavyRun is one heavy command of an agent's.
+type HeavyRun struct {
+	Agent   string `json:"agent"` // its ref
+	Key     string `json:"key"`
+	Command string `json:"command,omitempty"`
+	// State is "running", "paused" or "waiting".
+	State string    `json:"state"`
+	Since time.Time `json:"since"`
+	// Placed says its processes are in a cgroup of their own, which is what
+	// pausing it freezes; one that isn't is never paused.
+	Placed bool `json:"placed,omitempty"`
 }
 
 type ForkRequest struct {
@@ -1816,38 +1725,40 @@ type AgentChange struct {
 	State   string `json:"state"`
 	IP      string `json:"ip,omitempty"`
 	Removed bool   `json:"removed,omitempty"`
-	// QueuePosition is a queued agent's place in its project's queue
-	// (Agent.QueuePosition), so the sidebar's "Queued #N" follows it.
-	QueuePosition int `json:"queuePosition,omitempty"`
-	// Waiting is why a queued agent hasn't started (Agent.Waiting).
-	Waiting string `json:"waiting,omitempty"`
+	// Memory is what the daemon holds of the agent's heavy commands
+	// (Agent.Memory).
+	Memory *MemoryHold `json:"memory,omitempty"`
 }
 
-// BurstRequest asks, from inside an agent, for a lease on the VM's burst
-// pool for a heavy phase: a test run, a build, the browser, a recording. An
-// agent holds one lease however many of its phases run at once; Key names
-// the phase, and asking again with a key it holds renews it.
-type BurstRequest struct {
+// HeavyRequest asks, from inside an agent, to start a heavy command (a test
+// run, a build): at once while the VM's memory is calm, else once it eases,
+// in the order asked (package pressure). Asking again with the same key
+// renews a started one, or keeps a waiting one's place.
+type HeavyRequest struct {
 	Key string `json:"key"`
-	// TTLSeconds is how long the phase may hold the lease without renewing
-	// or releasing it, the backstop for one that crashed: 15 minutes when 0.
+	// Command is what it runs, for saying what waits or was paused.
+	Command string `json:"command,omitempty"`
+	// TTLSeconds is how long a command not in a cgroup of its own (one that
+	// didn't join its run, HeavyJoin) counts as running without being asked
+	// for again or ended: 15 minutes when 0.
 	TTLSeconds int `json:"ttlSeconds,omitempty"`
-	// WaitSeconds is how long to wait for the pool, at most 600; 0 waits
-	// that long.
+	// WaitSeconds is how long to wait to start, at most 600; 0 waits that
+	// long.
 	WaitSeconds int `json:"waitSeconds,omitempty"`
 }
 
-// BurstLease is the answer to a BurstRequest or its release.
-type BurstLease struct {
-	Granted bool `json:"granted"`
-	// Bytes is the agent's burst, what the lease holds of the pool.
-	Bytes int64 `json:"bytes,omitempty"`
-	// Why is why it wasn't granted, a clause like "it needs 3 GB of the VM's
-	// memory; 2 other agents' tests and builds hold 9 GB and 1 GB is free".
+// HeavyStart is the answer to a HeavyRequest.
+type HeavyStart struct {
+	Started bool `json:"started"`
+	// Why is why it hasn't, a clause like "the VM's memory is under
+	// pressure (some 34%) and 2 commands are ahead of it".
 	Why string `json:"why,omitempty"`
-	// Env is what the agent's commands run with while it holds a lease: its
-	// test runners' parallelism held to the lease. Empty once it holds none.
-	Env map[string]string `json:"env,omitempty"`
+}
+
+// HeavyJoin puts a process of the agent's, by its PID inside the agent, in
+// the cgroup of a started heavy command, with everything it starts after.
+type HeavyJoin struct {
+	PID int `json:"pid"`
 }
 
 // Self is what the in-agent API reports about the agent calling it.

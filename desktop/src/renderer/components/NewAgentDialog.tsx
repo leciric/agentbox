@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, LoaderCircle, MessageSquare, SquareTerminal } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
-import { agentSizes } from '../lib/agentSize';
 import { api } from '../lib/api';
 import { projectLabel } from '../lib/projectName';
 import { branchSlug, branchSlugPattern, maxBranchSlugLen } from '../lib/branch';
@@ -45,12 +44,6 @@ interface Form {
   // the project's own setting, "chat" wakes it and "off" only records the
   // finish. Only matters when the project's setting is "lead".
   notify: '' | 'chat' | 'off';
-  // Start when a slot is free, rather than right away. Defaults to the
-  // project's own alwaysQueue until you touch the switch yourself.
-  queue: boolean;
-  queueTouched: boolean;
-  // What it reserves of the VM's memory (lib/agentSize.ts); "" is auto.
-  size: string;
 }
 
 const emptyForm: Form = {
@@ -70,9 +63,6 @@ const emptyForm: Form = {
   claudeAccount: '',
   githubAccount: '',
   notify: '',
-  queue: false,
-  queueTouched: false,
-  size: '',
 };
 
 // A label or hint that is a brand's name is shown as it is; the rest are keys.
@@ -101,7 +91,6 @@ export function NewAgentDialog({
   onCreated: (ref: string) => void;
 }) {
   const t = useT();
-  const sizes = agentSizes();
   const open = project !== null;
   const queryClient = useQueryClient();
   const [form, setForm] = useState<Form>(emptyForm);
@@ -175,12 +164,6 @@ export function NewAgentDialog({
         claudeAccount: form.ai === 'claude' ? form.claudeAccount || undefined : undefined,
         githubAccount: form.githubAccount || undefined,
         finishNotice: form.notify || undefined,
-        // Sent either way, like autonomous above: "whatever the project does
-        // by default" isn't a request queue can leave out and still mean.
-        // Off outright while the installation's Agent queue is off, whatever
-        // the switch (disabled, so untouched) still carries from before.
-        queue: queueEnabled && form.queue,
-        size: form.size || undefined,
       }),
     onSuccess: setJob,
   });
@@ -202,12 +185,6 @@ export function NewAgentDialog({
     if (open && form.project === '' && firstProject) setForm((f) => ({ ...f, project: firstProject }));
   }, [open, form.project, firstProject]);
 
-  // Queue follows the project's own default until you touch the switch.
-  useEffect(() => {
-    if (!open || selected === undefined) return;
-    setForm((f) => (f.queueTouched ? f : { ...f, queue: selected.alwaysQueue }));
-  }, [open, selected]);
-
   const onDone = useCallback(
     async (done: T.Job) => {
       setFinished(done);
@@ -221,10 +198,6 @@ export function NewAgentDialog({
   );
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => setForm((f) => ({ ...f, [key]: value }));
-  // The installation's own switch (Settings → Agents → Agent queue): off,
-  // this dialog's Queue switch does nothing, so it shows disabled instead of
-  // offering a choice the daemon would refuse to act on.
-  const queueEnabled = settings.data?.agentQueue ?? false;
   const needsLogin =
     (form.ai === 'claude' && auth.data?.claude === false) ||
     (form.ai === 'codex' && auth.data?.codex === false) ||
@@ -310,25 +283,6 @@ export function NewAgentDialog({
                 {projects.data?.map((p) => (
                   <SelectOption key={p.name} value={p.name}>
                     {projectLabel(p)}
-                  </SelectOption>
-                ))}
-              </Select>
-            </Field>
-
-            <SwitchRow
-              id="agent-queue"
-              label={t('project.newAgent.queueLabel')}
-              hint={queueEnabled ? t('project.newAgent.queueHint') : t('project.newAgent.queueOff')}
-              checked={queueEnabled && form.queue}
-              disabled={!queueEnabled}
-              onChange={(value) => setForm((f) => ({ ...f, queue: value, queueTouched: true }))}
-            />
-
-            <Field label={t('project.newAgent.sizeLabel')} htmlFor="agent-size" hint={t('project.newAgent.sizeHint')}>
-              <Select id="agent-size" value={form.size} onChange={(value) => set('size', value)}>
-                {sizes.map((size) => (
-                  <SelectOption key={size.value} value={size.value}>
-                    {size.label} <span className="text-subtle">· {size.tip}</span>
                   </SelectOption>
                 ))}
               </Select>
