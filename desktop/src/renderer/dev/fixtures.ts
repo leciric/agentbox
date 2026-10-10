@@ -9,6 +9,7 @@ import type { HostSetupStatus, VMMigration, VMPower, VMPowerAction, VMPowerState
 import type * as T from '../../shared/api';
 import type { FreeRun } from '../components/ResourceControls';
 import { freeTargets } from '../lib/freeResources';
+import { inScope, type MediaScope } from '../lib/mediaPages';
 import { pagePageUrl, pageRequest, pageThumbUrl } from './pages';
 
 export const PROJECT = 'agentbox';
@@ -408,12 +409,12 @@ function seeNotifications(req: T.SeeNotificationsRequest): T.SeeNotificationsRes
   let seen = 0;
   const media = new Set(req.media ?? []);
   devState.notifications = devState.notifications?.map((n) => {
-    if (n.seen || !(req.all || req.ids?.includes(n.id) || (n.media && media.has(n.media.id)))) return n;
+    if (n.seen || !(req.all || req.ids?.includes(n.id) || (n.media && (req.allMedia || media.has(n.media.id))))) return n;
     seen++;
     if (n.media) media.add(n.media.id);
     return { ...n, seen: true };
   });
-  devState.allMedia = devState.allMedia?.map((m) => (m.unseen && (req.all || media.has(m.id)) ? { ...m, unseen: false } : m));
+  devState.allMedia = devState.allMedia?.map((m) => (m.unseen && (req.all || req.allMedia || media.has(m.id)) ? { ...m, unseen: false } : m));
   return { seen };
 }
 
@@ -484,18 +485,67 @@ export function mediaItems(count = 360): T.MediaItem[] {
 // seedMedia gives the project, and agent-99, the gallery mediaItems makes.
 export function seedMedia(queryClient: QueryClient): void {
   devState.media = mediaItems();
-  queryClient.setQueryData(['projectMedia', PROJECT], devState.media);
   queryClient.setQueryData(['media', `${PROJECT}/agent-99`], devState.media.filter((m) => m.agentName === 'agent-99'));
 }
 
 // seedAllMedia gives the all-projects Media view the same gallery's
 // screenshots and recordings, with every third item moved to a second project.
-export function seedAllMedia(queryClient: QueryClient): void {
+export function seedAllMedia(): void {
   const all = mediaItems(720)
     .filter((m) => m.kind === 'screenshot' || m.kind === 'recording')
     .map((m, i) => (i % 3 === 0 ? { ...m, agent: `organic/${m.agentName}` } : m));
   setNotifications([], all);
-  queryClient.setQueryData(['allMedia', ['screenshot', 'recording']], all);
+}
+
+// devMedia answers GET /v1/media and /v1/media/counts the way the daemon
+// does (internal/daemon/media_list.go), from the fixtures' galleries; its
+// cursor is a plain offset.
+function devMedia(path: string): unknown {
+  const url = new URL(path, 'http://dev');
+  const q = url.searchParams;
+  const pool = new Map<string, T.MediaItem>();
+  for (const m of [...(devState.media ?? []), ...(devState.allMedia ?? [])]) pool.set(m.id, m);
+  const scope: MediaScope = {
+    project: q.get('project') ?? undefined,
+    agent: q.get('agent') ?? undefined,
+    kinds: q.get('kind')?.split(','),
+    only: q.get('only') ?? undefined,
+    favorite: q.has('favorite'),
+    q: q.get('q') ?? undefined,
+  };
+  const all = [...pool.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  const keep = (m: T.MediaItem, s: MediaScope) => inScope(s, m) && (!q.has('unseen') || m.unseen === true);
+  if (url.pathname.endsWith('/counts')) {
+    const base = { kinds: scope.kinds };
+    const out: T.MediaCounts = { total: 0, bytes: 0, kinds: {}, favorites: 0, unseen: 0, agents: [], projects: [], matching: 0, matchingBytes: 0 };
+    for (const m of all.filter((m) => inScope(base, m))) {
+      const [project, name] = m.agent.split('/');
+      const p = out.projects.find((x) => x.project === project) ?? out.projects[out.projects.push({ project, count: 0 }) - 1];
+      p.count++;
+      if (scope.project && project !== scope.project) continue;
+      const a = out.agents.find((x) => x.agent === m.agent) ?? out.agents[out.agents.push({ agent: m.agent, name, title: m.agentTitle, gone: m.agentGone, count: 0, bytes: 0 }) - 1];
+      a.count++;
+      a.bytes += m.size;
+      if (scope.agent && name !== scope.agent) continue;
+      out.total++;
+      out.bytes += m.size;
+      out.kinds[m.kind] = (out.kinds[m.kind] ?? 0) + 1;
+      if (m.favorite) out.favorites++;
+      if (m.unseen) out.unseen++;
+      if (keep(m, scope)) {
+        out.matching++;
+        out.matchingBytes += m.size;
+      }
+    }
+    return out;
+  }
+  const from = Number(q.get('cursor') || 0);
+  const limit = Number(q.get('limit') || 0);
+  const items = all.filter((m) => keep(m, scope));
+  if (!limit) return items;
+  const page: T.MediaPage = { items: items.slice(from, from + limit) };
+  if (from + limit < items.length) page.next = String(from + limit);
+  return page;
 }
 
 // pullRequests is a project's pull requests list, with a long GitHub login to
@@ -1528,6 +1578,9 @@ export function installDevBridge(): void {
       if (method === 'GET' && devState.cpuUsage && path.startsWith('/v1/usage/cpu')) return { status: 200, body: JSON.stringify(devState.cpuUsage), contentType: 'application/json' };
       if (method === 'GET' && devState.job && path === `/v1/jobs/${devState.job.id}`) return { status: 200, body: JSON.stringify(devState.job), contentType: 'application/json' };
       if (method === 'GET' && /^\/v1\/jobs\/[^/]+\/log$/.test(path)) return { status: 200, body: devState.jobLog ?? '', contentType: 'text/plain' };
+      // The galleries read a page at a time, and their counts.
+      if (method === 'GET' && (devState.media || devState.allMedia) && /^\/v1\/media(\/counts)?(\?|$)/.test(path))
+        return { status: 200, body: JSON.stringify(devMedia(path)), contentType: 'application/json' };
       // The ?media= scenarios' gallery, the project's and agent-99's.
       if (method === 'GET' && devState.media && path.startsWith(`/v1/projects/${PROJECT}/media`))
         return { status: 200, body: JSON.stringify(devState.media), contentType: 'application/json' };
@@ -1537,8 +1590,6 @@ export function installDevBridge(): void {
       // here instead wasn't a list, and the sidebar's Media count threw on it.
       if (method === 'GET' && path === '/v1/notifications')
         return { status: 200, body: JSON.stringify(devState.notifications ?? []), contentType: 'application/json' };
-      if (method === 'GET' && devState.allMedia && path.startsWith('/v1/media?'))
-        return { status: 200, body: JSON.stringify(devState.allMedia), contentType: 'application/json' };
       if (method === 'POST' && devState.notifications && path === '/v1/notifications/seen')
         return { status: 200, body: JSON.stringify(seeNotifications(body as T.SeeNotificationsRequest)), contentType: 'application/json' };
       if (method === 'POST' && path === '/v1/agents/stop') return stopAgents((body as T.StopAgentsRequest).refs ?? []);

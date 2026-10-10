@@ -22,6 +22,7 @@ import (
 // and under /v1/self/media on its own socket (all but export).
 var mediaRoutes = []struct{ method, path, action string }{
 	{"GET", "", "list"},
+	{"GET", "/counts", "counts"},
 	{"POST", "/screenshot", "screenshot"},
 	{"GET", "/record", "record-status"},
 	{"POST", "/record/start", "record-start"},
@@ -83,15 +84,9 @@ func (s *Server) media(action string, agentOf func(*http.Request) (state.Agent, 
 		var item state.Media
 		switch action {
 		case "list":
-			items, err := s.store.Media(ctx, a.Project, a.Name)
-			if err != nil {
-				return err
-			}
-			out := make([]api.MediaItem, 0, len(items))
-			for _, it := range items {
-				out = append(out, toAPIMedia(it, hostPath(it)))
-			}
-			return writeJSON(w, http.StatusOK, out)
+			return s.writeMediaList(w, r, state.MediaFilter{Project: a.Project, Agent: a.Name}, source == "user")
+		case "counts":
+			return s.writeMediaCounts(w, r, state.MediaFilter{Project: a.Project, Agent: a.Name})
 		case "record-status":
 			status, err := m.Recording(ctx, a)
 			if err != nil {
@@ -159,7 +154,11 @@ func (s *Server) media(action string, agentOf func(*http.Request) (state.Agent, 
 		if err != nil {
 			return err
 		}
-		s.events.publish(api.EventMedia, toAPIMedia(item, m.MediaPath(item)))
+		// Labelled as the Media lists label it, so the app can put it
+		// straight into a list it's showing.
+		labelled := toAPIMedia(item, m.MediaPath(item))
+		labelled.AgentName, labelled.AgentTitle = a.Name, a.Title
+		s.events.publish(api.EventMedia, labelled)
 		if source == "agent" {
 			s.notifyMedia(ctx, a, toAPIMedia(item, m.MediaPath(item)))
 		}
@@ -285,7 +284,14 @@ func (s *Server) updateMedia(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
-	out := toAPIMedia(item, s.manager(nil).MediaPath(item))
+	labels, err := s.mediaLabeller(r.Context(), true, false)
+	if err != nil {
+		return err
+	}
+	out, err := labels.label(item)
+	if err != nil {
+		return err
+	}
 	s.events.publish(api.EventMedia, out)
 	return writeJSON(w, http.StatusOK, out)
 }
@@ -370,9 +376,25 @@ func (s *Server) mediaToDelete(ctx context.Context, project, agent string, req a
 		if wanted == "" {
 			wanted = req.Agent
 		}
-		return slices.DeleteFunc(items, func(it state.Media) bool {
-			return (wanted != "" && it.Agent != wanted) || (req.Kind != "" && it.Kind != req.Kind)
-		}), nil
+		terms := mediaSearchTerms(req.Query)
+		labels, err := s.mediaLabeller(ctx, false, false)
+		if err != nil {
+			return nil, err
+		}
+		var failed error
+		items = slices.DeleteFunc(items, func(it state.Media) bool {
+			if (wanted != "" && it.Agent != wanted) || (req.Kind != "" && it.Kind != req.Kind) {
+				return true
+			}
+			if len(terms) == 0 || failed != nil {
+				return failed != nil
+			}
+			// The same search as the list's, so "Delete all" takes what it showed.
+			item, err := labels.label(it)
+			failed = err
+			return err != nil || !mediaMatches(item, terms)
+		})
+		return items, failed
 	}
 	where := project
 	if agent != "" {

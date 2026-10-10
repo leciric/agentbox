@@ -1853,6 +1853,7 @@ export const enUS = {
   'agent.mediaTab.clearSearch': 'Clear the search',
   'agent.mediaTab.noMatchQuery': 'Nothing matches “{query}”.',
   'agent.mediaTab.noMatch': 'Nothing matches that filter.',
+  'agent.mediaTab.loadingMore': 'Loading more…',
   'agent.mediaTab.deleted': '{count, plural, one {Deleted # item} other {Deleted # items}}',
   'agent.mediaTab.freed': '{size} freed',
   'agent.mediaTab.clear': 'Clear',

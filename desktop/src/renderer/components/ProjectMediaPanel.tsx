@@ -1,4 +1,3 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'lucide-react';
 import { useDeferredValue, useMemo, useState } from 'react';
 import type * as T from '../../shared/api';
@@ -6,10 +5,11 @@ import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
 import { useSeeMedia } from '../lib/notifications';
 import { useProjectName } from '../lib/useProjectName';
-import { describeAll, kindInfo, searchMedia } from '../lib/media';
+import { describeAll, kindInfo } from '../lib/media';
+import { loadedItems, useMediaCounts, useMediaPages, useNextPageNear } from '../lib/mediaPages';
 import { humanBytes } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
-import { FilterChip, MediaCard, MediaSearch, MediaSelection, MediaViewer, NoMatch, toggled } from './MediaTab';
+import { FilterChip, MediaCard, MediaSearch, MediaSelection, MediaViewer, MoreMedia, NoMatch, toggled } from './MediaTab';
 import { EmptyState } from './ui/card';
 import { Select, SelectOption } from './ui/select';
 
@@ -19,9 +19,7 @@ import { Select, SelectOption } from './ui/select';
 // be filtered down to one agent or one kind, and searched.
 export function ProjectMediaPanel({ project }: { project: string }) {
   const t = useT();
-  const queryClient = useQueryClient();
   const projectName = useProjectName(project);
-  const media = useQuery({ queryKey: ['projectMedia', project], queryFn: () => api.projectMedia(project), refetchInterval: 10_000 });
   const [agent, setAgent] = useState('');
   const [kind, setKind] = useState('');
   const [query, setQuery] = useState('');
@@ -36,28 +34,20 @@ export function ProjectMediaPanel({ project }: { project: string }) {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 
-  const items = useMemo(() => media.data ?? [], [media.data]);
+  // The daemon filters and searches, a page at a time; the counts are of
+  // every item, not the pages loaded.
+  const scope = { project, agent, only: kind, q: search };
+  const media = useMediaPages(scope);
+  const counts = useMediaCounts(scope);
+  const visible = useMemo(() => loadedItems(media.data), [media.data]);
   // The agents that have shown something, newest item first, each with a count.
-  const agents = new Map<string, { title: string; count: number; gone: boolean }>();
-  const kinds = new Map<string, number>();
-  let total = 0; // what the project's media takes on disk, since freeing that is why you delete it
-  for (const item of items) {
-    const name = item.agentName ?? '';
-    const entry = agents.get(name) ?? { title: item.agentTitle ?? '', count: 0, gone: item.agentGone ?? false };
-    agents.set(name, { title: entry.title || (item.agentTitle ?? ''), count: entry.count + 1, gone: entry.gone || (item.agentGone ?? false) });
-    kinds.set(item.kind, (kinds.get(item.kind) ?? 0) + 1);
-    total += item.size;
-  }
-
-  const visible = useMemo(
-    () => searchMedia(items.filter((item) => (!agent || item.agentName === agent) && (!kind || item.kind === kind)), search),
-    [items, agent, kind, search],
-  );
+  const agents = counts.data?.agents ?? [];
+  const items = agents.reduce((n, a) => n + a.count, 0);
+  const bytes = agents.reduce((n, a) => n + a.bytes, 0); // what the project's media takes on disk, since freeing that is why you delete it
   const index = visible.findIndex((item) => item.id === openId);
-  const refresh = async () => {
-    setOpenId(null);
-    await queryClient.invalidateQueries({ queryKey: ['projectMedia', project] });
-  };
+  useNextPageNear(media, index, visible.length);
+  // A delete's media events take the items out of the list.
+  const refresh = () => setOpenId(null);
   // A gone agent is called out: this item was kept past a destroy, not
   // deleted with it, so it's still worth knowing it isn't findable anywhere else.
   const label = (item: T.MediaItem) => {
@@ -65,7 +55,8 @@ export function ProjectMediaPanel({ project }: { project: string }) {
     return item.agentGone ? t('project.media.agentRemoved', { label: base }) : base;
   };
 
-  if (items.length === 0) {
+  if (media.isPending || counts.isPending) return null;
+  if (items === 0) {
     return (
       <div className="panel rounded-2xl">
         <EmptyState icon={Image} title={t('project.media.emptyTitle')}>
@@ -79,8 +70,8 @@ export function ProjectMediaPanel({ project }: { project: string }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2 px-1">
         <span className="text-[13px] text-muted">
-          {t('project.media.items', { count: items.length })}
-          {total > 0 && <span className="text-subtle"> · {humanBytes(total)}</span>}
+          {t('project.media.items', { count: items })}
+          {bytes > 0 && <span className="text-subtle"> · {humanBytes(bytes)}</span>}
         </span>
         <MediaSearch value={query} onChange={setQuery} />
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
@@ -90,10 +81,12 @@ export function ProjectMediaPanel({ project }: { project: string }) {
             onSelecting={setSelecting}
             selected={selected}
             onSelected={setSelected}
-            // A search has no counterpart on the daemon's side, so what it
-            // leaves is deleted by ID: "Delete all" never takes more than it shows.
-            all={search.trim() ? { ids: visible.map((item) => item.id) } : { all: true, agent: agent || undefined, kind: kind || undefined }}
-            allLabel={describeAll(visible.length, kind, agent, search)}
+            // The same filters and search as the list, so "Delete all" takes
+            // what it shows, scrolled to or not.
+            all={{ all: true, agent: agent || undefined, kind: kind || undefined, query: search.trim() || undefined }}
+            allCount={counts.data?.matching ?? 0}
+            allBytes={counts.data?.matchingBytes}
+            allLabel={describeAll(counts.data?.matching ?? 0, kind, agent, search)}
             deleteMedia={(req) => api.deleteProjectMedia(project, req)}
             onDeleted={refresh}
           />
@@ -102,9 +95,9 @@ export function ProjectMediaPanel({ project }: { project: string }) {
       <div data-media-filters>
         <Select value={agent} onChange={setAgent} aria-label={t('project.media.agentFilter')} className="w-72">
           <SelectOption value="">
-            {t('project.media.allAgents')} ({items.length})
+            {t('project.media.allAgents')} ({items})
           </SelectOption>
-          {[...agents].map(([name, { title, count, gone }]) => (
+          {agents.map(({ name, title, count, gone }) => (
             <SelectOption key={name} value={name}>
               {title ? `${name} · ${title}` : name}
               {gone && ` ${t('project.media.removed')}`} ({count})
@@ -113,10 +106,10 @@ export function ProjectMediaPanel({ project }: { project: string }) {
         </Select>
       </div>
       <div className="flex flex-wrap items-center gap-1" data-media-kinds>
-        <FilterChip active={!kind} count={items.length} onClick={() => setKind('')}>
+        <FilterChip active={!kind} count={counts.data?.total ?? 0} onClick={() => setKind('')}>
           {t('project.media.everything')}
         </FilterChip>
-        {[...kinds].map(([name, count]) => (
+        {Object.entries(counts.data?.kinds ?? {}).map(([name, count]) => (
           <FilterChip key={name} active={kind === name} count={count} onClick={() => setKind(kind === name ? '' : name)}>
             {kindInfo(name).label}
           </FilterChip>
@@ -126,19 +119,22 @@ export function ProjectMediaPanel({ project }: { project: string }) {
       {visible.length === 0 ? (
         <NoMatch query={search} onClear={() => setQuery('')} />
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {visible.map((item) => (
-            <MediaCard
-              key={item.id}
-              item={item}
-              label={label(item)}
-              onOpen={() => setOpenId(item.id)}
-              selecting={selecting}
-              selected={selected.has(item.id)}
-              onToggle={() => setSelected(toggled(selected, item.id))}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {visible.map((item) => (
+              <MediaCard
+                key={item.id}
+                item={item}
+                label={label(item)}
+                onOpen={() => setOpenId(item.id)}
+                selecting={selecting}
+                selected={selected.has(item.id)}
+                onToggle={() => setSelected(toggled(selected, item.id))}
+              />
+            ))}
+          </div>
+          <MoreMedia pages={media} />
+        </>
       )}
 
       <MediaViewer
@@ -157,7 +153,7 @@ export function ProjectMediaPanel({ project }: { project: string }) {
         destructive
         onConfirm={async () => {
           await api.deleteMedia(deleting!.id);
-          await refresh();
+          refresh();
         }}
       />
     </div>

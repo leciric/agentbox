@@ -994,6 +994,11 @@ var migrations = []string{
 	// where one was written: the project whose chat (or user) wrote it, or the
 	// Home chat's key, so the app can say where a preference came from.
 	`ALTER TABLE memories ADD COLUMN origin TEXT NOT NULL DEFAULT ''`,
+
+	// The Media views read a page at a time, newest first, from a cursor of
+	// (created_at, id) (EachMedia): across every project, and within one.
+	`CREATE INDEX media_by_time ON media (created_at, id)`,
+	`CREATE INDEX media_by_project ON media (project, created_at, id)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
