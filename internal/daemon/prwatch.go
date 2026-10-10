@@ -378,6 +378,10 @@ func (s *Server) watchProject(ctx context.Context, p state.Project, r *prRepo) {
 		s.closeAnchoredSoon(p.Name)
 	}
 	if !sameLive(before, live) {
+		// The list the Pull requests tab shows is older than this now — a
+		// head moved, one merged or closed — so it is re-read when the app,
+		// told, asks for it again.
+		s.pulls.invalidate(repo.String())
 		s.events.publish(api.EventPulls, api.PullsChange{Project: p.Name, GitHub: repo.String(), FetchedAt: now})
 	}
 }

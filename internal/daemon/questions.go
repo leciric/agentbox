@@ -416,8 +416,10 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, result 
 	}
 	s.markToldWaiting(a, false)
 	changes, pr := changesOf(a), s.prFor(ctx, a)
-	// An agent that finished has often just pushed: the watch looks now.
+	// An agent that finished has often just pushed: the watch looks now, and
+	// the Pull requests tab re-reads GitHub rather than waiting out its cache.
 	s.prWatch.poke(a.Project)
+	s.pullsMoved(a.Project)
 	ev := s.record(ctx, finishedEvent(a, changes, pr, s.chat.LastMessage(a), time.Now()))
 	s.captureAgentFinished(ctx, a, changes, pr, ev.Summary)
 	if pr != nil {

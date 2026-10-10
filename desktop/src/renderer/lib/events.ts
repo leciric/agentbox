@@ -156,9 +156,11 @@ export function connectEvents(queryClient: QueryClient): void {
         // The daemon re-read GitHub behind an answer it had already given,
         // and something moved. Refetching here is what lets both views poll
         // slowly without going stale.
-        const { project } = event.data as T.PullsChange;
+        // A re-read that found nothing new still says it ended, so the tab
+        // stops showing "refreshing"; the fleet has nothing to redraw.
+        const { project, unchanged } = event.data as T.PullsChange;
         void queryClient.invalidateQueries({ queryKey: ['pulls', project] });
-        void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
+        if (!unchanged) void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
         break;
       }
       case T.EventAgent: {

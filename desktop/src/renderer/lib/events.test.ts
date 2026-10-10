@@ -84,3 +84,20 @@ test('the agents stay listed while a reconnect refetches everything', async () =
   await settle();
   assert.ok(q.seen.every((data, i) => i === 0 || data?.length === 2));
 });
+
+// A re-read of GitHub that found nothing new still ends the tab's
+// "refreshing"; only one that found something redraws the fleet too.
+test('a pulls event refetches the tab, and the fleet only when something moved', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  connectEvents(client);
+  client.setQueryData(['pulls', 'p'], { refreshing: true });
+  client.setQueryData(['fleet', 'p'], {});
+  const stale = (key: string) => client.getQueryState([key, 'p'])?.isInvalidated;
+  emit({ type: 'pulls', data: { project: 'p', github: 'acme/x', fetchedAt: '', unchanged: true } satisfies T.PullsChange });
+  await settle();
+  assert.equal(stale('pulls'), true);
+  assert.equal(stale('fleet'), false);
+  emit({ type: 'pulls', data: { project: 'p', github: 'acme/x', fetchedAt: '' } satisfies T.PullsChange });
+  await settle();
+  assert.equal(stale('fleet'), true);
+});

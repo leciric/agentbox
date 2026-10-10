@@ -296,7 +296,13 @@ export const api = {
     const query = q.toString();
     return call<T.MediaItem[]>('GET', `/v1/projects/${encodeURIComponent(project)}/media${query ? `?${query}` : ''}`);
   },
-  projectPullRequests: (project: string) => call<T.ProjectPullRequests>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls`),
+  // refresh re-reads GitHub behind the answer whatever the age of the
+  // daemon's cache: the tab's refresh button.
+  projectPullRequests: (project: string, refresh = false) =>
+    call<T.ProjectPullRequests>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls${refresh ? '?refresh=1' : ''}`),
+  projectLabels: (project: string) => call<T.ProjectLabels>('GET', `/v1/projects/${encodeURIComponent(project)}/labels`),
+  editPullRequestLabels: (project: string, number: number, edit: T.EditLabelsRequest) =>
+    call<T.Label[]>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/labels`, edit satisfies T.EditLabelsRequest),
   mergePullRequest: (project: string, number: number, method: string) =>
     call<T.PullRequest>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge`, { method } satisfies T.MergePullRequestRequest),
 
