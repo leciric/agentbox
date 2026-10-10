@@ -34,7 +34,7 @@
 # (internal/tunnel); moving it on means adding the new release's sha256 sums
 # to internal/tunnel/install.go as well.
 
--        go@1.27.1                                         go version
+-        go@1.27.2                                         go version
 -        node@24.21.0                                      node --version
 -        pnpm@12.4.2                                       pnpm --version
 -        claude@2.1.280                                    claude --version

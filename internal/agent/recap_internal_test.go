@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -200,3 +201,34 @@ func TestAgentBriefCarriesWhatTheProjectKnows(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// A brief written for an agent counts towards offering what it carried as a
+// note; one that is only previewed counts for nobody.
+func TestOnlyWrittenBriefsCountTowardsANote(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	st, mem := recapStore(t)
+	m := &Manager{Store: st}
+	if _, err := mem.AddMemory(ctx, memory.Memory{Project: "pawly", Kind: memory.KindProject, Importance: 5,
+		Title: "Reminders live in internal/reminders"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range memory.PromoteAfterAgents {
+		preview := state.Agent{Project: "pawly", Name: "agent-" + strconv.Itoa(i)}
+		if _, err := m.ProjectKnowledge(ctx, preview); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if found, err := mem.NoteSuggestions(ctx, "pawly", 0); err != nil || len(found) != 0 {
+		t.Fatalf("previews offered a note: %+v, %v", found, err)
+	}
+	for i := range memory.PromoteAfterAgents {
+		a := state.Agent{Project: "pawly", Name: "agent-" + strconv.Itoa(i)}
+		if _, err := m.projectKnowledge(ctx, a, "reminders"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if found, err := mem.NoteSuggestions(ctx, "pawly", 0); err != nil || len(found) != 1 {
+		t.Errorf("NoteSuggestions() after %d agents' briefs = %+v, %v", memory.PromoteAfterAgents, found, err)
+	}
+}

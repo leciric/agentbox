@@ -187,6 +187,12 @@ type Memory struct {
 	// StaleAfter drops out of the lead's "Still open" (still searchable).
 	// Zero reads as CreatedAt.
 	MentionedAt time.Time `json:"mentionedAt,omitzero,omitempty"`
+	// Promotion is where this memory stands as a candidate project note
+	// (promote.go): "" until the lead is offered it, then PromotionOffered,
+	// PromotionPromoted or PromotionDismissed. PromotionAt is when that
+	// last changed.
+	Promotion   string    `json:"promotion,omitempty"`
+	PromotionAt time.Time `json:"promotionAt,omitzero,omitempty"`
 	// Anchors are what would close it (anchors.go). AddMemory takes the ones
 	// its writer names and adds what the text names; listings leave this
 	// empty, and Anchors or OpenAnchored read it back.

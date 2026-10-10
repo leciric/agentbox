@@ -200,7 +200,7 @@ const live = notSuperseded + ` AND m.resolved_at = 0`
 
 const memoryColumns = `m.id, m.project, m.kind, m.title, m.content, m.importance, m.created_at, m.updated_at,
 	m.supersedes_id, m.source_event_id, EXISTS (SELECT 1 FROM memories r WHERE r.supersedes_id = m.id),
-	m.resolved_at, m.resolved_by, m.referenced_at, m.decayed_at, m.mentioned_at`
+	m.resolved_at, m.resolved_by, m.referenced_at, m.decayed_at, m.mentioned_at, m.promotion, m.promotion_at`
 
 func (s *Store) queryMemories(ctx context.Context, clause string, args ...any) ([]Memory, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+memoryColumns+` FROM memories m `+clause, args...)
@@ -223,15 +223,15 @@ func scanMemory(rows scanner) (Memory, error) {
 	var m Memory
 	var created, updated int64
 	var supersedes, source *string
-	var resolved, referenced, decayed, mentioned int64
+	var resolved, referenced, decayed, mentioned, promoted int64
 	if err := rows.Scan(&m.ID, &m.Project, &m.Kind, &m.Title, &m.Content, &m.Importance,
 		&created, &updated, &supersedes, &source, &m.Superseded,
-		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned); err != nil {
+		&resolved, &m.ResolvedBy, &referenced, &decayed, &mentioned, &m.Promotion, &promoted); err != nil {
 		return Memory{}, err
 	}
 	m.CreatedAt, m.UpdatedAt = attime(created), attime(updated)
 	m.ResolvedAt, m.ReferencedAt, m.DecayedAt = attime(resolved), attime(referenced), attime(decayed)
-	m.MentionedAt = attime(mentioned)
+	m.MentionedAt, m.PromotionAt = attime(mentioned), attime(promoted)
 	if supersedes != nil {
 		m.SupersedesID = *supersedes
 	}

@@ -227,10 +227,16 @@ func TestRelay(t *testing.T) {
 		t.Fatalf("with the daemon: %s %q", resp.Status, body)
 	}
 	// The install ID is kept beside the distro's directory, which a new
-	// distro replaces; the Windows home is where the user's skills are.
+	// distro replaces; the Windows home is where the user's skills are. The
+	// daemon gets both at their paths in WSL (C:\x is /mnt/c/x there).
 	env, _ := os.ReadFile(filepath.Join(d.fakeEnv("FAKEWSL_ROOT"), "daemon-env"))
 	home, _ := os.UserHomeDir()
-	if want := hostos.InstallIDFileEnv + "=" + filepath.Join(filepath.Dir(d.Dir), "install-id") + "\n" + hostos.WindowsHomeEnv + "=" + home; string(env) != want {
+	file, _ := LinuxPath(filepath.Join(filepath.Dir(d.Dir), "install-id"), d.Name)
+	home, _ = LinuxPath(home, d.Name)
+	if runtime.GOOS == "windows" && (!strings.HasPrefix(file, "/mnt/") || !strings.HasPrefix(home, "/mnt/")) {
+		t.Fatalf("LinuxPath gave %q and %q, not paths under /mnt", file, home)
+	}
+	if want := hostos.InstallIDFileEnv + "=" + file + "\n" + hostos.WindowsHomeEnv + "=" + home; string(env) != want {
 		t.Errorf("the daemon was started with %q, want %q", env, want)
 	}
 

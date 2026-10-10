@@ -14,6 +14,7 @@ import (
 	"agentbox/internal/brief"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
+	"agentbox/internal/memory"
 	"agentbox/internal/notes"
 	"agentbox/internal/state"
 )
@@ -333,6 +334,21 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 	if err != nil {
 		return err
 	}
+	// Memories enough agents have been handed to be worth offering as notes
+	// (memory/promote.go). Only to a lead with the tools to answer them, and
+	// best-effort: a brief is worth writing without its offers.
+	var suggestions []brief.NoteSuggestion
+	if socket != "" {
+		offered, err := m.memory().OfferNoteSuggestions(ctx, a.Project)
+		if err != nil {
+			m.logf("offering %s's memories as notes: %v", a.Project, err)
+		}
+		for _, n := range offered {
+			suggestions = append(suggestions, brief.NoteSuggestion{
+				ID: n.ID, Title: n.Title, Text: memory.Excerpt(n.Content, noteSuggestionExcerpt), Agents: n.Agents,
+			})
+		}
+	}
 	// Whether the pull request watch is on here: the project's own say, or
 	// the installation's (the daemon's prWatchOn reads it the same way).
 	prWatch := p.PRWatch == state.PRWatchOn
@@ -368,6 +384,7 @@ func (m *Manager) configureLead(ctx context.Context, a state.Agent, p state.Proj
 		AgentPRs:             p.AgentPRs,
 		Notes:                projectNotes,
 		Recap:                recap,
+		NoteSuggestions:      suggestions,
 	})
 	if err != nil {
 		return err
@@ -507,3 +524,8 @@ func leadSettings() map[string]any {
 		"includeCoAuthoredBy": false,
 	}
 }
+
+// noteSuggestionExcerpt is how much of an offered memory's content the lead's
+// brief carries: enough to judge it by, since the brief is resent with every
+// call the lead makes. search_memory has the rest.
+const noteSuggestionExcerpt = 200

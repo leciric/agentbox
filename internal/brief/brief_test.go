@@ -172,9 +172,10 @@ func TestRenderLeadGolden(t *testing.T) {
 				PRWatch:    tc.name == "ask", // one golden file with the watch on, the others with it off
 				AgentModel: tc.agentModel, ModelMenu: []string{"default", "opus", "sonnet", "haiku"},
 				AgentDefaultModel: "opus", AgentDefaultWindow: "1m", EnforceAgentDefaults: tc.enforced,
-				ClaudeAccounts: []string{"personal", "work"},
-				Notes:          "## From the lead\n\n- 2026-09-18: the e2e tests need a Postgres on 5432.\n",
-				Recap:          "**What this project is doing**\n\n- Adding reminders to the pet profile.",
+				ClaudeAccounts:  []string{"personal", "work"},
+				Notes:           "## From the lead\n\n- 2026-09-18: the e2e tests need a Postgres on 5432.\n",
+				Recap:           "**What this project is doing**\n\n- Adding reminders to the pet profile.",
+				NoteSuggestions: suggestionsFor(tc.name == "on"), // offers in one golden file only
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -193,6 +194,18 @@ func TestRenderLeadGolden(t *testing.T) {
 				t.Errorf("RenderLead() mismatch (run with -update to accept)\n--- got ---\n%s\n--- want ---\n%s", got, want)
 			}
 		})
+	}
+}
+
+// suggestionsFor is the memories offered as notes in the golden file that has
+// them, and none in the others.
+func suggestionsFor(on bool) []brief.NoteSuggestion {
+	if !on {
+		return nil
+	}
+	return []brief.NoteSuggestion{
+		{ID: "mem_1a2b3c", Title: "Migrations are appended, never edited", Text: "Tracked with PRAGMA user_version.", Agents: 7},
+		{ID: "mem_4d5e6f", Title: "The e2e tests run against the staging API", Agents: 5},
 	}
 }
 

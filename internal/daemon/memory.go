@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/memory"
+	"agentbox/internal/notes"
 )
 
 // The project memory API (D72).
@@ -92,6 +94,11 @@ var memoryRoutes = []struct {
 	{http.MethodGet, "/duplicates", "duplicates", true, false},
 	{http.MethodPost, "/resolve", "resolve-memory", false, false},
 	{http.MethodPost, "/consolidate", "consolidate", false, false},
+	// Memories offered as notes (memory/promote.go). Writing the notes is the
+	// lead's and the user's, so an agent doesn't get these.
+	{http.MethodGet, "/suggestions", "note-suggestions", false, false},
+	{http.MethodPost, "/promote", "promote-memory", false, false},
+	{http.MethodPost, "/dismiss-promotion", "dismiss-promotion", false, false},
 	// Tidying resolves a whole store's worth of open items at once, which is
 	// the user's to decide (agentbox memory tidy).
 	{http.MethodPost, "/tidy", "tidy", false, true},
@@ -268,6 +275,31 @@ func (s *Server) memoryHandler(action string, scope func(*http.Request) (memoryS
 			}
 			return writeJSON(w, http.StatusOK, apiMemory(out))
 
+		case "note-suggestions":
+			found, err := m.NoteSuggestions(ctx, who.project, memory.NoteSuggestionsShown)
+			if err != nil {
+				return err
+			}
+			out := make([]api.NoteSuggestion, 0, len(found))
+			for _, n := range found {
+				out = append(out, api.NoteSuggestion{Memory: apiMemory(n.Memory), Agents: n.Agents})
+			}
+			return writeJSON(w, http.StatusOK, out)
+
+		case "promote-memory":
+			return s.promoteMemory(w, r, who.project)
+
+		case "dismiss-promotion":
+			var req api.DismissPromotionRequest
+			if err := readJSON(r, &req); err != nil {
+				return err
+			}
+			out, err := m.DismissPromotion(ctx, who.project, req.ID)
+			if err != nil {
+				return err
+			}
+			return writeJSON(w, http.StatusOK, apiMemory(out))
+
 		case "consolidate":
 			return s.consolidateProject(w, r, who.project)
 
@@ -431,6 +463,7 @@ func apiMemory(m memory.Memory) api.Memory {
 		SupersedesID: m.SupersedesID, SourceEventID: m.SourceEventID, Superseded: m.Superseded,
 		ResolvedAt: m.ResolvedAt, ResolvedBy: m.ResolvedBy,
 		ReferencedAt: m.ReferencedAt, DecayedAt: m.DecayedAt,
+		Promotion: m.Promotion, PromotionAt: m.PromotionAt,
 	}
 }
 
@@ -530,4 +563,45 @@ func apiContextAccount(a memory.ContextAccount) api.ContextAccount {
 		recent = append(recent, apiContextStats(st))
 	}
 	return api.ContextAccount{Builds: a.Builds, Tokens: a.Tokens, DroppedRows: a.DroppedRows, Recent: recent}
+}
+
+// promoteMemory writes a memory into the project's notes and marks it
+// promoted, so no brief serves it beside the note that says it. The memory is
+// checked before the note is written, so a refusal changes nothing; the note is
+// written before the memory is marked, so a failure in between leaves a note
+// and a memory that is still served, which costs context, rather than a
+// memory nobody is told any more.
+func (s *Server) promoteMemory(w http.ResponseWriter, r *http.Request, project string) error {
+	var req api.PromoteMemoryRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.ID) == "" {
+		return errors.New("say which memory to promote, by its id")
+	}
+	m := s.memory()
+	ctx := r.Context()
+	mem, err := m.Memory(ctx, project, req.ID)
+	if err != nil {
+		return err
+	}
+	if err := memory.Promotable(mem); err != nil {
+		return err
+	}
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		text = memory.NoteText(mem)
+	}
+	if _, err := notes.AppendToFile(s.cfg.Paths.ProjectNotes(project), text, time.Now()); err != nil {
+		return err
+	}
+	mem, err = m.PromoteMemory(ctx, project, mem.ID)
+	if err != nil {
+		return err
+	}
+	out, err := s.notesChanged(r, project, "promote")
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, api.PromoteMemoryResult{Memory: apiMemory(mem), Notes: out})
 }
