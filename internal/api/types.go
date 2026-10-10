@@ -1296,6 +1296,8 @@ type PullRequestDetail struct {
 	Body      string      `json:"body"`
 	Labels    []PullLabel `json:"labels"`
 	CheckRuns []PullCheck `json:"checkRuns"`
+	// ChangedFiles is how many files it changes, before they are listed.
+	ChangedFiles int `json:"changedFiles"`
 }
 
 // PullLabel is a label on a pull request; Color is GitHub's hex, without "#".

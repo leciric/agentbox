@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Root } from 'mdast';
-import { fileKind, imagesInHTML, initiallyOpen, isGitHubImage, languageOfPath, parsePatch, remarkHTMLImages } from './pulls.ts';
+import { fileKind, imagesInHTML, initiallyOpen, isGitHubImage, languageOfPath, nextToLoad, parsePatch, remarkHTMLImages } from './pulls.ts';
 
 test('imagesInHTML reads what GitHub’s uploader writes', () => {
   assert.deepEqual(imagesInHTML('<img width="640" alt="The &quot;modal&quot;" src="https://github.com/user-attachments/assets/abc" />'), [
@@ -76,4 +76,18 @@ test('languageOfPath goes by extension and a few names', () => {
   assert.equal(languageOfPath('Dockerfile'), 'dockerfile');
   assert.equal(languageOfPath('LICENSE'), undefined);
   assert.equal(languageOfPath('Makefile'), undefined);
+});
+
+test('nextToLoad is the first open file whose diff hasn’t loaded, one at a time', () => {
+  const files = [
+    { path: 'a.go', hasDiff: true },
+    { path: 'logo.png', hasDiff: false },
+    { path: 'b.go', hasDiff: true },
+    { path: 'c.go', hasDiff: true },
+  ];
+  const open = new Set(['a.go', 'logo.png', 'c.go']);
+  assert.equal(nextToLoad(files, open, new Set()), 'a.go');
+  assert.equal(nextToLoad(files, open, new Set(['a.go'])), 'c.go');
+  assert.equal(nextToLoad(files, open, new Set(['a.go', 'c.go'])), undefined);
+  assert.equal(nextToLoad(files, new Set(['b.go', 'c.go']), new Set(['a.go'])), 'b.go');
 });

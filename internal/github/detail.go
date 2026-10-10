@@ -17,9 +17,10 @@ import (
 // on its head, which the list leaves out.
 type PullRequestDetail struct {
 	PullRequest
-	Body      string
-	Labels    []Label
-	CheckRuns []CheckRun
+	Body         string
+	Labels       []Label
+	CheckRuns    []CheckRun
+	ChangedFiles int
 }
 
 // Label is a label on a pull request; Color is GitHub's hex, without "#".
@@ -48,8 +49,9 @@ type PullFile struct {
 func (c Client) PullRequestDetail(ctx context.Context, repo Repo, number int) (PullRequestDetail, error) {
 	var raw struct {
 		rawPR
-		Body   *string `json:"body"`
-		Labels []struct {
+		ChangedFiles int     `json:"changed_files"`
+		Body         *string `json:"body"`
+		Labels       []struct {
 			Name        string `json:"name"`
 			Color       string `json:"color"`
 			Description string `json:"description"`
@@ -59,7 +61,7 @@ func (c Client) PullRequestDetail(ctx context.Context, repo Repo, number int) (P
 	if err := c.get(ctx, path, &raw); err != nil {
 		return PullRequestDetail{}, err
 	}
-	out := PullRequestDetail{PullRequest: raw.pullRequest()}
+	out := PullRequestDetail{PullRequest: raw.pullRequest(), ChangedFiles: raw.ChangedFiles}
 	if raw.Body != nil {
 		out.Body = *raw.Body
 	}

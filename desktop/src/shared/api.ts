@@ -1172,6 +1172,7 @@ export interface PullRequestDetail {
   body: string;
   labels: PullLabel[];
   checkRuns: PullCheck[];
+  changedFiles: number;
 }
 
 export interface PullLabel {

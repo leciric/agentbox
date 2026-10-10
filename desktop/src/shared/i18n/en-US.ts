@@ -1092,6 +1092,8 @@ export const enUS = {
   'pulls.detail.check.cancelled': 'cancelled',
   'pulls.detail.check.timedOut': 'timed out',
   'pulls.detail.check.actionRequired': 'action required',
+  'pulls.detail.tab.description': 'Description',
+  'pulls.detail.tab.files': 'Files changed',
   'pulls.detail.files': '{count, plural, one {# file changed} other {# files changed}}',
   'pulls.detail.filesTruncated': 'GitHub lists only the first {count} files.',
   'pulls.detail.filesFailed': 'Couldn’t read its files: {error}',

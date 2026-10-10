@@ -196,3 +196,10 @@ export function languageOfPath(path: string): string | undefined {
   const ext = name.slice(dot + 1).toLowerCase();
   return languageOf(extensions[ext] ?? ext);
 }
+
+// nextToLoad is the one diff that may load now: the first open file, in the
+// pull request's order, with a diff not loaded yet. Diffs load one by one,
+// each after the one before it, rather than every open file at once.
+export function nextToLoad(files: { path: string; hasDiff: boolean }[], open: ReadonlySet<string>, loaded: ReadonlySet<string>): string | undefined {
+  return files.find((f) => f.hasDiff && open.has(f.path) && !loaded.has(f.path))?.path;
+}

@@ -12,13 +12,13 @@ import {
   LoaderCircle,
   User,
 } from 'lucide-react';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import type { ThemedToken } from 'shiki/core';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { highlight } from '../lib/highlight';
 import { useT, type MessageKey } from '../lib/i18n';
-import { fileKind, initiallyOpen, isGitHubImage, languageOfPath, parsePatch, type DiffLine, type FileKind } from '../lib/pulls';
+import { fileKind, initiallyOpen, isGitHubImage, languageOfPath, nextToLoad, parsePatch, type DiffLine, type FileKind } from '../lib/pulls';
 import { useMode } from '../lib/theme';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
@@ -26,6 +26,7 @@ import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 const stateLabels: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
 const stateVariants: Record<string, BadgeVariant> = { open: 'info', merged: 'success', closed: 'default' };
@@ -53,9 +54,10 @@ const kindLabels: Record<Exclude<FileKind, 'code'>, MessageKey> = {
 // PullRequestModal is one pull request, read so the user never has to open
 // GitHub for it: what it is, who opened it and where it merges, its checks
 // and labels, its description as GitHub renders it — pictures included, read
-// through the daemon with the project's account — and its files, each diff
-// read when it's opened. Its actions are the row's: merge, and GitHub itself
-// for anything else.
+// through the daemon with the project's account — and, on a tab of their own,
+// its files. Those are only read once that tab is opened, and their diffs one
+// file at a time. Its actions are the row's: merge, and GitHub itself for
+// anything else.
 export function PullRequestModal({
   project,
   pr,
@@ -113,7 +115,11 @@ function Detail({
 }) {
   const t = useT();
   const detail = useQuery({ queryKey: ['pull', project, listed.number], queryFn: () => api.pullRequestDetail(project, listed.number) });
-  const files = useQuery({ queryKey: ['pullFiles', project, listed.number], queryFn: () => api.pullRequestFiles(project, listed.number) });
+  const [tab, setTab] = useState<'description' | 'files'>('description');
+  // Which files are open and which diffs have loaded outlive the Files tab,
+  // which unmounts whenever the Description tab is shown.
+  const [open, setOpen] = useState<ReadonlySet<string> | null>(null);
+  const [loaded, setLoaded] = useState<ReadonlySet<string>>(() => new Set());
   // What the list had shows at once; what's read fresh replaces it.
   const pr: T.PullRequest = detail.data ?? listed;
   const imageSrc = useCallback((src: string) => (isGitHubImage(src) ? api.pullImageUrl(project, src) : undefined), [project]);
@@ -121,67 +127,82 @@ function Detail({
 
   return (
     <>
-      <header className="grid gap-2 border-b border-line-faint px-6 pb-4 pt-5 pr-14">
-        <DialogTitle className="flex min-w-0 items-start gap-2 text-[17px] leading-snug">
-          <GitPullRequest className="mt-1 size-4 shrink-0 text-subtle" />
-          <span className="min-w-0 break-words">
-            {pr.title} <span className="font-normal text-subtle">#{pr.number}</span>
-          </span>
-        </DialogTitle>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px] text-muted">
-          {pr.draft ? (
-            <Badge>{t('memory.pulls.draft')}</Badge>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex min-h-0 flex-1 flex-col">
+        <header className="grid gap-2 border-b border-line-faint px-6 pb-3 pt-5 pr-14">
+          <DialogTitle className="flex min-w-0 items-start gap-2 text-[17px] leading-snug">
+            <GitPullRequest className="mt-1 size-4 shrink-0 text-subtle" />
+            <span className="min-w-0 break-words">
+              {pr.title} <span className="font-normal text-subtle">#{pr.number}</span>
+            </span>
+          </DialogTitle>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px] text-muted">
+            {pr.draft ? (
+              <Badge>{t('memory.pulls.draft')}</Badge>
+            ) : (
+              <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>
+            )}
+            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+              {t.rich(into, {
+                author: (
+                  <span className="inline-flex items-center gap-1.5 font-medium text-secondary">
+                    {pr.authorAvatar ? <img src={pr.authorAvatar} alt="" className="size-4 rounded-full" /> : <User className="size-3.5" />}
+                    {pr.author || '?'}
+                  </span>
+                ),
+                head: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.headBranch}</code>,
+                base: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.baseBranch}</code>,
+              })}
+            </span>
+            {pr.updatedAt && <span className="text-faint">· {timeAgo(pr.updatedAt)}</span>}
+            {onOpenAgent && (
+              <button type="button" onClick={onOpenAgent} className="font-medium text-brand-300 hover:underline">
+                {t('memory.pulls.agentOf', { name: pr.agent ?? listed.agent ?? '' })}
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {pr.checks && (
+              <Badge variant={checksVariants[pr.checks] ?? 'default'}>
+                {t('memory.pulls.checks', { state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks })}
+              </Badge>
+            )}
+            {listed.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
+            {listed.review === 'changes_requested' && <Badge variant="warning">{t('memory.pulls.changesRequested')}</Badge>}
+            {detail.data?.labels.map((label) => (
+              <LabelChip key={label.name} label={label} />
+            ))}
+          </div>
+          <TabsList className="mt-1 justify-self-start">
+            <TabsTrigger value="description">{t('pulls.detail.tab.description')}</TabsTrigger>
+            <TabsTrigger value="files" data-pull-files-tab>
+              <FileDiff />
+              {t('pulls.detail.tab.files')}
+              {detail.data && <span className="rounded-full bg-surface-raised px-1.5 text-[11px] text-subtle">{detail.data.changedFiles}</span>}
+            </TabsTrigger>
+          </TabsList>
+        </header>
+
+        <TabsContent value="description" className="overflow-y-auto px-6 py-5" data-pull-body>
+          {detail.error && <Notice className="mb-4">{t('pulls.detail.unavailable', { error: errorMessage(detail.error) })}</Notice>}
+          {detail.data ? (
+            detail.data.body.trim() ? (
+              <Markdown text={detail.data.body} imageSrc={imageSrc} className="text-[13.5px]" />
+            ) : (
+              <p className="text-[13px] italic text-subtle">{t('pulls.detail.noDescription')}</p>
+            )
           ) : (
-            <Badge variant={stateVariants[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>
+            !detail.error && <p className="text-[13px] text-subtle">{t('common.loading')}</p>
           )}
-          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {t.rich(into, {
-              author: (
-                <span className="inline-flex items-center gap-1.5 font-medium text-secondary">
-                  {pr.authorAvatar ? <img src={pr.authorAvatar} alt="" className="size-4 rounded-full" /> : <User className="size-3.5" />}
-                  {pr.author || '?'}
-                </span>
-              ),
-              head: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.headBranch}</code>,
-              base: <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[11.5px] text-tertiary">{pr.baseBranch}</code>,
-            })}
-          </span>
-          {pr.updatedAt && <span className="text-faint">· {timeAgo(pr.updatedAt)}</span>}
-          {onOpenAgent && (
-            <button type="button" onClick={onOpenAgent} className="font-medium text-brand-300 hover:underline">
-              {t('memory.pulls.agentOf', { name: pr.agent ?? listed.agent ?? '' })}
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {pr.checks && (
-            <Badge variant={checksVariants[pr.checks] ?? 'default'}>
-              {t('memory.pulls.checks', { state: checksLabels[pr.checks] ? t(checksLabels[pr.checks]) : pr.checks })}
-            </Badge>
-          )}
-          {listed.conflict && <Badge variant="danger">{t('memory.pulls.conflicts')}</Badge>}
-          {listed.review === 'changes_requested' && <Badge variant="warning">{t('memory.pulls.changesRequested')}</Badge>}
-          {detail.data?.labels.map((label) => <LabelChip key={label.name} label={label} />)}
-        </div>
-      </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5" data-pull-body>
-        {detail.error && <Notice className="mb-4">{t('pulls.detail.unavailable', { error: errorMessage(detail.error) })}</Notice>}
-        {detail.data ? (
-          detail.data.body.trim() ? (
-            <Markdown text={detail.data.body} imageSrc={imageSrc} className="text-[13.5px]" />
-          ) : (
-            <p className="text-[13px] italic text-subtle">{t('pulls.detail.noDescription')}</p>
-          )
-        ) : (
-          !detail.error && <p className="text-[13px] text-subtle">{t('common.loading')}</p>
-        )}
+          {detail.data && detail.data.checkRuns.length > 0 && <Checks runs={detail.data.checkRuns} />}
+        </TabsContent>
 
-        {detail.data && detail.data.checkRuns.length > 0 && <Checks runs={detail.data.checkRuns} />}
-
-        {/* Read alongside the description, but shown after it, so nothing jumps when it arrives. */}
-        {(detail.data || detail.error) && <Files project={project} pr={pr} files={files.data} error={files.error} />}
-      </div>
+        {/* Radix mounts a tab's content only while it's shown, so the files are
+          first read when this tab is first opened. */}
+        <TabsContent value="files" className="overflow-y-auto px-6 py-5">
+          <Files project={project} pr={pr} open={open} setOpen={setOpen} loaded={loaded} setLoaded={setLoaded} />
+        </TabsContent>
+      </Tabs>
 
       <footer className="flex flex-wrap items-center gap-2 border-t border-line-faint px-6 py-3">
         {mergeError && <Notice className="w-full">{t('memory.pulls.mergeFailed', { error: mergeError })}</Notice>}
@@ -270,28 +291,44 @@ function Checks({ runs }: { runs: T.PullCheck[] }) {
   );
 }
 
-function Files({ project, pr, files, error }: { project: string; pr: T.PullRequest; files?: T.PullRequestFiles; error: Error | null }) {
+function Files({
+  project,
+  pr,
+  open,
+  setOpen,
+  loaded,
+  setLoaded,
+}: {
+  project: string;
+  pr: T.PullRequest;
+  open: ReadonlySet<string> | null;
+  setOpen: Dispatch<SetStateAction<ReadonlySet<string> | null>>;
+  loaded: ReadonlySet<string>;
+  setLoaded: Dispatch<SetStateAction<ReadonlySet<string>>>;
+}) {
   const t = useT();
-  const [open, setOpen] = useState<ReadonlySet<string> | null>(null);
+  const query = useQuery({ queryKey: ['pullFiles', project, pr.number], queryFn: () => api.pullRequestFiles(project, pr.number) });
+  const files = query.data;
   // The first few small files start open, once they're known.
   useEffect(() => {
     if (files && open === null) setOpen(initiallyOpen(files.files));
-  }, [files, open]);
+  }, [files, open, setOpen]);
+  const next = files && open ? nextToLoad(files.files, open, loaded) : undefined;
+  const onLoaded = useCallback((path: string) => setLoaded((l) => (l.has(path) ? l : new Set(l).add(path))), [setLoaded]);
 
   const additions = files?.files.reduce((n, f) => n + f.additions, 0) ?? 0;
   const deletions = files?.files.reduce((n, f) => n + f.deletions, 0) ?? 0;
   return (
-    <section className="mt-6" data-pull-files>
+    <section data-pull-files>
       <h3 className="mb-2 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-subtle">
-        <FileDiff className="size-3.5" />
-        {files ? t('pulls.detail.files', { count: files.files.length }) : t('common.loading')}
+        {files ? t('pulls.detail.files', { count: files.files.length }) : !query.error && t('common.loading')}
         {files && (
           <span className="font-mono normal-case tracking-normal">
             <span className="text-emerald-400">+{additions}</span> <span className="text-rose-400">−{deletions}</span>
           </span>
         )}
       </h3>
-      {error && <Notice>{t('pulls.detail.filesFailed', { error: errorMessage(error) })}</Notice>}
+      {query.error && <Notice>{t('pulls.detail.filesFailed', { error: errorMessage(query.error) })}</Notice>}
       {files?.truncated && <p className="mb-2 text-[12px] text-subtle">{t('pulls.detail.filesTruncated', { count: files.files.length })}</p>}
       <div className="grid gap-2">
         {files?.files.map((f) => (
@@ -301,6 +338,8 @@ function Files({ project, pr, files, error }: { project: string; pr: T.PullReque
             pr={pr}
             file={f}
             open={open?.has(f.path) ?? false}
+            mayLoad={loaded.has(f.path) || f.path === next}
+            onLoaded={onLoaded}
             onToggle={() =>
               setOpen((o) => {
                 const next = new Set(o);
@@ -316,24 +355,51 @@ function Files({ project, pr, files, error }: { project: string; pr: T.PullReque
   );
 }
 
-function FileRow({ project, pr, file, open, onToggle }: { project: string; pr: T.PullRequest; file: T.PullFile; open: boolean; onToggle: () => void }) {
+function FileRow({
+  project,
+  pr,
+  file,
+  open,
+  mayLoad,
+  onLoaded,
+  onToggle,
+}: {
+  project: string;
+  pr: T.PullRequest;
+  file: T.PullFile;
+  open: boolean;
+  mayLoad: boolean;
+  onLoaded: (path: string) => void;
+  onToggle: () => void;
+}) {
   const t = useT();
   const kind = fileKind(file);
   return (
     <div className="min-w-0 overflow-hidden rounded-xl border border-line-faint" data-pull-file={file.path} data-open={open || undefined}>
-      <button type="button" onClick={onToggle} className="flex w-full min-w-0 items-center gap-2 bg-surface-raised/40 px-3 py-2 text-left text-[12.5px] hover:bg-surface-raised">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full min-w-0 items-center gap-2 bg-surface-raised/40 px-3 py-2 text-left text-[12.5px] hover:bg-surface-raised"
+      >
         <ChevronRight className={cn('size-3.5 shrink-0 text-subtle transition-transform', open && 'rotate-90')} />
         <span className="min-w-0 truncate font-mono text-secondary" title={file.path}>
           {file.path}
         </span>
-        {file.previousPath && <span className="hidden min-w-0 truncate font-mono text-faint sm:inline">{t('pulls.detail.renamedFrom', { path: file.previousPath })}</span>}
+        {file.previousPath && (
+          <span className="hidden min-w-0 truncate font-mono text-faint sm:inline">{t('pulls.detail.renamedFrom', { path: file.previousPath })}</span>
+        )}
         {statusLabels[file.status] && <span className="shrink-0 text-faint">{t(statusLabels[file.status])}</span>}
         {kind !== 'code' && <span className="shrink-0 rounded bg-surface-raised px-1.5 text-[11px] text-subtle">{t(kindLabels[kind])}</span>}
         <span className="ml-auto shrink-0 font-mono text-[11.5px]">
           <span className="text-emerald-400">+{file.additions}</span> <span className="text-rose-400">−{file.deletions}</span>
         </span>
       </button>
-      {open && (file.hasDiff ? <Diff project={project} pr={pr} path={file.path} /> : <p className="px-3 py-2 text-[12px] text-subtle">{t('pulls.detail.noDiff')}</p>)}
+      {open &&
+        (file.hasDiff ? (
+          <Diff project={project} pr={pr} path={file.path} enabled={mayLoad} onLoaded={onLoaded} />
+        ) : (
+          <p className="px-3 py-2 text-[12px] text-subtle">{t('pulls.detail.noDiff')}</p>
+        ))}
     </div>
   );
 }
@@ -347,14 +413,32 @@ const lineTints: Record<DiffLine['kind'], string> = {
 };
 const signs: Record<DiffLine['kind'], string> = { add: '+', del: '−', hunk: '', context: ' ', note: '' };
 
-// Diff is one file's diff, read when it opens, highlighted as its language.
-function Diff({ project, pr, path }: { project: string; pr: T.PullRequest; path: string }) {
+// Diff is one file's diff, read when its turn comes (nextToLoad) and
+// highlighted as its language.
+function Diff({
+  project,
+  pr,
+  path,
+  enabled,
+  onLoaded,
+}: {
+  project: string;
+  pr: T.PullRequest;
+  path: string;
+  enabled: boolean;
+  onLoaded: (path: string) => void;
+}) {
   const t = useT();
   const diff = useQuery({
     queryKey: ['pullDiff', project, pr.number, pr.headSha, path],
     queryFn: () => api.pullFileDiff(project, pr.number, path),
     staleTime: Infinity,
+    enabled,
   });
+  const done = diff.isSuccess || diff.isError;
+  useEffect(() => {
+    if (done) onLoaded(path);
+  }, [done, onLoaded, path]);
   const lines = diff.data ? parsePatch(diff.data.patch) : null;
   const tokens = useHighlighted(lines, languageOfPath(path));
   if (diff.error) return <p className="px-3 py-2 text-[12px] text-rose-400">{t('pulls.detail.diffFailed', { error: errorMessage(diff.error) })}</p>;

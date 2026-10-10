@@ -18,7 +18,7 @@ func TestPullRequestDetailReadsBodyLabelsAndCheckRuns(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/repos/acme/app/pulls/7":
-			_, _ = w.Write([]byte(`{"number":7,"title":"Pages","state":"open","body":"Adds **pages**","additions":12,"deletions":3,
+			_, _ = w.Write([]byte(`{"number":7,"title":"Pages","state":"open","body":"Adds **pages**","additions":12,"changed_files":4,"deletions":3,
 				"labels":[{"name":"ui","color":"a2eeef","description":"The app"}],
 				"user":{"login":"lea"},"base":{"ref":"main"},"head":{"ref":"feat/pages","sha":"abc"}}`))
 		case "/repos/acme/app/commits/abc/check-runs":
@@ -36,7 +36,7 @@ func TestPullRequestDetailReadsBodyLabelsAndCheckRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pr.Body != "Adds **pages**" || pr.Author != "lea" || pr.Additions != 12 || pr.HeadBranch != "feat/pages" {
+	if pr.Body != "Adds **pages**" || pr.Author != "lea" || pr.Additions != 12 || pr.ChangedFiles != 4 || pr.HeadBranch != "feat/pages" {
 		t.Errorf("detail = %+v", pr)
 	}
 	if len(pr.Labels) != 1 || pr.Labels[0] != (Label{Name: "ui", Color: "a2eeef", Description: "The app"}) {

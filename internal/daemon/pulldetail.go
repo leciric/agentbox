@@ -107,10 +107,11 @@ func (s *Server) pullRequestDetail(w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	out := api.PullRequestDetail{
-		PullRequest: toAPIPullRequests([]github.PullRequest{pr.PullRequest})[0],
-		Body:        pr.Body,
-		Labels:      []api.PullLabel{},
-		CheckRuns:   []api.PullCheck{},
+		PullRequest:  toAPIPullRequests([]github.PullRequest{pr.PullRequest})[0],
+		Body:         pr.Body,
+		ChangedFiles: pr.ChangedFiles,
+		Labels:       []api.PullLabel{},
+		CheckRuns:    []api.PullCheck{},
 	}
 	for _, l := range pr.Labels {
 		out.Labels = append(out.Labels, api.PullLabel{Name: l.Name, Color: l.Color, Description: l.Description})

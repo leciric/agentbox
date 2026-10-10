@@ -1093,6 +1093,8 @@ export const ptBR: Messages = {
   'pulls.detail.check.cancelled': 'cancelada',
   'pulls.detail.check.timedOut': 'esgotou o tempo',
   'pulls.detail.check.actionRequired': 'precisa de ação',
+  'pulls.detail.tab.description': 'Descrição',
+  'pulls.detail.tab.files': 'Arquivos alterados',
   'pulls.detail.files': '{count, plural, one {# arquivo alterado} other {# arquivos alterados}}',
   'pulls.detail.filesTruncated': 'O GitHub lista só os primeiros {count} arquivos.',
   'pulls.detail.filesFailed': 'Não deu para ler os arquivos: {error}',
