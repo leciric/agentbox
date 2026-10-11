@@ -2,11 +2,18 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"agentbox/internal/incus"
 )
 
 // watchedIncus is fakeIncus for the watch on Incus: /1.0 hangs while the file
@@ -183,5 +190,76 @@ func mustWrite(t *testing.T, file, content string) {
 	t.Helper()
 	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The watch probes Incus past its own mark. On 2026-10-11 a probe timed out
+// once, during a memory stall, and Incus answered again 20 ms later; but the
+// probe went through the same gate as every other call, which failed it at
+// once while the mark was set, so the mark was never cleared and the watch
+// went on restarting a healthy incus.service. Through Incus' REST API, as the
+// daemon talks to it outside tests: /1.0 hangs once, then answers.
+func TestIncusWatchClearsOnceIncusAnswersAgain(t *testing.T) {
+	root := t.TempDir()
+	l, err := net.Listen("unix", filepath.Join(root, "incus.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stall atomic.Bool
+	reply := func(w http.ResponseWriter, metadata any) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "sync", "status": "Success", "status_code": 200, "metadata": metadata})
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/1.0" {
+			reply(w, []any{})
+			return
+		}
+		if stall.CompareAndSwap(true, false) {
+			<-r.Context().Done()
+			return
+		}
+		reply(w, map[string]any{"api_extensions": []string{}, "environment": map[string]any{"server": "incus"}})
+	})}
+	go func() { _ = srv.Serve(l) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	t.Setenv("INCUS_SOCKET", l.Addr().String())
+	// Probe wants the incus command installed: the test daemon's fake is it.
+	t.Setenv("PATH", root+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	d := startTestDaemon(t, root, watchedIncus, testConfig{setup: func(s *Server) {
+		s.cfg.Incus.Bin = "" // the REST API, not the fake command
+	}})
+	ctx := context.Background()
+	w := d.srv.incus
+	w.probeTimeout = 300 * time.Millisecond
+	w.usable = func() bool { return true }
+	w.hungGrace, w.restartEvery = 0, 0
+	w.unit = func(context.Context) (incusUnit, error) {
+		return incusUnit{State: "active/running", MainPID: 4242}, nil
+	}
+	restarts := 0
+	w.restart = func(context.Context) error { restarts++; return nil }
+
+	stall.Store(true)
+	d.srv.checkIncus(ctx)
+	if err := d.srv.cfg.Incus.Ping(ctx); !errors.Is(err, incus.ErrNotAnswering) {
+		t.Fatalf("Ping during the stall = %v, want ErrNotAnswering", err)
+	}
+	if restarts != 1 {
+		t.Fatalf("%d restarts of a hung Incus with no grace, want 1", restarts)
+	}
+
+	// Incus answers again: the next probe must reach it past the mark.
+	d.srv.checkIncus(ctx)
+	if st := d.srv.incusStatus(); !st.Answering {
+		t.Errorf("status = %+v, want answering", st)
+	}
+	if err := d.srv.cfg.Incus.Ping(ctx); err != nil {
+		t.Errorf("Incus calls still fail once it answers: %v", err)
+	}
+	d.srv.checkIncus(ctx)
+	if restarts != 1 {
+		t.Errorf("incus.service was restarted %d times, %d of them while Incus answered", restarts, restarts-1)
 	}
 }

@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"sync/atomic"
 	"time"
+
+	incusclient "github.com/lxc/incus/v7/client"
 )
 
 // An Incus that has died while systemd still holds its socket (incus.service
@@ -44,8 +47,32 @@ func (c Client) notAnsweringErr() error {
 }
 
 // Probe is Ping past the mark: how the watch finds out whether Incus answers
-// again.
-func (c Client) Probe(ctx context.Context) error { return c.ping(ctx) }
+// again. It asks on a connection of its own, made for this probe, rather than
+// the shared one: Ping goes through do and server, which fail at once while
+// the mark is set, so a probe made that way never reached Incus again, and
+// the watch, finding it still "not answering", went on to restart a healthy
+// incus.service every few minutes (2026-10-11). Connecting reads /1.0, which
+// is the probe; a fresh one also means nothing the shared connection holds
+// can keep it failing.
+func (c Client) Probe(ctx context.Context) error {
+	args := []string{"query", "/1.0"}
+	if c.cli() {
+		_, err := c.runUnchecked(ctx, nil, args...)
+		return err
+	}
+	if _, err := exec.LookPath(c.Path()); err != nil {
+		return c.fail(args, err)
+	}
+	s, err := incusclient.ConnectIncusUnixWithContext(ctx, "", &incusclient.ConnectionArgs{
+		UserAgent:     "agentbox",
+		SkipGetEvents: true,
+	})
+	if err != nil {
+		return c.fail(args, err)
+	}
+	s.Disconnect()
+	return nil
+}
 
 // connectTimeout bounds making the shared connection, which holds the lock
 // every other call waits on: a caller with no deadline would otherwise keep

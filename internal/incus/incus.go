@@ -103,14 +103,10 @@ func (c Client) query(ctx context.Context, path string, v any, what string) erro
 // terminals and the image build still run it, and the daemon's API answers
 // this process. It is what `incus query /1.0` checked, and fails the same way.
 func (c Client) Ping(ctx context.Context) error {
-	if err := c.notAnsweringErr(); err != nil {
-		return c.fail([]string{"query", "/1.0"}, err)
-	}
-	return c.ping(ctx)
-}
-
-func (c Client) ping(ctx context.Context) error {
 	args := []string{"query", "/1.0"}
+	if err := c.notAnsweringErr(); err != nil {
+		return c.fail(args, err)
+	}
 	if c.cli() {
 		_, err := c.runUnchecked(ctx, nil, args...)
 		return err
