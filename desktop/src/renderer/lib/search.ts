@@ -1,4 +1,4 @@
-// The search palette's logic (components/SearchPalette.tsx): where each kind
+// The search modal's logic (components/SearchModal.tsx): where each kind
 // of thing found opens, the order the keyboard walks the results in, and
 // which words of a result to mark as what matched.
 import type { View } from '../App';
@@ -25,6 +25,13 @@ export type SearchItem = { kind: string; hit: T.SearchHit };
 // order the arrow keys walk them in.
 export function searchItems(results: T.SearchResults | undefined): SearchItem[] {
   return (results?.groups ?? []).flatMap((g) => g.hits.map((hit) => ({ kind: g.kind, hit })));
+}
+
+// newestFirst is the results by when each was, newest first, the ones with
+// no time (a project, a skill) after them in the order they came.
+export function newestFirst(items: readonly SearchItem[]): SearchItem[] {
+  const at = (item: SearchItem) => (item.hit.at ? new Date(item.hit.at).getTime() : -Infinity);
+  return [...items].sort((a, b) => at(b) - at(a));
 }
 
 // moveActive is the result the arrow keys land on, going round at either end.

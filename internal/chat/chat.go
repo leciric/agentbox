@@ -330,16 +330,17 @@ func (m *Manager) PageAfter(a state.Agent, after string, limit int) (api.ChatThr
 }
 
 // Search finds query in an agent's conversation, in its order (see
-// state.Store.SearchChats), with at most limit hits. What the conversation
+// state.Store.SearchChats), with at most limit hits, only of kinds when
+// kinds isn't empty (state.ChatSearchKinds). What the conversation
 // holds and hasn't stored yet, like an answer still streaming in, is stored
 // first so that it is found too.
-func (m *Manager) Search(ctx context.Context, a state.Agent, query string, limit int) (api.ChatSearch, error) {
+func (m *Manager) Search(ctx context.Context, a state.Agent, query string, kinds []string, limit int) (api.ChatSearch, error) {
 	if c := m.existing(a.Ref()); c != nil {
 		c.mu.Lock()
 		c.flush(true)
 		c.mu.Unlock()
 	}
-	hits, more, err := m.Store.SearchChats(ctx, state.ChatSearch{Query: query, Project: a.Project, Agent: a.Name, Limit: limit})
+	hits, more, err := m.Store.SearchChats(ctx, state.ChatSearch{Query: query, Project: a.Project, Agent: a.Name, Kinds: kinds, Limit: limit})
 	if err != nil {
 		return api.ChatSearch{}, err
 	}
@@ -350,6 +351,9 @@ func (m *Manager) Search(ctx context.Context, a state.Agent, query string, limit
 			snippet[j] = api.ChatSnippetPart{Text: p.Text, Match: p.Match}
 		}
 		out.Hits[i] = api.ChatSearchHit{Agent: a.Ref(), ID: h.ID, Kind: h.Kind, Snippet: snippet}
+		if !h.At.IsZero() {
+			out.Hits[i].At = &h.At
+		}
 	}
 	return out, nil
 }

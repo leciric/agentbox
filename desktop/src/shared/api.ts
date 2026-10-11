@@ -1562,6 +1562,7 @@ export interface ChatSearchHit {
   agent: string;
   id: string;
   kind: string;
+  at?: string;
   snippet: ChatSnippetPart[];
 }
 
@@ -2231,6 +2232,8 @@ export interface SearchGroup {
   kind: string;
   hits: SearchHit[];
   more?: boolean;
+  total: number;
+  capped?: boolean;
 }
 
 export interface SearchHit {

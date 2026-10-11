@@ -35,6 +35,8 @@ type ChatSearchHit struct {
 	Agent string `json:"agent"` // the chat's ref
 	ID    string `json:"id"`    // the item's
 	Kind  string `json:"kind"`  // user, aside, assistant, notice or error
+	// At is when the item was created.
+	At *time.Time `json:"at,omitempty"`
 	// Snippet is the item's text around its first match, cut to a line,
 	// with every match in it marked.
 	Snippet []ChatSnippetPart `json:"snippet"`

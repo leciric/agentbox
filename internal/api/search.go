@@ -19,8 +19,8 @@ const (
 )
 
 // SearchResults is one search across everything AgentBox keeps, every
-// project's at once: only the groups that found something, each at most the
-// limit asked for.
+// project's at once unless it asked for one: only the groups that found
+// something, each at most the limit asked for.
 type SearchResults struct {
 	Query  string        `json:"query"`
 	Groups []SearchGroup `json:"groups"`
@@ -32,6 +32,10 @@ type SearchGroup struct {
 	Hits []SearchHit `json:"hits"`
 	// More is whether there were more than the limit.
 	More bool `json:"more,omitempty"`
+	// Total is how many things of this kind matched, counted up to 200, and
+	// Capped whether there were more than that.
+	Total  int  `json:"total"`
+	Capped bool `json:"capped,omitempty"`
 }
 
 // SearchHit is one thing found, with enough to show it in a list and to open

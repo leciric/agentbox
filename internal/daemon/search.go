@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -26,12 +27,66 @@ const (
 	searchMaxLimit = 50
 	// snippetRunes is about how much of a long text is shown around a match.
 	snippetRunes = 140
+	// searchCountMax is how far a group's Total counts before it stops and
+	// says Capped: counting every match of a short word in a big chat history
+	// would cost more than the number is worth.
+	searchCountMax = 200
 )
+
+// searchKinds are the groups a search can ask for, in the order it answers.
+var searchKinds = []string{
+	api.SearchProjects, api.SearchAgents, api.SearchChats, api.SearchMemories, api.SearchEvents, api.SearchReports,
+	api.SearchMedia, api.SearchSkills, api.SearchConnectors, api.SearchNotes, api.SearchPulls,
+}
+
+// searchFilter is what narrows a search besides its words: which kinds, one
+// project, and how recent. Its zero value lets everything through.
+type searchFilter struct {
+	kinds   map[string]bool // nil is every kind
+	project string
+	since   time.Time
+}
+
+// wants is whether a kind is searched at all. A kind whose things have no
+// time is left out when since is set, and AgentBox-wide skills when a project
+// is given.
+func (f searchFilter) wants(kind string) bool {
+	if f.kinds != nil && !f.kinds[kind] {
+		return false
+	}
+	switch kind {
+	case api.SearchProjects, api.SearchSkills, api.SearchConnectors, api.SearchNotes:
+		if kind == api.SearchSkills && f.project != "" {
+			return false
+		}
+		return f.since.IsZero()
+	}
+	return true
+}
+
+// keeps is whether a thing of project, made or changed at at, is let
+// through; with since set, a thing that has no time isn't.
+func (f searchFilter) keeps(project string, at *time.Time) bool {
+	if f.project != "" && project != f.project {
+		return false
+	}
+	return f.since.IsZero() || at != nil && !at.Before(f.since)
+}
 
 // search is GET /v1/search, the app's search palette: one call that looks for
 // the words typed so far through everything AgentBox keeps, in every project
 // — projects, agents, memory, media, skills, connectors, notes and the pull
-// requests it last read — and answers each kind as a group of its best.
+// requests it last read — and answers each kind as a group of its best, with
+// how many it found in all.
+//
+// q is the words, limit how many of each kind (5 by default, 50 at most).
+// kinds, a comma-separated list of the Search* kinds, asks for only those
+// groups. project, a project's slug, keeps only its things: AgentBox-wide
+// skills and connectors drop out. since, an RFC 3339 time, keeps only what is
+// from then on, by when it was made or last changed; the kinds that have no
+// time (projects, skills, connectors, notes) drop out. Each filter is applied
+// where the kind is searched, before the limit, so More and Total count only
+// what passes it.
 //
 // It is asked on every pause in the typing, so it reads only what is already
 // here: the database, the notes files and the pull requests cache, never git
@@ -48,17 +103,24 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 		}
 		limit = min(n, searchMaxLimit)
 	}
-	out := api.SearchResults{Query: q, Groups: []api.SearchGroup{}}
-	words := searchWordsOf(q)
-	if len(words) == 0 {
-		return writeJSON(w, http.StatusOK, out)
+	var filter searchFilter
+	if v := r.URL.Query().Get("kinds"); v != "" {
+		filter.kinds = map[string]bool{}
+		for _, k := range strings.Split(v, ",") {
+			if !slices.Contains(searchKinds, k) {
+				return fmt.Errorf("kinds are %s, not %q", strings.Join(searchKinds, ", "), k)
+			}
+			filter.kinds[k] = true
+		}
 	}
-
+	if v := r.URL.Query().Get("since"); v != "" {
+		since, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return fmt.Errorf("since must be a time like 2026-10-11T09:00:00Z, not %q", v)
+		}
+		filter.since = since
+	}
 	projects, err := s.store.Projects(ctx)
-	if err != nil {
-		return err
-	}
-	agents, err := s.store.Agents(ctx, "")
 	if err != nil {
 		return err
 	}
@@ -66,52 +128,73 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 	for _, p := range projects {
 		known[p.Name] = p
 	}
+	if v := r.URL.Query().Get("project"); v != "" {
+		if _, ok := known[v]; !ok {
+			return fmt.Errorf("there is no project %q", v)
+		}
+		filter.project = v
+	}
 
-	// In the order the app shows them.
-	add := func(kind string, found []searchFound, err error) error {
+	out := api.SearchResults{Query: q, Groups: []api.SearchGroup{}}
+	words := searchWordsOf(q)
+	if len(words) == 0 {
+		return writeJSON(w, http.StatusOK, out)
+	}
+	agents, err := s.store.Agents(ctx, "")
+	if err != nil {
+		return err
+	}
+
+	// The kinds matched in memory, each only when it is asked for and then
+	// narrowed by the filter, before it is ranked and cut to the limit.
+	add := func(kind string, find func() ([]searchFound, error)) error {
+		if !filter.wants(kind) {
+			return nil
+		}
+		found, err := find()
 		if err != nil {
 			return err
 		}
+		found = slices.DeleteFunc(found, func(f searchFound) bool { return !filter.keeps(f.hit.Project, f.hit.At) })
 		if g, ok := searchGroupOf(kind, found, limit); ok {
 			out.Groups = append(out.Groups, g)
 		}
 		return nil
 	}
-	if err := add(api.SearchProjects, searchProjects(projects, words), nil); err != nil {
+	// In the order the app shows them.
+	if err := add(api.SearchProjects, func() ([]searchFound, error) { return searchProjects(projects, words), nil }); err != nil {
 		return err
 	}
-	found, err := s.searchAgents(ctx, agents, words)
-	if err := add(api.SearchAgents, found, err); err != nil {
+	if err := add(api.SearchAgents, func() ([]searchFound, error) { return s.searchAgents(ctx, agents, filter, words) }); err != nil {
 		return err
 	}
-	chats, more, err := s.searchChats(ctx, known, agents, q, limit)
-	if err != nil {
-		return err
+	if filter.wants(api.SearchChats) {
+		g, err := s.searchChats(ctx, known, agents, filter, q, limit)
+		if err != nil {
+			return err
+		}
+		if len(g.Hits) > 0 {
+			out.Groups = append(out.Groups, g)
+		}
 	}
-	if len(chats) > 0 {
-		out.Groups = append(out.Groups, api.SearchGroup{Kind: api.SearchChats, Hits: chats, More: more})
-	}
-	memoryGroups, err := s.searchMemory(ctx, known, q, limit)
+	memoryGroups, err := s.searchMemory(ctx, known, filter, q, limit)
 	if err != nil {
 		return err
 	}
 	out.Groups = append(out.Groups, memoryGroups...)
-	found, err = s.searchMedia(ctx, known, agents, words)
-	if err := add(api.SearchMedia, found, err); err != nil {
+	if err := add(api.SearchMedia, func() ([]searchFound, error) { return s.searchMedia(ctx, known, agents, words) }); err != nil {
 		return err
 	}
-	found, err = s.searchSkills(ctx, words)
-	if err := add(api.SearchSkills, found, err); err != nil {
+	if err := add(api.SearchSkills, func() ([]searchFound, error) { return s.searchSkills(ctx, words) }); err != nil {
 		return err
 	}
-	found, err = s.searchConnectors(ctx, known, words)
-	if err := add(api.SearchConnectors, found, err); err != nil {
+	if err := add(api.SearchConnectors, func() ([]searchFound, error) { return s.searchConnectors(ctx, known, words) }); err != nil {
 		return err
 	}
-	if err := add(api.SearchNotes, s.searchNotes(projects, words), nil); err != nil {
+	if err := add(api.SearchNotes, func() ([]searchFound, error) { return s.searchNotes(projects, words), nil }); err != nil {
 		return err
 	}
-	if err := add(api.SearchPulls, s.searchPulls(known, words), nil); err != nil {
+	if err := add(api.SearchPulls, func() ([]searchFound, error) { return s.searchPulls(known, words), nil }); err != nil {
 		return err
 	}
 	return writeJSON(w, http.StatusOK, out)
@@ -124,7 +207,7 @@ type searchFound struct {
 }
 
 // searchGroupOf ranks what one kind found, best match first and newest among
-// equals, and keeps the first limit of it.
+// equals, and keeps the first limit of it, counting the rest.
 func searchGroupOf(kind string, found []searchFound, limit int) (api.SearchGroup, bool) {
 	if len(found) == 0 {
 		return api.SearchGroup{}, false
@@ -135,7 +218,7 @@ func searchGroupOf(kind string, found []searchFound, limit int) (api.SearchGroup
 		}
 		return cmp.Compare(timeOf(b.hit.At), timeOf(a.hit.At))
 	})
-	g := api.SearchGroup{Kind: kind, More: len(found) > limit}
+	g := api.SearchGroup{Kind: kind, More: len(found) > limit, Total: min(len(found), searchCountMax), Capped: len(found) > searchCountMax}
 	for _, f := range found[:min(limit, len(found))] {
 		g.Hits = append(g.Hits, f.hit)
 	}
@@ -268,11 +351,12 @@ func searchProjects(projects []state.Project, ws searchWords) []searchFound {
 // searchAgents finds agents by what they're called, their branch, and the
 // task they were given, as the agent_created event recorded it (the same one
 // an agent's brief reads back).
-func (s *Server) searchAgents(ctx context.Context, agents []state.Agent, ws searchWords) ([]searchFound, error) {
+func (s *Server) searchAgents(ctx context.Context, agents []state.Agent, filter searchFilter, ws searchWords) ([]searchFound, error) {
 	mem := s.memory()
 	tasks := map[string]string{}
 	for _, a := range agents {
-		if a.IsLead() {
+		// Only the agents the filter lets through cost a read of their task.
+		if a.IsLead() || !filter.keeps(a.Project, timePtr(a.CreatedAt)) {
 			continue
 		}
 		events, err := mem.Events(ctx, a.Project, memory.EventFilter{Agent: a.Name, Types: []string{"agent_created"}, Limit: 1})
@@ -315,13 +399,21 @@ const searchChatsMin = 3
 // (state.SearchChats), best match first: the query found as typed, in one
 // piece, the way a chat's own find bar finds it. A lead's messages are its
 // project's chat (no Agent); the Home chat's are the project HomeProject.
-func (s *Server) searchChats(ctx context.Context, known map[string]state.Project, agents []state.Agent, q string, limit int) ([]api.SearchHit, bool, error) {
+// The filter's project and since narrow the query itself, and its Total is
+// counted there too (state.CountChats).
+func (s *Server) searchChats(ctx context.Context, known map[string]state.Project, agents []state.Agent, filter searchFilter, q string, limit int) (api.SearchGroup, error) {
+	g := api.SearchGroup{Kind: api.SearchChats}
 	if utf8.RuneCountInString(q) < searchChatsMin {
-		return nil, false, nil
+		return g, nil
 	}
-	found, more, err := s.store.SearchChats(ctx, state.ChatSearch{Query: q, Limit: limit})
+	search := state.ChatSearch{Query: q, Project: filter.project, Since: filter.since, Limit: limit}
+	found, more, err := s.store.SearchChats(ctx, search)
 	if err != nil {
-		return nil, false, err
+		return g, err
+	}
+	total, err := s.store.CountChats(ctx, search, searchCountMax)
+	if err != nil {
+		return g, err
 	}
 	leads := map[string]bool{}
 	for _, a := range agents {
@@ -329,7 +421,6 @@ func (s *Server) searchChats(ctx context.Context, known map[string]state.Project
 			leads[a.Project+"/"+a.Name] = true
 		}
 	}
-	var out []api.SearchHit
 	for _, h := range found {
 		if _, ok := known[h.Project]; !ok && h.Project != state.HomeProject {
 			continue
@@ -342,17 +433,30 @@ func (s *Server) searchChats(ctx context.Context, known map[string]state.Project
 		for _, part := range h.Snippet {
 			text.WriteString(part.Text)
 		}
-		out = append(out, api.SearchHit{ID: h.ID, Title: text.String(), Tag: h.Kind, Project: h.Project, Agent: agent})
+		g.Hits = append(g.Hits, api.SearchHit{ID: h.ID, Title: text.String(), Tag: h.Kind, Project: h.Project, Agent: agent, At: timePtr(h.At)})
 	}
-	return out, more, nil
+	// The count includes chats of projects that are gone, which the hits
+	// leave out; they are rare enough not to be worth a second filter.
+	g.More, g.Total, g.Capped = more, min(total, searchCountMax), total > searchCountMax
+	return g, nil
 }
 
 // searchMemory is the memories, events and reports of every project, from
 // memory's own indexes, each kind already ranked there. A row of a project
 // that is gone, or of the Home chat, which has no Memory page, is left out.
-func (s *Server) searchMemory(ctx context.Context, known map[string]state.Project, q string, limit int) ([]api.SearchGroup, error) {
+// The filter's project and since narrow memory's own queries, which also
+// count each kind's Total (memory.CountAll).
+func (s *Server) searchMemory(ctx context.Context, known map[string]state.Project, filter searchFilter, q string, limit int) ([]api.SearchGroup, error) {
+	if !filter.wants(api.SearchMemories) && !filter.wants(api.SearchEvents) && !filter.wants(api.SearchReports) {
+		return nil, nil
+	}
+	opt := memory.SearchAllOptions{Project: filter.project, Since: filter.since}
 	// One more than the limit, to know whether there were more.
-	found, err := s.memory().SearchAll(ctx, q, limit+1)
+	found, err := s.memory().SearchAll(ctx, q, limit+1, opt)
+	if err != nil {
+		return nil, err
+	}
+	counts, err := s.memory().CountAll(ctx, q, searchCountMax, opt)
 	if err != nil {
 		return nil, err
 	}
@@ -388,11 +492,18 @@ func (s *Server) searchMemory(ctx context.Context, known map[string]state.Projec
 	}
 	var out []api.SearchGroup
 	for _, g := range []struct {
-		kind string
-		hits []api.SearchHit
-	}{{api.SearchMemories, memories}, {api.SearchEvents, events}, {api.SearchReports, reports}} {
-		if len(g.hits) > 0 {
-			out = append(out, api.SearchGroup{Kind: g.kind, Hits: g.hits[:min(limit, len(g.hits))], More: len(g.hits) > limit})
+		kind  string
+		hits  []api.SearchHit
+		total int
+	}{{api.SearchMemories, memories, counts.Memories}, {api.SearchEvents, events, counts.Events}, {api.SearchReports, reports, counts.Reports}} {
+		if len(g.hits) > 0 && filter.wants(g.kind) {
+			// The count can't tell a gone project's rows from the rest, so it
+			// is never less than what is shown.
+			total := max(g.total, len(g.hits))
+			out = append(out, api.SearchGroup{
+				Kind: g.kind, Hits: g.hits[:min(limit, len(g.hits))], More: len(g.hits) > limit,
+				Total: min(total, searchCountMax), Capped: total > searchCountMax,
+			})
 		}
 	}
 	return out, nil

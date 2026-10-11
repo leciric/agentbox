@@ -203,17 +203,17 @@ func TestSearchFindsWhatIsNotStoredYet(t *testing.T) {
 	it.Text, it.Streaming = "Deployed to staging", true
 	c.mu.Unlock()
 
-	found, err := m.Search(context.Background(), testAgent, "STAGING", 0)
+	found, err := m.Search(context.Background(), testAgent, "STAGING", nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(found.Hits) != 1 || found.Hits[0].ID != it.ID || found.Hits[0].Agent != testAgent.Ref() {
 		t.Fatalf("Search(staging) = %+v, want the unsaved answer", found)
 	}
-	if found, _ := m.Search(context.Background(), testAgent, "found it", 0); len(found.Hits) != 0 {
+	if found, _ := m.Search(context.Background(), testAgent, "found it", nil, 0); len(found.Hits) != 0 {
 		t.Errorf("a subagent's message was found: %+v", found.Hits)
 	}
-	if found, _ := m.Search(context.Background(), testAgent, "done", 0); len(found.Hits) != 2 {
+	if found, _ := m.Search(context.Background(), testAgent, "done", nil, 0); len(found.Hits) != 2 {
 		t.Errorf("Search(done) = %d hits, want the two answers", len(found.Hits))
 	}
 }

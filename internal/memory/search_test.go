@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -274,7 +275,7 @@ func TestSearchAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := s.SearchAll(ctx, "connec", 10)
+	got, err := s.SearchAll(ctx, "connec", 10, memory.SearchAllOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +291,7 @@ func TestSearchAll(t *testing.T) {
 	}
 
 	// Every word is required: no any-word fallback while typing.
-	got, err = s.SearchAll(ctx, "hatch conn", 10)
+	got, err = s.SearchAll(ctx, "hatch conn", 10, memory.SearchAllOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,11 +299,73 @@ func TestSearchAll(t *testing.T) {
 		t.Fatalf("hatch conn = %+v", got)
 	}
 
-	if _, err := s.SearchAll(ctx, "  ", 10); err == nil {
+	if _, err := s.SearchAll(ctx, "  ", 10, memory.SearchAllOptions{}); err == nil {
 		t.Fatal("an empty search should be refused")
 	}
 	// Nothing typed is read as FTS5 syntax, the prefix included.
-	if _, err := s.SearchAll(ctx, `NOT "a*`, 10); err != nil {
+	if _, err := s.SearchAll(ctx, `NOT "a*`, 10, memory.SearchAllOptions{}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// SearchAll's options narrow it in the queries themselves, to one project
+// (with the AgentBox-wide memories beside it) and to what is recent, and
+// CountAll counts the same rows up to a cap.
+func TestSearchAllOptionsAndCounts(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	old := time.Now().Add(-48 * time.Hour)
+	for _, m := range []memory.Memory{
+		{Project: "pawly", Title: "Release checklist", Content: "Tag, then build."},
+		{Project: "pawly", Title: "Release notes are generated", Content: "By release-please.", CreatedAt: old, UpdatedAt: old},
+		{Project: "harbor", Title: "Release on Fridays", Content: "Never."},
+		{Project: memory.Global, Title: "Release slowly", Content: "Everywhere."},
+	} {
+		if _, err := s.AddMemory(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, e := range []memory.Event{
+		{Project: "pawly", Type: "note", Payload: json.RawMessage(`{"text":"release cut"}`)},
+		{Project: "pawly", Type: "note", At: old, Payload: json.RawMessage(`{"text":"release planned"}`)},
+		{Project: "harbor", Type: "note", Payload: json.RawMessage(`{"text":"release cut"}`)},
+	} {
+		if _, err := s.AppendEvent(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.AddReport(ctx, memory.Report{Project: "pawly", Agent: "agent-01", Summary: "Released it.", CreatedAt: old}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range []struct {
+		name                      string
+		opt                       memory.SearchAllOptions
+		memories, events, reports int
+	}{
+		{"everything", memory.SearchAllOptions{}, 4, 3, 1},
+		{"pawly", memory.SearchAllOptions{Project: "pawly"}, 3, 2, 1},
+		{"recent", memory.SearchAllOptions{Since: time.Now().Add(-time.Hour)}, 3, 2, 0},
+		{"pawly, recent", memory.SearchAllOptions{Project: "pawly", Since: time.Now().Add(-time.Hour)}, 2, 1, 0},
+	} {
+		got, err := s.SearchAll(ctx, "relea", 10, c.opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Memories) != c.memories || len(got.Events) != c.events || len(got.Reports) != c.reports {
+			t.Errorf("%s: SearchAll found %d, %d, %d; want %d, %d, %d", c.name,
+				len(got.Memories), len(got.Events), len(got.Reports), c.memories, c.events, c.reports)
+		}
+		n, err := s.CountAll(ctx, "relea", 100, c.opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n != (memory.Counts{Memories: c.memories, Events: c.events, Reports: c.reports}) {
+			t.Errorf("%s: CountAll = %+v; want %d, %d, %d", c.name, n, c.memories, c.events, c.reports)
+		}
+	}
+	// A count stops one past the cap.
+	if n, err := s.CountAll(ctx, "relea", 2, memory.SearchAllOptions{}); err != nil || n != (memory.Counts{Memories: 3, Events: 3, Reports: 1}) {
+		t.Errorf("CountAll capped at 2 = %+v, %v; want 3, 3, 1", n, err)
 	}
 }

@@ -5,7 +5,8 @@ import { AddProjectDialog } from "./components/AddProjectDialog";
 import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
 import { openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
-import { isSearchShortcut, SearchPalette } from "./components/SearchPalette";
+import { isSearchShortcut, SearchModal } from "./components/SearchModal";
+import { openSearch, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
 import { SnapComposer } from "./components/SnapComposer";
 import { HomeChatPanel } from "./components/HomeChatPanel";
@@ -170,14 +171,14 @@ export function App() {
   const openNoticeRef = useRef(openNotice);
   openNoticeRef.current = openNotice;
 
-  // The search palette: Ctrl+K (⌘K) anywhere but a terminal, or the top bar's
-  // button. What it opens is brought forward on the page it opens.
-  const [searching, setSearching] = useState(false);
+  // The search modal: Ctrl+K or Ctrl+Shift+F (⌘ on a Mac) anywhere but a
+  // terminal, the top bar's button, or openSearch from any component. What it
+  // opens is brought forward on the page it opens.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!isSearchShortcut(event)) return;
       event.preventDefault();
-      setSearching((open) => !open);
+      toggleSearch();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -333,7 +334,7 @@ export function App() {
           onOpenNav={() => setNavOpen(true)}
           onNewAgent={setNewAgentProject}
           onOpenNotice={openNotice}
-          onSearch={() => setSearching(true)}
+          onSearch={() => openSearch()}
         />
         <div className="flex min-h-0 min-w-0 flex-1">
           <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -465,7 +466,7 @@ export function App() {
           })
         }
       />
-      <SearchPalette open={searching} onOpenChange={setSearching} onOpen={openFound} />
+      <SearchModal onOpen={openFound} />
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

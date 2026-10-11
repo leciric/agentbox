@@ -191,7 +191,9 @@ export const api = {
     return call<T.ChatThread>('GET', q ? `${chatBase(ref)}?${new URLSearchParams(q)}` : chatBase(ref));
   },
   // What in a chat holds query, loaded or not: its items, oldest first.
-  searchChat: (ref: string, query: string) => call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query })}`),
+  // kinds narrows it to items of those kinds (user, aside, assistant…).
+  searchChat: (ref: string, query: string, kinds: string[] = []) =>
+    call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query, ...(kinds.length ? { kinds: kinds.join(',') } : {}) })}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
   sendChat: (ref: string, text: string, images?: T.ChatImageUpload[]) =>
     call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images } satisfies T.ChatMessageRequest),
@@ -380,8 +382,16 @@ export const api = {
   setMediaFavorite: (id: string, favorite: boolean) =>
     call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),
   // Everything AgentBox keeps, in every project, that has the words typed: the search palette.
-  search: (query: string, limit = 0) =>
-    call<T.SearchResults>('GET', `/v1/search?q=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ''}`),
+  // What every project holds that matches query: of only the kinds asked for,
+  // in one project, at or after since (an ISO time), when those are given.
+  search: (query: string, opts: { limit?: number; kinds?: string[]; project?: string; since?: string } = {}) => {
+    const params = new URLSearchParams({ q: query });
+    if (opts.limit) params.set('limit', String(opts.limit));
+    if (opts.kinds?.length) params.set('kinds', opts.kinds.join(','));
+    if (opts.project) params.set('project', opts.project);
+    if (opts.since) params.set('since', opts.since);
+    return call<T.SearchResults>('GET', `/v1/search?${params}`);
+  },
   // Every project's media, of the given kinds, each marked unseen while its notification is.
   allMedia: (kinds: string[] = []) => call<T.MediaItem[]>('GET', `/v1/media${kinds.length ? `?kind=${kinds.join(',')}` : ''}`),
   // A page of a Media list, and the counts on its filters (lib/mediaPages.ts).

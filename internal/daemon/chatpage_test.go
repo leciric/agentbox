@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"agentbox/internal/api"
 	"agentbox/internal/state"
@@ -74,15 +75,16 @@ func TestChatIsSearched(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rows []state.ChatItem
+	made := time.Date(2026, 10, 11, 9, 0, 0, 0, time.UTC)
 	for i, text := range []string{"Where is the Ação config?", "In config.toml", "thanks", "the CONFIG again"} {
 		kind := []string{"user", "assistant"}[i%2]
-		data, _ := json.Marshal(api.ChatItem{ID: fmt.Sprintf("m%d", i), Kind: kind, Text: text})
+		data, _ := json.Marshal(api.ChatItem{ID: fmt.Sprintf("m%d", i), Kind: kind, Text: text, CreatedAt: made.Add(time.Duration(i) * time.Minute)})
 		rows = append(rows, state.ChatItem{ID: fmt.Sprintf("m%d", i), Position: int64(i), Data: data})
 	}
 	if err := d.srv.store.SaveChatItems(ctx, "hello-stack", state.LeadName, rows); err != nil {
 		t.Fatal(err)
 	}
-	found, err := d.client.SearchChat(ctx, "hello-stack", "config", 0)
+	found, err := d.client.SearchChat(ctx, "hello-stack", "config", nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,10 +98,23 @@ func TestChatIsSearched(t *testing.T) {
 	if h := found.Hits[0]; h.Agent != "hello-stack/"+state.LeadName || h.Kind != "user" || len(h.Snippet) != 3 || h.Snippet[1] != (api.ChatSnippetPart{Text: "config", Match: true}) {
 		t.Errorf("first hit = %+v", h)
 	}
-	if found, err := d.client.SearchChat(ctx, "hello-stack", "acao", 1); err != nil || len(found.Hits) != 1 || found.More {
+	if h := found.Hits[2]; h.At == nil || !h.At.Equal(made.Add(3*time.Minute)) {
+		t.Errorf("third hit's time = %v, want %v", h.At, made.Add(3*time.Minute))
+	}
+	// kinds keeps only those, and more counts only them.
+	if found, err := d.client.SearchChat(ctx, "hello-stack", "config", []string{"assistant", "aside"}, 0); err != nil || len(found.Hits) != 2 || found.Hits[0].ID != "m1" || found.Hits[1].ID != "m3" {
+		t.Errorf("SearchChat(config, assistant) = %+v, %v; want m1 and m3", found, err)
+	}
+	if found, err := d.client.SearchChat(ctx, "hello-stack", "config", []string{"user"}, 1); err != nil || len(found.Hits) != 1 || found.More {
+		t.Errorf("SearchChat(config, user, 1) = %+v, %v; want m0 and no more", found, err)
+	}
+	if _, err := d.client.SearchChat(ctx, "hello-stack", "config", []string{"tool"}, 0); err == nil {
+		t.Error("an unknown kind was taken")
+	}
+	if found, err := d.client.SearchChat(ctx, "hello-stack", "acao", nil, 1); err != nil || len(found.Hits) != 1 || found.More {
 		t.Errorf("SearchChat(acao, 1) = %+v, %v", found, err)
 	}
-	if found, err := d.client.SearchChat(ctx, "hello-stack", "config", 2); err != nil || len(found.Hits) != 2 || !found.More {
+	if found, err := d.client.SearchChat(ctx, "hello-stack", "config", nil, 2); err != nil || len(found.Hits) != 2 || !found.More {
 		t.Errorf("SearchChat(config, 2) = %+v, %v; want two hits and more", found, err)
 	}
 }

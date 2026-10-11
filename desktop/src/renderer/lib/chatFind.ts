@@ -53,3 +53,41 @@ export function stepHit(hits: readonly { id: string }[], current: string | undef
   const n = hits.length;
   return hits[(i + (direction === 'older' ? n - 1 : 1)) % n].id;
 }
+
+// Who a find looks at the messages of: anyone, you (what you wrote, asides
+// included), or the AI tool (the lead in a project's chat, the agent in its
+// own). Notices and errors are only found from anyone.
+export type FindFrom = 'anyone' | 'you' | 'ai';
+
+// findKinds is the item kinds a find from someone asks the daemon for; none
+// is every kind.
+export function findKinds(from: FindFrom): string[] {
+  return from === 'you' ? ['user', 'aside'] : from === 'ai' ? ['assistant'] : [];
+}
+
+// hitsByDay is a find's hits for its list: newest first, in a group per day
+// of the time each was said (local time), the day as YYYY-MM-DD. Hits with no
+// time (a daemon from before they had one) come last, in a group of their own
+// whose day is ''.
+export function hitsByDay<H extends { at?: string }>(hits: readonly H[]): { day: string; hits: H[] }[] {
+  const out: { day: string; hits: H[] }[] = [];
+  const undated: H[] = [];
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const hit = hits[i];
+    if (!hit.at) {
+      undated.push(hit);
+      continue;
+    }
+    const day = localDay(new Date(hit.at));
+    const last = out.at(-1);
+    if (last?.day === day) last.hits.push(hit);
+    else out.push({ day, hits: [hit] });
+  }
+  return undated.length ? [...out, { day: '', hits: undated }] : out;
+}
+
+// localDay is a time's day where you are, as YYYY-MM-DD.
+export function localDay(at: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}

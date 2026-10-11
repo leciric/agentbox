@@ -2,8 +2,11 @@ package state
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -20,18 +23,28 @@ type ChatSearch struct {
 	// project's chat), Project to a project's chats, neither to every chat
 	// AgentBox holds. Agent needs Project.
 	Project, Agent string
+	// Kinds, when set, keeps only items of those kinds (ChatSearchKinds); the
+	// limit and more count only those.
+	Kinds []string
+	// Since, when set, keeps only items created at or after it.
+	Since time.Time
 	// Limit is how many hits at most; 0 is DefaultChatSearchLimit.
 	Limit int
 }
 
 const DefaultChatSearchLimit = 100
 
+// ChatSearchKinds are the kinds of item the chat index holds, the ones
+// ChatSearch.Kinds can ask for.
+var ChatSearchKinds = []string{"user", "aside", "assistant", "notice", "error"}
+
 // ChatHit is a conversation item a search found.
 type ChatHit struct {
 	Project, Agent string
 	ID             string
-	Position       int64  // in its conversation
-	Kind           string // user, aside, assistant, notice or error
+	Position       int64     // in its conversation
+	Kind           string    // user, aside, assistant, notice or error
+	At             time.Time // when it was created; zero when the item doesn't say
 	// Snippet is the item's text around the first match, cut to a line's
 	// length, with every match in it marked.
 	Snippet []SnippetPart
@@ -52,15 +65,67 @@ type SnippetPart struct {
 // trigrams and are looked for item by item instead, which SQLite's LIKE does
 // ignoring case only in ASCII.
 func (s *Store) SearchChats(ctx context.Context, q ChatSearch) (hits []ChatHit, more bool, err error) {
-	if strings.TrimSpace(q.Query) == "" {
-		return nil, false, nil
+	from, where, order, args, err := q.sql()
+	if err != nil || from == "" {
+		return nil, false, err
 	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = DefaultChatSearchLimit
 	}
-	from, where, order := `chat_items i`, `i.search_text LIKE ? ESCAPE '\'`, `i.rowid DESC`
-	args := []any{"%" + likeEscaper.Replace(q.Query) + "%"}
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, `SELECT i.project, i.agent, i.id, i.position, json_extract(i.data, '$.kind'), json_extract(i.data, '$.createdAt'), i.search_text
+		FROM `+from+` WHERE `+where+` ORDER BY `+order+` LIMIT ?`, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var h ChatHit
+		var text string
+		var at sql.NullString
+		if err := rows.Scan(&h.Project, &h.Agent, &h.ID, &h.Position, &h.Kind, &at, &text); err != nil {
+			return nil, false, err
+		}
+		if t, err := time.Parse(time.RFC3339Nano, at.String); err == nil && at.Valid {
+			h.At = t
+		}
+		if len(hits) == limit {
+			more = true
+			continue
+		}
+		h.Snippet = Snippet(text, q.Query)
+		hits = append(hits, h)
+	}
+	return hits, more, rows.Err()
+}
+
+// CountChats counts what SearchChats would find without its limit, up to
+// most+1, so that a count past most says there were more: it stops at the cap
+// rather than read every item a common word is in.
+func (s *Store) CountChats(ctx context.Context, q ChatSearch, most int) (int, error) {
+	from, where, _, args, err := q.sql()
+	if err != nil || from == "" {
+		return 0, err
+	}
+	var n int
+	err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM (SELECT 1 FROM `+from+` WHERE `+where+` LIMIT ?)`, append(args, most+1)...).Scan(&n)
+	return n, err
+}
+
+// sql is the search as a query's FROM, WHERE and ORDER BY, and the
+// arguments of its WHERE; no from when there is nothing to look for.
+func (q ChatSearch) sql() (from, where, order string, args []any, err error) {
+	for _, k := range q.Kinds {
+		if !slices.Contains(ChatSearchKinds, k) {
+			return "", "", "", nil, fmt.Errorf("a chat search's kinds are %s, not %q", strings.Join(ChatSearchKinds, ", "), k)
+		}
+	}
+	if strings.TrimSpace(q.Query) == "" {
+		return "", "", "", nil, nil
+	}
+	from, where, order = `chat_items i`, `i.search_text LIKE ? ESCAPE '\'`, `i.rowid DESC`
+	args = []any{"%" + likeEscaper.Replace(q.Query) + "%"}
 	if utf8.RuneCountInString(q.Query) >= 3 {
 		// A quoted string is a phrase, which the trigram tokenizer reads as
 		// a substring; a quote inside one is written twice.
@@ -77,27 +142,19 @@ func (s *Store) SearchChats(ctx context.Context, q ChatSearch) (hits []ChatHit, 
 		args = append(args, q.Agent)
 		order = `i.position`
 	}
-	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, `SELECT i.project, i.agent, i.id, i.position, json_extract(i.data, '$.kind'), i.search_text
-		FROM `+from+` WHERE `+where+` ORDER BY `+order+` LIMIT ?`, args...)
-	if err != nil {
-		return nil, false, err
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var h ChatHit
-		var text string
-		if err := rows.Scan(&h.Project, &h.Agent, &h.ID, &h.Position, &h.Kind, &text); err != nil {
-			return nil, false, err
+	if len(q.Kinds) > 0 {
+		where += ` AND json_extract(i.data, '$.kind') IN (?` + strings.Repeat(`, ?`, len(q.Kinds)-1) + `)`
+		for _, k := range q.Kinds {
+			args = append(args, k)
 		}
-		if len(hits) == limit {
-			more = true
-			continue
-		}
-		h.Snippet = Snippet(text, q.Query)
-		hits = append(hits, h)
 	}
-	return hits, more, rows.Err()
+	if !q.Since.IsZero() {
+		// createdAt is a Go time in the item's JSON, RFC 3339 with whatever
+		// offset it was made in, so it is compared as a time, not as text.
+		where += ` AND julianday(json_extract(i.data, '$.createdAt')) >= julianday(?)`
+		args = append(args, q.Since.UTC().Format(time.RFC3339Nano))
+	}
+	return from, where, order, args, nil
 }
 
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)

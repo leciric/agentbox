@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as T from '../../shared/api.ts';
-import { highlight, moveActive, searchItems, searchTarget } from './search.ts';
+import { highlight, moveActive, newestFirst, searchItems, searchTarget } from './search.ts';
 import { lineRange } from './reveal.ts';
 
 const hit = (h: Partial<T.SearchHit>): T.SearchHit => ({ id: 'x', title: 'X', ...h });
@@ -11,8 +11,8 @@ test('searchItems walks the groups in order', () => {
   const items = searchItems({
     query: 'a',
     groups: [
-      { kind: T.SearchProjects, hits: [hit({ id: 'p1' })] },
-      { kind: T.SearchSkills, hits: [hit({ id: 's1' }), hit({ id: 's2' })] },
+      { kind: T.SearchProjects, hits: [hit({ id: 'p1' })], total: 1 },
+      { kind: T.SearchSkills, hits: [hit({ id: 's1' }), hit({ id: 's2' })], total: 2 },
     ],
   });
   assert.deepEqual(
@@ -115,4 +115,17 @@ test('lineRange finds a line of the notes', () => {
   assert.equal(text.slice(...lineRange(text, 3)), '- Use pnpm.');
   assert.equal(text.slice(...lineRange(text, 4)), '- Hatch needs a token.');
   assert.deepEqual(lineRange(text, 9), [text.length, text.length]);
+});
+
+test('newestFirst sorts by time, the undated after in their order', () => {
+  const items = [
+    { kind: T.SearchProjects, hit: hit({ id: 'p' }) },
+    { kind: T.SearchChats, hit: hit({ id: 'old', at: '2026-10-01T00:00:00Z' }) },
+    { kind: T.SearchSkills, hit: hit({ id: 's' }) },
+    { kind: T.SearchMemories, hit: hit({ id: 'new', at: '2026-10-10T00:00:00Z' }) },
+  ];
+  assert.deepEqual(
+    newestFirst(items).map((i) => i.hit.id),
+    ['new', 'old', 'p', 's'],
+  );
 });

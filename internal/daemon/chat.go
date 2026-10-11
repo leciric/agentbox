@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
@@ -97,6 +98,9 @@ const (
 	chatSearchLimitMax = 5000
 )
 
+// searchChat is GET …/chat/search: q, what to find; limit, how many hits at
+// most; kinds, a comma-separated list of item kinds (user, aside, assistant,
+// notice, error) to keep only those, an unknown one being an error.
 func (s *Server) searchChat(from agentFrom) func(http.ResponseWriter, *http.Request) error {
 	return func(w http.ResponseWriter, r *http.Request) error {
 		a, err := from(r)
@@ -111,7 +115,11 @@ func (s *Server) searchChat(from agentFrom) func(http.ResponseWriter, *http.Requ
 			}
 			limit = min(limit, chatSearchLimitMax)
 		}
-		found, err := s.chat.Search(r.Context(), a, q.Get("q"), limit)
+		var kinds []string
+		if v := q.Get("kinds"); v != "" {
+			kinds = strings.Split(v, ",")
+		}
+		found, err := s.chat.Search(r.Context(), a, q.Get("q"), kinds, limit)
 		if err != nil {
 			return err
 		}

@@ -66,12 +66,12 @@ func (s *Store) searchBM25(ctx context.Context, project, query string, limit int
 	if all == "" {
 		return Results{}, errors.New("a search needs something to look for")
 	}
-	out, err := s.search(ctx, project, all, limit)
+	out, err := s.search(ctx, scope{project: project}, all, limit)
 	if err != nil {
 		return Results{}, err
 	}
 	if some != all && (len(out.Memories) == 0 || len(out.Events) == 0 || len(out.Reports) == 0) {
-		loose, err := s.search(ctx, project, some, limit)
+		loose, err := s.search(ctx, scope{project: project}, some, limit)
 		if err != nil {
 			return Results{}, err
 		}
@@ -96,17 +96,96 @@ func (s *Store) searchBM25(ctx context.Context, project, query string, limit int
 // and the last is matched as a prefix, so "connec" already finds the
 // connector it is on its way to. There is no any-word pass, which would
 // answer a half-typed word with everything that has one of the others.
-func (s *Store) SearchAll(ctx context.Context, query string, limit int) (Results, error) {
+// opt narrows it to a project or to what is recent, in the queries
+// themselves, so the limit counts only what is left.
+func (s *Store) SearchAll(ctx context.Context, query string, limit int, opt SearchAllOptions) (Results, error) {
 	match := prefixQuery(query)
 	if match == "" {
 		return Results{}, errors.New("a search needs something to look for")
 	}
 	limit = limitOf(limit)
-	out, err := s.search(ctx, "", match, rerankPoolFor(limit))
+	out, err := s.search(ctx, opt.scope(), match, rerankPoolFor(limit))
 	if err != nil {
 		return Results{}, err
 	}
 	return rerank(out, limit), nil
+}
+
+// SearchAllOptions narrow SearchAll and CountAll. The zero value is every
+// project, from any time.
+type SearchAllOptions struct {
+	// Project is one project's slug; its memories come with the AgentBox-wide
+	// ones beside them, as in Search.
+	Project string
+	// Since keeps only what is from then on: a memory by when it was last
+	// updated, an event by when it happened, a report by when it was made.
+	Since time.Time
+}
+
+func (o SearchAllOptions) scope() scope { return scope{project: o.Project, since: o.Since} }
+
+// Counts are how many rows of each index a query matches, each counted up to
+// a cap.
+type Counts struct {
+	Memories, Events, Reports int
+}
+
+// CountAll counts what SearchAll would find without a limit, each kind up to
+// most+1 so that a count past most says there were more: a count stops at
+// the cap rather than reading every row a short word matches, which keeps it
+// fast enough for every pause in the typing.
+func (s *Store) CountAll(ctx context.Context, query string, most int, opt SearchAllOptions) (Counts, error) {
+	match := prefixQuery(query)
+	if match == "" {
+		return Counts{}, errors.New("a search needs something to look for")
+	}
+	var out Counts
+	for _, c := range []struct {
+		n            *int
+		table, alias string
+		fts, extra   string
+	}{
+		{&out.Memories, "memories m", "m", "memories_fts", " AND " + live},
+		{&out.Events, "events", "events", "events_fts", ""},
+		{&out.Reports, "agent_reports", "agent_reports", "reports_fts", ""},
+	} {
+		where, args := opt.scope().where(c.alias)
+		args = append(append([]any{match}, args...), most+1)
+		err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM (SELECT 1 FROM `+c.table+`
+			JOIN `+c.fts+` ON `+c.fts+`.rowid = `+c.alias+`.rowid
+			WHERE `+c.fts+` MATCH ?`+where+c.extra+` LIMIT ?)`, args...).Scan(c.n)
+		if err != nil {
+			return Counts{}, searchError(err)
+		}
+	}
+	return out, nil
+}
+
+// scope is which rows a search reads: one project's, or every project's
+// when project is "", and only those from since on when it is set.
+type scope struct {
+	project string
+	since   time.Time
+}
+
+// where is the scope as conditions on the table (or alias) given, each
+// starting with AND, and their arguments. Times are stored in milliseconds.
+func (sc scope) where(table string) (string, []any) {
+	var where string
+	var args []any
+	switch {
+	case sc.project == "":
+	case table == "m":
+		where, args = " AND m.project IN (?, ?)", []any{sc.project, Global}
+	default:
+		where, args = " AND "+table+".project = ?", []any{sc.project}
+	}
+	if !sc.since.IsZero() {
+		column := map[string]string{"m": "m.updated_at", "events": "events.at", "agent_reports": "agent_reports.created_at"}[table]
+		where += " AND " + column + " >= ?"
+		args = append(args, sc.since.UnixMilli())
+	}
+	return where, args
 }
 
 // prefixQuery is ftsQuery's all-words query with its last phrase a prefix.
@@ -118,20 +197,15 @@ func prefixQuery(query string) string {
 	return all + "*"
 }
 
-// search runs one MATCH against each index, in one project, or in every
-// project when project is "" (only SearchAll asks for that). A project's
+// search runs one MATCH against each index, in the scope's project, or in
+// every project when it has none (only SearchAll asks for that). A project's
 // memories are searched with the AgentBox-wide ones beside them (global.go):
 // what the user asked to hold everywhere holds in this project too.
-func (s *Store) search(ctx context.Context, project, match string, limit int) (Results, error) {
+func (s *Store) search(ctx context.Context, sc scope, match string, limit int) (Results, error) {
 	var out Results
 	in := func(table string) (string, []any) {
-		switch {
-		case project == "":
-			return "", []any{match, limit}
-		case table == "m":
-			return " AND m.project IN (?, ?)", []any{match, project, Global, limit}
-		}
-		return " AND " + table + ".project = ?", []any{match, project, limit}
+		where, args := sc.where(table)
+		return where, append(append([]any{match}, args...), limit)
 	}
 	// Each index is joined by its own name — MATCH and bm25 both want the
 	// table, not an alias — and the row columns are all qualified, so the two

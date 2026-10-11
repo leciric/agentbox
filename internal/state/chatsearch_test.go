@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func chatRows(t *testing.T, items ...map[string]any) []ChatItem {
@@ -252,5 +253,60 @@ func TestSnippet(t *testing.T) {
 		if got := show(Snippet(c.text, c.query)); got != c.want {
 			t.Errorf("Snippet(%.30q, %q) =\n %q\nwant\n %q", c.text, c.query, got, c.want)
 		}
+	}
+}
+
+// A hit says when its item was made; Kinds and Since narrow the search in the
+// query, so the limit and more count only what is left, and CountChats counts
+// the same items up to a cap.
+func TestSearchChatsKindsSinceAndCount(t *testing.T) {
+	t.Parallel()
+	s := openSearchStore(t)
+	ctx := context.Background()
+	old := time.Date(2026, 1, 2, 3, 4, 5, 0, time.FixedZone("BRT", -3*3600))
+	recent := time.Now().Add(-time.Minute)
+	if err := s.SaveChatItems(ctx, "pawly", "agent-01", chatRows(t,
+		map[string]any{"id": "u1", "kind": "user", "text": "ship the build", "createdAt": old},
+		map[string]any{"id": "a1", "kind": "assistant", "text": "the build shipped", "createdAt": recent},
+		map[string]any{"id": "e1", "kind": "error", "text": "build failed", "createdAt": recent},
+		map[string]any{"id": "n1", "kind": "notice", "text": "build restarted"},
+	)); err != nil {
+		t.Fatal(err)
+	}
+	one := ChatSearch{Query: "build", Project: "pawly", Agent: "agent-01"}
+	hits, _, err := s.SearchChats(ctx, one)
+	if err != nil || len(hits) != 4 {
+		t.Fatalf("hits = %+v, %v", hits, err)
+	}
+	if !hits[0].At.Equal(old) || !hits[1].At.Equal(recent) || !hits[3].At.IsZero() {
+		t.Errorf("At = %v, %v, %v; want %v, %v and none", hits[0].At, hits[1].At, hits[3].At, old, recent)
+	}
+	q := one
+	q.Kinds = []string{"user", "error"}
+	if got := searchIDs(t, s, q); !slices.Equal(got, []string{"u1", "e1"}) {
+		t.Errorf("kinds user, error = %v", got)
+	}
+	q.Limit = 1
+	if hits, more, err := s.SearchChats(ctx, q); err != nil || len(hits) != 1 || hits[0].ID != "u1" || !more {
+		t.Errorf("kinds with limit 1 = %+v, more %v, %v", hits, more, err)
+	}
+	q = one
+	q.Since = old.Add(time.Hour)
+	if got := searchIDs(t, s, q); !slices.Equal(got, []string{"a1", "e1"}) {
+		t.Errorf("since = %v, want the recent two", got)
+	}
+	for _, c := range []struct {
+		q    ChatSearch
+		most int
+		want int
+	}{{one, 10, 4}, {one, 2, 3}, {q, 10, 2}, {ChatSearch{Query: "bu", Kinds: []string{"notice"}}, 10, 1}, {ChatSearch{Query: " "}, 10, 0}} {
+		if n, err := s.CountChats(ctx, c.q, c.most); err != nil || n != c.want {
+			t.Errorf("CountChats(%+v, %d) = %d, %v; want %d", c.q, c.most, n, err, c.want)
+		}
+	}
+	q = one
+	q.Kinds = []string{"tool"}
+	if _, _, err := s.SearchChats(ctx, q); err == nil {
+		t.Error("an unknown kind was taken")
 	}
 }

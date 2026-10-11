@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fold, matchesIn, stepHit } from './chatFind.ts';
+import { findKinds, fold, hitsByDay, localDay, matchesIn, stepHit } from './chatFind.ts';
 
 const marked = (text: string, query: string) => {
   let out = '';
@@ -45,4 +45,30 @@ test('stepping through hits starts at the newest and goes round', () => {
   assert.equal(stepHit(hits, 'c', 'newer'), 'a');
   assert.equal(stepHit(hits, 'b', 'stay'), 'b');
   assert.equal(stepHit([], 'b', 'older'), undefined);
+});
+
+test('findKinds asks for what you wrote, what the AI tool said, or everything', () => {
+  assert.deepEqual(findKinds('you'), ['user', 'aside']);
+  assert.deepEqual(findKinds('ai'), ['assistant']);
+  assert.deepEqual(findKinds('anyone'), []);
+});
+
+test('hitsByDay lists the newest first, a group per day, the undated last', () => {
+  const at = (y: number, m: number, d: number, h: number) => new Date(y, m - 1, d, h).toISOString();
+  const hits = [
+    { id: 'a', at: at(2026, 10, 3, 9) },
+    { id: 'b' },
+    { id: 'c', at: at(2026, 10, 3, 18) },
+    { id: 'd', at: at(2026, 10, 10, 12) },
+  ];
+  assert.deepEqual(
+    hitsByDay(hits).map((g) => [g.day, g.hits.map((h) => h.id)]),
+    [
+      ['2026-10-10', ['d']],
+      ['2026-10-03', ['c', 'a']],
+      ['', ['b']],
+    ],
+  );
+  assert.deepEqual(hitsByDay([]), []);
+  assert.equal(localDay(new Date(2026, 0, 5, 23)), '2026-01-05');
 });

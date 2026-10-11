@@ -3,6 +3,10 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -65,7 +69,7 @@ func TestSearchFindsEveryKind(t *testing.T) {
 		t.Fatal(err)
 	}
 	chatItem := func(id, kind, text string) []state.ChatItem {
-		return []state.ChatItem{{ID: id, Data: []byte(`{"id":"` + id + `","kind":"` + kind + `","text":"` + text + `"}`)}}
+		return []state.ChatItem{{ID: id, Data: []byte(`{"id":"` + id + `","kind":"` + kind + `","text":"` + text + `","createdAt":"` + now.Format(time.RFC3339Nano) + `"}`)}}
 	}
 	if err := store.SaveChatItems(ctx, a.Project, a.Name, chatItem("c-agent", "assistant", "The Hatch preset is in.")); err != nil {
 		t.Fatal(err)
@@ -106,8 +110,11 @@ func TestSearchFindsEveryKind(t *testing.T) {
 	if h := chats["c-agent"]; h.Agent != a.Name || h.Project != a.Project || h.Tag != "assistant" || h.Title != "The Hatch preset is in." {
 		t.Errorf("agent's chat hit = %+v", h)
 	}
-	if h := chats["c-lead"]; h.Agent != "" || h.Project != a.Project {
-		t.Errorf("lead's chat hit = %+v", h)
+	if h := chats["c-lead"]; h.Agent != "" || h.Project != a.Project || h.At == nil || !h.At.Equal(now) {
+		t.Errorf("lead's chat hit = %+v, want it made at %v", h, now)
+	}
+	if g := kinds[api.SearchChats]; g.Total != 2 || g.Capped {
+		t.Errorf("chats total = %d, capped %v; want 2", g.Total, g.Capped)
 	}
 	if g := kinds[api.SearchMemories]; len(g.Hits) != 1 || g.Hits[0].Memory == nil || g.Hits[0].Project != a.Project {
 		t.Errorf("memories = %+v, want the project's and not the Home chat's", g.Hits)
@@ -165,11 +172,123 @@ func TestSearchLimitsEachGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Groups) != 1 || len(got.Groups[0].Hits) != 2 || !got.Groups[0].More {
-		t.Fatalf("got %+v, want two skills and more", got)
+	if len(got.Groups) != 1 || len(got.Groups[0].Hits) != 2 || !got.Groups[0].More || got.Groups[0].Total != 3 || got.Groups[0].Capped {
+		t.Fatalf("got %+v, want two skills of three and more", got)
 	}
 	if _, err := d.client.Search(ctx, "deploy", -1); err != nil {
 		t.Errorf("no limit: %v", err)
+	}
+}
+
+// kinds, project and since narrow a search before each group is cut to the
+// limit, and each group counts what matched up to searchCountMax.
+func TestSearchFilters(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	a := addTestAgent(t, d)
+	store, mem := d.srv.store, d.srv.memory()
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+	if err := store.AddProject(ctx, state.Project{Name: "other", Root: t.TempDir(), CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	chat := func(project, agent, id string, at time.Time) {
+		t.Helper()
+		data, _ := json.Marshal(api.ChatItem{ID: id, Kind: "user", Text: "the falcon launch", CreatedAt: at})
+		if err := store.SaveChatItems(ctx, project, agent, []state.ChatItem{{ID: id, Data: data}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	chat(a.Project, a.Name, "c-new", now)
+	chat(a.Project, a.Name+"-old", "c-old", old)
+	chat("other", "agent-01", "c-other", now)
+	for _, m := range []memory.Memory{
+		{Project: a.Project, Title: "Falcon recent"},
+		{Project: a.Project, Title: "Falcon old", CreatedAt: old, UpdatedAt: old},
+		{Project: "other", Title: "Falcon elsewhere"},
+	} {
+		if _, err := mem.AddMemory(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetSkill(ctx, state.Skill{Name: "falcon-deploy", UpdatedAt: now}, []state.SkillFile{{Path: "SKILL.md", Content: []byte("x")}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetConnector(ctx, state.Connector{Name: "falcon", URL: "https://falcon.example/mcp", Auth: "none", UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMedia(ctx, state.Media{ID: "m-old", Project: a.Project, Agent: a.Name, Kind: "note", Name: "Falcon sketch", Source: "agent", CreatedAt: old}); err != nil {
+		t.Fatal(err)
+	}
+
+	search := func(opt api.SearchOptions) map[string]api.SearchGroup {
+		t.Helper()
+		got, err := d.client.SearchWith(ctx, "falcon", 1, opt)
+		if err != nil {
+			t.Fatalf("SearchWith(%+v): %v", opt, err)
+		}
+		groups := map[string]api.SearchGroup{}
+		for _, g := range got.Groups {
+			groups[g.Kind] = g
+		}
+		return groups
+	}
+	totals := func(groups map[string]api.SearchGroup) map[string]int {
+		out := map[string]int{}
+		for k, g := range groups {
+			out[k] = g.Total
+		}
+		return out
+	}
+
+	all := search(api.SearchOptions{})
+	if want := map[string]int{api.SearchChats: 3, api.SearchMemories: 3, api.SearchMedia: 1, api.SearchSkills: 1, api.SearchConnectors: 1}; !maps.Equal(totals(all), want) {
+		t.Errorf("everything: totals %v, want %v", totals(all), want)
+	}
+	if g := all[api.SearchChats]; len(g.Hits) != 1 || !g.More {
+		t.Errorf("chats = %+v, want one hit and more", g)
+	}
+	only := search(api.SearchOptions{Kinds: []string{api.SearchChats, api.SearchSkills}})
+	if want := map[string]int{api.SearchChats: 3, api.SearchSkills: 1}; !maps.Equal(totals(only), want) {
+		t.Errorf("kinds chats, skills: totals %v, want %v", totals(only), want)
+	}
+	// A project: no AgentBox-wide skill or connector, and nothing of another project.
+	inProject := search(api.SearchOptions{Project: a.Project})
+	if want := map[string]int{api.SearchChats: 2, api.SearchMemories: 2, api.SearchMedia: 1}; !maps.Equal(totals(inProject), want) {
+		t.Errorf("project: totals %v, want %v", totals(inProject), want)
+	}
+	// Since: nothing old, and no kind without a time.
+	recent := search(api.SearchOptions{Since: now.Add(-time.Hour)})
+	if want := map[string]int{api.SearchChats: 2, api.SearchMemories: 2}; !maps.Equal(totals(recent), want) {
+		t.Errorf("since: totals %v, want %v", totals(recent), want)
+	}
+	both := search(api.SearchOptions{Project: a.Project, Since: now.Add(-time.Hour)})
+	if g := both[api.SearchChats]; len(both) != 2 || g.Total != 1 || g.More || g.Hits[0].ID != "c-new" || both[api.SearchMemories].Hits[0].Title != "Falcon recent" {
+		t.Errorf("project and since = %+v", both)
+	}
+	for _, bad := range []string{"kinds=chats,nope", "project=nope", "since=yesterday"} {
+		if err := d.srv.search(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/search?q=falcon&"+bad, nil)); err == nil {
+			t.Errorf("%s was taken", bad)
+		}
+	}
+
+	// Past searchCountMax a total stops and says it was capped.
+	var many []state.ChatItem
+	for i := range searchCountMax + 5 {
+		id := fmt.Sprintf("x%d", i)
+		data, _ := json.Marshal(api.ChatItem{ID: id, Kind: "assistant", Text: "a heron flew", CreatedAt: now})
+		many = append(many, state.ChatItem{ID: id, Position: int64(i), Data: data})
+	}
+	if err := store.SaveChatItems(ctx, "other", "agent-02", many); err != nil {
+		t.Fatal(err)
+	}
+	got, err := d.client.Search(ctx, "heron", 3)
+	if err != nil || len(got.Groups) != 1 {
+		t.Fatalf("heron = %+v, %v", got, err)
+	}
+	if g := got.Groups[0]; len(g.Hits) != 3 || !g.More || g.Total != searchCountMax || !g.Capped {
+		t.Errorf("heron = %d hits, more %v, total %d, capped %v; want 3, more, %d and capped", len(g.Hits), g.More, g.Total, g.Capped, searchCountMax)
 	}
 }
 

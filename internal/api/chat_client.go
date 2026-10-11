@@ -87,9 +87,13 @@ func (c *Client) ChatAfter(ctx context.Context, ref, after string, limit int) (C
 }
 
 // SearchChat finds query in a conversation (see ChatSearch), with at most
-// limit hits; 0 is the daemon's default.
-func (c *Client) SearchChat(ctx context.Context, ref, query string, limit int) (ChatSearch, error) {
+// limit hits; 0 is the daemon's default. kinds, when given, keeps only items
+// of those kinds (user, aside, assistant, notice, error).
+func (c *Client) SearchChat(ctx context.Context, ref, query string, kinds []string, limit int) (ChatSearch, error) {
 	q := url.Values{"q": {query}}
+	if len(kinds) > 0 {
+		q.Set("kinds", strings.Join(kinds, ","))
+	}
 	if limit > 0 {
 		q.Set("limit", strconv.Itoa(limit))
 	}
