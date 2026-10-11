@@ -118,7 +118,6 @@ export interface Settings {
   updateCheck: boolean;
   usageStats: boolean;
   errorReports: boolean;
-  errorReportsAsked: boolean;
   prWatch: boolean;
   mediaRetention: string;
   language: string;

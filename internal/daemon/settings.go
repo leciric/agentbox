@@ -387,7 +387,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 	if err != nil {
 		return api.Settings{}, err
 	}
-	errorReports, err := s.store.Setting(r.Context(), state.SettingErrorReports)
+	errorReports, err := s.store.FlagOn(r.Context(), state.SettingErrorReports)
 	if err != nil {
 		return api.Settings{}, err
 	}
@@ -471,8 +471,7 @@ func (s *Server) currentSettings(r *http.Request) (api.Settings, error) {
 		ContinueAfterRestart: continueAfterRestart,
 		UpdateCheck:          updateCheck,
 		UsageStats:           usageStats,
-		ErrorReports:         errorReports == "1",
-		ErrorReportsAsked:    errorReports != "",
+		ErrorReports:         errorReports,
 		PRWatch:              prWatch,
 		MediaRetention:       mediaRetention,
 		Language:             language,

@@ -943,7 +943,7 @@ function InstalledSettings({
               id: "error-reports",
               label: t("settings.entry.error-reports.label"),
               keywords: t("settings.entry.error-reports.keywords"),
-              modified: changed((s) => s.errorReports),
+              modified: changed((s) => !s.errorReports),
               render: () => <ErrorReportsSetting />,
             },
             ...(info
@@ -1728,8 +1728,7 @@ function UsageStats() {
 }
 
 // ErrorReportsSetting is whether the app sends a report of each uncaught
-// error by itself (components/ErrorReports.tsx), which it offers the first
-// time one happens.
+// error by itself (components/ErrorReports.tsx), on unless turned off.
 // TopBarDetailedSetting is the top bar's layout on this computer: one status
 // bubble for the machine, or its memory, CPU and disk always in view
 // (lib/topBarLayout.ts).
@@ -1806,7 +1805,7 @@ function ErrorReportsSetting() {
           data-error-reports
           aria-label={t("settings.entry.error-reports.label")}
           disabled={save.isPending || settings.data === undefined}
-          checked={settings.data?.errorReports ?? false}
+          checked={settings.data?.errorReports ?? true}
           onCheckedChange={(next) => save.mutate(next)}
         />
       }

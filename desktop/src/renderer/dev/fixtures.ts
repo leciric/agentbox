@@ -1250,8 +1250,7 @@ let defaultsSettings = {
   claudeCompactWindow: 200_000,
   updateCheck: true,
   usageStats: true,
-  errorReports: false,
-  errorReportsAsked: false,
+  errorReports: true,
   prWatch: true,
   defaultClaudeCompactWindow: 200_000,
   diskFloorMin: 10 * 1024 ** 3,
@@ -1309,7 +1308,6 @@ function patchDefaults(req: T.UpdateSettingsRequest): { status: number; body: st
   ] as const) {
     if (req[key] !== undefined) (next as Record<string, unknown>)[key] = req[key];
   }
-  if (req.errorReports !== undefined) next.errorReportsAsked = true;
   for (const [model, win] of [
     [next.defaultClaudeModel || 'opus', next.defaultAgentContextWindow],
     [next.defaultLeadModel || 'default', next.defaultLeadContextWindow],

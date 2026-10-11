@@ -4,19 +4,15 @@ import { test } from 'node:test';
 import { ErrorReporter, errorReport, fromEvent, maxPerSession, type UncaughtError } from './errorReports.ts';
 
 const err = (message: string, where: UncaughtError['where'] = 'window'): UncaughtError => ({ where, name: 'TypeError', message, stack: 'at f (file:///app/index.js:1:2)' });
-const unasked = { errorReports: false, errorReportsAsked: false };
-const on = { errorReports: true, errorReportsAsked: true };
-const off = { errorReports: false, errorReportsAsked: true };
+const on = { errorReports: true };
+const off = { errorReports: false };
 
-test('the first error asks, once, and only while the user never chose', () => {
-  const r = new ErrorReporter();
-  assert.equal(r.decide(err('a'), unasked), 'ask');
-  assert.equal(r.decide(err('b'), unasked), 'ignore', 'asked once a run');
+test('nothing is sent while the user has them off, or with no daemon', () => {
   assert.equal(new ErrorReporter().decide(err('a'), off), 'ignore');
   assert.equal(new ErrorReporter().decide(err('a'), undefined), 'ignore', 'no daemon, nothing to do');
 });
 
-test('once on, each new error is sent, up to a cap a run', () => {
+test('while on, each new error is sent, up to a cap a run', () => {
   const r = new ErrorReporter();
   assert.equal(r.decide(err('a'), on), 'send');
   assert.equal(r.decide(err('a'), on), 'ignore', 'the same error again');

@@ -404,11 +404,8 @@ type Settings struct {
 	// off or something blocks it.
 	UsageStats bool `json:"usageStats"`
 	// ErrorReports says whether the app sends a report of each uncaught error
-	// by itself (ReportKindError). Off unless the user turned it on;
-	// ErrorReportsAsked says whether they were ever asked, which the app does
-	// the first time an error happens.
-	ErrorReports      bool `json:"errorReports"`
-	ErrorReportsAsked bool `json:"errorReportsAsked"`
+	// by itself (ReportKindError). On unless the user turned it off.
+	ErrorReports bool `json:"errorReports"`
 	// PRWatch says whether the daemon watches every agent's open pull request
 	// until it's merged or closed, and tells the agent when it conflicts with
 	// its base, its checks fail or a reviewer asks for changes. On unless it

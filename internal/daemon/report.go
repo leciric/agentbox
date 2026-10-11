@@ -68,7 +68,7 @@ func (s *Server) sendReport(w http.ResponseWriter, r *http.Request) error {
 	}
 	ctx := r.Context()
 	if req.Kind == api.ReportKindError {
-		if on, err := s.store.Flag(ctx, state.SettingErrorReports); err != nil || !on {
+		if on, err := s.store.FlagOn(ctx, state.SettingErrorReports); err != nil || !on {
 			return cmp.Or(err, errors.New("automatic error reports are off: turn them on in Settings, General"))
 		}
 		if os.Getenv("DO_NOT_TRACK") == "1" {

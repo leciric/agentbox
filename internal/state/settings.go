@@ -151,8 +151,7 @@ const (
 	// never sent while SettingUpdateCheck is off.
 	SettingUsageStats = "usage_stats"
 	// SettingErrorReports says whether the app sends a report of each
-	// uncaught error by itself. Off until somebody turns it on (Flag), and
-	// empty until they chose either way, which is how the app knows to ask.
+	// uncaught error by itself. On until somebody turns it off (FlagOn).
 	SettingErrorReports = "error_reports"
 	// SettingPRWatch says whether the daemon watches every agent's open pull
 	// request and tells the agent when it breaks: a conflict with its base,

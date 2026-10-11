@@ -624,10 +624,9 @@ export const enUS = {
   'settings.github.tokenPlaceholder': 'ghp_… or gho_…',
 
   // defaults
-  'defaults.errorReports.title': 'AgentBox ran into an error',
-  'defaults.errorReports.description': 'Send reports of errors like this to AgentBox’s developers automatically? Each has the error, where in the app it happened, and the app’s version and OS, with tokens, emails and home folders taken out. No logs, and nothing you typed. You can change this in Settings, General.',
-  'defaults.errorReports.dontSend': 'Don’t send',
-  'defaults.errorReports.sendAll': 'Send this one and future ones',
+  'defaults.errorReports.title': 'Error reports are on',
+  'defaults.errorReports.description': 'AgentBox sends its developers a report of each unexpected error: the error, where in the app it happened, and the app’s version and OS, with tokens, emails and home folders taken out. No logs, and nothing you typed. You can turn this off in Settings, General.',
+  'defaults.errorReports.settings': 'Open the setting',
   'defaults.voice.pttTitle': 'Push-to-talk',
   'defaults.voice.pttDescription': 'Hold the microphone button in a chat, or Ctrl+Space, and talk. Your speech is turned into text on this computer, by Whisper, and never leaves it.',
   'defaults.voice.modelLabel': 'Speech-to-text model',

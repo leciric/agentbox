@@ -112,7 +112,7 @@ func TestReportDraftAndSend(t *testing.T) {
 	}
 }
 
-func TestErrorReportsWaitForTheUser(t *testing.T) {
+func TestErrorReportsAreOnUntilTurnedOff(t *testing.T) {
 	t.Setenv("DO_NOT_TRACK", "")
 	var fake fakeReports
 	d := startTestDaemon(t, t.TempDir(), fakeIncus, testConfig{updateURL: fake.start(t), releasesURL: fakeStable(t, "0.16.0")})
@@ -120,16 +120,19 @@ func TestErrorReportsWaitForTheUser(t *testing.T) {
 	var sent api.ReportSent
 
 	settings, err := patchSettings(t, d, `{}`)
-	if err != nil || settings.ErrorReports || settings.ErrorReportsAsked {
-		t.Fatalf("error reports start off and unasked: %+v, %v", settings, err)
+	if err != nil || !settings.ErrorReports {
+		t.Fatalf("error reports start on: %+v, %v", settings, err)
 	}
-	if err := callReport(t, d.srv.sendReport, "/v1/reports", errReport, &sent); err == nil {
-		t.Fatal("an error report was sent before the user turned them on")
+	if err := callReport(t, d.srv.sendReport, "/v1/reports", errReport, &sent); err != nil {
+		t.Fatalf("an error report wasn't sent while they were unset: %v", err)
 	}
-	if settings, _ = patchSettings(t, d, `{"errorReports":false}`); settings.ErrorReports || !settings.ErrorReportsAsked {
+	if settings, _ = patchSettings(t, d, `{"errorReports":false}`); settings.ErrorReports {
 		t.Errorf("turned off: %+v", settings)
 	}
-	if settings, _ = patchSettings(t, d, `{"errorReports":true}`); !settings.ErrorReports || !settings.ErrorReportsAsked {
+	if err := callReport(t, d.srv.sendReport, "/v1/reports", errReport, &sent); err == nil {
+		t.Fatal("an error report was sent after the user turned them off")
+	}
+	if settings, _ = patchSettings(t, d, `{"errorReports":true}`); !settings.ErrorReports {
 		t.Errorf("turned on: %+v", settings)
 	}
 	if err := callReport(t, d.srv.sendReport, "/v1/reports", errReport, &sent); err != nil {
@@ -139,7 +142,7 @@ func TestErrorReportsWaitForTheUser(t *testing.T) {
 	if err := callReport(t, d.srv.sendReport, "/v1/reports", errReport, &sent); err == nil {
 		t.Error("an error report was sent with DO_NOT_TRACK=1")
 	}
-	if len(fake.sent) != 1 || fake.sent[0].Kind != api.ReportKindError {
+	if len(fake.sent) != 2 || fake.sent[0].Kind != api.ReportKindError {
 		t.Errorf("sent %+v", fake.sent)
 	}
 }

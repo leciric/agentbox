@@ -1,10 +1,9 @@
 // Automatic error reports: what the app does with an uncaught error, of a
 // window or of the main process. Each one goes to the main process's log
 // (main/applog.ts), where a problem report finds it. Beyond that, nothing is
-// sent unless the user said so (Settings.ErrorReports): the first time an
-// error happens and they haven't been asked, the app asks
-// (components/ErrorReports.tsx); once they said yes, each new error is sent
-// by itself, as a report of kind "error" through the daemon, which redacts it
+// sent once the user turned them off (Settings.ErrorReports, on by default,
+// which components/ErrorReports.tsx says once): each new error is sent by
+// itself, as a report of kind "error" through the daemon, which redacts it
 // like any report (internal/report).
 import type * as T from '../../shared/api';
 import { describeError, frames, type DescribedError } from '../../shared/errors.ts';
@@ -31,30 +30,23 @@ export function fromEvent(event: ErrorEvent | PromiseRejectionEvent): UncaughtEr
   return { where: 'window', name: 'Error', message: event.message || 'unknown error', stack: frames(at) };
 }
 
-export type Decision = 'send' | 'ask' | 'ignore';
+export type Decision = 'send' | 'ignore';
 
-// ErrorReporter decides what each uncaught error leads to: sent, the user
-// asked, or nothing, because it's noise, was already handled in this run, or
+// ErrorReporter decides what each uncaught error leads to: sent or nothing, because it's noise, was already handled in this run, or
 // this run sent enough.
 export class ErrorReporter {
   private seen = new Set<string>();
   private sent = 0;
-  private asked = false;
 
-  decide(err: UncaughtError, settings: Pick<T.Settings, 'errorReports' | 'errorReportsAsked'> | undefined): Decision {
+  decide(err: UncaughtError, settings: Pick<T.Settings, 'errorReports'> | undefined): Decision {
     if (noise.some((re) => re.test(err.message))) return 'ignore';
     const key = signature(err);
     if (this.seen.has(key)) return 'ignore';
     this.seen.add(key);
-    if (!settings) return 'ignore'; // no daemon to send it through, or to ask about it
-    if (settings.errorReports) {
-      if (this.sent >= maxPerSession) return 'ignore';
-      this.sent++;
-      return 'send';
-    }
-    if (settings.errorReportsAsked || this.asked) return 'ignore';
-    this.asked = true;
-    return 'ask';
+    if (!settings) return 'ignore'; // no daemon to send it through
+    if (!settings.errorReports || this.sent >= maxPerSession) return 'ignore';
+    this.sent++;
+    return 'send';
   }
 }
 
