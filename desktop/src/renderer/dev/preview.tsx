@@ -118,6 +118,9 @@
 //   ?media=project|agent|all  a project's Media, 360 items across fourteen agents; all, the all-projects view
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
+//   ?search=find-a|find-b|find-c|modal-a|modal-b|modal-c|modal-scoped
+//                           design mockups for finding in the lead's chat and
+//                           the modal that searches everything (search.tsx)
 //   ?notify=bell|media|viewer|toast
 //                           a mock of clickable notifications, the top bar's
 //                           bell and its history, the all-projects Media view
@@ -202,6 +205,7 @@ import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
+import { SearchPreview } from './search';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
@@ -230,6 +234,7 @@ const usage = params.get('usage') === '1';
 const topbar = params.get('topbar');
 const pulls = params.get('pulls') === '1';
 const home = params.get('home') === '1';
+const searchMock = params.get('search'); // a mockup in search.tsx
 const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
@@ -578,6 +583,7 @@ function Preview() {
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
   if (notify) return <NotificationsPreview scenario={notify} />;
+  if (searchMock) return <SearchPreview scenario={searchMock} />;
   if (newAgent) return <NewAgentDialog project={PROJECT} onClose={() => {}} onCreated={() => {}} />;
 
   if (power) {
