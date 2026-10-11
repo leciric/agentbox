@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,11 +32,23 @@ import (
 // joins a cgroup of its own under the agent's machine's (agent.PlaceRun), so
 // pausing it freezes that command and what it started, not the agent, and
 // its memory is pushed out to swap while it is paused.
+//
+// The loop that reads the VM's memory and pauses runs is what must still
+// work when the VM has none to spare: a reading allocates nothing and opens
+// nothing (pressure.Sampler), the loop does nothing else (the agents' limits
+// and kills are watched on a loop of their own, and the app told aside, as
+// that asks Incus), a run's freezer is written directly rather than through
+// sudo (agent.PlaceRun hands its cgroup to the daemon's user), and in the VM
+// the daemon's own memory is locked in and the OOM killer told to spare it
+// (protectDaemon).
 
 const (
 	// pressureInterval is how often the VM's pressure is read, and the
 	// agents' memory limits and kills looked at.
 	pressureInterval = 2 * time.Second
+	// oomScoreAdj is the daemon's in the VM: the OOM killer takes a process
+	// of the daemon's only once it holds 90% of the VM more than any other.
+	oomScoreAdj = -900
 	// heavyTTL is how long a heavy command that didn't join a cgroup of its
 	// own counts as running unless asked for again or ended; heavyMaxTTL
 	// the most a request may ask for.
@@ -80,6 +94,9 @@ type heavyRuns struct {
 	told map[string]bool
 	// psiErr is the last error reading the VM's pressure, logged once.
 	psiErr string
+	// refresh asks for the agents to be refreshed (refreshAgents), aside
+	// from the loop.
+	refresh chan struct{}
 }
 
 func newHeavyRuns() *heavyRuns {
@@ -88,6 +105,29 @@ func newHeavyRuns() *heavyRuns {
 		started:  map[string]chan struct{}{},
 		instance: map[string]string{},
 		told:     map[string]bool{},
+		refresh:  make(chan struct{}, 1),
+	}
+}
+
+// readSample reads the VM's memory through a pressure.Sampler, opened at the
+// first reading. Its cap is what the front end said the VM may grow to.
+func readSample() func() (pressure.Sample, error) {
+	var (
+		mu sync.Mutex
+		s  *pressure.Sampler
+	)
+	vmCap, _ := strconv.ParseInt(os.Getenv(agent.VMMemoryCapEnv), 10, 64)
+	return func() (pressure.Sample, error) {
+		mu.Lock()
+		if s == nil {
+			var err error
+			if s, err = pressure.OpenSampler(pressure.File, pressure.MemInfo, vmCap); err != nil {
+				mu.Unlock()
+				return pressure.Sample{}, err
+			}
+		}
+		mu.Unlock()
+		return s.Read()
 	}
 }
 
@@ -107,11 +147,36 @@ func (s *Server) giveZram() {
 	s.logf("zram swap: %s", did)
 }
 
-// runPressure is the pressure loop.
+// runPressure is the pressure loop, and the loops beside it that may wait on
+// SQLite, Incus or sudo: refreshing the agents as runs change, and watching
+// their memory limits and kills.
 func (s *Server) runPressure(ctx context.Context) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.heavy.refresh:
+				s.refreshAgents(ctx)
+			}
+		}
+	}()
 	if s.pressureEvery <= 0 {
 		return // a test steps it itself
 	}
+	s.protectDaemon()
+	go func() {
+		ticker := time.NewTicker(s.pressureEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.watchMemory(ctx)
+			}
+		}
+	}()
 	ticker := time.NewTicker(s.pressureEvery)
 	defer ticker.Stop()
 	for {
@@ -120,15 +185,50 @@ func (s *Server) runPressure(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.stepPressure(ctx)
-			s.watchMemory(ctx)
 		}
+	}
+}
+
+// protectDaemon keeps the daemon going when the VM runs out of memory: its
+// memory locked in, so the pressure loop never waits on a page the kernel
+// pushed out, and the OOM killer told to take others first. That is the
+// VM's daemon only: on a machine of the user's own, its memory is theirs.
+//
+// mlockall, not a memory.min: the daemon runs in its ssh session's cgroup,
+// and a memory.min there means nothing unless every cgroup above it has one,
+// while moving the daemon into one of its own would take the lead chats it
+// starts with it, which a lock doesn't (children don't inherit it). Locked
+// as the pages are first touched (MCL_ONFAULT), so what Go reserves and
+// never uses costs nothing, after locking all that is mapped now: the
+// binary's code, the pause included, never has to be read back from disk.
+func (s *Server) protectDaemon() {
+	if !hostos.InVM() {
+		return
+	}
+	pid := strconv.Itoa(os.Getpid())
+	if err := agent.Sudo("prlimit", "", "--pid", pid, "--memlock=unlimited:unlimited"); err != nil {
+		s.logf("memory pressure: the daemon may not lock its memory in: %v", err)
+	} else if err := lockMemory(); err != nil {
+		s.logf("memory pressure: locking the daemon's memory in: %v", err)
+	}
+	if err := agent.Sudo("tee", strconv.Itoa(oomScoreAdj), "/proc/"+pid+"/oom_score_adj"); err != nil {
+		s.logf("memory pressure: sparing the daemon from the OOM killer: %v", err)
+	}
+}
+
+// refreshSoon has the agents refreshed aside, at once, so the app shows what
+// changed without the loop waiting on Incus.
+func (s *Server) refreshSoon() {
+	select {
+	case s.heavy.refresh <- struct{}{}:
+	default:
 	}
 }
 
 // stepPressure reads the VM's pressure and applies what the governor makes
 // of it: runs that ended go, waiting ones start, going ones pause or resume.
 func (s *Server) stepPressure(ctx context.Context) {
-	psi, err := s.readPressure()
+	sample, err := s.readPressure()
 	h := s.heavy
 	h.mu.Lock()
 	if err != nil {
@@ -138,7 +238,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 			h.psiErr = msg
 			s.logf("memory pressure: %v; heavy commands run without waiting", err)
 		}
-		psi = pressure.PSI{}
+		sample = pressure.Sample{}
 	}
 	now := time.Now()
 	gone := h.g.Expire(now, func(r *pressure.Run) bool {
@@ -147,7 +247,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		}
 		return now.Before(r.Until)
 	})
-	acts := h.g.Step(now, psi)
+	acts := h.g.Step(now, sample)
 	type change struct {
 		run      pressure.Run
 		instance string
@@ -171,11 +271,14 @@ func (s *Server) stepPressure(ctx context.Context) {
 	}
 	h.mu.Unlock()
 
+	// Removing a cgroup may take sudo: aside.
 	for _, c := range ended {
 		if c.run.Placed {
-			if err := s.runCgroups.Remove(c.instance, c.run.Key); err != nil {
-				s.logf("memory pressure: %s: removing its cgroup: %v", c.run.ID(), err)
-			}
+			go func(c change) {
+				if err := s.runCgroups.Remove(c.instance, c.run.Key); err != nil {
+					s.logf("memory pressure: %s: removing its cgroup: %v", c.run.ID(), err)
+				}
+			}(c)
 		}
 	}
 	for _, c := range resumed {
@@ -185,7 +288,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		}
 	}
 	for _, c := range paused {
-		s.logf("memory pressure: pausing %s (%s): full pressure %.0f%%", c.run.ID(), c.run.Command, psi.Full.Avg10)
+		s.logf("memory pressure: pausing %s (%s): %s", c.run.ID(), c.run.Command, sample)
 		if err := s.runCgroups.Freeze(c.instance, c.run.Key, true); err != nil {
 			s.logf("memory pressure: pausing %s: %v", c.run.ID(), err)
 			continue
@@ -201,7 +304,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		go s.tellPaused(context.WithoutCancel(ctx), c.run)
 	}
 	if len(ended)+len(paused)+len(resumed)+len(acts.Start) > 0 {
-		s.refreshAgents(ctx)
+		s.refreshSoon()
 	}
 }
 
@@ -355,8 +458,12 @@ func (s *Server) heavyWhy(ref, key string) string {
 			paused++
 		}
 	}
-	psi := h.g.Last()
-	why := fmt.Sprintf("the VM's memory is under pressure (%.0f%% of the last 10 seconds stalled on it)", psi.Some.Avg10)
+	last := h.g.Last()
+	why := fmt.Sprintf("the VM's memory is under pressure (%.0f%% of the last 10 seconds stalled on it)", last.Some.Avg10)
+	if h.g.Policy.Headroom(last.Mem) != pressure.Room {
+		why = fmt.Sprintf("the VM is nearly out of memory (%s of %s left, at the most it may have)",
+			agent.HumanBytes(last.Mem.Available), agent.HumanBytes(last.Mem.Total))
+	}
 	if paused > 0 {
 		why += fmt.Sprintf(", %d paused %s resume first", paused, plural(paused, "command is to", "commands are to"))
 	}

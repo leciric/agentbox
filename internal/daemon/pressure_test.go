@@ -89,7 +89,7 @@ type pressureTest struct {
 	testDaemon
 	cg       *fakeRunCgroups
 	mu       sync.Mutex
-	psi      pressure.PSI
+	sample   pressure.Sample
 	instance string
 	ref      string
 }
@@ -99,12 +99,14 @@ func newPressureTest(t *testing.T) *pressureTest {
 	p := &pressureTest{cg: &fakeRunCgroups{}}
 	p.testDaemon = startTestDaemon(t, t.TempDir(), oneAgentIncus, testConfig{setup: func(s *Server) {
 		s.runCgroups = p.cg
-		s.readPressure = func() (pressure.PSI, error) {
+		s.readPressure = func() (pressure.Sample, error) {
 			p.mu.Lock()
 			defer p.mu.Unlock()
-			return p.psi, nil
+			return p.sample, nil
 		}
-		s.heavy.g.Policy = pressure.Policy{Admit: 10, Freeze: 20, Calm: 5, Grace: time.Minute}
+		d := pressure.DefaultPolicy
+		s.heavy.g.Policy = pressure.Policy{Admit: 10, Freeze: 20, Calm: 5, Grace: time.Minute,
+			Hold: d.Hold, SwapBusy: d.SwapBusy, SwapFull: d.SwapFull, Out: d.Out, Roomy: d.Roomy}
 	}})
 	a := addTestAgent(t, p.testDaemon)
 	p.instance, p.ref = a.Instance, a.Ref()
@@ -114,7 +116,16 @@ func newPressureTest(t *testing.T) *pressureTest {
 func (p *pressureTest) set(some, full float64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.psi = pressure.PSI{Some: pressure.Stall{Avg10: some}, Full: pressure.Stall{Avg10: full}}
+	p.sample.PSI = pressure.PSI{Some: pressure.Stall{Avg10: some}, Full: pressure.Stall{Avg10: full}}
+}
+
+// setAvailable sets the VM at its 16 GiB cap with avail GiB available and
+// its 4 GiB of swap swapped GiB full.
+func (p *pressureTest) setAvailable(avail, swapped float64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	const gib = 1 << 30
+	p.sample.Mem = pressure.Mem{Total: 16 * gib, Cap: 16 * gib, Available: int64(avail * gib), SwapTotal: 4 * gib, SwapFree: int64((4 - swapped) * gib)}
 }
 
 // start asks for key to start, waiting at most wait.
@@ -205,6 +216,37 @@ func TestPressurePausesNewest(t *testing.T) {
 	p.srv.stepPressure(ctx)
 	if runs := p.srv.heavy.g.Running(); len(runs) != 0 {
 		t.Errorf("still running: %d", len(runs))
+	}
+}
+
+func TestRunningOutPausesBeforePressureShows(t *testing.T) {
+	t.Parallel()
+	p := newPressureTest(t)
+	ctx := context.Background()
+	for _, key := range []string{"old", "mid", "new"} {
+		if !p.start(t, key, time.Second) {
+			t.Fatalf("%s didn't start", key)
+		}
+		if err := p.srv.runCgroups.Place(p.instance, key, 100); err != nil {
+			t.Fatal(err)
+		}
+		p.srv.heavy.mu.Lock()
+		p.srv.heavy.g.Place(p.ref, key)
+		p.srv.heavy.mu.Unlock()
+	}
+	// No pressure to speak of yet, but 1 GiB left and swap full.
+	p.set(5, 5)
+	p.setAvailable(1, 4)
+	p.srv.stepPressure(ctx)
+	if !p.cg.isFrozen(p.instance, "new") || !p.cg.isFrozen(p.instance, "mid") || p.cg.isFrozen(p.instance, "old") {
+		t.Fatalf("frozen = %v, want all but the oldest", p.cg.frozen)
+	}
+	out, err := p.srv.askHeavy(ctx, p.ref, p.instance, "later", "go test ./...", time.Hour, 50*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Started || !strings.Contains(out.Why, "nearly out of memory (1.0 GiB of 16.0 GiB left") {
+		t.Fatalf("out of memory, a new command: %+v", out)
 	}
 }
 

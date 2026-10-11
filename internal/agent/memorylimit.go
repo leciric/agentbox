@@ -366,7 +366,15 @@ func makeCgroup(dir string) error {
 	case !errors.Is(err, fs.ErrPermission) || !hostos.InVM():
 		return err
 	}
-	return sudo("mkdir", "", "-p", dir)
+	if err := sudo("mkdir", "", "-p", dir); err != nil {
+		return err
+	}
+	// Its freezer and reclaim are the daemon's user's from now on, so
+	// pausing a run, resuming it and pushing its memory out need no sudo:
+	// starting one can take minutes in a VM out of memory, which is when a
+	// run is paused. Without them it falls back to sudo.
+	_ = sudo("chown", "", strconv.Itoa(os.Getuid()), filepath.Join(dir, "cgroup.freeze"), filepath.Join(dir, "memory.reclaim"))
+	return nil
 }
 
 func removeCgroup(dir string) error {
@@ -381,6 +389,9 @@ func removeCgroup(dir string) error {
 }
 
 // sudo runs a command as root without asking for a password, with stdin.
+// Sudo runs command as root, without asking for a password, with stdin.
+func Sudo(command, stdin string, args ...string) error { return sudo(command, stdin, args...) }
+
 func sudo(command, stdin string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

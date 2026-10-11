@@ -17,9 +17,19 @@ import (
 // starts whatever the pressure. So the VM never fills with paused runs that
 // can't finish, and every run does in turn. A run too big for the VM even
 // alone is the agent's memory.max's to stop, not this.
+//
+// Pressure alone comes too late. PSI is an average over the last 10 seconds,
+// and it rises only once tasks already stall: on 2026-10-11, eight agents'
+// runs growing 50 MB/s each filled an 18 GiB VM and its 4.5 GiB of zram in 20
+// seconds while full pressure read 7, 11, then 5%, and the VM then thrashed
+// for seven minutes until the kernel killed in every agent; full pressure
+// read 66% only after. So the governor also watches headroom: once the VM
+// has been given all the memory it may have (short of its cap the host grows
+// it), what it has available and how full its swap is say how close it is
+// to running out, now rather than ten seconds ago. See Headroom.
 
 // Policy is when runs start, pause and resume. Pressures are PSI avg10
-// percentages.
+// percentages; shares of memory are 0 to 1, of MemTotal.
 type Policy struct {
 	// Admit is the some pressure under which waiting runs start.
 	Admit float64
@@ -40,6 +50,67 @@ type Policy struct {
 	// Grace is how long a waiter keeps its place once nobody is asking for
 	// it, so a command that asks again finds its place kept.
 	Grace time.Duration
+
+	// Hold is the share of memory available under which, at its cap and
+	// with swap SwapBusy, the VM is Tight: nothing starts or resumes.
+	Hold     float64
+	SwapBusy float64
+	// SwapFull is how full swap is when, under Hold too, the VM is Short:
+	// runs are paused, one every HeadroomStep.
+	SwapFull float64
+	// Out is the share of memory available under which, at its cap and with
+	// swap SwapFull, the VM is Out: every run but the oldest is paused at
+	// once.
+	Out float64
+	// Roomy is the share of memory available paused runs resume only over
+	// (unless swap is under SwapBusy): over Hold, so a run resumed doesn't
+	// make it Tight again at once.
+	Roomy float64
+	// HeadroomStep is the least time between two pauses for headroom.
+	// MemAvailable is now, not an average, so it shows a pause's effect at
+	// the next reading.
+	HeadroomStep time.Duration
+}
+
+// Headroom is how close the VM is to running out of memory, from Mem. Low
+// MemAvailable alone isn't close: while swap has room the kernel makes more,
+// and PSI shows what that costs. Once swap fills too, what is available is
+// all that is left. With no swap, it always was.
+type Headroom int
+
+const (
+	// Room: short of its cap, with plenty available, or swap to spare.
+	Room Headroom = iota
+	// Tight: at its cap, under Hold available, swap filling. Runs wait.
+	Tight
+	// Short: at its cap, under Hold available, swap nearly full. Runs pause
+	// one by one.
+	Short
+	// Out: at its cap, under Out available, swap nearly full. Every run but
+	// the oldest pauses.
+	Out
+)
+
+// Headroom is how close m is to running out.
+func (p Policy) Headroom(m Mem) Headroom {
+	if !m.AtCap() || p.Hold <= 0 {
+		return Room
+	}
+	avail, swap := m.AvailableShare(), m.SwapUsed()
+	switch {
+	case avail < p.Out && swap >= p.SwapFull:
+		return Out
+	case avail < p.Hold && swap >= p.SwapFull:
+		return Short
+	case avail < p.Hold && swap >= p.SwapBusy:
+		return Tight
+	}
+	return Room
+}
+
+// roomy reports whether m has room enough for paused runs to resume.
+func (p Policy) roomy(m Mem) bool {
+	return p.Headroom(m) == Room && (!m.AtCap() || m.AvailableShare() >= p.Roomy || m.SwapUsed() < p.SwapBusy)
 }
 
 // DefaultPolicy is the daemon's.
@@ -52,6 +123,18 @@ var DefaultPolicy = Policy{
 	Step:        10 * time.Second,
 	AdmitStep:   2 * time.Second,
 	Grace:       30 * time.Second,
+	// From the 2026-10-11 trace (TestTheStallOf20261011PausesBeforeIt): at
+	// its 18 GiB cap the VM went from 44% available (zram 62% used) to 33%
+	// (zram full) to 13%, ten seconds a reading, and stalled four seconds
+	// after the last. Hold leaves over a reading's fall (20%) above Out:
+	// Short pauses at the second reading, Out everything at the third, seven
+	// minutes before the kernel killed.
+	Hold:         0.35,
+	SwapBusy:     0.5,
+	SwapFull:     0.9,
+	Out:          0.15,
+	Roomy:        0.45,
+	HeadroomStep: 2 * time.Second,
 }
 
 // Run is one heavy command of an agent's: waiting to start, running, or
@@ -95,7 +178,7 @@ type Governor struct {
 	calmSince        time.Time // since when it has been calm
 	changed          time.Time // the last pause or resume
 	admitted         time.Time // the last start
-	last             PSI
+	last             Sample
 }
 
 // NewGovernor is a governor with policy.
@@ -208,15 +291,17 @@ func (g *Governor) remove(gone func(*Run) bool) []*Run {
 func (g *Governor) Running() []*Run { return append([]*Run(nil), g.running...) }
 func (g *Governor) Waiting() []*Run { return append([]*Run(nil), g.waiting...) }
 
-// Last is the pressure the last step saw.
-func (g *Governor) Last() PSI { return g.last }
+// Last is the sample the last step saw.
+func (g *Governor) Last() Sample { return g.last }
 
-// Step decides, from the pressure now, what starts, pauses and resumes.
-func (g *Governor) Step(now time.Time, psi PSI) Actions {
-	g.last = psi
+// Step decides, from the sample now, what starts, pauses and resumes.
+func (g *Governor) Step(now time.Time, s Sample) Actions {
+	g.last = s
 	p := g.Policy
+	psi := s.PSI
+	room := p.Headroom(s.Mem)
 	high := psi.Full.Avg10 >= p.Freeze
-	calm := psi.Full.Avg10 < p.Calm && psi.Some.Avg10 < p.Admit
+	calm := psi.Full.Avg10 < p.Calm && psi.Some.Avg10 < p.Admit && p.roomy(s.Mem)
 	if !high {
 		g.highSince = time.Time{}
 	} else if g.highSince.IsZero() {
@@ -240,10 +325,20 @@ func (g *Governor) Step(now time.Time, psi PSI) Actions {
 		// Nothing runs: the first waiter starts, whatever the pressure, or
 		// nothing ever would.
 		out.Start = append(out.Start, g.start(now))
+	case room == Out:
+		// Running out now: everything that could grow stops at once.
+		for r := g.newestPausable(); r != nil; r = g.newestPausable() {
+			g.pause(r, now)
+			out.Pause = append(out.Pause, r)
+		}
+	case room == Short && now.Sub(g.changed) >= p.HeadroomStep:
+		if r := g.newestPausable(); r != nil {
+			g.pause(r, now)
+			out.Pause = append(out.Pause, r)
+		}
 	case high && now.Sub(g.highSince) >= p.FreezeAfter && now.Sub(g.changed) >= p.Step:
 		if r := g.newestPausable(); r != nil {
-			r.Paused, r.PausedAt = true, now
-			g.changed = now
+			g.pause(r, now)
 			out.Pause = append(out.Pause, r)
 		}
 	case calm && paused > 0 && now.Sub(g.calmSince) >= p.CalmAfter && now.Sub(g.changed) >= p.Step:
@@ -253,7 +348,7 @@ func (g *Governor) Step(now time.Time, psi PSI) Actions {
 				break
 			}
 		}
-	case paused == 0 && len(g.waiting) > 0 && psi.Some.Avg10 < p.Admit && now.Sub(g.admitted) >= p.AdmitStep:
+	case paused == 0 && len(g.waiting) > 0 && psi.Some.Avg10 < p.Admit && room == Room && now.Sub(g.admitted) >= p.AdmitStep:
 		// Calm enough: the first waiter starts. Not while any run is paused,
 		// which resumes first.
 		out.Start = append(out.Start, g.start(now))
@@ -269,6 +364,11 @@ func (g *Governor) paused() int {
 		}
 	}
 	return n
+}
+
+func (g *Governor) pause(r *Run, now time.Time) {
+	r.Paused, r.PausedAt = true, now
+	g.changed = now
 }
 
 func (g *Governor) resume(r *Run, now time.Time) *Run {

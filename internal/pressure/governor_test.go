@@ -22,8 +22,8 @@ func TestParseReadsBothLines(t *testing.T) {
 	}
 }
 
-func psi(some, full float64) PSI {
-	return PSI{Some: Stall{Avg10: some}, Full: Stall{Avg10: full}}
+func psi(some, full float64) Sample {
+	return Sample{PSI: PSI{Some: Stall{Avg10: some}, Full: Stall{Avg10: full}}}
 }
 
 var t0 = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
@@ -234,22 +234,31 @@ func simulate(t *testing.T, capacity, pausedShare float64, runs []*simRun) (seco
 	for _, r := range runs {
 		byKey[r.key] = r
 	}
-	pressureOf := func() PSI {
-		var used float64
+	// The VM is at its cap, with a quarter of it again as swap that paused
+	// runs are pushed out to.
+	pressureOf := func() Sample {
+		var used, swapped float64
 		for _, r := range g.Running() {
 			share := 1.0
 			if r.Paused {
 				share = pausedShare
+				swapped += byKey[r.Key].memory * (1 - pausedShare)
 			}
 			used += byKey[r.Key].memory * share
 		}
+		var out Sample
 		switch {
 		case used > capacity:
-			return psi(90, 60)
+			out = psi(90, 60)
 		case used > 0.85*capacity:
-			return psi(15, 3)
+			out = psi(15, 3)
 		}
-		return psi(0, 0)
+		swap := capacity / 4
+		out.Mem = Mem{
+			Total: gibs(capacity), Cap: gibs(capacity), Available: gibs(max(0, capacity-used)),
+			SwapTotal: gibs(swap), SwapFree: gibs(max(0, swap-swapped)),
+		}
+		return out
 	}
 	now := t0
 	for second := 0; second < 4*3600; second++ {
@@ -315,6 +324,8 @@ func simulate(t *testing.T, capacity, pausedShare float64, runs []*simRun) (seco
 	return 0, maxRunning
 }
 
+func gibs(n float64) int64 { return int64(n * (1 << 30)) }
+
 func testRuns(n int, memory float64, work int, stagger int) []*simRun {
 	var out []*simRun
 	for i := range n {
@@ -360,4 +371,164 @@ func TestARunTooBigForTheVMIsKilledAndTheRestFinish(t *testing.T) {
 			t.Fatalf("%s didn't finish", r.key)
 		}
 	}
+}
+
+// trace20261011 is what the sampler read every ten seconds as eight agents'
+// runs (`agentbox heavy -- bash stress.sh`, 100 MB more every two seconds up
+// to 2.5 GiB each) filled the CHV VM: 10 CPUs, an 18 GiB cap via virtio-mem,
+// 4.5 GiB of zram. Then nothing for seven minutes, the VM thrashing, until
+// the kernel killed in all eight agents at 15:01:33; the daemon's first
+// pause came at 15:01:39, at full 66%.
+var trace20261011 = []struct {
+	at                      string
+	avail, zram, some, full float64 // GiB, GiB, %, %
+}{
+	{"14:53:30", 7.8, 2.8, 7.8, 7.1},
+	{"14:53:40", 5.9, 4.5, 11.2, 10.7},
+	{"14:53:50", 2.3, 4.5, 5.6, 5.3},
+}
+
+func traceTime(t *testing.T, hhmmss string) time.Time {
+	t.Helper()
+	at, err := time.Parse("15:04:05", hhmmss)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return time.Date(2026, 10, 11, at.Hour(), at.Minute(), at.Second(), 0, time.UTC)
+}
+
+// replay steps a governor with the trace's eight runs going every two
+// seconds, as the daemon does, from the first reading until the kills, each
+// reading held until the next (and the last one on: the daemon's loop, which
+// can't be starved now, would read no better). It reports when each run was
+// first paused.
+func replay(t *testing.T, policy Policy) map[string]time.Time {
+	t.Helper()
+	g := NewGovernor(policy)
+	start := traceTime(t, "14:53:00")
+	for i := range 8 {
+		key := fmt.Sprintf("r%d", i)
+		g.Ask("p/agent-"+key, key, "bash stress.sh", time.Hour, start)
+		for _, r := range g.Step(start, Sample{}).Start {
+			g.Place(r.Agent, r.Key)
+		}
+		start = start.Add(policy.AdmitStep)
+	}
+	if n := len(g.Running()); n != 8 {
+		t.Fatalf("%d runs started in a calm VM, want 8", n)
+	}
+	paused := map[string]time.Time{}
+	kills := traceTime(t, "15:01:33")
+	next := 0
+	var s Sample
+	for now := traceTime(t, "14:53:30"); now.Before(kills); now = now.Add(2 * time.Second) {
+		if next < len(trace20261011) && !now.Before(traceTime(t, trace20261011[next].at)) {
+			r := trace20261011[next]
+			s = Sample{
+				PSI: PSI{Some: Stall{Avg10: r.some}, Full: Stall{Avg10: r.full}},
+				Mem: Mem{Total: gibs(17.8), Available: gibs(r.avail), SwapTotal: gibs(4.5), SwapFree: gibs(4.5 - r.zram), Cap: gibs(18)},
+			}
+			next++
+		}
+		for _, r := range g.Step(now, s).Pause {
+			if _, ok := paused[r.Key]; !ok {
+				paused[r.Key] = now
+			}
+		}
+	}
+	return paused
+}
+
+func TestTheStallOf20261011PausesBeforeIt(t *testing.T) {
+	paused := replay(t, DefaultPolicy)
+	if _, ok := paused["r0"]; ok {
+		t.Error("the oldest run was paused")
+	}
+	if len(paused) != 7 {
+		t.Fatalf("paused %d runs before the kills, want all 7 but the oldest", len(paused))
+	}
+	// zram full with a third available: the newest pauses at once.
+	if at := paused["r7"]; !at.Equal(traceTime(t, "14:53:40")) {
+		t.Errorf("the first pause came at %s, want 14:53:40", at.Format("15:04:05"))
+	}
+	// 13% available: everything that could grow stops, four seconds before
+	// the VM began to thrash and seven minutes before the kills.
+	for key, at := range paused {
+		if at.After(traceTime(t, "14:53:50")) {
+			t.Errorf("%s paused at %s, after 14:53:50", key, at.Format("15:04:05"))
+		}
+	}
+}
+
+func TestPressureAlonePausedNothingBeforeTheStallOf20261011(t *testing.T) {
+	// The governor of #252, PSI only: full pressure never reached Freeze.
+	policy := DefaultPolicy
+	policy.Hold = 0
+	if paused := replay(t, policy); len(paused) != 0 {
+		t.Fatalf("PSI alone paused %d runs; the trace says it paused none", len(paused))
+	}
+}
+
+func atCap(availGiB, swapUsedGiB float64) Sample {
+	return Sample{Mem: Mem{Total: gibs(15.9), Cap: gibs(16), Available: gibs(availGiB), SwapTotal: gibs(4), SwapFree: gibs(4 - swapUsedGiB)}}
+}
+
+func TestHeadroom(t *testing.T) {
+	p := DefaultPolicy
+	for _, tc := range []struct {
+		name string
+		mem  Mem
+		want Headroom
+	}{
+		{"short of its cap, nearly nothing available", Mem{Total: gibs(8), Cap: gibs(16), Available: gibs(0.1), SwapTotal: gibs(4)}, Room},
+		{"at its cap with plenty available", atCap(8, 4).Mem, Room},
+		{"at its cap, little available, swap to spare", atCap(4, 1).Mem, Room},
+		{"at its cap, little available, swap filling", atCap(4, 2.5).Mem, Tight},
+		{"at its cap, little available, swap full", atCap(4, 3.8).Mem, Short},
+		{"at its cap, nearly nothing available, swap full", atCap(1, 4).Mem, Out},
+		{"nearly nothing available, no swap", Mem{Total: gibs(16), Available: gibs(1)}, Out},
+		{"unread", Mem{}, Room},
+	} {
+		if got := p.Headroom(tc.mem); got != tc.want {
+			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestNothingStartsOrResumesWhileTight(t *testing.T) {
+	g := NewGovernor(DefaultPolicy)
+	g.Ask("p/a", "a", "", time.Hour, t0)
+	g.Step(t0, Sample{})
+	g.Ask("p/b", "b", "", time.Hour, t0)
+	now := t0
+	for range 30 {
+		now = now.Add(time.Second)
+		if got := g.Step(now, atCap(4, 2.5)); len(got.Start) != 0 {
+			t.Fatal("a run started with the VM tight")
+		}
+	}
+	now = now.Add(time.Second)
+	if got := g.Step(now, atCap(8, 2.5)); len(got.Start) != 1 {
+		t.Fatal("the waiting run didn't start once there was room")
+	}
+	g.Place("p/a", "a")
+	g.Place("p/b", "b")
+	now = now.Add(time.Second)
+	if got := g.Step(now, atCap(1, 4)); len(got.Pause) != 1 {
+		t.Fatalf("out of memory, paused %v", keys(got.Pause))
+	}
+	// Calm PSI, but swap stays full and only 40% is available: not yet.
+	for range 30 {
+		now = now.Add(time.Second)
+		if got := g.Step(now, atCap(6.4, 4)); len(got.Resume) != 0 {
+			t.Fatal("a paused run resumed with the VM still short of room")
+		}
+	}
+	for range 30 {
+		now = now.Add(time.Second)
+		if got := g.Step(now, atCap(8, 4)); len(got.Resume) == 1 {
+			return
+		}
+	}
+	t.Fatal("the paused run never resumed once there was room")
 }

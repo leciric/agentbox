@@ -225,7 +225,7 @@ type Server struct {
 	// loggedOnce what logOnce last logged under each key.
 	heavy          *heavyRuns
 	pressureEvery  time.Duration // pressureInterval; 0 runs no loop
-	readPressure   func() (pressure.PSI, error)
+	readPressure   func() (pressure.Sample, error)
 	runCgroups     runCgroups
 	vmMemory       func() int64
 	setMemoryLimit func(instance string, limit int64) error
@@ -286,7 +286,7 @@ func New(cfg Config) (*Server, error) {
 		usageEvery:       usageInterval,
 		heavy:            newHeavyRuns(),
 		pressureEvery:    pressureInterval,
-		readPressure:     func() (pressure.PSI, error) { return pressure.Read(pressure.File) },
+		readPressure:     readSample(),
 		runCgroups:       agentRunCgroups{},
 		vmMemory:         agent.HostMemory,
 		setMemoryLimit:   agent.SetMemoryLimit,
