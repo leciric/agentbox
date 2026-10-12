@@ -122,7 +122,10 @@ screenshot` of the preview in the agent's display, made by the desktop subagent.
 
 ## The agents' base image
 
-Setup downloads it when no optional component is on (`internal/image/published.go`), and
+Setup downloads it when no optional component is on (`internal/image/published.go`) from the
+`image-<version>` prerelease on this repository's GitHub releases, split in parts under GitHub's 2 GiB
+asset cap and joined and checked by Setup (`scripts/github-images.sh` publishes it, and keeps only the
+newest image release; app releases, release-please and the update check never see it), and
 `agentbox image build` makes it on the user's machine from Debian and
 [`internal/image/provision.sh`](internal/image/provision.sh) otherwise, or when the download fails.
 

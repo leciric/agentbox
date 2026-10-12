@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,8 +19,11 @@ import (
 	"agentbox/internal/image"
 )
 
-// published serves images/<version>/<arch>/ as CI publishes it, with the
-// image file's content and the tools image.json lists; edit changes what is
+// imageName is the joined image's name as CI publishes it.
+var imageName = "agentbox-base-" + runtime.GOARCH + ".tar.gz"
+
+// published serves image-<version>/ as CI publishes it, with the image's
+// content in two parts and the tools the manifest lists; edit changes what is
 // served after the sums are worked out, to break one.
 type published struct {
 	*httptest.Server
@@ -27,29 +31,44 @@ type published struct {
 	requests atomic.Int32
 }
 
+func sumLine(b []byte, name string) string {
+	s := sha256.Sum256(b)
+	return hex.EncodeToString(s[:]) + "  " + name + "\n"
+}
+
 func publish(t *testing.T, tools []string, edit func(files map[string][]byte)) *published {
 	t.Helper()
 	content := []byte("an incus image, as image export writes it")
-	sum := sha256.Sum256(content)
+	whole := sha256.Sum256(content)
+	halves := [][]byte{content[:20], content[20:]}
+	var parts []image.Part
+	files := map[string][]byte{}
+	var sums strings.Builder
+	for i, half := range halves {
+		name := fmt.Sprintf("%s.%03d", imageName, i)
+		s := sha256.Sum256(half)
+		parts = append(parts, image.Part{File: name, Size: int64(len(half)), SHA256: hex.EncodeToString(s[:])})
+		files[name] = half
+		sums.WriteString(sumLine(half, name))
+	}
 	manifest, err := json.Marshal(image.Published{
-		Version: image.Version, Arch: runtime.GOARCH, File: "agentbox-base.tar.gz",
-		Size: int64(len(content)), SHA256: hex.EncodeToString(sum[:]), Tools: tools,
+		Version: image.Version, Arch: runtime.GOARCH, File: imageName,
+		Size: int64(len(content)), SHA256: hex.EncodeToString(whole[:]), Parts: parts, Tools: tools,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	files := map[string][]byte{"agentbox-base.tar.gz": content, "image.json": manifest}
-	var sums strings.Builder
-	for _, name := range []string{"agentbox-base.tar.gz", "image.json"} {
-		s := sha256.Sum256(files[name])
-		sums.WriteString(hex.EncodeToString(s[:]) + "  " + name + "\n")
-	}
+	manifestName := "image-" + runtime.GOARCH + ".json"
+	files[manifestName] = manifest
+	sums.WriteString(sumLine(manifest, manifestName))
+	// The other architecture's lines are in the same SHA256SUMS.
+	sums.WriteString(sumLine([]byte("other"), "image-other.json"))
 	files["SHA256SUMS"] = []byte(sums.String())
 	if edit != nil {
 		edit(files)
 	}
 	p := &published{files: files}
-	prefix := "/images/" + image.Version + "/" + runtime.GOARCH + "/"
+	prefix := "/image-" + image.Version + "/"
 	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.requests.Add(1)
 		b, ok := files[strings.TrimPrefix(r.URL.Path, prefix)]
@@ -72,7 +91,7 @@ func specs(tools []image.Tool) []string {
 }
 
 func publishedOptions(t *testing.T, p *published) image.Options {
-	return image.Options{ImagesURL: p.URL + "/images", DownloadDir: filepath.Join(t.TempDir(), "images"), HTTP: p.Client()}
+	return image.Options{ImagesURL: p.URL, DownloadDir: filepath.Join(t.TempDir(), "images"), HTTP: p.Client()}
 }
 
 func TestBuildFromThePublishedImage(t *testing.T) {
@@ -84,7 +103,7 @@ func TestBuildFromThePublishedImage(t *testing.T) {
 		t.Fatalf("Build() = %v\n%s", err, log.String())
 	}
 
-	file := filepath.Join(opts.DownloadDir, "agentbox-base.tar.gz")
+	file := filepath.Join(opts.DownloadDir, imageName)
 	imported := inc.ran(t, "image|import|"+file+"|--alias|agentbox-base-download|")
 	created := inc.ran(t, "init|agentbox-base-download|agentbox-base-next|--profile|default|--profile|agentbox|")
 	idmap := inc.ran(t, "raw.idmap=uid 1000 1000 gid 1000 1000")
@@ -167,7 +186,7 @@ func TestBuildFallsBackWhenNothingIsPublished(t *testing.T) {
 
 func TestBuildFallsBackWhenTheImageDoesntMatchItsSum(t *testing.T) {
 	p := publish(t, specs(image.PublishedTools()), func(files map[string][]byte) {
-		files["agentbox-base.tar.gz"] = []byte("an incus image, as image export writes iT")
+		files[imageName+".001"] = []byte("mage export writes iT")
 	})
 	inc := fakeIncus(t, "")
 	opts := publishedOptions(t, p)
@@ -184,14 +203,71 @@ func TestBuildFallsBackWhenTheImageDoesntMatchItsSum(t *testing.T) {
 
 func TestBuildFallsBackWhenImageJSONDoesntMatchItsSum(t *testing.T) {
 	p := publish(t, specs(image.PublishedTools()), func(files map[string][]byte) {
-		files["image.json"] = bytes.Replace(files["image.json"], []byte(`"tools":[`), []byte(`"tools":["evil@1",`), 1)
+		name := "image-" + runtime.GOARCH + ".json"
+		files[name] = bytes.Replace(files[name], []byte(`"tools":[`), []byte(`"tools":["evil@1",`), 1)
 	})
 	inc := fakeIncus(t, "")
 	var log bytes.Buffer
 	if err := image.Build(t.Context(), inc.Client, host, publishedOptions(t, p), &log); err != nil {
 		t.Fatalf("Build() = %v\n%s", err, log.String())
 	}
-	fellBack(t, inc, log.String(), "image.json doesn't match")
+	fellBack(t, inc, log.String(), "image-"+runtime.GOARCH+".json doesn't match")
+}
+
+func TestBuildFallsBackWhenAPartIsMissingOrTruncated(t *testing.T) {
+	for name, edit := range map[string]func(map[string][]byte){
+		"missing":   func(files map[string][]byte) { delete(files, imageName+".001") },
+		"truncated": func(files map[string][]byte) { files[imageName+".001"] = files[imageName+".001"][:5] },
+		"longer":    func(files map[string][]byte) { files[imageName+".001"] = append(files[imageName+".001"], '!') },
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := publish(t, specs(image.PublishedTools()), edit)
+			inc := fakeIncus(t, "")
+			opts := publishedOptions(t, p)
+			var log bytes.Buffer
+			if err := image.Build(t.Context(), inc.Client, host, opts, &log); err != nil {
+				t.Fatalf("Build() = %v\n%s", err, log.String())
+			}
+			fellBack(t, inc, log.String(), "Building it here instead")
+			inc.neverRan(t, "image|import")
+			if entries, _ := os.ReadDir(opts.DownloadDir); len(entries) != 0 {
+				t.Errorf("a failed download should leave nothing, found %v", entries)
+			}
+		})
+	}
+}
+
+// Parts that each match their sum but join into something else than the
+// manifest says (swapped, say) are refused by the whole's sum.
+func TestBuildFallsBackWhenThePartsJoinIntoTheWrongImage(t *testing.T) {
+	p := publish(t, specs(image.PublishedTools()), func(files map[string][]byte) {
+		var m image.Published
+		if err := json.Unmarshal(files["image-"+runtime.GOARCH+".json"], &m); err != nil {
+			t.Fatal(err)
+		}
+		m.SHA256 = strings.Repeat("0", 64)
+		files["image-"+runtime.GOARCH+".json"], _ = json.Marshal(m)
+		files["SHA256SUMS"] = append(files["SHA256SUMS"], sumLine(files["image-"+runtime.GOARCH+".json"], "image-"+runtime.GOARCH+".json")...)
+	})
+	inc := fakeIncus(t, "")
+	var log bytes.Buffer
+	if err := image.Build(t.Context(), inc.Client, host, publishedOptions(t, p), &log); err != nil {
+		t.Fatalf("Build() = %v\n%s", err, log.String())
+	}
+	fellBack(t, inc, log.String(), "doesn't match its SHA256SUMS line")
+}
+
+func TestBuildJoinsThePartsInOrder(t *testing.T) {
+	p := publish(t, specs(image.PublishedTools()), nil)
+	inc := fakeIncus(t, `  image) [ "$2" = import ] && cp "$3" "$TMPDIR/imported" ;;`)
+	t.Setenv("TMPDIR", t.TempDir())
+	if err := image.Build(t.Context(), inc.Client, host, publishedOptions(t, p), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(os.Getenv("TMPDIR"), "imported"))
+	if err != nil || string(got) != "an incus image, as image export writes it" {
+		t.Errorf("the imported image = %q, %v", got, err)
+	}
 }
 
 func TestBuildFallsBackWhenTheImportFails(t *testing.T) {
@@ -278,6 +354,7 @@ func TestBuildForPublishing(t *testing.T) {
 	inc := fakeIncus(t, `  list) echo '[{"name":"agentbox-base-publish","status":"Running","state":{"network":{"eth0":{"addresses":[{"family":"inet","address":"10.0.0.5"}]}}}}]' ;;
   file) [ "$2" = pull ] && printf 'Package: bash\nStatus: install ok installed\nArchitecture: amd64\nVersion: 5.2.37-2\n\nPackage: libc6\nStatus: install ok installed\nSource: glibc\nVersion: 2.41-12\n' >"$4" ;;
   image) [ "$2" = export ] && printf 'the image' >"$4/0123abcd.tar.gz" ;;`)
+	defer image.SetPartSize(4)()
 	dir := filepath.Join(t.TempDir(), "out")
 	var log bytes.Buffer
 	if err := image.BuildForPublishing(t.Context(), inc.Client, host, dir, "abc123", &log); err != nil {
@@ -294,6 +371,7 @@ func TestBuildForPublishing(t *testing.T) {
 	inc.ran(t, "image|delete|agentbox-base-publish|")
 	inc.neverRan(t, "personalise.sh")
 
+	manifestName := "image-" + runtime.GOARCH + ".json"
 	read := func(name string) string {
 		b, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -302,10 +380,10 @@ func TestBuildForPublishing(t *testing.T) {
 		return string(b)
 	}
 	var p image.Published
-	if err := json.Unmarshal([]byte(read("image.json")), &p); err != nil {
+	if err := json.Unmarshal([]byte(read(manifestName)), &p); err != nil {
 		t.Fatal(err)
 	}
-	if p.File != "agentbox-base.tar.gz" || p.Version != image.Version || p.Commit != "abc123" || p.Size != int64(len("the image")) {
+	if p.File != imageName || len(p.Parts) != 3 || p.Version != image.Version || p.Commit != "abc123" || p.Size != int64(len("the image")) {
 		t.Errorf("image.json = %+v", p)
 	}
 	for _, spec := range p.Tools {
@@ -315,21 +393,37 @@ func TestBuildForPublishing(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(read("packages.txt"), "libc6\t2.41-12\t\tglibc\t2.41-12") {
-		t.Errorf("packages.txt:\n%s", read("packages.txt"))
+	if !strings.Contains(read("packages-"+runtime.GOARCH+".txt"), "libc6\t2.41-12\t\tglibc\t2.41-12") {
+		t.Errorf("packages.txt:\n%s", read("packages-"+runtime.GOARCH+".txt"))
 	}
-	if !strings.Contains(read("SOURCES.md"), "https://snapshot.debian.org/package/glibc/2.41-12/") {
-		t.Errorf("SOURCES.md:\n%s", read("SOURCES.md"))
+	if !strings.Contains(read("SOURCES-"+runtime.GOARCH+".md"), "https://snapshot.debian.org/package/glibc/2.41-12/") {
+		t.Errorf("SOURCES.md:\n%s", read("SOURCES-"+runtime.GOARCH+".md"))
 	}
-	// SHA256SUMS covers the image and what goes with it, in sha256sum's format.
+	// "the image" in parts of four bytes, which join into it.
+	var joined []byte
+	for i, part := range p.Parts {
+		if part.File != fmt.Sprintf("%s.%03d", imageName, i) {
+			t.Errorf("part %d is %s", i, part.File)
+		}
+		joined = append(joined, read(part.File)...)
+	}
+	whole := sha256.Sum256(joined)
+	if string(joined) != "the image" || p.SHA256 != hex.EncodeToString(whole[:]) {
+		t.Errorf("the parts join into %q, with sum %s in image.json", joined, p.SHA256)
+	}
+	// SHA256SUMS covers the parts and what goes with them, in sha256sum's format.
 	sums := read("SHA256SUMS")
-	for _, name := range []string{"agentbox-base.tar.gz", "image.json", "packages.txt", "SOURCES.md"} {
+	names := []string{manifestName, "packages-" + runtime.GOARCH + ".txt", "SOURCES-" + runtime.GOARCH + ".md"}
+	for _, part := range p.Parts {
+		names = append(names, part.File)
+	}
+	for _, name := range names {
 		sum := sha256.Sum256([]byte(read(name)))
 		if !strings.Contains(sums, hex.EncodeToString(sum[:])+"  "+name+"\n") {
 			t.Errorf("SHA256SUMS has no right line for %s:\n%s", name, sums)
 		}
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 5 {
-		t.Errorf("dir should hold the five files and nothing else, found %v", entries)
+	if entries, _ := os.ReadDir(dir); len(entries) != len(names)+1 {
+		t.Errorf("dir should hold %d files and nothing else, found %v", len(names)+1, entries)
 	}
 }

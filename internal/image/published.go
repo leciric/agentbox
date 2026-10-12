@@ -26,23 +26,38 @@ import (
 // Debian plus provision.sh, around the placeholder user. A new machine
 // downloads it instead of building one (Build), installs the tools it leaves
 // out at their tools.txt pins, and makes it its own as it would a local build.
-// It lives in the bucket app releases are downloaded from, one per image
-// version and architecture:
+// It lives on this repository's GitHub releases, one prerelease per image
+// version, tagged image-<version> and never marked latest, so app releases and
+// their update check don't see it. Assets are flat, so each carries its
+// architecture, and the image is split into parts under GitHub's 2 GiB cap per
+// asset, which Setup joins and checks:
 //
-//	images/<version>/<arch>/agentbox-base.tar.gz  the image, as `incus image export` writes it
-//	images/<version>/<arch>/image.json             what it is (Published)
-//	images/<version>/<arch>/packages.txt           its Debian packages, with their versions
-//	images/<version>/<arch>/SOURCES.md             where their sources are, and the tools' licenses
-//	images/<version>/<arch>/SHA256SUMS             the sums of the four above
-//	images/index.json                              every image there, for people and scripts
+//	agentbox-base-<arch>.tar.gz.000, .001, …  the image, as `incus image export` writes it, in parts
+//	image-<arch>.json                         what it is (Published)
+//	packages-<arch>.txt                       its Debian packages, with their versions
+//	SOURCES-<arch>.md                         where their sources are, and the tools' licenses
+//	SHA256SUMS                                the sums of all of the above, for every architecture
 //
-// The bucket keeps the newest image version only (scripts/r2-images.sh): an
+// Only the newest image release is kept (scripts/github-images.sh): an
 // AgentBox whose version is gone falls back to building its own, as one does
 // when the download fails or a component is on.
 
 // DefaultImagesURL is where published images are, unless the daemon's
-// AGENTBOX_IMAGES_URL says otherwise.
-const DefaultImagesURL = "https://downloads.agentbox.linting.dev/images"
+// AGENTBOX_IMAGES_URL says otherwise: GitHub's release downloads, which need
+// no authentication since the repository is public. Build adds
+// /image-<version>/<asset>.
+const DefaultImagesURL = "https://github.com/leciric/agentbox/releases/download"
+
+// partSize is how big the image's parts are, well under GitHub's cap of 2 GiB
+// per asset so the image can grow. A variable for the tests.
+var partSize int64 = 1 << 30
+
+// Asset names, per architecture.
+func imageFile(arch, ext string) string  { return "agentbox-base-" + arch + ext }
+func manifestFile(arch string) string    { return "image-" + arch + ".json" }
+func packagesFile(arch string) string    { return "packages-" + arch + ".txt" }
+func sourcesFile(arch string) string     { return "SOURCES-" + arch + ".md" }
+func partFile(file string, i int) string { return fmt.Sprintf("%s.%03d", file, i) }
 
 // ImagesURL is where Build looks for a published image: AGENTBOX_IMAGES_URL,
 // or DefaultImagesURL. "off" turns downloading off, so every build is local.
@@ -66,7 +81,7 @@ func ImagesURL() string {
 var unpublished = []string{"claude", "npm:@agentclientprotocol/claude-agent-acp", "npm:@cursor/sdk"}
 
 // toolLicenses are the licenses of the tools the published image has, and
-// where their source is: SOURCES.md lists them. A tool tools.txt starts
+// where their source is: SOURCES-<arch>.md lists them. A tool tools.txt starts
 // pinning for every image goes here, once its license allows publishing it,
 // or into unpublished (TestEveryToolIsPublishedOrNot).
 var toolLicenses = map[string]struct{ License, Source string }{
@@ -89,17 +104,19 @@ func PublishedTools() []Tool {
 	return out
 }
 
-// Published is image.json: what a published image is.
+// Published is image-<arch>.json: what a published image is.
 type Published struct {
 	// Version is the image version it was built for, and Arch Go's name for
 	// its architecture.
 	Version string `json:"version"`
 	Arch    string `json:"arch"`
-	// File is the image's name next to image.json, and Size and SHA256 its
-	// length and sum (SHA256SUMS has the sum too, and is what's checked).
+	// File is the image's name once joined, and Size and SHA256 its length
+	// and sum. Parts are the assets it is split into, in order, with theirs
+	// (SHA256SUMS has the sums too, and is what's checked).
 	File   string `json:"file"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+	Parts  []Part `json:"parts"`
 	// Tools are the specs of the agent tools in it, like "go@1.27.2": tools.txt
 	// may have moved on since, and a machine that downloads it installs
 	// whatever differs.
@@ -110,48 +127,72 @@ type Published struct {
 	Built  time.Time `json:"built"`
 }
 
+// Part is one asset of a published image split in parts.
+type Part struct {
+	File   string `json:"file"`
+	Size   int64  `json:"size"`
+	SHA256 string `json:"sha256"`
+}
+
 // progressEvery is how often, in percent, the download says how far it got.
 const progressEvery = 10
 
 // download fetches the published image for this image version and this
-// machine's architecture into dir, and checks it against SHA256SUMS: the
-// image file's path, and what image.json says it is. A missing image, a
-// failed download or a sum that doesn't match is an error, and leaves no file.
+// machine's architecture into dir, joins its parts and checks them against
+// SHA256SUMS: each part, the whole, and what image-<arch>.json says it is. A missing
+// image, a failed download or a sum that doesn't match is an error, and leaves
+// no file. It returns the joined image's path.
 func download(ctx context.Context, client *http.Client, base, dir string, log io.Writer) (string, Published, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
-	url := strings.TrimRight(base, "/") + "/" + Version + "/" + runtime.GOARCH + "/"
+	url := strings.TrimRight(base, "/") + "/image-" + Version + "/"
 	sumsFile, err := fetchSmall(ctx, client, url+"SHA256SUMS")
 	if err != nil {
 		return "", Published{}, err
 	}
 	sums := parseSums(sumsFile)
-	manifest, err := fetchSmall(ctx, client, url+"image.json")
+	name := manifestFile(runtime.GOARCH)
+	manifest, err := fetchSmall(ctx, client, url+name)
 	if err != nil {
 		return "", Published{}, err
 	}
-	if got := sha256Hex(manifest); got != sums["image.json"] {
-		return "", Published{}, fmt.Errorf("image.json doesn't match its SHA256SUMS line")
+	if sums[name] == "" || sha256Hex(manifest) != sums[name] {
+		return "", Published{}, fmt.Errorf("%s doesn't match its SHA256SUMS line", name)
 	}
 	var p Published
 	if err := json.Unmarshal(manifest, &p); err != nil {
-		return "", Published{}, fmt.Errorf("reading image.json: %w", err)
+		return "", Published{}, fmt.Errorf("reading %s: %w", name, err)
 	}
 	switch {
 	case p.Version != Version || p.Arch != runtime.GOARCH:
-		return "", Published{}, fmt.Errorf("image.json is for version %s on %s, not %s on %s", p.Version, p.Arch, Version, runtime.GOARCH)
+		return "", Published{}, fmt.Errorf("%s is for version %s on %s, not %s on %s", name, p.Version, p.Arch, Version, runtime.GOARCH)
 	case p.File == "" || p.File != filepath.Base(p.File) || strings.HasPrefix(p.File, "."):
-		return "", Published{}, fmt.Errorf("image.json names no image file it could have: %q", p.File)
-	case sums[p.File] == "":
-		return "", Published{}, fmt.Errorf("SHA256SUMS has no line for %s", p.File)
+		return "", Published{}, fmt.Errorf("%s names no image file it could have: %q", name, p.File)
+	case len(p.Parts) == 0:
+		return "", Published{}, fmt.Errorf("%s lists no parts of the image", name)
+	}
+	var total int64
+	for i, part := range p.Parts {
+		switch {
+		case part.File != partFile(p.File, i):
+			return "", Published{}, fmt.Errorf("%s lists part %d as %q, not %q", name, i, part.File, partFile(p.File, i))
+		case sums[part.File] == "":
+			return "", Published{}, fmt.Errorf("SHA256SUMS has no line for %s", part.File)
+		case part.Size <= 0:
+			return "", Published{}, fmt.Errorf("%s gives %s no size", name, part.File)
+		}
+		total += part.Size
+	}
+	if total != p.Size {
+		return "", Published{}, fmt.Errorf("%s: the parts add up to %d bytes, not the image's %d", name, total, p.Size)
 	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", Published{}, err
 	}
 	path := filepath.Join(dir, p.File)
-	if err := fetchFile(ctx, client, url+p.File, path, sums[p.File], p.Size, log); err != nil {
+	if err := fetchImage(ctx, client, url, path, p, sums, log); err != nil {
 		return "", Published{}, err
 	}
 	return path, p, nil
@@ -194,19 +235,11 @@ func get(ctx context.Context, client *http.Client, url string) (*http.Response, 
 	return resp, nil
 }
 
-// fetchFile downloads url to path through a .part file, which it renames only
-// once the sum is right. size, when known, caps what it reads, so a wrong
-// file can't fill the disk.
-func fetchFile(ctx context.Context, client *http.Client, url, path, wantSum string, size int64, log io.Writer) (err error) {
-	resp, err := get(ctx, client, url)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	total := size
-	if total <= 0 {
-		total = resp.ContentLength
-	}
+// fetchImage downloads the parts of p under url, appending each to path
+// through a .part file, which it renames only once every part and the whole
+// have the right sum. A part's size caps what it reads, so a wrong file can't
+// fill the disk.
+func fetchImage(ctx context.Context, client *http.Client, url, path string, p Published, sums map[string]string, log io.Writer) (err error) {
 	part := path + ".part"
 	f, err := os.Create(part)
 	if err != nil {
@@ -218,25 +251,40 @@ func fetchFile(ctx context.Context, client *http.Client, url, path, wantSum stri
 			_ = os.Remove(part)
 		}
 	}()
-	var body io.Reader = resp.Body
-	if size > 0 {
-		body = io.LimitReader(resp.Body, size+1)
+	whole := sha256.New()
+	prog := &progress{log: log, total: p.Size}
+	for _, pt := range p.Parts {
+		if err := fetchPart(ctx, client, url+pt.File, f, whole, prog, pt, sums[pt.File]); err != nil {
+			return err
+		}
 	}
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, h, &progress{log: log, total: total}), body)
-	if err != nil {
-		return fmt.Errorf("downloading %s: %w", url, err)
-	}
-	if size > 0 && n != size {
-		return fmt.Errorf("downloading %s: got %d bytes, not the %d image.json says", url, n, size)
-	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != wantSum {
-		return fmt.Errorf("%s doesn't match its SHA256SUMS line: its sum is %s, not %s", filepath.Base(path), got, wantSum)
+	if got := hex.EncodeToString(whole.Sum(nil)); got != p.SHA256 {
+		return fmt.Errorf("%s doesn't match its SHA256SUMS line: its sum is %s, not %s", filepath.Base(path), got, p.SHA256)
 	}
 	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(part, path)
+}
+
+func fetchPart(ctx context.Context, client *http.Client, url string, f io.Writer, whole io.Writer, prog *progress, pt Part, wantSum string) error {
+	resp, err := get(ctx, client, url)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(f, whole, h, prog), io.LimitReader(resp.Body, pt.Size+1))
+	if err != nil {
+		return fmt.Errorf("downloading %s: %w", url, err)
+	}
+	if n != pt.Size {
+		return fmt.Errorf("downloading %s: got %d bytes, not the %d image-<arch>.json says", url, n, pt.Size)
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != wantSum || got != pt.SHA256 {
+		return fmt.Errorf("%s doesn't match its SHA256SUMS line: its sum is %s, not %s", pt.File, got, wantSum)
+	}
+	return nil
 }
 
 // progress writes a line to the build log at every tenth of the download.
@@ -329,7 +377,7 @@ func fromPublished(ctx context.Context, inc incus.Client, next string, u User, o
 // before it is made a machine's own, with no optional components and only
 // PublishedTools, exported as one file with the files that go next to it
 // (see the top of this file). It runs on CI, never in the daemon, and leaves
-// nothing behind in Incus. commit is AgentBox's commit, for image.json.
+// nothing behind in Incus. commit is AgentBox's commit, for image-<arch>.json.
 func BuildForPublishing(ctx context.Context, inc incus.Client, u User, dir, commit string, log io.Writer) error {
 	step := stepper(log)
 	if err := EnsureProfile(ctx, inc); err != nil {
@@ -384,22 +432,72 @@ func BuildForPublishing(ctx context.Context, inc incus.Client, u User, dir, comm
 	}
 	// Incus names it <fingerprint>.tar.gz; it keeps the extension.
 	base := filepath.Base(exported[0])
-	file := "agentbox-base" + base[strings.Index(base, "."):]
-	if err := os.Rename(exported[0], filepath.Join(dir, file)); err != nil {
-		return err
-	}
-	return writePublished(dir, file, commit, tools, packages, time.Now().UTC())
-}
-
-// writePublished writes the files that go next to the image file in dir:
-// image.json, packages.txt, SOURCES.md and SHA256SUMS over all four.
-func writePublished(dir, file, commit string, tools []Tool, packages []debPackage, built time.Time) error {
-	sum, size, err := sumFile(filepath.Join(dir, file))
+	file := imageFile(runtime.GOARCH, base[strings.Index(base, "."):])
+	step("Splitting it into parts of at most %d MiB", partSize>>20)
+	parts, err := splitFile(exported[0], filepath.Join(dir, file), partSize)
 	if err != nil {
 		return err
 	}
+	return writePublished(dir, file, commit, tools, packages, parts, time.Now().UTC())
+}
+
+// splitFile writes src into parts of at most size bytes named after dest
+// (partFile), removes src, and returns the parts with their sizes and sums.
+func splitFile(src, dest string, size int64) ([]Part, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = in.Close() }()
+	var parts []Part
+	for {
+		name := partFile(filepath.Base(dest), len(parts))
+		out, err := os.Create(filepath.Join(filepath.Dir(dest), name))
+		if err != nil {
+			return nil, err
+		}
+		h := sha256.New()
+		n, err := io.Copy(io.MultiWriter(out, h), io.LimitReader(in, size))
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 && len(parts) > 0 {
+			_ = os.Remove(filepath.Join(filepath.Dir(dest), name))
+			break
+		}
+		parts = append(parts, Part{File: name, Size: n, SHA256: hex.EncodeToString(h.Sum(nil))})
+		if n < size {
+			break
+		}
+	}
+	return parts, os.Remove(src)
+}
+
+// writePublished writes the files that go next to the image's parts in dir:
+// image-<arch>.json, packages-<arch>.txt, SOURCES-<arch>.md and SHA256SUMS
+// over them and the parts. file is the image's name once joined, and parts
+// are what it was split into, already in dir.
+func writePublished(dir, file, commit string, tools []Tool, packages []debPackage, parts []Part, built time.Time) error {
+	whole := sha256.New()
+	var size int64
+	for _, pt := range parts {
+		f, err := os.Open(filepath.Join(dir, pt.File))
+		if err != nil {
+			return err
+		}
+		n, err := io.Copy(whole, f)
+		_ = f.Close()
+		if err != nil {
+			return err
+		}
+		size += n
+	}
+	arch := runtime.GOARCH
 	p := Published{
-		Version: Version, Arch: runtime.GOARCH, File: file, Size: size, SHA256: sum,
+		Version: Version, Arch: arch, File: file, Size: size, SHA256: hex.EncodeToString(whole.Sum(nil)), Parts: parts,
 		Tools: specsOf(tools), ToolsVersion: ToolsVersion(tools), Commit: commit, Built: built,
 	}
 	manifest, err := json.MarshalIndent(p, "", "  ")
@@ -410,11 +508,14 @@ func writePublished(dir, file, commit string, tools []Tool, packages []debPackag
 		name    string
 		content []byte
 	}{
-		{"image.json", append(manifest, '\n')},
-		{"packages.txt", packageList(packages)},
-		{"SOURCES.md", sourcesNotice(p, tools, packages)},
+		{manifestFile(arch), append(manifest, '\n')},
+		{packagesFile(arch), packageList(packages)},
+		{sourcesFile(arch), sourcesNotice(p, tools, packages)},
 	}
-	sums := sum + "  " + file + "\n"
+	var sums string
+	for _, pt := range parts {
+		sums += pt.SHA256 + "  " + pt.File + "\n"
+	}
 	for _, f := range files {
 		if err := os.WriteFile(filepath.Join(dir, f.name), f.content, 0o644); err != nil {
 			return err
@@ -422,20 +523,6 @@ func writePublished(dir, file, commit string, tools []Tool, packages []debPackag
 		sums += sha256Hex(f.content) + "  " + f.name + "\n"
 	}
 	return os.WriteFile(filepath.Join(dir, "SHA256SUMS"), []byte(sums), 0o644)
-}
-
-func sumFile(path string) (string, int64, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	n, err := io.Copy(h, f)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
 // debPackage is one installed Debian package, and the source package it was
@@ -480,7 +567,7 @@ func parseDpkgStatus(b []byte) []debPackage {
 	return out
 }
 
-// packageList is packages.txt: one installed package a line, tab-separated,
+// packageList is packages-<arch>.txt: one installed package a line, tab-separated,
 // with the source package it comes from.
 func packageList(packages []debPackage) []byte {
 	var b bytes.Buffer
@@ -501,7 +588,7 @@ var thirdPartySources = map[string]string{
 	"docker-buildx-plugin":  "https://github.com/docker/buildx",
 }
 
-// sourcesNotice is SOURCES.md: what the image holds, under which licenses, and
+// sourcesNotice is SOURCES-<arch>.md: what the image holds, under which licenses, and
 // where the source of each part is, as the GPL asks of whoever publishes it.
 func sourcesNotice(p Published, tools []Tool, packages []debPackage) []byte {
 	var b bytes.Buffer
@@ -515,7 +602,7 @@ func sourcesNotice(p Published, tools []Tool, packages []debPackage) []byte {
 		"(@agentclientprotocol/claude-agent-acp, which bundles Anthropic's Agent SDK) and Cursor's SDK.\n" +
 		"Each machine installs those itself, from their own registries.\n\n")
 	b.WriteString("## Debian packages\n\n")
-	b.WriteString("packages.txt lists every installed package with its exact version and the source package\n" +
+	b.WriteString("packages-<arch>.txt lists every installed package with its exact version and the source package\n" +
 		"it was built from. Debian keeps the source of every version it ever published at\n" +
 		"snapshot.debian.org; each source package of this image is below.\n\n")
 	type src struct{ name, version string }
