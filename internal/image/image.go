@@ -26,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"agentbox/internal/dockerfw"
 	"agentbox/internal/incus"
 )
 
@@ -299,6 +300,10 @@ type Options struct {
 	HTTP *http.Client
 }
 
+// firewall runs the commands that let Docker's firewall pass the Incus bridge;
+// tests replace it so they never touch this machine's.
+var firewall dockerfw.Run = dockerfw.System
+
 // readyTimeout is how long an instance gets to boot and take an address.
 const readyTimeout = 2 * time.Minute
 
@@ -315,6 +320,13 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 	}
 	if err := EnsureProfile(ctx, inc); err != nil {
 		return err
+	}
+	// Docker's firewall may not have the bridge yet; a build that can't
+	// download anything is the cost of finding out later.
+	if n, err := dockerfw.Ensure(ctx, firewall); n > 0 {
+		step("Let Docker's firewall pass %s: added %d %s rule(s)", dockerfw.Bridge, n, dockerfw.Chain)
+	} else if err != nil && !errors.Is(err, dockerfw.ErrNoTool) {
+		step("Could not let Docker's firewall pass %s: %v", dockerfw.Bridge, err)
 	}
 	// Build under another name and swap it in at the end: agents can still be
 	// created from the current image meanwhile, and a failed build keeps it.
@@ -477,6 +489,9 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 		Placeholder.Name, strconv.Itoa(Placeholder.UID), strconv.Itoa(Placeholder.GID))...)
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Run(); err != nil {
+		if hint := dockerfw.Hint(context.WithoutCancel(ctx), firewall); hint != "" {
+			step("%s", hint)
+		}
 		return fmt.Errorf("provisioning %s: %w", next, err)
 	}
 	return all(

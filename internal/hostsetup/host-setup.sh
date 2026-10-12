@@ -352,6 +352,14 @@ fi
 step "Docker coexistence"
 # Docker sets the iptables FORWARD policy to DROP, which silently blocks traffic
 # from Incus containers. Allow the Incus bridge every time Docker starts.
+# That covers a docker.service here. Where dockerd lives elsewhere (Docker
+# Desktop's WSL integration shares this network namespace), the daemon adds the
+# same rules itself (internal/dockerfw), with iptables or nft, so one of them
+# has to be here: a distro without either gets iptables.
+if ! command -v iptables >/dev/null && ! command -v nft >/dev/null; then
+  DEBIAN_FRONTEND=noninteractive apt-get install -y iptables ||
+    echo "warning: could not install iptables; Docker may block the Incus bridge" >&2
+fi
 allow_rules=(
   "-i incusbr0 -j ACCEPT"
   "-o incusbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT"
@@ -365,7 +373,7 @@ mkdir -p "$(dirname "$dropin")"
   done
 } >"$dropin"
 systemctl daemon-reload
-if systemctl is-active --quiet docker.service; then
+if systemctl is-active --quiet docker.service && command -v iptables >/dev/null; then
   for rule in "${allow_rules[@]}"; do
     # shellcheck disable=SC2086
     iptables -C DOCKER-USER $rule 2>/dev/null || iptables -I DOCKER-USER $rule ||

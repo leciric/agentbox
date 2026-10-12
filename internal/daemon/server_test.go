@@ -96,6 +96,9 @@ type testConfig struct {
 // TestMain sets what every test's daemon needs the same way, once, before any
 // test runs, so no test has to set the environment while another runs.
 func TestMain(m *testing.M) {
+	firewall = func(context.Context, string, ...string) ([]byte, error) {
+		return nil, errors.New("no firewall in tests")
+	}
 	// The tests' daemons listen on their own paths.Paths, never on a socket
 	// the developer's shell points at.
 	_ = os.Unsetenv("AGENTBOX_SOCKET")

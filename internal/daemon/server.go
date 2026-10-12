@@ -24,6 +24,7 @@ import (
 	"agentbox/internal/connectors"
 	"agentbox/internal/credentials"
 	"agentbox/internal/cursor"
+	"agentbox/internal/dockerfw"
 	"agentbox/internal/gitrepo"
 	"agentbox/internal/hostos"
 	"agentbox/internal/image"
@@ -340,6 +341,10 @@ func New(cfg Config) (*Server, error) {
 	return s, nil
 }
 
+// firewall runs the commands that let Docker's firewall pass the Incus bridge;
+// the tests' daemons must not change the developer's.
+var firewall dockerfw.Run = dockerfw.System
+
 // Run serves the API until ctx ends or a client asks the daemon to stop.
 func (s *Server) Run(ctx context.Context) error {
 	socket := s.cfg.Paths.Socket()
@@ -419,6 +424,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// Incus is asked only from here on: nothing before Serve may wait on it.
 	loops.Go(func() { s.watchIncus(ctx) })
 	loops.Go(func() { s.dropOldLimits(ctx) })
+	// Docker's firewall drops what the Incus bridge forwards, and a Docker
+	// Desktop that starts after this daemon rebuilds the chain without our rules.
+	loops.Go(func() { dockerfw.Watch(ctx, time.Minute, firewall, s.logf) })
 	loops.Go(func() { s.balanceCPU(ctx) })
 	loops.Go(func() { s.watchDisk(ctx) })
 	loops.Go(func() { s.watchPackageCache(ctx) })
