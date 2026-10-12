@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var workerVars = []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "VITEST_MAX_THREADS", "VITEST_MAX_FORKS", "MAKEFLAGS", "GOFLAGS", "AGENTBOX_CPUS"}
+var workerVars = []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "TURBO_CONCURRENCY", "NX_PARALLEL", "npm_config_workspace_concurrency", "MAKEFLAGS", "GOFLAGS", "AGENTBOX_CPUS"}
 
 // runWorkers runs workersScript in shell with nproc answering cpus and env set
 // on top of an environment without any of workerVars, and returns what each
@@ -45,7 +45,7 @@ func TestWorkersScript(t *testing.T) {
 		}
 		// A fresh shell gets every count from nproc.
 		got := runWorkers(t, shell, "4")
-		for _, name := range []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "VITEST_MAX_THREADS", "VITEST_MAX_FORKS", "AGENTBOX_CPUS"} {
+		for _, name := range []string{"GOMAXPROCS", "CARGO_BUILD_JOBS", "VITEST_MAX_WORKERS", "AGENTBOX_CPUS"} {
 			if got[name] != "4" {
 				t.Errorf("%s: %s = %q, want 4", shell, name, got[name])
 			}
@@ -54,16 +54,27 @@ func TestWorkersScript(t *testing.T) {
 			t.Errorf("%s: MAKEFLAGS = %q, GOFLAGS = %q; want -j4, -p=4", shell, got["MAKEFLAGS"], got["GOFLAGS"])
 		}
 
+		// Task runners get half the share, at least one.
+		if got["TURBO_CONCURRENCY"] != "2" || got["NX_PARALLEL"] != "2" || got["npm_config_workspace_concurrency"] != "2" {
+			t.Errorf("%s: task runners on 4 cpus: %v", shell, got)
+		}
+		if got = runWorkers(t, shell, "1"); got["TURBO_CONCURRENCY"] != "1" {
+			t.Errorf("%s: TURBO_CONCURRENCY on 1 cpu = %q, want 1", shell, got["TURBO_CONCURRENCY"])
+		}
+
 		// A shell started from one that set them, after the share shrank,
 		// follows it, and keeps the rest of GOFLAGS.
-		got = runWorkers(t, shell, "2", "AGENTBOX_CPUS=4", "GOMAXPROCS=4", "VITEST_MAX_FORKS=4", "MAKEFLAGS=-j4", "GOFLAGS=-mod=mod -p=4 -tags=x")
-		if got["GOMAXPROCS"] != "2" || got["VITEST_MAX_FORKS"] != "2" || got["MAKEFLAGS"] != "-j2" || got["GOFLAGS"] != "-mod=mod -tags=x -p=2" {
+		got = runWorkers(t, shell, "2", "AGENTBOX_CPUS=4", "GOMAXPROCS=4", "VITEST_MAX_WORKERS=4", "TURBO_CONCURRENCY=2", "MAKEFLAGS=-j4", "GOFLAGS=-mod=mod -p=4 -tags=x")
+		if got["GOMAXPROCS"] != "2" || got["VITEST_MAX_WORKERS"] != "2" || got["TURBO_CONCURRENCY"] != "1" || got["MAKEFLAGS"] != "-j2" || got["GOFLAGS"] != "-mod=mod -tags=x -p=2" {
 			t.Errorf("%s: after the share shrank: %v", shell, got)
 		}
 
 		// What somebody else set stays: the user's GOMAXPROCS, a lease's -p,
 		// and make's own MAKEFLAGS in a recipe's shell.
-		got = runWorkers(t, shell, "2", "AGENTBOX_CPUS=4", "GOMAXPROCS=7", "GOFLAGS=-p=4 -p=3", "MAKEFLAGS=-j4 --jobserver-auth=fifo:/t/x")
+		got = runWorkers(t, shell, "2", "AGENTBOX_CPUS=4", "GOMAXPROCS=7", "GOFLAGS=-p=4 -p=3", "MAKEFLAGS=-j4 --jobserver-auth=fifo:/t/x", "NX_PARALLEL=6", "TURBO_CONCURRENCY=50%")
+		if got["NX_PARALLEL"] != "6" || got["TURBO_CONCURRENCY"] != "50%" {
+			t.Errorf("%s: the user's task runner counts: %v", shell, got)
+		}
 		if got["GOMAXPROCS"] != "7" || got["GOFLAGS"] != "-p=3" || got["MAKEFLAGS"] != "-j4 --jobserver-auth=fifo:/t/x" {
 			t.Errorf("%s: somebody else's values: %v", shell, got)
 		}

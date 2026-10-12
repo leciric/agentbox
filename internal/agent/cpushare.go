@@ -168,8 +168,11 @@ func (m *Manager) BalanceCPU(ctx context.Context) (changed int, err error) {
 
 // workersScript sets the worker counts of the tools that don't follow the
 // machine's share by themselves: make, which runs one job unless told, and
-// the explicit counts go, cargo and vitest read, which agents' commands and
-// projects' scripts often pass on. It runs in every shell that starts (the env
+// the explicit counts go, cargo and vitest (VITEST_MAX_WORKERS, the only one
+// vitest 4 still reads; it otherwise follows os.availableParallelism(), which
+// the cpuset caps) read, which agents' commands and projects' scripts often
+// pass on, and how many packages a monorepo's task runner runs at once (turbo,
+// nx, pnpm; lerna and yarn have no environment variable for it). It runs in every shell that starts (the env
 // file, and BASH_ENV for the Bash tool's shells), so the counts follow the
 // share as agents start and stop rather than staying what they were when the
 // AI tool started. A variable set to something else, by the user or a
@@ -178,9 +181,18 @@ func (m *Manager) BalanceCPU(ctx context.Context) (changed int, err error) {
 const workersScript = `# Worker counts follow this machine's share of the VM's cores (nproc).
 _ab_n=$(nproc 2>/dev/null)
 if [ -n "$_ab_n" ]; then
-  for _ab_v in GOMAXPROCS CARGO_BUILD_JOBS VITEST_MAX_WORKERS VITEST_MAX_THREADS VITEST_MAX_FORKS; do
+  for _ab_v in GOMAXPROCS CARGO_BUILD_JOBS VITEST_MAX_WORKERS; do
     eval "_ab_c=\${$_ab_v-}"
     if [ -z "$_ab_c" ] || [ "$_ab_c" = "${AGENTBOX_CPUS-}" ]; then export "$_ab_v=$_ab_n"; fi
+  done
+  # Task runners start one package per slot, each with a worker pool of its
+  # own, so they get half the share (at least one): turbo's default is 10.
+  _ab_h=$((_ab_n / 2)); [ "$_ab_h" -ge 1 ] || _ab_h=1
+  _ab_o=
+  case ${AGENTBOX_CPUS-} in ''|*[!0-9]*) ;; *) _ab_o=$((AGENTBOX_CPUS / 2)); [ "$_ab_o" -ge 1 ] || _ab_o=1 ;; esac
+  for _ab_v in TURBO_CONCURRENCY NX_PARALLEL npm_config_workspace_concurrency; do
+    eval "_ab_c=\${$_ab_v-}"
+    if [ -z "$_ab_c" ] || [ "$_ab_c" = "$_ab_o" ]; then export "$_ab_v=$_ab_h"; fi
   done
   if [ -z "${MAKEFLAGS-}" ] || [ "$MAKEFLAGS" = "-j${AGENTBOX_CPUS-}" ]; then export MAKEFLAGS="-j$_ab_n"; fi
   _ab_f=
@@ -191,7 +203,7 @@ if [ -n "$_ab_n" ]; then
   export GOFLAGS="${_ab_f# }"
   export AGENTBOX_CPUS="$_ab_n"
 fi
-unset _ab_n _ab_v _ab_c _ab_f _ab_w
+unset _ab_n _ab_h _ab_o _ab_v _ab_c _ab_f _ab_w
 `
 
 // BashEnvPath is the file BASH_ENV names in an agent's Claude Code, which
