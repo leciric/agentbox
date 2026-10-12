@@ -8,6 +8,7 @@ import { RequestConnector } from '../lib/connectors';
 import { t, useT } from '../lib/i18n';
 import { cn, errorMessage } from '../lib/utils';
 import { ConnectorRequestCard } from './ConnectorRequestCard';
+import { AIToolSecretWarning } from './ToolCredential';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 
@@ -35,6 +36,7 @@ export function CredentialCard({ question }: { question: T.Question }) {
         </span>
       </p>
       <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-tertiary [overflow-wrap:anywhere]">{question.question}</p>
+      {question.kind === A.CredentialSecret && question.secretName && <AIToolSecretWarning name={question.secretName} />}
       {question.status === 'cancelled' && (
         <p className="break-words text-[11px] text-faint" data-credential-cancelled>
           {t('chat.connector.cancelled')} {question.answer || t('chat.connector.nobodyAnswered')}

@@ -1750,6 +1750,11 @@ func (m *Manager) ensureSession(ctx context.Context, a state.Agent) error {
 	if err != nil {
 		return err
 	}
+	if strings.Contains(window, "BASH_ENV=") {
+		if err := m.writeBashEnv(ctx, a); err != nil { // as in ChatCommand
+			return err
+		}
+	}
 	script += window
 	var out bytes.Buffer
 	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {

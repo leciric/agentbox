@@ -907,6 +907,21 @@ export function seedQueryClient(queryClient: QueryClient, data: FixtureData): vo
     const machine = a.ref === `${PROJECT}/agent-92` ? undefined : (3.2 + i * 0.7) * 1024 ** 3;
     queryClient.setQueryData(['agentDisk', a.ref], { machine, worktree: (180 + i * 37) * 1024 ** 2, measuredAt: new Date().toISOString() } satisfies T.AgentDisk);
   });
+  // What each agent's AI tool runs on, read from its process: Claude Code on the
+  // work account, except agent-99, which a project ANTHROPIC_API_KEY reached
+  // (as before this fix), Codex and OpenCode on their own sign-in, and the
+  // stopped ones not running.
+  const credentials = data.agents
+    .filter((a) => a.ai === 'claude' || a.ai === 'codex' || a.ai === 'opencode')
+    .map((a): T.ToolCredential => {
+      const running = a.state === 'running';
+      if (!running) return { agent: a.ref, tool: a.ai, running };
+      if (a.ref === `${PROJECT}/agent-99`) return { agent: a.ref, tool: a.ai, running, variable: 'ANTHROPIC_API_KEY', account: 'work', others: ['ANTHROPIC_BASE_URL'] };
+      if (a.ai === 'claude') return { agent: a.ref, tool: a.ai, running, variable: 'CLAUDE_CODE_OAUTH_TOKEN', account: 'work' };
+      return { agent: a.ref, tool: a.ai, running };
+    });
+  credentials.forEach((c) => queryClient.setQueryData(['toolCredential', c.agent], c));
+  queryClient.setQueryData(['toolCredentials', PROJECT], credentials);
   const agent99Recent = agentTokens('agent-99', 'PR agent', 6, 3_540_000, 90_000, [{ model: 'claude-sonnet-5', avgTPS: 71.8, ...figures(6_000, 26_000, 480_000, 18_000, 1.6) }]);
   queryClient.setQueryData(['tokens', PROJECT, 'agent-99', '5h'], { until: new Date().toISOString(), since: new Date(Date.now() - 5 * 3_600_000).toISOString(), ...sumModels([agent99Recent]), agents: [agent99Recent], buckets: [], bucketSeconds: 600 } satisfies T.TokenReport);
   queryClient.setQueryData(['tokens', PROJECT, '5h'], projectTokenReport());

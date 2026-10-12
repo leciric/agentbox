@@ -162,6 +162,13 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	if err != nil {
 		return nil, err
 	}
+	// bash_env as this daemon writes it, giving the tool's shells the
+	// secrets back: an agent started by an older one has a copy without.
+	if len(hide) > 0 {
+		if err := m.writeBashEnv(ctx, a); err != nil {
+			return nil, err
+		}
+	}
 	script := fmt.Sprintf("cd %s && %sexec %smise exec %s -- %s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), pkg, command)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
 }

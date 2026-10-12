@@ -9,6 +9,7 @@ import { choiceName } from '../lib/modelChoices';
 import { humanTokens, tps, usd } from '../lib/tokens';
 import { humanBytes, timeAgo } from '../lib/utils';
 import { aiLabel, StateBadge } from './state';
+import { ToolCredentialText, useToolCredential } from './ToolCredential';
 
 // AgentInfoCard is what hovering an agent row shows, and what its context
 // menu's "Info" item opens: everything about it that isn't already on the
@@ -27,6 +28,9 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
   // Incus for the machine's volume, and caches both for a minute: the card
   // asks no more often than that however often it's hovered.
   const disk = useQuery({ queryKey: ['agentDisk', agent.ref], queryFn: () => api.agentDisk(agent.ref), staleTime: 60_000 });
+  // What its AI tool really runs on, read from the running process.
+  const reads = agent.ai === 'claude' || agent.ai === 'codex' || agent.ai === 'opencode';
+  const credential = useToolCredential(agent.ref, reads);
 
   const options = chat.data?.session?.options ?? [];
   const find = (category: string) => options.find((o) => o.category === category && o.type === 'select');
@@ -54,6 +58,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
         {session?.contextSize ? <Row label={t('agent.info.context')} value={t('agent.info.contextOf', { used: humanTokens(session.contextUsed ?? 0), size: humanTokens(session.contextSize) })} /> : null}
         <Row label={t('agent.info.avgTps')} value={mine ? tps(mine.avgTPS ?? 0) : '—'} />
         <Row label={t('agent.info.claudeAccount')} value={agent.claudeAccount || '—'} />
+        {reads && <Row label={t('agent.credential.label')} value={<ToolCredentialText cred={credential.data} />} />}
         <Row label={t('agent.info.githubAccount')} value={agent.githubAccount || '—'} />
         <Row label={t('agent.info.branch')} value={agent.branch} mono />
         <Row label={t('agent.info.uptime')} value={timeAgo(agent.createdAt)} />

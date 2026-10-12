@@ -12,6 +12,7 @@ import { Button } from './ui/button';
 import { Panel, Row } from './ui/card';
 import { Select, SelectOption } from './ui/select';
 import { Tip } from './ui/tooltip';
+import { AgentToolCredential } from './ToolCredential';
 
 // OverviewTab is what an agent's Settings tab says about its machine, its code
 // and its AI tool: one section of it at a time.
@@ -146,6 +147,11 @@ export function OverviewTab({ agent, section = 'machine' }: { agent: T.Agent; se
               {agent.ai === 'claude' && (
                 <Row label={t('agent.overview.account')}>
                   <ClaudeAccountPicker agent={agent} />
+                </Row>
+              )}
+              {(agent.ai === 'claude' || agent.ai === 'codex' || agent.ai === 'opencode') && (
+                <Row label={t('agent.credential.label')}>
+                  <AgentToolCredential agentRef={agent.ref} />
                 </Row>
               )}
               <Row label={t('agent.overview.shell')} mono>

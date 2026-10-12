@@ -173,6 +173,7 @@ export const api = {
   destroyAgent: (ref: string, force: boolean, deleteBranch: boolean, deleteMedia: boolean) =>
     call<void>('DELETE', `${agent(ref)}?force=${force}&deleteBranch=${deleteBranch}&deleteMedia=${deleteMedia}`),
   agentDisk: (ref: string) => call<T.AgentDisk>('GET', `${agent(ref)}/disk`),
+  agentCredential: (ref: string) => call<T.ToolCredential>('GET', `${agent(ref)}/credential`),
   agentAction: async (ref: string, action: AgentAction) => {
     if (action === 'start' || action === 'resume') await ensureVMRunning();
     return call<T.Agent>('POST', `${agent(ref)}/${action}`);
@@ -284,6 +285,7 @@ export const api = {
     window.agentbox.pageThumb(pagePath(name, id), key),
 
   fleet: (project: string) => call<T.Fleet>('GET', `/v1/projects/${encodeURIComponent(project)}/fleet`),
+  projectCredentials: (project: string) => call<T.ToolCredential[]>('GET', `/v1/projects/${encodeURIComponent(project)}/credentials`),
 
   // What a project's agents reported, newest first, which the rail reads for
   // when each last did; and the questions they asked, which the avatars and

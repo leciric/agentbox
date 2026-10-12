@@ -14,6 +14,7 @@ import { Button } from './ui/button';
 import { Card, Code, Notice } from './ui/card';
 import { Field, Input } from './ui/input';
 import { Tip } from './ui/tooltip';
+import { AIToolSecretWarning } from './ToolCredential';
 
 // Secrets, a section of a project's or an agent's Settings tab: API keys and tokens handed to a project's agents, or to one
 // agent. A target is "pawly" or "pawly/agent-01".
@@ -174,6 +175,7 @@ function SecretForm({ target, forAgent, onSaved }: { target: string; forAgent: b
             </div>
           </Field>
         </div>
+        <AIToolSecretWarning name={name} />
         {save.error && <Notice>{errorMessage(save.error)}</Notice>}
         <div className="flex items-center gap-3">
           <p className="text-xs leading-relaxed text-subtle">
@@ -205,6 +207,11 @@ function SecretRow({ secret, onDelete }: { secret: T.Secret; onDelete?: () => vo
         {t('agent.secrets.updated', { when: timeAgo(secret.updatedAt) })}
       </span>
       <span className="text-[11.5px] text-subtle">{whereItIs(secret)}</span>
+      {secret.warning && (
+        <Tip label={secret.warning}>
+          <Badge variant="warning" data-secret-ai-tool-warning>{t('agent.secrets.forCodeOnly')}</Badge>
+        </Tip>
+      )}
       {onDelete && (
         <Tip label={t('common.remove')}>
           <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label={t('agent.secrets.removeLabel', { name: secret.name })} onClick={onDelete}>

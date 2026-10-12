@@ -19,6 +19,7 @@ import { ClaudeAccountPicker, ClaudeAccountsPicker, GitHubAccountPicker } from '
 import { openSettingsSection, SettingGroups } from './SettingsPage';
 import { SettingNote, SettingRow } from './ui/settings';
 import { Switch } from './ui/switch';
+import { ProjectToolCredentials } from './ToolCredential';
 
 // The settings that belong to one project rather than to the whole
 // installation: what its agents run on and with which accounts, what they do
@@ -88,6 +89,17 @@ export function projectSettingGroups(project: T.Project): SettingGroup[] {
           keywords: t('defaults.project.allowedKeywords'),
           modified: project.claudeAccounts.length > 0,
           render: () => <ClaudeAccountsPicker project={project} />,
+        },
+        {
+          id: 'tool-credentials',
+          label: t('project.accounts.runningOnLabel'),
+          keywords: t('project.accounts.runningOnKeywords'),
+          modified: false,
+          render: () => (
+            <SettingRow label={t('project.accounts.runningOnLabel')} description={t('project.accounts.runningOnDescription')}>
+              <ProjectToolCredentials project={project.name} />
+            </SettingRow>
+          ),
         },
         {
           id: 'github-account',
