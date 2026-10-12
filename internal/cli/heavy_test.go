@@ -51,23 +51,38 @@ func (f *fakeHeavy) EndHeavy(_ context.Context, key string) error {
 func TestHeavyCommand(t *testing.T) {
 	t.Parallel()
 	for cmd, heavy := range map[string]bool{
-		"go test ./internal/...":                    true,
-		"cd x && go build -o bin/agentbox ./cmd/ab": true,
-		"npm --prefix desktop test":                 true,
-		"pnpm run build":                            true,
-		"npx vitest run src":                        true,
-		"./gradlew assembleDebug":                   true,
-		"cargo test -p core":                        true,
-		"docker compose up -d":                      true,
-		"(make -j8)":                                true,
-		"git status":                                false,
-		"ls -la":                                    false,
-		"go vet ./...":                              false,
-		"cat makefile":                              false,
-		"npm install":                               false,
-		"gofmt -l internal":                         false,
+		"go test ./internal/...":                     true,
+		"cd x && go build -o bin/agentbox ./cmd/ab":  true,
+		"npm --prefix desktop test":                  true,
+		"pnpm run build":                             true,
+		"npx vitest run src":                         true,
+		"./gradlew assembleDebug":                    true,
+		"cargo test -p core":                         true,
+		"docker compose up -d":                       true,
+		"(make -j8)":                                 true,
+		"git status":                                 false,
+		"ls -la":                                     false,
+		"go vet ./...":                               false,
+		"cat makefile":                               false,
+		"npm install":                                false,
+		"gofmt -l internal":                          false,
+		"sudo make install":                          true,
+		"CGO_ENABLED=0 go build ./cmd/agentbox":      true,
+		"timeout 600 npx vp test run --maxWorkers=2": true,
+		"bash -c 'go test ./...'":                    true,
+		"agentbox heavy -- pytest -x":                true,
+		"ls\nnpm test":                               true,
+		"cat <<EOF > notes.md\nmake sure\nEOF\nmake build": true,
+		`git commit -m "fix: make the tsc build pass"`:     false,
+		"npx vp lint":          false,
+		"echo jest":            false,
+		"grep -rn 'go test' .": false,
+		"cat <<< \"make\"":     false,
+		// 2026-10-12: a script fed to python3 on stdin, which says "make".
+		"python3 - <<'EOF'\nimport re\n# make sure the file ends in a newline\ns = open('a').read()\nEOF": false,
+		"cat > x.sh <<-END\n\tmake all\n\tEND\nchmod +x x.sh":                                             false,
 	} {
-		if got := heavyCommand.MatchString(cmd); got != heavy {
+		if got := isHeavy(cmd); got != heavy {
 			t.Errorf("%q heavy = %v, want %v", cmd, got, heavy)
 		}
 	}

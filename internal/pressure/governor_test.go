@@ -463,7 +463,7 @@ func TestTheStallOf20261011PausesBeforeIt(t *testing.T) {
 func TestPressureAlonePausedNothingBeforeTheStallOf20261011(t *testing.T) {
 	// The governor of #252, PSI only: full pressure never reached Freeze.
 	policy := DefaultPolicy
-	policy.Hold = 0
+	policy.Floor, policy.FloorShare = 0, 0
 	if paused := replay(t, policy); len(paused) != 0 {
 		t.Fatalf("PSI alone paused %d runs; the trace says it paused none", len(paused))
 	}
@@ -475,23 +475,102 @@ func atCap(availGiB, swapUsedGiB float64) Sample {
 
 func TestHeadroom(t *testing.T) {
 	p := DefaultPolicy
+	still := Trend{}
+	falling := func(gibPerSec float64) Trend { return Trend{Fall: gibPerSec * (1 << 30)} }
+	churning := Trend{Churn: 200 << 20}
+	// A 15.9 GiB VM's floor is 1.59 GiB, Low 3.18.
 	for _, tc := range []struct {
 		name string
 		mem  Mem
+		tr   Trend
 		want Headroom
 	}{
-		{"short of its cap, nearly nothing available", Mem{Total: gibs(8), Cap: gibs(16), Available: gibs(0.1), SwapTotal: gibs(4)}, Room},
-		{"at its cap with plenty available", atCap(8, 4).Mem, Room},
-		{"at its cap, little available, swap to spare", atCap(4, 1).Mem, Room},
-		{"at its cap, little available, swap filling", atCap(4, 2.5).Mem, Tight},
-		{"at its cap, little available, swap full", atCap(4, 3.8).Mem, Short},
-		{"at its cap, nearly nothing available, swap full", atCap(1, 4).Mem, Out},
-		{"nearly nothing available, no swap", Mem{Total: gibs(16), Available: gibs(1)}, Out},
-		{"unread", Mem{}, Room},
+		{"short of its cap, nearly nothing available", Mem{Total: gibs(8), Cap: gibs(16), Available: gibs(0.1), SwapTotal: gibs(4)}, falling(1), Room},
+		{"at its cap with plenty available", atCap(8, 4).Mem, still, Room},
+		{"swap full of cold pages, a third available, still", atCap(5.5, 4).Mem, still, Room},
+		{"a third available, swap full, falling slowly", atCap(5.5, 4).Mem, falling(0.01), Room},
+		{"a third available, swap full, falling a byte a minute", atCap(5.5, 4).Mem, Trend{Fall: 1.0 / 60}, Room},
+		{"a third available, swap busy, falling", atCap(5.5, 2.5).Mem, falling(0.05), Tight},
+		{"little available, swap to spare", atCap(2, 1).Mem, still, Room},
+		{"little available, swap full, still", atCap(3, 4).Mem, still, Tight},
+		{"plenty available, swap full, churning", atCap(6, 4).Mem, churning, Tight},
+		{"little available, swap full, churning", atCap(3, 4).Mem, churning, Short},
+		{"swap full, falling to the floor in 20s", atCap(5.5, 4).Mem, falling(0.2), Short},
+		{"swap full, falling to the floor in 5s", atCap(3, 4).Mem, falling(0.3), Out},
+		{"under the floor, swap full", atCap(1, 4).Mem, still, Out},
+		{"under the floor, swap to spare", atCap(1, 2).Mem, still, Room},
+		{"nearly nothing available, no swap", Mem{Total: gibs(16), Available: gibs(1)}, still, Out},
+		{"unread", Mem{}, falling(1), Room},
 	} {
-		if got := p.Headroom(tc.mem); got != tc.want {
+		if got := p.Headroom(tc.mem, tc.tr); got != tc.want {
 			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestATrendIsMeasuredOverASpan(t *testing.T) {
+	g := NewGovernor(DefaultPolicy)
+	at := func(sec int, availGiB, refaultedGiB float64) Trend {
+		s := atCap(availGiB, 4)
+		s.Mem.Refaulted = gibs(refaultedGiB)
+		g.Step(t0.Add(time.Duration(sec)*time.Second), s)
+		return g.Trend()
+	}
+	at(0, 8, 0)
+	// A gigabyte gone in two seconds isn't a ramp yet: under a Span.
+	if tr := at(2, 7, 0); tr.Fall != 0 {
+		t.Errorf("fall over 2s = %v, want none yet", tr.Fall)
+	}
+	if tr := at(10, 7, 1); tr.Fall != 0.1*(1<<30) || tr.Churn != 0.1*(1<<30) {
+		t.Errorf("over 10s: %+v, want 0.1 GiB/s of each", tr)
+	}
+	// Past the Window, the readings before it are forgotten.
+	at(20, 7, 1)
+	at(30, 7, 1)
+	if tr := at(41, 7, 1); tr != (Trend{}) {
+		t.Errorf("held still for 30s: %+v, want nothing", tr)
+	}
+}
+
+// trace20261012 is the VM on nightly .84 from 19:47 to 19:56 on 2026-10-12:
+// at its 17.8 GiB cap, 6.2 GiB available, zram 4.38 of 4.5 GiB used by idle
+// agents' cold pages, PSI some/full about 0.3/0.2, next to nothing swapped
+// back in. #273's rules paused sai-app-4/agent-33's `npx vp test run` and
+// held a `python3 - <<'EOF'` edit for six minutes.
+func trace20261012(sec int) Sample {
+	return Sample{
+		PSI: PSI{Some: Stall{Avg10: 0.3}, Full: Stall{Avg10: 0.2}},
+		Mem: Mem{Total: gibs(17.8), Cap: gibs(18), Available: gibs(6.2 - 0.05*float64(sec%3)),
+			SwapTotal: gibs(4.5), SwapFree: gibs(4.5 - 4.38), Refaulted: gibs(3) + int64(sec)<<20},
+	}
+}
+
+func TestAFullSwapWithMemoryToSpareHoldsNothing(t *testing.T) {
+	// What #273's rules took for Short: under 35% available, swap 90% full.
+	if s := trace20261012(0); s.Mem.AvailableShare() >= 0.35 || s.Mem.SwapUsed() < 0.9 {
+		t.Fatalf("the trace isn't what #273 paused for: %s", s)
+	}
+	g := NewGovernor(DefaultPolicy)
+	now := t0
+	for i := range 6 {
+		g.Ask(fmt.Sprintf("p/a%d", i), "k", "npx vp test run --maxWorkers=2", time.Hour, now)
+	}
+	// Nine minutes of readings, every two seconds, as the daemon takes them.
+	for sec := 0; sec < 9*60; sec += 2 {
+		now = t0.Add(time.Duration(sec) * time.Second)
+		got := g.Step(now, trace20261012(sec))
+		for _, r := range got.Start {
+			g.Place(r.Agent, r.Key)
+		}
+		if len(got.Pause) > 0 {
+			t.Fatalf("at %ds paused %v: %s", sec, keys(got.Pause), trace20261012(sec))
+		}
+		if why := g.Why(); why != "" {
+			t.Fatalf("at %ds held back for %q: %s", sec, why, trace20261012(sec))
+		}
+	}
+	if n := len(g.Waiting()); n != 0 {
+		t.Fatalf("%d runs still waiting", n)
 	}
 }
 
@@ -503,30 +582,37 @@ func TestNothingStartsOrResumesWhileTight(t *testing.T) {
 	now := t0
 	for range 30 {
 		now = now.Add(time.Second)
-		if got := g.Step(now, atCap(4, 2.5)); len(got.Start) != 0 {
+		if got := g.Step(now, atCap(3, 4)); len(got.Start) != 0 {
 			t.Fatal("a run started with the VM tight")
 		}
 	}
+	if g.Why() != Low {
+		t.Errorf("waiting for %q, want %q", g.Why(), Low)
+	}
 	now = now.Add(time.Second)
-	if got := g.Step(now, atCap(8, 2.5)); len(got.Start) != 1 {
+	if got := g.Step(now, atCap(8, 4)); len(got.Start) != 1 {
 		t.Fatal("the waiting run didn't start once there was room")
 	}
 	g.Place("p/a", "a")
 	g.Place("p/b", "b")
 	now = now.Add(time.Second)
-	if got := g.Step(now, atCap(1, 4)); len(got.Pause) != 1 {
+	if got := g.Step(now, atCap(1, 4)); len(got.Pause) != 1 || got.Pause[0].Why != Low {
 		t.Fatalf("out of memory, paused %v", keys(got.Pause))
 	}
-	// Calm PSI, but swap stays full and only 40% is available: not yet.
+	// Calm PSI, but swap stays full and only 4 GiB is available, under
+	// three floors: not yet.
 	for range 30 {
 		now = now.Add(time.Second)
-		if got := g.Step(now, atCap(6.4, 4)); len(got.Resume) != 0 {
+		if got := g.Step(now, atCap(4, 4)); len(got.Resume) != 0 {
 			t.Fatal("a paused run resumed with the VM still short of room")
 		}
 	}
+	if g.Why() != Easing {
+		t.Errorf("paused for %q, want %q", g.Why(), Easing)
+	}
 	for range 30 {
 		now = now.Add(time.Second)
-		if got := g.Step(now, atCap(8, 4)); len(got.Resume) == 1 {
+		if got := g.Step(now, atCap(6, 4)); len(got.Resume) == 1 {
 			return
 		}
 	}

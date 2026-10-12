@@ -26,7 +26,9 @@ func TestSamplerReadsPressureAndHeadroom(t *testing.T) {
 	}
 	write(psiFile, "some avg10=11.20 avg60=3.10 avg300=0.80 total=46356041310\nfull avg10=10.70 avg60=2.90 avg300=0.71 total=40694621386\n")
 	write(memFile, meminfo)
-	s, err := OpenSampler(psiFile, memFile, 18<<30)
+	vmFile := filepath.Join(dir, "vmstat")
+	write(vmFile, "nr_free_pages 100\npswpin 1000\npswpout 9000\nworkingset_refault_anon 1000\nworkingset_refault_file 24\n")
+	s, err := OpenSampler(psiFile, memFile, vmFile, 18<<30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,8 +43,12 @@ func TestSamplerReadsPressureAndHeadroom(t *testing.T) {
 	if got.Mem.Total != 18664412<<10 || got.Mem.Available != 6186772<<10 || got.Mem.SwapTotal != 4718588<<10 || got.Mem.SwapFree != 0 || got.Mem.Cap != 18<<30 {
 		t.Errorf("meminfo read as %+v", got.Mem)
 	}
-	if !got.Mem.AtCap() || DefaultPolicy.Headroom(got.Mem) != Short {
-		t.Errorf("33%% available at its cap with swap full is %d, want Short", DefaultPolicy.Headroom(got.Mem))
+	if want := int64(1024 * os.Getpagesize()); got.Mem.Refaulted != want {
+		t.Errorf("refaulted %d, want %d (swapped in and file refaults)", got.Mem.Refaulted, want)
+	}
+	// 2026-10-12's VM: a third available, swap full, nothing moving.
+	if !got.Mem.AtCap() || DefaultPolicy.Headroom(got.Mem, Trend{}) != Room {
+		t.Errorf("6.2G available at its cap with swap full, still, is %d, want Room", DefaultPolicy.Headroom(got.Mem, Trend{}))
 	}
 	// The file changes; the sampler reads it afresh, from the same open file.
 	write(memFile, "MemTotal: 1000 kB\nMemAvailable: 900 kB\n")
@@ -55,7 +61,7 @@ func TestSamplerReadsPressureAndHeadroom(t *testing.T) {
 }
 
 func TestSamplerReadsTheKernelsFiles(t *testing.T) {
-	s, err := OpenSampler(File, MemInfo, 0)
+	s, err := OpenSampler(File, MemInfo, VMStat, 0)
 	if err != nil {
 		t.Skipf("no PSI here: %v", err)
 	}

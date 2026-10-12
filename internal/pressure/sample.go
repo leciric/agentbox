@@ -8,8 +8,11 @@ import (
 	"sync"
 )
 
-// MemInfo is the VM's memory figures.
-const MemInfo = "/proc/meminfo"
+// MemInfo is the VM's memory figures, and VMStat its counters.
+const (
+	MemInfo = "/proc/meminfo"
+	VMStat  = "/proc/vmstat"
+)
 
 // Mem is the VM's memory as /proc/meminfo has it, in bytes, and the most it
 // may grow to.
@@ -20,6 +23,12 @@ type Mem struct {
 	// granted it with virtio-mem as it needs it); 0 when it can't grow, so
 	// Total is all it gets.
 	Cap int64
+	// Refaulted is how much memory has been read back in since boot after
+	// being pushed out: pages swapped in, and file pages refaulted (read
+	// again soon after being dropped), from /proc/vmstat; 0 unread. Its rate
+	// is the working set not fitting, which a swap merely full of cold pages
+	// isn't.
+	Refaulted int64
 }
 
 // Known reports whether the figures were read at all.
@@ -80,13 +89,14 @@ func gib(n int64) string { return fmt.Sprintf("%.1fG", float64(n)/(1<<30)) }
 type Sampler struct {
 	mu           sync.Mutex
 	psi, meminfo *os.File
-	cap          int64
-	buf          [4096]byte
+	vmstat       *os.File // nil without one
+	cap, page    int64
+	buf          [16 << 10]byte // /proc/vmstat is about 6 KiB
 }
 
-// OpenSampler opens a PSI file and a meminfo file. cap is the most memory the
-// VM may be given, 0 for what it has.
-func OpenSampler(psiPath, meminfoPath string, cap int64) (*Sampler, error) {
+// OpenSampler opens a PSI file, a meminfo file and, unless "" or it can't, a
+// vmstat file. cap is the most memory the VM may be given, 0 for what it has.
+func OpenSampler(psiPath, meminfoPath, vmstatPath string, cap int64) (*Sampler, error) {
 	p, err := os.Open(psiPath)
 	if err != nil {
 		return nil, err
@@ -96,12 +106,22 @@ func OpenSampler(psiPath, meminfoPath string, cap int64) (*Sampler, error) {
 		_ = p.Close()
 		return nil, err
 	}
-	return &Sampler{psi: p, meminfo: m, cap: cap}, nil
+	out := &Sampler{psi: p, meminfo: m, cap: cap, page: int64(os.Getpagesize())}
+	if vmstatPath != "" {
+		// Without it, the headroom goes by what is available and how fast
+		// that falls.
+		out.vmstat, _ = os.Open(vmstatPath)
+	}
+	return out, nil
 }
 
 // Close closes its files.
 func (s *Sampler) Close() error {
-	return errors.Join(s.psi.Close(), s.meminfo.Close())
+	err := errors.Join(s.psi.Close(), s.meminfo.Close())
+	if s.vmstat != nil {
+		err = errors.Join(err, s.vmstat.Close())
+	}
+	return err
 }
 
 // errNoPSI is what a PSI file with neither line reads as.
@@ -124,6 +144,11 @@ func (s *Sampler) Read() (Sample, error) {
 	if b, err := s.read(s.meminfo); err == nil {
 		out.Mem = parseMemInfo(b)
 		out.Mem.Cap = s.cap
+	}
+	if s.vmstat != nil {
+		if b, err := s.read(s.vmstat); err == nil {
+			out.Mem.Refaulted = parseVMStat(b) * s.page
+		}
 	}
 	return out, nil
 }
@@ -197,6 +222,23 @@ func parseMemInfo(b []byte) Mem {
 			continue
 		}
 		*to = int64(decimal(trimSpace(rest))) << 10 // kB
+	}
+	return out
+}
+
+// parseVMStat is the pages /proc/vmstat counts as read back in: swapped in
+// (pswpin) and file pages refaulted (workingset_refault_file, or
+// workingset_refault before Linux 5.9). Anon refaults are swap-ins already.
+func parseVMStat(b []byte) int64 {
+	var out int64
+	for len(b) > 0 {
+		var line []byte
+		line, b = cutByte(b, '\n')
+		key, rest := cutByte(line, ' ')
+		switch string(key) {
+		case "pswpin", "workingset_refault_file", "workingset_refault":
+			out += int64(decimal(rest))
+		}
 	}
 	return out
 }

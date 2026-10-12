@@ -340,11 +340,17 @@ export interface MemoryHold {
   paused?: number;
   waiting?: number;
   since: string;
+  why?: string;
+  stalled?: number;
+  rate?: number;
+  available?: number;
+  total?: number;
 }
 
 export interface PressureStatus {
   some: number;
   full: number;
+  why?: string;
   runs: HeavyRun[];
 }
 

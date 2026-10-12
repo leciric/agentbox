@@ -5,8 +5,9 @@
 // at the other.
 import { useQuery } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
-import { t, type MessageKey } from '../../shared/i18n/index.ts';
+import { formatNumber, t, type MessageKey } from '../../shared/i18n/index.ts';
 import { api } from './api.ts';
+import { humanBytes } from './utils.ts';
 
 export type StatusTone = 'urgent' | 'error' | 'warning' | 'live' | 'muted';
 
@@ -38,14 +39,40 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
 }
 
 // memoryHold is what the VM's memory pressure is doing to a running agent's
-// heavy commands, in words, with the sentence that explains it for a tooltip;
-// undefined when nothing is held. Pausing wins over waiting: a paused command
-// has already started.
+// heavy commands, in words, with the sentences that explain it for a tooltip:
+// what it does, then what holds them now, as the daemon's governor judged it
+// (T.MemoryHold.why). undefined when nothing is held. Pausing wins over
+// waiting: a paused command has already started.
 export function memoryHold(agent: Pick<T.Agent, 'state' | 'memory'>): { text: string; tip: string } | undefined {
-  if (agent.state !== 'running' || !agent.memory) return undefined;
-  if ((agent.memory.paused ?? 0) > 0) return { text: t('agent.status.memoryPaused'), tip: t('agent.status.memoryPausedTip') };
-  if ((agent.memory.waiting ?? 0) > 0) return { text: t('agent.status.memoryWaiting'), tip: t('agent.status.memoryWaitingTip') };
+  const held = agent.memory;
+  if (agent.state !== 'running' || !held) return undefined;
+  const why = memoryWhy(held);
+  const tip = (key: MessageKey) => (why ? `${t(key)} ${why}` : t(key));
+  if ((held.paused ?? 0) > 0) return { text: t('agent.status.memoryPaused'), tip: tip('agent.status.memoryPausedTip') };
+  if ((held.waiting ?? 0) > 0) return { text: t('agent.status.memoryWaiting'), tip: tip('agent.status.memoryWaitingTip') };
   return undefined;
+}
+
+const memoryWhys: Record<string, MessageKey> = {
+  stalling: 'agent.status.memoryWhy.stalling',
+  falling: 'agent.status.memoryWhy.falling',
+  churning: 'agent.status.memoryWhy.churning',
+  low: 'agent.status.memoryWhy.low',
+  easing: 'agent.status.memoryWhy.easing',
+};
+
+// memoryWhy is what holds an agent's commands now, a sentence; '' from a
+// daemon too old to say.
+function memoryWhy(held: T.MemoryHold): string {
+  if (held.why === undefined && held.total === undefined) return '';
+  const key = held.why ? memoryWhys[held.why] : 'agent.status.memoryWhy.turn';
+  if (!key) return '';
+  return t(key, {
+    stalled: formatNumber(held.stalled ?? 0, { maximumFractionDigits: 0 }),
+    rate: humanBytes(held.rate ?? 0),
+    available: humanBytes(held.available ?? 0),
+    total: humanBytes(held.total ?? 0),
+  });
 }
 
 // awaiting is an agent between turns with background work still running

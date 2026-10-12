@@ -51,6 +51,14 @@ test('memory pressure holding back a running agent’s commands shows as a warni
   assert.equal(chatLabel({ ...paused, memory: { paused: 1, waiting: 1, since } } as T.Agent).text, 'Paused for memory');
   assert.deepEqual(chatLabel({ ...paused, memory: { since } } as T.Agent), { text: 'Working', tone: 'live' });
   assert.equal(memoryHold({ ...paused, state: 'stopped' }), undefined);
+  // The tip says what holds them now, as the daemon judged it.
+  const gib = 1024 ** 3;
+  const low = { ...waiting, memory: { waiting: 1, since, why: 'low', available: 1.5 * gib, total: 17.8 * gib } } as T.Agent;
+  assert.match(memoryHold(low)?.tip ?? '', /start by themselves\. The VM is nearly out of memory: 1\.5 GiB of 17\.8 GiB available, swap full\./);
+  const falling = { ...paused, memory: { paused: 1, since, why: 'falling', rate: 200 * 1024 ** 2, available: 5.9 * gib, total: 17.8 * gib } } as T.Agent;
+  assert.match(memoryHold(falling)?.tip ?? '', /falling 200\.0 MiB a second/);
+  const turn = { ...waiting, memory: { waiting: 1, since, available: 6.2 * gib, total: 17.8 * gib } } as T.Agent;
+  assert.match(memoryHold(turn)?.tip ?? '', /its turn comes next/);
   // Needing you still comes first, and a hold isn't settled.
   assert.deepEqual(chatLabel({ ...paused, chat: 'waiting' } as T.Agent), { text: 'Needs you', tone: 'urgent' });
   assert.equal(settled(waiting), false);

@@ -104,9 +104,11 @@ func newPressureTest(t *testing.T) *pressureTest {
 			defer p.mu.Unlock()
 			return p.sample, nil
 		}
-		d := pressure.DefaultPolicy
-		s.heavy.g.Policy = pressure.Policy{Admit: 10, Freeze: 20, Calm: 5, Grace: time.Minute,
-			Hold: d.Hold, SwapBusy: d.SwapBusy, SwapFull: d.SwapFull, Out: d.Out, Roomy: d.Roomy}
+		// The default policy, with nothing to wait for between steps.
+		pol := pressure.DefaultPolicy
+		pol.FreezeAfter, pol.CalmAfter, pol.Step, pol.AdmitStep, pol.HeadroomStep = 0, 0, 0, 0, 0
+		pol.Grace = time.Minute
+		s.heavy.g.Policy = pol
 	}})
 	a := addTestAgent(t, p.testDaemon)
 	p.instance, p.ref = a.Instance, a.Ref()
@@ -245,7 +247,7 @@ func TestRunningOutPausesBeforePressureShows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Started || !strings.Contains(out.Why, "nearly out of memory (1.0 GiB of 16.0 GiB left") {
+	if out.Started || !strings.Contains(out.Why, "nearly out of memory (1.0 GiB of 16.0 GiB available, swap full") {
 		t.Fatalf("out of memory, a new command: %+v", out)
 	}
 }

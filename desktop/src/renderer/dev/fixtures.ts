@@ -147,7 +147,13 @@ export function buildFixtures(): FixtureData {
     agent({ ref: `${PROJECT}/agent-87`, title: 'Migrate the reminders table', ai: 'codex', chat: 'error' }),
     // The VM is short of memory: its test run is paused until there is room (memory.paused),
     // and the rail says Paused for memory instead of Working.
-    agent({ ref: `${PROJECT}/agent-86`, title: 'Run the full test suite', chat: 'running', memory: { paused: 1, since: new Date(Date.now() - 3 * 60_000).toISOString() } }),
+    // Its tooltip says why, as the daemon judged it: memory falling fast toward running out.
+    agent({
+      ref: `${PROJECT}/agent-86`,
+      title: 'Run the full test suite',
+      chat: 'running',
+      memory: { paused: 1, since: new Date(Date.now() - 3 * 60_000).toISOString(), why: 'falling', rate: 190 * 1024 ** 2, available: 5.9 * 1024 ** 3, total: 17.8 * 1024 ** 3 },
+    }),
     // A name given to create by hand, as long as the title beside it: the
     // row's name must give way before it pushes the title out.
     agent({

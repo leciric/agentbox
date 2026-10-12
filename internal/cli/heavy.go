@@ -178,16 +178,60 @@ func randomKey() string {
 // from running and tells the model why.
 
 // heavyCommand matches a Bash command that runs tests, builds or the app:
-// the commands an agent's memory spikes in.
-var heavyCommand = regexp.MustCompile(`(?:^|[\s;&|(/])(?:` +
+// the commands an agent's memory spikes in. Only a command's own words count,
+// where a command starts (after ;, &&, |, a newline, $( or bash -c ", past
+// VAR=x, sudo, time, timeout 60 and a path): `git commit -m "fix make"`, an
+// `echo jest` or a comment saying "make sure" isn't one. See isHeavy.
+var heavyCommand = regexp.MustCompile(`(?m)(?:^|[;&|(\x60]|\$\(|-c\s+["']|\b(?:then|do|else)\s)\s*` +
+	`(?:(?:[A-Za-z_][A-Za-z0-9_]*=\S*|sudo|time|nice|nohup|env|exec|command|timeout\s+\S+|agentbox\s+heavy\s+--)\s+)*` +
+	`(?:\S*/)?(?:` +
 	`go\s+(?:test|build|install|run|generate)\b|` +
 	`(?:npm|pnpm|yarn|bun)\s+(?:--prefix[\s=]\S+\s+|-C\s+\S+\s+|--filter[\s=]\S+\s+)*(?:(?:run\s+)?(?:test|build|e2e|dist|start|dev|preview)\b|exec\s+(?:vitest|jest|playwright|electron))|` +
 	`(?:npx|pnpx|bunx)\s+(?:vitest|jest|playwright|tsc|electron|next|vite)\b|` +
+	`(?:(?:npx|pnpx|bunx)\s+)?vp\s+(?:test|build|dev|preview)\b|` +
 	`(?:vitest|jest|pytest|tox|tsc|electron|gradle|gradlew|mvn|make|cmake|ninja|bazel|dotnet)\b|` +
 	`cargo\s+(?:test|build|run|bench|check|clippy)\b|` +
 	`docker\s+(?:build|buildx|compose\s+(?:up|build))\b|` +
 	`playwright\s+test\b` +
 	`)`)
+
+// heredoc is where a here-document starts: <<WORD, <<-'WORD' or <<"WORD",
+// not a here-string's <<<.
+var heredoc = regexp.MustCompile(`(?:^|[^<])<<(-?)\s*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?`)
+
+// isHeavy reports whether a Bash command is heavy. A here-document's body
+// is data, not commands, and is left out: on 2026-10-12 a `python3 - <<'EOF'`
+// edit whose script said "make sure" waited six minutes for memory as if it
+// were `make`.
+func isHeavy(command string) bool {
+	return heavyCommand.MatchString(withoutHeredocs(command))
+}
+
+// withoutHeredocs is command without its here-documents' bodies.
+func withoutHeredocs(command string) string {
+	lines := strings.Split(command, "\n")
+	var out []string
+	var ends []string // the words that end the here-documents still open
+	var tabs []bool
+	for _, line := range lines {
+		if len(ends) > 0 {
+			l := line
+			if tabs[0] {
+				l = strings.TrimLeft(l, "\t")
+			}
+			if l == ends[0] {
+				ends, tabs = ends[1:], tabs[1:]
+			}
+			continue
+		}
+		out = append(out, line)
+		for _, m := range heredoc.FindAllStringSubmatch(line, -1) {
+			ends = append(ends, m[2])
+			tabs = append(tabs, m[1] == "-")
+		}
+	}
+	return strings.Join(out, "\n")
+}
 
 // hookCall is what Claude Code gives a hook on stdin.
 type hookCall struct {
@@ -202,7 +246,7 @@ type hookCall struct {
 // heavyKey is the key a call's command runs under, "" for a call that isn't
 // a heavy command.
 func heavyKey(call hookCall) string {
-	if call.Tool != "Bash" || !heavyCommand.MatchString(call.Input.Command) {
+	if call.Tool != "Bash" || !isHeavy(call.Input.Command) {
 		return ""
 	}
 	id := call.ToolUseID

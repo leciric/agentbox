@@ -121,7 +121,7 @@ func readSample() func() (pressure.Sample, error) {
 		mu.Lock()
 		if s == nil {
 			var err error
-			if s, err = pressure.OpenSampler(pressure.File, pressure.MemInfo, vmCap); err != nil {
+			if s, err = pressure.OpenSampler(pressure.File, pressure.MemInfo, pressure.VMStat, vmCap); err != nil {
 				mu.Unlock()
 				return pressure.Sample{}, err
 			}
@@ -248,6 +248,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		return now.Before(r.Until)
 	})
 	acts := h.g.Step(now, sample)
+	trend := h.g.Trend()
 	type change struct {
 		run      pressure.Run
 		instance string
@@ -288,7 +289,7 @@ func (s *Server) stepPressure(ctx context.Context) {
 		}
 	}
 	for _, c := range paused {
-		s.logf("memory pressure: pausing %s (%s): %s", c.run.ID(), c.run.Command, sample)
+		s.logf("memory pressure: pausing %s (%s): %s: %s", c.run.ID(), c.run.Command, reasonWords(c.run.Why, sample, trend), sample)
 		if err := s.runCgroups.Freeze(c.instance, c.run.Key, true); err != nil {
 			s.logf("memory pressure: pausing %s: %v", c.run.ID(), err)
 			continue
@@ -458,19 +459,36 @@ func (s *Server) heavyWhy(ref, key string) string {
 			paused++
 		}
 	}
-	last := h.g.Last()
-	why := fmt.Sprintf("the VM's memory is under pressure (%.0f%% of the last 10 seconds stalled on it)", last.Some.Avg10)
-	if h.g.Policy.Headroom(last.Mem) != pressure.Room {
-		why = fmt.Sprintf("the VM is nearly out of memory (%s of %s left, at the most it may have)",
-			agent.HumanBytes(last.Mem.Available), agent.HumanBytes(last.Mem.Total))
+	why := reasonWords(h.g.Why(), h.g.Last(), h.g.Trend())
+	if why == "" {
+		why = "other commands started just before it"
 	}
-	if paused > 0 {
+	if paused > 0 && h.g.Why() != pressure.Easing {
 		why += fmt.Sprintf(", %d paused %s resume first", paused, plural(paused, "command is to", "commands are to"))
 	}
 	if ahead > 0 {
 		why += fmt.Sprintf(", and %d %s ahead of it", ahead, plural(ahead, "command is", "commands are"))
 	}
 	return why
+}
+
+// reasonWords says why runs are held, a clause for the agents and the log;
+// "" for nothing.
+func reasonWords(why pressure.Reason, s pressure.Sample, tr pressure.Trend) string {
+	avail := fmt.Sprintf("%s of %s available", agent.HumanBytes(s.Mem.Available), agent.HumanBytes(s.Mem.Total))
+	switch why {
+	case pressure.Stalling:
+		return fmt.Sprintf("the VM's memory is under pressure (%.0f%% of the last 10 seconds stalled on it)", s.Some.Avg10)
+	case pressure.Falling:
+		return fmt.Sprintf("the VM's memory is running out fast (%s, falling %s a second, swap full)", avail, agent.HumanBytes(int64(tr.Fall)))
+	case pressure.Churning:
+		return fmt.Sprintf("the VM's memory doesn't hold what is being used (%s a second coming back from swap, %s)", agent.HumanBytes(int64(tr.Churn)), avail)
+	case pressure.Low:
+		return fmt.Sprintf("the VM is nearly out of memory (%s, swap full)", avail)
+	case pressure.Easing:
+		return "the VM's memory has eased, and commands paused for it resume first, one at a time"
+	}
+	return ""
 }
 
 // joinHeavy is POST /v1/self/heavy/{key}/join: a process of the agent's, and
@@ -584,6 +602,17 @@ func (s *Server) memoryHold(ref string) *api.MemoryHold {
 	if out.Paused+out.Waiting == 0 {
 		return nil
 	}
+	last, tr := h.g.Last(), h.g.Trend()
+	out.Why = string(h.g.Why())
+	out.Available, out.Total = last.Mem.Available, last.Mem.Total
+	switch h.g.Why() {
+	case pressure.Stalling:
+		out.Stalled = last.Some.Avg10
+	case pressure.Falling:
+		out.Rate = int64(tr.Fall)
+	case pressure.Churning:
+		out.Rate = int64(tr.Churn)
+	}
 	return &out
 }
 
@@ -592,7 +621,7 @@ func (s *Server) getPressure(w http.ResponseWriter, r *http.Request) error {
 	h := s.heavy
 	h.mu.Lock()
 	psi := h.g.Last()
-	out := api.PressureStatus{Some: psi.Some.Avg10, Full: psi.Full.Avg10, Runs: []api.HeavyRun{}}
+	out := api.PressureStatus{Some: psi.Some.Avg10, Full: psi.Full.Avg10, Why: string(h.g.Why()), Runs: []api.HeavyRun{}}
 	for _, run := range h.g.Running() {
 		st, since := "running", run.Started
 		if run.Paused {

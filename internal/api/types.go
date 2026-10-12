@@ -696,6 +696,18 @@ type MemoryHold struct {
 	Waiting int `json:"waiting,omitempty"`
 	// Since is when the oldest of them was paused or began to wait.
 	Since time.Time `json:"since"`
+	// Why is what holds them now (pressure.Reason): "stalling" (tasks stall
+	// on memory, Stalled percent of the last 10 seconds), "falling" (what is
+	// available falls Rate bytes a second toward running out), "churning"
+	// (memory pushed out to swap comes back Rate bytes a second), "low"
+	// (little available with swap full), "easing" (it eased: paused
+	// commands resume first, one at a time), or "" (their turn comes next).
+	Why     string  `json:"why,omitempty"`
+	Stalled float64 `json:"stalled,omitempty"`
+	Rate    int64   `json:"rate,omitempty"`
+	// Available and Total are the VM's memory, MemAvailable and MemTotal.
+	Available int64 `json:"available,omitempty"`
+	Total     int64 `json:"total,omitempty"`
 }
 
 // PressureStatus is the VM's memory pressure and the heavy commands the
@@ -706,6 +718,8 @@ type PressureStatus struct {
 	// waiting for memory.
 	Some float64 `json:"some"`
 	Full float64 `json:"full"`
+	// Why is what holds runs back now, as in MemoryHold.Why.
+	Why string `json:"why,omitempty"`
 	// Runs are the heavy commands running, oldest first, then those
 	// waiting, in the order they start.
 	Runs []HeavyRun `json:"runs"`
