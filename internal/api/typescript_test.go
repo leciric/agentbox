@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"agentbox/internal/toolcreds"
 )
 
 // tsFile is the desktop app's copy of the API types, generated from this
@@ -21,7 +23,7 @@ var tsTypes = []any{
 	Snapshot{}, SnapshotRequest{}, RestoreRequest{}, Checkpoint{}, RollbackRequest{}, RollbackResult{}, Base{}, BaseBehind{}, BaseImageChange{}, BaseToolChange{}, SaveBaseRequest{},
 	StopAgentsRequest{}, StopAgentsResult{}, StoppedAgent{}, StopAgentFailure{},
 	MemoryHold{}, PressureStatus{}, HeavyRun{},
-	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{}, DiskGuard{}, DiskGuardDisk{},
+	Job{}, HostUsage{}, HostPressure{}, AgentUsage{}, Usage{}, DiskUsageItem{}, DiskUsageCategory{}, DiskUsage{}, AgentDisk{}, ToolCredential{}, DiskGuard{}, DiskGuardDisk{},
 	MemoryUsageAgent{}, ZramUsage{}, MemoryUsage{}, CPUUsageAgent{}, CPUUsage{}, ClaudeAccount{}, GitHubAccount{}, AuthStatus{},
 	Event{}, JobLogLine{}, AgentChange{}, Theme{}, UpdateThemeRequest{}, UpdateStatus{}, UpdateAvailable{}, UpdateRelease{}, ReleaseAsset{}, IncusStatus{}, ProjectChange{}, PullsChange{}, Self{}, Error{}, TerminalResize{},
 	BrowserStatus{}, BrowserPage{}, BrowserOpenRequest{}, PreviewInfo{},
@@ -67,6 +69,7 @@ var tsConstants = [][2]string{
 	{"EventChat", EventChat}, {"EventChatCache", EventChatCache}, {"EventQuestion", EventQuestion}, {"EventAgentEvent", EventAgentEvent},
 	{"AgentCreated", AgentCreated}, {"AgentFinished", AgentFinished}, {"AgentAsked", AgentAsked}, {"AgentAnswered", AgentAnswered},
 	{"CredentialGitHub", CredentialGitHub}, {"CredentialSecret", CredentialSecret},
+	{"ClaudeCredentialVariables", toolcreds.Joined("claude")}, {"CodexCredentialVariables", toolcreds.Joined("codex")}, {"OpenCodeCredentialVariables", toolcreds.Joined("opencode")},
 	{"ConnectorOAuth", ConnectorOAuth}, {"ConnectorSecret", ConnectorSecret}, {"ConnectorNone", ConnectorNone}, {"ConnectorWide", ConnectorWide},
 	{"ConnectorConnected", ConnectorConnected}, {"ConnectorDisconnected", ConnectorDisconnected}, {"ConnectorConnecting", ConnectorConnecting}, {"ConnectorError", ConnectorError},
 	{"EventConnector", EventConnector}, {"QuestionConnector", QuestionConnector},

@@ -91,6 +91,9 @@ they start.`,
 				_, _ = fmt.Fprintf(out, "Written into %s: %s\n", agentsWord(len(secret.Agents)), strings.Join(secret.Agents, ", "))
 			}
 			_, _ = fmt.Fprintf(out, "Agents read it as $%s; the value can't be read back, here or in the app.\n", secret.Name)
+			if secret.Warning != "" {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Note: %s\n", secret.Warning)
+			}
 			return nil
 		},
 	}

@@ -11,6 +11,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/secrets"
 	"agentbox/internal/state"
+	"agentbox/internal/toolcreds"
 )
 
 // A credential request is an agent asking the user for a credential it lacks —
@@ -220,6 +221,9 @@ func (s *Server) answerCredentialFor(ctx context.Context, q state.Question, req 
 		}
 		outcome = fmt.Sprintf("It's in $%s now, for every agent of this project. A shell that started before this doesn't "+
 			"have it: run `. %s` in the command that needs it. Use it by name, and never print its value.", q.SecretName, envFile)
+		if warning := toolcreds.Warning(q.SecretName); warning != "" {
+			outcome += " " + warning
+		}
 	}
 	return s.answerQuestion(ctx, q.ID, outcome, "user")
 }

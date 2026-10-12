@@ -10,6 +10,7 @@ import (
 	"agentbox/internal/api"
 	"agentbox/internal/secrets"
 	"agentbox/internal/state"
+	"agentbox/internal/toolcreds"
 )
 
 // The secrets routes. Reading gives names, scopes and times, never a value:
@@ -232,6 +233,7 @@ func (s *Server) secretInfo(ctx context.Context, project string, sec secrets.Sec
 		Agent:     sec.Agent,
 		UpdatedAt: sec.UpdatedAt,
 		Agents:    []string{},
+		Warning:   toolcreds.Warning(sec.Name),
 	}
 	if sec.Agent != "" {
 		info.Agents = append(info.Agents, sec.Project+"/"+sec.Agent)

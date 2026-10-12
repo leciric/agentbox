@@ -304,7 +304,8 @@ func agentMemoryTools(ctx context.Context, c *api.Client) []mcp.Tool {
 				"environment itself: the value never passes through you or any chat. What you get back is only what " +
 				"happened — which account you have now, the variable it is in, or that they refused and why. Never ask " +
 				"for a credential in chat or with agentbox ask, and never ask the user to paste one: a value written in " +
-				"a conversation is kept as text. Ask once, for what you actually need.",
+				"a conversation is kept as text. A key your AI tool itself reads (ANTHROPIC_API_KEY, OPENAI_API_KEY) is " +
+				"for your code and its tests only: your AI tool keeps running on its own account. Ask once, for what you actually need.",
 			Schema: object([]string{"kind", "reason"}, map[string]any{
 				"kind": choiceOf("what you need. \"github\" is a GitHub account that can reach this repository, which "+
 					"becomes this project's account and replaces GH_TOKEN and GITHUB_TOKEN here. \"secret\" is a value "+

@@ -678,6 +678,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/lead", s.projectChat)
 	h("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
 	h("GET /v1/projects/{project}/fleet", s.fleet)
+	h("GET /v1/projects/{project}/credentials", s.projectCredentials)
 	h("GET /v1/projects/{project}/agent-events", s.projectAgentEvents)
 	h("GET /v1/projects/{project}/questions", s.projectQuestions)
 	h("POST /v1/projects/{project}/questions/{id}/answer", s.answerAsUser)
@@ -735,6 +736,7 @@ func (s *Server) routes() http.Handler {
 	}
 	h("GET /v1/agents/{project}/{agent}/diff", s.diff)
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
+	h("GET /v1/agents/{project}/{agent}/credential", s.agentCredential)
 	h("GET /v1/agents/{project}/{agent}/files", s.listFiles(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/snapshots", s.listSnapshots)
 	h("POST /v1/agents/{project}/{agent}/snapshots", s.takeSnapshot)

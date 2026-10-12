@@ -158,7 +158,11 @@ func (m *Manager) ChatCommand(ctx context.Context, a state.Agent, status func(de
 	for _, arg := range args {
 		command += " " + shellQuote(arg)
 	}
-	script := fmt.Sprintf("cd %s && %sexec mise exec %s -- %s", shellQuote(a.Worktree), env, pkg, command)
+	hide, err := m.toolHides(a)
+	if err != nil {
+		return nil, err
+	}
+	script := fmt.Sprintf("cd %s && %sexec %smise exec %s -- %s", shellQuote(a.Worktree), env, m.withoutCredentials(hide), pkg, command)
 	return m.Incus.Command(ctx, "exec", a.Instance, "-T", "--", "runuser", "-l", m.User.Name, "-c", script), nil
 }
 
@@ -202,8 +206,12 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 	if inst, err := m.Incus.Instance(ctx, a.Instance); err != nil || inst.Status != "Running" {
 		return a, nil // the session starts with the agent
 	}
+	window, err := m.toolWindowScript(a)
+	if err != nil {
+		return a, err
+	}
 	script := fmt.Sprintf("tmux has-session -t %[1]s 2>/dev/null || exit 0\ntmux list-windows -t %[1]s -F '#W' | grep -qx %[2]s && exit 0\n",
-		session, shellQuote(a.AI)) + toolWindowScript(a)
+		session, shellQuote(a.AI)) + window
 	var out bytes.Buffer
 	if err := m.Incus.UserExec(ctx, a.Instance, m.User.Name, script, nil, &out, &out); err != nil {
 		return a, fmt.Errorf("starting %s in the terminal: %w: %s", adapter.Tool, err, strings.TrimSpace(out.String()))
@@ -212,17 +220,23 @@ func (m *Manager) SetInterface(ctx context.Context, a state.Agent, iface string)
 }
 
 // toolWindowScript opens tmux window 1 with the AI tool's command line, for an
-// agent you use from the terminal rather than the chat.
-func toolWindowScript(a state.Agent) string {
+// agent you use from the terminal rather than the chat, started without the
+// credential variables in hide (toolHides).
+func (m *Manager) toolWindowScript(a state.Agent) (string, error) {
 	tool := Tools[a.AI]
 	command := tool.Command
 	if a.Autonomous {
 		command = tool.Autonomous
 	}
 	if command == "" || a.Interface == state.InterfaceChat {
-		return ""
+		return "", nil
 	}
-	// Typed into a shell, so the window stays open when the tool exits.
+	hide, err := m.toolHides(a)
+	if err != nil {
+		return "", err
+	}
+	// Typed into a shell, so the window stays open when the tool exits. The
+	// shell keeps the secrets; env execs the tool without them.
 	return fmt.Sprintf("tmux new-window -t %[1]s -n %[2]s -c %[3]s\ntmux send-keys -t %[1]s:%[2]s %[4]s Enter\n",
-		session, a.AI, shellQuote(a.Worktree), shellQuote(command))
+		session, a.AI, shellQuote(a.Worktree), shellQuote(m.withoutCredentials(hide)+command)), nil
 }

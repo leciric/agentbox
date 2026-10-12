@@ -1108,6 +1108,27 @@ type AuthStatus struct {
 	GitHubError string `json:"githubError,omitempty"`
 }
 
+// ToolCredential is what an agent's AI tool really runs on, read by the daemon
+// from the environment of the tool's running process, not from settings: a
+// project secret such as ANTHROPIC_API_KEY that reached it would show here as
+// the variable it runs on (internal/toolcreds). Values never leave the agent.
+type ToolCredential struct {
+	Agent string `json:"agent"` // project/agent
+	Tool  string `json:"tool"`
+	// Running is false when the tool's process isn't running: the rest is then empty.
+	Running bool `json:"running"`
+	// Variable is the environment variable it authenticates with
+	// (CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY…), or empty
+	// when it has none and uses its own stored sign-in.
+	Variable string `json:"variable,omitempty"`
+	// Account is the Claude account whose token is in its environment.
+	Account string `json:"account,omitempty"`
+	// Others are the other credential, provider and endpoint variables it has.
+	Others []string `json:"others,omitempty"`
+	// Error is why it couldn't be read.
+	Error string `json:"error,omitempty"`
+}
+
 // GitHubAccount is one stored GitHub login agents can be given.
 type GitHubAccount struct {
 	Name    string    `json:"name"`

@@ -23,6 +23,10 @@ type Secret struct {
 	// secret lists every agent of the project that has it now; an agent secret
 	// lists that one agent. An agent created later gets it too.
 	Agents []string `json:"agents"`
+	// Warning, for a name an AI tool picks its credential by (ANTHROPIC_API_KEY),
+	// says that the tool won't use it while signed in to an account: AgentBox
+	// keeps it out of the tool's own environment (internal/toolcreds).
+	Warning string `json:"warning,omitempty"`
 }
 
 // SetSecretRequest is the body of PUT .../secrets/{name}. Value is the only

@@ -195,13 +195,15 @@ unset _ab_n _ab_v _ab_c _ab_f _ab_w
 `
 
 // BashEnvPath is the file BASH_ENV names in an agent's Claude Code, which
-// every Bash tool call's shell reads: the worker counts, and the heavy
-// command's join into its run's cgroup when one just started (heavyhooks.go).
+// every Bash tool call's shell reads: the worker counts, the heavy command's
+// join into its run's cgroup when one just started (heavyhooks.go), and the
+// secrets the AI tool itself was started without (toolcreds.go). Codex and
+// OpenCode are given it too when they start without some.
 func (m *Manager) BashEnvPath() string { return "/home/" + m.User.Name + "/.config/agentbox/bash_env" }
 
 func (m *Manager) bashEnv() string {
 	heavy := shellQuote("/home/" + m.User.Name + "/" + HeavyEnvFile)
-	return "# Written by AgentBox.\n" + workersScript + "if [ -r " + heavy + " ]; then . " + heavy + "; fi\n"
+	return "# Written by AgentBox.\n" + workersScript + m.bashEnvSecrets() + "if [ -r " + heavy + " ]; then . " + heavy + "; fi\n"
 }
 
 func (m *Manager) writeBashEnv(ctx context.Context, a state.Agent) error {
