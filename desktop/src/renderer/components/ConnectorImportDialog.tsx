@@ -28,8 +28,9 @@ const toolNames: Record<string, string> = {
 
 // ConnectorImportDialog lists the MCP servers the user's own AI tools have
 // (the daemon reads their files: internal/connectors/found.go), lets them
-// tick the ones to import and pick where they go, AgentBox-wide unless they
-// say otherwise, and adds them. Those that sign in with OAuth then open their
+// tick the ones to import, and adds them where it was opened: AgentBox-wide
+// from AgentBox's Settings, or a project from its tab, which can send them
+// AgentBox-wide instead. Those that sign in with OAuth then open their
 // sign-in in the browser, as adding one by hand does. A header the tool's file
 // sends goes from that file into a secret without passing through here; one
 // it reads from the user's shell is typed in.
@@ -37,7 +38,9 @@ export function ConnectorImportDialog({ project, onClose }: { project?: string; 
   const t = useT();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
-  const [scope, setScope] = useState('');
+  // From a project's tab it imports into that project unless the user says
+  // AgentBox-wide; from AgentBox's Settings, AgentBox-wide.
+  const [scope, setScope] = useState(project ?? '');
   const scan = useQuery({ queryKey: ['connectorScan', scope], queryFn: () => api.scanConnectors(scope), retry: false, staleTime: 0, gcTime: 0 });
   const found = useMemo(() => scan.data?.candidates ?? [], [scan.data]);
   const importable = found.filter((c) => !c.problem && !c.existing);
@@ -93,14 +96,16 @@ export function ConnectorImportDialog({ project, onClose }: { project?: string; 
             <label htmlFor="connector-import-scope" className="shrink-0 text-[12.5px] text-subtle">
               {t('project.connectors.importScope')}
             </label>
-            <Select id="connector-import-scope" className="max-w-sm" value={scope} onChange={setScope}>
-              <SelectOption value="">{t('project.connectors.importScopeWide')}</SelectOption>
-              {(project ? [project] : (projects.data?.map((p) => p.name) ?? [])).map((name) => (
-                <SelectOption key={name} value={name}>
-                  {t('project.connectors.importScopeProject', { project: projectLabel(name, projects.data) })}
-                </SelectOption>
-              ))}
-            </Select>
+            {project ? (
+              <Select id="connector-import-scope" className="max-w-sm" value={scope} onChange={setScope}>
+                <SelectOption value={project}>{t('project.connectors.importScopeProject', { project: projectLabel(project, projects.data) })}</SelectOption>
+                <SelectOption value="">{t('project.connectors.importScopeWide')}</SelectOption>
+              </Select>
+            ) : (
+              <span id="connector-import-scope" className="text-[13px] text-primary">
+                {t('project.connectors.importScopeWide')}
+              </span>
+            )}
           </div>
         </div>
 
