@@ -98,3 +98,16 @@ func (c *Client) SetConnectorOverride(ctx context.Context, project, name, overri
 	var out Connector
 	return out, c.connectorDo(ctx, http.MethodPut, project, "/"+url.PathEscape(name)+"/override", ConnectorOverrideRequest{Override: override}, &out)
 }
+
+// ScanConnectors finds the MCP servers the user's own AI tools have, as they
+// would be imported into project ("" for AgentBox-wide).
+func (c *Client) ScanConnectors(ctx context.Context, project string) (ConnectorScan, error) {
+	var out ConnectorScan
+	return out, c.do(ctx, http.MethodPost, "/v1/connectors/scan", ScanConnectorsRequest{Project: project}, &out)
+}
+
+// ImportConnectors adds some of what ScanConnectors found.
+func (c *Client) ImportConnectors(ctx context.Context, req ImportConnectorsRequest) (ImportConnectorsResult, error) {
+	var out ImportConnectorsResult
+	return out, c.do(ctx, http.MethodPost, "/v1/connectors/import", req, &out)
+}

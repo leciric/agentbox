@@ -179,3 +179,128 @@ type ConnectorRequest struct {
 	// Reason is what the agent needs it for, for the user to decide on.
 	Reason string `json:"reason"`
 }
+
+// How an MCP server found in an AI tool's configuration is reached.
+const (
+	// TransportHTTP is streamable HTTP: what a connector is.
+	TransportHTTP = "http"
+	// TransportSSE is the older HTTP+SSE transport, which the daemon's relay
+	// doesn't speak.
+	TransportSSE = "sse"
+	// TransportStdio is a command the AI tool runs on the user's machine.
+	TransportStdio = "stdio"
+)
+
+// Why a server found can't be imported, as ConnectorCandidate's Problem has it.
+const (
+	ConnectorProblemStdio = "stdio"
+	ConnectorProblemSSE   = "sse"
+	// ConnectorProblemURL is an address a connector can't have: not https,
+	// or on this machine.
+	ConnectorProblemURL = "url"
+	// ConnectorProblemVariable is an address with an environment variable in
+	// it, which only the user's shell can fill in.
+	ConnectorProblemVariable = "variable"
+)
+
+// ScanConnectorsRequest is the body of POST /v1/connectors/scan: the MCP
+// servers the user's own AI tools have, as they would be imported into
+// Project ("" for AgentBox-wide): Claude Code (~/.claude.json, and its
+// projects'), Claude Desktop, Codex, OpenCode, Cursor and Gemini CLI.
+type ScanConnectorsRequest struct {
+	Project string `json:"project,omitempty"`
+}
+
+// ConnectorScan is what a scan found.
+type ConnectorScan struct {
+	Candidates []ConnectorCandidate `json:"candidates"`
+	// Unreadable are configurations that are there but couldn't be read.
+	Unreadable []ConnectorUnreadable `json:"unreadable"`
+}
+
+// ConnectorUnreadable is one AI tool's configuration that couldn't be read.
+type ConnectorUnreadable struct {
+	Tool  string `json:"tool"`
+	Path  string `json:"path"`
+	Error string `json:"error"`
+}
+
+// ConnectorCandidate is one MCP server found, as it would be imported: the
+// same URL in several tools is one. Never a header's value.
+type ConnectorCandidate struct {
+	// Name is what it would be added as: its name in the tool, made a valid
+	// connector name no connector of the scope has, or the name of the one
+	// that has its URL (Existing).
+	Name string `json:"name"`
+	// URL is empty for a stdio server.
+	URL string `json:"url,omitempty"`
+	// Transport is TransportHTTP, TransportSSE or TransportStdio.
+	Transport string `json:"transport"`
+	// Command is a stdio server's program, without its arguments.
+	Command string            `json:"command,omitempty"`
+	Sources []ConnectorSource `json:"sources"`
+	// Header is the header the tool's configuration sends, which the
+	// connector will send too, as the secret Secret; Scheme comes before its
+	// value. With no header, it signs in with OAuth if the server asks for it
+	// when imported, and sends nothing otherwise.
+	Header string `json:"header,omitempty"`
+	Scheme string `json:"scheme,omitempty"`
+	Secret string `json:"secret,omitempty"`
+	// NeedsValue is a header whose value is an environment variable
+	// (Variable) of the user's shell, which AgentBox can't read: the import
+	// needs it entered.
+	NeedsValue bool   `json:"needsValue,omitempty"`
+	Variable   string `json:"variable,omitempty"`
+	// Existing is the connector of the scope that has this URL already: it
+	// isn't imported again.
+	Existing string `json:"existing,omitempty"`
+	// Problem is why it can't be imported: ConnectorProblemStdio, …SSE, …URL
+	// or …Variable.
+	Problem string `json:"problem,omitempty"`
+}
+
+// ConnectorSource is one AI tool that has a server.
+type ConnectorSource struct {
+	// Tool is "claude", "claude-desktop", "codex", "opencode", "cursor" or
+	// "gemini".
+	Tool string `json:"tool"`
+	// Name is what the tool calls it.
+	Name string `json:"name"`
+	// Path is the configuration file it is in.
+	Path string `json:"path"`
+	// Project is, for one of Claude Code's projects, its folder.
+	Project string `json:"project,omitempty"`
+}
+
+// ImportConnectorsRequest is the body of POST /v1/connectors/import: some of
+// what a scan finds, by URL, added to Project ("" for AgentBox-wide). The
+// daemon scans again, so a header's value comes from the tool's
+// configuration rather than through here — but for one that NeedsValue.
+type ImportConnectorsRequest struct {
+	Project string            `json:"project,omitempty"`
+	Servers []ImportConnector `json:"servers"`
+}
+
+// ImportConnector is one server to import.
+type ImportConnector struct {
+	URL string `json:"url"`
+	// Name replaces the candidate's.
+	Name string `json:"name,omitempty"`
+	// Value is the header's value, for a candidate that NeedsValue; left
+	// out, a secret of that name the scope already has is sent.
+	Value string `json:"value,omitempty"`
+}
+
+// ImportConnectorsResult is what an import added, and what it couldn't. An
+// OAuth connector added still needs signing in to (POST …/connect).
+type ImportConnectorsResult struct {
+	Added  []Connector              `json:"added"`
+	Failed []ImportConnectorFailure `json:"failed"`
+}
+
+// ImportConnectorFailure is a server that wasn't imported, and why.
+type ImportConnectorFailure struct {
+	URL   string `json:"url"`
+	Name  string `json:"name,omitempty"`
+	Error string `json:"error"`
+}

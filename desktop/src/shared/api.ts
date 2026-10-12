@@ -1133,6 +1133,65 @@ export interface ConnectorRequest {
   reason: string;
 }
 
+export interface ScanConnectorsRequest {
+  project?: string;
+}
+
+export interface ConnectorScan {
+  candidates: ConnectorCandidate[];
+  unreadable: ConnectorUnreadable[];
+}
+
+export interface ConnectorUnreadable {
+  tool: string;
+  path: string;
+  error: string;
+}
+
+export interface ConnectorCandidate {
+  name: string;
+  url?: string;
+  transport: string;
+  command?: string;
+  sources: ConnectorSource[];
+  header?: string;
+  scheme?: string;
+  secret?: string;
+  needsValue?: boolean;
+  variable?: string;
+  existing?: string;
+  problem?: string;
+}
+
+export interface ConnectorSource {
+  tool: string;
+  name: string;
+  path: string;
+  project?: string;
+}
+
+export interface ImportConnectorsRequest {
+  project?: string;
+  servers: ImportConnector[];
+}
+
+export interface ImportConnector {
+  url: string;
+  name?: string;
+  value?: string;
+}
+
+export interface ImportConnectorsResult {
+  added: Connector[];
+  failed: ImportConnectorFailure[];
+}
+
+export interface ImportConnectorFailure {
+  url: string;
+  name?: string;
+  error: string;
+}
+
 export interface PullRequest {
   number: number;
   title: string;
@@ -2335,6 +2394,13 @@ export const ConnectorConnecting = "connecting";
 export const ConnectorError = "error";
 export const EventConnector = "connector";
 export const QuestionConnector = "connector";
+export const TransportHTTP = "http";
+export const TransportSSE = "sse";
+export const TransportStdio = "stdio";
+export const ConnectorProblemStdio = "stdio";
+export const ConnectorProblemSSE = "sse";
+export const ConnectorProblemURL = "url";
+export const ConnectorProblemVariable = "variable";
 export const ArtifactActive = "active";
 export const ArtifactExpired = "expired";
 export const ArtifactUnavailable = "unavailable";

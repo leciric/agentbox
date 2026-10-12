@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Globe, LoaderCircle, Lock, Plug, Plus, Unplug, X } from 'lucide-react';
+import { Download, ExternalLink, Globe, LoaderCircle, Lock, Plug, Plus, Unplug, X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -23,6 +23,7 @@ import {
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ConnectorImportDialog } from './ConnectorImportDialog';
 import { ConnectorRequestCards } from './ConnectorRequestCard';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -223,6 +224,7 @@ function Catalog({
 }) {
   const t = useT();
   const [picked, setPicked] = useState<ConnectorPreset | 'custom' | null>(null);
+  const [importing, setImporting] = useState(false);
   // An AgentBox-wide one doesn't take a project's tile: the project can add
   // its own, which replaces it there.
   const added = (p: ConnectorPreset) => have.find((c) => (scope === A.ConnectorWide || !isWide(c)) && (c.url === p.url || c.name === p.name));
@@ -237,6 +239,16 @@ function Catalog({
             : t('project.connectors.giveProject')
       }
       icon={Plus}
+      action={
+        // An agent's own connectors are added one at a time: an import goes
+        // AgentBox-wide or to a project.
+        scope !== 'agent' && (
+          <Button size="sm" variant="secondary" onClick={() => setImporting(true)} data-connectors-import>
+            <Download />
+            {t('project.connectors.import')}
+          </Button>
+        )
+      }
       description={
         scope === A.ConnectorWide
           ? t('project.connectors.giveWideDescription')
@@ -284,6 +296,7 @@ function Catalog({
           }}
         />
       )}
+      {importing && <ConnectorImportDialog project={scope === 'project' ? target : undefined} onClose={() => setImporting(false)} />}
     </Card>
   );
 }

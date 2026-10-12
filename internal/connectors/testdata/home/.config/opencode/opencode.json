@@ -1,0 +1,10 @@
+{
+  // OpenCode's configuration is JSON with comments.
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "notion": {"type": "remote", "url": "https://mcp.notion.com/mcp", "headers": {"Authorization": "Bearer {env:NOTION_TOKEN}"},},
+    "local-db": {"type": "local", "command": ["bun", "x", "db-mcp"]},
+    /* a server on this machine */
+    "dev": {"type": "remote", "url": "http://localhost:3000/mcp"},
+  },
+}

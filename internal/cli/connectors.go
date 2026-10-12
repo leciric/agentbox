@@ -52,7 +52,7 @@ sent one of the project's secrets as a header instead:
 	}
 	cmd.AddCommand(newConnectorAddCmd(a), newConnectorListCmd(a), newConnectorConnectCmd(a),
 		newConnectorDisconnectCmd(a), newConnectorRemoveCmd(a), newConnectorOverrideCmd(a), newConnectorMCPCmd(a),
-		newConnectorToolsCmd(a), newConnectorCallCmd(a))
+		newConnectorToolsCmd(a), newConnectorCallCmd(a), newConnectorImportCmd(a))
 	return cmd
 }
 

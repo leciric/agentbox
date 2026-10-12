@@ -269,6 +269,10 @@ export const api = {
   // A project's say on an AgentBox-wide connector: 'on', 'off', or '' to follow AgentBox's.
   setConnectorOverride: (projectName: string, name: string, override: '' | 'on' | 'off') =>
     call<T.Connector>('PUT', `${connectorPath(projectName, name)}/override`, { override } satisfies T.ConnectorOverrideRequest),
+  // The MCP servers the user's own AI tools have, as they would be imported
+  // into a project ('' for AgentBox-wide); a header's value never comes back.
+  scanConnectors: (project: string) => call<T.ConnectorScan>('POST', '/v1/connectors/scan', { project } satisfies T.ScanConnectorsRequest),
+  importConnectors: (req: T.ImportConnectorsRequest) => call<T.ImportConnectorsResult>('POST', '/v1/connectors/import', req),
 
   // The pages a project's chats published on Hatch, and one of them brought
   // up to date from Hatch; its HTML is framed from pageUrl, and snapshotted

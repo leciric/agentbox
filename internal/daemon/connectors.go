@@ -69,6 +69,8 @@ func (s *Server) connectorRoutes(h func(string, func(http.ResponseWriter, *http.
 		h("POST "+scope.prefix+"/{name}/disconnect", func(w http.ResponseWriter, r *http.Request) error { return s.disconnectConnector(w, r, of) })
 	}
 	h("PUT /v1/projects/{project}/connectors/{name}/override", s.setConnectorOverride)
+	h("POST /v1/connectors/scan", s.scanConnectors)
+	h("POST /v1/connectors/import", s.importConnectors)
 }
 
 func wideConnectorScope(*http.Request) (string, string, error) { return "", "", nil }

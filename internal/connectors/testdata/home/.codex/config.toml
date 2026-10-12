@@ -1,0 +1,15 @@
+model = "gpt-5"
+
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp/"
+
+[mcp_servers.figma]
+url = "https://mcp.figma.com/mcp"
+env_http_headers = { "X-Figma-Token" = "FIGMA_TOKEN" }
+
+[mcp_servers.stripe]
+url = "https://mcp.stripe.com"
+bearer_token_env_var = "STRIPE_KEY"
+
+[mcp_servers.docs]
+command = "uvx docs-server --key abc"

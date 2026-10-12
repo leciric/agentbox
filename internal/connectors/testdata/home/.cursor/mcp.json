@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "LINEAR": {"url": "HTTPS://MCP.LINEAR.APP/mcp"},
+    "templated": {"url": "https://${env:HOST}/mcp"},
+    "playwright": {"url": "https://playwright.example.com/mcp"}
+  }
+}

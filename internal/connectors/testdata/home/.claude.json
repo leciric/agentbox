@@ -1,0 +1,18 @@
+{
+  "numStartups": 12,
+  "mcpServers": {
+    "linear": {"type": "http", "url": "https://mcp.linear.app/mcp"},
+    "Sentry Prod": {"type": "http", "url": "https://mcp.sentry.dev/mcp/", "headers": {"Authorization": "Bearer ${SENTRY_TOKEN}"}},
+    "github": {"type": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-github", "--token", "ghp_secret"]},
+    "old-sse": {"type": "sse", "url": "https://sse.example.com/sse"},
+    "not-an-object": 42
+  },
+  "projects": {
+    "/home/ana/pawly": {
+      "mcpServers": {
+        "acme": {"type": "http", "url": "https://mcp.acme.io/mcp", "headers": {"X-Api-Key": "acme-literal-key", "X-Trace": "1"}}
+      }
+    },
+    "/home/ana/empty": {}
+  }
+}
