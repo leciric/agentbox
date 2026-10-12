@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"agentbox/internal/github"
@@ -293,18 +295,21 @@ func TestRefusedTokenSaysWhatToDo(t *testing.T) {
 func TestPullRequestsListsAndEnrichesOnlyOpenOnes(t *testing.T) {
 	ctx := context.Background()
 	repo := github.Repo{Owner: "acme", Name: "pawly"}
-	const list = `[
-		{"number":9,"title":"Open one","state":"open","html_url":"https://github.com/acme/pawly/pull/9","draft":false,"updated_at":"2026-09-15T10:00:00Z","base":{"ref":"main"},"head":{"ref":"agentbox/agent-02","sha":"def"}},
+	const openList = `[
+		{"number":9,"title":"Open one","state":"open","html_url":"https://github.com/acme/pawly/pull/9","draft":false,"updated_at":"2026-09-15T10:00:00Z","base":{"ref":"main"},"head":{"ref":"agentbox/agent-02","sha":"def"}}
+	]`
+	const closedList = `[
 		{"number":7,"title":"Merged one","state":"closed","merged_at":"2026-09-14T11:00:00Z","html_url":"https://github.com/acme/pawly/pull/7","base":{"ref":"main"},"head":{"ref":"agentbox/agent-01","sha":"abc"}}
 	]`
 	var sawDetail, sawChecksForClosed bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/repos/acme/pawly/pulls":
-			if got := r.URL.Query().Get("state"); got != "all" {
-				t.Errorf("state = %q, want all", got)
+			if r.URL.Query().Get("state") == "open" {
+				_, _ = w.Write([]byte(openList))
+			} else {
+				_, _ = w.Write([]byte(closedList))
 			}
-			_, _ = w.Write([]byte(list))
 		case "/repos/acme/pawly/pulls/9":
 			sawDetail = true
 			_, _ = w.Write([]byte(`{"additions":12,"deletions":3,"comments":4}`))
@@ -547,5 +552,81 @@ func TestLabels(t *testing.T) {
 	}
 	if got, err := c.SetPullRequestLabels(ctx, repo, 1, nil); err != nil || got == nil || len(put) != 0 {
 		t.Errorf("SetPullRequestLabels(nil) = %v, %v; sent %v", got, err, put)
+	}
+}
+
+// Every open pull request is listed, however long ago it moved, while closed
+// and merged ones are one bounded page.
+func TestPullRequestsPagesThroughEveryOpenOne(t *testing.T) {
+	const open, closed = 250, 40
+	item := func(n int, state string, day int) string {
+		return fmt.Sprintf(`{"number":%d,"state":%q,"updated_at":"2026-%02d-%02dT10:00:00Z","user":{"login":"me"},"head":{"ref":"b%d","sha":"s%d"}}`,
+			n, state, 1+day/28, 1+day%28, n, n)
+	}
+	var mu sync.Mutex
+	var closedPages int
+	var perPage []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		switch {
+		case r.URL.Path == "/repos/acme/pawly/pulls" && q.Get("state") == "open":
+			n, _ := strconv.Atoi(q.Get("per_page"))
+			page, _ := strconv.Atoi(q.Get("page"))
+			mu.Lock()
+			perPage = append(perPage, q.Get("page"))
+			mu.Unlock()
+			var items []string
+			for i := (page - 1) * n; i < min(page*n, open); i++ {
+				items = append(items, item(i+1, "open", 300-i))
+			}
+			_, _ = w.Write([]byte("[" + strings.Join(items, ",") + "]"))
+		case r.URL.Path == "/repos/acme/pawly/pulls" && q.Get("state") == "closed":
+			mu.Lock()
+			closedPages++
+			mu.Unlock()
+			var items []string
+			for i := 0; i < closed; i++ {
+				items = append(items, item(1000+i, "closed", 300-i))
+			}
+			n, _ := strconv.Atoi(q.Get("per_page"))
+			_, _ = w.Write([]byte("[" + strings.Join(items[:min(n, closed)], ",") + "]"))
+		case strings.Contains(r.URL.Path, "/check-runs"):
+			_, _ = w.Write([]byte(`{"total_count":0}`))
+		case strings.HasPrefix(r.URL.Path, "/repos/acme/pawly/pulls/"):
+			_, _ = w.Write([]byte(`{"additions":1}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	prs, err := github.Client{Token: "test-token", BaseURL: srv.URL}.PullRequests(context.Background(), github.Repo{Owner: "acme", Name: "pawly"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[int]bool{}
+	var nOpen, nClosed int
+	for _, pr := range prs {
+		if seen[pr.Number] {
+			t.Errorf("#%d listed twice", pr.Number)
+		}
+		seen[pr.Number] = true
+		if pr.State == "open" {
+			nOpen++
+		} else {
+			nClosed++
+		}
+	}
+	if nOpen != open {
+		t.Errorf("%d open pull requests listed, want all %d", nOpen, open)
+	}
+	if nClosed != 30 || closedPages != 1 {
+		t.Errorf("%d closed ones from %d reads, want one page of 30", nClosed, closedPages)
+	}
+	if len(perPage) != 3 {
+		t.Errorf("open pages read = %v, want 3", perPage)
+	}
+	if !slices.IsSortedFunc(prs, func(a, b github.PullRequest) int { return b.UpdatedAt.Compare(*a.UpdatedAt) }) {
+		t.Error("not most recently updated first")
 	}
 }

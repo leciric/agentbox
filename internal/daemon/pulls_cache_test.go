@@ -46,7 +46,10 @@ func newSlowGitHub(t *testing.T, d testDaemon, list string, delay time.Duration)
 func (g *slowGitHub) serve(w http.ResponseWriter, r *http.Request) {
 	g.mu.Lock()
 	what, delay, list := r.URL.Path, g.delay, g.list
-	g.calls[what]++
+	// A list read is the open query; the closed one rides along with it.
+	if what != "/repos/acme/hello-stack/pulls" || r.URL.Query().Get("state") == "open" {
+		g.calls[what]++
+	}
 	commit, isCommit := strings.CutPrefix(r.URL.Path, "/repos/acme/hello-stack/commits/")
 	commit, _ = strings.CutSuffix(commit, "/pulls")
 	byCommit, known := g.byCommit[commit]
@@ -66,7 +69,7 @@ func (g *slowGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"state":"open","draft":false,"additions":1,"deletions":0,"comments":0}`))
 	case strings.HasSuffix(r.URL.Path, "/pulls"):
 		time.Sleep(delay)
-		_, _ = w.Write([]byte(list))
+		_, _ = w.Write([]byte(listForState(list, r)))
 	default:
 		_, _ = w.Write([]byte(`{"default_branch":"main","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":true,"permissions":{"push":true}}`))
 	}
@@ -88,6 +91,24 @@ func (g *slowGitHub) setCommit(commit, body string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.byCommit[commit] = body
+}
+
+// listForState is the part of a stub list page a request's state asks for:
+// the open pull requests, or the closed and merged ones.
+func listForState(list string, r *http.Request) string {
+	var items []map[string]any
+	if err := json.Unmarshal([]byte(list), &items); err != nil {
+		return list
+	}
+	want := r.URL.Query().Get("state")
+	out := []map[string]any{}
+	for _, it := range items {
+		if (it["state"] == "open") == (want == "open") {
+			out = append(out, it)
+		}
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
 }
 
 // pullsList is a list page with one pull request per branch given, whose

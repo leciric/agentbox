@@ -297,22 +297,69 @@ func (c Client) PullRequestsWithCommit(ctx context.Context, repo Repo, commit st
 }
 
 // pullRequestPageSize bounds how many of a repository's most recently moved
-// pull requests PullRequests returns.
+// closed and merged pull requests PullRequests returns.
 const pullRequestPageSize = 30
 
+// openPageSize is GitHub's largest page; openPageLimit stops a runaway
+// repository from paging forever (5,000 open pull requests).
+const (
+	openPageSize  = 100
+	openPageLimit = 50
+)
+
+// openPullRequests reads every open pull request, page by page.
+func (c Client) openPullRequests(ctx context.Context, repo Repo) ([]rawPR, error) {
+	var all []rawPR
+	for page := 1; page <= openPageLimit; page++ {
+		var list []rawPR
+		path := fmt.Sprintf("/repos/%s/%s/pulls?state=open&sort=updated&direction=desc&per_page=%d&page=%d",
+			url.PathEscape(repo.Owner), url.PathEscape(repo.Name), openPageSize, page)
+		if err := c.get(ctx, path, &list); err != nil {
+			return nil, err
+		}
+		all = append(all, list...)
+		if len(list) < openPageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
 // PullRequests lists a repository's pull requests, most recently updated
-// first, in one call rather than one per branch. Open ones are enriched with
+// first: every open one, however long ago it moved, and the most recently
+// updated closed and merged ones. Open ones are enriched with
 // their checks, comment count and diff size, which the list endpoint doesn't
 // carry and GitHub only gives out one pull request at a time; closed and
 // merged ones keep whatever the list already had, since nobody is about to
 // act on their history.
 func (c Client) PullRequests(ctx context.Context, repo Repo) ([]PullRequest, error) {
-	var list []rawPR
-	path := fmt.Sprintf("/repos/%s/%s/pulls?state=all&sort=updated&direction=desc&per_page=%d",
-		url.PathEscape(repo.Owner), url.PathEscape(repo.Name), pullRequestPageSize)
-	if err := c.get(ctx, path, &list); err != nil {
+	var open, closed []rawPR
+	var openErr, closedErr error
+	var lg errgroup.Group
+	lg.Go(func() error {
+		open, openErr = c.openPullRequests(ctx, repo)
+		return nil
+	})
+	lg.Go(func() error {
+		path := fmt.Sprintf("/repos/%s/%s/pulls?state=closed&sort=updated&direction=desc&per_page=%d",
+			url.PathEscape(repo.Owner), url.PathEscape(repo.Name), pullRequestPageSize)
+		closedErr = c.get(ctx, path, &closed)
+		return nil
+	})
+	_ = lg.Wait()
+	if err := errors.Join(openErr, closedErr); err != nil {
 		return nil, err
 	}
+	list := append(open, closed...)
+	// A pull request that closed between the two reads is in both, and one
+	// that moved while the pages were read can be on two of them.
+	seen := map[int]bool{}
+	list = slices.DeleteFunc(list, func(raw rawPR) bool {
+		dup := seen[raw.Number]
+		seen[raw.Number] = true
+		return dup
+	})
+	slices.SortStableFunc(list, func(a, b rawPR) int { return b.UpdatedAt.Compare(a.UpdatedAt) })
 	out := make([]PullRequest, len(list))
 	// Two calls per open pull request, a few hundred milliseconds each: one
 	// after the other, a busy repository took most of a minute to re-read,
