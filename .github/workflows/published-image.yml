@@ -80,8 +80,8 @@ jobs:
       - name: What it holds
         run: |
           ls -l out/${{ matrix.arch }}
-          cat out/${{ matrix.arch }}/image.json out/${{ matrix.arch }}/SHA256SUMS
-          grep -vc '^#' out/${{ matrix.arch }}/packages.txt
+          cat out/${{ matrix.arch }}/image-${{ matrix.arch }}.json out/${{ matrix.arch }}/SHA256SUMS
+          grep -vc '^#' out/${{ matrix.arch }}/packages-${{ matrix.arch }}.txt
 
       # Already gzipped and split: zipping it again would only cost time.
       - uses: actions/upload-artifact@v7
@@ -91,12 +91,12 @@ jobs:
           compression-level: 0
           retention-days: 1
 
-  # Whatever built: an architecture that failed keeps its image of the same
-  # version in the release, or has none, and its machines build their own.
+  # Only when every architecture built: a half-failed run publishes nothing and
+  # deletes nothing, so the release and R2 stay as they were.
   publish:
     name: Publish to GitHub releases
     needs: build
-    if: always() && !cancelled() && github.ref == 'refs/heads/main'
+    if: needs.build.result == 'success' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
