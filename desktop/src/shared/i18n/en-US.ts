@@ -625,7 +625,7 @@ export const enUS = {
 
   // defaults
   'defaults.errorReports.title': 'Error reports are on',
-  'defaults.errorReports.description': 'AgentBox sends its developers a report of each unexpected error: the error, where in the app it happened, and the app’s version and OS, with tokens, emails and home folders taken out. No logs, and nothing you typed. You can turn this off in Settings, General.',
+  'defaults.errorReports.description': 'Unexpected errors are sent to AgentBox’s developers, with personal data removed.',
   'defaults.errorReports.settings': 'Open the setting',
   'defaults.voice.pttTitle': 'Push-to-talk',
   'defaults.voice.pttDescription': 'Hold the microphone button in a chat, or Ctrl+Space, and talk. Your speech is turned into text on this computer, by Whisper, and never leaves it.',

@@ -9,6 +9,7 @@
 // State comes from the URL, not clicks, so a scenario is a link both a
 // person and scripts/preview.mjs can go straight to:
 //   ?theme=light            the light appearance (default: dark)
+//   ?notice=errorReports    the one-time error reports notice, as a toast
 //   ?lang=pt-BR             the app in another language (default: en-US), for
 //                           strings longer than English's
 //   ?folded=1               the rail folded to 56px (default: open)
@@ -167,7 +168,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import type { ConnectionState, HostSetupStatus } from '../../preload';
 import type * as T from '../../shared/api';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import type { View } from '../App';
 import { AgentRail } from '../components/AgentRail';
 import { HomeView } from '../components/HomeView';
@@ -193,7 +194,7 @@ import { MovePrompt } from '../components/RunInVM';
 import { laterKey } from '../lib/vmMove';
 import { VMSize } from '../components/VMSize';
 import { connectEvents, seedConnection } from '../lib/events';
-import { applyLanguage, useLanguage } from '../lib/i18n';
+import { applyLanguage, useLanguage, useT } from '../lib/i18n';
 import { ChatHeaderControls, ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { HomeChatPanel } from '../components/HomeChatPanel';
@@ -1042,6 +1043,7 @@ if (loading) {
     <TooltipProvider delayDuration={250}>
       <Languaged />
       <Toaster position="bottom-right" />
+      {params.get('notice') === 'errorReports' && <ErrorReportsNoticePreview />}
       {artifacts && (
         <>
           <PagePreviewHost onSelect={() => {}} />
@@ -1059,3 +1061,18 @@ if (loading) {
     </TooltipProvider>
   </QueryClientProvider>,
 );
+
+// ErrorReportsNoticePreview shows the one-time error reports notice
+// (components/ErrorReports.tsx) as the app does, for checking its wrapping.
+function ErrorReportsNoticePreview() {
+  const t = useT();
+  useEffect(() => {
+    toast(t('defaults.errorReports.title'), {
+      description: t('defaults.errorReports.description'),
+      duration: Infinity,
+      closeButton: true,
+      action: { label: t('defaults.errorReports.settings'), onClick: () => {} },
+    });
+  }, [t]);
+  return null;
+}

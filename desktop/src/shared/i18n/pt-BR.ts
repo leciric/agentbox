@@ -626,7 +626,7 @@ export const ptBR: Messages = {
 
   // defaults
   'defaults.errorReports.title': 'Relatórios de erros ativados',
-  'defaults.errorReports.description': 'O AgentBox envia aos desenvolvedores um relatório de cada erro inesperado: o erro, onde no app ele aconteceu e a versão do app e do sistema, sem tokens, e-mails e pastas pessoais. Sem logs e sem nada do que você digitou. Você pode desativar isso em Configurações, Geral.',
+  'defaults.errorReports.description': 'Erros inesperados são enviados aos desenvolvedores do AgentBox, sem dados pessoais.',
   'defaults.errorReports.settings': 'Abrir a configuração',
   'defaults.voice.pttTitle': 'Apertar para falar',
   'defaults.voice.pttDescription': 'Segure o botão do microfone em um chat, ou Ctrl+Espaço, e fale. Sua fala vira texto neste computador, pelo Whisper, e nunca sai dele.',
