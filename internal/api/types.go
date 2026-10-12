@@ -2268,6 +2268,9 @@ type BuildImageRequest struct {
 	OpenCode  *bool `json:"opencode,omitempty"`
 	DevCaches *bool `json:"devCaches,omitempty"`
 	Incus     *bool `json:"incus,omitempty"`
+	// Local builds the image here even when a published one could be
+	// downloaded instead.
+	Local bool `json:"local,omitempty"`
 }
 
 const (

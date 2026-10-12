@@ -102,6 +102,9 @@ func TestMain(m *testing.M) {
 	// Token checks must not leave the machine: a port nothing listens on
 	// stands in for Anthropic, and a check against it answers "not checked".
 	_ = os.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1")
+	// Nor do image builds: they build here, rather than download the
+	// published image.
+	_ = os.Setenv("AGENTBOX_IMAGES_URL", "off")
 	// The daemon runs git itself, so git's isolation from the developer's
 	// configuration has to be the whole process's too.
 	// Nor on what an earlier release's shared budget left on this host,

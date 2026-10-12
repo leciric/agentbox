@@ -1,8 +1,7 @@
-# Builds the machine every agent is copied from, the way a new machine does,
-# whenever what goes into it changes. It publishes nothing: the image holds
-# software AgentBox may not redistribute (Claude Code first of all), so every
-# machine builds its own, and this only checks that provision.sh and
-# personalise.sh still make one.
+# Builds the machine every agent is copied from, the way a new machine does
+# when it builds its own, whenever what goes into it changes. It publishes
+# nothing, and checks that provision.sh and personalise.sh still make one: the
+# image new machines download is the Published image workflow's, on main.
 #
 # On the PR that changes it, not again when that PR lands on main: the build
 # is the same. A change to the package's tests alone doesn't run it.
@@ -72,7 +71,8 @@ jobs:
       - name: Make the image
         env:
           AGENTBOX_FRONT_END: host
-        run: sg incus-admin -c "$PWD/bin/agentbox image build"
+        # --local: what this checks is provision.sh, not the published image.
+        run: sg incus-admin -c "$PWD/bin/agentbox image build --local"
 
       - name: What the agents got
         if: always()

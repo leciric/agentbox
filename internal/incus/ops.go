@@ -368,3 +368,33 @@ func (c Client) Init(ctx context.Context, image, name string, profiles ...string
 	_, err := c.run(ctx, args...)
 	return err
 }
+
+// ImportImage adds an image file to Incus' image store under alias: `incus
+// image import file --alias alias`. Like Init it always runs the incus
+// command, which uploads the file and works out its format.
+func (c Client) ImportImage(ctx context.Context, file, alias string) error {
+	_, err := c.run(ctx, "image", "import", file, "--alias", alias)
+	return err
+}
+
+// DeleteImage removes an image from Incus' image store: `incus image delete
+// alias`. Instances made from it keep working.
+func (c Client) DeleteImage(ctx context.Context, alias string) error {
+	_, err := c.run(ctx, "image", "delete", alias)
+	return err
+}
+
+// Publish makes an image of a stopped instance or a snapshot, under alias:
+// `incus publish ref --alias alias --compression compression`.
+func (c Client) Publish(ctx context.Context, ref, alias, compression string) error {
+	_, err := c.run(ctx, "publish", ref, "--alias", alias, "--compression", compression)
+	return err
+}
+
+// ExportImage writes an image as one file into dir, which must exist: `incus
+// image export alias dir`. Incus names the file after the image's fingerprint
+// and compression.
+func (c Client) ExportImage(ctx context.Context, alias, dir string) error {
+	_, err := c.run(ctx, "image", "export", alias, dir)
+	return err
+}

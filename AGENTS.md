@@ -122,10 +122,18 @@ screenshot` of the preview in the agent's display, made by the desktop subagent.
 
 ## The agents' base image
 
+Setup downloads it when no optional component is on (`internal/image/published.go`), and
 `agentbox image build` makes it on the user's machine from Debian and
-[`internal/image/provision.sh`](internal/image/provision.sh). **Never publish a built image**: it
-holds software we may not redistribute (Claude Code) and GPL packages.
+[`internal/image/provision.sh`](internal/image/provision.sh) otherwise, or when the download fails.
 
+- **What may be published**: only what the [Published image](.github/workflows/published-image.yml)
+  workflow builds on `main`, the image with no components and without `unpublished`
+  (`published.go`): Claude Code, its ACP adapter (it bundles Anthropic's Agent SDK) and Cursor's
+  SDK, which we may not redistribute, and which each machine installs itself. Every other tool in
+  `tools.txt` must be in `toolLicenses` with a license that allows it (`TestEveryToolIsPublishedOrNot`).
+  Its Debian packages are GPL and others, so the exact package list and where their sources are
+  (snapshot.debian.org) go next to it, as the GPL asks. **Never publish an image built any other
+  way**, such as a user's own, which has Claude Code in it.
 - **Agent tools** (Go, Node, pnpm, Claude Code, gh, Codex, OpenCode, the ACP adapters, the Playwright
   MCP server) are pinned in [`tools.txt`](internal/image/tools.txt), one per line with the command
   that proves it works. **To move one on, change its line and nothing else**; don't bump

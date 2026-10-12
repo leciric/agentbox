@@ -248,6 +248,26 @@ func UpdateTools(ctx context.Context, inc incus.Client, u User, plan Plan, log i
 	if _, err := inc.WaitReady(ctx, next, readyTimeout); err != nil {
 		return fail(err)
 	}
+	if err := installTools(ctx, inc, next, u.Name, plan, log); err != nil {
+		return fail(err)
+	}
+	if err := all(
+		func() error { return inc.Stop(ctx, next) },
+		func() error { return inc.SetConfig(ctx, next, recordTools(plan.Tools)...) },
+		func() error { return inc.CreateSnapshot(ctx, next, Snapshot) },
+	); err != nil {
+		return fail(err)
+	}
+	return swapIn(ctx, inc, next, log)
+}
+
+// installTools makes the tools of instance name what plan says, with mise as
+// user: it removes what plan removes, installs what it installs, checks every
+// tool it keeps and cleans up after itself. The instance must be running.
+// UpdateTools runs it on a copy of the base, and a build from the published
+// image on the image it downloaded, for the tools that image leaves out.
+func installTools(ctx context.Context, inc incus.Client, name, user string, plan Plan, log io.Writer) error {
+	step := stepper(log)
 	for _, f := range []struct {
 		path    string
 		content []byte
@@ -258,12 +278,12 @@ func UpdateTools(ctx context.Context, inc incus.Client, u User, plan Plan, log i
 		{"/root/tools.remove", toolsList(plan.Remove), 0o600},
 		{"/root/tools.current", toolsList(plan.Tools), 0o600},
 	} {
-		if err := inc.WriteFile(ctx, next, f.path, f.content, 0, 0, f.mode); err != nil {
-			return fail(err)
+		if err := inc.WriteFile(ctx, name, f.path, f.content, 0, 0, f.mode); err != nil {
+			return err
 		}
 	}
 	tools := func(mode, list string) error {
-		cmd := inc.Command(ctx, "exec", next, "-T", "--", "/root/tools.sh", mode, u.Name, list)
+		cmd := inc.Command(ctx, "exec", name, "-T", "--", "/root/tools.sh", mode, user, list)
 		cmd.Stdout, cmd.Stderr = log, log
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("tools.sh %s: %w", mode, err)
@@ -273,29 +293,19 @@ func UpdateTools(ctx context.Context, inc incus.Client, u User, plan Plan, log i
 	if len(plan.Remove) > 0 {
 		step("Removing %s", strings.Join(specsOf(plan.Remove), ", "))
 		if err := tools("remove", "/root/tools.remove"); err != nil {
-			return fail(err)
+			return err
 		}
 	}
 	if len(plan.Install) > 0 {
 		step("Installing %s", strings.Join(specsOf(plan.Install), ", "))
 		if err := tools("install", "/root/tools.list"); err != nil {
-			return fail(err)
+			return err
 		}
 	}
 	step("Checking every tool")
 	if err := tools("verify", "/root/tools.current"); err != nil {
-		return fail(err)
+		return err
 	}
-	if err := all(
-		func() error {
-			_, err := inc.Exec(ctx, next, "sh", "-c", "rm -f /root/tools.sh /root/tools.list /root/tools.remove /root/tools.current && "+scrubMachineID)
-			return err
-		},
-		func() error { return inc.Stop(ctx, next) },
-		func() error { return inc.SetConfig(ctx, next, recordTools(plan.Tools)...) },
-		func() error { return inc.CreateSnapshot(ctx, next, Snapshot) },
-	); err != nil {
-		return fail(err)
-	}
-	return swapIn(ctx, inc, next, log)
+	_, err := inc.Exec(ctx, name, "sh", "-c", "rm -f /root/tools.sh /root/tools.list /root/tools.remove /root/tools.current && "+scrubMachineID)
+	return err
 }

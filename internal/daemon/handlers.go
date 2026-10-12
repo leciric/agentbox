@@ -1484,7 +1484,10 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	opts := image.Options{Components: components}
+	opts := image.Options{Components: components, DownloadDir: filepath.Join(s.cfg.Paths.Data, "images")}
+	if !req.Local {
+		opts.ImagesURL = image.ImagesURL()
+	}
 	// One job at a time makes the next image: the daemon may be updating the
 	// agent tools, or another build be under way.
 	if !s.claimImage() {

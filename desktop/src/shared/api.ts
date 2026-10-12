@@ -844,6 +844,7 @@ export interface BuildImageRequest {
   opencode?: boolean;
   devCaches?: boolean;
   incus?: boolean;
+  local?: boolean;
 }
 
 export interface ClaudeTokenRequest {

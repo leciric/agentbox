@@ -1,11 +1,13 @@
 // Package image builds the base instance that agents are copied from.
 //
-// Every machine makes its own image: Debian plus provision.sh, around a
-// placeholder user that personalise.sh then renames to the host's own before
-// the image is snapshotted as ready. Nobody publishes it. It holds software we
-// may not redistribute, Claude Code first of all, and Debian's GPL packages
-// would need their source published with it; built here, it's the user's own
-// install of each.
+// The image is Debian plus provision.sh, around a placeholder user that
+// personalise.sh then renames to the host's own before the image is
+// snapshotted as ready. A new machine downloads it, as CI built and published
+// it (published.go), when it wants no optional component, and builds it
+// otherwise, or when the download fails. The published image leaves out what
+// AgentBox may not redistribute, Claude Code first of all: every machine
+// installs those itself, so they stay the user's own install. Its Debian
+// packages are published with a list of their sources, as the GPL asks.
 package image
 
 import (
@@ -14,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -286,6 +289,14 @@ func envFlag(on bool) string {
 type Options struct {
 	// Components are the optional parts to put in it.
 	Components Components
+	// ImagesURL is where published images are (ImagesURL()). Empty builds
+	// the image here, as does any component, which no published image has.
+	ImagesURL string
+	// DownloadDir is where the published image is downloaded to before Incus
+	// imports it: a few hundred megabytes, on a disk rather than a tmpfs.
+	DownloadDir string
+	// HTTP downloads it; nil is http.DefaultClient.
+	HTTP *http.Client
 }
 
 // readyTimeout is how long an instance gets to boot and take an address.
@@ -316,7 +327,7 @@ func Build(ctx context.Context, inc incus.Client, u User, opts Options, log io.W
 		return err
 	}
 
-	if err := buildLocally(ctx, inc, next, u, opts.Components, log); err != nil {
+	if err := makeNext(ctx, inc, next, u, opts, log); err != nil {
 		return fail(err)
 	}
 
@@ -393,9 +404,35 @@ func DebianMirror() string {
 	return strings.TrimRight(os.Getenv("AGENTBOX_DEBIAN_MIRROR"), "/")
 }
 
+// makeNext makes next the image before it is a machine's own: from the
+// published image when there is one for it, and otherwise, or when that
+// fails, by building it here.
+func makeNext(ctx context.Context, inc incus.Client, next string, u User, opts Options, log io.Writer) error {
+	step := stepper(log)
+	switch {
+	case opts.ImagesURL == "":
+	case opts.Components.Any():
+		step("Building the image here: the published one has none of the optional components, and this one has %s", opts.Components.Summary())
+	default:
+		err := fromPublished(ctx, inc, next, u, opts, log)
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		step("The published image can't be used: %v", err)
+		step("Building it here instead")
+		if err := remove(ctx, inc, next); err != nil {
+			return err
+		}
+	}
+	return buildLocally(ctx, inc, next, u, opts.Components, ToolsFor(opts.Components), log)
+}
+
 // buildLocally makes the image from scratch: Debian plus provision.sh, around
-// the placeholder user.
-func buildLocally(ctx context.Context, inc incus.Client, next string, u User, components Components, log io.Writer) error {
+// the placeholder user, with tools.
+func buildLocally(ctx context.Context, inc incus.Client, next string, u User, components Components, tools []Tool, log io.Writer) error {
 	step := stepper(log)
 	step("Creating %s from %s", next, Source)
 	if err := all(
@@ -421,7 +458,7 @@ func buildLocally(ctx context.Context, inc incus.Client, next string, u User, co
 		{"/root/provision.sh", provision, 0o700},
 		{"/root/system.sh", systemScript, 0o700},
 		{"/root/tools.sh", toolsScript, 0o700},
-		{"/root/tools.list", toolsList(ToolsFor(components)), 0o600},
+		{"/root/tools.list", toolsList(tools), 0o600},
 	} {
 		if err := inc.WriteFile(ctx, next, f.path, f.content, 0, 0, f.mode); err != nil {
 			return err

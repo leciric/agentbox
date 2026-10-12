@@ -1,0 +1,124 @@
+# Builds the base image a new machine downloads instead of building its own
+# (internal/image/published.go), and publishes it to the R2 bucket app releases
+# are downloaded from, under images/<version>/<arch>/. Only what AgentBox may
+# redistribute is in it: Debian, provision.sh and the agent tools in tools.txt
+# but Claude Code, its ACP adapter and Cursor's SDK, which each machine installs
+# itself. Next to the image go its Debian packages with their exact versions and
+# where their sources are (SOURCES.md), as the GPL asks.
+#
+# On pushes to main that change what goes into the image, or by hand from main.
+# The bucket keeps the newest image version only (scripts/r2-images.sh): an
+# older AgentBox then finds nothing to download and builds its image itself.
+# The PR-only Base image workflow still checks that a local build works.
+name: Published image
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - internal/image/**
+      - '!internal/image/**_test.go'
+      - .github/workflows/published-image.yml
+      - scripts/r2-images.sh
+
+permissions:
+  contents: read
+
+# A newer push's image replaces this one's, so this one stops building. The
+# upload has a group of its own, which never cancels halfway.
+concurrency:
+  group: published-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          # Hosted arm64 runners are free for public repositories, which this
+          # one is: the image Macs run agents on (Lima, D92).
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: go
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+
+      - name: Build the command-line tool
+        run: go build -o bin/agentbox ./cmd/agentbox
+
+      # As in the Base image workflow: Incus, its pool and bridge, the
+      # subuid/subgid entries, and the Docker firewall rule.
+      - name: Set the host up, the way a new machine does
+        run: sudo "$PWD/bin/agentbox" host setup
+
+      - name: Build the image and what goes with it
+        env:
+          AGENTBOX_FRONT_END: host
+        run: sg incus-admin -c "$PWD/bin/agentbox image build-for-publishing out/${{ matrix.arch }} --commit $GITHUB_SHA"
+
+      - name: What it holds
+        run: |
+          ls -l out/${{ matrix.arch }}
+          cat out/${{ matrix.arch }}/image.json out/${{ matrix.arch }}/SHA256SUMS
+          grep -vc '^#' out/${{ matrix.arch }}/packages.txt
+
+      # Already gzipped: zipping it again would only cost time.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image-${{ matrix.arch }}
+          path: out/${{ matrix.arch }}
+          compression-level: 0
+          retention-days: 1
+
+  # Whatever built: an architecture that failed keeps its image of the same
+  # version in the bucket, or has none, and its machines build their own.
+  publish:
+    name: Publish to R2
+    needs: build
+    if: always() && !cancelled() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: r2-images
+      cancel-in-progress: false
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: image-*
+          path: out
+
+      - name: Upload the image and delete the previous one
+        run: |
+          dirs=$(ls -d out/image-* 2>/dev/null || true)
+          if [ -z "$dirs" ]; then
+            echo "No architecture built: nothing to publish" >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2086
+          scripts/r2-images.sh $dirs

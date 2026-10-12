@@ -30,9 +30,11 @@ func newImageCmd(a *app) *cobra.Command {
 	build := &cobra.Command{
 		Use:   "build",
 		Short: "Build the base image (replaces an existing one; existing agents are unaffected)",
-		Long: `Makes the base image here, from Debian and the tools every agent gets, which takes a
-few minutes. Nothing publishes a ready-made image: it holds software AgentBox may
-not redistribute, so every machine builds its own.
+		Long: `Makes the base image agents are copied from. With no optional component, it
+downloads the image AgentBox publishes for this version (Debian and the agent tools
+it may redistribute), then installs the rest, Claude Code first of all, here. With
+a component, with --local, or when there is no published image to download, it
+builds the image here from Debian instead, which takes a few minutes longer.
 
 Five components are optional and off until you ask, because most agents use
 none of them: --android adds scrcpy, which mirrors an Android emulator's screen,
@@ -72,8 +74,14 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(out, "Making the base image here, with %s. It downloads:\n\n%s\n%s.\n\n",
-				components.Summary(), image.DownloadTable(image.DownloadsFor(components)), image.DownloadsHint)
+			req.Local = local
+			if !local && !components.Any() && image.ImagesURL() != "" {
+				_, _ = fmt.Fprintf(out, "Downloading the published base image, then installing Claude Code and the tools it leaves out. Should that fail, it is built here, which downloads:\n\n%s\n%s.\n\n",
+					image.DownloadTable(image.DownloadsFor(components)), image.DownloadsHint)
+			} else {
+				_, _ = fmt.Fprintf(out, "Making the base image here, with %s. It downloads:\n\n%s\n%s.\n\n",
+					components.Summary(), image.DownloadTable(image.DownloadsFor(components)), image.DownloadsHint)
+			}
 			start := time.Now()
 			j, err := c.BuildImage(cmd.Context(), req)
 			if err != nil {
@@ -86,11 +94,7 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 			return nil
 		},
 	}
-	// --local chose the local build when there was a published image to
-	// download instead. Every build is local now; the flag stays so scripts
-	// that pass it keep working.
-	build.Flags().BoolVar(&local, "local", false, "")
-	_ = build.Flags().MarkDeprecated("local", "every build is local now")
+	build.Flags().BoolVar(&local, "local", false, "build the image here from Debian rather than download the published one")
 	build.Flags().BoolVar(&android, "android", false, "build in scrcpy, for watching an agent's Android emulator")
 	build.Flags().BoolVar(&codex, "codex", false, "build in the Codex CLI and its chat adapter")
 	build.Flags().BoolVar(&withOpenCode, "opencode", false, "build in the OpenCode CLI, which is its own chat adapter")
@@ -108,6 +112,28 @@ turn one off again with --android=false, --codex=false, --opencode=false,
 		},
 	}
 	cmd.AddCommand(version)
+
+	// What CI publishes (.github/workflows/published-image.yml). It runs here,
+	// against the machine's own Incus, without the daemon.
+	var commit string
+	publish := &cobra.Command{
+		Use:    "build-for-publishing <dir>",
+		Short:  "Build the image AgentBox publishes into dir, with its SHA256SUMS and the sources of its packages",
+		Hidden: true,
+		Args:   cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			u, err := hostUser()
+			if err != nil {
+				return err
+			}
+			if err := image.CheckHost(u); err != nil {
+				return err
+			}
+			return image.BuildForPublishing(cmd.Context(), incus.Client{}, u, args[0], commit, cmd.OutOrStdout())
+		},
+	}
+	publish.Flags().StringVar(&commit, "commit", "", "the commit it is built from, for image.json")
+	cmd.AddCommand(publish)
 	return cmd
 }
 

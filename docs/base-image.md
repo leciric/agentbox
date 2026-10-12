@@ -9,12 +9,25 @@ Every agent's container starts life as a clone of a shared Incus snapshot, `agen
 ## Building it
 
 [`internal/image`](../internal/image) tracks the image with a version string, `image.Version`
-(`image.go`). `agentbox image build` builds it on the user's own machine, from
-`images:debian/13`, by running [`provision.sh`](../internal/image/provision.sh) against a fresh
-container, then snapshots the result as `agentbox-base/ready`. Nothing is downloaded: the image
-carries Claude Code, which Anthropic doesn't license for redistribution, so it isn't published
-anywhere, and every tool in it is the user's own install. A first setup, and every rebuild after a
-version bump, takes a few minutes of building.
+(`image.go`). `agentbox image build`, or Setup's **Build base image**, makes it and snapshots it as
+`agentbox-base/ready`:
+
+- **With no optional component**, it downloads the image AgentBox publishes for that version from
+  `https://downloads.agentbox.linting.dev/images/<version>/<arch>/`, checks it against the
+  `SHA256SUMS` beside it, and imports it into Incus. That image is Debian 13 with
+  [`provision.sh`](../internal/image/provision.sh) applied and every tool in `tools.txt` except
+  Claude Code, its ACP adapter and Cursor's SDK, which AgentBox may not redistribute: the machine
+  installs those itself, at their `tools.txt` versions, before making the image its own.
+- **With a component** (Codex, OpenCode, the Android tools, the development caches, Incus), with
+  `agentbox image build --local`, with `AGENTBOX_IMAGES_URL=off` in the daemon's environment, or
+  when the download or its checksum fails, it builds the image here instead, from
+  `images:debian/13`, by running `provision.sh` against a fresh container, which takes a few
+  minutes longer. The build log says which it did and why.
+
+Only the newest image version is published, so an AgentBox older than the latest image builds its
+own. Next to each image are `packages.txt`, its Debian packages with their exact versions, and
+`SOURCES.md`, where the source of each is on snapshot.debian.org and the licenses of the agent tools
+in it.
 
 **Changing `provision.sh` means bumping `image.Version`**: that's what tells an existing
 machine's Setup page the installed image is outdated, and asks for a rebuild.
@@ -97,5 +110,9 @@ system account, and a placeholder left unchanged.
 ## Checking it in CI
 
 The [Base image workflow](../.github/workflows/base-image.yml) builds the image the way a new
-machine does, on pull requests and pushes to `main` that touch `internal/image/`, so a
-`provision.sh` change is checked end to end. It publishes nothing.
+machine does, on pull requests that touch `internal/image/`, so a `provision.sh` change is checked
+end to end. It publishes nothing.
+
+The [Published image workflow](../.github/workflows/published-image.yml) builds the image that is
+downloaded, for amd64 and arm64, on pushes to `main` that touch `internal/image/`, and uploads it
+with [`scripts/r2-images.sh`](../scripts/r2-images.sh), which deletes the previous version.
