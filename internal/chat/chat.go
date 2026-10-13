@@ -604,6 +604,7 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []
 		c.windowRestart = false
 	}
 	c.reloadBeforeTurn()
+	c.restartAccountBeforeTurn()
 	ad := c.startAdapter()
 	c.session.State = c.stateNow()
 	c.markSession()
@@ -1278,6 +1279,9 @@ type conversation struct {
 	// toolsRestart says the chat's MCP servers changed since the adapter
 	// started, so the next turn restarts it (tools.go).
 	toolsRestart bool
+	// accountRestart says the agent moved to another Claude Code account
+	// since the adapter started, so the next turn restarts it (account.go).
+	accountRestart bool
 	// capture, while a hidden prompt runs, collects what the session says
 	// instead of the conversation collecting it.
 	capture *strings.Builder
@@ -1659,6 +1663,7 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.models, _ = c.windows()
 	ad.account = a.ClaudeAccount
 	c.windowRestart = false
+	c.accountRestart = false
 	// It reads the MCP servers its configuration has now.
 	c.toolsChanged(false)
 	c.mu.Unlock()
@@ -1966,12 +1971,14 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 			text = "[AgentBox: the user sent only images, which this tool can't read.]"
 		}
 	}
+	// Read under the lock: conversation replaces c.agent on every call.
+	a := c.agent
 	c.mu.Unlock()
 
 	var res acp.PromptResponse
 	err := ad.conn.Call(context.Background(), acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: sessionID,
-		Prompt:    c.promptBlocks(dir, skillPrompt(c.agent.AI, text, c.m.skillNames(c.agent)), images),
+		Prompt:    c.promptBlocks(dir, skillPrompt(a.AI, text, c.m.skillNames(a)), images),
 	}, &res)
 	c.mu.Lock()
 	defer c.mu.Unlock()

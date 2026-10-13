@@ -210,9 +210,11 @@ func (m *Manager) ReconfigureLead(ctx context.Context, project string) error {
 // resolved once, when the lead is made, and stored on its row, which is where
 // its chat reads the token from (LeadChatCommand). Without this, a project
 // moved to another account kept its chat on the old one for good. The row is
-// all that changes: a running session keeps the token it was started with
-// until it restarts, and the conversation is not touched, since Claude Code
-// keeps it in the lead's HOME, whichever account the session logs in with.
+// all that changes here: a running session keeps the token it was started
+// with until its adapter restarts, which the daemon asks for once the project
+// has changed (chat.Manager.AccountChanged), and the conversation carries on,
+// since Claude Code keeps it in the lead's HOME, whichever account the session
+// logs in with.
 // A project whose account no longer resolves (removed, or not on its allow
 // list) is refused rather than left on an account it may not use.
 func (m *Manager) syncLeadAccount(ctx context.Context, a state.Agent, p state.Project) (state.Agent, error) {

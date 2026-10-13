@@ -328,6 +328,12 @@ func (c *conversation) planResume(until time.Time) {
 	}
 	now := c.m.now()
 	wait := resumeDelay(until, now, c.resumeTry)
+	if c.accountRestartable() {
+		// The limit is the old account's: the agent has moved to another
+		// since this adapter started, and the turn that restarts it on that
+		// one has nothing to wait for (account.go).
+		wait = 0
+	}
 	at := now.Add(wait)
 	c.session.ResumeAt = &at
 	c.markSession()

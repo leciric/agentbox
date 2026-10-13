@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,13 +19,14 @@ import (
 )
 
 // resumingTool is an AI tool's adapter that resumes sessions, counting the
-// times it is started.
+// times it is started and noting the Claude Code account of each.
 type resumingTool struct {
 	mu       sync.Mutex
 	launches int
+	accounts map[string][]string // by agent
 }
 
-func (r *resumingTool) launch(context.Context, state.Agent, func(string)) (*chat.Process, error) {
+func (r *resumingTool) launch(_ context.Context, a state.Agent, _ func(string)) (*chat.Process, error) {
 	toTool, fromChat := io.Pipe()
 	toChat, fromTool := io.Pipe()
 	exited := make(chan struct{})
@@ -32,6 +34,10 @@ func (r *resumingTool) launch(context.Context, state.Agent, func(string)) (*chat
 	acp.NewConn(toTool, fromTool, r)
 	r.mu.Lock()
 	r.launches++
+	if r.accounts == nil {
+		r.accounts = map[string][]string{}
+	}
+	r.accounts[a.Name] = append(r.accounts[a.Name], a.ClaudeAccount)
 	r.mu.Unlock()
 	return &chat.Process{
 		Stdin: fromChat, Stdout: toChat,
@@ -51,6 +57,13 @@ func (r *resumingTool) started() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.launches
+}
+
+// launchedOn is the account each of an agent's launches was on, in order.
+func (r *resumingTool) launchedOn(agent string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.Join(r.accounts[agent], ",")
 }
 
 func (r *resumingTool) Notify(string, json.RawMessage) {}

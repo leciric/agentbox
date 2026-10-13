@@ -84,6 +84,8 @@ type fakeTool struct {
 	// arrived, and steers wakes whoever waits for one.
 	steered []string
 	steers  chan string
+	// accounts is the Claude Code account of every launch, in order.
+	accounts []string
 }
 
 type call struct {
@@ -106,8 +108,11 @@ func newSteeringTool(turn func(f *fakeTool, sessionID, text string) acp.PromptRe
 	return f
 }
 
-func (f *fakeTool) launch(_ context.Context, _ state.Agent, status func(string)) (*Process, error) {
+func (f *fakeTool) launch(_ context.Context, a state.Agent, status func(string)) (*Process, error) {
 	status("Warming up")
+	f.mu.Lock()
+	f.accounts = append(f.accounts, a.ClaudeAccount)
+	f.mu.Unlock()
 	toTool, fromChat := io.Pipe()
 	toChat, fromTool := io.Pipe()
 	exited := make(chan struct{})
@@ -358,6 +363,12 @@ func (f *fakeTool) setTurn(turn func(f *fakeTool, sessionID, text string) acp.Pr
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.turn = turn
+}
+
+func (f *fakeTool) launchedOn() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.accounts)
 }
 
 func (f *fakeTool) called(method string) []json.RawMessage {

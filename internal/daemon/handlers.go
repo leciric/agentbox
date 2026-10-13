@@ -333,8 +333,9 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 		}
 		// The lead's brief names the accounts it may spread agents across, and
 		// the lead itself runs on the account the project resolves to, so
-		// both follow either change (ReconfigureLead). Its session keeps the
-		// token it started with until it next starts.
+		// both follow either change (ReconfigureLead). Its session, and those
+		// of the agents moved with it, restart on the new token
+		// (followClaudeAccounts).
 		rewriteBrief()
 		s.events.publish(api.EventProject, api.ProjectChange{Name: p.Name})
 		if moveAgents {
@@ -344,6 +345,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 				}
 			}
 		}
+		s.followClaudeAccounts(r.Context(), p.Name)
 	}
 	if req.GitHubAccount != nil {
 		account := strings.TrimSpace(*req.GitHubAccount)
@@ -464,6 +466,21 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) error {
 // checkClaudeAccount and checkGitHubAccount reject an account name that no new
 // agent could use anyway, whether the project is being added or changed. An
 // empty name is the machine's default account, which is always allowed.
+// followClaudeAccounts restarts the chats of a project's lead and agents that
+// run on another Claude Code account than their rows now name, each resuming
+// its conversation on the new token (chat.Manager.AccountChanged): the token
+// is read only as a chat's adapter starts.
+func (s *Server) followClaudeAccounts(ctx context.Context, project string) {
+	agents, err := s.store.Agents(ctx, project)
+	if err != nil {
+		s.logf("moving %s's chats to their Claude Code accounts: %v", project, err)
+		return
+	}
+	for _, a := range agents {
+		s.chat.AccountChanged(a)
+	}
+}
+
 func (s *Server) checkClaudeAccount(account string) error {
 	if account == "" {
 		return nil
@@ -956,9 +973,11 @@ func (s *Server) updateAgent(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	if req.ClaudeAccount != nil {
-		if _, err := s.manager(nil).SetClaudeAccount(r.Context(), a, strings.TrimSpace(*req.ClaudeAccount)); err != nil {
+		moved, err := s.manager(nil).SetClaudeAccount(r.Context(), a, strings.TrimSpace(*req.ClaudeAccount))
+		if err != nil {
 			return err
 		}
+		s.chat.AccountChanged(moved)
 	}
 	if req.GitHubAccount != nil {
 		if _, err := s.manager(nil).SetGitHubAccount(r.Context(), a, strings.TrimSpace(*req.GitHubAccount)); err != nil {

@@ -417,6 +417,64 @@ func TestUpdateProjectMovesAgentsOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+// TestAccountChangesRestartRunningChats: a chat's adapter reads its token only
+// as it starts, so moving the project's account restarts its lead's running
+// chat on the new one, and with MoveClaudeAgents its agents' too, as does
+// moving one agent by hand. Each resumes its session.
+func TestAccountChangesRestartRunningChats(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), readyOneAgentIncus)
+	ctx := context.Background()
+	creds := credentials.Store{Dir: d.paths.Credentials()}
+	for _, name := range []string{"default", "work"} {
+		if err := creds.SaveClaudeToken(name, "sk-ant-oat01-"+name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addProjectAllowingEvery(t, d, d.fixtureRepo(t, "hello-stack"))
+	lead, err := d.srv.manager(nil).EnsureLead(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := state.Agent{
+		Project: "hello-stack", Name: "agent-01", Instance: "ab-hello-stack-agent-01", AI: "claude", ClaudeAccount: "default",
+		Branch: "agentbox/agent-01", Worktree: "/worktrees/agent-01", Status: state.AgentReady, CreatedAt: time.Now(),
+	}
+	if err := d.srv.store.AddAgent(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	tool := &resumingTool{}
+	d.srv.chat.Launch, d.srv.chat.Prepare = tool.launch, nil
+	idle := func(a state.Agent) func() bool {
+		return func() bool {
+			th, err := d.srv.chat.Thread(a)
+			return err == nil && th.Session.State == api.ChatReady && th.Session.TurnStartedAt == nil
+		}
+	}
+	for _, a := range []state.Agent{lead, a} {
+		if _, err := d.srv.chat.Send(a, "hi"); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, a.Name+"'s turn", idle(a))
+	}
+
+	work := "work"
+	if _, err := d.client.UpdateProject(ctx, "hello-stack", api.UpdateProjectRequest{ClaudeAccount: &work, MoveClaudeAgents: true}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the lead on work", func() bool { return tool.launchedOn(lead.Name) == "default,work" })
+	waitFor(t, "the agent on work", func() bool { return tool.launchedOn(a.Name) == "default,work" })
+	waitFor(t, "the lead's chat", idle(lead))
+
+	if _, err := d.client.UpdateAgent(ctx, a.Ref(), api.UpdateAgentRequest{ClaudeAccount: new("default")}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the agent back on default", func() bool { return tool.launchedOn(a.Name) == "default,work,default" })
+	if got := tool.launchedOn(lead.Name); got != "default,work" {
+		t.Errorf("the lead was launched on %s, want default then work", got)
+	}
+}
+
 // TestRenameClaudeAccount: the route renames the token and carries the
 // project over, keeps the machine default on the same account, and refuses a
 // name that is taken or invalid without touching anything.
