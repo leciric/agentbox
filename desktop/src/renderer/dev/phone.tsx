@@ -10,7 +10,8 @@
 //   ?phone=lead             the project's chat, rich blocks and code in it
 //   ?phone=frame            the list in a 390×844 frame in the middle of the
 //                           page, for watching it on a wide screen
-//   &controls=1             a bar to drop the connection and get it back
+//   &controls=1             a button to drop the connection and get it back
+//                           (beside the phone, with ?phone=frame)
 //   &offline=1              starts with the connection dropped
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createRoot } from 'react-dom/client';
@@ -168,6 +169,11 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     connection = next;
     for (const fn of connListeners) fn(next);
   };
+  const toggle = () => setConnection(connection.state === 'connected' ? { state: 'disconnected', error: "AgentBox on your computer isn't reachable" } : { state: 'connected' });
+  // The frame's button, outside the phone (startPhoneFrame).
+  window.addEventListener('message', (event) => {
+    if (event.data === 'phone-preview:toggle') toggle();
+  });
 
   // An event changes the daemon's thread, and reaches the app only while
   // connected: what happens while it's away is read again on reconnecting.
@@ -197,7 +203,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
     turn++;
     const id = `live${turn}`;
     const started = new Date().toISOString();
-    const user: T.ChatItem = { id, turn: '', kind: 'user', text: turn === 1 ? 'Add the reminders page, with tests.' : 'Run the tests again after the rebase.', createdAt: started, updatedAt: started };
+    const user: T.ChatItem = { id, turn: '', kind: 'user', text: turn === 1 ? 'Add the reminders page, with tests.' : `Run the tests again (pass ${turn}).`, createdAt: started, updatedAt: started };
     const toolItem = (n: number, tool: Partial<T.ChatTool>, status: string): T.ChatItem => ({
       id: `${id}-t${n}`,
       turn: id,
@@ -252,7 +258,7 @@ export function startPhonePreview(mode: string, params: URLSearchParams): void {
             <button
               data-dev-drop
               className="rounded-lg border border-line-strong bg-overlay px-2.5 py-1 text-[11px] text-secondary shadow-md"
-              onClick={() => setConnection(connection.state === 'connected' ? { state: 'disconnected', error: "AgentBox on your computer isn't reachable" } : { state: 'connected' })}
+              onClick={toggle}
             >
               Drop / restore
             </button>
@@ -269,15 +275,29 @@ export function startPhoneFrame(params: URLSearchParams): void {
   const inner = new URLSearchParams(params);
   inner.set('phone', inner.get('open') ?? 'list');
   inner.delete('open');
+  inner.delete('controls');
+  let frame: HTMLIFrameElement | null = null;
   document.body.style.margin = '0';
   document.body.style.background = params.get('theme') === 'light' ? '#e7e7ee' : '#030306';
   createRoot(document.getElementById('root')!).render(
-    <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', gap: 24 }}>
       <iframe
+        ref={(el) => {
+          frame = el;
+        }}
         title="phone"
         src={`${location.pathname}?${inner}`}
         style={{ width: 390, height: 844, maxHeight: 'calc(100vh - 24px)', border: '10px solid #1c1c22', borderRadius: 44, background: 'transparent', boxShadow: '0 20px 60px rgb(0 0 0 / 0.5)' }}
       />
+      {params.get('controls') === '1' && (
+        <button
+          data-dev-drop
+          style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #444', background: '#1c1c22', color: '#ddd', font: '13px system-ui' }}
+          onClick={() => frame?.contentWindow?.postMessage('phone-preview:toggle', '*')}
+        >
+          Drop / restore the connection
+        </button>
+      )}
     </div>,
   );
 }

@@ -85,8 +85,6 @@ const toneText: Record<StatusTone, string> = {
   muted: 'text-subtle',
 };
 
-const toneOrder: Record<StatusTone, number> = { urgent: 0, error: 1, live: 2, warning: 3, muted: 4 };
-
 const toneDot: Record<StatusTone, string> = {
   urgent: 'bg-amber-400',
   error: 'bg-rose-400',
@@ -222,11 +220,12 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
           const lead = chats[i]?.data;
           const leadRef = lead?.started ? lead.ref : undefined;
           const label = leadChatStatus(lead?.chat, threadOf(leadRef));
-          // What needs you first, then what is working, then the rest.
+          // In the rail's order, which follows the agents' states: not what
+          // each is doing this second, or rows would move under your finger.
           const own = (agents.data ?? [])
             .filter((a) => a.project === p.name)
             .map((a) => ({ a, status: agentChatStatus(a, threadOf(a.ref)) }))
-            .sort((x, y) => rank(x.a) - rank(y.a) || toneOrder[x.status.tone] - toneOrder[y.status.tone] || x.a.name.localeCompare(y.a.name));
+            .sort((x, y) => rank(x.a) - rank(y.a) || x.a.name.localeCompare(y.a.name));
           return (
             <section key={p.name} className="grid gap-1" data-phone-project={p.name}>
               <h2 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-faint">{projectLabel(p)}</h2>
