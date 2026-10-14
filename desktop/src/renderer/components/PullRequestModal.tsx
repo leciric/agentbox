@@ -108,7 +108,7 @@ export function PullRequestModal({
     <Dialog open={pr !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="flex h-[88vh] max-w-6xl flex-col gap-0 overflow-hidden p-0" data-pull-detail={pr?.number}>
         {pr && (
-          <Detail
+          <PullRequestView
             project={project}
             pr={pr}
             canMerge={canMerge}
@@ -125,7 +125,9 @@ export function PullRequestModal({
   );
 }
 
-function Detail({
+// PullRequestView is what the modal shows, also used on its own: as the last
+// slide of "Ready to review" (inline, inside a dialog that has its own title).
+export function PullRequestView({
   project,
   pr: listed,
   canMerge,
@@ -135,7 +137,9 @@ function Detail({
   edits,
   onToggleLabel,
   onOpenAgent,
+  inline = false,
 }: {
+  inline?: boolean;
   project: string;
   pr: T.PullRequest;
   canMerge: boolean;
@@ -160,13 +164,19 @@ function Detail({
   return (
     <>
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)} className="flex min-h-0 flex-1 flex-col">
-        <header className="grid gap-2 border-b border-line-faint px-6 pb-3 pt-5 pr-14">
-          <DialogTitle className="flex min-w-0 items-start gap-2 text-[17px] leading-snug">
-            <GitPullRequest className="mt-1 size-4 shrink-0 text-subtle" />
-            <span className="min-w-0 break-words">
-              {pr.title} <span className="font-normal text-subtle">#{pr.number}</span>
-            </span>
-          </DialogTitle>
+        <header className={cn('grid gap-2 border-b border-line-faint px-6 pb-3 pt-5', !inline && 'pr-14')}>
+          {/* Inline, the dialog around it already has a title. */}
+          {(() => {
+            const Title = inline ? 'h2' : DialogTitle;
+            return (
+              <Title className="flex min-w-0 items-start gap-2 text-[17px] font-semibold leading-snug tracking-tight text-title">
+                <GitPullRequest className="mt-1 size-4 shrink-0 text-subtle" />
+                <span className="min-w-0 break-words">
+                  {pr.title} <span className="font-normal text-subtle">#{pr.number}</span>
+                </span>
+              </Title>
+            );
+          })()}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12.5px] text-muted">
             {pr.draft ? (
               <Badge>{t('memory.pulls.draft')}</Badge>

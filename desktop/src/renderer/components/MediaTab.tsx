@@ -897,7 +897,7 @@ function ViewerBody({ item }: { item: T.MediaItem }) {
 // Recording plays an item in the viewer, or says it can't: a file cut short
 // (a recording stopped before it was finished has no moov box) would
 // otherwise be a player that never starts.
-function Recording({ item }: { item: T.MediaItem }) {
+export function Recording({ item }: { item: T.MediaItem }) {
   const t = useT();
   const [broken, setBroken] = useState(false);
   if (broken) {

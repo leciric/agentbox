@@ -46,7 +46,7 @@ const mockAgents = [
 
 // What each screenshot shows: a made-up app window, so the gallery reads as
 // one, with the topic written on it.
-function screen(topic: string, hue: number, dark: boolean): string {
+export function screen(topic: string, hue: number, dark: boolean): string {
   const bg = dark ? `hsl(${hue} 25% 12%)` : `hsl(${hue} 40% 97%)`;
   const panel = dark ? `hsl(${hue} 20% 18%)` : '#ffffff';
   const line = dark ? `hsl(${hue} 15% 30%)` : `hsl(${hue} 20% 86%)`;

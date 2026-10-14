@@ -63,3 +63,28 @@ func (s *Store) removeAgentEvents(ctx context.Context, project, agent string) er
 	_, err := s.db.ExecContext(ctx, `DELETE FROM agent_events WHERE project = ? AND agent = ?`, project, agent)
 	return err
 }
+
+// AgentEventsOf is one agent's events, newest first, at most keepAgentEvents
+// of them: what AgentEvents would give for it in a project too busy for its
+// own to still be among the newest.
+func (s *Store) AgentEventsOf(ctx context.Context, project, agent string) ([]AgentEvent, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, project, agent, created_at, data FROM agent_events WHERE project = ? AND agent = ?
+		ORDER BY created_at DESC, rowid DESC LIMIT ?`, project, agent, keepAgentEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var events []AgentEvent
+	for rows.Next() {
+		var ev AgentEvent
+		var created int64
+		var data string
+		if err := rows.Scan(&ev.ID, &ev.Project, &ev.Agent, &created, &data); err != nil {
+			return nil, err
+		}
+		ev.CreatedAt, ev.Data = time.UnixMilli(created), []byte(data)
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}

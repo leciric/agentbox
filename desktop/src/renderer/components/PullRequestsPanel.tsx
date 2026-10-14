@@ -25,8 +25,8 @@ const methodLabels: Record<string, MessageKey> = {
   squash: 'memory.pulls.method.squash',
   rebase: 'memory.pulls.method.rebase',
 };
-const stateLabels: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
-const checksLabels: Record<string, MessageKey> = {
+export const stateLabels: Record<string, MessageKey> = { open: 'memory.pulls.state.open', merged: 'memory.pulls.state.merged', closed: 'memory.pulls.state.closed' };
+export const checksLabels: Record<string, MessageKey> = {
   passing: 'memory.pulls.checks.passing',
   failing: 'memory.pulls.checks.failing',
   pending: 'memory.pulls.checks.pending',
@@ -89,23 +89,7 @@ export function PullRequestsPanel({
   // so every other row stays usable meanwhile.
   const [running, setRunning] = useState<ReadonlySet<number>>(() => new Set());
   const [failed, setFailed] = useState<Readonly<Record<number, string>>>({});
-  // Label edits GitHub hasn't answered yet, shown over the list as though
-  // they had landed (lib/pulls.ts withEdits). One that fails is dropped,
-  // which puts the row back as it was, and says why.
-  const [edits, setEdits] = useState<readonly LabelEdit[]>([]);
-  const nextEdit = useRef(0);
-  const labels = useMutation({
-    mutationFn: (edit: LabelEdit) => api.editPullRequestLabels(project, edit.number, { add: edit.add.map((l) => l.name), remove: edit.remove }),
-    onMutate: (edit) => setEdits((e) => [...e, edit]),
-    onSuccess: (now, edit) => {
-      queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withLabels(d, edit.number, now));
-      queryClient.setQueryData<T.PullRequestDetail>(['pull', project, edit.number], (d) => d && { ...d, labels: now });
-    },
-    onError: (err, edit) => toast.error(t('memory.pulls.labels.failed', { number: edit.number, error: errorMessage(err) })),
-    onSettled: (_now, _err, edit) => setEdits((e) => e.filter((x) => x.id !== edit.id)),
-  });
-  const toggleLabel = (pr: T.PullRequest, label: T.Label, on: boolean) =>
-    labels.mutate(labelToggle(nextEdit.current++, pr.number, label, on));
+  const { edits, toggleLabel } = usePullLabels(project);
 
   const merge = useMutation({
     mutationFn: ({ number, method }: { number: number; method: string }) => api.mergePullRequest(project, number, method),
@@ -375,6 +359,30 @@ function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubErro
     default:
       return null;
   }
+}
+
+// usePullLabels adds and removes a project's pull requests' labels.
+// Edits GitHub hasn't answered yet are shown over the list as though they
+// had landed (lib/pulls.ts withEdits). One that fails is dropped,
+// which puts the row back as it was, and says why.
+export function usePullLabels(project: string) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [edits, setEdits] = useState<readonly LabelEdit[]>([]);
+  const nextEdit = useRef(0);
+  const labels = useMutation({
+    mutationFn: (edit: LabelEdit) => api.editPullRequestLabels(project, edit.number, { add: edit.add.map((l) => l.name), remove: edit.remove }),
+    onMutate: (edit) => setEdits((e) => [...e, edit]),
+    onSuccess: (now, edit) => {
+      queryClient.setQueryData<T.ProjectPullRequests>(['pulls', project], (d) => d && withLabels(d, edit.number, now));
+      queryClient.setQueryData<T.PullRequestDetail>(['pull', project, edit.number], (d) => d && { ...d, labels: now });
+    },
+    onError: (err, edit) => toast.error(t('memory.pulls.labels.failed', { number: edit.number, error: errorMessage(err) })),
+    onSettled: (_now, _err, edit) => setEdits((e) => e.filter((x) => x.id !== edit.id)),
+  });
+  const toggleLabel = (pr: T.PullRequest, label: T.Label, on: boolean) =>
+    labels.mutate(labelToggle(nextEdit.current++, pr.number, label, on));
+  return { edits, toggleLabel };
 }
 
 function without(errors: Readonly<Record<number, string>>, number: number): Record<number, string> {
