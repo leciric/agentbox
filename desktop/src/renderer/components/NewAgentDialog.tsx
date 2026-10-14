@@ -537,8 +537,8 @@ export function NewAgentDialog({
               </Notice>
             )}
             {image.data?.ready === false && (
-              <Notice tone="warning">
-                {t.rich('project.newAgent.noImage', { code: (c) => <Code>{c}</Code> })}
+              <Notice tone="info">
+                {image.data.build === 'building' ? t('project.newAgent.imageBuilding') : t('project.newAgent.noImage')}
               </Notice>
             )}
             {create.error && <Notice>{errorMessage(create.error)}</Notice>}

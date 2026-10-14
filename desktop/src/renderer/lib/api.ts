@@ -441,7 +441,7 @@ export const api = {
   renameClaudeAccount: (account: string, name: string) =>
     call<T.RenamedClaudeAccount>('POST', `/v1/auth/claude/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameClaudeAccountRequest),
   setup: () => call<T.SetupStatus>('GET', '/v1/setup'),
-  image: () => call<{ ready: boolean; snapshot: string }>('GET', '/v1/image'),
+  image: () => call<T.ImageStatus>('GET', '/v1/image'),
   buildImage: (req: T.BuildImageRequest = {}) => call<T.Job>('POST', '/v1/image/build', req),
 
   jobs: () => call<T.Job[]>('GET', '/v1/jobs'),

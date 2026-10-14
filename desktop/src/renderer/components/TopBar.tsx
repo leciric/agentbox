@@ -11,6 +11,7 @@ import { useNow } from '../lib/useNow';
 import { cn, timeAgo, timeUntil } from '../lib/utils';
 import { AgentSwitcher } from './AgentSwitcher';
 import { DiskGuardPill } from './DiskGuardPill';
+import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
 import { NotificationBell } from './Notifications';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -104,6 +105,7 @@ export function TopBar({
             <span className="hidden sm:inline">{t('shell.home.finishSetup')}</span>
           </button>
         )}
+        <ImageBuildChip onSelect={onSelect} />
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />

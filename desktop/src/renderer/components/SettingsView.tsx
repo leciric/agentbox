@@ -99,13 +99,19 @@ type Status =
   | "optional"
   | "warn"
   | "updating"
+  | "building"
   | "checking";
 
 // usable is done, as far as the wizard goes: a base image whose agent tools
 // the daemon is updating in the background, or failed to, is still the one
-// agents use, and a warning is a caveat, never a reason to stop.
+// agents use, a first image being built is one agents wait for, and a
+// warning is a caveat, never a reason to stop.
 const usable = (status: Status) =>
-  status === "ok" || status === "updating" || status === "warn";
+  status === "ok" || status === "updating" || status === "building" || status === "warn";
+
+// background is a step whose work runs on by itself: nothing to do but wait.
+const background = (status: Status) =>
+  status === "updating" || status === "building";
 
 // A step is one thing to get right, whether the daemon checks it (Incus, the
 // base image) or the app does (its own command-line tool, GitHub).
@@ -226,7 +232,11 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
   });
   const build = useMutation({
     mutationFn: api.buildImage,
-    onSuccess: (job) => setImageJob(job.id),
+    onSuccess: (job) => {
+      setImageJob(job.id);
+      void queryClient.invalidateQueries({ queryKey: ["setup"] });
+      void queryClient.invalidateQueries({ queryKey: ["image"] });
+    },
   });
 
   const check = (id: string): T.SetupCheck | undefined =>
@@ -333,8 +343,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
             disabled={
               build.isPending ||
               statusOf("incus") !== "ok" ||
-              statusOf("image") === "updating" ||
-              imageJob !== null
+              background(statusOf("image"))
             }
             onClick={() => build.mutate()}
           >
@@ -348,6 +357,13 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
               : t("settings.setup.rebuildImage")}
           </Button>
         </div>
+        {background(statusOf("image")) && (
+          <Notice tone="info">
+            {statusOf("image") === "building"
+              ? t("settings.setup.imageBuildingNote")
+              : t("settings.setup.imageRebuildingNote")}
+          </Notice>
+        )}
         <ImageDownloads image={setup.data?.image} />
         {imageJob && (
           <JobProgress
@@ -357,7 +373,8 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
             }
           />
         )}
-        {/* The daemon's own work on the image: updating the agent tools. */}
+        {/* The work under way on the image: a build, wherever it was started,
+            or the daemon updating the agent tools. */}
         {!imageJob && check("image")?.job && (
           <JobProgress
             key={check("image")?.job}
@@ -601,8 +618,8 @@ function SetupWizard({
                       ) : (
                         <Badge>{t("settings.setup.badgeOptional")}</Badge>
                       )
-                    ) : step.status === "updating" ? (
-                      <Badge>{t("settings.setup.badgeUpdating")}</Badge>
+                    ) : background(step.status) ? (
+                      <Badge>{step.status === "building" ? t("settings.setup.badgeBuilding") : t("settings.setup.badgeUpdating")}</Badge>
                     ) : (
                       step.status !== "ok" &&
                       step.status !== "checking" && (
@@ -721,7 +738,7 @@ function StepIcon({ status, small }: { status: Status; small?: boolean }) {
     return <LoaderCircle className={cn(size, "animate-spin text-subtle")} />;
   if (status === "ok")
     return <CircleCheck className={cn(size, "text-emerald-400")} />;
-  if (status === "updating")
+  if (background(status))
     return <LoaderCircle className={cn(size, "animate-spin text-sky-400")} />;
   if (status === "optional")
     return <CircleDashed className={cn(size, "text-subtle")} />;
@@ -3127,7 +3144,7 @@ function ChecklistStep({
           !ok &&
             !step.optional &&
             step.status !== "checking" &&
-            step.status !== "updating" &&
+            !background(step.status) &&
             "border-amber-400/15",
         )}
       >
@@ -3146,8 +3163,8 @@ function ChecklistStep({
                 ) : (
                   <Badge>{t("settings.setup.badgeOptional")}</Badge>
                 )
-              ) : step.status === "updating" ? (
-                <Badge>{t("settings.setup.badgeUpdating")}</Badge>
+              ) : background(step.status) ? (
+                <Badge>{step.status === "building" ? t("settings.setup.badgeBuilding") : t("settings.setup.badgeUpdating")}</Badge>
               ) : (
                 !ok &&
                 step.status !== "checking" && (

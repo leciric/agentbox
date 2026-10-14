@@ -2231,7 +2231,7 @@ const (
 type SetupCheck struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Status   string `json:"status"` // ok, missing, outdated, optional, warn or updating
+	Status   string `json:"status"` // ok, missing, outdated, optional, warn, updating or building
 	Required bool   `json:"required"`
 	Detail   string `json:"detail,omitempty"`
 	Fix      string `json:"fix,omitempty"` // a command that fixes it
@@ -2322,6 +2322,34 @@ const (
 	// by itself, in the background (SetupCheck.Job): the base image while its
 	// agent tools move on. Like ok, it doesn't block the setup wizard.
 	SetupUpdating = "updating"
+	// SetupBuilding is the base image being built for the first time
+	// (SetupCheck.Job). It doesn't block the wizard either: what needs the
+	// image waits for the build.
+	SetupBuilding = "building"
+)
+
+// ImageStatus is the base image as the top bar shows it: whether agents can
+// be made from it, and the build started last, which runs in the background.
+type ImageStatus struct {
+	Ready    bool   `json:"ready"`
+	Snapshot string `json:"snapshot"`
+	// Build is idle, building or failed: failed until a build succeeds.
+	Build string `json:"build"`
+	// Job is that build's job, whose log the app shows.
+	Job string `json:"job,omitempty"`
+	// Step is the build's latest step, while it runs.
+	Step string `json:"step,omitempty"`
+	// Error is why it failed.
+	Error string `json:"error,omitempty"`
+	// Waiting counts the jobs, agents being made among them, that start once
+	// the build is done.
+	Waiting int `json:"waiting"`
+}
+
+const (
+	ImageBuildIdle   = "idle"
+	ImageBuilding    = "building"
+	ImageBuildFailed = "failed"
 )
 
 type ClaudeTokenRequest struct {

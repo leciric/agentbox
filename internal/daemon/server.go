@@ -177,6 +177,7 @@ type Server struct {
 	approve      func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
 	baseSyncErrs map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork         // what the daemon is doing to the base image (imagetools.go)
+	imageWaiters int               // jobs waiting for the base image to be built (imagebuild.go)
 	remote       *remote.Connector // the connection to a hub, when this machine is an environment
 	lan          *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	// connectorsGiven is whether each connector was last given to agents,

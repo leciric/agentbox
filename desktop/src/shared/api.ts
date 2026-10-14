@@ -863,6 +863,16 @@ export interface BuildImageRequest {
   local?: boolean;
 }
 
+export interface ImageStatus {
+  ready: boolean;
+  snapshot: string;
+  build: string;
+  job?: string;
+  step?: string;
+  error?: string;
+  waiting: number;
+}
+
 export interface ClaudeTokenRequest {
   token: string;
   account?: string;
@@ -2384,6 +2394,10 @@ export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";
 export const SetupOptional = "optional";
 export const SetupUpdating = "updating";
+export const SetupBuilding = "building";
+export const ImageBuildIdle = "idle";
+export const ImageBuilding = "building";
+export const ImageBuildFailed = "failed";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
 export const DefaultLanguage = "en-US";

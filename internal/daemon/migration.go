@@ -39,6 +39,9 @@ func (s *Server) recreate(w http.ResponseWriter, r *http.Request) error {
 	return s.startJob(w, "recreate", a.Ref(), func(ctx context.Context, log io.Writer) (any, error) {
 		// A chat started before the machine was there has nothing to talk to.
 		s.chat.Stop(a.Ref(), "the agent's machine is being made")
+		if err := s.awaitImage(ctx, log); err != nil {
+			return nil, err
+		}
 		err := s.manager(log).Recreate(ctx, a, agent.RecreateOptions{
 			Home:    req.Home,
 			Stopped: req.Stopped,

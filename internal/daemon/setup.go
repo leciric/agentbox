@@ -162,7 +162,7 @@ func (s *Server) setupStatus(ctx context.Context) (api.SetupStatus, error) {
 	for _, c := range checks {
 		// An image whose tools are being updated, or failed to be, is still
 		// the one agents use: a caveat, not a reason to hold anything up.
-		if c.Required && c.Status != api.SetupOK && c.Status != api.SetupUpdating && c.Status != api.SetupWarn {
+		if c.Required && c.Status != api.SetupOK && c.Status != api.SetupUpdating && c.Status != api.SetupWarn && c.Status != api.SetupBuilding {
 			ready = false
 		}
 	}
