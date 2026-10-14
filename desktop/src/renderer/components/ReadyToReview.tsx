@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronLeft, ChevronRight, ClipboardCheck, ExternalLink, GitBranch, GitPullRequest, Image as ImageIcon, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, ClipboardCheck, ExternalLink, GitBranch, Image as ImageIcon, X } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
@@ -15,10 +15,9 @@ import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Recording } from './MediaTab';
 import { PageIcon } from './pages/PageThumb';
 import { useProjectPages } from './pages/usePages';
-import { PullRequestModal } from './PullRequestModal';
-import { checksLabels, stateLabels, usePullLabels } from './PullRequestsPanel';
+import { PullRequestView } from './PullRequestModal';
+import { usePullLabels } from './PullRequestsPanel';
 import { AIIcon } from './state';
-import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
@@ -135,7 +134,6 @@ function ReviewCarousel({ item, onDone, onSelect }: { item: T.ReviewItem; onDone
   const at = Math.min(index, Math.max(0, slides.length - 1));
   const slide = slides[at];
   const go = (by: number) => setIndex(step(at, slides.length, by));
-  const [prOpen, setPrOpen] = useState(false);
   const labels = usePullLabels(item.project);
   const swipe = useRef<{ x: number; y: number } | null>(null);
 
@@ -152,7 +150,7 @@ function ReviewCarousel({ item, onDone, onSelect }: { item: T.ReviewItem; onDone
 
   const onKeyDown = (e: KeyboardEvent) => {
     // A video's own controls take the arrows to seek, and a field its text.
-    if (e.target instanceof HTMLVideoElement || e.target instanceof HTMLInputElement || prOpen) return;
+    if (e.target instanceof HTMLVideoElement || e.target instanceof HTMLInputElement) return;
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       e.preventDefault();
       go(e.key === 'ArrowRight' ? 1 : -1);
@@ -209,9 +207,27 @@ function ReviewCarousel({ item, onDone, onSelect }: { item: T.ReviewItem; onDone
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 touch-pan-y select-none items-center justify-center overflow-hidden bg-surface-faint" onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
-        {slide ? (
-          <SlideView key={slide.id} slide={slide} project={item.project} onOpenPR={() => setPrOpen(true)} />
+      {/* The pull request is read and selected like the modal's, so it takes no swipe. */}
+      <div
+        className={cn('relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-surface-faint', slide?.kind !== 'pr' && 'touch-pan-y select-none')}
+        onPointerDown={slide?.kind === 'pr' ? undefined : onPointerDown}
+        onPointerUp={slide?.kind === 'pr' ? undefined : onPointerUp}
+      >
+        {slide?.kind === 'pr' ? (
+          <div className="flex size-full flex-col bg-modal" data-review-slide="pr">
+            <PullRequestView
+              inline
+              project={item.project}
+              pr={slide.pr}
+              canMerge={false}
+              mergeRunning={false}
+              onMerge={() => {}}
+              edits={labels.edits}
+              onToggleLabel={(label, on) => labels.toggleLabel(slide.pr, label, on)}
+            />
+          </div>
+        ) : slide ? (
+          <SlideView key={slide.id} slide={slide} project={item.project} />
         ) : (
           <div className="grid max-w-sm justify-items-center gap-2 p-10 text-center">
             <ImageIcon className="size-8 text-faint" />
@@ -244,19 +260,6 @@ function ReviewCarousel({ item, onDone, onSelect }: { item: T.ReviewItem; onDone
         </div>
       )}
 
-      {item.pr && (
-        <PullRequestModal
-          project={item.project}
-          pr={prOpen ? item.pr : null}
-          onClose={() => setPrOpen(false)}
-          canMerge={false}
-          mergeRunning={false}
-          onMerge={() => {}}
-          edits={labels.edits}
-          onToggleLabel={(label, on) => item.pr && labels.toggleLabel(item.pr, label, on)}
-          onOpenAgent={() => onSelect({ kind: 'agent', ref: item.ref })}
-        />
-      )}
     </DialogContent>
   );
 }
@@ -280,10 +283,7 @@ function CarouselArrow({ side, disabled, label, onClick }: { side: 'left' | 'rig
   );
 }
 
-const checksVariant: Record<string, BadgeVariant> = { passing: 'success', failing: 'danger', pending: 'warning' };
-const stateVariant: Record<string, BadgeVariant> = { open: 'success', merged: 'brand', closed: 'default' };
-
-function SlideView({ slide, project, onOpenPR }: { slide: Slide; project: string; onOpenPR: () => void }) {
+function SlideView({ slide, project }: { slide: Exclude<Slide, { kind: 'pr' }>; project: string }) {
   const t = useT();
   const [loaded, setLoaded] = useState(false);
   switch (slide.kind) {
@@ -323,37 +323,5 @@ function SlideView({ slide, project, onOpenPR }: { slide: Slide; project: string
           </div>
         </div>
       );
-    case 'pr': {
-      const pr = slide.pr;
-      return (
-        <div className="grid w-[min(560px,calc(100%-6rem))] gap-4 rounded-2xl border border-line-strong bg-modal p-6" data-review-slide="pr">
-          <div className="flex items-center gap-2 text-[12px] text-muted">
-            <GitPullRequest className="size-4" />
-            <span className="font-mono">#{pr.number}</span>
-            {pr.baseBranch && <span className="truncate font-mono text-[11.5px] text-subtle">→ {pr.baseBranch}</span>}
-          </div>
-          <div className="text-[16px] font-semibold leading-snug text-title">{pr.title}</div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={stateVariant[pr.state] ?? 'default'}>{stateLabels[pr.state] ? t(stateLabels[pr.state]) : pr.state}</Badge>
-            {pr.draft && <Badge>{t('review.draft')}</Badge>}
-            {pr.checks && checksLabels[pr.checks] && (
-              <Badge variant={checksVariant[pr.checks] ?? 'default'}>{t('memory.pulls.checks', { state: t(checksLabels[pr.checks]) })}</Badge>
-            )}
-            {pr.conflict && <Badge variant="danger">{t('review.conflict')}</Badge>}
-            {(!!pr.additions || !!pr.deletions) && (
-              <span className="font-mono text-[11.5px]">
-                <span className="text-emerald-400">+{pr.additions ?? 0}</span> <span className="text-rose-400">−{pr.deletions ?? 0}</span>
-              </span>
-            )}
-          </div>
-          <div>
-            <Button variant="primary" onClick={onOpenPR} data-review-open-pr>
-              <GitPullRequest />
-              {t('review.openPR')}
-            </Button>
-          </div>
-        </div>
-      );
-    }
   }
 }

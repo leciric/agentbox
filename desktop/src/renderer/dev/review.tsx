@@ -1,7 +1,7 @@
 // ?review=1: "Ready to review" (components/ReadyToReview.tsx) with three
 // agents waiting, the top bar's button and the project header's. agent-12's
 // carousel has two screenshots, a recording (drawn here, on a canvas) and its
-// two Hatch pages (dev/pages.ts), then its pull request; Reviewed and Dismiss
+// Hatch pages (dev/pages.ts), then its pull request in full; Reviewed and Dismiss
 // take an agent off, which the dev bridge remembers (reviewRequest).
 import type { QueryClient } from '@tanstack/react-query';
 import { Suspense } from 'react';
