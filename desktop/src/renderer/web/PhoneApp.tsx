@@ -155,7 +155,7 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
                   onClick={() => onOpen({ kind: 'agent', ref: a.ref })}
                 />
               ))}
-              {phone.scopes.includes('merge') && (
+              {(phone.scopes ?? []).includes('merge') && (
                 <ChatRow
                   icon={
                     <div className="flex size-9 items-center justify-center rounded-full bg-surface-raised">

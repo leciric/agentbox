@@ -363,8 +363,10 @@ function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['lan'] }),
     onError: (err) => toast.error(errorMessage(err)),
   });
-  const has = (scope: string) => p.scopes.includes(scope);
-  const toggle = (scope: string, on: boolean) => scopes.mutateAsync(on ? [...p.scopes, scope] : p.scopes.filter((s) => s !== scope));
+  // A daemon from before scopes sends none.
+  const current = p.scopes ?? [];
+  const has = (scope: string) => current.includes(scope);
+  const toggle = (scope: string, on: boolean) => scopes.mutateAsync(on ? [...current, scope] : current.filter((s) => s !== scope));
   return (
     <li className="grid gap-3 rounded-xl border border-line px-3 py-2.5" data-phone={p.id}>
       <div className="flex items-center gap-3">
