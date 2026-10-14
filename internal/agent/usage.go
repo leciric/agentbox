@@ -264,7 +264,42 @@ func hostMemory() (total, used int64, err error) {
 			available = kb * 1024
 		}
 	}
-	return total, total - available, s.Err()
+	held := guestBalloon()
+	return max(total-held, 0), max(total-available-held, 0), s.Err()
+}
+
+// guestBalloon is what a memory balloon holds of this machine's memory, when
+// the machine is a VM that has one (the vz driver's).
+func guestBalloon() int64 {
+	features, _ := filepath.Glob("/sys/bus/virtio/drivers/virtio_balloon/virtio*/features")
+	if len(features) == 0 {
+		return 0
+	}
+	f, _ := os.ReadFile(features[0])
+	vmstat, _ := os.ReadFile("/proc/vmstat")
+	return balloonHeld(string(vmstat), strings.TrimSpace(string(f)), int64(os.Getpagesize()))
+}
+
+// balloonHeld is what the balloon holds that MemTotal still counts, and
+// MemAvailable doesn't: only a balloon that deflates on OOM (virtio feature
+// bit 2) leaves MemTotal as it booted. One that doesn't takes its pages off
+// MemTotal itself.
+func balloonHeld(vmstat, features string, pageSize int64) int64 {
+	if len(features) < 3 || features[2] != '1' {
+		return 0
+	}
+	var inflated, deflated int64
+	for line := range strings.Lines(vmstat) {
+		key, value, _ := strings.Cut(strings.TrimSpace(line), " ")
+		n, _ := strconv.ParseInt(value, 10, 64)
+		switch key {
+		case "balloon_inflate":
+			inflated = n
+		case "balloon_deflate":
+			deflated = n
+		}
+	}
+	return max(inflated-deflated, 0) * pageSize
 }
 
 // statValue reads one "key value" line out of a flat-keyed cgroup file such

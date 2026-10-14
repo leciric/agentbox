@@ -69,3 +69,21 @@ func TestHostMemoryHonoursTheVMsCap(t *testing.T) {
 		}
 	}
 }
+
+// A vz VM's balloon deflates on OOM, so the guest counts the pages it holds
+// as in use and leaves MemTotal as booted: they are neither the VM's nor in use.
+func TestBalloonHeldCountsOnlyADeflateOnOOMBalloon(t *testing.T) {
+	vmstat := "nr_free_pages 1\nballoon_inflate 917504\nballoon_deflate 655360\nballoon_migrate 7\n"
+	for _, tc := range []struct {
+		name, features string
+		want           int64
+	}{
+		{"deflate on OOM", "1010000000000000000000000000110010100000000000000000000000000000", 262144 * 4096},
+		{"taken off MemTotal", "1000000000000000000000000000110010100000000000000000000000000000", 0},
+		{"no balloon", "", 0},
+	} {
+		if got := balloonHeld(vmstat, tc.features, 4096); got != tc.want {
+			t.Errorf("%s: balloonHeld = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
