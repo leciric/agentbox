@@ -6,6 +6,7 @@ import type { ConnectionState } from '../../preload';
 import * as T from '../../shared/api.ts';
 import { api } from './api.ts';
 import { applyMediaEvent, setMediaUnseen } from './mediaPages.ts';
+import { pastAgentsKey } from './pastAgents.ts';
 import { applySeen } from './notifications.ts';
 import { onChatItem as onPageCall } from './pages.ts';
 import { applyChatEvent, resetChatEvents } from './chat.ts';
@@ -176,6 +177,8 @@ export function connectEvents(queryClient: QueryClient): void {
         } else {
           void queryClient.invalidateQueries({ queryKey: ['agents'] });
         }
+        // An agent whose machine was removed is a past agent now.
+        if (change.removed) void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
         if (change.state !== 'running') {
           void queryClient.invalidateQueries({ queryKey: ['browser', change.ref] });
           void queryClient.invalidateQueries({ queryKey: ['android', change.ref] });

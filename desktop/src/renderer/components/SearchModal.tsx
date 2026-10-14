@@ -1,6 +1,7 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
+  Archive,
   ArrowDownUp,
   Bot,
   Brain,
@@ -104,6 +105,8 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
   const [project, setProject] = useState(scope.project ?? '');
   const [since, setSince] = useState<SearchSince>(scope.since ?? '');
   const [newest, setNewest] = useState(false);
+  // Past agents' chats are left out unless asked for: they open read-only.
+  const [archived, setArchived] = useState(false);
   const [active, setActive] = useState(0);
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -118,9 +121,9 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
 
   // Every kind at once, for the chips' counts and the list when no chip is
   // picked; the picked kind on its own, for more of it.
-  const filters = { project, since: sinceTime(since) };
+  const filters = { project, since: sinceTime(since), archived };
   const all = useQuery({
-    queryKey: ['search', asked, project, since],
+    queryKey: ['search', asked, project, since, archived],
     queryFn: () => api.search(asked, filters),
     enabled: asked !== '',
     // The last answer stays up while the next is on its way, so the list
@@ -129,7 +132,7 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
     staleTime: 5_000,
   });
   const one = useQuery({
-    queryKey: ['search', asked, project, since, kind],
+    queryKey: ['search', asked, project, since, archived, kind],
     queryFn: () => api.search(asked, { ...filters, kinds: [kind], limit: kindLimit }),
     enabled: asked !== '' && kind !== '',
     placeholderData: keepPreviousData,
@@ -162,6 +165,7 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
     [
       hit.project === T.HomeProject ? t('shell.nav.mainChat') : hit.project ? projectLabel(hit.project, projects.data) : kind === T.SearchSkills || kind === T.SearchConnectors ? t('search.agentboxWide') : '',
       hit.agent && kind !== T.SearchAgents ? agentTitle(hit.project ?? '', hit.agent) : '',
+      hit.archived ? t('search.pastAgent') : '',
     ].filter(Boolean);
   // A chat message opens at itself, or, asked to find there, with the chat's
   // find bar on what was searched for.
@@ -221,6 +225,10 @@ function Searching({ scope, onOpen }: { scope: SearchScope; onOpen: (target: Sea
           );
         })}
         <span className="flex-1" />
+        <Chip on={archived} onClick={() => setArchived((on) => !on)} data-search-archived>
+          <Archive className="size-3.5" />
+          {t('search.includePast')}
+        </Chip>
         <Pick
           icon={FolderGit2}
           value={project}

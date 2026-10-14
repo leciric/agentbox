@@ -1006,5 +1006,19 @@
     "query": "pages=lead&media=project&theme=dark",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "past-agents-dark",
+    "description": "Every project's past agents: PR badges, a long title and branch, tokens, the filters — dark",
+    "query": "past=list&theme=dark",
+    "width": 1100,
+    "height": 800
+  },
+  {
+    "id": "past-agent-chat-dark",
+    "description": "A past agent's read-only chat, with Continue and Delete in the composer's place — dark",
+    "query": "past=chat&theme=dark",
+    "width": 1100,
+    "height": 800
   }
 ]

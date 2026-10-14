@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { useT } from '../lib/i18n';
+import { pastAgentsKey } from '../lib/pastAgents';
 import { disposeTerminal } from '../lib/terminals';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Code } from './ui/card';
@@ -52,6 +53,7 @@ export function DestroyAgentDialog({
         disposeTerminal(agent.ref);
         await queryClient.invalidateQueries({ queryKey: ['agents'] });
         await queryClient.invalidateQueries({ queryKey: ['fleet', agent.project] });
+        void queryClient.invalidateQueries({ queryKey: pastAgentsKey });
         onDestroyed?.();
       }}
     >

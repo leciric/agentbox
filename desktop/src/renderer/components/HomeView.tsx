@@ -8,6 +8,7 @@ import { formatList, formatNumber, useT } from '../lib/i18n';
 import { summarizeStatus, type StatusTone } from '../lib/agentStatus';
 import { cn, humanBytes, humanRate, shortRate, stallPressure, timeAgo } from '../lib/utils';
 import { AllAgentsPanel } from './AllAgentsPanel';
+import { PastAgentsList } from './PastAgents';
 import { JobStatusBadge } from './state';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -119,6 +120,10 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
           {all.length > 0 && <span className="ml-1.5 rounded-full bg-surface-raised px-1.5 text-[10.5px] normal-case tracking-normal text-subtle">{all.length}</span>}
         </SectionTitle>
         <AllAgentsPanel onSelect={onSelect} onNewAgent={onNewAgent} />
+
+        {/* Every project's agents whose machine was removed, with their chats. */}
+        <SectionTitle>{t('pastAgents.title')}</SectionTitle>
+        <PastAgentsList limit={8} onOpen={(ref) => onSelect({ kind: 'pastAgents', ref })} onShowAll={() => onSelect({ kind: 'pastAgents' })} />
 
         <SectionTitle>{t('shell.home.recentJobs')}</SectionTitle>
         <Panel className="divide-y divide-line-faint overflow-hidden" aria-busy={!jobs.data}>

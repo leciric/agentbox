@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, Images, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
+import { Archive, Box, ChevronRight, CircleArrowUp, FolderPlus, FolderTree, GripVertical, House, Images, ListChecks, MessagesSquare, MoonStar, MoreHorizontal, Pencil, Plus, Settings, Trash2 } from 'lucide-react';
 import type { ComponentType, DragEvent, KeyboardEvent, ReactNode } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -539,6 +539,9 @@ export function Sidebar({
             </span>
           </NavItem>
         )}
+        <NavItem icon={Archive} active={view.kind === 'pastAgents'} onClick={() => onSelect({ kind: 'pastAgents' })}>
+          {t('pastAgents.title')}
+        </NavItem>
         <NavItem icon={ListChecks} active={view.kind === 'jobs'} onClick={() => onSelect({ kind: 'jobs' })}>
           {t('shell.nav.jobs')}
           {running > 0 && <span className="ml-auto rounded-full bg-sky-400/15 px-1.5 text-[10.5px] text-sky-300">{t('shell.sidebar.running', { count: running })}</span>}

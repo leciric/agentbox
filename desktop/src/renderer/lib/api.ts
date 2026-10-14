@@ -87,6 +87,21 @@ const connectorPath = (target: string, name: string) => `${connectorsBase(target
 
 export type AgentAction = 'start' | 'stop' | 'pause' | 'resume';
 
+// A past agent, by ref, under /v1/archived-agents.
+const archived = (ref: string) => `/v1/archived-agents/${ref.split('/').map(encodeURIComponent).join('/')}`;
+
+// Which past agents to list: of one project or every one, matching q (name,
+// title, task, branch, pull request), by their pull request's state (or
+// 'none'), archived at or after since and up to until (dates or ISO times).
+export interface ArchivedQuery {
+  project?: string;
+  q?: string;
+  pr?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+}
+
 // ChatPage is which part of a chat to read (api.chat), by item id.
 export interface ChatPage {
   limit: number;
@@ -182,6 +197,24 @@ export const api = {
   // job whose result is a StopAgentsResult.
   stopAgents: (refs?: string[]) => call<T.Job>('POST', '/v1/agents/stop', { refs } satisfies T.StopAgentsRequest),
   diffStat: (ref: string) => text('GET', `${agent(ref)}/diff?stat=true`),
+
+  // Past agents: an agent whose machine was removed is kept, with its chat,
+  // until it is deleted here. Its chat reads through the live routes
+  // (api.chat, api.searchChat), and nothing can be sent to it; continuing it
+  // makes a new agent on its branch, as a job like createAgent's.
+  archivedAgents: (q: ArchivedQuery = {}) => {
+    const params = new URLSearchParams();
+    for (const [k, v] of Object.entries(q)) if (v) params.set(k, String(v));
+    const query = params.toString();
+    return call<T.ArchivedAgent[]>('GET', `/v1/archived-agents${query ? `?${query}` : ''}`);
+  },
+  archivedAgent: (ref: string) => call<T.ArchivedAgent>('GET', archived(ref)),
+  deleteArchived: (ref: string) => call<void>('DELETE', archived(ref)),
+  deleteArchivedMany: (refs: string[]) => call<T.DeleteArchivedResult>('POST', '/v1/archived-agents/delete', { refs } satisfies T.DeleteArchivedRequest),
+  continueArchived: async (ref: string, req: T.ContinueArchivedRequest) => {
+    await ensureVMRunning();
+    return call<T.Job>('POST', `${archived(ref)}/continue`, req);
+  },
 
   // A chat is read a page at a time: the latest limit messages, the ones
   // before an item, everything from an item on, limit messages on each side
@@ -389,13 +422,15 @@ export const api = {
     call<T.MediaItem>('PATCH', `/v1/media/${encodeURIComponent(id)}`, { favorite } satisfies T.UpdateMediaRequest),
   // Everything AgentBox keeps, in every project, that has the words typed: the search palette.
   // What every project holds that matches query: of only the kinds asked for,
-  // in one project, at or after since (an ISO time), when those are given.
-  search: (query: string, opts: { limit?: number; kinds?: string[]; project?: string; since?: string } = {}) => {
+  // in one project, at or after since (an ISO time), when those are given;
+  // with archived, past agents' chats too.
+  search: (query: string, opts: { limit?: number; kinds?: string[]; project?: string; since?: string; archived?: boolean } = {}) => {
     const params = new URLSearchParams({ q: query });
     if (opts.limit) params.set('limit', String(opts.limit));
     if (opts.kinds?.length) params.set('kinds', opts.kinds.join(','));
     if (opts.project) params.set('project', opts.project);
     if (opts.since) params.set('since', opts.since);
+    if (opts.archived) params.set('archived', 'true');
     return call<T.SearchResults>('GET', `/v1/search?${params}`);
   },
   // Every project's media, of the given kinds, each marked unseen while its notification is.

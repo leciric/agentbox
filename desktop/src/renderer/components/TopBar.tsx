@@ -58,6 +58,10 @@ export function TopBar({
     case 'project':
       crumbs.push({ label: projectLabel(view.project, projects.data) });
       break;
+    case 'pastAgents':
+      crumbs.push({ label: t('pastAgents.title'), view: view.ref ? { kind: 'pastAgents' } : undefined });
+      if (view.ref) crumbs.push({ label: view.ref.split('/')[1], mono: true });
+      break;
     case 'agent': {
       const [project, name] = view.ref.split('/');
       const agent = agents.data?.find((a) => a.ref === view.ref);

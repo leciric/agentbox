@@ -86,6 +86,10 @@
 //                           memories (the filter box narrows them)
 //   ?pulls=1                a project's pull requests list, with a long
 //                           GitHub login on one row
+//   ?past=list              every project's past agents (dev/pastAgents.ts),
+//                           which the search box and filters narrow, and which
+//                           delete; a click opens one's read-only chat
+//   ?past=chat              the same, open on agent-31's read-only chat
 //   ?tokens=1               a project's Settings → Tokens: headline (with average
 //                           TPS), by agent and by model, and spend over time
 //   ?tokens=1&account=work
@@ -203,6 +207,8 @@ import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
 import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
+import { seedPastAgents } from './pastAgents';
+import { PastAgents } from '../components/PastAgents';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
@@ -238,6 +244,7 @@ const meters = params.get('meters'); // "cpu" | "disk" | "disk-unmeasured" | "po
 const power = params.get('power');
 const free = params.get('free');
 const newAgent = params.get('newagent') === '1';
+const past = params.get('past'); // 'list' every project's past agents, 'chat' one read in its chat
 const loading = params.get('loading'); // 'hold' | 'refetch' | milliseconds | null
 const io = params.get('io'); // "1" | "stalling" | "agent" | null
 const imageUpdate = params.get('setup') === 'updating';
@@ -334,6 +341,7 @@ if (artifacts) {
   if (artifacts !== 'lead') queryClient.setQueryData(['chat', `${PROJECT}/${artifacts}`], { ...agent12Chat(), agent: `${PROJECT}/${artifacts}` });
 }
 if (pulls) queryClient.setQueryData(['pulls', PROJECT], pullRequests());
+if (past) seedPastAgents(queryClient);
 if (home) {
   const at = new Date().toISOString();
   const memory = (id: string, title: string, content: string, origin: string): T.Memory => ({ id, project: '', global: true, origin, kind: 'preference', title, content, importance: 4, createdAt: at, updatedAt: at });
@@ -605,6 +613,8 @@ function Preview() {
       </div>
     );
   }
+
+  if (past) return <PastAgentsPreview />;
 
   if (pulls) {
     return (
@@ -1075,4 +1085,15 @@ function ErrorReportsNoticePreview() {
     });
   }, [t]);
   return null;
+}
+
+// PastAgentsPreview is the AgentBox-wide Past agents page, or one past agent
+// read in it (?past=chat), at the height the app gives it.
+function PastAgentsPreview() {
+  const [open, setOpen] = useState<string | null>(past === 'chat' ? `${PROJECT}/agent-31` : null);
+  return (
+    <div style={{ height: '100vh', font: '13px var(--font-sans)' }}>
+      <PastAgents open={open ?? undefined} onOpen={setOpen} onSelect={() => {}} />
+    </div>
+  );
 }

@@ -24,6 +24,7 @@ import type * as T from "../shared/api";
 import { JobsView } from "./components/JobsView";
 import { NewAgentDialog } from "./components/NewAgentDialog";
 import { ProjectView } from "./components/ProjectView";
+import { PastAgents } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { aiLabel } from "./components/state";
@@ -51,7 +52,9 @@ export type View =
   | { kind: "media" }
   | { kind: "settings" }
   | { kind: "project"; project: string; tab?: ProjectPlaceName }
-  | { kind: "agent"; ref: string; tab?: AgentPlaceName };
+  | { kind: "agent"; ref: string; tab?: AgentPlaceName }
+  // Every project's past agents, or one of them (ref) read in its chat.
+  | { kind: "pastAgents"; ref?: string };
 
 export function App() {
   const t = useT();
@@ -293,7 +296,9 @@ export function App() {
         ? `project:${view.project}:${view.tab ?? ""}`
         : view.kind === "settings"
           ? `settings:${settingsVisit}`
-          : view.kind;
+          : view.kind === "pastAgents"
+            ? `pastAgents:${view.ref ?? ""}`
+            : view.kind;
 
   return (
     <div className="flex h-full">
@@ -376,6 +381,13 @@ export function App() {
                 {view.kind === "homeChat" && <HomeChatPanel />}
                 {view.kind === "jobs" && <JobsView />}
                 {view.kind === "media" && <AllMediaView onSelect={select} />}
+                {view.kind === "pastAgents" && (
+                  <PastAgents
+                    open={view.ref}
+                    onOpen={(ref) => select({ kind: "pastAgents", ref: ref ?? undefined })}
+                    onSelect={select}
+                  />
+                )}
                 {view.kind === "settings" && (
                   <SettingsView onHome={() => select({ kind: "home" })} />
                 )}

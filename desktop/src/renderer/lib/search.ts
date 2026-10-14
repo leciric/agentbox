@@ -60,6 +60,8 @@ export function searchTarget({ kind, hit }: SearchItem, query?: string): SearchT
     case T.SearchChats: {
       const reveal = { chat: { project, agent: hit.agent, item: hit.id, query } };
       if (project === T.HomeProject) return { open: 'view', view: { kind: 'homeChat' }, reveal };
+      // A past agent's chat opens in Past agents, read-only.
+      if (hit.archived && ref) return { open: 'view', view: { kind: 'pastAgents', ref }, reveal };
       return ref
         ? { open: 'view', view: { kind: 'agent', ref, tab: 'chat' }, reveal }
         : { open: 'view', view: { kind: 'project', project, tab: 'chat' }, reveal };

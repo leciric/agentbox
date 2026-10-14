@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, EyeOff, LoaderCircle, MessageSquarePlus, RefreshCw } from 'lucide-react';
+import { ArrowDown, Archive, EyeOff, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -28,6 +28,8 @@ import { Timeline } from './Timeline';
 // openAt brings an item into view, reading the chat back to it if need be,
 // with the find bar open on openAt.query when there is one; a new object
 // does it again, so pass one per opening.
+// readOnly is a past agent's chat (components/PastAgents.tsx): it never
+// starts, and a bar to continue or delete it takes the composer's place.
 export function ChatTab({
   agent,
   starting,
@@ -35,6 +37,7 @@ export function ChatTab({
   autoStart = true,
   onOpenAgent,
   openAt,
+  readOnly,
 }: {
   agent: T.Agent;
   starting: boolean;
@@ -42,6 +45,7 @@ export function ChatTab({
   autoStart?: boolean;
   onOpenAgent?: (ref: string) => void;
   openAt?: ChatOpenAt;
+  readOnly?: { onContinue: () => void; onDelete: () => void };
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -72,10 +76,11 @@ export function ChatTab({
   // a running session has them. A project's chat starts here too, on its
   // first opening: a project that's never opened still costs nothing.
   const sessionState = session?.state;
+  const past = readOnly !== undefined;
   useEffect(() => {
-    if (autoStart && running && sessionState === 'off' && !start.isPending) start.mutate();
+    if (!past && autoStart && running && sessionState === 'off' && !start.isPending) start.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStart, running, sessionState, agent.ref]);
+  }, [past, autoStart, running, sessionState, agent.ref]);
 
   // Follow the conversation while you're at its end.
   const scroller = useRef<HTMLDivElement>(null);
@@ -292,14 +297,33 @@ export function ChatTab({
 
       <div ref={composer} className="pointer-events-none absolute inset-x-0 bottom-0 px-3 pb-3 md:px-6 md:pb-5">
         <div className="pointer-events-auto relative mx-auto w-full max-w-4xl">
-          <PageStack agent={agent} />
-          <Composer
-            agent={agent}
-            thread={thread.data}
-            disabled={!running && !sleeping}
-            asleep={sleeping ? { state: sleeping, starting, onStart } : undefined}
-            onSent={scrollToEnd}
-          />
+          {readOnly ? (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line-strong bg-overlay px-4 py-2.5 shadow-lg backdrop-blur-xl" data-chat-read-only>
+              <Archive className="size-4 shrink-0 text-subtle" />
+              <span className="min-w-0 flex-1 text-[12.5px] text-muted">{t('pastAgents.readOnly')}</span>
+              <div className="flex shrink-0 gap-2">
+                <Button size="sm" variant="danger" onClick={readOnly.onDelete} data-past-delete>
+                  <Trash2 />
+                  {t('common.delete')}
+                </Button>
+                <Button size="sm" variant="primary" onClick={readOnly.onContinue} data-past-continue>
+                  <Play />
+                  {t('pastAgents.continue')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <PageStack agent={agent} />
+              <Composer
+                agent={agent}
+                thread={thread.data}
+                disabled={!running && !sleeping}
+                asleep={sleeping ? { state: sleeping, starting, onStart } : undefined}
+                onSent={scrollToEnd}
+              />
+            </>
+          )}
         </div>
       </div>
 

@@ -51,6 +51,13 @@ test('each kind opens where it lives', () => {
   assert.equal(agent.open === 'view' && agent.view.kind === 'agent' && agent.view.ref, 'pawly/agent-01');
   const home = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c3', project: T.HomeProject }) });
   assert.deepEqual(home.open === 'view' && home.view, { kind: 'homeChat' });
+  // A past agent's message opens it in Past agents, read-only, at the message.
+  const past = searchTarget({ kind: T.SearchChats, hit: hit({ id: 'c4', project: 'pawly', agent: 'agent-02', archived: true }) }, 'login');
+  assert.deepEqual(past, {
+    open: 'view',
+    view: { kind: 'pastAgents', ref: 'pawly/agent-02' },
+    reveal: { chat: { project: 'pawly', agent: 'agent-02', item: 'c4', query: 'login' } },
+  });
 
   const memory = { id: 'mem_1', project: 'pawly', kind: 'issue', title: 'T', content: '', importance: 3, createdAt: '', updatedAt: '' };
   const m = searchTarget({ kind: T.SearchMemories, hit: hit({ id: 'mem_1', project: 'pawly', memory }) });

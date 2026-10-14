@@ -6,6 +6,7 @@ import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
+import { pastState } from '../../lib/pastAgents';
 import { speak, stop, useReader } from '../../lib/voice/reader';
 import { replaying, toggleReplay } from '../../lib/voice/replay';
 import { fallbackLanguage, useReadAloudSettings } from '../../lib/voice/settings';
@@ -23,7 +24,7 @@ export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; threa
   const [openTurns, setOpenTurns] = useState<ReadonlySet<string>>(() => new Set());
   // An agent's turns end in checkpoints to roll back to or fork from; a
   // project's chat has no worktree of its own to put back.
-  const checkpoints = useQuery({ queryKey: ['checkpoints', agent.ref], queryFn: () => api.checkpoints(agent.ref), enabled: !isProjectChat(agent.ref) });
+  const checkpoints = useQuery({ queryKey: ['checkpoints', agent.ref], queryFn: () => api.checkpoints(agent.ref), enabled: !isProjectChat(agent.ref) && agent.state !== pastState });
   const byTurn = useMemo(() => new Map((checkpoints.data ?? []).filter((cp) => cp.kind === 'turn' && cp.turn).map((cp) => [cp.turn!, cp])), [checkpoints.data]);
   const latest = Math.max(0, ...Array.from(byTurn.values(), (cp) => cp.number));
   // The fold rows' labels are text, so the rows are made again when the language changes.
