@@ -389,7 +389,10 @@ func (s *supervisor) memoryLoop(ctx context.Context) {
 		s.sample = &sample
 		d := s.policy.decide(&s.mem, &sample, time.Now())
 		s.mu.Unlock()
-		if d.Reclaim {
+		// The vz balloon has no free page reporting: a reclaim returns nothing
+		// to the host, and compacting faults in guest memory the host had
+		// swapped out.
+		if d.Reclaim && s.m.balloon() == 0 {
 			started := time.Now()
 			if _, err := runSSHFor(ctx, s.c, s.l, s.self, reclaimScript, 30*time.Second); err != nil {
 				s.logf("reclaiming the VM's caches: %v", err)
