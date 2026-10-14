@@ -17,6 +17,7 @@ import { Notice } from '../ui/card';
 import { Tip } from '../ui/tooltip';
 import { PageStack } from '../pages/PageStack';
 import { Composer } from './Composer';
+import { leadOn } from '../../lib/leadRunner';
 import { FindBar } from './FindBar';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { ReadAloudControls } from './ReadAloud';
@@ -31,7 +32,7 @@ import { Timeline } from './Timeline';
 // readOnly is a past agent's chat (components/PastAgents.tsx): it never
 // starts, and a bar to continue or delete it takes the composer's place.
 export function ChatTab({
-  agent,
+  agent: given,
   starting,
   onStart,
   autoStart = true,
@@ -49,8 +50,11 @@ export function ChatTab({
 }) {
   const t = useT();
   const queryClient = useQueryClient();
-  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
+  const thread = useQuery({ queryKey: chatKey(given.ref), queryFn: () => fetchThread(queryClient, given.ref) });
   const session = thread.data?.session;
+  // A lead runs the tool and account its composer chose, which its session
+  // says (RunnerPicker).
+  const agent = leadOn(given, session);
   const running = agent.state === 'running';
   // A stopped or paused agent's chat is still all there to read, with the
   // button that starts it on the composer, which also wakes it by sending.

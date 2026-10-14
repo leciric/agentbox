@@ -227,9 +227,11 @@ func (s *Server) leadAccountRows(ctx context.Context, p state.Project) ([]api.Le
 	if err != nil {
 		return nil, err
 	}
+	// How many agents run on each account is worth knowing, not worth the
+	// list: with Incus unreachable, the accounts are still the accounts.
 	statuses, err := m.List(ctx, project)
 	if err != nil {
-		return nil, err
+		s.logf("counting %s's agents per Claude Code account: %v", project, err)
 	}
 	agentsOn := map[string]int{}
 	for _, st := range statuses {

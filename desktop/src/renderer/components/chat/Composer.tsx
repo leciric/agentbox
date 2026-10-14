@@ -46,6 +46,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { Tip } from '../ui/tooltip';
 import { DiffView, relativePath } from './ChangedFiles';
 import { ImageThumb } from './Images';
+import { RunnerPicker } from './RunnerPicker';
 import { VoiceButton } from './VoiceButton';
 import { voiceSettings } from '../../lib/voice/settings';
 
@@ -577,6 +578,7 @@ export function Composer({
               </button>
             </span>
           </Tip>
+          {isProjectChat(agent.ref) && <RunnerPicker agent={agent} session={session} />}
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />
@@ -869,7 +871,8 @@ function SessionOptions({ agent, session }: { agent: T.Agent; session?: T.ChatSe
   const modelValue = session?.options.find((o) => o.category === 'model' && o.type === 'select')?.value;
   if (modelValue && session?.contextSize && !session.turnStartedAt) confirmed.current.set(modelValue, session.contextSize);
   const options = session?.options ?? [];
-  const toolLabel = (
+  // A lead's tool is named by its picker beside this (RunnerPicker).
+  const toolLabel = isProjectChat(agent.ref) ? null : (
     <span className="flex h-7 items-center gap-1.5 px-2 text-[12.5px] text-subtle">
       <AIIcon ai={agent.ai} className="size-4" />
       {aiLabel(agent.ai)}

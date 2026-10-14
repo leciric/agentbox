@@ -80,7 +80,8 @@ func (m *Manager) LeadToolLogin(p state.Project, tool string) error {
 func (m *Manager) LeadToolInstalled(tool string) bool {
 	switch tool {
 	case "claude":
-		return usable(m.adapterPath()) && (usable(m.claudePath()) || onPath(ChatTool) != "")
+		// Where hostTools looks: AgentBox's own copies, else the PATH's.
+		return (usable(m.adapterPath()) || onPath(ChatAdapters["claude"].Command) != "") && (usable(m.claudePath()) || onPath(ChatTool) != "")
 	case "cursor":
 		return m.cursorSDKVersion() == cursor.SDKVersion()
 	}
