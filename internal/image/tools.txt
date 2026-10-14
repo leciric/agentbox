@@ -44,5 +44,9 @@
 -        npm:@cursor/sdk@1.0.35                            d="$(mise where npm:@cursor/sdk)" && ls "$d"/node_modules/@cursor/sdk/package.json "$d"/lib/node_modules/@cursor/sdk/package.json 2>/dev/null | grep -q .
 codex    codex@0.155.0                                     codex --version
 codex    npm:@agentclientprotocol/codex-acp@1.11.0         command -v codex-acp
-opencode npm:opencode-ai@1.18.31                           opencode --version && opencode acp --help | grep -q ACP
+# OpenCode is pinned as `opencode`, not `npm:opencode-ai`: the npm package
+# fetches its binary in a postinstall script, which mise's embedded aube
+# backend skips by default, leaving a stub that only prints an error. The
+# native backend downloads the binary directly, so no lifecycle script runs.
+opencode opencode@1.18.31                                  opencode --version && opencode acp --help | grep -q ACP
 host     cloudflared@2026.9.3                              cloudflared --version

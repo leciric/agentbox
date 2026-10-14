@@ -16,7 +16,7 @@ func TestToolsManifest(t *testing.T) {
 		t.Fatal("tools.txt pins no tools")
 	}
 	for _, name := range []string{"go", "node", "pnpm", "claude", "gh", "npm:@playwright/mcp",
-		"npm:@agentclientprotocol/claude-agent-acp", "codex", "npm:@agentclientprotocol/codex-acp", "npm:opencode-ai"} {
+		"npm:@agentclientprotocol/claude-agent-acp", "codex", "npm:@agentclientprotocol/codex-acp", "opencode"} {
 		if spec := Pin(name); !strings.HasPrefix(spec, name+"@") {
 			t.Errorf("Pin(%q) = %q", name, spec)
 		}
@@ -29,7 +29,7 @@ func TestToolsManifest(t *testing.T) {
 		return out
 	}
 	plain := names(ToolsFor(Components{}))
-	if slices.Contains(plain, "codex") || slices.Contains(plain, "npm:opencode-ai") || !slices.Contains(plain, "claude") {
+	if slices.Contains(plain, "codex") || slices.Contains(plain, "opencode") || !slices.Contains(plain, "claude") {
 		t.Errorf("an image with no components has %v", plain)
 	}
 	// Android and the dev caches aren't tools mise installs, so they change nothing here.
@@ -37,7 +37,7 @@ func TestToolsManifest(t *testing.T) {
 		t.Errorf("Android and the dev caches changed the tools: %v", got)
 	}
 	all := names(ToolsFor(Components{Codex: true, OpenCode: true}))
-	for _, want := range []string{"codex", "npm:@agentclientprotocol/codex-acp", "npm:opencode-ai"} {
+	for _, want := range []string{"codex", "npm:@agentclientprotocol/codex-acp", "opencode"} {
 		if !slices.Contains(all, want) {
 			t.Errorf("an image with Codex and OpenCode has no %s: %v", want, all)
 		}
