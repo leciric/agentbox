@@ -243,6 +243,11 @@ export const api = {
   setChatOption: (ref: string, option: string, value: string) =>
     call<T.ChatSession>('PUT', `${chatBase(ref)}/options/${encodeURIComponent(option)}`, { value } satisfies T.ChatOptionRequest),
   clearChat: (ref: string) => call<void>('DELETE', chatBase(ref)),
+  // A lead's AI tool and account, chosen in its composer: what it can switch
+  // to, and the choice, which applies from its next message. project is the
+  // project's name, or T.HomeProject for the Home chat.
+  chatRunners: (name: string) => call<T.LeadRunners>('GET', `${project(name)}/chat/runners`),
+  setChatRunner: (name: string, req: T.LeadRunnerRequest) => call<T.ChatSession>('PUT', `${project(name)}/chat/runner`, req),
   // A project chat's prompt cache, and the card that asks before a message
   // re-sends a context whose cache is about to expire (or has).
   chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),

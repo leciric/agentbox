@@ -1066,6 +1066,13 @@ var migrations = []string{
 		PRIMARY KEY (project, name)
 	)`,
 	`CREATE INDEX archived_agents_by_time ON archived_agents (archived_at)`,
+	// A lead's AI tool and account are chosen in its chat's composer (Chat):
+	// the tool its session runs on, the one chosen for the next message when
+	// that differs, and the Claude Code account chosen for it ("" follows the
+	// project).
+	`ALTER TABLE chats ADD COLUMN tool TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE chats ADD COLUMN next_tool TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE chats ADD COLUMN account TEXT NOT NULL DEFAULT ''`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -2281,6 +2288,19 @@ func (s *Store) SetAgentTitle(ctx context.Context, project, name, title string) 
 // from. The token itself is written into the agent by package agent.
 func (s *Store) SetAgentClaudeAccount(ctx context.Context, project, name, account string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE agents SET claude_account = ? WHERE project = ? AND name = ?`, account, project, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("agent %s/%s: %w", project, name, ErrNotFound)
+	}
+	return nil
+}
+
+// SetAgentAI records the AI tool an agent runs: a lead's, once its chat has
+// switched to another (Store.Chat's Tool).
+func (s *Store) SetAgentAI(ctx context.Context, project, name, ai string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE agents SET ai = ? WHERE project = ? AND name = ?`, ai, project, name)
 	if err != nil {
 		return err
 	}

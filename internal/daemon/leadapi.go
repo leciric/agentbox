@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -206,20 +207,31 @@ func (s *Server) leadCreateAgent(w http.ResponseWriter, r *http.Request) error {
 // GET /v1/limits converts one (toClaudeLimit, limits.go), so the two never
 // disagree about what a reading means.
 func (s *Server) leadAccounts(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-	project := r.PathValue("project")
-	p, err := s.store.Project(ctx, project)
+	p, err := s.store.Project(r.Context(), r.PathValue("project"))
 	if err != nil {
 		return err
 	}
+	out, err := s.leadAccountRows(r.Context(), p)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, out)
+}
+
+// leadAccountRows are the Claude Code accounts a project may use, each with
+// how many of its agents run on it and its latest limit reading.
+func (s *Server) leadAccountRows(ctx context.Context, p state.Project) ([]api.LeadAccount, error) {
+	project := p.Name
 	m := s.manager(nil)
 	accounts, err := m.Creds.ClaudeAccounts()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	// How many agents run on each account is worth knowing, not worth the
+	// list: with Incus unreachable, the accounts are still the accounts.
 	statuses, err := m.List(ctx, project)
 	if err != nil {
-		return err
+		s.logf("counting %s's agents per Claude Code account: %v", project, err)
 	}
 	agentsOn := map[string]int{}
 	for _, st := range statuses {
@@ -230,7 +242,7 @@ func (s *Server) leadAccounts(w http.ResponseWriter, r *http.Request) error {
 	}
 	readings, err := s.store.ClaudeLimits(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	byAccount := make(map[string]state.ClaudeLimitReading, len(readings))
 	for _, reading := range readings {
@@ -267,7 +279,7 @@ func (s *Server) leadAccounts(w http.ResponseWriter, r *http.Request) error {
 		}
 		return 0
 	})
-	return writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
 // leadAgentChat is one agent's conversation, so the chat can read what it did.

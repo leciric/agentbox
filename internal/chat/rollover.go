@@ -223,6 +223,7 @@ func (c *conversation) rollover(unsaved error) error {
 	// the consolidation it already did is in the project's memory either way.
 	if c.turn != nil {
 		c.endCompaction(false, unsaved)
+		c.switching = false // the next turn's start switches instead
 		c.settleRolling()
 		return ErrBusy
 	}
@@ -239,6 +240,9 @@ func (c *conversation) rollover(unsaved error) error {
 	if !c.endCompaction(true, unsaved) {
 		c.add("notice", c.lastTurn()).Text = RolloverNotice
 	}
+	// A rollover for a tool switch hands over to the chosen tool now, before
+	// what waited is delivered into its session (runner.go).
+	c.switchRolled(unsaved)
 	c.markSession()
 	c.flush(true)
 	c.settleRolling()

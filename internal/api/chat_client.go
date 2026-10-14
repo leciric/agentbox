@@ -160,3 +160,17 @@ func (c *Client) Files(ctx context.Context, ref string) (WorktreeFiles, error) {
 	}
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
+
+// ChatRunners lists the AI tools and Claude Code accounts a project's chat (or
+// Home's, HomeProject) can switch to.
+func (c *Client) ChatRunners(ctx context.Context, project string) (LeadRunners, error) {
+	var out LeadRunners
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/chat/runners", nil, &out)
+}
+
+// SetChatRunner chooses the AI tool and account a project's chat runs from its
+// next message.
+func (c *Client) SetChatRunner(ctx context.Context, project string, req LeadRunnerRequest) (ChatSession, error) {
+	var out ChatSession
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/chat/runner", req, &out)
+}

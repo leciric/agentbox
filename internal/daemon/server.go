@@ -337,6 +337,7 @@ func New(cfg Config) (*Server, error) {
 		AuthFailed:   s.claudeAuthFailed,
 		Lost:         s.agentLost,
 		Limits:       s.claudeLimited,
+		LeadAccount:  s.leadAccount,
 		Logf:         s.logf,
 		Version:      Version,
 		ImageDir:     cfg.Paths.ChatImages,
@@ -685,6 +686,8 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
 	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
 	h("PUT /v1/projects/{project}/chat/options/{option}", s.setChatOption(s.leadFromPath))
+	h("GET /v1/projects/{project}/chat/runners", s.chatRunners)
+	h("PUT /v1/projects/{project}/chat/runner", s.setChatRunner)
 	h("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
 	h("GET /v1/projects/{project}/lead", s.projectChat)
 	h("DELETE /v1/projects/{project}/lead", s.resetProjectChat)

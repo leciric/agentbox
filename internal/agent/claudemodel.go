@@ -234,6 +234,11 @@ func withClaudeKey(existing []byte, key string, value any, want bool) ([]byte, e
 // and OpenCode's opencode.json (subagent_depth — it has no absolute compact
 // window to set at all).
 func (m *Manager) PrepareChatModel(ctx context.Context, a state.Agent, model string, compactWindow int64) error {
+	if a.IsLead() && a.AI != "claude" {
+		// Its configuration is in the lead's HOME, written with its brief
+		// (leadToolFiles), and its model is set once its session has started.
+		return nil
+	}
 	switch a.AI {
 	case "claude":
 		merge := func(existing []byte) ([]byte, error) { return withClaudeChat(existing, model, compactWindow) }

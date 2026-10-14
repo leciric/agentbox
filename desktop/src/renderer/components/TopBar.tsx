@@ -160,7 +160,11 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   const agent = view.kind === 'agent' ? agents.find((a) => a.ref === view.ref) : undefined;
   const projectName = view.kind === 'project' ? view.project : view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
   const project = projectName ? projects.data?.find((p) => p.name === projectName) : undefined;
-  const pick = pickMeter({ limits: limits.data ?? [], project, agent });
+  // On a project's page, or Home, its chat's own tool and account: what the
+  // composer chose spends there (RunnerPicker).
+  const chatOf = view.kind === 'project' ? project?.name : view.kind === 'home' || view.kind === 'homeChat' ? '_home' : undefined;
+  const runners = useQuery({ queryKey: ['chatRunners', chatOf], queryFn: () => api.chatRunners(chatOf!), enabled: !!chatOf, refetchInterval: 30_000 });
+  const pick = pickMeter({ limits: limits.data ?? [], project, agent, lead: chatOf ? runners.data : undefined });
   const account = pick.reading;
   const five = account?.windows.find((w) => w.name === 'five_hour') ?? account?.windows[0];
   const week = account?.windows.find((w) => w.name === 'seven_day');
@@ -230,7 +234,9 @@ function limitText(now: number | null): string {
   return tone === 'high' ? 'text-rose-300' : tone === 'warn' ? 'text-amber-300' : 'text-secondary';
 }
 
-function LimitRow({ window: w, clock }: { window: T.ClaudeLimitWindow; clock: number }) {
+// LimitRow is one of an account's limits: how much is used, and when it
+// starts again. The composer's AI tool picker shows them too.
+export function LimitRow({ window: w, clock }: { window: T.ClaudeLimitWindow; clock: number }) {
   const t = useT();
   const now = windowNow(w, clock);
   const percent = now === null ? 0 : Math.max(0, Math.min(1, now)) * 100;
