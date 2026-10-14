@@ -6,7 +6,7 @@ import { api, isHomeChat } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { drawMermaid } from '../../lib/mermaid';
 import { pagesKey } from '../../lib/pages';
-import { FRAME_MAX, framedPage, frameHeight, HEIGHT_MESSAGE, pageOf, svgSize, svgUrl, titleOf, type RichKind } from '../../lib/rich';
+import { framedPage, frameHeight, HEIGHT_MESSAGE, pageOf, PICTURE_MAX, svgSize, svgUrl, titleOf, type RichKind } from '../../lib/rich';
 import { useMode } from '../../lib/theme';
 import { cn, errorMessage } from '../../lib/utils';
 import { pagesQuery } from '../pages/usePages';
@@ -111,7 +111,7 @@ function HeaderButton({ label, onClick, children }: { label: string; onClick: ()
 }
 
 // RichView is a block drawn: in the chat, fitted to the column and no taller
-// than FRAME_MAX, or large, filling the dialog.
+// than PICTURE_MAX (a page FRAME_MAX), or large, filling the dialog.
 function RichView({ kind, code, network, large, onOpen, onCode }: { kind: RichKind; code: string; network: boolean; large?: boolean; onOpen?: () => void; onCode?: () => void }) {
   if (kind === 'html') return <PageFrame html={code} network={network} large={large} />;
   return <Picture kind={kind} code={code} large={large} onOpen={onOpen} onCode={onCode} />;
@@ -148,7 +148,7 @@ function Picture({ kind, code, large, onOpen, onCode }: { kind: RichKind; code: 
         draggable={false}
         className="mx-auto block h-auto w-full object-contain"
         // An SVG sized 100% has no height of its own: its viewBox gives the shape.
-        style={{ maxWidth: size ? `${size.width}px` : undefined, aspectRatio: size ? `${size.width} / ${size.height}` : undefined, maxHeight: FRAME_MAX }}
+        style={{ maxWidth: size ? `${size.width}px` : undefined, aspectRatio: size ? `${size.width} / ${size.height}` : undefined, maxHeight: PICTURE_MAX }}
       />
     </button>
   );

@@ -59,6 +59,8 @@ export function svgSize(svg: string): { width: number; height: number } | null {
 // that, the page scrolls inside it, and Open large shows it whole.
 export const FRAME_MIN = 60;
 export const FRAME_MAX = 480;
+// A picture's: a diagram is drawn to fit the column, and opened large to read.
+export const PICTURE_MAX = 360;
 
 export function frameHeight(reported: unknown, max = FRAME_MAX): number | null {
   if (typeof reported !== 'number' || !Number.isFinite(reported)) return null;
