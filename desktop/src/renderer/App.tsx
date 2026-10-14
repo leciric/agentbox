@@ -39,6 +39,8 @@ import { t as tNow, useT } from "./lib/i18n";
 import { useReadyAlerts } from "./lib/useReadyAlerts";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
+import { kindOf, mayNotify } from "./lib/notifyPrefs";
+import { playReadySound } from "./lib/reviewAlert";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
 import { requestReveal } from "./lib/reveal";
 import type { SearchTarget } from "./lib/search";
@@ -222,7 +224,13 @@ export function App() {
       // Long enough to reach with the pointer: the toast is the way in.
       { id: n.id, duration: 10_000 },
     );
-    void window.agentbox.notify({ id: n.id, ...noticeText(n, projectName) });
+    const kind = kindOf(n);
+    // A finish's chime is the ready alert's (useReadyAlerts), and a kept
+    // screenshot is quiet: only a question or a failure sounds here.
+    if ((kind === "question" || kind === "error") && mayNotify(kind, "sound"))
+      playReadySound();
+    if (mayNotify(kind, "system"))
+      void window.agentbox.notify({ id: n.id, ...noticeText(n, projectName) });
   };
   const waiting = useRef(new Map<string, () => void>());
 
@@ -301,6 +309,10 @@ export function App() {
       select({ kind: "agent", ref: first.ref, tab: "chat" });
     });
     const projects = queryClient.getQueryData<T.Project[]>(["projects"]);
+    if (!mayNotify("finished", "system")) {
+      waiting.current.delete(id);
+      return;
+    }
     void window.agentbox
       .notify({
         id,

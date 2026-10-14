@@ -81,7 +81,8 @@ import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
-import { playReadySound, setReviewSound, setReviewVolume, useReviewSound, useReviewVolume } from "../lib/reviewAlert";
+import { DoNotDisturbSetting, ChimeVolume, NotificationKinds, NotificationModeChoice } from "./NotificationSettings";
+import { defaults as notifyDefaults, usePrefs, useDnd } from "../lib/notifyPrefs";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
@@ -321,6 +322,16 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     settingsBody: <GitHubAccounts accounts={auth.data?.githubAccounts ?? []} />,
   };
 
+  const notificationsStep: Step = {
+    id: "notifications",
+    title: t("notify.setup.title"),
+    status: "optional",
+    required: false,
+    optional: true,
+    description: t("notify.setup.description"),
+    body: <NotificationModeChoice />,
+  };
+
   // What each daemon check offers to do about itself.
   const bodies: Record<string, ReactNode> = {
     incus: (
@@ -447,6 +458,7 @@ export function SettingsView({ onHome }: { onHome?: () => void }) {
     });
     if (c.id === "opencode") steps.push(githubStep);
   }
+  steps.push(notificationsStep);
 
   // Which page: the wizard while there is setting up left to do, the tabbed
   // page once there isn't. It waits for both answers — the daemon's checks and
@@ -882,6 +894,11 @@ function InstalledSettings({
   const aiSteps = accountSteps.filter((step) => step.id !== "github");
   const githubSteps = accountSteps.filter((step) => step.id === "github");
 
+  const notifyPrefs = usePrefs();
+  const dnd = useDnd();
+  const notifyChanged =
+    JSON.stringify(notifyPrefs.kinds) !== JSON.stringify(notifyDefaults().kinds);
+
   const sections: SettingSection[] = [
     {
       id: "general",
@@ -914,12 +931,6 @@ function InstalledSettings({
               modified: topBarDetailed,
               render: () => <TopBarDetailedSetting />,
             },
-            {
-              id: "review-sound",
-              label: t("settings.entry.review-sound.label"),
-              keywords: t("settings.entry.review-sound.keywords"),
-              render: () => <ReviewSoundSetting />,
-            },
             ...(hatchConnected
               ? [
                   {
@@ -931,6 +942,32 @@ function InstalledSettings({
                   },
                 ]
               : []),
+          ],
+        },
+        {
+          id: "notifications",
+          title: t("settings.group.notifications.title"),
+          entries: [
+            {
+              id: "notify-dnd",
+              label: t("notify.dnd.title"),
+              keywords: t("notify.dnd.keywords"),
+              modified: dnd.on,
+              render: () => <DoNotDisturbSetting />,
+            },
+            {
+              id: "notify-kinds",
+              label: t("settings.entry.notify-kinds.label"),
+              keywords: t("settings.entry.notify-kinds.keywords"),
+              modified: notifyChanged,
+              render: () => <NotificationKinds />,
+            },
+            {
+              id: "notify-volume",
+              label: t("settings.reviewSound.volume"),
+              keywords: t("settings.entry.review-sound.keywords"),
+              render: () => <ChimeVolume />,
+            },
           ],
         },
         {
@@ -1759,45 +1796,6 @@ function TopBarDetailedSetting() {
         />
       }
     />
-  );
-}
-
-// ReviewSoundSetting is the chime for an agent newly in Ready to review
-// (lib/reviewAlert.ts): on by default, with its volume and a test.
-function ReviewSoundSetting() {
-  const t = useT();
-  const on = useReviewSound();
-  const volume = useReviewVolume();
-  return (
-    <SettingRow
-      label={t("settings.entry.review-sound.label")}
-      description={t("settings.reviewSound.description")}
-      control={
-        <Switch
-          data-review-sound-setting
-          aria-label={t("settings.entry.review-sound.label")}
-          checked={on}
-          onCheckedChange={setReviewSound}
-        />
-      }
-    >
-      <div className="flex items-center gap-3">
-        <input
-          type="range"
-          min={0}
-          max={100}
-          value={volume}
-          disabled={!on}
-          aria-label={t("settings.reviewSound.volume")}
-          data-review-sound-volume
-          className="w-40 accent-brand-500"
-          onChange={(e) => setReviewVolume(Number(e.target.value))}
-        />
-        <Button size="sm" variant="secondary" disabled={!on} data-review-sound-test onClick={() => playReadySound()}>
-          {t("settings.reviewSound.test")}
-        </Button>
-      </div>
-    </SettingRow>
   );
 }
 
