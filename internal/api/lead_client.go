@@ -18,6 +18,13 @@ func (c *Client) ProjectFleet(ctx context.Context) (Fleet, error) {
 	return out, c.do(ctx, http.MethodGet, c.leadPath("/agents"), nil, &out)
 }
 
+// ProjectArchivedAgents lists the past agents of the project behind the lead
+// socket; opt.Project is ignored.
+func (c *Client) ProjectArchivedAgents(ctx context.Context, opt ArchivedOptions) ([]ArchivedAgent, error) {
+	var out []ArchivedAgent
+	return out, c.do(ctx, http.MethodGet, c.leadPath("/archived-agents")+"?"+opt.values().Encode(), nil, &out)
+}
+
 // ProjectAccounts lists this machine's Claude Code accounts, from the project
 // behind the lead socket's own point of view: which is its default, how many
 // of its running agents use each, and each one's latest usage reading.

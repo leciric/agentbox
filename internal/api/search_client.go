@@ -15,6 +15,8 @@ type SearchOptions struct {
 	Kinds   []string  // only these groups, of SearchProjects to SearchPulls
 	Project string    // only this project's things, by slug
 	Since   time.Time // only things from then on; kinds without a time drop out
+	// Archived includes past agents' chats.
+	Archived bool
 }
 
 // Search looks for query across everything AgentBox keeps, at most limit of
@@ -37,6 +39,9 @@ func (c *Client) SearchWith(ctx context.Context, query string, limit int, opt Se
 	}
 	if !opt.Since.IsZero() {
 		q.Set("since", opt.Since.Format(time.RFC3339Nano))
+	}
+	if opt.Archived {
+		q.Set("archived", "true")
 	}
 	var out SearchResults
 	return out, c.do(ctx, http.MethodGet, "/v1/search?"+q.Encode(), nil, &out)

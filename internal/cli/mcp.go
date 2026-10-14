@@ -338,8 +338,22 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Description: "List this project's agents: what each one is for, what it is doing now, " +
 				"how much it has changed, what it has shown, its pull request, and whether it has " +
 				"finished and is holding a machine for nothing. Queued agents are listed too, with their " +
-				"place in the queue: they have a name and a branch, but no machine until a slot is free.",
-			Run: func(json.RawMessage) (string, error) {
+				"place in the queue: they have a name and a branch, but no machine until a slot is free. " +
+				"With archived, it lists past agents instead: ones whose machine was removed (retire_agent, or the " +
+				"user), kept with their branch, pull request and chat, which read_agent still reads.",
+			Schema: object(nil, archivedParams),
+			Run: func(args json.RawMessage) (string, error) {
+				var in archivedArgs
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				if in.Archived {
+					past, err := c.ProjectArchivedAgents(ctx, in.options(""))
+					if err != nil {
+						return "", err
+					}
+					return describeArchived(past), nil
+				}
 				fleet, err := c.ProjectFleet(ctx)
 				if err != nil {
 					return "", err
@@ -639,8 +653,8 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			Name: "retire_agent",
 			Description: "Free what an agent is holding once it has finished. Its work stays on its " +
 				"branch whichever way you retire it: stop shuts the machine down and it comes back in " +
-				"seconds, destroy removes the machine and the worktree but keeps its media, findable in " +
-				"the project's media view. An agent with uncommitted work is left alone, and so is one " +
+				"seconds, destroy removes the machine and the worktree and keeps it as a past agent, with its " +
+				"chat and media (list_agents with archived lists them, read_agent reads one). An agent with uncommitted work is left alone, and so is one " +
 				"still working, which includes waiting on a background command or monitor it left " +
 				"running, unless you force it. The next task is a new agent, not this one.",
 			Schema: object([]string{"agent"}, map[string]any{

@@ -277,15 +277,19 @@ func printAgent(cmd *cobra.Command, ag api.Agent, took time.Duration) {
 }
 
 func newListCmd(a *app) *cobra.Command {
-	return &cobra.Command{
+	var (
+		archived bool
+		past     pastFlags
+	)
+	cmd := &cobra.Command{
 		Use:     "list [project]",
 		Aliases: []string{"ls"},
-		Short:   "List agents",
+		Short:   "List agents (--archived: past agents, whose machine was removed)",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			project := ""
-			if len(args) == 1 {
-				project = args[0]
+			project := firstArg(args)
+			if archived {
+				return listPast(cmd, a, project, past)
 			}
 			c, err := a.client(cmd)
 			if err != nil {
@@ -310,6 +314,9 @@ func newListCmd(a *app) *cobra.Command {
 			return w.Flush()
 		},
 	}
+	cmd.Flags().BoolVar(&archived, "archived", false, "list past agents instead, as agentbox past list does")
+	past.add(cmd)
+	return cmd
 }
 
 func newTitleCmd(a *app) *cobra.Command {

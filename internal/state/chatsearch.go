@@ -28,6 +28,10 @@ type ChatSearch struct {
 	Kinds []string
 	// Since, when set, keeps only items created at or after it.
 	Since time.Time
+	// Archived includes the chats of archived agents, which are left out
+	// otherwise. Asking for one archived agent's chat by Agent finds it
+	// either way.
+	Archived bool
 	// Limit is how many hits at most; 0 is DefaultChatSearchLimit.
 	Limit int
 }
@@ -141,6 +145,8 @@ func (q ChatSearch) sql() (from, where, order string, args []any, err error) {
 		where += ` AND i.agent = ?`
 		args = append(args, q.Agent)
 		order = `i.position`
+	} else if !q.Archived {
+		where += ` AND NOT EXISTS (SELECT 1 FROM archived_agents x WHERE x.project = i.project AND x.name = i.agent)`
 	}
 	if len(q.Kinds) > 0 {
 		where += ` AND json_extract(i.data, '$.kind') IN (?` + strings.Repeat(`, ?`, len(q.Kinds)-1) + `)`

@@ -58,6 +58,9 @@ type SearchHit struct {
 	Agent string     `json:"agent,omitempty"`
 	At    *time.Time `json:"at,omitempty"`
 	URL   string     `json:"url,omitempty"` // a pull request's, on GitHub
+	// Archived marks a message in a past agent's chat, found only when the
+	// search asked for them (archived=true); it opens in Past agents.
+	Archived bool `json:"archived,omitempty"`
 
 	// The thing itself, for the kinds whose place in the app lists only some
 	// of them (the newest events, a filtered list), so the app can show it

@@ -168,6 +168,9 @@ type Server struct {
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
+	// archivedPRChecked is when each past agent's open pull request was last
+	// read from GitHub, by ref (archive.go).
+	archivedPRChecked map[string]time.Time
 	// skillsMu runs one installation of skills at a time (skills.go).
 	skillsMu sync.Mutex
 	// skillsSynced, when set (tests), is told each time one has ended.
@@ -726,6 +729,12 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/pressure", s.getPressure)
 	h("GET /v1/agents", s.listAgents)
+	// Past agents (archive.go): their chats read through the routes above.
+	h("GET /v1/archived-agents", s.listArchived)
+	h("POST /v1/archived-agents/delete", s.deleteArchivedMany)
+	h("GET /v1/archived-agents/{project}/{agent}", s.getArchived)
+	h("DELETE /v1/archived-agents/{project}/{agent}", s.deleteArchived)
+	h("POST /v1/archived-agents/{project}/{agent}/continue", s.continueArchived)
 	h("POST /v1/agents", s.createAgent)
 	h("POST /v1/agents/stop", s.stopAgents)
 	h("GET /v1/agents/{project}/{agent}", s.getAgent)
@@ -752,12 +761,12 @@ func (s *Server) routes() http.Handler {
 	h("PUT /v1/agents/{project}/{agent}/secrets/{name}", s.setAgentSecret)
 	h("DELETE /v1/agents/{project}/{agent}/secrets/{name}", s.removeAgentSecret)
 	h("GET /v1/agents/{project}/{agent}/terminal", s.terminal)
-	h("GET /v1/agents/{project}/{agent}/chat", s.getChat(s.agentFromPath))
-	h("GET /v1/agents/{project}/{agent}/chat/search", s.searchChat(s.agentFromPath))
+	h("GET /v1/agents/{project}/{agent}/chat", s.getChat(s.agentOrArchivedFromPath))
+	h("GET /v1/agents/{project}/{agent}/chat/search", s.searchChat(s.agentOrArchivedFromPath))
 	h("DELETE /v1/agents/{project}/{agent}/chat", s.clearChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/start", s.startChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
-	h("GET /v1/agents/{project}/{agent}/chat/images/{image}", s.chatImage(s.agentFromPath))
+	h("GET /v1/agents/{project}/{agent}/chat/images/{image}", s.chatImage(s.agentOrArchivedFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))

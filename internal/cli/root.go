@@ -274,6 +274,7 @@ func NewRootCmd() *cobra.Command {
 		newBaseCmd(a),
 		newCreateCmd(a),
 		newListCmd(a),
+		newPastCmd(a),
 		newTitleCmd(a),
 		newChatCmd(a),
 		newFleetCmd(a),

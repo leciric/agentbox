@@ -45,6 +45,8 @@ type searchFilter struct {
 	kinds   map[string]bool // nil is every kind
 	project string
 	since   time.Time
+	// archived includes past agents' chats, which are left out otherwise.
+	archived bool
 }
 
 // wants is whether a kind is searched at all. A kind whose things have no
@@ -119,6 +121,13 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) error {
 			return fmt.Errorf("since must be a time like 2026-10-11T09:00:00Z, not %q", v)
 		}
 		filter.since = since
+	}
+	if v := r.URL.Query().Get("archived"); v != "" {
+		archived, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("archived is true or false, not %q", v)
+		}
+		filter.archived = archived
 	}
 	projects, err := s.store.Projects(ctx)
 	if err != nil {
@@ -406,7 +415,7 @@ func (s *Server) searchChats(ctx context.Context, known map[string]state.Project
 	if utf8.RuneCountInString(q) < searchChatsMin {
 		return g, nil
 	}
-	search := state.ChatSearch{Query: q, Project: filter.project, Since: filter.since, Limit: limit}
+	search := state.ChatSearch{Query: q, Project: filter.project, Since: filter.since, Archived: filter.archived, Limit: limit}
 	found, more, err := s.store.SearchChats(ctx, search)
 	if err != nil {
 		return g, err
@@ -421,6 +430,16 @@ func (s *Server) searchChats(ctx context.Context, known map[string]state.Project
 			leads[a.Project+"/"+a.Name] = true
 		}
 	}
+	past := map[string]bool{}
+	if filter.archived && len(found) > 0 {
+		archived, err := s.store.ArchivedAgents(ctx, state.ArchivedQuery{Project: filter.project})
+		if err != nil {
+			return g, err
+		}
+		for _, a := range archived {
+			past[a.Ref()] = true
+		}
+	}
 	for _, h := range found {
 		if _, ok := known[h.Project]; !ok && h.Project != state.HomeProject {
 			continue
@@ -433,7 +452,7 @@ func (s *Server) searchChats(ctx context.Context, known map[string]state.Project
 		for _, part := range h.Snippet {
 			text.WriteString(part.Text)
 		}
-		g.Hits = append(g.Hits, api.SearchHit{ID: h.ID, Title: text.String(), Tag: h.Kind, Project: h.Project, Agent: agent, At: timePtr(h.At)})
+		g.Hits = append(g.Hits, api.SearchHit{ID: h.ID, Title: text.String(), Tag: h.Kind, Project: h.Project, Agent: agent, At: timePtr(h.At), Archived: past[h.Project+"/"+h.Agent]})
 	}
 	// The count includes chats of projects that are gone, which the hits
 	// leave out; they are rare enough not to be worth a second filter.

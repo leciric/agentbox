@@ -326,6 +326,10 @@ type CreateOptions struct {
 	// window. Only for AI "claude".
 	ContextWindow *string
 	From          string // default: the branch checked out in the project
+	// StartAt, when set, is the commit or ref the new branch starts at,
+	// rather than From's tip: continuing a past agent starts at its branch,
+	// while From stays the branch its work goes back to.
+	StartAt string
 	// ClaudeAccount picks a stored Claude Code account for this agent;
 	// empty means the project's account, then the machine's default.
 	ClaudeAccount string
@@ -452,7 +456,11 @@ func (m *Manager) Create(ctx context.Context, project string, opts CreateOptions
 	if err != nil {
 		return state.Agent{}, err
 	}
-	if newer, ok := newerBase(repo, from); ok {
+	if opts.StartAt != "" {
+		if commit, err = repo.ResolveCommit(opts.StartAt); err != nil {
+			return state.Agent{}, err
+		}
+	} else if newer, ok := newerBase(repo, from); ok {
 		m.logf("%s is behind its remote: starting from the remote's %s, and leaving %s where it is", from, newer[:12], from)
 		commit = newer
 	}
@@ -1943,6 +1951,9 @@ type DestroyOptions struct {
 	// which, set to immediately, deletes it here as if this were set.
 	// Favorites are kept either way, until deleted by hand.
 	DeleteMedia bool
+	// PR is the agent's pull request, as the caller found it, kept with the
+	// archived agent; zero for none.
+	PR state.ArchivedPR
 }
 
 // BranchDisposable reports whether an agent's local branch holds nothing
@@ -1954,7 +1965,9 @@ func BranchDisposable(repo gitrepo.Repo, a state.Agent) bool {
 	return repo.MergedInto(a.Branch, a.BaseRef, repo.CurrentBranch()) || repo.OnRemote(a.Branch)
 }
 
-// Destroy deletes the agent's instance, snapshots and worktree. Its branch,
+// Destroy deletes the agent's instance, snapshots and worktree, and keeps the
+// agent as archived (state.ArchiveAgent): its record, its chat and the
+// pictures in it stay until the user deletes it (DeleteArchived). Its branch,
 // with every commit the agent made, stays unless DeleteBranch is set or
 // BranchDisposable says nothing would be lost. Its media stays too, findable
 // in the project's media view, unless DeleteMedia is set or the media
@@ -2028,8 +2041,18 @@ func (m *Manager) Destroy(ctx context.Context, a state.Agent, opts DestroyOption
 	} else if err := m.keepAgentMedia(ctx, a); err != nil {
 		return err
 	}
-	_ = os.RemoveAll(m.Paths.ChatImages(a.Project, a.Name)) // its conversation goes with the row
-	return m.Store.RemoveAgent(ctx, a.Project, a.Name)
+	return m.Store.ArchiveAgent(ctx, a, "", opts.PR, time.Now())
+}
+
+// DeleteArchived forgets an archived agent for good: its record, its chat and
+// the pictures sent in it. Its media and branch are left as they are: the
+// media has its own retention, and the branch is git's.
+func (m *Manager) DeleteArchived(ctx context.Context, project, name string) error {
+	if err := m.Store.DeleteArchivedAgent(ctx, project, name); err != nil {
+		return err
+	}
+	_ = os.RemoveAll(m.Paths.ChatImages(project, name))
+	return nil
 }
 
 // handBackFiles gives files that container root created in the worktree

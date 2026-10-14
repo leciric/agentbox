@@ -65,15 +65,17 @@ func (s *Store) NextAgentName(ctx context.Context, project string, floor int) (s
 
 // PastAgentNames is every agent name a project's memory still mentions —
 // its events and its reports — including ones for agents that no longer
-// exist. Seeding NextAgentName's floor from this, alongside the agents a
-// project has now, is what keeps a freed number from being handed out
-// again after, say, an import that skipped agent_seq.
+// exist, and every archived agent's. Seeding NextAgentName's floor from
+// this, alongside the agents a project has now, is what keeps a freed number
+// from being handed out again after, say, an import that skipped agent_seq.
 func (s *Store) PastAgentNames(ctx context.Context, project string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT agent FROM events WHERE project = ? AND agent != ''
 		UNION
 		SELECT agent FROM agent_reports WHERE project = ? AND agent != ''
-	`, project, project)
+		UNION
+		SELECT name FROM archived_agents WHERE project = ?
+	`, project, project, project)
 	if err != nil {
 		return nil, err
 	}

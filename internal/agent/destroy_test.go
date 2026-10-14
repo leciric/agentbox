@@ -67,6 +67,10 @@ func assertGone(t *testing.T, f fixture, err error) {
 	if agents, _ := f.st.Agents(context.Background(), ""); len(agents) != 0 {
 		t.Errorf("agent record survived Destroy(): %+v", agents)
 	}
+	// What is kept of it is the archived agent, with its chat.
+	if past, _ := f.st.ArchivedAgents(context.Background(), state.ArchivedQuery{}); len(past) != 1 {
+		t.Errorf("Destroy() kept %d archived agents, want 1", len(past))
+	}
 }
 
 // The machine was destroyed outside AgentBox (or by an earlier, otherwise

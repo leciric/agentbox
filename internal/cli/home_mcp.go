@@ -38,12 +38,23 @@ func homeTools(ctx context.Context, c *api.Client) []mcp.Tool {
 		{
 			Name: "list_agents",
 			Description: "List one project's agents: what each one is for, what it is doing now, how much it has " +
-				"changed, its pull request, and whether it has finished.",
-			Schema: object([]string{"project"}, map[string]any{"project": project}),
+				"changed, its pull request, and whether it has finished. With archived, its past agents instead: " +
+				"ones whose machine was removed, kept with their branch, pull request and chat, which read_agent still reads.",
+			Schema: object([]string{"project"}, withProjectParam(project)),
 			Run: func(args json.RawMessage) (string, error) {
-				var in struct{ Project string }
+				var in struct {
+					Project string
+					archivedArgs
+				}
 				if err := decode(args, &in); err != nil {
 					return "", err
+				}
+				if in.Archived {
+					past, err := c.ArchivedAgents(ctx, in.options(in.Project))
+					if err != nil {
+						return "", err
+					}
+					return describeArchived(past), nil
 				}
 				fleet, err := c.Fleet(ctx, in.Project)
 				if err != nil {

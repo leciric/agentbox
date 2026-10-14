@@ -611,6 +611,59 @@ type Agent struct {
 	CreatedAt time.Time   `json:"createdAt"`
 }
 
+// ArchivedAgent is a past agent: one whose machine was removed, by the user or
+// the lead's retire_agent, kept with its chat until the user deletes it.
+type ArchivedAgent struct {
+	Ref     string `json:"ref"`
+	Project string `json:"project"`
+	Name    string `json:"name"`
+	Title   string `json:"title"`
+	// Task is its first message, as it was sent.
+	Task       string    `json:"task"`
+	AI         string    `json:"ai"`
+	Interface  string    `json:"interface"`
+	Branch     string    `json:"branch"`
+	BaseRef    string    `json:"baseRef"`
+	BaseCommit string    `json:"baseCommit"`
+	CreatedAt  time.Time `json:"createdAt"`
+	ArchivedAt time.Time `json:"archivedAt"`
+	// PR is its pull request as last read: when it was archived, and since
+	// for one still open. Absent when none was found.
+	PR *PullRequest `json:"pr,omitempty"`
+	// Tokens and CostUSD are what its chat used, from the token ledger.
+	Tokens  int64   `json:"tokens"`
+	CostUSD float64 `json:"costUsd"`
+}
+
+// The pull request states GET /v1/archived-agents filters on (its pr
+// parameter): PRStateNone is an agent with none.
+const (
+	PRStateOpen   = "open"
+	PRStateMerged = "merged"
+	PRStateClosed = "closed"
+	PRStateNone   = "none"
+)
+
+// DeleteArchivedRequest deletes past agents in bulk, by ref (project/name).
+type DeleteArchivedRequest struct {
+	Refs []string `json:"refs"`
+}
+
+// DeleteArchivedResult is what a bulk delete did: Deleted by ref, and Failed
+// with why for any it couldn't.
+type DeleteArchivedResult struct {
+	Deleted []string          `json:"deleted"`
+	Failed  map[string]string `json:"failed,omitempty"`
+}
+
+// ContinueArchivedRequest starts a new agent from a past one's branch, given a
+// short summary of its chat and then Message, when there is one.
+type ContinueArchivedRequest struct {
+	Message string `json:"message,omitempty"`
+	// AI is the new agent's tool; empty is the past agent's.
+	AI string `json:"ai,omitempty"`
+}
+
 // WorktreeFiles is an agent's or a project's lead's worktree files, for @
 // mentions in the composer: paths, relative to its root, tracked plus
 // untracked-but-not-ignored. Truncated means there were more than were sent.
@@ -657,6 +710,9 @@ type CreateAgentRequest struct {
 	// installation's compact window. Claude Code agents only.
 	ContextWindow *string `json:"contextWindow,omitempty"`
 	From          string  `json:"from,omitempty"`
+	// StartAt, when set, is the commit or ref the agent's branch starts at
+	// instead of From's tip; From stays the branch it is based on.
+	StartAt string `json:"startAt,omitempty"`
 	// ClaudeAccount overrides the project's Claude Code account for this agent.
 	ClaudeAccount string `json:"claudeAccount,omitempty"`
 	// GitHubAccount overrides the project's GitHub account for this agent.

@@ -103,6 +103,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("GET /v1/project/accounts", withProject(s.leadAccounts))
 	mux.HandleFunc("POST /v1/project/retire", withProject(s.retire))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/chat", withProject(s.leadAgentChat))
+	mux.HandleFunc("GET /v1/project/archived-agents", withProject(s.listArchived))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/chat/messages", withProject(s.leadTellAgent))
 	mux.HandleFunc("GET /v1/project/agents/{agent}/diff", withProject(s.leadAgentDiff))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/run", withProject(s.leadRunInAgent))
@@ -271,6 +272,12 @@ func (s *Server) leadAccounts(w http.ResponseWriter, r *http.Request) error {
 // leadAgentChat is one agent's conversation, so the chat can read what it did.
 func (s *Server) leadAgentChat(w http.ResponseWriter, r *http.Request) error {
 	a, err := s.leadAgent(r)
+	if errors.Is(err, state.ErrNotFound) {
+		// A past agent's chat is still there to read.
+		if past, perr := s.archivedFromPath(r); perr == nil {
+			a, err = past.AsAgent(), nil
+		}
+	}
 	if err != nil {
 		return err
 	}

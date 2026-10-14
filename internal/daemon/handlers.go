@@ -1112,6 +1112,7 @@ func (s *Server) createJob(req api.CreateAgentRequest, byLead bool, queued strin
 			Effort:        req.Effort,
 			ContextWindow: req.ContextWindow,
 			From:          req.From,
+			StartAt:       req.StartAt,
 
 			ClaudeAccount: req.ClaudeAccount,
 			GitHubAccount: req.GitHubAccount,

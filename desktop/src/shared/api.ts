@@ -203,6 +203,38 @@ export interface WorktreeFiles {
   truncated: boolean;
 }
 
+export interface ArchivedAgent {
+  ref: string;
+  project: string;
+  name: string;
+  title: string;
+  task: string;
+  ai: string;
+  interface: string;
+  branch: string;
+  baseRef: string;
+  baseCommit: string;
+  createdAt: string;
+  archivedAt: string;
+  pr?: PullRequest;
+  tokens: number;
+  costUsd: number;
+}
+
+export interface DeleteArchivedRequest {
+  refs: string[];
+}
+
+export interface DeleteArchivedResult {
+  deleted: string[];
+  failed?: Record<string, string>;
+}
+
+export interface ContinueArchivedRequest {
+  message?: string;
+  ai?: string;
+}
+
 export interface CreateAgentRequest {
   task?: string;
   project: string;
@@ -216,6 +248,7 @@ export interface CreateAgentRequest {
   effort?: string;
   contextWindow?: string;
   from?: string;
+  startAt?: string;
   claudeAccount?: string;
   githubAccount?: string;
   noEnv?: boolean;
@@ -2321,6 +2354,7 @@ export interface SearchHit {
   agent?: string;
   at?: string;
   url?: string;
+  archived?: boolean;
   memory?: Memory;
   event?: MemoryEvent;
   report?: AgentReport;
@@ -2387,6 +2421,10 @@ export const SetupUpdating = "updating";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
 export const DefaultLanguage = "en-US";
+export const PRStateOpen = "open";
+export const PRStateMerged = "merged";
+export const PRStateClosed = "closed";
+export const PRStateNone = "none";
 export const LeadName = "lead";
 export const HomeProject = "_home";
 export const AgentModelAuto = "auto";

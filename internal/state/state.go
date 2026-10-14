@@ -999,6 +999,34 @@ var migrations = []string{
 	// (created_at, id) (EachMedia): across every project, and within one.
 	`CREATE INDEX media_by_time ON media (created_at, id)`,
 	`CREATE INDEX media_by_project ON media (project, created_at, id)`,
+
+	// Past agents: what is kept of an agent whose machine was removed, by the
+	// user or the lead's retire_agent (ArchiveAgent). Its chat_items, chats
+	// row, media and token_usage stay under its name, which no later agent of
+	// the project can take, until the user deletes it (DeleteArchivedAgent).
+	// task is its first message, and pr_* its pull request as last read.
+	// Existing agents are untouched: they are live, and archive as they go.
+	`CREATE TABLE archived_agents (
+		project        TEXT NOT NULL,
+		name           TEXT NOT NULL,
+		id             TEXT NOT NULL DEFAULT '',
+		title          TEXT NOT NULL DEFAULT '',
+		task           TEXT NOT NULL DEFAULT '',
+		ai             TEXT NOT NULL DEFAULT '',
+		interface      TEXT NOT NULL DEFAULT '',
+		branch         TEXT NOT NULL DEFAULT '',
+		base_ref       TEXT NOT NULL DEFAULT '',
+		base_commit    TEXT NOT NULL DEFAULT '',
+		github_account TEXT NOT NULL DEFAULT '',
+		created_at     INTEGER NOT NULL,
+		archived_at    INTEGER NOT NULL,
+		pr_number      INTEGER NOT NULL DEFAULT 0,
+		pr_title       TEXT NOT NULL DEFAULT '',
+		pr_url         TEXT NOT NULL DEFAULT '',
+		pr_state       TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (project, name)
+	)`,
+	`CREATE INDEX archived_agents_by_time ON archived_agents (archived_at)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1607,6 +1635,7 @@ var projectOwned = []string{
 	"running_turns",
 	"chat_items",
 	"chats",
+	"archived_agents",
 	// Its secrets and connectors can't be read by anything once it's gone.
 	"secrets",
 	"connectors",
@@ -2169,6 +2198,15 @@ func (s *Store) AddAgent(ctx context.Context, a Agent) error {
 	connectors, err := connectorLimit(a.Connectors)
 	if err != nil {
 		return err
+	}
+	// A name stays its agent's for good, archived or not: its chat, media
+	// and pull request are still filed under it.
+	var archived int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM archived_agents WHERE project = ? AND name = ?`, a.Project, a.Name).Scan(&archived); err != nil {
+		return err
+	}
+	if archived > 0 {
+		return fmt.Errorf("agent %s: a past agent has that name: %w", a.Ref(), ErrExists)
 	}
 	_, err = s.db.ExecContext(ctx,
 		`INSERT INTO agents (`+agentColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

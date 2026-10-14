@@ -175,7 +175,7 @@ func (s *Server) removeFinishedIn(ctx context.Context, p state.Project, now time
 			continue
 		}
 		s.logf("removing %s: %s", st.Ref(), reason)
-		if err := s.destroyAgentNow(ctx, m, st.Agent, agent.DestroyOptions{}); err != nil {
+		if err := s.destroyAgentNow(ctx, m, st.Agent, agent.DestroyOptions{PR: archivedPR(f.PR)}); err != nil {
 			s.logf("removing %s: %v", st.Ref(), err)
 			continue
 		}
@@ -222,7 +222,18 @@ func (s *Server) lastFinished(ctx context.Context, project string) map[string]ti
 // destroyAgentNow stops what the daemon runs for an agent and destroys it,
 // the one sequence every destroy goes through — by hand, retired, or removed
 // here. The caller records why.
+//
+// The agent is archived with its pull request, read while its branch and
+// worktree are still there to find it by (prFor); a caller that already has
+// it passes it in opts.PR.
 func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.Agent, opts agent.DestroyOptions) error {
+	if opts.PR.Number == 0 && a.Status != state.AgentQueued {
+		lookup, cancel := context.WithTimeout(ctx, 15*time.Second)
+		if pr := s.prFor(lookup, a); pr != nil {
+			opts.PR = archivedPR(pr)
+		}
+		cancel()
+	}
 	if err := m.Destroy(ctx, a, opts); err != nil {
 		return err
 	}
@@ -234,4 +245,12 @@ func (s *Server) destroyAgentNow(ctx context.Context, m *agent.Manager, a state.
 	s.stopAgentAPI(a.Instance)
 	s.removeBrowserSockets(a.Instance)
 	return nil
+}
+
+// archivedPR is a pull request as an archived agent keeps it; nil is none.
+func archivedPR(pr *api.PullRequest) state.ArchivedPR {
+	if pr == nil {
+		return state.ArchivedPR{}
+	}
+	return state.ArchivedPR{Number: pr.Number, Title: pr.Title, URL: pr.URL, State: pr.State}
 }

@@ -44,6 +44,7 @@ func (s *Server) homeRoutes() http.Handler {
 	h("POST /v1/projects/{project}/lead/messages", s.homeTellLead)
 	h("POST /v1/agents", s.homeCreateAgent)
 	h("GET /v1/agents/{project}/{agent}/chat", s.leadAgentChat)
+	h("GET /v1/archived-agents", s.listArchived)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		_ = writeJSON(w, http.StatusForbidden, api.Error{Error: "the Home chat can't do that"})
 	})
