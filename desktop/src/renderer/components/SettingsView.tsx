@@ -83,6 +83,7 @@ import { useVoiceSettings } from "../lib/voice/settings";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
+import { playReadySound, setReviewSound, setReviewVolume, useReviewSound, useReviewVolume } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
@@ -917,6 +918,12 @@ function InstalledSettings({
               keywords: t("settings.entry.topbar-detailed.keywords"),
               modified: topBarDetailed,
               render: () => <TopBarDetailedSetting />,
+            },
+            {
+              id: "review-sound",
+              label: t("settings.entry.review-sound.label"),
+              keywords: t("settings.entry.review-sound.keywords"),
+              render: () => <ReviewSoundSetting />,
             },
             ...(hatchConnected
               ? [
@@ -1765,6 +1772,45 @@ function TopBarDetailedSetting() {
         />
       }
     />
+  );
+}
+
+// ReviewSoundSetting is the chime for an agent newly in Ready to review
+// (lib/reviewAlert.ts): on by default, with its volume and a test.
+function ReviewSoundSetting() {
+  const t = useT();
+  const on = useReviewSound();
+  const volume = useReviewVolume();
+  return (
+    <SettingRow
+      label={t("settings.entry.review-sound.label")}
+      description={t("settings.reviewSound.description")}
+      control={
+        <Switch
+          data-review-sound-setting
+          aria-label={t("settings.entry.review-sound.label")}
+          checked={on}
+          onCheckedChange={setReviewSound}
+        />
+      }
+    >
+      <div className="flex items-center gap-3">
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={volume}
+          disabled={!on}
+          aria-label={t("settings.reviewSound.volume")}
+          data-review-sound-volume
+          className="w-40 accent-brand-500"
+          onChange={(e) => setReviewVolume(Number(e.target.value))}
+        />
+        <Button size="sm" variant="secondary" disabled={!on} data-review-sound-test onClick={() => playReadySound()}>
+          {t("settings.reviewSound.test")}
+        </Button>
+      </div>
+    </SettingRow>
   );
 }
 

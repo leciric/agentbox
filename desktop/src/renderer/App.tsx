@@ -36,6 +36,8 @@ import { WSLSetup } from "./components/WSLSetup";
 import { Notice } from "./components/ui/card";
 import { api } from "./lib/api";
 import { t as tNow, useT } from "./lib/i18n";
+import { reviewKey } from "./lib/review";
+import { batch, detectNewlyReady, markUnseen, playReadySound, reviewSoundOn } from "./lib/reviewAlert";
 import { resetChatEvents } from "./lib/chat";
 import { onNotification, useConnection } from "./lib/events";
 import type { AgentPlaceName, ProjectPlaceName } from "./lib/tabs";
@@ -288,6 +290,55 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agents.data]);
+
+  // Tell you when an agent newly lands in Ready to review: a chime, an OS
+  // notification while the window isn't in front, and the "new" marks
+  // (lib/reviewAlert.ts). Agents already waiting at start are not news, and
+  // several finishing together make one chime.
+  const ready = useQuery({
+    queryKey: reviewKey(),
+    queryFn: () => api.readyToReview(),
+    refetchInterval: 60_000,
+  });
+  const readyKnown = useRef<Set<string> | null>(null);
+  const readyBatch = useRef<ReturnType<typeof batch<T.ReviewItem>> | null>(
+    null,
+  );
+  readyBatch.current ??= batch<T.ReviewItem>(1500, (items) => {
+    if (reviewSoundOn()) playReadySound();
+    const id = `ready:${items[0].ref}:${Date.now()}`;
+    const first = items[0];
+    const open = () => {
+      waiting.current.delete(id);
+      select({ kind: "agent", ref: first.ref, tab: "chat" });
+    };
+    waiting.current.set(id, open);
+    const projects = queryClient.getQueryData<T.Project[]>(["projects"]);
+    void window.agentbox
+      .notify({
+        id,
+        title: tNow("review.notice.title"),
+        body:
+          items.length === 1
+            ? tNow("review.notice.one", {
+                agent: first.title || first.agent,
+                project: projectLabel(first.project, projects),
+              })
+            : tNow("review.notice.many", { count: items.length }),
+      })
+      .then((shown) => {
+        if (!shown) waiting.current.delete(id);
+      });
+  });
+  useEffect(() => {
+    if (!ready.data) return;
+    const { fresh, known } = detectNewlyReady(readyKnown.current, ready.data);
+    readyKnown.current = known;
+    markUnseen(fresh);
+    readyBatch.current?.add(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready.data]);
+  useEffect(() => () => readyBatch.current?.cancel(), []);
 
   const viewKey =
     view.kind === "agent"

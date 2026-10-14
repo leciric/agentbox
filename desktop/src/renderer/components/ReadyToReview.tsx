@@ -10,6 +10,7 @@ import { mediaUrl } from '../lib/media';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { countLabel, reviewKey, slidesOf, step, swipeStep, withoutAgent, type Slide } from '../lib/review';
+import { isUnseen, markAllSeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Recording } from './MediaTab';
@@ -37,16 +38,30 @@ export function ReadyToReview({ project, onSelect, compact = false }: { project?
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const now = useNow(60_000);
   const items = list.data ?? [];
+  const unseen = useUnseen();
+  // What was new when the list opened stays marked while it's open.
+  const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
+  const isNew = (i: T.ReviewItem) => isUnseen(unseen, i) || isUnseen(shown, i);
+  const fresh = items.filter((i) => isUnseen(unseen, i)).length;
   const label = t('review.button');
   return (
     <>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next);
+          // Opening the list is looking at what's new.
+          setShown(next ? unseen : new Set());
+          if (next) markAllSeen();
+        }}
+      >
         <PopoverTrigger asChild>
           <button
             type="button"
             aria-label={items.length ? t('review.buttonCount', { count: items.length }) : label}
             title={label}
             data-ready-to-review={project ?? 'all'}
+            data-ready-new={fresh > 0 ? fresh : undefined}
             className={cn(
               'relative flex shrink-0 items-center gap-1.5 rounded-full text-[12px] font-medium text-muted ring-1 ring-inset ring-line transition hover:bg-surface-raised hover:text-primary',
               compact ? 'size-8 justify-center' : 'h-8 px-3',
@@ -57,11 +72,11 @@ export function ReadyToReview({ project, onSelect, compact = false }: { project?
             {!compact && <span className="whitespace-nowrap">{label}</span>}
             {items.length > 0 &&
               (compact ? (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold tabular-nums text-white ring-2 ring-[var(--color-ink)]">
+                <span className={cn('absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold tabular-nums text-white ring-2 ring-[var(--color-ink)]', fresh > 0 && 'animate-pulse')}>
                   {countLabel(items.length)}
                 </span>
               ) : (
-                <span className="rounded-full bg-brand-500 px-1.5 text-[10.5px] font-semibold tabular-nums leading-4 text-white">{countLabel(items.length)}</span>
+                <span className={cn('rounded-full bg-brand-500 px-1.5 text-[10.5px] font-semibold tabular-nums leading-4 text-white', fresh > 0 && 'animate-pulse')}>{countLabel(items.length)}</span>
               ))}
           </button>
         </PopoverTrigger>
@@ -79,7 +94,8 @@ export function ReadyToReview({ project, onSelect, compact = false }: { project?
                   key={item.ref}
                   type="button"
                   data-review-row={item.ref}
-                  className="flex w-full min-w-0 items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-surface-raised"
+                  data-review-new={isNew(item) ? '' : undefined}
+                  className={cn('flex w-full min-w-0 items-start gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-surface-raised', isNew(item) && 'bg-brand-500/10 ring-1 ring-inset ring-brand-500/30')}
                   onClick={() => {
                     setOpen(false);
                     setReviewing(item);
@@ -89,6 +105,7 @@ export function ReadyToReview({ project, onSelect, compact = false }: { project?
                   <span className="grid min-w-0 flex-1 gap-0.5">
                     <span className="flex min-w-0 items-baseline gap-2">
                       <span className={cn('truncate text-[13px] font-medium text-primary', !item.title && 'font-mono')}>{item.title || item.agent}</span>
+                      {isNew(item) && <span className="shrink-0 rounded-full bg-brand-500 px-1.5 text-[9.5px] font-semibold uppercase leading-4 text-white">{t('review.new')}</span>}
                       <span className="ml-auto shrink-0 text-[11px] text-subtle">{timeAgo(item.finishedAt, now)}</span>
                     </span>
                     <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] text-muted">
