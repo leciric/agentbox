@@ -209,7 +209,7 @@ function ReviewCarousel({ item, onDone, onSelect }: { item: T.ReviewItem; onDone
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 touch-pan-y select-none items-center justify-center bg-surface-faint" onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
+      <div className="relative flex min-h-0 flex-1 touch-pan-y select-none items-center justify-center overflow-hidden bg-surface-faint" onPointerDown={onPointerDown} onPointerUp={onPointerUp}>
         {slide ? (
           <SlideView key={slide.id} slide={slide} project={item.project} onOpenPR={() => setPrOpen(true)} />
         ) : (
@@ -291,7 +291,8 @@ function SlideView({ slide, project, onOpenPR }: { slide: Slide; project: string
       return <img src={mediaUrl(slide.media)} alt={slide.media.name} draggable={false} className="max-h-full max-w-full object-contain" data-review-slide="screenshot" />;
     case 'recording':
       return (
-        <div className="flex size-full items-center justify-center bg-black" data-review-slide="recording">
+        // Recording sizes its video for the Media viewer; here it fits the slide.
+        <div className="flex size-full items-center justify-center bg-black [&_video]:max-h-full [&_video]:w-auto [&_video]:max-w-full" data-review-slide="recording">
           <Recording item={slide.media} />
         </div>
       );

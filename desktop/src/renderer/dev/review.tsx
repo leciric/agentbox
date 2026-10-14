@@ -135,8 +135,26 @@ export function seedReview(queryClient: QueryClient): void {
 // reviewRequest answers the dev bridge for "Ready to review": the list, and
 // a verdict, which takes the agent off it.
 function reviewRequest(method: string, path: string): { status: number; body: string; contentType: string } | undefined {
+  // The top bar re-reads the Claude limits every 30s, past what was seeded.
+  if (method === 'GET' && path === '/v1/limits') return { status: 200, body: '[]', contentType: 'application/json' };
   if (method === 'GET' && (path === '/v1/review' || path === `/v1/projects/${PROJECT}/review`)) {
     return { status: 200, body: JSON.stringify(waiting), contentType: 'application/json' };
+  }
+  // The pull request modal's detail of #318, and its files.
+  if (method === 'GET' && path === `/v1/projects/${PROJECT}/pulls/318`) {
+    const detail: T.PullRequestDetail = {
+      ...pr,
+      body: 'Adds a **New project** button at the top of the sidebar, with a tooltip and the shortcut.\n\nChecked in the preview and in the app; the recording is in Media.',
+      checkRuns: [
+        { name: 'Go tests and coverage', status: 'completed', conclusion: 'success' },
+        { name: 'Desktop', status: 'completed', conclusion: 'success' },
+      ],
+      changedFiles: 4,
+    };
+    return { status: 200, body: JSON.stringify(detail), contentType: 'application/json' };
+  }
+  if (method === 'GET' && path.startsWith(`/v1/projects/${PROJECT}/pulls/318/files`)) {
+    return { status: 200, body: JSON.stringify({ files: [] } satisfies T.PullRequestFiles), contentType: 'application/json' };
   }
   const verdict = method === 'POST' && /^\/v1\/agents\/[^/]+\/([^/]+)\/review$/.exec(path);
   if (!verdict) return undefined;
