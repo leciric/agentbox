@@ -3,7 +3,7 @@
 // carousel has two screenshots, a recording (drawn here, on a canvas) and its
 // Hatch pages (dev/pages.ts), then its pull request in full; Reviewed and Dismiss
 // take an agent off, which the dev bridge remembers (reviewRequest).
-import type { QueryClient } from '@tanstack/react-query';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -12,6 +12,7 @@ import { ProjectView } from '../components/ProjectView';
 import { Sidebar } from '../components/Sidebar';
 import { TopBar } from '../components/TopBar';
 import { devRequests, PROJECT, setMediaFile } from './fixtures';
+import { useReadyAlerts } from '../lib/useReadyAlerts';
 import { screen } from './notifications';
 import { seedPages } from './pages';
 
@@ -162,13 +163,25 @@ function reviewRequest(method: string, path: string): { status: number; body: st
   return { status: 204, body: '', contentType: 'application/json' };
 }
 
+// land is what the button below stands for: an agent finishing while the app
+// is open, which the same hook as the app's (useReadyAlerts) announces.
+function land(queryClient: QueryClient) {
+  waiting = [{ project: PROJECT, agent: 'agent-77', ref: `${PROJECT}/agent-77`, title: 'Fix the flaky reconnect test', branch: 'agentbox/flaky-reconnect', ai: 'claude', finishedAt: new Date().toISOString(), fingerprint: `{"f":"agent-77"}` }, ...waiting];
+  void queryClient.invalidateQueries({ queryKey: ['review'] });
+}
+
 export function ReviewPreview() {
+  const queryClient = useQueryClient();
+  useReadyAlerts(() => {});
   const view: View = { kind: 'project', project: PROJECT };
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--color-ink)' }} data-preview-review>
         <TopBar view={view} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
+        <button type="button" data-preview-land onClick={() => land(queryClient)} style={{ position: 'fixed', bottom: 12, left: 260, zIndex: 50, padding: '6px 12px', borderRadius: 8, background: '#333', color: '#fff', fontSize: 12 }}>
+          Land agent-77
+        </button>
         <div style={{ flex: 1, minHeight: 0 }}>
           <Suspense>
             <ProjectView name={PROJECT} tab="chat" onSelect={() => {}} onNewAgent={() => {}} />
