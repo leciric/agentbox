@@ -49,8 +49,14 @@ type ChatSnippetPart struct {
 
 // ChatSession is the state of the AI tool's session behind a conversation.
 type ChatSession struct {
-	State   string `json:"state"`            // off, starting, ready, running, waiting (for your answer) or error
-	Tool    string `json:"tool"`             // claude, codex or opencode
+	State string `json:"state"` // off, starting, ready, running, waiting (for your answer) or error
+	Tool  string `json:"tool"`  // claude, codex, opencode or cursor
+	// NextTool is the AI tool a lead's composer chose for its next message,
+	// while it differs from Tool: that message rolls the session over to it.
+	NextTool string `json:"nextTool,omitempty"`
+	// Account is the Claude Code account a lead's chat runs on, "" for
+	// another tool. An agent's is on its own record.
+	Account string `json:"account,omitempty"`
 	Detail  string `json:"detail,omitempty"` // what it's doing while it starts
 	Error   string `json:"error,omitempty"`
 	Adapter string `json:"adapter,omitempty"` // the ACP adapter and its version
@@ -423,4 +429,41 @@ type ChatEvent struct {
 type ChatAppend struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
+}
+
+// LeadRunners is what a lead's composer offers to run on: the AI tools, each
+// with whether AgentBox can run it, and the Claude Code accounts the chat may
+// use (GET …/chat/runners).
+type LeadRunners struct {
+	// Tool is the tool the chat runs, NextTool the one chosen for its next
+	// message while that differs.
+	Tool     string `json:"tool"`
+	NextTool string `json:"nextTool,omitempty"`
+	// Account is the Claude Code account the chat runs on, or would on Claude
+	// Code; Chosen is the one its composer chose, "" for the project's.
+	Account string       `json:"account,omitempty"`
+	Chosen  string       `json:"chosen,omitempty"`
+	Runners []LeadRunner `json:"runners"`
+}
+
+// LeadRunner is one AI tool a lead can run.
+type LeadRunner struct {
+	Tool string `json:"tool"` // claude, codex, opencode or cursor
+	Name string `json:"name"` // how to say it: "Claude Code"
+	// Ready says AgentBox has a login for it; Reason says why not otherwise.
+	Ready  bool   `json:"ready"`
+	Reason string `json:"reason,omitempty"`
+	// Installed says this machine already has it: without, the first message
+	// installs it, which takes a minute.
+	Installed bool `json:"installed"`
+	// Accounts are the Claude Code accounts the chat may use, Claude Code's
+	// alone, each with its latest usage reading.
+	Accounts []LeadAccount `json:"accounts,omitempty"`
+}
+
+// LeadRunnerRequest chooses a lead's AI tool and, for Claude Code, its
+// account ("" for the project's). It applies from the next message.
+type LeadRunnerRequest struct {
+	Tool    string `json:"tool"`
+	Account string `json:"account,omitempty"`
 }

@@ -60,27 +60,27 @@ const (
 )
 
 // LeadChatCommand prepares the command that runs a project's lead: its ACP
-// adapter, on the host, in a private HOME with only AgentBox's Claude Code
-// login, reading the lead's detached worktree. Tools missing from this machine
+// adapter, on the host, in a private HOME with only AgentBox's login for its
+// tool, reading the lead's detached worktree. Tools missing from this machine
 // are installed first, which status reports.
 func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status func(detail string)) (*exec.Cmd, error) {
 	if !a.IsLead() {
 		return nil, fmt.Errorf("%s isn't a project's chat", a.Ref())
 	}
-	tools, err := m.hostTools(ctx, status)
+	home := m.Paths.LeadHome(a.Project)
+	command, args, toolEnvVars, bin, err := m.leadAdapter(ctx, a, home, status)
 	if err != nil {
 		return nil, err
 	}
-	status("Starting " + ChatAdapters["claude"].Tool)
-	home := m.Paths.LeadHome(a.Project)
-	cmd := exec.CommandContext(ctx, tools.Adapter)
+	status("Starting " + ChatAdapters[a.AI].Tool)
+	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = a.Worktree
 	// A fresh environment, not the user's: the lead gets AgentBox's login and
-	// nothing else that could point Claude Code at the host's own state. The
+	// nothing else that could point its tool at the host's own state. The
 	// exception is toolEnv, without which the tools can't find themselves.
 	env := []string{
 		"HOME=" + home,
-		"PATH=" + tools.Bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"PATH=" + strings.Join(append(bin, os.Getenv("PATH")), string(os.PathListSeparator)),
 		"LANG=C.UTF-8",
 	}
 	env = append(env, toolEnv()...)
@@ -96,13 +96,7 @@ func (m *Manager) LeadChatCommand(ctx context.Context, a state.Agent, status fun
 			env = append(env, name+"="+v)
 		}
 	}
-	token, err := m.Creds.ClaudeToken(a.ClaudeAccount)
-	if err != nil {
-		return nil, err
-	}
-	if token != "" {
-		env = append(env, "CLAUDE_CODE_OAUTH_TOKEN="+token)
-	}
+	env = append(env, toolEnvVars...)
 	// The project's GitHub account, as its agents have it (agentEnv), for gh
 	// and for git through the helper configureLead wrote.
 	p := homeProject

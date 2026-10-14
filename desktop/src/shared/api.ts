@@ -1737,6 +1737,8 @@ export interface ChatSnippetPart {
 export interface ChatSession {
   state: string;
   tool: string;
+  nextTool?: string;
+  account?: string;
   detail?: string;
   error?: string;
   adapter?: string;
@@ -1936,6 +1938,36 @@ export interface ChatCacheChoice {
   compact: boolean;
   text?: string;
   images?: ChatImageUpload[];
+}
+
+export interface LeadRunners {
+  tool: string;
+  nextTool?: string;
+  account?: string;
+  chosen?: string;
+  runners: LeadRunner[];
+}
+
+export interface LeadRunner {
+  tool: string;
+  name: string;
+  ready: boolean;
+  reason?: string;
+  installed: boolean;
+  accounts?: LeadAccount[];
+}
+
+export interface LeadRunnerRequest {
+  tool: string;
+  account?: string;
+}
+
+export interface LeadAccount {
+  name: string;
+  default: boolean;
+  project: boolean;
+  agents: number;
+  limit?: ClaudeLimit;
 }
 
 export interface MemoryEvent {

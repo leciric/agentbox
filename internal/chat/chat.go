@@ -112,9 +112,14 @@ type Manager struct {
 	// Limits, when set, is given every reading of the account's usage limits
 	// a chat's AI tool relays (D85). Off the conversation's lock, in a
 	// goroutine of its own.
-	Limits  func(a state.Agent, reading acp.RateLimit)
-	Logf    func(format string, args ...any) // may be nil
-	Version string                           // AgentBox's, told to adapters
+	Limits func(a state.Agent, reading acp.RateLimit)
+	// LeadAccount, when set, is the Claude Code account a lead runs on when it
+	// switches to a.AI (runner.go): the one its chat chose, while its project
+	// may use it, else the project's. Without it a lead switched to Claude
+	// Code runs on the machine's default until its record is read again.
+	LeadAccount func(a state.Agent) (string, error)
+	Logf        func(format string, args ...any) // may be nil
+	Version     string                           // AgentBox's, told to adapters
 	// Now and After are the clock a chat waits on: what time it is, and how
 	// work is scheduled for later. Both are nil outside tests, where the real
 	// clock is used; a test injects one so a wait of hours takes none.
@@ -207,11 +212,23 @@ func (m *Manager) conversation(a state.Agent) (*conversation, error) {
 		// session started from it would run on the tool's default model.
 		c.loaded, c.items, c.byID = false, nil, map[string]*api.ChatItem{}
 	}
+	prev := c.agent
 	c.agent = a
 	if err := c.load(); err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}
+	// A lead runs the tool its chat switched to, whatever an older copy of
+	// its record says (runner.go), and the account the switch resolved for
+	// it, which a record from before the switch doesn't know.
+	if tool := c.leadTool(a); tool != a.AI {
+		c.agent.AI, c.agent.ClaudeAccount = tool, ""
+		if prev.AI == tool {
+			c.agent.ClaudeAccount = prev.ClaudeAccount
+		}
+	}
+	c.session.Tool = c.agent.AI
+	c.syncRunner()
 	return c, nil
 }
 
@@ -619,6 +636,7 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []
 		c.stopAdapter()
 		c.windowRestart = false
 	}
+	c.switchToolBeforeTurn()
 	c.reloadBeforeTurn()
 	c.restartAccountBeforeTurn()
 	ad := c.startAdapter()
@@ -1147,9 +1165,15 @@ func (m *Manager) Clear(a state.Agent) error {
 	c.turn, c.tools, c.plan, c.open, c.openMessage = nil, map[string]*api.ChatItem{}, nil, nil, ""
 	c.queued, c.outbox, c.compaction = nil, nil, nil
 	c.clearLimit()
-	c.stored.SessionID = ""
+	c.stored.SessionID, c.stored.Handoff = "", ""
 	c.session.TurnStartedAt, c.session.ContextUsed, c.session.ContextSize = nil, 0, 0
 	c.session.Commands = []api.ChatCommand{}
+	if c.stored.NextTool != "" {
+		// Nothing left to carry over: the tool chosen for the next message is
+		// simply the one the chat runs now.
+		c.applyTool(c.stored.NextTool)
+		c.saveStored()
+	}
 	c.emit(api.ChatEvent{Cleared: true})
 	c.markSession()
 	c.flush(true)
@@ -1302,6 +1326,9 @@ type conversation struct {
 	// accountRestart says the agent moved to another Claude Code account
 	// since the adapter started, so the next turn restarts it (account.go).
 	accountRestart bool
+	// switching says the compaction running is a tool switch's, so its
+	// rollover hands the chat to the chosen tool (runner.go).
+	switching bool
 	// capture, while a hidden prompt runs, collects what the session says
 	// instead of the conversation collecting it.
 	capture *strings.Builder

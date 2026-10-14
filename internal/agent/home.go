@@ -47,7 +47,12 @@ func (m *Manager) Home() state.Agent {
 	if _, err := os.Stat(filepath.Join(m.Paths.LeadHome(state.HomeProject), ".claude.json")); err == nil {
 		a.Status = state.AgentReady
 	}
-	a.ClaudeAccount, _ = m.ClaudeAccountFor(homeProject, "")
+	choice, err := m.LeadChoice(context.Background(), state.HomeProject)
+	if err != nil {
+		m.logf("The Home chat's tool: %v", err)
+	}
+	a.AI = choice.Tool
+	a.ClaudeAccount, _ = m.leadAccount(homeProject, choice)
 	return a
 }
 
@@ -55,12 +60,14 @@ func (m *Manager) Home() state.Agent {
 // it is missing, and its private HOME, rewritten every time so the projects
 // its brief lists are the ones there are now.
 func (m *Manager) EnsureHome(ctx context.Context) (state.Agent, error) {
-	account, err := m.CheckLogin("claude", homeProject, "")
+	a := m.Home()
+	choice, err := m.LeadChoice(ctx, state.HomeProject)
 	if err != nil {
 		return state.Agent{}, err
 	}
-	a := m.Home()
-	a.ClaudeAccount = account
+	if a.ClaudeAccount, err = m.leadAccount(homeProject, choice); err != nil {
+		return state.Agent{}, err
+	}
 	if err := os.MkdirAll(a.Worktree, 0o700); err != nil {
 		return state.Agent{}, err
 	}
