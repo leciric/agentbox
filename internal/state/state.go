@@ -1025,6 +1025,19 @@ var migrations = []string{
 	`CREATE TRIGGER phone_audit_no_delete BEFORE DELETE ON phone_audit BEGIN
 		SELECT RAISE(ABORT, 'phone_audit is append-only');
 	END`,
+	// "Ready to review" (internal/daemon/review.go): what the user decided
+	// about a finished agent, reviewed or dismissed, and the fingerprint of
+	// the work they decided it on. An agent whose work changes since — a new
+	// finish, new commits, its pull request fixed — has another fingerprint,
+	// and is back on the list.
+	`CREATE TABLE agent_reviews (
+		project     TEXT NOT NULL,
+		agent       TEXT NOT NULL,
+		verdict     TEXT NOT NULL,
+		fingerprint TEXT NOT NULL,
+		at          INTEGER NOT NULL,
+		PRIMARY KEY (project, agent)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1627,6 +1640,7 @@ var projectOwned = []string{
 	"pr_watches",
 	"agent_queue",
 	"agent_events",
+	"agent_reviews",
 	"checkpoints",
 	"questions",
 	"notifications",
@@ -2404,6 +2418,9 @@ func (s *Store) RemoveAgent(ctx context.Context, project, name string) error {
 		return err
 	}
 	if err := s.removeAgentEvents(ctx, project, name); err != nil {
+		return err
+	}
+	if err := s.removeAgentReview(ctx, project, name); err != nil {
 		return err
 	}
 	if err := s.removeCheckpoints(ctx, project, name); err != nil {

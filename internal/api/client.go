@@ -194,6 +194,27 @@ func (c *Client) AgentEvents(ctx context.Context, project string) ([]AgentEvent,
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/agent-events", nil, &out)
 }
 
+// ReadyToReview is a project's agents that finished and haven't been
+// reviewed or dismissed since, newest first; every project's for "".
+func (c *Client) ReadyToReview(ctx context.Context, project string) ([]ReviewItem, error) {
+	path := "/v1/review"
+	if project != "" {
+		path = "/v1/projects/" + url.PathEscape(project) + "/review"
+	}
+	var out []ReviewItem
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
+// Review records the user's verdict on an agent's work, taking it off
+// ReadyToReview until it changes.
+func (c *Client) Review(ctx context.Context, ref string, req ReviewRequest) error {
+	path, err := AgentPath(ref)
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPost, path+"/review", req, nil)
+}
+
 // RequestCredential asks the user for a credential this agent lacks, from
 // inside it, and waits for the answer.
 func (c *Client) RequestCredential(ctx context.Context, req CredentialRequest) (Question, error) {

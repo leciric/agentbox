@@ -121,6 +121,8 @@
 //   ?media=project|agent|all  a project's Media, 360 items across fourteen agents; all, the all-projects view
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
+//   ?review=1               "Ready to review": the top bar's and the project's
+//                           buttons, three agents waiting, agent-12's carousel
 //   ?notify=bell|media|viewer|toast
 //                           a mock of clickable notifications, the top bar's
 //                           bell and its history, the all-projects Media view
@@ -210,6 +212,7 @@ import { PagePreviewHost } from '../components/pages/PagePreview';
 import { ScopedMediaPages } from '../components/pages/MediaPages';
 
 import { mockMedia, NotificationsPreview, seedNotifications } from './notifications';
+import { ReviewPreview, seedReview } from './review';
 
 installDevBridge();
 
@@ -233,6 +236,7 @@ const usage = params.get('usage') === '1';
 const topbar = params.get('topbar');
 const pulls = params.get('pulls') === '1';
 const home = params.get('home') === '1';
+const review = params.get('review'); // "Ready to review" (dev/review.tsx)
 const notify = params.get('notify'); // 'bell' | 'media' | 'viewer' | 'toast' | null
 const media = params.get('media'); // 'project' the project's Media, 'agent' agent-99's Media tab
 const tokens = params.get('tokens'); // '1' the project's Tokens tab, 'agent' agent-99's own tokens card
@@ -351,6 +355,7 @@ if (home) {
 if (media === 'all') seedAllMedia();
 else if (media) seedMedia(queryClient);
 if (notify) seedNotifications(queryClient, mockMedia());
+if (review) seedReview(queryClient);
 if (imageUpdate) seedImageUpdate(queryClient);
 if (settingsPage) seedSettings(queryClient);
 if (params.get('drag')) dragBridge(queryClient, params.get('drag') === 'slow' ? 1_500 : 300);
@@ -581,6 +586,7 @@ function Preview() {
   if (page) return <PagePreview at={page} />;
   if (usage) return <UsagePreview />;
   if (notify) return <NotificationsPreview scenario={notify} />;
+  if (review) return <ReviewPreview />;
   if (newAgent) return <NewAgentDialog project={PROJECT} onClose={() => {}} onCreated={() => {}} />;
 
   if (power) {

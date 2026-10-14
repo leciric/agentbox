@@ -1484,6 +1484,24 @@ export interface AgentEvent {
   at: string;
 }
 
+export interface ReviewItem {
+  project: string;
+  agent: string;
+  ref: string;
+  title?: string;
+  branch?: string;
+  ai?: string;
+  summary?: string;
+  pr?: PullRequest;
+  finishedAt: string;
+  fingerprint: string;
+}
+
+export interface ReviewRequest {
+  verdict: string;
+  fingerprint: string;
+}
+
 export interface AndroidStatus {
   available: boolean;
   problem?: string;
@@ -2446,6 +2464,9 @@ export const EventChat = "chat";
 export const EventChatCache = "chat.cache";
 export const EventQuestion = "question";
 export const EventAgentEvent = "agent.event";
+export const ReviewReviewed = "reviewed";
+export const ReviewDismissed = "dismissed";
+export const EventReview = "review";
 export const AgentCreated = "created";
 export const AgentFinished = "finished";
 export const AgentAsked = "asked";

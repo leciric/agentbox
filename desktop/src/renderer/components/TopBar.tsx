@@ -14,6 +14,7 @@ import { DiskGuardPill } from './DiskGuardPill';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
 import { NotificationBell } from './Notifications';
+import { ReadyToReview } from './ReadyToReview';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 export function TopBar({
@@ -106,6 +107,7 @@ export function TopBar({
           </button>
         )}
         <ImageBuildChip onSelect={onSelect} />
+        <ReadyToReview onSelect={onSelect} compact />
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />

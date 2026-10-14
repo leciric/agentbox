@@ -1027,5 +1027,19 @@
     "query": "chat=rich&narrow=1&lang=pt-BR&theme=dark",
     "width": 1100,
     "height": 1500
+  },
+  {
+    "id": "review-dark",
+    "description": "\"Ready to review\": the top bar's button and the project header's, with three agents waiting — dark",
+    "query": "review=1&theme=dark",
+    "width": 1280,
+    "height": 800
+  },
+  {
+    "id": "review-narrow-light",
+    "description": "Same, below the xl breakpoint, where the project header is tightest — light",
+    "query": "review=1&theme=light",
+    "width": 1000,
+    "height": 760
   }
 ]

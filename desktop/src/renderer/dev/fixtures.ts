@@ -1638,6 +1638,10 @@ export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
   queryClient.setQueryData(['vmPower'], devState.vmPower);
 }
 
+// devRequests are more answers for the dev bridge, added by a scenario's
+// own file (dev/review.tsx), which can't be imported here without a cycle.
+export const devRequests: ((method: string, path: string) => { status: number; body: string; contentType: string } | undefined)[] = [];
+
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
 // to do real work — it only has to exist so components that call it don't
@@ -1648,6 +1652,10 @@ export function installDevBridge(): void {
       if (method === 'PATCH' && path === '/v1/settings') return patchDefaults(body as T.UpdateSettingsRequest);
       const page = pageRequest(method, path);
       if (page) return page;
+      for (const answer of devRequests) {
+        const res = answer(method, path);
+        if (res) return res;
+      }
       // Renaming a Claude account answers with what it carried over (the
       // ?accounts=1 scenario), and refuses a name one of the fixtures has.
       const rename = method === 'POST' ? /^\/v1\/auth\/claude\/([^/]+)\/rename$/.exec(path) : null;

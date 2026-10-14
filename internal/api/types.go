@@ -1663,6 +1663,45 @@ const (
 	AgentOutcomeResuming = "resuming"
 )
 
+// ReviewItem is an agent in "Ready to review": it finished its work, and the
+// user hasn't reviewed or dismissed it since — or did, and it changed after.
+// Newest first, by FinishedAt.
+type ReviewItem struct {
+	Project string `json:"project"`
+	Agent   string `json:"agent"`
+	Ref     string `json:"ref"`
+	Title   string `json:"title,omitempty"`
+	Branch  string `json:"branch,omitempty"`
+	AI      string `json:"ai,omitempty"`
+	// Summary is what the agent said when it finished, cut down the way its
+	// finish event cuts it.
+	Summary string `json:"summary,omitempty"`
+	// PR is its pull request, as the project's pull request cache and watch
+	// have it now, or as it was when it finished when the cache has none.
+	PR         *PullRequest `json:"pr,omitempty"`
+	FinishedAt time.Time    `json:"finishedAt"`
+	// Fingerprint is the work as it is now, which a verdict is recorded
+	// against: when it changes, the agent comes back.
+	Fingerprint string `json:"fingerprint"`
+}
+
+// ReviewRequest is POST /v1/agents/{project}/{agent}/review: the user's verdict
+// (reviewed or dismissed) on the work they saw, by its Fingerprint.
+type ReviewRequest struct {
+	Verdict     string `json:"verdict"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// The verdicts of a ReviewRequest.
+const (
+	ReviewReviewed  = "reviewed"
+	ReviewDismissed = "dismissed"
+)
+
+// EventReview says "Ready to review" changed: an agent finished, or a verdict
+// was recorded. It carries the project.
+const EventReview = "review"
+
 // EventAgentEvent carries an AgentEvent on the event stream.
 const EventAgentEvent = "agent.event"
 

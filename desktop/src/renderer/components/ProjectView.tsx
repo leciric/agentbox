@@ -20,6 +20,7 @@ import { ScopedMediaPages } from './pages/MediaPages';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
 import { PullRequestsPanel } from './PullRequestsPanel';
+import { ReadyToReview } from './ReadyToReview';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SkillsPanel } from './SkillsPanel';
@@ -158,7 +159,8 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             <h1 className="truncate text-[15px] font-semibold tracking-tight text-title">{projectLabel(project)}</h1>
             <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
           </div>
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex items-center gap-2">
+            <ReadyToReview project={name} onSelect={onSelect} />
             <Button onClick={onNewAgent}>
               <Plus />
               {t('project.view.newAgent')}

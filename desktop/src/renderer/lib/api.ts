@@ -298,6 +298,10 @@ export const api = {
   // when each last did; and the questions they asked, which the avatars and
   // the credential cards read.
   agentEvents: (name: string) => call<T.AgentEvent[]>('GET', `${project(name)}/agent-events`),
+  // "Ready to review": a project's agents that finished and nobody has
+  // reviewed or dismissed since, or every project's; and a verdict on one.
+  readyToReview: (name?: string) => call<T.ReviewItem[]>('GET', name ? `${project(name)}/review` : '/v1/review'),
+  review: (ref: string, req: T.ReviewRequest) => call<void>('POST', `${agent(ref)}/review`, req),
   questions: (name: string) => call<T.Question[]>('GET', `${project(name)}/questions?all=1`),
   // An agent's credential request: the value goes to the daemon, which puts it
   // into the agent, and the agent is told only what happened (D95).

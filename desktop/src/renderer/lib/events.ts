@@ -101,6 +101,8 @@ export function connectEvents(queryClient: QueryClient): void {
         queryClient.setQueryData<T.AgentEvent[]>(['agentEvents', agentEvent.project], (events) =>
           events ? [agentEvent, ...events.filter((e) => e.id !== agentEvent.id)] : events,
         );
+        // A finish puts the agent on "Ready to review".
+        if (agentEvent.kind === T.AgentFinished) void queryClient.invalidateQueries({ queryKey: ['review'] });
         break;
       }
       case T.EventQuestion: {
@@ -162,9 +164,17 @@ export function connectEvents(queryClient: QueryClient): void {
         // stops showing "refreshing"; the fleet has nothing to redraw.
         const { project, unchanged } = event.data as T.PullsChange;
         void queryClient.invalidateQueries({ queryKey: ['pulls', project] });
-        if (!unchanged) void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
+        if (!unchanged) {
+          void queryClient.invalidateQueries({ queryKey: ['fleet', project] });
+          // A pull request fixed brings its agent back to "Ready to review".
+          void queryClient.invalidateQueries({ queryKey: ['review'] });
+        }
         break;
       }
+      case T.EventReview:
+        // A verdict, from this window or another.
+        void queryClient.invalidateQueries({ queryKey: ['review'] });
+        break;
       case T.EventAgent: {
         const change = event.data as T.AgentChange;
         const agents = queryClient.getQueryData<T.Agent[]>(['agents']);
