@@ -168,6 +168,9 @@ type Server struct {
 	snaps        snapStore                // SnapShots waiting for the app's composer (snaps.go)
 	leadWaits    map[string]bool          // agents their project's chat asked for something and hasn't heard back from, by ref (D87)
 	toldWaiting  map[string]bool          // agents whose chat has been told they wait on background work, until they finish, by ref
+	nudged       map[string]bool          // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
+	outcomes     map[string]agentOutcome  // how each agent's last turn left it, by ref (outcome.go)
+	outcomesRead map[string]bool          // projects whose outcomes have been read from their events since the daemon started
 	// skillsMu runs one installation of skills at a time (skills.go).
 	skillsMu sync.Mutex
 	// skillsSynced, when set (tests), is told each time one has ended.
@@ -277,6 +280,9 @@ func New(cfg Config) (*Server, error) {
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
 		toldWaiting:      map[string]bool{},
+		nudged:           map[string]bool{},
+		outcomes:         map[string]agentOutcome{},
+		outcomesRead:     map[string]bool{},
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),

@@ -75,10 +75,10 @@ type Manager struct {
 	Prepare ModelPreparer // may be nil
 	Publish func(api.ChatEvent)
 	// Finished, when set, is called after an agent's turn ends, with how it
-	// ended. The daemon uses it to tell the project's chat, and to tell a
-	// genuine finish (the model stopping on its own) from a turn merely cut
-	// short by a limit or a cancellation.
-	Finished func(a state.Agent, result api.ChatTurnResult)
+	// ended and what the chat saw as it did (TurnEnd). The daemon judges from
+	// it what the agent is doing now — finished, asking, waiting on work,
+	// stopped on an error (outcome.go there) — and tells the project's chat.
+	Finished func(a state.Agent, end TurnEnd)
 	// LeadIdle, when set, is called when a project's lead finishes a turn and
 	// has nothing else to run, so the daemon can offer to compact it before
 	// its prompt cache expires (cachecard.go in the daemon). Off the lock, in
@@ -2053,18 +2053,36 @@ var stopNotes = map[string]string{
 	"refusal":           "The model declined to continue.",
 }
 
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// StopNote is what the chat says about a turn that stopped for reason, ""
+// for a stop reason that is the model finishing.
+func StopNote(reason string) string { return stopNotes[reason] }
+
 // finishTurn ends a turn with the tool's answer, or with an error.
 func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	if c.turn != t {
 		return
 	}
 	c.closeOpen()
+	// The tool calls still running as the turn ends: Codex and OpenCode don't
+	// report background work, but a command they left going shows here.
+	var open []string
 	for _, it := range c.tools {
 		if it.Tool.Status == "pending" || it.Tool.Status == "in_progress" {
+			if it.Parent == "" {
+				open = append(open, cmp(firstLine(it.Tool.Title), it.Tool.Kind))
+			}
 			it.Tool.Status = "stopped"
 			c.touch(it)
 		}
 	}
+	slices.Sort(open)
 	c.cancelPending()
 	result := &api.ChatTurnResult{EndedAt: time.Now()}
 	limited := false
@@ -2109,6 +2127,15 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		// Work the turn left running: until it ends, the agent isn't done.
 		result.Background = c.adapter.background()
 	}
+	end := TurnEnd{
+		LastMessage: strings.TrimSpace(c.lastSaid(t.id)),
+		Open:        open,
+		Lost:        errors.Is(err, acp.ErrClosed) && !t.cancelled,
+		Error:       errText(err),
+		Limited:     limited,
+		Shutdown:    c.m.closing.Load(),
+		Woken:       t.woken,
+	}
 	if user := c.byID[t.id]; user != nil {
 		user.Result = result
 		c.touch(user)
@@ -2128,8 +2155,11 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 	// Whoever ended the turn may want to know, so the daemon can tell the
 	// project's chat that this agent finished.
 	if c.m.Finished != nil && !c.agent.IsLead() {
-		agent, res := c.agent, *result
-		c.m.background.Go(func() { c.m.Finished(agent, res) })
+		// Another turn already running — a message that waited, a notice — is
+		// the agent still at work, whatever this one said.
+		end.ChatTurnResult, end.Continues = *result, c.turn != nil
+		agent := c.agent
+		c.m.background.Go(func() { c.m.Finished(agent, end) })
 	}
 	if c.m.TurnFinished != nil {
 		agent, stats := c.agent, c.turnStats(t, res, result.State)

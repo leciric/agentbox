@@ -206,12 +206,13 @@ func stallNotice(a state.Agent, p chat.Progress, from, now time.Time) string {
 // chat is woken to see to it, the way it is for a stall.
 func (s *Server) agentLost(a state.Agent, why string) {
 	s.recordError(errAdapterCrashed, a.AI)
+	s.setOutcome(a, api.AgentOutcomeFailed, headWords(why, 200))
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.runCtx), 30*time.Second)
 	defer cancel()
 	s.captureEvent(ctx, a.Project, a.Name, "agent_chat_lost", map[string]any{"why": why}, "")
 	s.record(ctx, api.AgentEvent{
 		Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
-		Kind: api.AgentChatLost, Summary: headWords(why, 200), At: time.Now(),
+		Kind: api.AgentChatLost, Outcome: api.AgentOutcomeFailed, Summary: headWords(why, 200), At: time.Now(),
 	})
 	s.stallTell(ctx, a.Project, lostNotice(a, why))
 }

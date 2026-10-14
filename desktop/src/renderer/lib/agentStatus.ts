@@ -33,9 +33,31 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   // The AI tool exited, mid-turn or not: nothing runs until somebody sends
   // it a message, which isn't the same as idle.
   if (agent.state === 'running' && agent.chat === 'error') return { text: t('agent.status.chatStopped'), tone: 'error' };
+  // A turn AgentBox's restart cut short, being carried on: its machine may
+  // still be starting.
+  if (agent.outcome === 'resuming' && agent.state !== 'paused') return { text: t('agent.status.resuming'), tone: 'live' };
+  // How its last turn left it, as the daemon judged it (T.Agent.outcome): a
+  // question in its own words waits on somebody, and a turn that died
+  // mid-work isn't idle.
+  if (agent.state === 'running' && agent.chat !== 'starting') {
+    if (agent.outcome === 'asking') return { text: t('agent.status.asking'), tone: 'urgent' };
+    if (agent.outcome === 'failed') return { text: t('agent.status.failed'), tone: 'error' };
+    if (agent.outcome === 'done') return { text: t('agent.status.done'), tone: 'muted' };
+  }
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? t('agent.status.starting') : t('agent.status.idle'), tone: 'muted' };
   if (agent.state === 'paused') return { text: t('agent.status.paused'), tone: 'muted' };
   return { text: t('agent.status.stopped'), tone: 'muted' };
+}
+
+// statusTip is what chatLabel's words leave out, for a tooltip: what holds
+// its commands for memory, the question it asked, the error it stopped on.
+export function statusTip(agent: Pick<T.Agent, 'state' | 'chat' | 'memory' | 'outcome' | 'outcomeNote'>): string | undefined {
+  const held = memoryHold(agent);
+  if (held) return held.tip;
+  if (agent.chat === 'running' || !agent.outcomeNote) return undefined;
+  if (agent.outcome === 'asking') return t('agent.status.askingTip', { question: agent.outcomeNote });
+  if (agent.outcome === 'failed') return agent.outcomeNote;
+  return undefined;
 }
 
 // memoryHold is what the VM's memory pressure is doing to a running agent's
@@ -121,6 +143,7 @@ export function usageTip(sample: T.AgentUsage, humanBytes: (n: number) => string
 // (an unfinished create with nothing left running) does.
 export function rank(agent: T.Agent): number {
   if (agent.chat === 'waiting' || agent.state === 'incomplete' || agent.state === 'missing') return 0;
+  if (agent.state === 'running' && agent.chat !== 'running' && agent.outcome === 'asking') return 0;
   if (agent.state === 'running' || agent.state === 'initializing' || agent.state === 'queued') return 1;
   if (agent.state === 'paused') return 2;
   return 3;
@@ -159,12 +182,14 @@ export type Mood = 'working' | 'asking' | 'idle' | 'sleeping' | 'error';
 // whether it has a question or a credential request waiting on the user,
 // which lives in the project's questions rather than on the agent (see
 // isAsking); a permission prompt is the chat's own 'waiting'.
-export function avatarMood(agent: { state: string; chat?: string; stalledSince?: string }, asking = false): Mood {
+export function avatarMood(agent: { state: string; chat?: string; stalledSince?: string; outcome?: string }, asking = false): Mood {
   if (agent.state === 'incomplete' || agent.state === 'missing' || agent.chat === 'error') return 'error';
   if (agent.state === 'running' && agent.chat === 'running' && agent.stalledSince) return 'error';
   if (agent.state !== 'running') return 'sleeping';
   if (agent.chat === 'waiting' || asking) return 'asking';
   if (agent.chat === 'running' || agent.chat === 'starting') return 'working';
+  if (agent.outcome === 'asking') return 'asking';
+  if (agent.outcome === 'failed') return 'error';
   return 'idle';
 }
 
@@ -191,7 +216,7 @@ export function summarizeStatus(agents: T.Agent[]): { text: string; tone: Status
 // useMood is avatarMood with the asking read from the agent's project: the
 // same ['questions', project] query the rail and the credential cards read,
 // so the rows of one project share one request.
-export function useMood(agent: { project: string; ref: string; state: string; chat?: string; stalledSince?: string }): Mood {
+export function useMood(agent: { project: string; ref: string; state: string; chat?: string; stalledSince?: string; outcome?: string }): Mood {
   const questions = useQuery({ queryKey: ['questions', agent.project], queryFn: () => api.questions(agent.project) });
   return avatarMood(agent, isAsking(questions.data, agent.ref));
 }

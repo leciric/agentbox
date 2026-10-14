@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"agentbox/internal/api"
 	"agentbox/internal/state"
 )
 
@@ -107,6 +108,9 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 		_ = s.store.EndRunningTurn(ctx, rt.Project, rt.Agent, rt.Turn)
 		return
 	}
+	// Until its turn runs again, it is resuming, not idle: its machine may
+	// take a while to start, or wait for the memory to.
+	s.setOutcome(a, api.AgentOutcomeResuming, "")
 	switch {
 	case a.Status != state.AgentReady:
 		s.notResumed(ctx, rt, "the agent is "+a.Status)
@@ -150,11 +154,25 @@ func (s *Server) continueAgent(ctx context.Context, rt state.RunningTurn) {
 // resumeChat hands the turn to the agent's chat.
 func (s *Server) resumeChat(a state.Agent, rt state.RunningTurn) {
 	resumed, err := s.chat.Resume(a, rt)
+	if !resumed {
+		// Newer work runs on it, or nothing could: whatever it is doing, it
+		// isn't resuming.
+		s.mu.Lock()
+		if s.outcomes[a.Ref()].kind == api.AgentOutcomeResuming {
+			delete(s.outcomes, a.Ref())
+		}
+		s.mu.Unlock()
+	}
 	switch {
 	case err != nil:
 		s.logf("continue after restart: %s: %v", a.Ref(), err)
 		_ = s.store.EndRunningTurn(context.Background(), rt.Project, rt.Agent, rt.Turn)
 	case resumed:
+		// Whether the project's chat waited on this agent died with the
+		// daemon that knew (leadWaits lives in memory). A turn cut short in
+		// the middle of the work is most likely the work it asked for, so
+		// the finish that follows the resume reaches it as it would have.
+		s.leadAsked(a)
 		s.logf("%s: carried on the turn AgentBox's restart cut short (resume %d of %d)", a.Ref(), rt.Resumes+1, maxTurnResumes)
 	}
 }
@@ -162,6 +180,11 @@ func (s *Server) resumeChat(a state.Agent, rt state.RunningTurn) {
 // notResumed forgets a turn that isn't carried on, saying why in its chat.
 func (s *Server) notResumed(ctx context.Context, rt state.RunningTurn, why string) {
 	s.logf("continue after restart: not resuming %s's turn: %s", rt.Ref(), why)
+	if rt.Kind == state.TurnOfAgent {
+		s.mu.Lock()
+		s.outcomes[rt.Ref()] = agentOutcome{kind: api.AgentOutcomeFailed, note: "AgentBox restarted mid-turn and didn't resume it: " + why}
+		s.mu.Unlock()
+	}
 	var a state.Agent
 	var err error
 	switch rt.Kind {

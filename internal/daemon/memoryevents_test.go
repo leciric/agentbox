@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"agentbox/internal/api"
+	"agentbox/internal/chat"
 	"agentbox/internal/memory"
 )
 
@@ -156,7 +157,7 @@ func TestMemoryCapturesAgentFinishedWithItsReport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 
 	events := eventsOfType(t, d, "hello-stack", "agent_finished")
 	if len(events) != 1 {

@@ -205,3 +205,32 @@ func (c *conversation) adapterGone(why error) {
 }
 
 var errAdapterStopped = errors.New("the session was stopped")
+
+// TurnEnd is what Manager.Finished is told about an agent's turn as it
+// ends: how it ended, and what the chat saw at that moment, which may not be
+// there to read by the time the daemon looks.
+type TurnEnd struct {
+	api.ChatTurnResult
+	// LastMessage is what the agent said last in the turn, its own words
+	// rather than a subagent's (LastMessage).
+	LastMessage string
+	// Error is what a failed turn failed on.
+	Error string
+	// Open is the tool calls still running when the turn ended, by title.
+	Open []string
+	// Lost is a turn that failed because the AI tool went away mid-turn: its
+	// Lost hook tells the rest.
+	Lost bool
+	// Limited is a turn that failed on a spent usage limit, which the chat
+	// carries on by itself once the limit resets (limit.go).
+	Limited bool
+	// Shutdown is a turn AgentBox stopping cut short: the next daemon
+	// carries it on (restart.go).
+	Shutdown bool
+	// Woken is a turn the session started by itself, as background work it
+	// left ended.
+	Woken bool
+	// Continues is another turn already running after this one: a message
+	// or a notice that waited on it.
+	Continues bool
+}

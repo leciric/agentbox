@@ -602,7 +602,16 @@ type Agent struct {
 	// While any runs, an agent whose chat is ready is awaiting, not idle: the
 	// work's end wakes it, and it hasn't finished.
 	Background []string `json:"background,omitempty"`
-	State      string   `json:"state"` // running, stopped, paused, initializing, incomplete or missing; queued only for one an earlier release left queued, as the daemon starts it
+	// Outcome is how the agent's last turn left it, as the daemon judged it
+	// when the turn ended (AgentOutcome*): it says what an agent whose chat
+	// is ready is doing — asking, done, stopped on an error, idle. Empty
+	// while nothing has been judged, as for an agent that hasn't had a turn.
+	// A running chat is working whatever it says.
+	Outcome string `json:"outcome,omitempty"`
+	// OutcomeNote is what to show with Outcome: the question it asked, the
+	// error it stopped on, why it isn't resuming.
+	OutcomeNote string `json:"outcomeNote,omitempty"`
+	State       string `json:"state"` // running, stopped, paused, initializing, incomplete or missing; queued only for one an earlier release left queued, as the daemon starts it
 	// Memory is what the daemon holds of the agent's heavy commands for
 	// memory: paused or waiting to start (package pressure). Absent when it
 	// holds nothing.
@@ -1587,6 +1596,9 @@ type AgentEvent struct {
 	// finished, and are only set on a finish.
 	Changes *AgentChanges `json:"changes,omitempty"`
 	PR      *PullRequest  `json:"pr,omitempty"`
+	// Outcome is how the turn left the agent, on finished (done or idle),
+	// asking and failed: one of AgentOutcome*.
+	Outcome string `json:"outcome,omitempty"`
 	// Question is the ID of the question this event is about, on asked and
 	// answered.
 	Question string    `json:"question,omitempty"`
@@ -1619,6 +1631,33 @@ const (
 	// killed, crashed, or cut off with its machine. Summary is what the chat
 	// said about it.
 	AgentChatLost = "chat_lost"
+	// AgentAsking is an agent that ended its turn on a question in its own
+	// words, without `agentbox ask`: it waits for an answer, and isn't
+	// finished. Summary is the question.
+	AgentAsking = "asking"
+	// AgentFailed is an agent whose turn stopped on an error, or was cut
+	// short by a limit, in the middle of its work. Summary says what.
+	AgentFailed = "failed"
+)
+
+// How an agent's last turn left it (Agent.Outcome, AgentEvent.Outcome). A
+// running turn is working, whatever the last one said; an agent waiting on
+// background work it left is Agent.Background.
+const (
+	// AgentOutcomeDone finished with something to show: a pull request, or
+	// changes on its branch.
+	AgentOutcomeDone = "done"
+	// AgentOutcomeIdle ended its turn with nothing to show and nothing
+	// asked: a question answered, a check made, or work that didn't happen.
+	AgentOutcomeIdle = "idle"
+	// AgentOutcomeAsking ended its turn on a question for whoever drives it.
+	AgentOutcomeAsking = "asking"
+	// AgentOutcomeFailed stopped mid-work: an error, its AI tool exiting, a
+	// limit or a refusal.
+	AgentOutcomeFailed = "failed"
+	// AgentOutcomeResuming had a turn AgentBox's restart cut short, which is
+	// being carried on.
+	AgentOutcomeResuming = "resuming"
 )
 
 // EventAgentEvent carries an AgentEvent on the event stream.

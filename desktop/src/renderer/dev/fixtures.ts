@@ -139,6 +139,13 @@ export function buildFixtures(): FixtureData {
     // Its turn ended on a CI watch it left running in the background: awaiting,
     // not idle, and kept out of Finished until the watch ends and it reports.
     agent({ ref: `${PROJECT}/agent-41`, title: 'Watch CI on the release branch', chat: 'ready', background: ['Watch CI run 42'] }),
+    // How the daemon judged their last turns (T.Agent.outcome): one ended on a
+    // question in its own words, one died mid-turn on a dropped websocket, one
+    // finished with a pull request, one is carried on after a restart.
+    agent({ ref: `${PROJECT}/agent-37`, title: 'Landing page', ai: 'codex', chat: 'ready', outcome: 'asking', outcomeNote: 'What do you want me to do next: launch, change, or stop?' }),
+    agent({ ref: `${PROJECT}/agent-38`, title: 'Migrate the reminders table', chat: 'ready', outcome: 'failed', outcomeNote: 'API Error: WebSocket closed with code 1006 (abnormal closure)' }),
+    agent({ ref: `${PROJECT}/agent-39`, title: 'Paginate the reminders page', chat: 'ready', outcome: 'done' }),
+    agent({ ref: `${PROJECT}/agent-36`, title: 'Search the docs', ai: 'opencode', state: 'stopped', outcome: 'resuming' }),
     agent({ ref: `${PROJECT}/agent-92`, title: 'Lost its machine', ai: 'claude', state: 'incomplete' }),
     agent({ ref: `${PROJECT}/agent-89`, title: 'Still being created', ai: 'claude', state: 'initializing' }),
     // Its turn still running, but the stall watch found no progress on it for
