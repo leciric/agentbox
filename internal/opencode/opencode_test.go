@@ -43,8 +43,7 @@ func TestName(t *testing.T) {
 	}
 }
 
-// Models runs the real command line, so a fake one on PATH is what this can
-// check: that the login AgentBox owns is the one OpenCode is asked about, and
+// Models runs a real command line, so a fake one is what this can check: that the login AgentBox owns is the one OpenCode is asked about, and
 // that a failure is an ordinary error rather than an empty list.
 func TestModelsUsesAgentBoxsOwnDataHome(t *testing.T) {
 	if runtime.GOOS != "linux" {
@@ -55,10 +54,10 @@ func TestModelsUsesAgentBoxsOwnDataHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	command := filepath.Join(bin, "opencode")
 
 	dataHome := t.TempDir()
-	got, err := opencode.Models(context.Background(), dataHome)
+	got, err := opencode.Models(context.Background(), command, dataHome)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,14 +70,7 @@ func TestModelsUsesAgentBoxsOwnDataHome(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "opencode"), []byte(failing), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := opencode.Models(context.Background(), dataHome); err == nil || !strings.Contains(err.Error(), "no providers are configured") {
+	if _, err := opencode.Models(context.Background(), command, dataHome); err == nil || !strings.Contains(err.Error(), "no providers are configured") {
 		t.Errorf("a failing opencode models: %v", err)
-	}
-}
-
-func TestModelsWithoutOpenCodeInstalled(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
-	if _, err := opencode.Models(context.Background(), t.TempDir()); err == nil || !strings.Contains(err.Error(), "isn't installed") {
-		t.Errorf("without opencode on PATH: %v", err)
 	}
 }

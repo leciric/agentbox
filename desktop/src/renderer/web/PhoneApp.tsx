@@ -3,14 +3,20 @@
 // first, and a chat a screen, the same ChatTab the desktop app has: the
 // conversation live, the composer, and the cards for what an agent asks.
 //
-// Where you are is the page's fragment (#/p/<project>, #/a/<project>/<agent>),
-// so the phone's back gesture goes back to the list.
-import { useMutation, useQueries, useQuery } from '@tanstack/react-query';
-import { ArrowLeft, ChevronRight, MessagesSquare, WifiOff } from 'lucide-react';
+// Where you are is the page's fragment (#/p/<project>, #/a/<project>/<agent>,
+// #/pr/<project>), so the phone's back gesture goes back to the list.
+//
+// A phone the user let merge (its "merge" scope, turned on in the app on the
+// computer) also gets each project's open pull requests, and merges one only
+// after confirming it here: the daemon refuses a phone's merge that doesn't
+// say so.
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ArrowLeft, ChevronRight, GitPullRequest, MessagesSquare, WifiOff } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
 import { ChatTab } from '../components/chat/ChatTab';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ProjectChatPanel } from '../components/ProjectChatPanel';
 import { AIIcon, LiveAgentAvatar } from '../components/state';
 import { chatLabel, rank, type StatusTone } from '../lib/agentStatus';
@@ -21,17 +27,19 @@ import { useConnection } from '../lib/events';
 import { cn, errorMessage } from '../lib/utils';
 import { PlainHTTPNote } from './PhonePair';
 
-type Route = { kind: 'list' } | { kind: 'project'; project: string } | { kind: 'agent'; ref: string };
+type Route = { kind: 'list' } | { kind: 'project'; project: string } | { kind: 'agent'; ref: string } | { kind: 'pulls'; project: string };
 
 function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   if (parts[0] === 'p' && parts[1]) return { kind: 'project', project: parts[1] };
   if (parts[0] === 'a' && parts[1] && parts[2]) return { kind: 'agent', ref: `${parts[1]}/${parts[2]}` };
+  if (parts[0] === 'pr' && parts[1]) return { kind: 'pulls', project: parts[1] };
   return { kind: 'list' };
 }
 
 function routeHash(route: Route): string {
   if (route.kind === 'project') return `#/p/${encodeURIComponent(route.project)}`;
+  if (route.kind === 'pulls') return `#/pr/${encodeURIComponent(route.project)}`;
   if (route.kind === 'agent') return `#/a/${route.ref.split('/').map(encodeURIComponent).join('/')}`;
   return '#/';
 }
@@ -85,6 +93,8 @@ export function PhoneApp({ phone }: { phone: T.LANPhone }) {
         <ChatList phone={phone} onOpen={go} />
       ) : route.kind === 'project' ? (
         <ProjectChatScreen project={route.project} onBack={() => go({ kind: 'list' })} />
+      ) : route.kind === 'pulls' ? (
+        <PullsScreen project={route.project} onBack={() => go({ kind: 'list' })} />
       ) : (
         <AgentChatScreen agentRef={route.ref} onBack={() => go({ kind: 'list' })} />
       )}
@@ -145,6 +155,18 @@ function ChatList({ phone, onOpen }: { phone: T.LANPhone; onOpen: (route: Route)
                   onClick={() => onOpen({ kind: 'agent', ref: a.ref })}
                 />
               ))}
+              {(phone.scopes ?? []).includes('merge') && (
+                <ChatRow
+                  icon={
+                    <div className="flex size-9 items-center justify-center rounded-full bg-surface-raised">
+                      <GitPullRequest className="size-4 text-secondary" />
+                    </div>
+                  }
+                  title={t('web.phone.pulls')}
+                  status={{ text: t('web.phone.pullsHint'), tone: 'muted' }}
+                  onClick={() => onOpen({ kind: 'pulls', project: p.name })}
+                />
+              )}
             </section>
           );
         })}
@@ -247,6 +269,63 @@ function AgentChatScreen({ agentRef, onBack }: { agentRef: string; onBack: () =>
           <Missing loading={agents.isPending} message={t('web.phone.missingAgent', { name: agentRef })} />
         )}
       </div>
+    </>
+  );
+}
+
+function PullsScreen({ project, onBack }: { project: string; onBack: () => void }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
+  const pulls = useQuery({ queryKey: ['projectPullRequests', project], queryFn: () => api.projectPullRequests(project) });
+  const [merging, setMerging] = useState<T.PullRequest | null>(null);
+  const open = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open');
+  const method = pulls.data?.mergeMethods?.[0] ?? 'merge';
+  return (
+    <>
+      <ScreenHeader title={t('web.phone.pulls')} subtitle={projectLabel(project, projects.data)} onBack={onBack} />
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" data-phone-pulls>
+        {pulls.isPending && <p className="px-2 text-sm text-subtle">{t('common.loading')}</p>}
+        {pulls.error && <p className="px-2 text-sm text-rose-300">{errorMessage(pulls.error)}</p>}
+        {pulls.data && open.length === 0 && <p className="px-2 text-sm text-subtle">{t('web.phone.noPulls')}</p>}
+        <ul className="grid gap-2">
+          {open.map((pr) => (
+            <li key={pr.number} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line px-3 py-2.5" data-phone-pull={pr.number}>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14px] font-medium text-primary">{pr.title}</p>
+                <p className="truncate text-[12px] text-subtle">
+                  #{pr.number}
+                  {pr.baseBranch && ` → ${pr.baseBranch}`}
+                  {pr.checks && ` · ${pr.checks}`}
+                  {pr.draft && ` · ${t('web.phone.draft')}`}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={pr.draft}
+                onClick={() => setMerging(pr)}
+                className="shrink-0 rounded-full bg-brand-500/20 px-3 py-1.5 text-[13px] font-medium text-brand-200 active:bg-brand-500/30 disabled:opacity-40"
+              >
+                {t('web.phone.merge')}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <ConfirmDialog
+        open={merging !== null}
+        onOpenChange={(o) => !o && setMerging(null)}
+        title={merging ? t('web.phone.mergeTitle', { number: merging.number, base: merging.baseBranch || '—' }) : ''}
+        description={merging?.title}
+        confirmLabel={t('web.phone.merge')}
+        destructive
+        onConfirm={async () => {
+          if (!merging) return;
+          await api.mergePullRequest(project, merging.number, method, true);
+          toast.success(t('web.phone.merged', { number: merging.number }));
+          void queryClient.invalidateQueries({ queryKey: ['projectPullRequests', project] });
+        }}
+      />
     </>
   );
 }

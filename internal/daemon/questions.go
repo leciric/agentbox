@@ -388,39 +388,117 @@ func backgroundNotice(a state.Agent, background []string) string {
 		a.Name, titleOrNone(a.Title), strings.Join(background, "; "))
 }
 
-func finishedTask(result api.ChatTurnResult) bool {
-	return result.State == "completed" && (result.StopReason == "" || result.StopReason == "end_turn")
-}
-
-// noticeAgentFinished tells a project's chat that one of its agents has
-// genuinely finished the work it was given. A turn that ended any other way
-// is left alone, so the lead isn't woken every time an agent stops to breathe.
-// What the agent said last is quoted, which its brief asks it to make a
-// summary of the work: read_agent is still there, but for the detail the lead
-// may not need at all, rather than as the only way to learn what happened.
-func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, result api.ChatTurnResult) {
-	if a.IsLead() || !finishedTask(result) {
+// noticeAgentFinished judges how an agent's turn left it (outcome.go),
+// records that, and tells the project's chat what it needs to hear: that the
+// agent finished, asks a question, waits on work, or stopped on an error. A
+// turn that ended any other way is left alone, so the lead isn't woken every
+// time an agent stops to breathe. A finish quotes what the agent said last,
+// which its brief asks it to make a summary of the work: read_agent is still
+// there, but for the detail the lead may not need at all, rather than as the
+// only way to learn what happened.
+func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end chat.TurnEnd) {
+	if a.IsLead() {
 		return
 	}
-	if len(result.Background) > 0 {
+	v, note := judgeTurn(end)
+	if v == verdictEnded && end.LastMessage == "" {
+		// Read only when the words are what decides: the conversation is
+		// loaded to read them.
+		if end.LastMessage = s.chat.LastMessage(a); end.LastMessage != "" {
+			v, note = judgeTurn(end)
+		}
+	}
+	switch v {
+	case verdictWorking:
+		return
+	case verdictCancelled:
+		// Stopped from its chat: whoever stopped it knows.
+		s.markToldWaiting(a, false)
+		s.setOutcome(a, api.AgentOutcomeIdle, "")
+		return
+	case verdictFailed:
+		s.markToldWaiting(a, false)
+		s.setOutcome(a, api.AgentOutcomeFailed, note)
+		if end.Lost {
+			return // agentLost says so, with the exit status
+		}
+		s.record(ctx, api.AgentEvent{
+			Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
+			Kind: api.AgentFailed, Outcome: api.AgentOutcomeFailed, Summary: headWords(note, 200), At: time.Now(),
+		})
+		// It wakes the lead when the lead waits on this agent, and stays
+		// still waiting for the finish. A turn somebody drove by hand is
+		// theirs to see, and the lead reads it when it next looks.
+		if s.leadIsWaiting(a) {
+			s.stallTell(ctx, a.Project, failedNotice(a, headWords(note, 300)))
+		} else {
+			s.tellLead(ctx, a.Project, failedNotice(a, headWords(note, 300)), false)
+		}
+		return
+	case verdictBackground:
 		// It ended its turn on work it left running — a CI run it watches, a
 		// monitor — and the session wakes when that ends: that turn is the
 		// finish. The lead hears now that it is waiting, and still waits:
 		// leadWaits stays set, so the finish that follows is news it acts on.
 		// Once: a monitor wakes the session at every line it prints, and
 		// each of those turns ends waiting too.
+		s.setOutcome(a, "", "")
 		if s.markToldWaiting(a, true) {
-			s.tellLead(ctx, a.Project, backgroundNotice(a, result.Background), false)
+			s.tellLead(ctx, a.Project, backgroundNotice(a, end.Background), false)
 		}
 		return
 	}
 	s.markToldWaiting(a, false)
+	closing := closingWords(end.LastMessage)
 	changes, pr := changesOf(a), s.prFor(ctx, a)
+	if v == verdictUnsure {
+		v = verdictEnded
+		if !shows(changes, pr) {
+			v = s.askTurnModel(ctx, a, closing)
+		}
+	}
+	if v == verdictPromise {
+		if s.nudge(a) {
+			// Told to wait inside a turn, which starts one: still working.
+			s.setOutcome(a, "", "")
+			if err := s.chat.Notice(a, promiseNudge(a, end.Open), chat.NoticeOptions{Act: true}); err != nil {
+				s.logf("telling %s to wait on its work: %v", a.Ref(), err)
+			} else {
+				return
+			}
+		}
+		s.setOutcome(a, api.AgentOutcomeIdle, "Says it waits on work, and nothing will wake it")
+		s.tellLead(ctx, a.Project, unwokenNotice(a), s.leadWasWaiting(a))
+		return
+	}
+	s.clearNudge(a)
+	if v == verdictAsking && !shows(changes, pr) {
+		// A question with nothing to show is the agent waiting on an answer.
+		// One asked after a pull request is a finish that offers more, and
+		// the finish notice quotes it.
+		q := question(closing)
+		s.setOutcome(a, api.AgentOutcomeAsking, q)
+		s.record(ctx, api.AgentEvent{
+			Project: a.Project, Agent: a.Name, Ref: a.Ref(), Title: a.Title,
+			Kind: api.AgentAsking, Outcome: api.AgentOutcomeAsking, Summary: q, At: time.Now(),
+		})
+		// Only the lead's own request wakes it: a question asked in a chat
+		// somebody drives by hand is theirs to see.
+		// It still waits for the finish that follows the answer.
+		s.tellLead(ctx, a.Project, askingNotice(a, q), s.leadIsWaiting(a))
+		return
+	}
 	// An agent that finished has often just pushed: the watch looks now, and
 	// the Pull requests tab re-reads GitHub rather than waiting out its cache.
 	s.prWatch.poke(a.Project)
 	s.pullsMoved(a.Project)
-	ev := s.record(ctx, finishedEvent(a, changes, pr, s.chat.LastMessage(a), time.Now()))
+	ev := finishedEvent(a, changes, pr, end.LastMessage, time.Now())
+	ev.Outcome = api.AgentOutcomeIdle
+	if shows(changes, pr) {
+		ev.Outcome = api.AgentOutcomeDone
+	}
+	s.setOutcome(a, ev.Outcome, "")
+	ev = s.record(ctx, ev)
 	s.captureAgentFinished(ctx, a, changes, pr, ev.Summary)
 	if pr != nil {
 		s.setupStep(ctx, setupFirstPR)
@@ -435,6 +513,25 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, result 
 	s.tellLead(ctx, a.Project, finishNotice(ev), waiting && s.finishStartsTurn(ctx, a))
 }
 
+// nudge claims the one reminder an agent gets to wait on its work inside a
+// turn, and reports whether it was still there to claim. It comes back once
+// the agent's turn ends any other way, or the lead asks for more.
+func (s *Server) nudge(a state.Agent) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.nudged[a.Ref()] {
+		return false
+	}
+	s.nudged[a.Ref()] = true
+	return true
+}
+
+func (s *Server) clearNudge(a state.Agent) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.nudged, a.Ref())
+}
+
 // leadAsked records that a project's chat asked an agent for something — its
 // first task, or a message since — so the agent's next finish is news the
 // chat is waiting for (D87). It lives in memory only: a daemon that stops
@@ -443,6 +540,7 @@ func (s *Server) leadAsked(a state.Agent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.leadWaits[a.Ref()] = true
+	delete(s.nudged, a.Ref())
 }
 
 // leadWasWaiting reports whether the chat was waiting on the agent, and stops
@@ -453,6 +551,13 @@ func (s *Server) leadWasWaiting(a state.Agent) bool {
 	waiting := s.leadWaits[a.Ref()]
 	delete(s.leadWaits, a.Ref())
 	return waiting
+}
+
+// leadIsWaiting is leadWasWaiting that leaves the chat waiting.
+func (s *Server) leadIsWaiting(a state.Agent) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.leadWaits[a.Ref()]
 }
 
 // prFor looks up the agent's pull request, if it has one. It answers
@@ -496,11 +601,13 @@ func (s *Server) prFor(ctx context.Context, a state.Agent) *api.PullRequest {
 	return nil
 }
 
-// agentFinished is what package chat calls when an agent's turn ends.
-func (s *Server) agentFinished(a state.Agent, result api.ChatTurnResult) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.runCtx), 30*time.Second)
+// agentFinished is what package chat calls when an agent's turn ends. The
+// time it allows covers the cheap model's look at a turn the rules can't
+// place (askTurnModel).
+func (s *Server) agentFinished(a state.Agent, end chat.TurnEnd) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(s.runCtx), 30*time.Second+turnCheckTimeout)
 	defer cancel()
-	s.noticeAgentFinished(ctx, a, result)
+	s.noticeAgentFinished(ctx, a, end)
 }
 
 // tellAnswer sends an answer nobody waits on to the agent that asked, as a

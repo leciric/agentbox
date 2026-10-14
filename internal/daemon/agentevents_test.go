@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agentbox/internal/api"
+	"agentbox/internal/chat"
 	"agentbox/internal/state"
 )
 
@@ -177,7 +178,7 @@ func TestAgentEventsArePersistedPerProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 	waitFor(t, "the finish to be recorded", func() bool { return len(eventsOf(t, d, "hello-stack")) > 0 })
 
 	q, err := d.srv.store.Question(ctx, askAndAnswer(t, d, a))

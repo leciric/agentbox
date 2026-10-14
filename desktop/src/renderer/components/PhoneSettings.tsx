@@ -1,12 +1,13 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Globe, Smartphone } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
-import { formatDate, formatDateTime, t, useT } from '../lib/i18n';
+import { formatDate, formatDateTime, t, useT, type MessageKey } from '../lib/i18n';
 import type { SettingGroup } from '../lib/settingsSearch';
-import { errorMessage } from '../lib/utils';
+import { cn, errorMessage } from '../lib/utils';
+import { ConfirmDialog } from './ConfirmDialog';
 import { Button } from './ui/button';
 import { Field, Input } from './ui/input';
 import { SettingNote, SettingRow } from './ui/settings';
@@ -319,15 +320,6 @@ export function QRCode({ rows, size }: { rows: string[]; size: number }) {
 function PairedPhones() {
   const t = useT();
   const lan = useLAN();
-  const queryClient = useQueryClient();
-  const revoke = useMutation({
-    mutationFn: (phone: T.LANPhone) => api.removeLANPhone(phone.id),
-    onSuccess: (_, phone) => {
-      toast(t('defaults.phone.unpairedToast', { name: phone.name }));
-      void queryClient.invalidateQueries({ queryKey: ['lan'] });
-    },
-    onError: (err) => toast.error(errorMessage(err)),
-  });
   const phones = lan.data?.phones ?? [];
   return (
     <SettingRow label={t('defaults.phone.pairedLabel')} description={t('defaults.phone.pairedDescription')}>
@@ -336,23 +328,151 @@ function PairedPhones() {
       ) : (
         <ul className="grid gap-2" data-phones>
           {phones.map((p) => (
-            <li key={p.id} className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5">
-              <Smartphone className="size-4 shrink-0 text-subtle" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13px] font-medium text-primary">{p.name}</p>
-                <p className="truncate text-[11px] text-subtle">
-                  {t('defaults.phone.pairedOn', { date: formatDate(new Date(p.paired)) })}
-                  {p.lastSeen && ` · ${t('defaults.phone.lastSeen', { when: formatDateTime(new Date(p.lastSeen)) })}`}
-                  {p.lastAddr && ` · ${t('defaults.phone.fromAddr', { addr: p.lastAddr })}`}
-                </p>
-              </div>
-              <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate(p)}>
-                {t('defaults.phone.unpair')}
-              </Button>
-            </li>
+            <PhoneRow key={p.id} phone={p} />
           ))}
         </ul>
       )}
     </SettingRow>
+  );
+}
+
+// The scopes a phone's row toggles directly; merge has a switch of its own,
+// turned on only after a confirmation.
+const plainScopes = ['read', 'chat', 'answer'] as const;
+const scopeLabels: Record<(typeof plainScopes)[number], MessageKey> = {
+  read: 'defaults.phone.scope.read',
+  chat: 'defaults.phone.scope.chat',
+  answer: 'defaults.phone.scope.answer',
+};
+
+function PhoneRow({ phone: p }: { phone: T.LANPhone }) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [confirmMerge, setConfirmMerge] = useState(false);
+  const [showAudit, setShowAudit] = useState(false);
+  const revoke = useMutation({
+    mutationFn: () => api.removeLANPhone(p.id),
+    onSuccess: () => {
+      toast(t('defaults.phone.unpairedToast', { name: p.name }));
+      void queryClient.invalidateQueries({ queryKey: ['lan'] });
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  const scopes = useMutation({
+    mutationFn: (next: string[]) => api.updateLANPhone(p.id, next),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['lan'] }),
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+  // A daemon from before scopes sends none.
+  const current = p.scopes ?? [];
+  const has = (scope: string) => current.includes(scope);
+  const toggle = (scope: string, on: boolean) => scopes.mutateAsync(on ? [...current, scope] : current.filter((s) => s !== scope));
+  return (
+    <li className="grid gap-3 rounded-xl border border-line px-3 py-2.5" data-phone={p.id}>
+      <div className="flex items-center gap-3">
+        <Smartphone className="size-4 shrink-0 text-subtle" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium text-primary">{p.name}</p>
+          <p className="truncate text-[11px] text-subtle">
+            {t('defaults.phone.pairedOn', { date: formatDate(new Date(p.paired)) })}
+            {p.lastSeen && ` · ${t('defaults.phone.lastSeen', { when: formatDateTime(new Date(p.lastSeen)) })}`}
+            {p.lastAddr && ` · ${t('defaults.phone.fromAddr', { addr: p.lastAddr })}`}
+          </p>
+        </div>
+        <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate()}>
+          {t('defaults.phone.unpair')}
+        </Button>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5 pl-7" data-phone-scopes>
+        <span className="mr-1 text-[11px] text-subtle">{t('defaults.phone.mayLabel')}</span>
+        {plainScopes.map((scope) => (
+          <button
+            key={scope}
+            type="button"
+            aria-pressed={has(scope)}
+            data-scope={scope}
+            disabled={scopes.isPending}
+            onClick={() => void toggle(scope, !has(scope))}
+            className={cn(
+              'rounded-full border px-2.5 py-0.5 text-[11px] transition-colors disabled:opacity-60',
+              has(scope) ? 'border-brand-400/50 bg-brand-500/15 text-primary' : 'border-line text-subtle line-through decoration-faint hover:text-secondary',
+            )}
+          >
+            {t(scopeLabels[scope])}
+          </button>
+        ))}
+      </div>
+      <div className="flex min-w-0 items-start gap-3 pl-7">
+        <div className="min-w-0 flex-1">
+          <p className="text-[12px] text-primary">{t('defaults.phone.mergeLabel')}</p>
+          <p className="text-[11px] leading-relaxed text-subtle">{t('defaults.phone.mergeDescription')}</p>
+        </div>
+        <Switch
+          data-phone-merge
+          aria-label={t('defaults.phone.mergeLabel')}
+          disabled={scopes.isPending}
+          checked={has('merge')}
+          onCheckedChange={(on) => (on ? setConfirmMerge(true) : void toggle('merge', false))}
+        />
+      </div>
+      <div className="pl-7">
+        <button type="button" data-phone-audit-toggle className="text-[11px] text-secondary underline-offset-2 hover:underline" onClick={() => setShowAudit((v) => !v)}>
+          {showAudit ? t('defaults.phone.hideAudit') : t('defaults.phone.showAudit')}
+        </button>
+        {showAudit && <PhoneAudit phone={p} />}
+      </div>
+      <ConfirmDialog
+        open={confirmMerge}
+        onOpenChange={setConfirmMerge}
+        title={t('defaults.phone.mergeConfirmTitle', { name: p.name })}
+        description={t('defaults.phone.mergeConfirmDescription')}
+        confirmLabel={t('defaults.phone.mergeConfirm')}
+        destructive
+        onConfirm={() => toggle('merge', true)}
+      />
+    </li>
+  );
+}
+
+// PhoneAudit is every write a phone made or tried, newest first: what the
+// daemon keeps in phone_audit, which nothing edits or deletes.
+function PhoneAudit({ phone }: { phone: T.LANPhone }) {
+  const t = useT();
+  const audit = useInfiniteQuery({
+    queryKey: ['lan', 'audit', phone.id],
+    queryFn: ({ pageParam }) => api.lanPhoneAudit(phone.id, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (last) => (last.more ? last.entries[last.entries.length - 1]?.id : undefined),
+  });
+  const entries = audit.data?.pages.flatMap((page) => page.entries) ?? [];
+  if (audit.isPending) return <SettingNote className="pt-2">{t('common.loading')}</SettingNote>;
+  if (audit.error) return <SettingNote tone="error" className="pt-2">{errorMessage(audit.error)}</SettingNote>;
+  if (entries.length === 0) return <SettingNote className="pt-2">{t('defaults.phone.auditEmpty')}</SettingNote>;
+  return (
+    <div className="grid gap-1 pt-2" data-phone-audit>
+      <ul className="grid max-h-64 gap-0.5 overflow-y-auto rounded-lg border border-line bg-surface-faint p-1.5">
+        {entries.map((e) => (
+          <li key={e.id} className="flex min-w-0 items-baseline gap-2 px-1 py-0.5 text-[11px]" data-audit-result={e.result}>
+            <span className={cn('w-14 shrink-0 font-medium', { ok: 'text-emerald-300', refused: 'text-rose-300', failed: 'text-amber-300' }[e.result] ?? 'text-subtle')}>
+              {e.result === 'ok' ? t('defaults.phone.auditOk') : e.result === 'refused' ? t('defaults.phone.auditRefused') : t('defaults.phone.auditFailed')}
+            </span>
+            <span className="min-w-0 flex-1 truncate font-mono text-secondary" title={e.route}>
+              {e.route}
+            </span>
+            <span className="shrink-0 text-faint">{e.scope || t('defaults.phone.auditNever')}</span>
+            <span className="shrink-0 text-faint" title={e.addr}>
+              {formatDateTime(new Date(e.at))}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {audit.hasNextPage && (
+        <div>
+          <Button size="sm" variant="ghost" disabled={audit.isFetchingNextPage} onClick={() => void audit.fetchNextPage()}>
+            {t('defaults.phone.auditMore')}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

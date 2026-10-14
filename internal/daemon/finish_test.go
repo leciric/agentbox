@@ -12,36 +12,10 @@ import (
 
 	"agentbox/internal/agent"
 	"agentbox/internal/api"
+	"agentbox/internal/chat"
 	"agentbox/internal/credentials"
 	"agentbox/internal/state"
 )
-
-// finishedTask is the line between "the agent is genuinely done" and "the
-// turn just ended", which happens for other reasons too.
-func TestFinishedTask(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name   string
-		result api.ChatTurnResult
-		want   bool
-	}{
-		{"a normal end", api.ChatTurnResult{State: "completed", StopReason: "end_turn"}, true},
-		{"no stop reason at all", api.ChatTurnResult{State: "completed", StopReason: ""}, true},
-		{"cancelled", api.ChatTurnResult{State: "cancelled", StopReason: "cancelled"}, false},
-		{"failed", api.ChatTurnResult{State: "failed"}, false},
-		{"cut short by the model's output limit", api.ChatTurnResult{State: "completed", StopReason: "max_tokens"}, false},
-		{"cut short by the turn's request limit", api.ChatTurnResult{State: "completed", StopReason: "max_turn_requests"}, false},
-		{"a refusal", api.ChatTurnResult{State: "completed", StopReason: "refusal"}, false},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			if got := finishedTask(c.result); got != c.want {
-				t.Errorf("finishedTask(%+v) = %v, want %v", c.result, got, c.want)
-			}
-		})
-	}
-}
 
 // leadReadyToChat gives a project a lead whose adapter is a stub that exits at
 // once: enough to tell "AgentBox tried to start a turn" (the state moves off
@@ -159,7 +133,7 @@ func TestFinishNoticeCarriesTheAgentsSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 
 	notice := noticeTo(t, d, lead)
 	t.Logf("the lead was told:\n\n%s\n", notice)
@@ -195,7 +169,7 @@ func TestFinishNoticeCutsAnEnormousSummary(t *testing.T) {
 	report := longReport()
 	saidLast(t, d, a, report)
 
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 
 	notice := noticeTo(t, d, lead)
 	t.Logf("the agent wrote %d characters; the lead was told %d:\n\n%s\n", len(report), len(notice), notice)
@@ -228,7 +202,7 @@ func TestFinishNoticeWithoutASummary(t *testing.T) {
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
 	saidLast(t, d, a, "") // it stopped after a tool call
 
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 
 	notice := noticeTo(t, d, lead)
 	t.Logf("the lead was told:\n\n%s\n", notice)
@@ -267,7 +241,7 @@ func TestAgentFinishingWakesTheLeadRegardlessOfAutonomy(t *testing.T) {
 		t.Fatalf("the lead's chat is already %q before anything happened", state)
 	}
 	d.srv.leadAsked(a) // the work was the lead's to hear about (D87)
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 
 	waitFor(t, "the lead to react", func() bool {
 		return d.srv.chat.State(lead.Ref()) != "" && d.srv.chat.State(lead.Ref()) != api.ChatOff
@@ -296,9 +270,10 @@ func TestAgentFinishingWakesTheLeadRegardlessOfAutonomy(t *testing.T) {
 	}
 }
 
-// A turn that ends any other way — cancelled, failed, or cut short by a limit
-// — is the agent stopping to breathe, not finishing: it must not wake the
-// lead, or the lead would be triggered on every ordinary pause.
+// A turn cancelled from the agent's chat, waiting out a usage limit, cut
+// short by AgentBox stopping or followed by another turn is not the agent
+// finishing, nor stopping on its own: it must not wake the lead, or the lead
+// would be triggered on every ordinary pause.
 func TestAgentPausingDoesNotWakeTheLead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -310,12 +285,13 @@ func TestAgentPausingDoesNotWakeTheLead(t *testing.T) {
 	lead := leadReadyToChat(t, d, "hello-stack")
 	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
 
-	for _, result := range []api.ChatTurnResult{
-		{State: "cancelled", StopReason: "cancelled"},
-		{State: "failed"},
-		{State: "completed", StopReason: "max_turn_requests"},
+	for _, end := range []chat.TurnEnd{
+		{ChatTurnResult: api.ChatTurnResult{State: "cancelled", StopReason: "cancelled"}},
+		{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Limited: true},
+		{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Shutdown: true},
+		{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}, Continues: true},
 	} {
-		d.srv.agentFinished(a, result)
+		d.srv.agentFinished(a, end)
 	}
 	// Give a wrongly-woken lead time to show itself before concluding it didn't.
 	time.Sleep(200 * time.Millisecond)
@@ -352,8 +328,8 @@ func TestFinishesWhileTheLeadIsBusyBecomeOneTurn(t *testing.T) {
 	// second finish arrives in.
 	d.srv.leadAsked(a1)
 	d.srv.leadAsked(a2)
-	d.srv.agentFinished(a1, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
-	d.srv.agentFinished(a2, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a1, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
+	d.srv.agentFinished(a2, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 
 	waitFor(t, "both notices to settle", func() bool {
 		th, err := d.srv.chat.Thread(lead)
@@ -406,7 +382,7 @@ func TestAgentFinishingWithNoticesOffRecordsWithoutATurn(t *testing.T) {
 		"string. Nothing changed server side, and two snapshot tests needed rewriting."
 	saidLast(t, d, a, summary)
 
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 
 	// The notice is still there, with the summary in it: the history shows what
 	// happened, and the lead reads it the next time the user writes.
@@ -550,7 +526,7 @@ func TestAFinishTheLeadDidNotAskForDoesNotWakeIt(t *testing.T) {
 		return n
 	}
 
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 	time.Sleep(200 * time.Millisecond)
 	if n := turns(); n != 0 {
 		t.Fatalf("a finish the lead didn't ask for started %d turn(s)", n)
@@ -559,16 +535,19 @@ func TestAFinishTheLeadDidNotAskForDoesNotWakeIt(t *testing.T) {
 		t.Errorf("the finish wasn't recorded for the lead: %q", notice)
 	}
 
-	// The lead asks, through its own socket; that finish wakes it.
+	// The lead asks, through its own socket; that finish wakes it. The
+	// agent's tool can't start here, and the failed turn that leaves is
+	// beside the point.
+	d.srv.stallTell = func(context.Context, string, string) {}
 	leadClient := api.NewClient(d.srv.leadSocketPath("hello-stack"))
 	if _, err := leadClient.TellAgent(ctx, "agent-01", "Add a test for the second page."); err != nil {
 		t.Fatal(err)
 	}
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 	waitFor(t, "the lead to react to the work it asked for", func() bool { return turns() == 1 })
 
 	// And one request is answered by one finish: the next is the agent's own.
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 	time.Sleep(200 * time.Millisecond)
 	if n := turns(); n != 1 {
 		t.Errorf("%d turns after a second finish nobody asked for, want still 1", n)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -350,4 +351,64 @@ func framedPolicy(csp string) string {
 		kept = append(kept, "sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals")
 	}
 	return strings.Join(kept, "; ")
+}
+
+// publishRender is POST .../chat/publish: a block a chat rendered, published
+// on Hatch through the project's connector. The call is left in the chat as
+// a publish_page line (chat.Manager.Record), which is how the project's
+// pages find it: the chat shows it as it shows one its AI tool made.
+func (s *Server) publishRender(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		var req api.PublishRenderRequest
+		if err := readJSON(r, &req); err != nil {
+			return err
+		}
+		req.Title = strings.TrimSpace(req.Title)
+		if req.Title == "" || strings.TrimSpace(req.HTML) == "" {
+			return errors.New("a page needs a title and its HTML")
+		}
+		if len(req.Title) > 200 {
+			req.Title = req.Title[:200]
+		}
+		ctx := r.Context()
+		c, ok, err := s.hatchConnector(ctx, a.Project)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return fmt.Errorf("%s has no Hatch connector signed in: %w", a.Project, state.ErrNotFound)
+		}
+		callCtx, cancel := context.WithTimeout(ctx, hatchTimeout)
+		defer cancel()
+		res, err := s.connectors.CallTool(callCtx, c, "", hatch.Publish, map[string]string{"title": req.Title, "html": req.HTML})
+		if err != nil {
+			return err
+		}
+		text := strings.TrimSpace(res.Text())
+		if res.IsError {
+			return errors.New(text)
+		}
+		tool := api.ChatTool{
+			CallID: "agentbox-publish-" + strconv.FormatInt(time.Now().UnixNano(), 36),
+			Name:   hatch.Publish, Title: hatch.Publish, Kind: "other", Status: "completed",
+			Output: text, Page: &api.ChatPage{Title: req.Title},
+		}
+		item, err := s.chat.Record(a, tool)
+		if err != nil {
+			return err
+		}
+		out := api.PublishRenderResult{Item: item}
+		host := hatch.Host
+		if u, err := url.Parse(c.URL); err == nil {
+			host = u.Hostname()
+		}
+		if found := hatch.Collect([]hatch.Call{{Agent: a.Ref(), Item: item.ID, At: item.CreatedAt, Tool: tool}}, host, time.Now()); len(found) == 1 {
+			out.URL = found[0].URL
+		}
+		return writeJSON(w, http.StatusOK, out)
+	}
 }

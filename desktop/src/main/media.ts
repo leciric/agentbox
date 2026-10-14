@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import { protocol } from 'electron';
 import { requestOptions } from './connection';
 import { thumbScheme } from './pagethumbs';
+import { renderResponse } from './renders';
 
 export const mediaScheme = 'agentbox-media';
 
@@ -44,6 +45,8 @@ export function handleMedia(): void {
   protocol.handle(mediaScheme, (request) => {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, 'Access-Control-Allow-Methods': 'GET' } });
     const url = new URL(request.url);
+    // A page a chat rendered (main/renders.ts), which is the app's own, not the daemon's.
+    if (url.host === 'render') return renderResponse(url.pathname.replace(/^\//, ''));
     let path: string;
     if (url.host === 'api') {
       // A picture sent in a chat or in a pull request, or a Hatch page, and nothing else of the daemon's API.

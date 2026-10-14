@@ -1,13 +1,30 @@
 // The composer's "@" popup: what it inserts, and what it matches against.
-// Every row is this shape, whatever it's built from — files today, agents
-// later — so the popup itself never needs to know the difference.
+// Every row is this shape, whatever it's built from — files and projects
+// today — so the popup itself never needs to know the difference.
 export interface MentionItem {
   label: string; // shown in the popup
   insert: string; // what goes after "@" in the message
-  kind: 'file';
+  kind: 'file' | 'project';
 }
 
 export const mentionLimit = 8;
+export const projectMentionLimit = 3;
+
+// matchProjects lists the projects whose name or display name contains the
+// mention query, case-insensitively, name matches that start earlier first.
+// Picking one inserts the project's name (its slug): the daemon swaps it for
+// the name and repository path when the message is sent.
+export function matchProjects(projects: { name: string; displayName: string }[], query: string, limit = projectMentionLimit): MentionItem[] {
+  const q = query.trim().toLowerCase();
+  const scored: { item: MentionItem; index: number }[] = [];
+  for (const p of projects) {
+    const index = Math.min(...[p.name, p.displayName].map((n) => n.toLowerCase().indexOf(q)).filter((i) => i >= 0), Infinity);
+    if (index === Infinity) continue;
+    scored.push({ item: { label: p.displayName && p.displayName !== p.name ? `${p.displayName} (${p.name})` : p.name, insert: p.name, kind: 'project' }, index });
+  }
+  scored.sort((a, b) => a.index - b.index);
+  return scored.slice(0, limit).map(({ item }) => item);
+}
 
 // mentionAt finds the @mention that ends at the cursor, so typing "@" opens
 // the popup anywhere in the message, not only at its start. It only triggers

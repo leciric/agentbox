@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-// Command is the OpenCode command line, as it is found on the host's PATH.
+// Command is the OpenCode command line's name, on PATH and in the release.
 const Command = "opencode"
 
 // modelsTimeout bounds the call. `opencode models` starts OpenCode's own
@@ -30,17 +30,12 @@ const Command = "opencode"
 const modelsTimeout = 45 * time.Second
 
 // Models lists the "provider/model" ids OpenCode says the stored login can
-// run, using dataHome as its XDG data directory. An OpenCode that isn't
-// installed on this machine is an ordinary error: there is then no list, which
-// is the same position as an installation that has never logged in.
-func Models(ctx context.Context, dataHome string) ([]string, error) {
-	path, err := exec.LookPath(Command)
-	if err != nil {
-		return nil, fmt.Errorf("opencode isn't installed on this machine: %w", err)
-	}
+// run, running command (Installer.Ensure's) with dataHome as its XDG data
+// directory.
+func Models(ctx context.Context, command, dataHome string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, modelsTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "models")
+	cmd := exec.CommandContext(ctx, command, "models")
 	// A fresh environment but for what a command needs to run at all: HOME
 	// stays the user's (OpenCode writes caches there), while XDG_DATA_HOME is
 	// AgentBox's, which is where its auth.json is.

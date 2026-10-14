@@ -135,6 +135,10 @@ export const api = {
   updateLAN: (req: T.UpdateLANRequest) => call<T.LANStatus>('PATCH', '/v1/lan', req),
   pairLAN: () => call<T.LANPairing>('POST', '/v1/lan/pairings'),
   removeLANPhone: (id: string) => call<void>('DELETE', `/v1/lan/phones/${encodeURIComponent(id)}`),
+  updateLANPhone: (id: string, scopes: string[]) =>
+    call<T.LANPhone>('PATCH', `/v1/lan/phones/${encodeURIComponent(id)}`, { scopes } satisfies T.UpdateLANPhoneRequest),
+  lanPhoneAudit: (id: string, before = 0) =>
+    call<T.LANAudit>('GET', `/v1/lan/phones/${encodeURIComponent(id)}/audit${before > 0 ? `?before=${before}` : ''}`),
   update: () => call<T.UpdateStatus>('GET', '/v1/update'),
   latestRelease: () => call<T.UpdateRelease>('GET', '/v1/update/release'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
@@ -314,6 +318,9 @@ export const api = {
   pages: (name: string) => call<T.Artifacts>('GET', `${project(name)}/artifacts`),
   pagePreview: (name: string, id: string) => call<T.ArtifactPreview>('GET', `${project(name)}/artifacts/${encodeURIComponent(id)}`),
   pageUrl: (name: string, id: string) => window.agentbox.chatImageUrl(pagePath(name, id)),
+  // publishRender publishes a block a chat rendered on Hatch, as a page; the
+  // chat gets the publish_page line, which makes it one of the project's pages.
+  publishRender: (ref: string, req: T.PublishRenderRequest) => call<T.PublishRenderResult>('POST', `${chatBase(ref)}/publish`, req),
   pageThumb: (name: string, id: string, key: string): Promise<string | null> =>
     window.agentbox.pageThumb(pagePath(name, id), key),
 
@@ -344,8 +351,10 @@ export const api = {
   projectLabels: (project: string) => call<T.ProjectLabels>('GET', `/v1/projects/${encodeURIComponent(project)}/labels`),
   editPullRequestLabels: (project: string, number: number, edit: T.EditLabelsRequest) =>
     call<T.Label[]>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/labels`, edit satisfies T.EditLabelsRequest),
-  mergePullRequest: (project: string, number: number, method: string) =>
-    call<T.PullRequest>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge`, { method } satisfies T.MergePullRequestRequest),
+  // confirmed is the phone saying the user confirmed the merge there, which
+  // the daemon asks of a phone (internal/daemon/lan.go).
+  mergePullRequest: (project: string, number: number, method: string, confirmed?: boolean) =>
+    call<T.PullRequest>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge`, { method, confirmed } satisfies T.MergePullRequestRequest),
   pullRequestDetail: (project: string, number: number) => call<T.PullRequestDetail>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}`),
   pullRequestFiles: (project: string, number: number) => call<T.PullRequestFiles>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/files`),
   pullFileDiff: (project: string, number: number, path: string) =>
@@ -476,7 +485,7 @@ export const api = {
   renameClaudeAccount: (account: string, name: string) =>
     call<T.RenamedClaudeAccount>('POST', `/v1/auth/claude/${encodeURIComponent(account)}/rename`, { name } satisfies T.RenameClaudeAccountRequest),
   setup: () => call<T.SetupStatus>('GET', '/v1/setup'),
-  image: () => call<{ ready: boolean; snapshot: string }>('GET', '/v1/image'),
+  image: () => call<T.ImageStatus>('GET', '/v1/image'),
   buildImage: (req: T.BuildImageRequest = {}) => call<T.Job>('POST', '/v1/image/build', req),
 
   jobs: () => call<T.Job[]>('GET', '/v1/jobs'),

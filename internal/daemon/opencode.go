@@ -23,8 +23,9 @@ const openCodeModelsEvery = time.Hour
 // a project's lead needs it, since the lead chooses a model as it creates the
 // agent that would otherwise have produced the list.
 //
-// Nothing here fails a request: an OpenCode that isn't on this machine's PATH,
-// or a call that times out, leaves the menu as it was, and the app and the
+// The OpenCode it asks is AgentBox's own, downloaded the first time
+// (opencode.Installer): the machine the daemon runs on has none. Nothing here
+// fails a request: a download or a call that fails or times out leaves the menu as it was, and the app and the
 // lead go on saying they have no list yet.
 func (s *Server) refreshOpenCodeModels() {
 	s.mu.Lock()
@@ -35,14 +36,20 @@ func (s *Server) refreshOpenCodeModels() {
 	s.openCodeModels.running, s.openCodeModels.last = true, time.Now()
 	s.mu.Unlock()
 
-	dataHome := s.manager(nil).Creds.OpenCodeDataHome()
+	m := s.manager(nil)
+	dataHome, tools := m.Creds.OpenCodeDataHome(), m.Paths.Tools()
 	go func() {
 		defer func() {
 			s.mu.Lock()
 			s.openCodeModels.running = false
 			s.mu.Unlock()
 		}()
-		ids, err := opencode.Models(context.Background(), dataHome)
+		command, err := opencode.Installer{Dir: tools}.Ensure(context.Background(), func(string) {})
+		if err != nil {
+			s.logf("asking OpenCode which models it can run: %v", err)
+			return
+		}
+		ids, err := opencode.Models(context.Background(), command, dataHome)
 		if err != nil {
 			s.logf("asking OpenCode which models it can run: %v", err)
 			return

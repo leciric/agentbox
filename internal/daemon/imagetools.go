@@ -32,6 +32,9 @@ type imageWork struct {
 	phase imagePhase
 	job   string
 	err   error
+	// build is the image-build job started last (imagebuild.go), which the
+	// top bar follows: the daemon's own updates leave it alone.
+	build string
 }
 
 type imagePhase int
@@ -120,7 +123,7 @@ func (s *Server) startToolsUpdate(plan image.Plan) {
 		s.mu.Unlock()
 		return
 	}
-	s.image = imageWork{busy: true, phase: imageUpdatingTools}
+	s.image = imageWork{busy: true, phase: imageUpdatingTools, build: s.image.build}
 	s.mu.Unlock()
 
 	j, err := s.jobs.start("image-tools", image.SnapshotRef(), func(ctx context.Context, log io.Writer) (any, error) {
@@ -133,21 +136,21 @@ func (s *Server) startToolsUpdate(plan image.Plan) {
 		}
 		switch {
 		case err == nil:
-			s.setImagePhase(func(w *imageWork) { *w = imageWork{} })
+			s.setImagePhase(func(w *imageWork) { *w = imageWork{build: w.build} })
 			return map[string]string{"snapshot": image.SnapshotRef(), "toolsVersion": plan.ToolsVersion}, nil
 		case ctx.Err() != nil:
 			// Cancelled, from Setup or because the daemon is stopping: not
 			// again until the next start, or a cancel would only restart it.
-			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateCancelled} })
+			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateCancelled, build: w.build} })
 		default:
 			s.logf("job image-tools failed: %v", err)
 			_, _ = fmt.Fprintf(log, "==> %v\n==> Agents keep using the current image. Rebuild it from Setup to get the new tools\n", err)
-			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateFailed, err: err} })
+			s.setImagePhase(func(w *imageWork) { *w = imageWork{phase: imageUpdateFailed, err: err, build: w.build} })
 		}
 		return nil, err
 	})
 	if err != nil {
-		s.setImagePhase(func(w *imageWork) { *w = imageWork{} })
+		s.setImagePhase(func(w *imageWork) { *w = imageWork{build: w.build} })
 		s.logf("image-tools: %v", err)
 		return
 	}
@@ -161,18 +164,35 @@ func (s *Server) startToolsUpdate(plan image.Plan) {
 // baseImageCheck is Setup's check of the base image.
 func (s *Server) baseImageCheck(plan image.Plan, installed image.Installed, wanted image.Components) api.SetupCheck {
 	base := api.SetupCheck{ID: "image", Title: "Base image", Required: true, Status: api.SetupMissing, Fix: "agentbox image build"}
+	// A build you started holds nothing up: Setup carries on, and what needs
+	// the image waits for it (imagebuild.go).
+	if j := s.runningImageBuild(); j != nil {
+		base.Job = j.snapshot().ID
+		if plan.Action == image.NeedsBuild {
+			base.Status = api.SetupBuilding
+			base.Detail = "building in the background: carry on with Setup. Agents you create wait for it and start by themselves"
+		} else {
+			base.Status = api.SetupUpdating
+			base.Detail = "rebuilding in the background: agents keep using the current image until the new one is ready"
+		}
+		return base
+	}
+	failed := ""
+	if j := s.lastImageBuild(); j != nil && j.snapshot().Status == api.JobFailed {
+		failed = "the last build failed (" + buildError(j.snapshot()) + "): "
+	}
 	switch plan.Action {
 	case image.NeedsBuild:
-		base.Detail = "not built yet"
+		base.Detail = failed + "not built yet"
 	case image.NeedsRebuild:
 		base.Status = api.SetupOutdated
 		if installed.Version != image.Version {
-			base.Detail = fmt.Sprintf("built by an older AgentBox (version %s, now %s): rebuild it for the latest agent tools", cmpOr(installed.Version, "unknown"), image.Version)
+			base.Detail = failed + fmt.Sprintf("built by an older AgentBox (version %s, now %s): rebuild it for the latest agent tools", cmpOr(installed.Version, "unknown"), image.Version)
 		} else {
 			// A component turned on since the build asks for a rebuild the same
 			// way a version bump does: it is in the settings but not in the
 			// image, and only a build puts it there.
-			base.Detail = fmt.Sprintf("built with %s, and you now want %s: rebuild it", installed.Components.Summary(), wanted.Summary())
+			base.Detail = failed + fmt.Sprintf("built with %s, and you now want %s: rebuild it", installed.Components.Summary(), wanted.Summary())
 		}
 	case image.NeedsTools:
 		s.startToolsUpdate(plan)

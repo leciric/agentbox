@@ -245,7 +245,8 @@ func newAuthOpenCodeCmd(a *app) *cobra.Command {
 		Short: "Log agents in to OpenCode",
 		Long: `Runs 'opencode auth login' against AgentBox's own OpenCode data directory, so
 the login is separate from your host's ~/.local/share/opencode. New agents get a
-copy of its auth.json.
+copy of its auth.json. The OpenCode it runs is AgentBox's own, the version agents
+run, downloaded the first time.
 
 OpenCode's models belong to the providers you log in to: the one you add here is
 what an OpenCode agent can run, and AgentBox asks OpenCode itself for the list.`,
@@ -262,13 +263,18 @@ what an OpenCode agent can run, and AgentBox asks OpenCode itself for the list.`
 			if err := os.MkdirAll(creds.OpenCodeHome(), 0o700); err != nil {
 				return err
 			}
-			login := exec.CommandContext(cmd.Context(), opencode.Command, args...)
+			// The machine this runs on is the VM, which has no OpenCode of
+			// its own: AgentBox fetches the version agents run, once.
+			command, err := opencode.Installer{Dir: a.paths.Tools()}.Ensure(cmd.Context(), func(s string) {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), s)
+			})
+			if err != nil {
+				return fmt.Errorf("logging agents in to OpenCode needs the OpenCode CLI: %w", err)
+			}
+			login := exec.CommandContext(cmd.Context(), command, args...)
 			login.Env = append(os.Environ(), "XDG_DATA_HOME="+creds.OpenCodeDataHome())
 			login.Stdin, login.Stdout, login.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
 			if err := login.Run(); err != nil {
-				if errors.Is(err, exec.ErrNotFound) {
-					return errors.New("logging agents in to OpenCode needs the OpenCode CLI on this machine, and it isn't installed: install it (npm install -g opencode-ai, or see https://opencode.ai), then run agentbox auth opencode again")
-				}
 				return fmt.Errorf("opencode %s: %w", strings.Join(args, " "), err)
 			}
 			if !creds.HasOpenCodeLogin() {

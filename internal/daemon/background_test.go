@@ -157,7 +157,7 @@ func TestAnAgentWaitingOnBackgroundWorkIsNotReportedFinished(t *testing.T) {
 	saidLast(t, d, a, "CI is running; I'll report when it finishes.")
 
 	d.srv.leadAsked(a)
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn", Background: []string{"Watch CI run 42"}})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn", Background: []string{"Watch CI run 42"}}})
 	notice := noticeTo(t, d, lead)
 	if !strings.Contains(notice, "isn't finished") || !strings.Contains(notice, "Watch CI run 42") {
 		t.Errorf("the lead was told %q", notice)
@@ -170,7 +170,7 @@ func TestAnAgentWaitingOnBackgroundWorkIsNotReportedFinished(t *testing.T) {
 	}
 	// A monitor wakes the session at every line; each of those turns ends
 	// waiting too, and the lead isn't told again.
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn", Background: []string{"Watch CI run 42"}})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn", Background: []string{"Watch CI run 42"}}})
 	if th, _ := d.srv.chat.Thread(lead); countNotices(th) != 1 {
 		t.Errorf("the lead was told %d times that the agent waits", countNotices(th))
 	}
@@ -183,7 +183,7 @@ func TestAnAgentWaitingOnBackgroundWorkIsNotReportedFinished(t *testing.T) {
 
 	// The command ends, the session wakes, and its turn ends clean.
 	saidLast(t, d, a, "CI passed: all 14 jobs green.")
-	d.srv.agentFinished(a, api.ChatTurnResult{State: "completed", StopReason: "end_turn"})
+	d.srv.agentFinished(a, chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "completed", StopReason: "end_turn"}})
 	waitFor(t, "the lead to react to the finish", func() bool {
 		state := d.srv.chat.State(lead.Ref())
 		return state != "" && state != api.ChatOff && state != api.ChatReady

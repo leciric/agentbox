@@ -192,6 +192,8 @@ export interface Agent {
   chat?: string;
   stalledSince?: string;
   background?: string[];
+  outcome?: string;
+  outcomeNote?: string;
   state: string;
   memory?: MemoryHold;
   ip: string;
@@ -896,6 +898,16 @@ export interface BuildImageRequest {
   local?: boolean;
 }
 
+export interface ImageStatus {
+  ready: boolean;
+  snapshot: string;
+  build: string;
+  job?: string;
+  step?: string;
+  error?: string;
+  waiting: number;
+}
+
 export interface ClaudeTokenRequest {
   token: string;
   account?: string;
@@ -1307,6 +1319,7 @@ export interface ProjectPullRequests {
 
 export interface MergePullRequestRequest {
   method: string;
+  confirmed?: boolean;
 }
 
 export interface PullRequestDetail {
@@ -1393,6 +1406,8 @@ export interface FleetAgent {
   chat?: string;
   stalledSince?: string;
   background?: string[];
+  outcome?: string;
+  outcomeNote?: string;
   state: string;
   memory?: MemoryHold;
   ip: string;
@@ -1497,6 +1512,7 @@ export interface AgentEvent {
   cut?: boolean;
   changes?: AgentChanges;
   pr?: PullRequest;
+  outcome?: string;
   question?: string;
   at: string;
 }
@@ -1620,6 +1636,7 @@ export interface LANPhone {
   paired: string;
   lastSeen?: string;
   lastAddr?: string;
+  scopes: string[];
 }
 
 export interface UpdateLANRequest {
@@ -1650,6 +1667,25 @@ export interface LANPairRequest {
 
 export interface LANSession {
   phone: LANPhone;
+}
+
+export interface UpdateLANPhoneRequest {
+  scopes: string[];
+}
+
+export interface LANAuditEntry {
+  id: number;
+  scope?: string;
+  route: string;
+  status: number;
+  result: string;
+  addr: string;
+  at: string;
+}
+
+export interface LANAudit {
+  entries: LANAuditEntry[];
+  more?: boolean;
 }
 
 export interface ChatThread {
@@ -2389,6 +2425,16 @@ export interface ArtifactPreview {
   error?: string;
 }
 
+export interface PublishRenderRequest {
+  title: string;
+  html: string;
+}
+
+export interface PublishRenderResult {
+  item: ChatItem;
+  url: string;
+}
+
 export const JobRunning = "running";
 export const JobSucceeded = "succeeded";
 export const JobFailed = "failed";
@@ -2418,6 +2464,10 @@ export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";
 export const SetupOptional = "optional";
 export const SetupUpdating = "updating";
+export const SetupBuilding = "building";
+export const ImageBuildIdle = "idle";
+export const ImageBuilding = "building";
+export const ImageBuildFailed = "failed";
 export const InAgentSocket = "/run/agentbox.sock";
 export const ErrorFolderNotEmpty = "folder-not-empty";
 export const DefaultLanguage = "en-US";

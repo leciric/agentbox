@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { avatarMood, awaiting, chatLabel, isAsking, memoryHold, projectTone, rank, settled, summarizeStatus } from './agentStatus.ts';
+import { avatarMood, awaiting, chatLabel, isAsking, memoryHold, projectTone, rank, settled, statusTip, summarizeStatus } from './agentStatus.ts';
 
 const agent = (state: string, chat?: string): T.Agent => ({ state, chat }) as T.Agent;
 
@@ -161,4 +161,30 @@ test('a turn that ended on background work is Awaiting, kept out of Finished, un
   assert.ok(settled(done));
   // A stopped machine has nothing running, whatever it last said.
   assert.equal(chatLabel({ ...waiting, state: 'stopped' }).text, 'Stopped');
+});
+
+test('how its last turn left it: asking, stopped on an error, done, resuming', () => {
+  const left = (outcome: string, outcomeNote?: string, chat = 'ready') => ({ ...agent('running', chat), outcome, outcomeNote }) as T.Agent;
+  const asking = left('asking', 'Launch, change, or stop?');
+  assert.deepEqual(chatLabel(asking), { text: 'Waiting for an answer', tone: 'urgent' });
+  assert.equal(statusTip(asking), 'It ended its turn asking: Launch, change, or stop?');
+  assert.equal(avatarMood(asking), 'asking');
+  assert.equal(rank(asking), 0);
+  assert.equal(settled(asking), false);
+  const failed = left('failed', 'WebSocket closed with code 1006');
+  assert.deepEqual(chatLabel(failed), { text: 'Stopped on an error', tone: 'error' });
+  assert.equal(statusTip(failed), 'WebSocket closed with code 1006');
+  assert.equal(avatarMood(failed), 'error');
+  assert.equal(settled(failed), false);
+  // Done and idle are both finished: the rail folds them into Finished.
+  assert.deepEqual(chatLabel(left('done')), { text: 'Done', tone: 'muted' });
+  assert.equal(settled(left('done')), true);
+  assert.deepEqual(chatLabel(left('idle')), { text: 'Idle', tone: 'muted' });
+  // A turn being carried on after a restart, while its machine starts.
+  assert.deepEqual(chatLabel({ ...left('resuming'), state: 'stopped' } as T.Agent), { text: 'Resuming', tone: 'live' });
+  // A running turn is working, whatever the last one said.
+  assert.deepEqual(chatLabel(left('asking', 'Which?', 'running')), { text: 'Working', tone: 'live' });
+  assert.equal(statusTip(left('asking', 'Which?', 'running')), undefined);
+  // Background work it waits on still reads as awaiting, not as how the turn before it ended.
+  assert.equal(chatLabel({ ...left('done'), background: ['Watch CI run 42'] } as T.Agent).text, 'Awaiting');
 });

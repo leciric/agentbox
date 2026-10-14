@@ -32,10 +32,10 @@ type finishes struct {
 	list []api.ChatTurnResult
 }
 
-func (f *finishes) add(_ state.Agent, r api.ChatTurnResult) {
+func (f *finishes) add(_ state.Agent, r TurnEnd) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.list = append(f.list, r)
+	f.list = append(f.list, r.ChatTurnResult)
 }
 
 func waitFor(t *testing.T, what string, cond func() bool) {

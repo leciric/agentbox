@@ -171,6 +171,9 @@ type Server struct {
 	// archivedPRChecked is when each past agent's open pull request was last
 	// read from GitHub, by ref (archive.go).
 	archivedPRChecked map[string]time.Time
+	nudged            map[string]bool         // agents told to wait on their work inside a turn, until a turn ends otherwise, by ref (outcome.go)
+	outcomes          map[string]agentOutcome // how each agent's last turn left it, by ref (outcome.go)
+	outcomesRead      map[string]bool         // projects whose outcomes have been read from their events since the daemon started
 	// skillsMu runs one installation of skills at a time (skills.go).
 	skillsMu sync.Mutex
 	// skillsSynced, when set (tests), is told each time one has ended.
@@ -180,6 +183,7 @@ type Server struct {
 	approve      func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
 	baseSyncErrs map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
 	image        imageWork         // what the daemon is doing to the base image (imagetools.go)
+	imageWaiters int               // jobs waiting for the base image to be built (imagebuild.go)
 	remote       *remote.Connector // the connection to a hub, when this machine is an environment
 	lan          *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	// connectorsGiven is whether each connector was last given to agents,
@@ -280,6 +284,9 @@ func New(cfg Config) (*Server, error) {
 		distilling:       map[string]bool{},
 		leadWaits:        map[string]bool{},
 		toldWaiting:      map[string]bool{},
+		nudged:           map[string]bool{},
+		outcomes:         map[string]agentOutcome{},
+		outcomesRead:     map[string]bool{},
 		baseSyncErrs:     map[string]string{},
 		pulls:            newPullsCache(),
 		prWatch:          newPRWatcher(),
@@ -673,6 +680,7 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/artifacts", s.listArtifacts)
 	h("GET /v1/projects/{project}/artifacts/{id}", s.previewArtifact)
 	h("GET /v1/projects/{project}/artifacts/{id}/page", s.artifactPage)
+	h("POST /v1/projects/{project}/chat/publish", s.publishRender(s.leadFromPath))
 	h("GET /v1/projects/{project}/chat/cache", s.chatCache)
 	h("POST /v1/projects/{project}/chat/cache", s.chatCacheChoice)
 	h("POST /v1/projects/{project}/chat/permissions/{item}", s.answerChat(s.leadFromPath))
@@ -768,6 +776,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/{project}/{agent}/chat/messages", s.sendChat(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/chat/images/{image}", s.chatImage(s.agentOrArchivedFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
+	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/chat/options/{option}", s.setChatOption(s.agentFromPath))
@@ -831,6 +840,8 @@ func (s *Server) routes() http.Handler {
 	h("PATCH /v1/lan", s.updateLAN)
 	h("POST /v1/lan/pairings", s.addLANPairing)
 	h("DELETE /v1/lan/phones/{id}", s.removeLANPhone)
+	h("PATCH /v1/lan/phones/{id}", s.updateLANPhone)
+	h("GET /v1/lan/phones/{id}/audit", s.lanPhoneAudit)
 	h("PUT /v1/lan/host", s.lanHostReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)

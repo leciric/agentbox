@@ -3,6 +3,7 @@ package agent_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -153,5 +154,76 @@ func TestCopyForLeadMovesFilesBetweenMachines(t *testing.T) {
 		if _, err := m.CopyForLead(ctx, tc.src, tc.from, tc.dst, "", 0); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("CopyForLead(%s) = %v, want %q", tc.from, err, tc.want)
 		}
+	}
+}
+
+func TestCopyHostForLeadHonoursGitignoreAndTheUsersProjects(t *testing.T) {
+	ctx := context.Background()
+	m := runFixture(t)
+	dst := machine(t, "agent-02", "ab-two")
+	root := t.TempDir()
+	write := func(name, body string) {
+		t.Helper()
+		p := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("src/a.go", "package a")
+	write("src/new.go", "untracked")
+	write("src/secret.log", "ignored")
+	write(".gitignore", "*.log\n")
+	write("outside.txt", "x")
+	for _, args := range [][]string{{"init", "-q"}, {"add", "src/a.go", ".gitignore"}} {
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, "key"), []byte("k"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	roots := []string{root}
+
+	// A directory lands under its own name, without what git ignores.
+	n, err := m.CopyHostForLead(ctx, roots, filepath.Join(root, "src"), dst, "vendor", 0)
+	if err != nil || n == 0 {
+		t.Fatalf("copying src: %d bytes, %v", n, err)
+	}
+	for name, want := range map[string]bool{"vendor/src/a.go": true, "vendor/src/new.go": true, "vendor/src/secret.log": false} {
+		_, err := os.Stat(filepath.Join(dst.Worktree, name))
+		if (err == nil) != want {
+			t.Errorf("%s copied = %v, want %v", name, err == nil, want)
+		}
+	}
+	// A single file goes where asked, or the worktree's root.
+	if _, err := m.CopyHostForLead(ctx, roots, filepath.Join(root, "outside.txt"), dst, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst.Worktree, "outside.txt")); err != nil {
+		t.Error(err)
+	}
+
+	for _, tc := range []struct{ from, want string }{
+		{"src", "not an absolute path"},
+		{filepath.Join(root, "src", "secret.log"), "nothing to copy"},
+		{filepath.Join(root, "escape", "key"), "outside the user's projects"},
+		{filepath.Join(root, ".."), "outside the user's projects"},
+		{"/etc/hostname", "outside the user's projects"},
+		{filepath.Join(root, "missing"), "no such file"},
+	} {
+		if _, err := m.CopyHostForLead(ctx, roots, tc.from, dst, "", 0); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("CopyHostForLead(%s) = %v, want %q", tc.from, err, tc.want)
+		}
+	}
+	if _, err := m.CopyHostForLead(ctx, roots, filepath.Join(root, "src"), machine(t, "agent-03", "ab-paused"), "", 0); err == nil || !strings.Contains(err.Error(), "agent-03 is paused") {
+		t.Errorf("into a paused machine: %v", err)
 	}
 }
