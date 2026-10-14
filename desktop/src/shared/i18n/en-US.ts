@@ -1461,7 +1461,7 @@ export const enUS = {
   'chat.composer.startingTool': 'Starting {tool}',
   'chat.composer.drop': 'Drop images to attach them',
   'chat.composer.commands': 'Commands',
-  'chat.composer.files': 'Files',
+  'chat.composer.mentions': 'Files and projects',
   'chat.composer.attached': 'Attached images',
   'chat.composer.message': 'Message',
   'chat.composer.attachTip': 'Attach images (or paste or drop them)',

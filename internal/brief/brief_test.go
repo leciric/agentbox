@@ -655,7 +655,7 @@ func TestRenderLeadShell(t *testing.T) {
 	for _, want := range []string{
 		"**a shell on the user's machine**", "**It asks first.**",
 		"Ask before anything you can't take back",
-		"isn't somewhere to keep work.", "`run_in_agent`", "`copy_between_agents`",
+		"isn't somewhere to keep work.", "`run_in_agent`", "`copy_between_agents`", "`copy_to_agent`",
 		// Output costs tokens, and real work is still an agent's.
 		"stays in this conversation", "`| tail -n 20`", "when a job turns into a session, it is an agent's",
 	} {

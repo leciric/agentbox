@@ -1978,7 +1978,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	var res acp.PromptResponse
 	err := ad.conn.Call(context.Background(), acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: sessionID,
-		Prompt:    c.promptBlocks(dir, skillPrompt(a.AI, text, c.m.skillNames(a)), images),
+		Prompt:    c.promptBlocks(dir, skillPrompt(a.AI, projectMentionText(text, c.m.projectRoots()), c.m.skillNames(a)), images),
 	}, &res)
 	c.mu.Lock()
 	defer c.mu.Unlock()

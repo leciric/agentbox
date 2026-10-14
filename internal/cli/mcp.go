@@ -636,6 +636,32 @@ func projectTools(ctx context.Context, c *api.Client) []mcp.Tool {
 			},
 		},
 		{
+			Name: "copy_to_agent",
+			Description: "Copy a file or directory from one of the user's projects' repositories, on the host, into an agent's " +
+				"machine: all or part of another project the user @mentioned, for work that needs it. What .gitignore " +
+				"excludes stays behind. Refuses a path outside the user's projects. Up to 256 MiB; copy only the part that is needed.",
+			Schema: object([]string{"path", "agent"}, map[string]any{
+				"path":  str("the absolute path of the file or directory, inside a project's repository"),
+				"agent": str("the agent to copy to"),
+				"dest":  str("the directory to put it in, relative to that agent's worktree or absolute; its worktree's root when left out. A directory arrives under its own name"),
+			}),
+			Run: func(args json.RawMessage) (string, error) {
+				var in struct{ Path, Agent, Dest string }
+				if err := decode(args, &in); err != nil {
+					return "", err
+				}
+				res, err := c.CopyToAgent(ctx, api.LeadHostCopyRequest{Path: in.Path, To: in.Agent, Into: in.Dest})
+				if err != nil {
+					return "", err
+				}
+				dest := in.Dest
+				if dest == "" {
+					dest = "its worktree"
+				}
+				return fmt.Sprintf("Copied %s to %s, into %s (%s).", in.Path, in.Agent, dest, sizeOf(res.Bytes)), nil
+			},
+		},
+		{
 			Name: "retire_agent",
 			Description: "Free what an agent is holding once it has finished. Its work stays on its " +
 				"branch whichever way you retire it: stop shuts the machine down and it comes back in " +

@@ -361,6 +361,17 @@ func TestLeadClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "CopyToAgent", method: http.MethodPost, path: "/v1/project/copy-from-host",
+			body: `{"path":"/home/me/app/docs","to":"agent-02","into":"vendor"}`,
+			resp: `{"bytes":7}`,
+			run: func(t *testing.T, c *Client) {
+				res, err := c.CopyToAgent(context.Background(), LeadHostCopyRequest{Path: "/home/me/app/docs", To: "agent-02", Into: "vendor"})
+				if err != nil || res.Bytes != 7 {
+					t.Errorf("CopyToAgent() = %+v, %v; want Bytes 7, nil", res, err)
+				}
+			},
+		},
 	})
 }
 

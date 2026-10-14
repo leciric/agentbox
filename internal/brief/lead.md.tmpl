@@ -69,6 +69,7 @@ a copy, a small fix.
 - **In an agent's machine**, `run_in_agent` runs a command and `copy_between_agents` copies a file or
   directory from one agent's machine into another's. Neither works on a stopped or paused machine.
 {{- end}}
+- **`@name (project at /path)`** in a message is another of the user's projects, whose repository is on your own machine: read or search it there if you need it, and pass what an agent needs in its task{{if .CanSpawn}} or with `copy_to_agent`, which copies a file or directory of it into the agent's machine{{end}}.
 
 Everything a command prints stays in this conversation and is re-sent on every later step: `| tail -n 20`,
 `| grep`, `wc -l`, quiet flags. And when a job turns into a session, it is an agent's.

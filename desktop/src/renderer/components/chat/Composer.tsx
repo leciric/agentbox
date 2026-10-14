@@ -7,6 +7,7 @@ import {
   CircleAlert,
   Ellipsis,
   File,
+  FolderGit2,
   Gauge,
   Hourglass,
   ImagePlus,
@@ -32,7 +33,7 @@ import { composerSkills, searchSkills, skillMentionAt } from '../../lib/skills';
 import { SkillTile } from '../SkillsPanel';
 import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermissions, toolOf, toolsReload } from '../../lib/chat';
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
-import { mentionAt, matchFiles, type MentionItem } from '../../lib/mentions';
+import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
 import { getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
@@ -218,10 +219,12 @@ export function Composer({
   const mentionKey = mention && `${mention.start}:${mention.query}`;
   const mentionQuery = mention?.query;
   const filesQuery = useQuery({ queryKey: ['files', agent.ref], queryFn: () => api.files(agent.ref), enabled: mention !== undefined, staleTime: 4000 });
-  const mentionItems = useMemo(
-    () => (mentionQuery === undefined || mentionKey === mentionDismissed ? [] : matchFiles(filesQuery.data?.files ?? [], mentionQuery)),
-    [mentionQuery, mentionKey, mentionDismissed, filesQuery.data],
-  );
+  const projectsQuery = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: mention !== undefined });
+  const mentionItems = useMemo(() => {
+    if (mentionQuery === undefined || mentionKey === mentionDismissed) return [];
+    const projects = matchProjects(projectsQuery.data ?? [], mentionQuery);
+    return [...projects, ...matchFiles(filesQuery.data?.files ?? [], mentionQuery, mentionLimit - projects.length)];
+  }, [mentionQuery, mentionKey, mentionDismissed, filesQuery.data, projectsQuery.data]);
   useEffect(() => setMentionHighlighted(0), [mentionKey]);
 
   // Sending while the tool works is the point of the placeholder below: the
@@ -495,10 +498,10 @@ export function Composer({
           </div>
         )}
         {mentionItems.length > 0 && (
-          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.files')}>
+          <div className="absolute inset-x-2 bottom-full mb-2 overflow-hidden rounded-2xl border border-line-strong bg-overlay p-1 shadow-[0_24px_60px_-20px_var(--ab-shadow-deep)] backdrop-blur-xl" role="listbox" aria-label={t('chat.composer.mentions')}>
             {mentionItems.map((item, i) => (
               <button
-                key={item.label}
+                key={`${item.kind}:${item.label}`}
                 role="option"
                 aria-selected={i === mentionHighlighted}
                 className={cn('flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left', i === mentionHighlighted && 'bg-surface-raised')}
@@ -508,7 +511,7 @@ export function Composer({
                 }}
                 onMouseEnter={() => setMentionHighlighted(i)}
               >
-                <File className="size-3.5 shrink-0 text-subtle" />
+                {item.kind === 'project' ? <FolderGit2 className="size-3.5 shrink-0 text-subtle" /> : <File className="size-3.5 shrink-0 text-subtle" />}
                 <span className="min-w-0 truncate font-mono text-[12.5px] text-primary">{item.label}</span>
               </button>
             ))}

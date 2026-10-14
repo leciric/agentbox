@@ -110,6 +110,7 @@ func (s *Server) leadRoutes(project string) http.Handler {
 	mux.HandleFunc("POST /v1/project/agents/{agent}/rollback", withProject(s.rollback))
 	mux.HandleFunc("POST /v1/project/agents/{agent}/fork", withProject(s.fork))
 	mux.HandleFunc("POST /v1/project/copy", withProject(s.leadCopy))
+	mux.HandleFunc("POST /v1/project/copy-from-host", withProject(s.leadCopyFromHost))
 	mux.HandleFunc("GET /v1/project/secrets", withProject(s.leadSecrets))
 	// The project's connectors: listed for list_connectors, and relayed to
 	// for the chat's own Claude Code, which is given them as MCP servers.
@@ -354,6 +355,39 @@ func (s *Server) leadCopy(w http.ResponseWriter, r *http.Request) error {
 		ends[i] = a
 	}
 	n, err := s.manager(nil).CopyForLead(r.Context(), ends[0], req.Path, ends[1], req.Into, time.Duration(req.Timeout)*time.Second)
+	if err != nil {
+		return err
+	}
+	return writeJSON(w, http.StatusOK, api.LeadCopyResult{Bytes: n})
+}
+
+// leadCopyFromHost copies a file or directory out of one of the user's
+// projects' repositories into one of this project's agents' machines, for a
+// chat that was pointed at another project with an @mention.
+func (s *Server) leadCopyFromHost(w http.ResponseWriter, r *http.Request) error {
+	var req api.LeadHostCopyRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	if req.To == "" {
+		return errors.New("name the agent to copy to")
+	}
+	a, err := s.store.Agent(r.Context(), r.PathValue("project"), req.To)
+	if err != nil {
+		return err
+	}
+	if a.IsLead() {
+		return errNotAnAgent
+	}
+	projects, err := s.store.Projects(r.Context())
+	if err != nil {
+		return err
+	}
+	roots := make([]string, len(projects))
+	for i, p := range projects {
+		roots[i] = p.Root
+	}
+	n, err := s.manager(nil).CopyHostForLead(r.Context(), roots, req.Path, a, req.Into, time.Duration(req.Timeout)*time.Second)
 	if err != nil {
 		return err
 	}

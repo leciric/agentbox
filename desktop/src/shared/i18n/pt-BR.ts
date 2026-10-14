@@ -1462,7 +1462,7 @@ export const ptBR: Messages = {
   'chat.composer.startingTool': 'Iniciando {tool}',
   'chat.composer.drop': 'Solte as imagens para anexá-las',
   'chat.composer.commands': 'Comandos',
-  'chat.composer.files': 'Arquivos',
+  'chat.composer.mentions': 'Arquivos e projetos',
   'chat.composer.attached': 'Imagens anexadas',
   'chat.composer.message': 'Mensagem',
   'chat.composer.attachTip': 'Anexar imagens (ou cole ou solte-as)',

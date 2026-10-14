@@ -118,6 +118,12 @@ func TestLeadIsNotReachableAsAnAgent(t *testing.T) {
 	if _, err := lead.CopyBetweenAgents(ctx, api.LeadCopyRequest{From: state.LeadName, Path: "README.md", To: "agent-01"}); err == nil || !strings.Contains(err.Error(), "the project's chat") {
 		t.Errorf("CopyBetweenAgents(from the lead) = %v, want it refused", err)
 	}
+	if _, err := lead.CopyToAgent(ctx, api.LeadHostCopyRequest{Path: "/etc/hostname", To: state.LeadName}); err == nil || !strings.Contains(err.Error(), "the project's chat") {
+		t.Errorf("CopyToAgent(to the lead) = %v, want it refused", err)
+	}
+	if _, err := lead.CopyToAgent(ctx, api.LeadHostCopyRequest{Path: "/etc/hostname", To: "agent-404"}); err == nil {
+		t.Error("CopyToAgent() copied to an agent that doesn't exist")
+	}
 	if _, err := lead.RunInAgent(ctx, "agent-404", api.LeadRunRequest{Command: "id"}); err == nil {
 		t.Error("RunInAgent() ran in an agent that doesn't exist")
 	}

@@ -150,6 +150,17 @@ type LeadCopyResult struct {
 	Bytes int64 `json:"bytes"`
 }
 
+// LeadHostCopyRequest asks to copy a file or directory from a project's
+// repository on the host into an agent's machine. Path is absolute and must
+// be inside one of the user's projects; Into is relative to the agent's
+// worktree (its root when empty).
+type LeadHostCopyRequest struct {
+	Path    string `json:"path"`
+	To      string `json:"to"`
+	Into    string `json:"into,omitempty"`
+	Timeout int    `json:"timeout,omitempty"`
+}
+
 // RunInAgent runs a shell command in an agent's machine, in its worktree.
 func (c *Client) RunInAgent(ctx context.Context, agent string, req LeadRunRequest) (LeadRunResult, error) {
 	var out LeadRunResult
@@ -160,6 +171,12 @@ func (c *Client) RunInAgent(ctx context.Context, agent string, req LeadRunReques
 func (c *Client) CopyBetweenAgents(ctx context.Context, req LeadCopyRequest) (LeadCopyResult, error) {
 	var out LeadCopyResult
 	return out, c.do(ctx, http.MethodPost, c.leadPath("/copy"), req, &out)
+}
+
+// CopyToAgent copies a file or directory from a project's repository on the host into an agent's machine.
+func (c *Client) CopyToAgent(ctx context.Context, req LeadHostCopyRequest) (LeadCopyResult, error) {
+	var out LeadCopyResult
+	return out, c.do(ctx, http.MethodPost, c.leadPath("/copy-from-host"), req, &out)
 }
 
 // AgentCheckpoints lists one of the project's agents' checkpoints, oldest first.

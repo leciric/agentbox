@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { matchFiles, mentionAt } from './mentions.ts';
+import { matchFiles, matchProjects, mentionAt } from './mentions.ts';
 
 test('mentionAt finds an @ at the start of the message', () => {
   assert.deepEqual(mentionAt('@comp', 5), { start: 0, query: 'comp' });
@@ -52,4 +52,23 @@ test('matchFiles respects the limit', () => {
 test('a matched item carries the path as both label and insert', () => {
   const [item] = matchFiles(['README.md'], 'read');
   assert.deepEqual(item, { label: 'README.md', insert: 'README.md', kind: 'file' });
+});
+
+test('matchProjects matches the name or the display name, earliest match first', () => {
+  const projects = [
+    { name: 'my-saiapp4', displayName: 'My App' },
+    { name: 'saiapp4', displayName: 'Sai App' },
+    { name: 'other', displayName: 'Other' },
+  ];
+  assert.deepEqual(matchProjects(projects, 'SAI'), [
+    { label: 'Sai App (saiapp4)', insert: 'saiapp4', kind: 'project' },
+    { label: 'My App (my-saiapp4)', insert: 'my-saiapp4', kind: 'project' },
+  ]);
+  assert.deepEqual(matchProjects(projects, 'my app').map((m) => m.insert), ['my-saiapp4']);
+  assert.deepEqual(matchProjects(projects, 'zzz'), []);
+});
+
+test('matchProjects lists projects for an empty query, up to the limit', () => {
+  const projects = ['a', 'b', 'c', 'd'].map((name) => ({ name, displayName: name }));
+  assert.deepEqual(matchProjects(projects, '').map((m) => m.label), ['a', 'b', 'c']);
 });
