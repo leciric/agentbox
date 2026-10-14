@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,9 +31,16 @@ func watchingTurn(f *fakeTool, s, _ string) acp.PromptResponse {
 type finishes struct {
 	mu   sync.Mutex
 	list []api.ChatTurnResult
+	// slowFirst holds the first call up, as a busy daemon would: the next
+	// turn's must still come after it.
+	slowFirst time.Duration
+	calls     atomic.Int32
 }
 
 func (f *finishes) add(_ state.Agent, r TurnEnd) {
+	if f.calls.Add(1) == 1 {
+		time.Sleep(f.slowFirst)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.list = append(f.list, r.ChatTurnResult)
@@ -66,7 +74,7 @@ func TestABackgroundTaskEndingWakesATurnThatIsShownStoredAndFinished(t *testing.
 	store := openStore(t)
 	f := newFakeTool(watchingTurn)
 	m, _ := newManager(t, store, f)
-	var fin finishes
+	fin := finishes{slowFirst: 200 * time.Millisecond}
 	m.Finished = fin.add
 
 	if _, err := m.Send(testAgent, "watch CI and tell me"); err != nil {

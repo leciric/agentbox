@@ -1268,16 +1268,20 @@ type conversation struct {
 	m     *Manager
 	agent state.Agent
 
-	mu      sync.Mutex
-	loaded  bool
-	seq     int64
-	items   []*api.ChatItem
-	byID    map[string]*api.ChatItem
-	session api.ChatSession
-	stored  state.Chat
-	adapter *adapter // nil while no adapter runs
-	turn    *turn    // the running turn
-	gone    bool     // the agent was destroyed: nothing more is stored
+	mu     sync.Mutex
+	loaded bool
+	seq    int64
+	// finished closes once the last turn's Finished call has returned: the
+	// next one waits for it, so the daemon hears an agent's turns end in the
+	// order they did, though each is told from a goroutine of its own.
+	finished chan struct{}
+	items    []*api.ChatItem
+	byID     map[string]*api.ChatItem
+	session  api.ChatSession
+	stored   state.Chat
+	adapter  *adapter // nil while no adapter runs
+	turn     *turn    // the running turn
+	gone     bool     // the agent was destroyed: nothing more is stored
 	// queued holds notices that arrived mid-turn, or during a rollover;
 	// finishTurn and rollover deliver them.
 	queued []queuedNotice
@@ -2175,7 +2179,15 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		// the agent still at work, whatever this one said.
 		end.ChatTurnResult, end.Continues = *result, c.turn != nil
 		agent := c.agent
-		c.m.background.Go(func() { c.m.Finished(agent, end) })
+		prev, done := c.finished, make(chan struct{})
+		c.finished = done
+		c.m.background.Go(func() {
+			defer close(done)
+			if prev != nil {
+				<-prev
+			}
+			c.m.Finished(agent, end)
+		})
 	}
 	if c.m.TurnFinished != nil {
 		agent, stats := c.agent, c.turnStats(t, res, result.State)
