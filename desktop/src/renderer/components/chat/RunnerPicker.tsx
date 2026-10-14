@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, Check, ChevronDown } from 'lucide-react';
+import type { ComponentType } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
@@ -74,12 +75,12 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
             disabled={!c.ready || choose.isPending}
             onSelect={() => !c.current && choose.mutate(c)}
             title={runners.data && runnerReason(runners.data, c.tool)}
+            icon={toolIcons[c.tool]}
             data-runner={c.tool}
             data-account={c.account || undefined}
             hint={c.current ? <Check className="size-3.5 text-brand-300" /> : undefined}
           >
-            <AIIcon ai={c.tool} className="size-4 shrink-0 text-muted" />
-            <div className="grid min-w-0 flex-1 gap-0.5">
+            <div className="grid min-w-0 gap-0.5">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{c.name}</span>
                 {multi && c.account && <span className="truncate text-subtle">· {c.account}</span>}
@@ -95,6 +96,12 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
     </Menu>
   );
 }
+
+// toolIcons are the tools' marks as MenuItem icons, made once so a row's icon
+// keeps its identity between renders.
+const toolIcons: Record<string, ComponentType<{ className?: string }>> = Object.fromEntries(
+  ['claude', 'codex', 'opencode', 'cursor'].map((ai) => [ai, ({ className }: { className?: string }) => <AIIcon ai={ai} className={className} />]),
+);
 
 // UsageDot is the chosen account's 5-hour use, on the trigger.
 function UsageDot({ used }: { used: number }) {
