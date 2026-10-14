@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import type { AppUpdateProgress } from '../shared/appupdate.ts';
-import { assetName, cleanUp, detectInstall, parseSums, plistString, swap, update, UpdateError, type Machine, type Release, type Run } from './appupdate.ts';
+import { assetName, cleanDownloads, cleanUp, detectInstall, parseSums, plistString, swap, update, UpdateError, type Machine, type Release, type Run } from './appupdate.ts';
 
 const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 
@@ -330,4 +330,71 @@ test('plistString reads a key of an XML Info.plist', () => {
   assert.equal(plistString(plist, 'CFBundleShortVersionString'), '0.12.0');
   assert.equal(plistString(plist, 'CFBundleIdentifier'), 'dev.agentbox.desktop');
   assert.equal(plistString(plist, 'CFBundleName'), undefined);
+});
+
+const locked = (code: string) => Object.assign(new Error(`${code}, Permission denied`), { code });
+
+test('cleaning the updates folder skips what Windows has locked (EPERM, EBUSY) and never throws', async () => {
+  const dir = tmp();
+  for (const n of ['a.exe', 'b.exe', 'c.exe', 'd']) writeFileSync(join(dir, n), 'x');
+  const logged: string[] = [];
+  const tried: string[] = [];
+  const kept = await cleanDownloads(
+    dir,
+    () => false,
+    async (path, opts) => {
+      tried.push(path);
+      assert.ok(opts.maxRetries > 0 && opts.retryDelay > 0, 'retries');
+      if (path.endsWith('a.exe')) throw locked('EPERM');
+      if (path.endsWith('c.exe')) throw locked('EBUSY');
+      rmSync(path, { recursive: true, force: true });
+    },
+    (msg) => logged.push(msg),
+  );
+  assert.deepEqual(kept, [join(dir, 'a.exe'), join(dir, 'c.exe')]);
+  assert.equal(tried.length, 4, 'one locked file doesn\'t stop the rest');
+  assert.equal(logged.length, 2);
+  assert.deepEqual(readdirSync(dir).sort(), ['a.exe', 'c.exe']);
+  rmSync(dir, { recursive: true });
+});
+
+test('cleaning removes only what is there, and a folder that can\'t be listed is not an error', async () => {
+  const dir = tmp();
+  assert.deepEqual(await cleanDownloads(join(dir, 'none')), []);
+  const logged: string[] = [];
+  writeFileSync(join(dir, 'file'), 'x');
+  assert.deepEqual(await cleanDownloads(join(dir, 'file'), undefined, undefined, (m) => logged.push(m)), []);
+  assert.equal(logged.length, 1, 'ENOTDIR is logged');
+  await cleanDownloads(dir);
+  assert.deepEqual(readdirSync(dir), []);
+  rmSync(dir, { recursive: true });
+});
+
+test('cleaning stops when an update starts, so it never removes the download', async () => {
+  const dir = tmp();
+  for (const n of ['a', 'b', 'c']) writeFileSync(join(dir, n), 'x');
+  let started = false;
+  await cleanDownloads(dir, () => started, async (path) => {
+    rmSync(path, { force: true });
+    started = true;
+  });
+  assert.equal(readdirSync(dir).length, 2);
+  rmSync(dir, { recursive: true });
+});
+
+test('the update still downloads and installs when an earlier download is locked and can\'t be cleaned', async () => {
+  const dir = tmp();
+  const updates = join(dir, 'updates');
+  mkdirSync(updates);
+  writeFileSync(join(updates, 'AgentBox-0.12.0-x64-setup.exe'), 'half');
+  const kept = await cleanDownloads(updates, () => false, async () => {
+    throw locked('EPERM');
+  });
+  assert.equal(kept.length, 1);
+  const rel = release('0.12.0', { 'AgentBox-0.12.0-x64-setup.exe': 'setup' });
+  const folder = join(updates, '12345'); // an update's own folder (updater.ts)
+  const next = await update({ release: rel, install: { kind: 'nsis', path: 'C:\\AgentBox' }, arch: 'x64', tmp: folder, fetch: fetcher, run: noRun, onProgress: () => {} });
+  assert.deepEqual(next, { installer: join(folder, 'AgentBox-0.12.0-x64-setup.exe') });
+  assert.equal(readFileSync(join(folder, 'AgentBox-0.12.0-x64-setup.exe'), 'utf8'), 'setup');
+  rmSync(dir, { recursive: true });
 });

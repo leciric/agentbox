@@ -2,13 +2,13 @@
 // the window asks for, the release the daemon finds, the download through
 // Chromium's network stack (the system's proxy settings), and the restart.
 import { execFile, spawn } from 'node:child_process';
-import { accessSync, constants, existsSync, rmSync } from 'node:fs';
+import { accessSync, constants, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, ipcMain, net } from 'electron';
 import { AppImageUpdater } from 'electron-updater';
 import type { AppUpdateProgress, AppUpdateResult } from '../shared/appupdate.ts';
 import { AppUpdates } from './appimageupdate';
-import { cleanUp, detectInstall, update, UpdateError, type Release, type Run } from './appupdate';
+import { cleanDownloads, cleanUp, detectInstall, update, UpdateError, type Release, type Run } from './appupdate';
 import { isLocal } from './connection';
 import { request } from './daemon';
 
@@ -33,6 +33,10 @@ const where = () =>
 // .zip and the Windows installer.
 const downloads = () => join(app.getPath('userData'), 'updates');
 
+// Each update downloads into a folder of its own, so that a file an earlier
+// one left locked (Windows won't remove or overwrite it) can't stop this one.
+const downloadFolder = () => join(downloads(), String(Date.now()));
+
 const run: Run = (cmd, args) =>
   new Promise((resolve, reject) =>
     execFile(cmd, args, { timeout: 300_000 }, (err, stdout, stderr) => {
@@ -51,13 +55,24 @@ export function restartingForUpdate(): boolean {
 }
 
 let running: Promise<AppUpdateResult> | undefined;
+let cleaning: Promise<unknown> | undefined;
 
 // installAppUpdates handles the window's update requests, and removes what an
 // earlier update left behind.
 export function installAppUpdates(send: (channel: string, ...args: unknown[]) => void): void {
   const { install } = where();
-  if (install) cleanUp(install);
-  rmSync(downloads(), { recursive: true, force: true });
+  // Nothing here may throw out of the main process: a leftover that can't be
+  // removed now is tried again at the next start.
+  try {
+    if (install) cleanUp(install);
+  } catch (err) {
+    console.error('cleaning up after an update:', err);
+  }
+  cleaning = cleanDownloads(downloads(), () => running !== undefined, undefined, (msg, err) => console.error(`cleaning up after an update, ${msg}:`, err))
+    .catch((err) => console.error('cleaning up after an update:', err))
+    .finally(() => {
+      cleaning = undefined;
+    });
 
   ipcMain.handle('appUpdate:support', () => where().support);
   ipcMain.handle('appUpdate:start', () => {
@@ -69,6 +84,9 @@ export function installAppUpdates(send: (channel: string, ...args: unknown[]) =>
 }
 
 async function start(onProgress: (p: AppUpdateProgress) => void): Promise<AppUpdateResult> {
+  // The cleanup of the last start finishes (or is cut short, as running is
+  // set) before anything downloads.
+  await cleaning;
   const { support, install } = where();
   if (!install) return { ok: false, code: 'unsupported', detail: support.inPlace ? '' : support.reason };
   let release: Release | undefined;
@@ -92,7 +110,7 @@ async function start(onProgress: (p: AppUpdateProgress) => void): Promise<AppUpd
       release,
       install,
       arch: process.arch,
-      tmp: downloads(),
+      tmp: downloadFolder(),
       fetch: (url) => net.fetch(url),
       run,
       onProgress,

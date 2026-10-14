@@ -27,6 +27,7 @@
 // main process's half (updater.ts) wires it to the window and restarts.
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { readdir, rm } from 'node:fs/promises';
 import { basename, dirname, join, win32 } from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -370,6 +371,39 @@ export function cleanUp(install: Install): void {
       // still running
     }
   }
+}
+
+// cleanDownloads removes what earlier updates left in dir, one entry at a
+// time, so that one that is locked stays (on Windows an open file, held by the
+// downloader, antivirus or a running installer, fails with EPERM or EBUSY)
+// and doesn't stop the rest. Each removal retries a few times; none throws.
+// busy says an update has started, and ends the cleanup so that it never
+// removes what that update is downloading. It answers what it couldn't remove.
+export async function cleanDownloads(
+  dir: string,
+  busy: () => boolean = () => false,
+  remove: (path: string, opts: { recursive: boolean; force: boolean; maxRetries: number; retryDelay: number }) => Promise<void> = rm,
+  log: (msg: string, err: unknown) => void = () => {},
+): Promise<string[]> {
+  const kept: string[] = [];
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') log(`listing ${dir}`, err);
+    return kept;
+  }
+  for (const name of names) {
+    if (busy()) break;
+    const path = join(dir, name);
+    try {
+      await remove(path, { recursive: true, force: true, maxRetries: 4, retryDelay: 250 });
+    } catch (err) {
+      kept.push(path);
+      log(`removing ${path}`, err);
+    }
+  }
+  return kept;
 }
 
 function safeList(dir: string): string[] {
