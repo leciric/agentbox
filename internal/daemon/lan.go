@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,9 +45,10 @@ import (
 // Mac's and Windows' VMs nothing brings the network to the daemon yet.
 //
 // It is plain HTTP: the phone and the daemon share no certificate. The
-// cookie is HttpOnly and SameSite=Strict, and a phone reaches only the chat
-// (lanAllowed), so what someone on the same network could take by listening
-// is a chat, not the machine.
+// cookie is HttpOnly and SameSite=Strict, and a phone reaches only what its
+// scopes allow (lanRouteOf), never the machine's secrets, terminals or
+// settings, so what someone on the same network could take by listening is
+// a chat, not the machine.
 //
 // From anywhere else, a Cloudflare Tunnel brings the same page to an https
 // address on the internet (lantunnel.go). Pairing is as mandatory there, the
@@ -236,7 +238,7 @@ func (s *Server) lanStatus(ctx context.Context) (api.LANStatus, error) {
 }
 
 func lanPhone(p state.Phone) api.LANPhone {
-	return api.LANPhone{ID: p.ID, Name: p.Name, Paired: p.Created, LastSeen: p.LastSeen, LastAddr: p.LastAddr}
+	return api.LANPhone{ID: p.ID, Name: p.Name, Paired: p.Created, LastSeen: p.LastSeen, LastAddr: p.LastAddr, Scopes: p.Scopes}
 }
 
 // publishLAN says something in GET /v1/lan changed, without saying what: the
@@ -338,6 +340,48 @@ func (s *Server) removeLANPhone(w http.ResponseWriter, r *http.Request) error {
 	s.publishLAN(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// updateLANPhone changes what a phone may do. It takes effect with the
+// phone's next request: each one reads the phone again.
+func (s *Server) updateLANPhone(w http.ResponseWriter, r *http.Request) error {
+	var req api.UpdateLANPhoneRequest
+	if err := readJSON(r, &req); err != nil {
+		return err
+	}
+	p, err := s.store.SetPhoneScopes(r.Context(), r.PathValue("id"), req.Scopes)
+	if err != nil {
+		return err
+	}
+	s.logf("phones: %s (%s) may now: %s", p.Name, p.ID, strings.Join(p.Scopes, ", "))
+	s.publishLAN(r.Context())
+	return writeJSON(w, http.StatusOK, lanPhone(p))
+}
+
+// lanPhoneAuditPage is how many audit entries one GET returns.
+const lanPhoneAuditPage = 50
+
+func (s *Server) lanPhoneAudit(w http.ResponseWriter, r *http.Request) error {
+	var before int64
+	if v := r.URL.Query().Get("before"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("before=%q isn't an entry", v)
+		}
+		before = n
+	}
+	entries, err := s.store.PhoneAudit(r.Context(), r.PathValue("id"), before, lanPhoneAuditPage+1)
+	if err != nil {
+		return err
+	}
+	out := api.LANAudit{Entries: []api.LANAuditEntry{}}
+	if len(entries) > lanPhoneAuditPage {
+		entries, out.More = entries[:lanPhoneAuditPage], true
+	}
+	for _, e := range entries {
+		out.Entries = append(out.Entries, api.LANAuditEntry{ID: e.ID, Scope: e.Scope, Route: e.Route, Status: e.Status, Result: e.Result, Addr: e.Addr, At: e.At})
+	}
+	return writeJSON(w, http.StatusOK, out)
 }
 
 // lanHostReport is the VM's supervisor saying how the port on the host is.
@@ -621,17 +665,41 @@ func (s *Server) lanPhoneOf(w http.ResponseWriter, r *http.Request, addr string)
 	return state.Phone{}, false
 }
 
-// lanAPI passes a paired phone's request on to the API, if a phone may make
+// lanAPI passes a paired phone's request on to the API, if its scopes let
 // it, and ends it when the phone is revoked or the whole thing turned off.
+// Every write is audited, allowed or not (state.PhoneAudit).
 func (s *Server) lanAPI(w http.ResponseWriter, r *http.Request, addr string) {
 	p, ok := s.lanPhoneOf(w, r, addr)
 	if !ok {
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api")
-	if !lanAllowed(r.Method, path) {
+	route := lanRouteOf(r.Method, path)
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		rec := &statusRecorder{ResponseWriter: w}
+		w = rec
+		defer func() { s.auditPhone(r.Context(), p, route, r.Method+" "+path, rec.status, addr) }()
+	}
+	switch {
+	case route.never != "":
+		writeLANError(w, http.StatusForbidden, fmt.Sprintf("a phone can't reach %s, whatever it may do: %s %s works in the app on your computer", route.never, r.Method, path))
+		return
+	case route.scope == "":
 		writeLANError(w, http.StatusForbidden, fmt.Sprintf("%s %s works in the app on your computer, not from a phone", r.Method, path))
 		return
+	case !p.Can(route.scope):
+		writeLANError(w, http.StatusForbidden, fmt.Sprintf("this phone may not %s: allow it under Phone in AgentBox's settings on your computer", lanScopeVerb[route.scope]))
+		return
+	}
+	if route.scope == state.PhoneScopeMerge {
+		// A merge from a phone says it was confirmed there.
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		var req api.MergePullRequestRequest
+		if err != nil || json.Unmarshal(body, &req) != nil || !req.Confirmed {
+			writeLANError(w, http.StatusPreconditionRequired, "confirm the merge on the phone first")
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -673,36 +741,115 @@ func (s *Server) lanAPI(w http.ResponseWriter, r *http.Request, addr string) {
 	routes.ServeHTTP(w, r2)
 }
 
-// lanRoutes are what a phone may do beyond reading: the chat's own actions,
-// on the project's chat and on each agent's, and answering an agent's
-// question. Reading is anything but what hands over the machine or its
-// secrets.
-var (
-	lanWrites = []*regexp.Regexp{
-		regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|permissions/[^/]+)$`),
-		regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`),
-		regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`),
-		regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`),
-		regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`),
-		regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`),
+// auditPhone records a phone's write and what came of it.
+func (s *Server) auditPhone(ctx context.Context, p state.Phone, route lanRoute, line string, status int, addr string) {
+	if status == 0 {
+		status = http.StatusOK
 	}
-	lanUnreadable = regexp.MustCompile(`^/v1/(lan|remote|auth/claude/login|auth/cursor|jobs/[^/]+/log)(/|$)|/(terminal|secrets|browser/view|android/view)(/|$)`)
-)
+	result := "ok"
+	switch {
+	case route.never != "" || route.scope == "" || !p.Can(route.scope) || status == http.StatusPreconditionRequired:
+		result = "refused"
+	case status >= 400:
+		result = "failed"
+	}
+	e := state.PhoneAuditEntry{PhoneID: p.ID, PhoneName: p.Name, Scope: route.scope, Route: line, Status: status, Result: result, Addr: addr}
+	if err := s.store.AddPhoneAudit(context.WithoutCancel(ctx), e); err != nil {
+		s.logf("phones: auditing %s's %s: %v", p.Name, line, err)
+		return
+	}
+	s.publishLAN(ctx)
+}
 
-func lanAllowed(method, path string) bool {
-	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") {
-		return false
+// statusRecorder keeps the status a handler answered with.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *statusRecorder) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
 	}
-	if method == http.MethodGet || method == http.MethodHead {
-		return !lanUnreadable.MatchString(path)
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusRecorder) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *statusRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+// lanRoute is what a phone's request is: one no phone may make (never says
+// what it would reach), one that needs a scope, or neither, which is
+// refused too.
+type lanRoute struct {
+	never string
+	scope string
+}
+
+// lanNever is refused to every phone, whatever its scopes: what hands over
+// the machine, its secrets or its accounts, lets in more devices or opens it
+// to more of the network, or makes and unmakes projects and agents. Each is
+// matched against "METHOD /path".
+var lanNever = []struct {
+	what string
+	re   *regexp.Regexp
+}{
+	{"secrets and credentials", regexp.MustCompile(`^\S+ (/v1/auth(/|$)|.*/(secrets|credentials?|browser-cookies)(/|$))`)},
+	{"connectors", regexp.MustCompile(`^\S+ .*/connectors?(/|$)`)},
+	{"terminals", regexp.MustCompile(`^\S+ .*/terminal(/|$)`)},
+	{"the browser and Android views", regexp.MustCompile(`^\S+ /v1/agents/[^/]+/[^/]+/(browser|android)(/|$)`)},
+	{"pairing and the phone, remote and tunnel settings", regexp.MustCompile(`^\S+ /v1/(lan|remote)(/|$)`)},
+	{"creating or removing projects and agents", regexp.MustCompile(`^(POST /v1/projects|DELETE /v1/projects/[^/]+|POST /v1/projects/[^/]+/retire|POST /v1/agents|DELETE /v1/agents/[^/]+/[^/]+|POST /v1/agents/[^/]+/[^/]+/(fork|recreate))/?$`)},
+	{"job logs", regexp.MustCompile(`^\S+ /v1/jobs/[^/]+/log(/|$)`)},
+}
+
+// lanWrites are what a phone may change, and the scope each needs. Reading,
+// anything else lanNever doesn't refuse, needs "read".
+var lanWrites = []struct {
+	scope string
+	re    *regexp.Regexp
+}{
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/(start|messages|cancel|reload|permissions/[^/]+)$`)},
+	{state.PhoneScopeChat, regexp.MustCompile(`^PUT /v1/(projects/[^/]+|agents/[^/]+/[^/]+)/chat/options/[^/]+$`)},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`)},
+	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`)},
+	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`)},
+	{state.PhoneScopeMerge, regexp.MustCompile(`^POST /v1/projects/[^/]+/pulls/[0-9]+/merge$`)},
+	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`)},
+}
+
+// lanScopeVerb is what each scope lets a phone do, for saying it may not.
+var lanScopeVerb = map[string]string{
+	state.PhoneScopeRead:   "read what AgentBox shows",
+	state.PhoneScopeChat:   "chat",
+	state.PhoneScopeAnswer: "answer agents' questions",
+	state.PhoneScopeMerge:  "merge pull requests",
+}
+
+func lanRouteOf(method, path string) lanRoute {
+	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
+		return lanRoute{}
 	}
 	line := method + " " + path
-	for _, re := range lanWrites {
-		if re.MatchString(line) {
-			return true
+	for _, n := range lanNever {
+		if n.re.MatchString(line) {
+			return lanRoute{never: n.what}
 		}
 	}
-	return false
+	if method == http.MethodGet || method == http.MethodHead {
+		return lanRoute{scope: state.PhoneScopeRead}
+	}
+	for _, wr := range lanWrites {
+		if wr.re.MatchString(line) {
+			return lanRoute{scope: wr.scope}
+		}
+	}
+	return lanRoute{}
 }
 
 // lanWebAsset is a file of the web app, served as it is: its name has its

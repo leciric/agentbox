@@ -178,6 +178,66 @@ func TestPhoneOnTheLocalNetwork(t *testing.T) {
 	if len(st.Phones) != 1 || st.Phones[0].Name != "Pixel 8" || st.Phones[0].LastAddr != "127.0.0.1" {
 		t.Fatalf("Phones = %+v", st.Phones)
 	}
+	id := st.Phones[0].ID
+	if strings.Join(st.Phones[0].Scopes, ",") != "read,chat,answer" {
+		t.Errorf("a new phone's scopes = %v", st.Phones[0].Scopes)
+	}
+
+	// Scopes: merging needs one pairing doesn't give, and the phone can't
+	// give it to itself.
+	merge := func(confirmed bool) int {
+		code, _ := phone.do("POST", "/api/v1/projects/p/pulls/7/merge", `{"method":"squash","confirmed":`+strconv.FormatBool(confirmed)+`}`)
+		return code
+	}
+	if code := merge(true); code != http.StatusForbidden {
+		t.Errorf("merging with no merge scope = %d", code)
+	}
+	if code, _ := phone.do("PATCH", "/api/v1/lan/phones/"+id, `{"scopes":["read","merge"]}`); code != http.StatusForbidden {
+		t.Errorf("a phone changing its own scopes = %d", code)
+	}
+	if _, err := d.client.UpdateLANPhone(ctx, id, api.UpdateLANPhoneRequest{Scopes: []string{"read", "shell"}}); err == nil {
+		t.Error("a scope that isn't one was taken")
+	}
+	got, err := d.client.UpdateLANPhone(ctx, id, api.UpdateLANPhoneRequest{Scopes: []string{"merge", "read"}})
+	if err != nil || strings.Join(got.Scopes, ",") != "read,merge" {
+		t.Fatalf("UpdateLANPhone = %+v, %v", got, err)
+	}
+	if code, body := phone.do("GET", "/lan/session", ""); code != 200 || !strings.Contains(body, `"scopes":["read","merge"]`) {
+		t.Errorf("the session after the change = %d %q", code, body)
+	}
+	if code, _ := phone.do("POST", "/api/v1/projects/p/chat/messages", `{"text":"hi"}`); code != http.StatusForbidden {
+		t.Errorf("chatting with no chat scope = %d", code)
+	}
+	if code := merge(false); code != http.StatusPreconditionRequired {
+		t.Errorf("an unconfirmed merge = %d", code)
+	}
+	// Confirmed, it reaches the API, which has no project p.
+	if code := merge(true); code == http.StatusForbidden || code == http.StatusPreconditionRequired || code < 400 {
+		t.Errorf("a confirmed merge of a project that doesn't exist = %d", code)
+	}
+	// Every write is audited, newest first; reads aren't.
+	audit, err := d.client.LANPhoneAudit(ctx, id, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, e := range audit.Entries {
+		lines = append(lines, e.Result+" "+e.Scope+" "+e.Route+" "+e.Addr)
+	}
+	want := []string{
+		"failed merge POST /v1/projects/p/pulls/7/merge 127.0.0.1",
+		"refused merge POST /v1/projects/p/pulls/7/merge 127.0.0.1",
+		"refused chat POST /v1/projects/p/chat/messages 127.0.0.1",
+		"refused  PATCH /v1/lan/phones/" + id + " 127.0.0.1",
+		"refused merge POST /v1/projects/p/pulls/7/merge 127.0.0.1",
+		"refused  DELETE /v1/agents/p/agent-01 127.0.0.1",
+	}
+	if len(lines) < len(want) || strings.Join(lines[:len(want)], "\n") != strings.Join(want, "\n") {
+		t.Errorf("audit =\n%s\nwant it to start\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
+	}
+	if len(audit.Entries) != len(want)+3 {
+		t.Errorf("audit has %d entries, want the %d writes", len(audit.Entries), len(want)+3)
+	}
 
 	// A phone's event stream ends when it's revoked, and its cookie stops
 	// working.
@@ -267,38 +327,76 @@ func TestPhoneThroughTheVMsHost(t *testing.T) {
 	}
 }
 
-func TestLANAllowed(t *testing.T) {
+func TestLANRoute(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct {
-		method, path string
-		want         bool
+		method, path, scope string
 	}{
-		{"GET", "/v1/agents", true},
-		{"GET", "/v1/projects/p/chat", true},
-		{"GET", "/v1/events", true},
-		{"GET", "/v1/agents/p/a/chat/images/i.png", true},
-		{"POST", "/v1/projects/p/chat/messages", true},
-		{"POST", "/v1/agents/p/a/chat/messages", true},
-		{"POST", "/v1/agents/p/a/chat/permissions/42", true},
-		{"PUT", "/v1/agents/p/a/chat/options/model", true},
-		{"POST", "/v1/projects/p/chat/reload", true},
-		{"POST", "/v1/projects/p/questions/q1/answer", true},
-		{"POST", "/v1/agents/p/a/start", true},
-		{"POST", "/v1/agents/p/a/stop", false},
-		{"DELETE", "/v1/agents/p/a/chat", false},
-		{"DELETE", "/v1/projects/p/chat", false},
-		{"POST", "/v1/projects/p/questions/q1/credential", false},
-		{"GET", "/v1/agents/p/a/terminal", false},
-		{"GET", "/v1/agents/p/a/browser/view", false},
-		{"GET", "/v1/projects/p/secrets", false},
-		{"GET", "/v1/lan", false},
-		{"GET", "/v1/remote", false},
-		{"GET", "/v1/jobs/j/log", false},
-		{"POST", "/v1/projects/p/chat/messages/../../../shutdown", false},
-		{"PATCH", "/v1/settings", false},
+		{"GET", "/v1/agents", "read"},
+		{"GET", "/v1/projects/p/chat", "read"},
+		{"GET", "/v1/events", "read"},
+		{"GET", "/v1/agents/p/a/chat/images/i.png", "read"},
+		{"GET", "/v1/projects/p/pulls", "read"},
+		{"POST", "/v1/usage-stats/voice", "read"},
+		{"POST", "/v1/projects/p/chat/messages", "chat"},
+		{"POST", "/v1/agents/p/a/chat/messages", "chat"},
+		{"POST", "/v1/projects/p/chat/cancel", "chat"},
+		{"POST", "/v1/agents/p/a/chat/permissions/42", "chat"},
+		{"PUT", "/v1/agents/p/a/chat/options/model", "chat"},
+		{"POST", "/v1/projects/p/chat/reload", "chat"},
+		{"POST", "/v1/agents/p/a/start", "chat"},
+		{"POST", "/v1/projects/p/questions/q1/answer", "answer"},
+		{"POST", "/v1/projects/p/pulls/12/merge", "merge"},
+		// Neither scoped nor never: still refused.
+		{"POST", "/v1/agents/p/a/stop", ""},
+		{"DELETE", "/v1/agents/p/a/chat", ""},
+		{"DELETE", "/v1/projects/p/chat", ""},
+		{"POST", "/v1/projects/p/pulls/12/labels", ""},
+		{"PATCH", "/v1/settings", ""},
+		{"POST", "/v1/shutdown", ""},
+		{"POST", "/v1/projects/p/chat/messages/../../../shutdown", ""},
 	} {
-		if got := lanAllowed(c.method, c.path); got != c.want {
-			t.Errorf("lanAllowed(%s %s) = %t, want %t", c.method, c.path, got, c.want)
+		got := lanRouteOf(c.method, c.path)
+		if got.never != "" || got.scope != c.scope {
+			t.Errorf("lanRouteOf(%s %s) = %+v, want scope %q", c.method, c.path, got, c.scope)
+		}
+	}
+}
+
+// What no phone may do, whatever its scopes: each kind, read and written.
+func TestLANNever(t *testing.T) {
+	t.Parallel()
+	for what, routes := range map[string][]string{
+		"secrets and credentials": {
+			"GET /v1/projects/p/secrets", "PUT /v1/projects/p/secrets/K", "DELETE /v1/agents/p/a/secrets/K",
+			"GET /v1/projects/p/credentials", "GET /v1/agents/p/a/credential", "POST /v1/projects/p/questions/q1/credential",
+			"GET /v1/auth", "POST /v1/auth/claude/login", "POST /v1/auth/github", "DELETE /v1/auth/cursor",
+			"GET /v1/projects/p/browser-cookies", "PUT /v1/projects/p/browser-cookies",
+		},
+		"connectors": {
+			"GET /v1/connectors", "POST /v1/connectors/scan", "POST /v1/connectors/import",
+			"PUT /v1/projects/p/connectors/notion/override", "GET /v1/agents/p/a/connectors",
+		},
+		"terminals": {"GET /v1/agents/p/a/terminal"},
+		"the browser and Android views": {
+			"GET /v1/agents/p/a/browser/view", "GET /v1/agents/p/a/browser", "POST /v1/agents/p/a/browser/start",
+			"GET /v1/agents/p/a/android/view", "POST /v1/agents/p/a/android/start",
+		},
+		"pairing and the phone, remote and tunnel settings": {
+			"POST /v1/lan/pairings", "GET /v1/lan", "PATCH /v1/lan", "PATCH /v1/lan/phones/phone_1", "DELETE /v1/lan/phones/phone_1",
+			"GET /v1/lan/phones/phone_1/audit", "GET /v1/remote", "PUT /v1/remote", "DELETE /v1/remote",
+		},
+		"creating or removing projects and agents": {
+			"POST /v1/projects", "DELETE /v1/projects/p", "POST /v1/projects/p/retire",
+			"POST /v1/agents", "DELETE /v1/agents/p/a", "POST /v1/agents/p/a/fork", "POST /v1/agents/p/a/recreate",
+		},
+		"job logs": {"GET /v1/jobs/j/log"},
+	} {
+		for _, route := range routes {
+			method, path, _ := strings.Cut(route, " ")
+			if got := lanRouteOf(method, path); got.never != what {
+				t.Errorf("lanRouteOf(%s) = %+v, want never %q", route, got, what)
+			}
 		}
 	}
 }

@@ -44,7 +44,7 @@ var tsTypes = []any{
 	AndroidStatus{}, AndroidStartRequest{}, AndroidInstallRequest{}, AndroidInstallResult{},
 	HubUser{}, HubSignupRequest{}, HubLoginRequest{}, HubSession{}, HubEnvironment{}, HubCreateEnvironmentRequest{}, HubEnvironmentToken{},
 	RemoteStatus{}, RemoteConnectRequest{}, UsageStatsPending{},
-	LANStatus{}, LANTunnel{}, LANPhone{}, UpdateLANRequest{}, LANPairing{}, LANHostReport{}, LANPairRequest{}, LANSession{},
+	LANStatus{}, LANTunnel{}, LANPhone{}, UpdateLANRequest{}, LANPairing{}, LANHostReport{}, LANPairRequest{}, LANSession{}, UpdateLANPhoneRequest{}, LANAuditEntry{}, LANAudit{},
 	ChatThread{}, ChatSearch{}, ChatSearchHit{}, ChatSnippetPart{}, ChatSession{}, ChatOption{}, ChatOptionChoice{}, ChatCommand{}, ChatItem{}, ChatTool{}, ChatPage{}, ChatDiff{}, ChatPlanEntry{},
 	ChatPermission{}, ChatPermissionOption{}, ChatSubagent{}, ChatCompaction{}, ChatTurnResult{}, ChatMessageRequest{}, ChatImage{}, ChatImageUpload{}, ChatAnswerRequest{}, ChatOptionRequest{}, ChatEvent{}, ChatAppend{}, ProjectChat{}, ChatCache{}, ChatCacheChoice{},
 	MemoryEvent{}, AddMemoryEventRequest{}, Memory{}, AddMemoryRequest{}, MemorySearchRequest{}, MemorySearchResults{},

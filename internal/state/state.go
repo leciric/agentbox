@@ -999,6 +999,32 @@ var migrations = []string{
 	// (created_at, id) (EachMedia): across every project, and within one.
 	`CREATE INDEX media_by_time ON media (created_at, id)`,
 	`CREATE INDEX media_by_project ON media (project, created_at, id)`,
+
+	// What each paired phone may do (phones.go): a comma-separated list of
+	// PhoneScopes. Phones paired before scopes existed keep what they could
+	// already do, which is what a new pairing gets.
+	`ALTER TABLE phones ADD COLUMN scopes TEXT NOT NULL DEFAULT 'read,chat,answer'`,
+	// Every write a phone makes, allowed or not (PhoneAudit). Append-only: the
+	// triggers refuse to change or delete a row, and unpairing a phone keeps
+	// its rows, with the name it had.
+	`CREATE TABLE phone_audit (
+		id         INTEGER PRIMARY KEY AUTOINCREMENT,
+		phone_id   TEXT NOT NULL,
+		phone_name TEXT NOT NULL,
+		scope      TEXT NOT NULL,
+		route      TEXT NOT NULL,
+		status     INTEGER NOT NULL,
+		result     TEXT NOT NULL,
+		addr       TEXT NOT NULL,
+		at         INTEGER NOT NULL
+	)`,
+	`CREATE INDEX phone_audit_by_phone ON phone_audit (phone_id, id)`,
+	`CREATE TRIGGER phone_audit_no_update BEFORE UPDATE ON phone_audit BEGIN
+		SELECT RAISE(ABORT, 'phone_audit is append-only');
+	END`,
+	`CREATE TRIGGER phone_audit_no_delete BEFORE DELETE ON phone_audit BEGIN
+		SELECT RAISE(ABORT, 'phone_audit is append-only');
+	END`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

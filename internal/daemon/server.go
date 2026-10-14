@@ -829,6 +829,8 @@ func (s *Server) routes() http.Handler {
 	h("PATCH /v1/lan", s.updateLAN)
 	h("POST /v1/lan/pairings", s.addLANPairing)
 	h("DELETE /v1/lan/phones/{id}", s.removeLANPhone)
+	h("PATCH /v1/lan/phones/{id}", s.updateLANPhone)
+	h("GET /v1/lan/phones/{id}/audit", s.lanPhoneAudit)
 	h("PUT /v1/lan/host", s.lanHostReport)
 	h("PUT /v1/lan/web/{version}/files/{path...}", s.putLANWebFile)
 	h("POST /v1/lan/web/{version}", s.installLANWeb)

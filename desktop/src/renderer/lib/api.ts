@@ -120,6 +120,10 @@ export const api = {
   updateLAN: (req: T.UpdateLANRequest) => call<T.LANStatus>('PATCH', '/v1/lan', req),
   pairLAN: () => call<T.LANPairing>('POST', '/v1/lan/pairings'),
   removeLANPhone: (id: string) => call<void>('DELETE', `/v1/lan/phones/${encodeURIComponent(id)}`),
+  updateLANPhone: (id: string, scopes: string[]) =>
+    call<T.LANPhone>('PATCH', `/v1/lan/phones/${encodeURIComponent(id)}`, { scopes } satisfies T.UpdateLANPhoneRequest),
+  lanPhoneAudit: (id: string, before = 0) =>
+    call<T.LANAudit>('GET', `/v1/lan/phones/${encodeURIComponent(id)}/audit${before > 0 ? `?before=${before}` : ''}`),
   update: () => call<T.UpdateStatus>('GET', '/v1/update'),
   latestRelease: () => call<T.UpdateRelease>('GET', '/v1/update/release'),
   updateSettings: (req: T.UpdateSettingsRequest) => call<T.Settings>('PATCH', '/v1/settings', req),
@@ -311,8 +315,10 @@ export const api = {
   projectLabels: (project: string) => call<T.ProjectLabels>('GET', `/v1/projects/${encodeURIComponent(project)}/labels`),
   editPullRequestLabels: (project: string, number: number, edit: T.EditLabelsRequest) =>
     call<T.Label[]>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/labels`, edit satisfies T.EditLabelsRequest),
-  mergePullRequest: (project: string, number: number, method: string) =>
-    call<T.PullRequest>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge`, { method } satisfies T.MergePullRequestRequest),
+  // confirmed is the phone saying the user confirmed the merge there, which
+  // the daemon asks of a phone (internal/daemon/lan.go).
+  mergePullRequest: (project: string, number: number, method: string, confirmed?: boolean) =>
+    call<T.PullRequest>('POST', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/merge`, { method, confirmed } satisfies T.MergePullRequestRequest),
   pullRequestDetail: (project: string, number: number) => call<T.PullRequestDetail>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}`),
   pullRequestFiles: (project: string, number: number) => call<T.PullRequestFiles>('GET', `/v1/projects/${encodeURIComponent(project)}/pulls/${number}/files`),
   pullFileDiff: (project: string, number: number, path: string) =>

@@ -1354,6 +1354,9 @@ type ProjectPullRequests struct {
 // "merge", "squash" or "rebase".
 type MergePullRequestRequest struct {
 	Method string `json:"method"`
+	// Confirmed says the user confirmed this merge on the phone it came
+	// from: a phone's merge without it is refused. The app needn't set it.
+	Confirmed bool `json:"confirmed,omitempty"`
 }
 
 // PullRequestDetail is one pull request as the app's pull request view shows

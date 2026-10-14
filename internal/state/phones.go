@@ -8,6 +8,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -50,6 +53,27 @@ const DefaultLANTunnelPort = 7781
 // MaxPhoneNameLen bounds a phone's name, which the phone suggests itself.
 const MaxPhoneNameLen = 60
 
+// What a phone may do through the daemon's API (internal/daemon/lan.go).
+// Some things no scope allows: the daemon refuses them to every phone.
+const (
+	// PhoneScopeRead reads: projects, agents, chats, pull requests.
+	PhoneScopeRead = "read"
+	// PhoneScopeChat sends messages, cancels a turn, answers a chat's
+	// permission requests and starts an agent's chat.
+	PhoneScopeChat = "chat"
+	// PhoneScopeAnswer answers the questions agents ask.
+	PhoneScopeAnswer = "answer"
+	// PhoneScopeMerge merges pull requests. Never given at pairing: the user
+	// turns it on for a phone in the app on the computer.
+	PhoneScopeMerge = "merge"
+)
+
+// PhoneScopes are every scope, in the order the app lists them.
+var PhoneScopes = []string{PhoneScopeRead, PhoneScopeChat, PhoneScopeAnswer, PhoneScopeMerge}
+
+// DefaultPhoneScopes are what a phone gets when it pairs.
+var DefaultPhoneScopes = []string{PhoneScopeRead, PhoneScopeChat, PhoneScopeAnswer}
+
 // Phone is a paired phone.
 type Phone struct {
 	ID       string
@@ -57,6 +81,32 @@ type Phone struct {
 	Created  time.Time
 	LastSeen time.Time // zero until it first connects after pairing
 	LastAddr string
+	Scopes   []string // in PhoneScopes' order
+}
+
+// Can says the phone has scope.
+func (p Phone) Can(scope string) bool { return slices.Contains(p.Scopes, scope) }
+
+// normalScopes is scopes in PhoneScopes' order, each once, or an error
+// naming one that isn't a scope.
+func normalScopes(scopes []string) ([]string, error) {
+	for _, sc := range scopes {
+		if !slices.Contains(PhoneScopes, sc) {
+			return nil, fmt.Errorf("%q isn't a phone scope: use %s", sc, strings.Join(PhoneScopes, ", "))
+		}
+	}
+	out := []string{}
+	for _, sc := range PhoneScopes {
+		if slices.Contains(scopes, sc) {
+			out = append(out, sc)
+		}
+	}
+	return out, nil
+}
+
+func parseScopes(s string) []string {
+	out, _ := normalScopes(strings.FieldsFunc(s, func(r rune) bool { return r == ',' }))
+	return out
 }
 
 // HashPhoneToken is what's stored of a phone's token.
@@ -85,8 +135,9 @@ func (s *Store) AddPhone(ctx context.Context, name string) (Phone, string, error
 	}
 	p := Phone{ID: "phone_" + hex.EncodeToString(id), Name: name, Created: time.Now()}
 	token := p.ID + "." + base64.RawURLEncoding.EncodeToString(secret)
-	_, err := s.db.ExecContext(ctx, `INSERT INTO phones (id, name, token_hash, created_at) VALUES (?, ?, ?, ?)`,
-		p.ID, p.Name, HashPhoneToken(token), p.Created.Unix())
+	p.Scopes = slices.Clone(DefaultPhoneScopes)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO phones (id, name, token_hash, created_at, scopes) VALUES (?, ?, ?, ?, ?)`,
+		p.ID, p.Name, HashPhoneToken(token), p.Created.Unix(), strings.Join(p.Scopes, ","))
 	if err != nil {
 		return Phone{}, "", err
 	}
@@ -98,7 +149,7 @@ func (s *Store) PhoneByToken(ctx context.Context, token string) (Phone, error) {
 	if token == "" {
 		return Phone{}, ErrNotFound
 	}
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, last_seen_at, last_addr FROM phones WHERE token_hash = ?`, HashPhoneToken(token))
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, last_seen_at, last_addr, scopes FROM phones WHERE token_hash = ?`, HashPhoneToken(token))
 	p, err := scanPhone(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Phone{}, ErrNotFound
@@ -108,7 +159,7 @@ func (s *Store) PhoneByToken(ctx context.Context, token string) (Phone, error) {
 
 // Phones lists the paired phones, the most recently paired first.
 func (s *Store) Phones(ctx context.Context) ([]Phone, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, last_seen_at, last_addr FROM phones ORDER BY created_at DESC, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, created_at, last_seen_at, last_addr, scopes FROM phones ORDER BY created_at DESC, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +181,74 @@ func (s *Store) SawPhone(ctx context.Context, id, addr string, at time.Time) err
 	return err
 }
 
+// SetPhoneScopes replaces what a phone may do, and returns it as it now is.
+func (s *Store) SetPhoneScopes(ctx context.Context, id string, scopes []string) (Phone, error) {
+	scopes, err := normalScopes(scopes)
+	if err != nil {
+		return Phone{}, err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE phones SET scopes = ? WHERE id = ?`, strings.Join(scopes, ","), id)
+	if err != nil {
+		return Phone{}, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return Phone{}, ErrNotFound
+	}
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, created_at, last_seen_at, last_addr, scopes FROM phones WHERE id = ?`, id)
+	return scanPhone(row)
+}
+
+// PhoneAuditEntry is one write a phone made, or tried to.
+type PhoneAuditEntry struct {
+	ID        int64
+	PhoneID   string
+	PhoneName string
+	// Scope is the one the route needs, or "" for one no phone may use.
+	Scope string
+	Route string // "POST /v1/projects/p/chat/messages"
+	// Status is the HTTP status it got, and Result a word for it: "ok",
+	// "refused" (the phone may not), or "failed".
+	Status int
+	Result string
+	Addr   string
+	At     time.Time
+}
+
+// AddPhoneAudit appends an entry, at e.At or, when that is zero, now.
+func (s *Store) AddPhoneAudit(ctx context.Context, e PhoneAuditEntry) error {
+	if e.At.IsZero() {
+		e.At = time.Now()
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO phone_audit (phone_id, phone_name, scope, route, status, result, addr, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.PhoneID, e.PhoneName, e.Scope, e.Route, e.Status, e.Result, e.Addr, e.At.Unix())
+	return err
+}
+
+// PhoneAudit is a phone's audit, newest first, at most limit entries, from
+// before the entry before (0: from the newest).
+func (s *Store) PhoneAudit(ctx context.Context, phoneID string, before int64, limit int) ([]PhoneAuditEntry, error) {
+	if before <= 0 {
+		before = math.MaxInt64
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, phone_id, phone_name, scope, route, status, result, addr, at FROM phone_audit
+		WHERE phone_id = ? AND id < ? ORDER BY id DESC LIMIT ?`, phoneID, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := []PhoneAuditEntry{}
+	for rows.Next() {
+		var e PhoneAuditEntry
+		var at int64
+		if err := rows.Scan(&e.ID, &e.PhoneID, &e.PhoneName, &e.Scope, &e.Route, &e.Status, &e.Result, &e.Addr, &at); err != nil {
+			return nil, err
+		}
+		e.At = time.Unix(at, 0)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // RemovePhone unpairs a phone: its token stops working at once.
 func (s *Store) RemovePhone(ctx context.Context, id string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM phones WHERE id = ?`, id)
@@ -145,9 +264,11 @@ func (s *Store) RemovePhone(ctx context.Context, id string) error {
 func scanPhone(row interface{ Scan(...any) error }) (Phone, error) {
 	var p Phone
 	var created, seen int64
-	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr); err != nil {
+	var scopes string
+	if err := row.Scan(&p.ID, &p.Name, &created, &seen, &p.LastAddr, &scopes); err != nil {
 		return Phone{}, err
 	}
+	p.Scopes = parseScopes(scopes)
 	p.Created = time.Unix(created, 0)
 	if seen > 0 {
 		p.LastSeen = time.Unix(seen, 0)

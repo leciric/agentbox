@@ -1286,6 +1286,7 @@ export interface ProjectPullRequests {
 
 export interface MergePullRequestRequest {
   method: string;
+  confirmed?: boolean;
 }
 
 export interface PullRequestDetail {
@@ -1602,6 +1603,7 @@ export interface LANPhone {
   paired: string;
   lastSeen?: string;
   lastAddr?: string;
+  scopes: string[];
 }
 
 export interface UpdateLANRequest {
@@ -1632,6 +1634,25 @@ export interface LANPairRequest {
 
 export interface LANSession {
   phone: LANPhone;
+}
+
+export interface UpdateLANPhoneRequest {
+  scopes: string[];
+}
+
+export interface LANAuditEntry {
+  id: number;
+  scope?: string;
+  route: string;
+  status: number;
+  result: string;
+  addr: string;
+  at: string;
+}
+
+export interface LANAudit {
+  entries: LANAuditEntry[];
+  more?: boolean;
 }
 
 export interface ChatThread {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 )
 
@@ -64,6 +65,39 @@ type LANPhone struct {
 	Paired   time.Time `json:"paired"`
 	LastSeen time.Time `json:"lastSeen,omitzero,omitempty"`
 	LastAddr string    `json:"lastAddr,omitempty"`
+	// Scopes are what it may do: "read", "chat" (send messages, cancel,
+	// answer a chat's permission requests), "answer" (agents' questions) and
+	// "merge" (pull requests, each confirmed on the phone). Pairing gives the
+	// first three; merge is only ever turned on in the app.
+	Scopes []string `json:"scopes"`
+}
+
+// UpdateLANPhoneRequest is PATCH /v1/lan/phones/{id}: what the phone may do
+// from now on, every scope it keeps.
+type UpdateLANPhoneRequest struct {
+	Scopes []string `json:"scopes"`
+}
+
+// LANAuditEntry is one write a phone made, or tried to: GET
+// /v1/lan/phones/{id}/audit, newest first.
+type LANAuditEntry struct {
+	ID int64 `json:"id"`
+	// Scope is what the route needs; empty for one no phone may use.
+	Scope string `json:"scope,omitempty"`
+	Route string `json:"route"` // method and path
+	// Status is the HTTP status it got; Result is "ok", "refused" (the phone
+	// may not) or "failed".
+	Status int       `json:"status"`
+	Result string    `json:"result"`
+	Addr   string    `json:"addr"`
+	At     time.Time `json:"at"`
+}
+
+// LANAudit is a page of a phone's audit. More says there are older entries:
+// ask again with ?before= the last one's ID.
+type LANAudit struct {
+	Entries []LANAuditEntry `json:"entries"`
+	More    bool            `json:"more,omitempty"`
 }
 
 // UpdateLANRequest is PATCH /v1/lan.
@@ -134,6 +168,23 @@ func (c *Client) PairLAN(ctx context.Context) (LANPairing, error) {
 // RemoveLANPhone unpairs a phone.
 func (c *Client) RemoveLANPhone(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/lan/phones/"+url.PathEscape(id), nil, nil)
+}
+
+// UpdateLANPhone changes what a phone may do.
+func (c *Client) UpdateLANPhone(ctx context.Context, id string, req UpdateLANPhoneRequest) (LANPhone, error) {
+	var out LANPhone
+	return out, c.do(ctx, http.MethodPatch, "/v1/lan/phones/"+url.PathEscape(id), req, &out)
+}
+
+// LANPhoneAudit is a phone's writes, newest first, from before the entry
+// before (0: the newest).
+func (c *Client) LANPhoneAudit(ctx context.Context, id string, before int64) (LANAudit, error) {
+	var out LANAudit
+	path := "/v1/lan/phones/" + url.PathEscape(id) + "/audit"
+	if before > 0 {
+		path += "?before=" + strconv.FormatInt(before, 10)
+	}
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
 // ReportLANHost is the VM supervisor's report on the port it opens on the
