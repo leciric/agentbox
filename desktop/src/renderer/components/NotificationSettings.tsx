@@ -79,7 +79,7 @@ export function DoNotDisturbSetting() {
   const t = useT();
   return (
     <SettingRow label={t('notify.dnd.title')} description={t('notify.dnd.description')}>
-      <DoNotDisturbControl />
+      <DoNotDisturbControl titled={false} />
     </SettingRow>
   );
 }

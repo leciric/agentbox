@@ -50,15 +50,17 @@ export function untilText(until: number, t: Translate, now = Date.now()): string
 
 // DoNotDisturbControl is the durations that turn it on and the way to turn it
 // off, in Settings and in the top bar's popover.
-export function DoNotDisturbControl({ className }: { className?: string }) {
+export function DoNotDisturbControl({ className, titled = true }: { className?: string; titled?: boolean }) {
   const t = useT();
   const { on, until } = useDnd();
   return (
     <div className={cn('grid gap-2', className)} data-dnd-control>
-      <div className="text-[13px] font-medium text-title">{t('notify.dnd.title')}</div>
-      <p className="text-[12px] text-muted" data-dnd-status>
-        {on ? untilText(until, t) : t('notify.dnd.hint')}
-      </p>
+      {titled && <div className="text-[13px] font-medium text-title">{t('notify.dnd.title')}</div>}
+      {(on || titled) && (
+        <p className="text-[12px] text-muted" data-dnd-status>
+          {on ? untilText(until, t) : t('notify.dnd.hint')}
+        </p>
+      )}
       <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('notify.dnd.title')}>
         {durations.map((d) => (
           <Button key={d} size="sm" variant="secondary" data-dnd-duration={d} onClick={() => setDnd(d)}>
