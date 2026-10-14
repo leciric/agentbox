@@ -25,6 +25,7 @@ type fakeHatch struct {
 	contentURL bool
 	seen       []string // the Authorization of each MCP request
 	gone       map[string]bool
+	published  []string // the HTML of each publish_page
 }
 
 func newFakeHatch(t *testing.T) *fakeHatch {
@@ -85,6 +86,12 @@ func (f *fakeHatch) mcp(w http.ResponseWriter, r *http.Request) {
 			page["content_url"] = f.URL + "/a/" + id + "?t=signed-" + id
 		}
 		answer(map[string]any{"content": []any{map[string]any{"type": "text", "text": "Q3 report"}}, "structuredContent": page})
+	case msg.Method == "tools/call" && msg.Params.Name == "publish_page":
+		f.mu.Lock()
+		f.published = append(f.published, msg.Params.Arguments["html"])
+		f.mu.Unlock()
+		link := "http://" + r.Host + "/p/R1"
+		answer(map[string]any{"content": []any{map[string]any{"type": "text", "text": `Published "` + msg.Params.Arguments["title"] + `" (id R1, version 1): ` + link}}})
 	default:
 		answer(map[string]any{})
 	}
@@ -203,5 +210,44 @@ func TestArtifacts(t *testing.T) {
 	}
 	if list, err := d.client.Artifacts(ctx, "hello-stack", ""); err != nil || list.Connector != "" || len(list.Artifacts) != 0 {
 		t.Errorf("turned off: %+v, %v", list, err)
+	}
+}
+
+// A block a chat rendered, published from the app: Hatch gets its HTML, and
+// the chat a publish_page line that makes it one of the project's pages.
+func TestPublishRender(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), oneAgentIncus)
+	ctx := context.Background()
+	addTestAgent(t, d)
+	hatch := newFakeHatch(t)
+	u, _ := url.Parse(hatch.URL)
+	d.srv.hatchHost = u.Host
+
+	req := api.PublishRenderRequest{Title: "Flow", HTML: "<svg></svg>"}
+	if _, err := d.client.PublishRender(ctx, "hello-stack", req); err == nil {
+		t.Fatal("published without a Hatch connector")
+	}
+	if _, err := d.client.SetConnector(ctx, "", "hatch", api.SetConnectorRequest{URL: hatch.URL + "/mcp", Secret: "HATCH_TOKEN", SecretValue: "shr_1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.client.PublishRender(ctx, "hello-stack", api.PublishRenderRequest{Title: " "}); err == nil {
+		t.Error("published a page with no title or HTML")
+	}
+	out, err := d.client.PublishRender(ctx, "hello-stack", req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.URL != "http://"+u.Host+"/p/R1" || out.Item.Kind != "tool" || out.Item.Tool == nil || out.Item.Tool.Name != "publish_page" || out.Item.Tool.Status != "completed" {
+		t.Errorf("published: %+v", out)
+	}
+	hatch.mu.Lock()
+	if len(hatch.published) != 1 || hatch.published[0] != "<svg></svg>" {
+		t.Errorf("Hatch got %q", hatch.published)
+	}
+	hatch.mu.Unlock()
+	list, err := d.client.Artifacts(ctx, "hello-stack", "")
+	if err != nil || len(list.Artifacts) != 1 || list.Artifacts[0].ID != "R1" || list.Artifacts[0].Title != "Flow" || list.Artifacts[0].Item != out.Item.ID {
+		t.Errorf("artifacts: %+v, %v", list, err)
 	}
 }

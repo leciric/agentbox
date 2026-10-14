@@ -28,3 +28,14 @@ func (c *Client) ArtifactPage(ctx context.Context, project, id string) (string, 
 	var out string
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/artifacts/"+url.PathEscape(id)+"/page", nil, &out)
 }
+
+// PublishRender publishes a block a chat rendered on Hatch. ref is the
+// chat's agent: project/lead for a project's chat.
+func (c *Client) PublishRender(ctx context.Context, ref string, req PublishRenderRequest) (PublishRenderResult, error) {
+	var out PublishRenderResult
+	path, err := chatPath(ref)
+	if err != nil {
+		return out, err
+	}
+	return out, c.do(ctx, http.MethodPost, path+"/publish", req, &out)
+}

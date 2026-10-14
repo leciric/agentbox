@@ -41,6 +41,8 @@
 //   ?chat=stopped|paused    a stopped (or paused) agent's stored conversation,
 //                           readable, with Start (Resume) on the composer.
 //                           Start, or sending a message, wakes it after 1.5s
+//   ?chat=rich              a project chat's answer with each kind of rich block
+//                           (lib/rich.ts); &narrow=1 in a 340px column
 //   ?chat=compaction        a project chat's timeline with compaction cards,
 //                           done, failed and running with a held message
 //   ?wsl=create|nowsl       Windows' first screen before setup: the distro to
@@ -201,7 +203,7 @@ import { HomeChatPanel } from '../components/HomeChatPanel';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
-import { agent12Chat, asleepChat, buildFixtures, compactionThread, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, compactionThread, richChat, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { PageArrivals } from '../components/pages/PageArrivals';
 import { PagePreviewHost } from '../components/pages/PagePreview';
@@ -733,6 +735,10 @@ function Preview() {
         ) : chat === 'stopped' || chat === 'paused' ? (
           <div style={{ height: '100%', margin: -24 }}>
             <AsleepChatPreview state={chat} agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/agent-99`)!} />
+          </div>
+        ) : chat === 'rich' ? (
+          <div style={{ maxWidth: params.get('narrow') ? 340 : 720 }} data-rich-preview>
+            <Timeline agent={{ ...fixtures.agents[0], ref: `${PROJECT}/lead`, name: 'lead' }} thread={richChat()} />
           </div>
         ) : chat === 'compaction' ? (
           <div style={{ maxWidth: 720 }}>

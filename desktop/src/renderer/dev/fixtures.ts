@@ -77,6 +77,70 @@ function agent(overrides: Partial<T.Agent> & { ref: string }): T.Agent {
   };
 }
 
+// richChat is a project chat whose answer draws each kind of rich block
+// (lib/rich.ts): a sequence diagram and a pie chart from mermaid, an SVG,
+// a page run in its frame, and a plain ```html block that stays code.
+export function richChat(): T.ChatThread {
+  const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+  const fence = '```';
+  const text = [
+    'A chat item goes from the AI tool to this timeline like this:',
+    '',
+    `${fence}mermaid`,
+    'sequenceDiagram',
+    '  participant T as AI tool',
+    '  participant D as Daemon',
+    '  participant A as App',
+    '  T->>D: session/update over ACP',
+    '  D->>D: chat_items in state.db',
+    '  D-->>A: event stream',
+    '  A->>A: Timeline, Markdown, RichBlock',
+    fence,
+    '',
+    'Where this week’s tokens went:',
+    '',
+    `${fence}mermaid`,
+    'pie title Tokens by model',
+    '  "Opus" : 62',
+    '  "Sonnet" : 27',
+    '  "Haiku" : 11',
+    fence,
+    '',
+    'The status badge, drawn:',
+    '',
+    `${fence}svg`,
+    '<svg viewBox="0 0 220 48" width="220" height="48"><rect width="220" height="48" rx="10" fill="#4f46e5"/><circle cx="24" cy="24" r="8" fill="#a5f3fc"/><text x="42" y="30" font-family="sans-serif" font-size="16" fill="#fff">3 agents running</text></svg>',
+    fence,
+    '',
+    'And a page you can click, run with no network:',
+    '',
+    `${fence}html preview`,
+    '<!doctype html><html><head><title>Agents by state</title><style>.row{display:flex;align-items:center;gap:8px;margin:6px 0}.bar{height:14px;border-radius:4px;background:#6366f1}button{margin-top:8px}</style></head><body>',
+    '<h3 style="margin:0 0 8px">Agents by state</h3>',
+    '<div class="row"><span style="width:70px">Working</span><div class="bar" style="width:120px"></div>3</div>',
+    '<div class="row"><span style="width:70px">Waiting</span><div class="bar" style="width:40px;background:#f59e0b"></div>1</div>',
+    '<div class="row"><span style="width:70px">Finished</span><div class="bar" style="width:200px;background:#10b981"></div>5</div>',
+    '<button onclick="this.textContent = \'Clicked \' + (++window.n || (window.n = 1)) + \'×\'">Click me</button>',
+    '</body></html>',
+    fence,
+    '',
+    'An HTML example stays code until you preview it:',
+    '',
+    `${fence}html`,
+    '<a href="https://example.com/a/very/long/unbroken/path/that/should/scroll/inside/its/block/and/never/widen/the/column">link</a>',
+    fence,
+  ].join('\n');
+  return {
+    agent: `${PROJECT}/lead`,
+    seq: 1,
+    session: { state: 'idle', tool: 'claude', options: [], commands: [] },
+    items: [
+      { id: 'u1', turn: 'u1', kind: 'user', text: 'Show me how chat items reach the app, and how the agents are doing.', createdAt: at(60_000), updatedAt: at(60_000) },
+      { id: 'a1', turn: 'u1', kind: 'assistant', text, createdAt: at(50_000), updatedAt: at(50_000) },
+    ],
+  };
+}
+
 // compactionThread is a project chat that has compacted three times (D73):
 // once cleanly, once without managing to save the conversation, and once
 // still running, with a message the user sent meanwhile held under the card.
@@ -1677,6 +1741,8 @@ export function installDevBridge(): void {
     mediaUrl: (id: string) => mediaFiles.get(id) ?? '',
     chatImageUrl: (path: string) => pagePageUrl(path) ?? '',
     pageThumb: (path: string) => pageThumbUrl(path),
+    // No render host here: a chat's page is its frame's srcdoc (RichBlock).
+    renderUrl: async () => null,
     report: { sections: async () => [], windowError: () => {}, onAppError: () => () => {}, openLogs: async () => '' },
     pickDirectory: async () => null,
     setLanguage: () => {},

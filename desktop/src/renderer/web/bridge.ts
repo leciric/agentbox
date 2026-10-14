@@ -208,6 +208,9 @@ export const webBridge: Bridge & { web: true; lan: boolean } = {
     `${apiBase()}/v1/media/${encodeURIComponent(id)}/file${path ? `?path=${encodeURIComponent(path)}` : ''}`,
   chatImageUrl: (path: string) => `${apiBase()}${path}`,
   // No offscreen window to draw a page in: its tile is drawn from its title.
+  // The phone has no render host: a chat's page is its frame's srcdoc, under
+  // the app's policy, so its scripts don't run.
+  renderUrl: () => Promise.resolve(null),
   pageThumb: () => Promise.resolve(null),
   // The web app has no main process: a report carries only the daemon's
   // sections and the page's own errors.

@@ -16,7 +16,8 @@ import { ChangedFiles } from './ChangedFiles';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
 import { TurnMarker } from './TurnMarker';
-import { ChatRefContext, SubagentCard, WorkGroup } from './Work';
+import { ChatRefContext } from './chatRef';
+import { SubagentCard, WorkGroup } from './Work';
 
 export function Timeline({ agent, thread, onOpenAgent }: { agent: T.Agent; thread: T.ChatThread; onOpenAgent?: (ref: string) => void }) {
   const t = useT();
@@ -75,7 +76,7 @@ const TimelineRow = memo(
         return (
           <div className={cn('group min-w-0 px-1', row.final ? 'pb-4' : 'pb-2.5')} data-chat-item="assistant" data-chat-id={row.item.id}>
             <div data-chat-text>
-              <Markdown text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
+              <Markdown rich text={row.item.text ?? ''} streaming={row.item.streaming} className="text-sm leading-relaxed text-tertiary" />
             </div>
             {row.final && <Meta item={row.item} className="mt-1.5" replay />}
           </div>

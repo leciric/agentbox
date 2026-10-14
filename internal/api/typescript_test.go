@@ -55,7 +55,7 @@ var tsTypes = []any{
 	VMStatus{}, VMMemory{}, VMDisk{}, VMDiskImage{}, VMHomeDisk{}, VMSwap{}, VMLimits{}, VMResizeRequest{}, VMStopRequest{},
 	ReportSection{}, ReportDraftRequest{}, ReportDraft{}, ReportRequest{}, ReportSent{},
 	SearchResults{}, SearchGroup{}, SearchHit{},
-	Artifact{}, Artifacts{}, ArtifactPreview{},
+	Artifact{}, Artifacts{}, ArtifactPreview{}, PublishRenderRequest{}, PublishRenderResult{},
 }
 
 var tsConstants = [][2]string{

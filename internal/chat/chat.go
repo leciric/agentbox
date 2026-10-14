@@ -538,6 +538,22 @@ func (m *Manager) Notice(a state.Agent, text string, opts NoticeOptions) error {
 	return nil
 }
 
+// Record adds a tool call the app made on a chat's behalf, already done:
+// a block the chat rendered, published on Hatch from the app. The AI tool
+// never hears of it. It is in the chat so the page is found where it was
+// made, as one the AI tool published is (hatch.Collect).
+func (m *Manager) Record(a state.Agent, tool api.ChatTool) (api.ChatItem, error) {
+	c, err := m.conversation(a)
+	if err != nil {
+		return api.ChatItem{}, err
+	}
+	defer c.mu.Unlock()
+	it := c.add("tool", c.lastTurn())
+	it.Tool = &tool
+	c.flush(true)
+	return clone(*it), nil
+}
+
 // NoticeOptions is how a notice is delivered.
 type NoticeOptions struct {
 	// Act starts a turn on the notice, so the conversation reacts to it now.

@@ -270,6 +270,9 @@ const bridge = {
   // its daemon path and kept by key (<id>@<version>), or null when its HTML
   // can't be had (main/pagethumbs.ts).
   pageThumb: (path: string, key: string): Promise<string | null> => ipcRenderer.invoke('pageThumb:get', path, key),
+  // renderUrl is where to frame a page a chat rendered from (main/renders.ts),
+  // served with a policy of its own, with or without network.
+  renderUrl: (html: string, network: boolean): Promise<string | null> => ipcRenderer.invoke('render:register', html, network),
   // Problem reports: the app's own sections of one (main/applog.ts), a
   // window's uncaught error to keep with them, the main process's uncaught
   // errors as they happen, and the folder the app's logs are in.

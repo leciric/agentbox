@@ -281,6 +281,9 @@ export const api = {
   pages: (name: string) => call<T.Artifacts>('GET', `${project(name)}/artifacts`),
   pagePreview: (name: string, id: string) => call<T.ArtifactPreview>('GET', `${project(name)}/artifacts/${encodeURIComponent(id)}`),
   pageUrl: (name: string, id: string) => window.agentbox.chatImageUrl(pagePath(name, id)),
+  // publishRender publishes a block a chat rendered on Hatch, as a page; the
+  // chat gets the publish_page line, which makes it one of the project's pages.
+  publishRender: (ref: string, req: T.PublishRenderRequest) => call<T.PublishRenderResult>('POST', `${chatBase(ref)}/publish`, req),
   pageThumb: (name: string, id: string, key: string): Promise<string | null> =>
     window.agentbox.pageThumb(pagePath(name, id), key),
 

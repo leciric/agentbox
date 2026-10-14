@@ -18,6 +18,7 @@ import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
 import { showNotice, type OSNotice } from './notify';
 import { pageThumb } from './pagethumbs';
+import { registerRender } from './renders';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
 import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
@@ -250,6 +251,7 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   await shell.openExternal(url);
 });
 ipcMain.handle('pageThumb:get', (_event, path: string, key: string) => pageThumb(path, key));
+ipcMain.handle('render:register', (_event, html: string, network: boolean) => registerRender(String(html), !!network));
 ipcMain.handle('notify:show', (_event, notice: OSNotice) => showNotice(win, notice, (id) => send('notify:click', id)));
 ipcMain.on('clipboard:write', (_event, text: string) => clipboard.writeText(text));
 ipcMain.handle('clipboard:read', () => clipboard.readText());

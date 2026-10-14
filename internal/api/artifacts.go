@@ -78,3 +78,19 @@ const (
 	// to ask: the artifact may well be there.
 	ArtifactUnavailable = "unavailable"
 )
+
+// PublishRenderRequest is POST /v1/projects/{project}/chat/publish (or an
+// agent's .../chat/publish): a block the chat rendered (a diagram, a picture,
+// a page) published on Hatch from the app, as one self-contained HTML page.
+type PublishRenderRequest struct {
+	Title string `json:"title"`
+	HTML  string `json:"html"`
+}
+
+// PublishRenderResult is what the publish made: the publish_page line it
+// left in the chat, where the project's pages are read from like any other,
+// and the page's link.
+type PublishRenderResult struct {
+	Item ChatItem `json:"item"`
+	URL  string   `json:"url"`
+}

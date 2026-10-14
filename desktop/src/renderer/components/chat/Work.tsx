@@ -17,7 +17,8 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { createContext, memo, use, useState, type ReactNode } from 'react';
+import { memo, use, useState, type ReactNode } from 'react';
+import { ChatRefContext } from './chatRef';
 import type * as T from '../../../shared/api';
 import { isHomeChat } from '../../lib/api';
 import { entryLabel, isActive, isWork, liveLabel, workSummary } from '../../lib/chat';
@@ -29,9 +30,6 @@ import { pagesQuery } from '../pages/usePages';
 import { DiffView } from './ChangedFiles';
 import { Markdown } from './Markdown';
 
-// ChatRefContext is the chat a timeline is of, for a publish_page line to
-// find its page among the project's.
-export const ChatRefContext = createContext('');
 
 const rowClass =
   'group/row flex min-h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left text-sm leading-relaxed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/40';
@@ -251,7 +249,7 @@ export const SubagentCard = memo(
                 {children.map((it) =>
                   it.kind === 'assistant' ? (
                     <div key={it.id} className="py-1 pl-1" data-chat-entry="subagent-message">
-                      <Markdown text={it.text ?? ''} streaming={it.streaming} className="text-[13px] leading-relaxed text-muted" />
+                      <Markdown rich text={it.text ?? ''} streaming={it.streaming} className="text-[13px] leading-relaxed text-muted" />
                     </div>
                   ) : it.kind === 'subagent' ? (
                     <div key={it.id} className={cn(rowClass, 'cursor-default')} data-chat-entry="subagent">

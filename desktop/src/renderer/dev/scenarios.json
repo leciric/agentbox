@@ -1006,5 +1006,26 @@
     "query": "pages=lead&media=project&theme=dark",
     "width": 1280,
     "height": 900
+  },
+  {
+    "id": "chat-rich-dark",
+    "description": "A project chat's answer with a mermaid diagram and chart, an SVG, a framed page and an html block left as code — dark",
+    "query": "chat=rich&theme=dark",
+    "width": 1280,
+    "height": 1500
+  },
+  {
+    "id": "chat-rich-narrow-light",
+    "description": "The same answer in a 340px column, where nothing may widen it — light",
+    "query": "chat=rich&narrow=1&theme=light",
+    "width": 1100,
+    "height": 1500
+  },
+  {
+    "id": "chat-rich-narrow-pt",
+    "description": "The same answer in a 340px column, in Portuguese — dark",
+    "query": "chat=rich&narrow=1&lang=pt-BR&theme=dark",
+    "width": 1100,
+    "height": 1500
   }
 ]
