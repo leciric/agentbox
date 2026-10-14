@@ -89,6 +89,14 @@ export function ChatTab({
   const composer = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   const lastTop = useRef(0);
+  // When you last touched, wheeled, keyed or grabbed the scroller: only a
+  // scroll up you made stops following. Content that got shorter as it laid
+  // out — a diagram drawn smaller than its placeholder — pulls the scroll up
+  // too, and on a phone that left a chat short of its end.
+  const touched = useRef(0);
+  const touch = () => {
+    touched.current = Date.now();
+  };
   const [atEnd, setAtEnd] = useState(true);
   const [composerHeight, setComposerHeight] = useState(120);
 
@@ -236,6 +244,10 @@ export function ChatTab({
       <div
         ref={scroller}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+        onWheel={touch}
+        onTouchMove={touch}
+        onKeyDown={touch}
+        onPointerDown={touch}
         onScroll={(event) => {
           const box = event.currentTarget;
           const end = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
@@ -243,7 +255,7 @@ export function ChatTab({
           // A smooth scroll down to the end passes the middle, which doesn't count.
           // A window's end isn't the chat's: it reads on instead.
           if (end && !win) following.current = true;
-          else if (box.scrollTop < lastTop.current - 1) following.current = false;
+          else if (box.scrollTop < lastTop.current - 1 && Date.now() - touched.current < 1500) following.current = false;
           lastTop.current = box.scrollTop;
           setAtEnd(!win && (end || following.current));
           if (box.scrollTop < 400) loadMore();
