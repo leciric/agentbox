@@ -47,3 +47,87 @@ export const countLabel = (n: number) => (n > 99 ? '99+' : String(n));
 // withoutAgent is the list with one agent taken off, as a verdict does
 // before the daemon's answer comes back.
 export const withoutAgent = (list: T.ReviewItem[] | undefined, ref: string) => list?.filter((i) => i.ref !== ref);
+
+// reviewedKey is the Reviewed section's list: the agents already reviewed or
+// dismissed, the latest verdict first.
+export const reviewedKey = (project?: string) => (project ? (['reviewed', project] as const) : (['reviewed'] as const));
+
+// MergeBlock is why a pull request can't be merged from the review: it
+// isn't open any more, it's a draft, its checks fail, it conflicts with its
+// base, or the project's account may not merge in this repository.
+export type MergeBlock = 'merged' | 'closed' | 'draft' | 'failing' | 'conflict' | 'noPermission';
+
+// mergeBlock is what stops pr being merged, or null when it can be: the
+// confirmation still warns about checks that haven't finished.
+export function mergeBlock(pr: T.PullRequest, pulls?: Pick<T.ProjectPullRequests, 'canMergeKnown' | 'canMerge'>): MergeBlock | null {
+  if (pr.state === 'merged') return 'merged';
+  if (pr.state !== 'open') return 'closed';
+  if (pr.draft) return 'draft';
+  if (pulls?.canMergeKnown && !pulls.canMerge) return 'noPermission';
+  if (pr.conflict) return 'conflict';
+  if (pr.checks === 'failing') return 'failing';
+  return null;
+}
+
+// queueOf is the order "Review all" walks: the agents waiting when it began,
+// then any that arrived since. An agent reviewed on the way stays in it, so
+// the position doesn't jump.
+export function queueOf(order: readonly string[], live: readonly T.ReviewItem[]): string[] {
+  const seen = new Set(order);
+  return [...order, ...live.map((i) => i.ref).filter((r) => !seen.has(r))];
+}
+
+// nextPending is the agent after current in the walk that still waits for
+// review, or undefined when current was the last.
+export function nextPending(order: readonly string[], current: string, live: readonly T.ReviewItem[]): T.ReviewItem | undefined {
+  const queue = queueOf(order, live);
+  const byRef = new Map(live.map((i) => [i.ref, i]));
+  for (const ref of queue.slice(queue.indexOf(current) + 1)) {
+    const item = byRef.get(ref);
+    if (item && ref !== current) return item;
+  }
+  return undefined;
+}
+
+// ReviewAction is what a key does in the review.
+export type ReviewAction = 'previous' | 'next' | 'first' | 'last' | 'nextAgent' | 'reviewed' | 'dismiss' | 'merge';
+
+// The keys, as the review lists them under the slides.
+export const reviewKeys: readonly { keys: readonly string[]; action: ReviewAction }[] = [
+  { keys: ['←', '→'], action: 'next' },
+  { keys: ['N'], action: 'nextAgent' },
+  { keys: ['R'], action: 'reviewed' },
+  { keys: ['D'], action: 'dismiss' },
+  { keys: ['M'], action: 'merge' },
+];
+
+// reviewShortcut is the action a key press stands for in the review, or
+// null: none with Ctrl, Alt or Cmd held, which belong to the app and the
+// system.
+export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boolean; metaKey?: boolean }): ReviewAction | null {
+  if (e.ctrlKey || e.altKey || e.metaKey) return null;
+  switch (e.key) {
+    case 'ArrowLeft':
+      return 'previous';
+    case 'ArrowRight':
+      return 'next';
+    case 'Home':
+      return 'first';
+    case 'End':
+      return 'last';
+    case 'n':
+    case 'N':
+      return 'nextAgent';
+    case 'r':
+    case 'R':
+      return 'reviewed';
+    case 'd':
+    case 'D':
+      return 'dismiss';
+    case 'm':
+    case 'M':
+      return 'merge';
+    default:
+      return null;
+  }
+}
