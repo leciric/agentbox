@@ -23,7 +23,7 @@ import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap'
 import { Streams } from './streams';
 import { installAppUpdates, restartingForUpdate } from './updater';
 import { learnMode, linuxVM } from './vmmode';
-import { allowMicrophone, enableWebGPU } from './voice';
+import { denyMedia } from './permissions';
 import { distro, linuxPath, windowsPath } from './wslpaths';
 import { setLanguage, t } from '../shared/i18n/index.ts';
 import './vmpower';
@@ -38,7 +38,6 @@ captureConsole(appLog);
 process.on('uncaughtExceptionMonitor', (err) => send('app:error', appLog.error('main', err)));
 registerMediaScheme();
 registerBrowserKeys();
-enableWebGPU();
 enableShortcutPortal();
 
 let win: BrowserWindow | undefined;
@@ -281,7 +280,7 @@ function createWindow(): void {
 
 void app.whenReady().then(async () => {
   handleMedia();
-  allowMicrophone();
+  denyMedia();
   createWindow();
   registerSnapShortcut();
   // The relay answers at once, whether or not WSL does: it only reaches into

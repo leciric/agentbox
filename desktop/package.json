@@ -16,13 +16,11 @@
     "lint": "oxlint",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-test-coverage --test \"src/**/*.test.ts\"",
     "dist": "node scripts/dist.mjs",
-    "preview": "node scripts/preview.mjs",
-    "voice-bench": "node scripts/voice-bench.mjs"
+    "preview": "node scripts/preview.mjs"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@huggingface/transformers": "^4.3.1",
     "@novnc/novnc": "^1.7.0",
     "@radix-ui/react-context-menu": "^2.3.8",
     "@radix-ui/react-dialog": "^1.2.0",
@@ -48,7 +46,6 @@
     "electron-builder": "^26.15.3",
     "electron-updater": "^6.8.9",
     "esbuild": "^0.28.2",
-    "kokoro-js": "^1.2.1",
     "lucide-react": "^1.52.0",
     "mermaid": "^11.17.2",
     "oxlint": "^1.87.0",

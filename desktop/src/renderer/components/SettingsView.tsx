@@ -17,7 +17,6 @@ import {
   ListChecks,
   LoaderCircle,
   LogIn,
-  Mic,
   Plug,
   Wand2,
   Monitor,
@@ -79,7 +78,6 @@ import { ConnectorsTab } from "./ConnectorsTab";
 import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
-import { useVoiceSettings } from "../lib/voice/settings";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
@@ -90,7 +88,6 @@ import { VMMigrate } from "./VMMigrate";
 import { CHVSize, VMSize } from "./VMSize";
 import { VMSwap } from "./VMSwap";
 import { MoveToVM, moveToVMKeywords } from "./RunInVM";
-import { pushToTalkGroup, useReadAloudGroup } from "./VoiceSettings";
 
 type Status =
   | "ok"
@@ -825,7 +822,6 @@ function InstalledSettings({
   const update = useQuery({ queryKey: ["update"], queryFn: api.update, staleTime: Infinity });
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
-  const readAloud = useReadAloudGroup();
   const topBarDetailed = useTopBarDetailed();
   const pageStack = usePageStackMode();
   const hatchConnected = useHatchConnected();
@@ -854,7 +850,6 @@ function InstalledSettings({
     if (offered) setMigrationShown(true);
   }, [offered]);
   const moving = offered || (migrationShown && migration.data?.state !== "none") ? (migration.data ?? null) : null;
-  const voice = useVoiceSettings();
   // Phones pair with this machine's own daemon: not from a browser, nor with
   // an environment on a hub.
   const target = useQuery({ queryKey: ["target"], queryFn: () => window.agentbox.target.get(), staleTime: Infinity });
@@ -1068,13 +1063,6 @@ function InstalledSettings({
           ],
         },
       ],
-    },
-    {
-      id: "voice",
-      title: t("settings.section.voice.title"),
-      description: t("settings.section.voice.description"),
-      scope: "installation",
-      groups: [pushToTalkGroup(voice), readAloud],
     },
     {
       id: "models",
@@ -1460,7 +1448,6 @@ function InstalledSettings({
 const sectionIcons: SectionIcons = {
   general: SlidersHorizontal,
   models: Sparkles,
-  voice: Mic,
   skills: Wand2,
   connectors: Plug,
   memory: Brain,

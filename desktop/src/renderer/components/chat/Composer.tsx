@@ -40,17 +40,12 @@ import { useNow } from '../../lib/useNow';
 import { imageFiles, imageTypes, maxImages, prepareImage, previewUrl, type PendingImage } from '../../lib/chatImages';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
-import { stop as stopReading } from '../../lib/voice/reader';
 import { AIIcon, aiLabel } from '../state';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
 import { DiffView, relativePath } from './ChangedFiles';
 import { ImageThumb } from './Images';
-import { VoiceButton } from './VoiceButton';
-import { voiceSettings } from '../../lib/voice/settings';
 
-// onPhone is the app on a phone paired with the daemon (web/bridge.ts's lan).
-const onPhone = (window.agentbox as { lan?: boolean } | undefined)?.lan === true;
 
 // asleep is set while the agent's machine is stopped or paused: the composer
 // says so, with the button that starts it, and a message sent wakes it.
@@ -163,7 +158,7 @@ export function Composer({
     else void attach(files);
   };
   // Cancelling the turn stops its reply being read aloud too.
-  const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onMutate: stopReading, onError: (err) => toast.error(errorMessage(err)) });
+  const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const retry = useMutation({ mutationFn: () => api.startChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
   const reloadTools = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
 
@@ -239,19 +234,6 @@ export function Composer({
       return;
     }
     send.mutate({ text: text.trim(), images });
-  };
-  // What push-to-talk heard joins what's already typed, and is sent at once
-  // when Settings → Voice says so and nothing stands in the way; otherwise it
-  // waits in the composer to be edited.
-  const dictated = (words: string) => {
-    const next = [text.trim(), words].filter(Boolean).join(' ');
-    if (voiceSettings().after === 'send' && !disabled && !send.isPending && !held && !cacheCard) {
-      send.mutate({ text: next, images });
-      return;
-    }
-    pendingCursor.current = next.length;
-    setText(next);
-    area.current?.focus();
   };
   const pick = (item: SlashItem) => {
     setText(item.kind === 'skill' ? `$${item.skill.name} ` : `/${item.command.name} `);
@@ -580,9 +562,6 @@ export function Composer({
           <SessionOptions agent={agent} session={session} />
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ContextMeter session={session} />
-            {/* A phone (web/bridge.ts's lan) has its own keyboard's dictation,
-                and isn't sent the models the button runs. */}
-            {!onPhone && <VoiceButton disabled={disabled} onText={dictated} scope={area} />}
             {busy && (
               <Tip label={t('common.stop')}>
                 <button

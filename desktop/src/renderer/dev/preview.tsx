@@ -33,7 +33,6 @@
 //                           installed (it gives memory back), or without it
 //   ?vm=resize              Settings' panel for the VM's CPUs and memory, whose
 //                           resize streams made-up output
-//   ?readAloud=1            read aloud on: replies' hover rows get their speaker
 //   ?chat=awaiting          agent-41's chat: its turn ended on a CI watch still
 //                           running, so its header and its rail row say Awaiting
 //   ?chat=untracked         agent-97's (OpenCode) chat, whose header warns that
@@ -227,7 +226,6 @@ document.documentElement.dataset.appearance = params.get('theme') === 'light' ? 
 applyLanguage(params.get('lang'));
 localStorage.setItem('agentbox.rail.folded', params.get('folded') === '1' ? '1' : '0');
 localStorage.setItem('agentbox.rail.finished', params.get('finished') === '1' ? '1' : '0');
-localStorage.setItem('agentbox.voice.readAloud', JSON.stringify({ on: params.get('readAloud') === '1' }));
 const openAgent = params.get('open'); // e.g. "agent-99"
 const page = params.get('page'); // a tab or Settings section of the project's page, or of ?open's agent
 const vm = params.get('vm');

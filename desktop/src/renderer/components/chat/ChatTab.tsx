@@ -8,7 +8,6 @@ import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWind
 import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
 import { cn, errorMessage } from '../../lib/utils';
-import { useReadAloud } from '../../lib/voice/useReadAloud';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ProjectCredentialCards } from '../CredentialCard';
 import { AIIcon, aiLabel } from '../state';
@@ -19,7 +18,6 @@ import { PageStack } from '../pages/PageStack';
 import { Composer } from './Composer';
 import { FindBar } from './FindBar';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
-import { ReadAloudControls } from './ReadAloud';
 import { Timeline } from './Timeline';
 
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
@@ -55,7 +53,6 @@ export function ChatTab({
   // A stopped or paused agent's chat is still all there to read, with the
   // button that starts it on the composer, which also wakes it by sending.
   const sleeping = asleep(agent);
-  useReadAloud(agent.ref, thread.data?.items);
   // A search result older than the chat's latest page opens a window on it,
   // which the timeline shows instead of the chat's end until you go back
   // there (lib/chat's openWindow). The session is the chat's own, as of now.
@@ -345,7 +342,6 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
   return (
     <>
       <SessionStatus agent={agent} session={thread.data?.session} />
-      <ReadAloudControls />
       <ReloadTools agent={agent} session={thread.data?.session} />
       <Tip label={t('chat.tab.newChatTip')}>
         <Button size="sm" variant="ghost" className="h-7 px-2 sm:px-2.5" disabled={items.length === 0} onClick={() => setClearing(true)}>
