@@ -111,7 +111,11 @@ npm --prefix desktop run preview                                    # serve it, 
 npm --prefix desktop run preview -- --shots out                     # screenshot every scenario in dev/scenarios.json
 npm --prefix desktop run preview -- --shots out --against HEAD~1    # and before/after against another commit
 npm --prefix desktop run preview -- --shots out --lang pt-BR           # in another language; overflow is reported
+npm --prefix desktop run preview -- --shots out --only window-         # only the whole app at window sizes (1920×1080, portrait, 800×600, 480)
 ```
+
+`?app=project` (or `home`, `pulls`, `agent-99`, `settings`) renders the whole App, where below `lg`
+the sidebar and below `xl` the rail become drawers; a page wider than its window is reported too.
 
 A scenario is a URL (`?open=agent-99&theme=light`, see the comment atop `preview.tsx`). `--against`
 checks the ref out into a throwaway worktree (refs after #82 only). It uses `/usr/bin/chromium` when
