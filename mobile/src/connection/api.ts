@@ -82,6 +82,10 @@ export const api = {
   answerQuestion: (name: string, id: string, answer: string) =>
     call<T.Question>('POST', `${project(name)}/questions/${encodeURIComponent(id)}/answer`, { answer } satisfies T.AnswerQuestionRequest),
   readyToReview: (name: string) => call<T.ReviewPage>('GET', `${project(name)}/review?limit=50`),
+  // Marking work reviewed, and asking for changes, are the "answer" scope's
+  // (lanWrites in internal/daemon/lan.go).
+  markReviewed: (ref: string, fingerprint: string) => call<void>('POST', `${agent(ref)}/review`, { verdict: 'reviewed', fingerprint } satisfies T.ReviewRequest),
+  requestChanges: (ref: string, text: string, fingerprint: string) => call<unknown>('POST', `${agent(ref)}/request-changes`, { text, fingerprint } satisfies T.RequestChangesRequest),
   agentMedia: (ref: string) => call<T.MediaItem[]>('GET', `${agent(ref)}/media`),
   pulls: (name: string, refresh = false) => call<T.ProjectPullRequests>('GET', `${project(name)}/pulls${refresh ? '?refresh=1' : ''}`),
   // confirmed says the user confirmed the merge on the phone, which the

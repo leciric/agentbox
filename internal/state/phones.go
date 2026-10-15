@@ -62,7 +62,9 @@ const (
 	// permission requests and starts an agent's chat.
 	PhoneScopeChat = "chat"
 	// PhoneScopeAnswer answers the questions agents ask, and their AI tools'
-	// permission requests (which "chat" answers too).
+	// permission requests (which "chat" answers too), and what the user says
+	// back about an agent's finished work: marking it reviewed and asking it
+	// for changes (there is no separate review scope).
 	PhoneScopeAnswer = "answer"
 	// PhoneScopeMerge merges pull requests. Never given at pairing: the user
 	// turns it on for a phone in the app on the computer.

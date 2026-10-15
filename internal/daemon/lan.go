@@ -856,6 +856,9 @@ var lanWrites = []struct {
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/projects/[^/]+/chat/cache$`), ""},
 	{state.PhoneScopeChat, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(start|resume)$`), ""},
 	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/projects/[^/]+/questions/[^/]+/answer$`), ""},
+	// Marking an agent's work reviewed, or asking it for changes, is what the
+	// user says back to the agent about what it finished: an answer.
+	{state.PhoneScopeAnswer, regexp.MustCompile(`^POST /v1/agents/[^/]+/[^/]+/(review|request-changes)$`), ""},
 	{state.PhoneScopeMerge, regexp.MustCompile(`^POST /v1/projects/[^/]+/pulls/[0-9]+/merge$`), ""},
 	{state.PhoneScopeRead, regexp.MustCompile(`^POST /v1/usage-stats/[^/]+$`), ""},
 }
@@ -864,7 +867,7 @@ var lanWrites = []struct {
 var lanScopeVerb = map[string]string{
 	state.PhoneScopeRead:   "read what AgentBox shows",
 	state.PhoneScopeChat:   "chat",
-	state.PhoneScopeAnswer: "answer agents' questions and permission requests",
+	state.PhoneScopeAnswer: "answer agents' questions and permission requests, mark their work reviewed and ask them for changes",
 	state.PhoneScopeMerge:  "merge pull requests",
 }
 
