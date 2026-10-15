@@ -235,7 +235,7 @@ export function ChatTab({
       )}
       <div
         ref={scroller}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
+        className="chat-scroller min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none]"
         onScroll={(event) => {
           const box = event.currentTarget;
           const end = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
