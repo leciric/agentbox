@@ -454,3 +454,71 @@ func TestLANNever(t *testing.T) {
 		}
 	}
 }
+
+// The native app (mobile/) asks pairing for its token and sends it as a
+// Bearer header, keeping no cookie; the web page's pairing never gets it.
+func TestPhoneAppWithABearerToken(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	d.srv.lan.mu.Lock()
+	d.srv.lan.own = true
+	d.srv.lan.addresses = func() []string { return []string{"127.0.0.1"} }
+	d.srv.lan.mu.Unlock()
+	port := freePort(t)
+	on := true
+	if _, err := d.client.UpdateLAN(ctx, api.UpdateLANRequest{Enabled: &on, Port: &port}); err != nil {
+		t.Fatal(err)
+	}
+	base := "http://127.0.0.1:" + strconv.Itoa(port)
+	pair := func(bearer bool) api.LANSession {
+		t.Helper()
+		pairing, err := d.client.PairLAN(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := json.Marshal(api.LANPairRequest{Secret: secretOf(t, pairing), Name: "iPhone", Bearer: bearer})
+		phone := &phoneClient{t: t, base: base, http: &http.Client{Timeout: 10 * time.Second}}
+		code, out := phone.do("POST", "/lan/pair", string(body))
+		if code != http.StatusOK {
+			t.Fatalf("pairing = %d %s", code, out)
+		}
+		var session api.LANSession
+		if err := json.Unmarshal([]byte(out), &session); err != nil {
+			t.Fatal(err)
+		}
+		return session
+	}
+	if web := pair(false); web.Token != "" {
+		t.Error("a pairing that didn't ask for its token got it")
+	}
+	session := pair(true)
+	if session.Token == "" {
+		t.Fatal("a pairing that asked for its token didn't get it")
+	}
+	// A client with no cookie jar: only the header says who it is.
+	app := &phoneClient{t: t, base: base, http: &http.Client{Timeout: 10 * time.Second}}
+	auth := []string{"Authorization", "Bearer " + session.Token}
+	if code, body := app.do("GET", "/lan/session", "", auth...); code != http.StatusOK || !strings.Contains(body, session.Phone.ID) {
+		t.Errorf("GET /lan/session with the token = %d %q", code, body)
+	}
+	if code, _ := app.do("GET", "/api/v1/projects", "", auth...); code != http.StatusOK {
+		t.Errorf("GET /api/v1/projects with the token = %d", code)
+	}
+	if code, _ := app.do("GET", "/api/v1/projects", ""); code != http.StatusUnauthorized {
+		t.Errorf("GET /api/v1/projects with no token = %d", code)
+	}
+	if code, _ := app.do("GET", "/api/v1/projects", "", "Authorization", "Bearer nope"); code != http.StatusUnauthorized {
+		t.Errorf("GET /api/v1/projects with a wrong token = %d", code)
+	}
+	// The scopes still decide: settings are never a phone's.
+	if code, _ := app.do("PATCH", "/api/v1/lan", `{}`, auth...); code != http.StatusForbidden {
+		t.Errorf("PATCH /api/v1/lan with the token = %d", code)
+	}
+	if code, _ := app.do("POST", "/lan/unpair", "", auth...); code != http.StatusNoContent {
+		t.Errorf("unpairing with the token = %d", code)
+	}
+	if code, _ := app.do("GET", "/lan/session", "", auth...); code != http.StatusUnauthorized {
+		t.Errorf("GET /lan/session after unpairing = %d", code)
+	}
+}

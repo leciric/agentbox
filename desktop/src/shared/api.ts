@@ -1828,10 +1828,12 @@ export interface LANHostReport {
 export interface LANPairRequest {
   secret: string;
   name: string;
+  bearer?: boolean;
 }
 
 export interface LANSession {
   phone: LANPhone;
+  token?: string;
 }
 
 export interface UpdateLANPhoneRequest {

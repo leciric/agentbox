@@ -138,12 +138,20 @@ type LANHostReport struct {
 type LANPairRequest struct {
 	Secret string `json:"secret"`
 	Name   string `json:"name"`
+	// Bearer asks for the phone's token in the answer (LANSession.Token), for
+	// an app that sends it as "Authorization: Bearer" rather than keeping the
+	// cookie: the native phone app (mobile/), which keeps it in the phone's
+	// secure storage. The web page never asks, so its token stays HttpOnly.
+	Bearer bool `json:"bearer,omitempty"`
 }
 
 // LANSession is GET /lan/session on the network port: the phone this is, or
 // 401 when it isn't paired.
 type LANSession struct {
 	Phone LANPhone `json:"phone"`
+	// Token is the phone's token, only in the answer to a pairing that asked
+	// for it (LANPairRequest.Bearer).
+	Token string `json:"token,omitempty"`
 }
 
 // LAN reports whether phones can chat from the local network, and which are

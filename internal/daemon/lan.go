@@ -637,20 +637,29 @@ func (s *Server) lanPair(w http.ResponseWriter, r *http.Request, addr string, vi
 	http.SetCookie(w, &http.Cookie{Name: lanCookie, Value: token, Path: "/", MaxAge: 400 * 24 * 60 * 60, HttpOnly: true, Secure: via == lanViaTunnel, SameSite: http.SameSiteStrictMode})
 	s.logf("phones: paired %s (%s) from %s", p.Name, p.ID, addr)
 	s.publishLAN(r.Context())
-	_ = writeJSON(w, http.StatusOK, api.LANSession{Phone: lanPhone(p)})
+	out := api.LANSession{Phone: lanPhone(p)}
+	if req.Bearer {
+		out.Token = token
+	}
+	_ = writeJSON(w, http.StatusOK, out)
 }
 
 // lanPhoneOf is the phone a request's cookie says it is. A cookie that is no
 // phone's counts against its address, as a wrong pairing code does: a
 // request with none, a phone that isn't paired yet, doesn't.
 func (s *Server) lanPhoneOf(w http.ResponseWriter, r *http.Request, addr string) (state.Phone, bool) {
-	c, err := r.Cookie(lanCookie)
-	if err == nil {
+	token, bearer := lanBearer(r)
+	if !bearer {
+		if c, err := r.Cookie(lanCookie); err == nil {
+			token = c.Value
+		}
+	}
+	if token != "" {
 		if s.lan.limiter.Blocked(addr, false) {
 			s.tooMany(w)
 			return state.Phone{}, false
 		}
-		p, err := s.store.PhoneByToken(r.Context(), c.Value)
+		p, err := s.store.PhoneByToken(r.Context(), token)
 		if err == nil {
 			return p, true
 		}
@@ -660,11 +669,25 @@ func (s *Server) lanPhoneOf(w http.ResponseWriter, r *http.Request, addr string)
 		}
 		s.lan.limiter.Fail(addr)
 		// The browser forgets it, so a revoked phone asking again and again
-		// doesn't count against its address as a guesser would.
-		http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		// doesn't count against its address as a guesser would. The app
+		// forgets its token itself on the 401.
+		if !bearer {
+			http.SetCookie(w, &http.Cookie{Name: lanCookie, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		}
 	}
 	writeLANError(w, http.StatusUnauthorized, "this phone isn't paired with AgentBox: scan the QR code in AgentBox's settings on your computer")
 	return state.Phone{}, false
+}
+
+// lanBearer is the token of an "Authorization: Bearer" header, which the
+// native app sends (mobile/) in place of the web page's cookie. A browser
+// never adds one by itself, so a page elsewhere can't send it either.
+func lanBearer(r *http.Request) (string, bool) {
+	scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(token), true
 }
 
 // lanAPI passes a paired phone's request on to the API, if its scopes let
