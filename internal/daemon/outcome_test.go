@@ -375,9 +375,21 @@ func TestAResumedTurnEndingOnAPlanIsAsking(t *testing.T) {
 	if o := d.srv.outcomeOf(ctx, a.Project, a.Ref()); o.note != "Shall I go ahead?" {
 		t.Errorf("the question is %q", o.note)
 	}
-	if notice := noticeTo(t, d, lead); !strings.Contains(notice, "Shall I go ahead?") {
-		t.Errorf("the lead was told %q", notice)
-	}
+	// The first turn's "finished" notice reaches the lead too, and
+	// noticeTo answers the moment any notice exists: wait for the one that
+	// carries the question instead of racing it.
+	waitFor(t, "the lead to be told the question", func() bool {
+		th, err := d.srv.chat.Thread(lead)
+		if err != nil {
+			return false
+		}
+		for _, it := range th.Items {
+			if it.Kind == "notice" && strings.Contains(it.Text, "Shall I go ahead?") {
+				return true
+			}
+		}
+		return false
+	})
 	if !d.srv.leadIsWaiting(a) {
 		t.Error("the lead isn't waiting on the agent whose turn was carried on")
 	}
