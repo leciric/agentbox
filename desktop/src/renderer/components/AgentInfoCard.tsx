@@ -3,11 +3,11 @@ import type { ReactNode } from 'react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { chatKey, fetchThread } from '../lib/chat';
-import { prChecksText, prState } from '../lib/agentStatus';
+import { prChecksText, prState, usageTip } from '../lib/agentStatus';
 import { t as tt, useT } from '../lib/i18n';
 import { choiceName } from '../lib/modelChoices';
 import { humanTokens, tps, usd } from '../lib/tokens';
-import { humanBytes, timeAgo } from '../lib/utils';
+import { humanBytes, humanRate, shortRate, timeAgo } from '../lib/utils';
 import { aiLabel, StateBadge } from './state';
 import { ToolCredentialText, useToolCredential } from './ToolCredential';
 
@@ -58,6 +58,9 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
   const effort = label(find('thought_level'));
   const session = chat.data?.session;
   const mine = spend.data?.agents?.[0];
+  // What its machine uses now, which the rail's rows no longer spell out.
+  const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage, enabled: agent.state === 'running' });
+  const sample = agent.state === 'running' ? usage.data?.agents.find((u) => u.ref === agent.ref) : undefined;
 
   return (
     // grid-cols-1 is minmax(0, 1fr): an auto column would grow to the title's
@@ -71,7 +74,7 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
       </div>
       {agent.title && <span className="-mt-1.5 min-w-0 truncate font-mono text-[11px] text-faint">{agent.name}</span>}
       <div className="grid min-w-0 gap-1">
-        <Row label={t('agent.info.aiTool')} value={aiLabel(agent.ai)} />
+        <Row label={t('agent.info.aiTool')} value={`${aiLabel(agent.ai)}${agent.autonomous ? t('agent.view.autonomousSuffix') : ''}`} />
         {model && <Row label={t('agent.info.model')} value={model} />}
         {effort && <Row label={t('agent.info.effort')} value={effort} />}
         {session?.contextSize ? <Row label={t('agent.info.context')} value={t('agent.info.contextOf', { used: humanTokens(session.contextUsed ?? 0), size: humanTokens(session.contextSize) })} /> : null}
@@ -81,6 +84,8 @@ export function AgentInfoCard({ agent, pr }: { agent: T.Agent; pr?: T.PullReques
         <Row label={t('agent.info.githubAccount')} value={agent.githubAccount || '—'} />
         <Row label={t('agent.info.branch')} value={agent.branch} mono />
         <Row label={t('agent.info.uptime')} value={timeAgo(agent.createdAt)} />
+        {agent.ip && <Row label={t('agent.info.ip')} value={agent.ip} mono />}
+        {sample && <Row label={t('agent.info.resources')} value={<span title={usageTip(sample, humanBytes, humanRate)}>{`${sample.cpu.toFixed(0)}% · ${humanBytes(sample.memory)} · ${shortRate(sample.diskRead + sample.diskWrite)}`}</span>} mono />}
         <Row label={t('agent.info.machineDisk')} value={diskSize(disk.data?.machine, disk.isPending)} />
         <Row label={t('agent.info.worktreeDisk')} value={diskSize(disk.data?.worktree, disk.isPending)} />
         <Row label={t('agent.info.tokens')} value={mine ? `${humanTokens(mine.total)} · ${usd(mine.costUSD)}` : '0'} />

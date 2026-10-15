@@ -7,15 +7,13 @@ import { api } from '../lib/api';
 import { countByAgent, livePages } from '../lib/pages';
 import { useT } from '../lib/i18n';
 import { useProjectName } from '../lib/useProjectName';
-import { avatarMood, chatLabel, isAsking, prChecksText, prState, rank, settled, statusTip, usageTip, type Mood } from '../lib/agentStatus';
-import { useCpuHistory } from '../lib/useCpuHistory';
-import { cn, humanBytes, humanRate, shortRate, timeAgo } from '../lib/utils';
+import { avatarMood, chatLabel, isAsking, prChecksText, prState, rank, settled, statusTip, type Mood } from '../lib/agentStatus';
+import { cn, timeAgo } from '../lib/utils';
 import { AgentContextMenu } from './AgentContextMenu';
 import { AgentInfoCard } from './AgentInfoCard';
 import { PageIcon } from './pages/PageThumb';
 import { PagesPanel } from './pages/PagesPanel';
 import { useProjectPages } from './pages/usePages';
-import { Sparkline } from './Sparkline';
 import { AgentAvatar } from './state';
 import { Skeleton, skeletonWidths } from './ui/skeleton';
 import { Tip } from './ui/tooltip';
@@ -44,7 +42,6 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
   const enabled = project !== null;
   const projectName = useProjectName(project ?? '');
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, enabled });
-  const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage, enabled });
   // Pull requests come from the fleet, which already carries one per agent,
   // matched against the repository list the daemon keeps (D54). ['agents'] is
   // every project's agents and would have to read GitHub per project to say
@@ -62,7 +59,6 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
   const questions = useQuery({ queryKey: ['questions', project], queryFn: () => api.questions(project as string), enabled });
   // The lead's own state, for its avatar: whether it's mid-turn or asking.
   const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
-  const history = useCpuHistory(usage.data);
   const [foldedHere, setFolded] = useFolded();
   const folded = foldedHere && !onClose;
   const [showFinished, setShowFinished] = useShowFinished();
@@ -115,8 +111,6 @@ export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View;
       key={agent.ref}
       agent={agent}
       active={view.kind === 'agent' && view.ref === agent.ref}
-      sample={usage.data?.agents.find((u) => u.ref === agent.ref)}
-      cpuHistory={history.get(agent.ref) ?? []}
       pr={prs.get(agent.ref)}
       pages={pageCounts.get(agent.ref) ?? 0}
       onPages={() => openPages(agent.ref)}
@@ -303,8 +297,6 @@ function RailTab({ active, count, onClick, children, ...rest }: { active: boolea
 function AgentRow({
   agent,
   active,
-  sample,
-  cpuHistory,
   pr,
   pages,
   onPages,
@@ -316,8 +308,6 @@ function AgentRow({
 }: {
   agent: T.Agent;
   active: boolean;
-  sample?: T.AgentUsage;
-  cpuHistory: number[];
   pr?: T.PullRequest;
   pages: number;
   onPages: () => void;
@@ -346,19 +336,10 @@ function AgentRow({
           {active && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-brand-400" />}
           <AgentAvatar ai={agent.ai} mood={mood} state={agent.state} seed={agent.ref} />
           <span className={cn('min-w-0 flex-1', pr && (pr.conflict ? 'pr-14' : 'pr-11'))}>
-            {/* The title, and after it the agent's name (agent-125), the handle
-                it goes by in the chat, the CLI and its branch. The name takes
-                at most 40% of the line, so a long custom one can't push the title
-                out, and it is dropped when there is no title, as that line
-                already is the name. */}
-            <span className="flex min-w-0 items-baseline gap-1.5">
-              <span className={cn('min-w-0 truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
-              {agent.title && (
-                <span className="min-w-0 max-w-[40%] shrink-0 truncate font-mono text-[10.5px] text-faint" data-rail-name>
-                  {agent.name}
-                </span>
-              )}
-            </span>
+            {/* The title, or the agent's name (agent-125) when it has none:
+                the name, its IP and what its machine uses are in the card its
+                hover opens (AgentInfoCard). */}
+            <span className={cn('block min-w-0 truncate text-[13px] font-medium', active ? 'text-title' : 'text-secondary')}>{agent.title || agent.name}</span>
             <span className="mt-0.5 flex items-center gap-1.5 text-[11px]">
               {status.tone === 'urgent' && <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-amber-400" />}
               {status.tone === 'error' && <span className="size-1.5 shrink-0 rounded-full bg-rose-400" />}
@@ -377,16 +358,11 @@ function AgentRow({
               </span>
               {at && <span className="ml-auto shrink-0 tabular-nums text-faint">{timeAgo(at)}</span>}
             </span>
-            <span className={cn('mt-1 flex items-center gap-1 font-mono text-[10.5px] text-faint', pages > 0 && 'pr-9')} data-rail-branch>
-              <GitBranch className="size-3 shrink-0" />
-              <span className="min-w-0 truncate">{agent.branch}</span>
-            </span>
-            {sample && agent.state === 'running' && (
-              <span className="mt-1.5 hidden items-center gap-2 xl:flex">
-                <Sparkline values={cpuHistory} className={status.tone === 'live' ? 'text-sky-300/80' : 'text-subtle'} />
-                <span className="font-mono text-[10px] tabular-nums text-subtle" title={usageTip(sample, humanBytes, humanRate)}>
-                  {sample.cpu.toFixed(0)}% · {humanBytes(sample.memory)} · {shortRate(sample.diskRead + sample.diskWrite)}
-                </span>
+            {/* Its branch, or its pull request in the badge over the row. */}
+            {!pr && (
+              <span className={cn('mt-1 flex items-center gap-1 font-mono text-[10.5px] text-faint', pages > 0 && 'pr-9')} data-rail-branch>
+                <GitBranch className="size-3 shrink-0" />
+                <span className="min-w-0 truncate">{agent.branch}</span>
               </span>
             )}
           </span>

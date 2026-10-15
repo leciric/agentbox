@@ -1,11 +1,11 @@
 // The notifications scenarios, with fixtures: clickable notifications, the
-// top bar's bell with their history, the all-projects Media view, and the
+// top bar's inbox with their history, the all-projects Media view, and the
 // viewer a notification opens. They render the app's own Sidebar, TopBar,
-// NotificationBell, NoticeToast, AllMediaView, MediaViewer and MediaPlace,
+// Inbox, NoticeToast, AllMediaView, MediaViewer and MediaPlace,
 // put together the way App does, over a dev bridge that answers
 // /v1/notifications and /v1/media from here (fixtures.ts setNotifications).
 //
-//   ?notify=bell     Home, with the bell's history open
+//   ?notify=bell     Home, with the inbox open on its sections
 //   ?notify=media    the all-projects Media view
 //   ?notify=viewer   a notification clicked: its agent's Media, its item open
 //   ?notify=toast    the in-app toast, the whole of which is the link
@@ -193,7 +193,7 @@ export function NotificationsPreview({ scenario }: { scenario: string }) {
     const notices = queryClient.getQueryData<T.Notification[]>(['notifications']) ?? [];
     const shot = notices.find((n) => n.media?.kind === 'screenshot' && !n.seen)!;
     if (scenario === 'viewer') openNotice(shot);
-    if (scenario === 'bell') requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-bell]')?.click());
+    if (scenario === 'bell') requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[data-inbox]')?.click());
     if (scenario !== 'toast') return;
     const projectName = projectLabel(shot.project, queryClient.getQueryData<T.Project[]>(['projects']));
     const id = toast.custom((t) => <NoticeToast notice={shot} projectName={projectName} onOpen={() => (toast.dismiss(t), openNotice(shot))} />, { duration: Infinity });

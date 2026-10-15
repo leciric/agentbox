@@ -4,7 +4,7 @@ import * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
-import { ChatHeaderControls, ChatTab } from './chat/ChatTab';
+import { ChatMenu, ChatStatus, ChatTab } from './chat/ChatTab';
 import { GlobalMemoryPanel } from './GlobalMemoryPanel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
@@ -66,7 +66,8 @@ export function HomeChatPanel() {
           </TabsList>
           {info && (
             <div className="flex shrink-0 items-center gap-2">
-              <ChatHeaderControls agent={homeAgentFrom(info)} />
+              <ChatStatus agent={homeAgentFrom(info)} />
+              <ChatMenu agent={homeAgentFrom(info)} />
             </div>
           )}
         </div>

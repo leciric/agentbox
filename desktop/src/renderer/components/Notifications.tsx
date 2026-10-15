@@ -1,15 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { Bell, CheckCheck, ChevronRight, CircleAlert, CircleCheck, CircleDashed, FolderGit2, Images, MessageCircleQuestion, Video } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronRight, CircleAlert, CircleCheck, CircleDashed, FolderGit2, MessageCircleQuestion, Video } from 'lucide-react';
 import type * as T from '../../shared/api';
 import { api } from '../lib/api';
 import { clock, kindInfo, mediaUrl } from '../lib/media';
-import { byDay, noticeVerb, useMarkSeen } from '../lib/notifications';
+import { byDay, noticeVerb } from '../lib/notifications';
 import { projectLabel } from '../lib/projectName';
 import { useT } from '../lib/i18n';
 import { cn, timeAgo } from '../lib/utils';
-import { Button } from './ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 const statusArt: Record<string, { icon: typeof CircleCheck; tone: string }> = {
   done: { icon: CircleCheck, tone: 'text-emerald-400 bg-emerald-400/10' },
@@ -59,12 +56,12 @@ function Headline({ notice }: { notice: T.Notification }) {
   );
 }
 
-function useProjectNames(): (project: string) => string {
+export function useProjectNames(): (project: string) => string {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   return (project) => projectLabel(project, projects.data);
 }
 
-function NoticeRow({ notice, projectName, onOpen }: { notice: T.Notification; projectName: string; onOpen: () => void }) {
+export function NoticeRow({ notice, projectName, onOpen }: { notice: T.Notification; projectName: string; onOpen: () => void }) {
   const t = useT();
   return (
     <button
@@ -93,86 +90,28 @@ function NoticeRow({ notice, projectName, onOpen }: { notice: T.Notification; pr
   );
 }
 
-// NotificationBell is the top bar's history of what agents did, in every
-// project, newest first, with a count of those you haven't seen. A row goes
-// where its notification went (App's openNotice).
-export function NotificationBell({ onOpen, onAllMedia, defaultOpen = false }: { onOpen: (n: T.Notification) => void; onAllMedia: () => void; defaultOpen?: boolean }) {
+// NoticeHistory is the inbox's Activity (components/Inbox.tsx): what agents
+// did, in every project, newest first, by day. A row goes where its
+// notification went (App's openNotice).
+export function NoticeHistory({ onOpen }: { onOpen: (n: T.Notification) => void }) {
   const t = useT();
-  const [open, setOpen] = useState(defaultOpen);
   const notices = useQuery({ queryKey: ['notifications'], queryFn: api.notifications });
   const projectName = useProjectNames();
-  const markSeen = useMarkSeen();
   const list = notices.data ?? [];
-  const unseen = list.filter((n) => !n.seen).length;
+  if (list.length === 0) {
+    return <div className="px-3 py-3 text-[12.5px] text-muted">{notices.isPending ? t('common.loading') : t('shell.notice.empty')}</div>;
+  }
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          aria-label={unseen ? t('shell.notice.bellNew', { count: unseen }) : t('shell.notice.bell')}
-          data-bell
-          className={cn(
-            'relative flex size-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-faint text-muted transition hover:bg-surface-raised hover:text-primary',
-            open && 'bg-surface-raised text-primary',
-          )}
-        >
-          <Bell className="size-4" />
-          {unseen > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold tabular-nums text-white ring-2 ring-[var(--color-ink)]">
-              {unseen > 99 ? '99+' : unseen}
-            </span>
-          )}
-        </button>
-      </PopoverTrigger>
-      {/* No focus on Mark all read when it opens: Enter would mark them all. */}
-      <PopoverContent className="w-[min(420px,calc(100vw-2rem))] p-0" data-bell-history onOpenAutoFocus={(e) => e.preventDefault()}>
-        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <span className="text-[14px] font-medium text-title">{t('shell.notice.bell')}</span>
-          {unseen > 0 && <span className="rounded-full bg-brand-500/15 px-2 py-0.5 text-[11px] font-medium text-brand-300 [:root[data-appearance=light]_&]:text-brand-600">{t('shell.notice.new', { count: unseen })}</span>}
-          <Button size="sm" variant="ghost" className="ml-auto" disabled={unseen === 0} onClick={() => void markSeen({ all: true })}>
-            <CheckCheck />
-            {t('shell.notice.markAllRead')}
-          </Button>
-        </div>
-        <div className="max-h-[min(560px,70vh)] overflow-y-auto p-1.5">
-          {list.length === 0 && (
-            <div className="px-4 py-10 text-center text-[13px] text-muted">
-              {notices.isPending ? t('common.loading') : t('shell.notice.empty')}
-            </div>
-          )}
-          {byDay(list, (n) => n.at).map(([day, group]) => (
-            <div key={day}>
-              <div className="px-2.5 pb-1 pt-2.5 text-[11px] font-medium uppercase tracking-wide text-subtle">{day}</div>
-              {group.map((n) => (
-                <NoticeRow
-                  key={n.id}
-                  notice={n}
-                  projectName={projectName(n.project)}
-                  onOpen={() => {
-                    setOpen(false);
-                    onOpen(n);
-                  }}
-                />
-              ))}
-            </div>
+    <>
+      {byDay(list, (n) => n.at).map(([day, group]) => (
+        <div key={day}>
+          <div className="px-2.5 pb-1 pt-2 text-[11px] text-subtle">{day}</div>
+          {group.map((n) => (
+            <NoticeRow key={n.id} notice={n} projectName={projectName(n.project)} onOpen={() => onOpen(n)} />
           ))}
         </div>
-        <div className="flex items-center border-t border-line px-4 py-2 text-[12px] text-subtle">
-          {t('shell.notice.kept')}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="ml-auto"
-            onClick={() => {
-              setOpen(false);
-              onAllMedia();
-            }}
-          >
-            <Images />
-            {t('shell.notice.allMedia')}
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+      ))}
+    </>
   );
 }
 

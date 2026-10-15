@@ -406,6 +406,18 @@ export function toolsReload(session: T.ChatSession | undefined): 'ready' | 'busy
   return 'ready';
 }
 
+// sessionShown is the state the chat's header shows, or none: only what
+// isn't the usual ready. A turn at work and a permission request show in the
+// timeline and on the composer already, and a session not started yet starts
+// as the chat opens, so they'd only flicker there. Ready with work left in the
+// background is "awaiting", which nothing else says.
+export function sessionShown(session: Pick<T.ChatSession, 'state' | 'background'> | undefined): string | undefined {
+  const state = session?.state || 'off';
+  if (state === 'ready') return (session?.background ?? []).length > 0 ? 'awaiting' : undefined;
+  if (state === 'off' || state === 'running' || state === 'waiting') return undefined;
+  return state;
+}
+
 export const asleep = (agent: Pick<T.Agent, 'ref' | 'state'>): 'stopped' | 'paused' | undefined =>
   isProjectChat(agent.ref) ? undefined : agent.state === 'stopped' || agent.state === 'paused' ? agent.state : undefined;
 

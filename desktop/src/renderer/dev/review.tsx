@@ -1,5 +1,5 @@
 // ?review=1: "Ready to review" (components/ReadyToReview.tsx) with three
-// agents waiting, the top bar's button and the project header's. agent-12's
+// agents waiting, in the top bar's inbox (components/Inbox.tsx). agent-12's
 // carousel has two screenshots, a recording (drawn here, on a canvas) and its
 // Hatch pages (dev/pages.ts), then its pull request in full, which merges;
 // agent-41's pull request fails its checks, so it can't. Reviewed and Dismiss

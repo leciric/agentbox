@@ -125,11 +125,11 @@
 //   ?media=project|agent|all  a project's Media, 360 items across fourteen agents; all, the all-projects view
 //                           with long names and unbroken notes, or agent-99's
 //                           own Media tab, at the width of a narrow window
-//   ?review=1               "Ready to review": the top bar's and the project's
-//                           buttons, three agents waiting, agent-12's carousel
+//   ?review=1               "Ready to review" in the top bar's inbox, three
+//                           agents waiting, agent-12's carousel
 //   ?notify=bell|media|viewer|toast
 //                           a mock of clickable notifications, the top bar's
-//                           bell and its history, the all-projects Media view
+//                           inbox and its history, the all-projects Media view
 //                           and the viewer a notification opens (notifications.tsx)
 //   ?power=host|host-start  the top bar's resource controls in host mode:
 //                           agents running (Free resources), or every one
@@ -213,7 +213,7 @@ import { laterKey } from '../lib/vmMove';
 import { VMSize } from '../components/VMSize';
 import { connectEvents, seedConnection } from '../lib/events';
 import { applyLanguage, useLanguage, useT } from '../lib/i18n';
-import { ChatHeaderControls, ChatTab } from '../components/chat/ChatTab';
+import { ChatMenu, ChatStatus, ChatTab } from '../components/chat/ChatTab';
 import { Timeline } from '../components/chat/Timeline';
 import { HomeChatPanel } from '../components/HomeChatPanel';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
@@ -427,7 +427,7 @@ if (settingsPage) settingsBridge();
 if (page) pageBridge();
 if (power) seedPower(queryClient, power, { tight: params.get('mem') === 'tight', near: params.get('claude') === 'near' });
 if (power) seedMeterUsage(queryClient);
-// The top bar's bell, empty: the ?notify= scenarios show it full.
+// The top bar's inbox, empty: the ?notify= scenarios show it full.
 if (power || meters) setNotifications([], []);
 localStorage.setItem('agentbox.topbar.detailed', topbar === 'detailed' ? '1' : '0');
 const conn = params.get('conn');
@@ -783,9 +783,10 @@ function Preview() {
           </div>
         ) : chat === 'awaiting' || chat === 'untracked' ? (
           <div style={{ height: '100%', margin: -24 }}>
-            {/* The status and actions AgentView puts in its tab bar. */}
+            {/* The status AgentView puts in its tab bar, and its chat menu. */}
             <div className="flex h-11 items-center justify-end gap-3 border-b border-line px-4">
-              <ChatHeaderControls agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} />
+              <ChatStatus agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} />
+              <ChatMenu agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} />
             </div>
             <ChatTab agent={fixtures.agents.find((a) => a.ref === `${PROJECT}/${chat === 'awaiting' ? 'agent-41' : 'agent-97'}`)!} starting={false} autoStart={false} onStart={() => {}} />
           </div>

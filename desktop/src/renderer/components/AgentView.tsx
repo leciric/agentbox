@@ -6,8 +6,9 @@ import {
   Copy,
   Ellipsis,
   FolderOpen,
+  ChevronDown,
   GitBranch,
-  Hash,
+  GitPullRequest,
   Images,
   KeyRound,
   LoaderCircle,
@@ -28,6 +29,7 @@ import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
 import { lifecycleActions, usesChat, type LifecycleAction } from '../lib/agentActions';
+import { chatLabel, prState, statusTip, type StatusTone } from '../lib/agentStatus';
 import { api, type AgentAction } from '../lib/api';
 import { useMediaCounts } from '../lib/mediaPages';
 import { useChatOpenAt } from '../lib/reveal';
@@ -37,7 +39,7 @@ import { agentTabFeatures, countFeature } from '../lib/usageStats';
 import { cn, errorMessage } from '../lib/utils';
 import { AndroidTab } from './AndroidTab';
 import { BrowserTab } from './BrowserTab';
-import { ChatHeaderControls, ChatTab } from './chat/ChatTab';
+import { ChatStatus, ChatTab, FilesOpen, useChatMenu } from './chat/ChatTab';
 import { ConnectorsTab } from './ConnectorsTab';
 import { DestroyAgentDialog } from './DestroyAgentDialog';
 import { MediaTab } from './MediaTab';
@@ -46,11 +48,14 @@ import { OverviewTab } from './OverviewTab';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SnapshotsTab } from './SnapshotsTab';
-import { AIIcon, aiLabel, LiveAgentAvatar, StateBadge } from './state';
+import { AgentInfoCard } from './AgentInfoCard';
+import { LiveAgentAvatar, StatusDot } from './state';
 import { TerminalTab } from './TerminalTab';
 import { Button } from './ui/button';
 import { Notice } from './ui/card';
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from './ui/menu';
+import { Badge, type BadgeVariant } from './ui/badge';
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
 
@@ -88,6 +93,9 @@ export function AgentView({
   const android = useQuery({ queryKey: ['android', agentRef], queryFn: () => api.android(agentRef), enabled: agent?.state === 'running' });
   // Only Android projects get the tab, unless an emulator was started anyway.
   const hasAndroid = projects.data?.some((p) => p.name === agent?.project && p.android) || android.data?.running === true;
+  // Its pull request, from the fleet the rail reads too (AgentRail).
+  const fleet = useQuery({ queryKey: ['fleet', refProject], queryFn: () => api.fleet(refProject), refetchInterval: 30_000 });
+  const chatMenu = useChatMenu(agent && usesChat(agent) ? agent : undefined);
   const [destroying, setDestroying] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   // A tab opened on purpose, by its tab, a link or the agent's menu; the one
@@ -123,59 +131,76 @@ export function AgentView({
   const place = agentPlace(tab);
   const active: AgentTab = !place.tab || (place.tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : place.tab;
 
+  // The header has the agent's title, its state as one badge, which opens its
+  // details (the machine's IP and resources, its AI tool and accounts), and
+  // its pull request or else its branch. Of the lifecycle actions only one
+  // that brings it back stays in view; the rest are in the ⋯ menu, with the
+  // chat's own while the chat is open.
+  const actions = lifecycleActions(agent.state);
+  const primary = actions.find((name) => lifecycleButton[name].primary);
+  const pr = fleet.data?.agents?.find((a) => a.ref === agent.ref)?.pr;
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 md:px-6 2xl:flex-nowrap">
         <LiveAgentAvatar agent={agent} />
         <AgentTitle agent={agent} editing={editingTitle} onEditing={setEditingTitle} onSave={(title) => rename.mutate(title)} />
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <StateBadge state={agent.state} />
-          <Chip icon={GitBranch} mono label={t('agent.view.branch')}>
-            {agent.branch}
-          </Chip>
-          <Chip icon={Hash} mono label={t('agent.view.agentName')}>
-            {agent.name}
-          </Chip>
-          {agent.ip && (
-            <Chip
-              icon={Network}
-              mono
-              label={t('agent.view.copyIp')}
-              onClick={() => {
-                window.agentbox.copyText(agent.ip);
-                toast(t('agent.view.copiedIp'));
-              }}
-            >
-              {agent.ip}
+          <StatusDetails agent={agent} pr={pr} />
+          {pr ? (
+            <Chip icon={GitPullRequest} mono label={pr.title} onClick={() => void window.agentbox.openExternal(pr.url)}>
+              #{pr.number} {prState(pr)}
+            </Chip>
+          ) : (
+            <Chip icon={GitBranch} mono label={t('agent.view.branch')}>
+              {agent.branch}
             </Chip>
           )}
-          <Chip icon={({ className }) => <AIIcon ai={agent.ai} className={className} />} label={t('agent.view.aiTool')}>
-            {aiLabel(agent.ai)}
-            {chatty ? t('agent.view.chatSuffix') : ''}
-            {agent.autonomous ? t('agent.view.autonomousSuffix') : ''}
-          </Chip>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {busy && <LoaderCircle className="size-4 animate-spin text-subtle" />}
-          {lifecycleActions(agent.state).map((name) => {
-            const { icon: Icon, label, primary } = lifecycleButton[name];
-            return (
-              <Button key={name} size="sm" variant={primary ? 'primary' : undefined} disabled={busy} onClick={() => run(name)}>
-                <Icon />
-                {t(label)}
-              </Button>
-            );
-          })}
+          {primary && (
+            <Button size="sm" variant="primary" disabled={busy} onClick={() => run(primary)}>
+              <Play />
+              {t(lifecycleButton[primary].label)}
+            </Button>
+          )}
           <Menu>
             <MenuTrigger asChild>
-              <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')}>
+              <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')} data-agent-menu>
                 <Ellipsis />
               </Button>
             </MenuTrigger>
             <MenuContent>
+              {chatMenu && active === 'chat' && (
+                <>
+                  {chatMenu.items}
+                  <MenuSeparator />
+                  <MenuLabel>{t('agent.view.agentSection')}</MenuLabel>
+                </>
+              )}
+              {actions
+                .filter((name) => name !== primary)
+                .map((name) => (
+                  <MenuItem key={name} icon={lifecycleButton[name].icon} disabled={busy} onSelect={() => run(name)}>
+                    {t(lifecycleButton[name].label)}
+                  </MenuItem>
+                ))}
               <MenuItem icon={Pencil} onSelect={() => setEditingTitle(true)}>
                 {t('agent.view.editTitle')}
               </MenuItem>
+              {agent.ip && (
+                <MenuItem
+                  icon={Network}
+                  hint={<span className="font-mono">{agent.ip}</span>}
+                  onSelect={() => {
+                    window.agentbox.copyText(agent.ip);
+                    toast(t('agent.view.copiedIp'));
+                  }}
+                >
+                  {t('agent.view.copyIp')}
+                </MenuItem>
+              )}
               <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
                 {t('agent.view.openWorktree')}
               </MenuItem>
@@ -261,7 +286,8 @@ export function AgentView({
           </TabsList>
           {chatty && active === 'chat' && (
             <div className="flex shrink-0 items-center gap-2">
-              <ChatHeaderControls agent={agent} />
+              <ChatStatus agent={agent} />
+              <FilesOpen agent={agent} />
             </div>
           )}
         </div>
@@ -300,6 +326,7 @@ export function AgentView({
         </div>
       </Tabs>
 
+      {chatMenu?.dialogs}
       <DestroyAgentDialog
         agent={agent}
         open={destroying}
@@ -396,5 +423,31 @@ function Chip({
         <span className={className}>{content}</span>
       )}
     </Tip>
+  );
+}
+
+const toneVariant: Record<StatusTone, BadgeVariant> = { urgent: 'warning', error: 'danger', warning: 'warning', live: 'info', muted: 'default' };
+
+// StatusDetails is the agent's state in one badge, in the words the rail uses
+// (lib/agentStatus.ts chatLabel), which opens the rest of what there is to
+// know about it: the machine, its IP and resources, its AI tool and accounts.
+function StatusDetails({ agent, pr }: { agent: T.Agent; pr?: T.PullRequest }) {
+  const t = useT();
+  const status = chatLabel(agent);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40" aria-label={t('agent.view.details')} title={statusTip(agent) ?? t('agent.view.details')} data-agent-status={status.tone}>
+          <Badge variant={toneVariant[status.tone]} className="cursor-pointer gap-1 transition hover:brightness-125">
+            <StatusDot state={agent.state} className="size-1.5" />
+            {status.text}
+            <ChevronDown className="size-3 opacity-70" />
+          </Badge>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-3" data-agent-details>
+        <AgentInfoCard agent={agent} pr={pr} />
+      </PopoverContent>
+    </Popover>
   );
 }

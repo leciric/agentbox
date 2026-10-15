@@ -8,13 +8,11 @@ import type * as T from '../../shared/api';
 import { limitTone, windowLeft, windowNow } from '../lib/tokens';
 import { pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
-import { cn, timeAgo, timeUntil } from '../lib/utils';
+import { cn, shortcut, timeAgo, timeUntil } from '../lib/utils';
 import { DiskGuardPill } from './DiskGuardPill';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
-import { DoNotDisturb } from './DoNotDisturb';
-import { NotificationBell } from './Notifications';
-import { ReadyToReview } from './ReadyToReview';
+import { Inbox } from './Inbox';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 export function TopBar({
@@ -31,8 +29,7 @@ export function TopBar({
   // in a window too narrow for them to sit beside the page (App).
   onOpenNav: () => void;
   onOpenRail?: () => void;
-  // onOpenNotice goes where a notification in the bell points; without it
-  // there's no bell.
+  // onOpenNotice goes where a notification in the inbox points.
   onOpenNotice?: (notice: T.Notification) => void;
   // onSearch opens the search palette; without it there's no search button.
   onSearch?: () => void;
@@ -115,12 +112,10 @@ export function TopBar({
           </button>
         )}
         <ImageBuildChip onSelect={onSelect} />
-        <ReadyToReview onSelect={onSelect} compact />
         <DiskGuardPill onSelect={onSelect} />
         <ClaudeUsage view={view} agents={agents.data ?? []} />
         <MachineStatus agents={agents.data ?? []} onSelect={onSelect} />
-        <DoNotDisturb />
-        {onOpenNotice && <NotificationBell onOpen={onOpenNotice} onAllMedia={() => onSelect({ kind: 'media' })} />}
+        <Inbox onOpen={onOpenNotice ?? (() => {})} onSelect={onSelect} />
       </div>
     </header>
   );
@@ -137,8 +132,6 @@ export function TopBar({
 // window that is over. Its countdowns tick every minute: the query's refetch
 // leaves them alone while the reading is unchanged.
 // The search palette's way in for the pointer, with its shortcut on it.
-const onMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
-
 function SearchButton({ onClick }: { onClick: () => void }) {
   const t = useT();
   return (
@@ -152,7 +145,7 @@ function SearchButton({ onClick }: { onClick: () => void }) {
     >
       <SearchIcon className="size-3.5" />
       <span className="hidden text-[12px] md:inline">{t('common.search')}</span>
-      <kbd className="hidden whitespace-nowrap rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle md:inline">{onMac ? '⌘K' : 'Ctrl K'}</kbd>
+      <kbd className="hidden whitespace-nowrap rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle md:inline">{shortcut('K')}</kbd>
     </button>
   );
 }

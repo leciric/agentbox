@@ -1,18 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Archive, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Trash2 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowDown, Archive, Ellipsis, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
 import { api, isHomeChat, isProjectChat } from '../../lib/api';
-import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, toolsReload } from '../../lib/chat';
+import { asleep, chatKey, dropWindow, fetchThread, isSilent, loadOlder, loadWindowNewer, loadWindowOlder, sessionShown, toolsReload } from '../../lib/chat';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { useProjectName } from '../../lib/useProjectName';
-import { cn, errorMessage } from '../../lib/utils';
+import { cn, errorMessage, shortcut } from '../../lib/utils';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { ProjectCredentialCards } from '../CredentialCard';
 import { AIIcon, aiLabel } from '../state';
 import { Button } from '../ui/button';
 import { Notice } from '../ui/card';
+import { Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
 import { PageStack } from '../pages/PageStack';
 import { Composer } from './Composer';
@@ -22,6 +23,14 @@ import { FileLinksProvider, FilePanel } from '../files/FilePanel';
 import { hasFiles, requestFind, setPanelPrefs, usePanelPrefs } from '../../lib/files';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { Timeline } from './Timeline';
+
+// requestChatFind opens the find bar on a chat, as Ctrl+F (⌘F) does, for its
+// ⋯ menu: after the menu has closed and handed focus back to its trigger, so
+// the bar's field keeps it.
+const findEvent = 'agentbox:chat-find';
+export function requestChatFind(ref: string): void {
+  setTimeout(() => window.dispatchEvent(new CustomEvent(findEvent, { detail: ref })), 50);
+}
 
 // ChatTab is the conversation with an agent's AI tool: the timeline, with the
 // composer floating over its end.
@@ -226,9 +235,19 @@ export function ChatTab({
       setFinding(true);
       setFindFocus((n) => n + 1);
     };
+    // The ⋯ menu's Find in chat (requestChatFind).
+    const onFind = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== agent.ref) return;
+      setFinding(true);
+      setFindFocus((n) => n + 1);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [files]);
+    window.addEventListener(findEvent, onFind);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener(findEvent, onFind);
+    };
+  }, [files, agent.ref]);
 
   const jumped = () => {
     following.current = false;
@@ -378,93 +397,77 @@ export function ChatTab({
   );
 }
 
-// ChatHeaderControls is the chat's live status and its "New chat" action: the
-// bit of ChatTab that used to be its own header row. The callers (AgentView,
-// ProjectView) fold it into their tab bar instead, so the chat itself doesn't
-// need a second header under theirs.
-export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
+// The chat's controls live in its page's ⋯ menu, not in a row of buttons over
+// it: useChatMenu gives a caller (AgentView, ProjectView, HomeChatPanel) the
+// chat's items for its menu — Find in chat, Files, New chat, Reload tools —
+// and the dialogs they open, which stay mounted outside the menu. What's left
+// in view is ChatStatus, and only when the tool isn't simply ready.
+// It's null without an agent, for a page whose agent is still loading: its
+// hooks run all the same.
+export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; dialogs: ReactNode } | null {
   const t = useT();
   const queryClient = useQueryClient();
-  const projectName = useProjectName(agent.project);
-  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
-  const items = thread.data?.items ?? [];
+  const ref = agent?.ref ?? '';
+  const projectName = useProjectName(agent?.project ?? '');
+  const thread = useQuery({ queryKey: chatKey(ref), queryFn: () => fetchThread(queryClient, ref), enabled: !!agent });
+  const session = thread.data?.session;
+  const empty = (thread.data?.items ?? []).length === 0;
   const [clearing, setClearing] = useState(false);
-  return (
+  const [confirming, setConfirming] = useState(false);
+  const panel = usePanelPrefs();
+  const reload = useMutation({ mutationFn: () => api.reloadChatTools(ref), onError: (err) => toast.error(errorMessage(err)) });
+  if (!agent) return null;
+  const tool = aiLabel(agent.ai);
+  const can = toolsReload(session);
+  const reloadWhy = can === 'busy' ? t('chat.tab.reloadToolsBusy', { tool }) : can === 'off' ? t('chat.tab.reloadToolsOff', { tool }) : undefined;
+  const items = (
     <>
-      <SessionStatus agent={agent} session={thread.data?.session} />
-      <ReloadTools agent={agent} session={thread.data?.session} />
-      {hasFiles(agent.ref) && <FilesToggle />}
-      <Tip label={t('chat.tab.newChatTip')}>
-        <Button size="sm" variant="ghost" className="h-7 px-2 sm:px-2.5" disabled={items.length === 0} onClick={() => setClearing(true)}>
-          <MessageSquarePlus />
-          <span className="hidden sm:inline">{t('chat.tab.newChat')}</span>
-        </Button>
-      </Tip>
+      <MenuLabel>{t('chat.menu.label')}</MenuLabel>
+      <MenuItem icon={Search} hint={shortcut('F')} onSelect={() => requestChatFind(agent.ref)} data-chat-find>
+        {t('chat.menu.find')}
+      </MenuItem>
+      {hasFiles(agent.ref) && (
+        <MenuCheckboxItem icon={FolderTree} hint={shortcut('P')} checked={panel.open} onCheckedChange={(open) => setPanelPrefs({ open })} data-files-toggle>
+          {t('files.panel.files')}
+        </MenuCheckboxItem>
+      )}
+      <MenuItem icon={MessageSquarePlus} disabled={empty} onSelect={() => setClearing(true)} data-chat-new>
+        {t('chat.tab.newChat')}
+      </MenuItem>
+      <MenuItem
+        icon={RefreshCw}
+        disabled={can !== 'ready' || reload.isPending}
+        title={reloadWhy ?? t(session?.noResume ? 'chat.tab.reloadToolsNoResumeTip' : 'chat.tab.reloadToolsTip', { tool })}
+        onSelect={() => (session?.noResume ? setConfirming(true) : reload.mutate())}
+        data-chat-reload-tools
+      >
+        {t('chat.tab.reloadTools')}
+      </MenuItem>
+      {/* Only Claude Code's adapter reports background tasks: elsewhere an
+          agent waiting on one reads as finished, and never wakes for it. */}
+      {(agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor') && (
+        <p className="flex max-w-64 gap-2 px-2.5 py-1.5 text-[11.5px] leading-snug text-amber-300/80" data-chat-background-untracked>
+          <EyeOff className="mt-0.5 size-3.5 shrink-0" />
+          {t('chat.background.untrackedTip', { tool })}
+        </p>
+      )}
+    </>
+  );
+  const dialogs = (
+    <>
       <ConfirmDialog
         open={clearing}
         onOpenChange={setClearing}
         title={t('chat.tab.newChatTitle')}
         description={t('chat.tab.newChatDescription', {
           scope: isHomeChat(agent.ref) ? 'home' : isProjectChat(agent.ref) ? 'project' : 'agent',
-          tool: aiLabel(agent.ai),
+          tool,
           project: projectName,
           name: agent.title || agent.name,
         })}
         confirmLabel={t('chat.tab.newChat')}
         onConfirm={() => api.clearChat(agent.ref)}
       />
-    </>
-  );
-}
-
-// FilesToggle opens and closes the file tree beside the chat.
-function FilesToggle() {
-  const t = useT();
-  const { open } = usePanelPrefs();
-  return (
-    <Tip label={t(open ? 'files.panel.hide' : 'files.panel.show')}>
-      <Button size="sm" variant="ghost" className={cn('h-7 px-2 sm:px-2.5', open && 'bg-surface-raised text-primary')} aria-pressed={open} onClick={() => setPanelPrefs({ open: !open })} data-files-toggle>
-        <FolderTree />
-        <span className="hidden xl:inline">{t('files.panel.files')}</span>
-      </Button>
-    </Tip>
-  );
-}
-
-// ReloadTools restarts the chat's AI tool with the connectors and MCP servers
-// it has now, which it reads only as it starts, resuming the same session so
-// the conversation carries on. An adapter that can't resume asks first.
-function ReloadTools({ agent, session }: { agent: T.Agent; session?: T.ChatSession }) {
-  const t = useT();
-  const [confirming, setConfirming] = useState(false);
-  const reload = useMutation({ mutationFn: () => api.reloadChatTools(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
-  const tool = aiLabel(agent.ai);
-  const can = toolsReload(session);
-  const tip =
-    can === 'busy'
-      ? t('chat.tab.reloadToolsBusy', { tool })
-      : can === 'off'
-        ? t('chat.tab.reloadToolsOff', { tool })
-        : t(session?.noResume ? 'chat.tab.reloadToolsNoResumeTip' : 'chat.tab.reloadToolsTip', { tool });
-  return (
-    <>
-      <Tip label={tip}>
-        {/* A span, so the tip still shows on the disabled button. */}
-        <span>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 sm:px-2.5"
-            disabled={can !== 'ready' || reload.isPending}
-            onClick={() => (session?.noResume ? setConfirming(true) : reload.mutate())}
-            aria-label={t('chat.tab.reloadTools')}
-            data-chat-reload-tools
-          >
-            <RefreshCw className={cn(reload.isPending && 'animate-spin')} />
-            <span className="hidden 2xl:inline">{t('chat.tab.reloadTools')}</span>
-          </Button>
-        </span>
-      </Tip>
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
@@ -474,6 +477,44 @@ function ReloadTools({ agent, session }: { agent: T.Agent; session?: T.ChatSessi
         onConfirm={() => api.reloadChatTools(agent.ref)}
       />
     </>
+  );
+  return { items, dialogs };
+}
+
+// ChatMenu is a ⋯ of the chat's own, for a page with no menu to fold it into
+// (the Home chat).
+export function ChatMenu({ agent }: { agent: T.Agent }) {
+  const t = useT();
+  const menu = useChatMenu(agent);
+  if (!menu) return null;
+  return (
+    <>
+      <Menu>
+        <MenuTrigger asChild>
+          <Button size="icon-sm" variant="ghost" aria-label={t('chat.menu.label')} data-chat-menu>
+            <Ellipsis />
+          </Button>
+        </MenuTrigger>
+        <MenuContent>{menu.items}</MenuContent>
+      </Menu>
+      {menu.dialogs}
+    </>
+  );
+}
+
+// FilesOpen says the file panel is open, beside the status, while it is: the
+// menu's tick is out of sight, and this closes it in one click.
+export function FilesOpen({ agent }: { agent: T.Agent }) {
+  const t = useT();
+  const { open } = usePanelPrefs();
+  if (!open || !hasFiles(agent.ref)) return null;
+  return (
+    <Tip label={t('files.panel.hide')}>
+      <Button size="sm" variant="ghost" className="h-7 bg-surface-raised px-2 text-primary" aria-pressed onClick={() => setPanelPrefs({ open: false })} data-files-open>
+        <FolderTree />
+        <span className="hidden xl:inline">{t('files.panel.files')}</span>
+      </Button>
+    </Tip>
   );
 }
 
@@ -550,31 +591,26 @@ const statusStyles: Record<string, { dot: string; label: MessageKey }> = {
   error: { dot: 'bg-rose-400', label: 'chat.status.error' },
 };
 
-function SessionStatus({ agent, session }: { agent: T.Agent; session?: T.ChatSession }) {
+// ChatStatus is the chat's AI tool when it isn't simply ready (lib/chat.ts
+// sessionShown): starting, signing in, stopped on an error, or awaiting work
+// it left in the background. Ready says nothing.
+export function ChatStatus({ agent }: { agent: T.Agent }) {
   const t = useT();
+  const queryClient = useQueryClient();
+  const thread = useQuery({ queryKey: chatKey(agent.ref), queryFn: () => fetchThread(queryClient, agent.ref) });
+  const session = thread.data?.session;
+  const state = sessionShown(session);
+  if (!state) return null;
   const background = session?.background ?? [];
-  const state = session?.state === 'ready' && background.length > 0 ? 'awaiting' : (session?.state ?? 'off');
   const style = statusStyles[state] ?? statusStyles.off;
   const tool = aiLabel(agent.ai);
   const tip = state === 'awaiting' ? t('chat.status.awaitingTip', { tasks: background.join(', ') }) : session?.error || session?.detail || session?.adapter || t('chat.status.adapter', { tool });
   return (
-    <>
-      <Tip label={tip}>
-        <span className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted" data-chat-state={state}>
-          {state === 'starting' ? <LoaderCircle className="size-3 animate-spin text-muted" /> : <span className={cn('size-1.5 shrink-0 rounded-full', style.dot)} />}
-          <span className="hidden truncate sm:inline">{t(style.label, { tool })}</span>
-        </span>
-      </Tip>
-      {/* Only Claude Code's adapter reports background tasks: elsewhere an
-          agent waiting on one reads as finished, and never wakes for it. */}
-      {(agent.ai === 'codex' || agent.ai === 'opencode' || agent.ai === 'cursor') && (
-        <Tip label={t('chat.background.untrackedTip', { tool })}>
-          <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-amber-300/80" data-chat-background-untracked>
-            <EyeOff className="size-3.5 shrink-0" />
-            <span className="hidden truncate lg:inline">{t('chat.background.untracked')}</span>
-          </span>
-        </Tip>
-      )}
-    </>
+    <Tip label={tip}>
+      <span className="flex min-w-0 items-center gap-2 text-[12.5px] text-muted" data-chat-state={state}>
+        {state === 'starting' ? <LoaderCircle className="size-3 animate-spin text-muted" /> : <span className={cn('size-1.5 shrink-0 rounded-full', style.dot)} />}
+        <span className="hidden truncate sm:inline">{t(style.label, { tool })}</span>
+      </span>
+    </Tip>
   );
 }

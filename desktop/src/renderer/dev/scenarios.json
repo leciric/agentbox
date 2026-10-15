@@ -794,14 +794,14 @@
   },
   {
     "id": "notify-bell-dark",
-    "description": "The top bar's bell open on its history: finishes, questions and new media from every project, unseen ones marked — dark",
+    "description": "The top bar's inbox open: what needs you, Ready to review, and the history of finishes, questions and new media from every project, unseen ones marked — dark",
     "query": "notify=bell&theme=dark",
     "width": 1440,
     "height": 900
   },
   {
     "id": "notify-bell-light",
-    "description": "The top bar's bell open on its history: finishes, questions and new media from every project, unseen ones marked — light",
+    "description": "The top bar's inbox open: what needs you, Ready to review, and the history of finishes, questions and new media from every project, unseen ones marked — light",
     "query": "notify=bell&theme=light",
     "width": 1440,
     "height": 900
@@ -1057,6 +1057,37 @@
     "height": 1080
   },
   {
+    "id": "window-wide-agent-chat-dark",
+    "description": "1920×1080 on agent-41's chat: the header's title, one state badge and its branch, the chat's status only because it awaits background work — dark",
+    "query": "app=agent-41&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-wide-inbox-dark",
+    "description": "1920×1080, the top bar's inbox open: what needs you, Ready to review and Activity in one panel — dark",
+    "query": "app=project&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "header [data-inbox]"
+  },
+  {
+    "id": "window-wide-chat-menu-dark",
+    "description": "1920×1080, the project's ⋯ open on the lead chat: Find in chat, Files, New chat, Reload tools, then the project's actions — dark",
+    "query": "app=project&theme=dark",
+    "width": 1920,
+    "height": 1080,
+    "click": "[data-project-menu]"
+  },
+  {
+    "id": "window-min-inbox-dark",
+    "description": "480×800, the top bar's inbox open — dark",
+    "query": "app=project&theme=dark",
+    "width": 480,
+    "height": 800,
+    "click": "header [data-inbox]"
+  },
+  {
     "id": "window-wide-agent-dark",
     "description": "The whole app at 1920×1080, on agent-99 — dark",
     "query": "app=agent-99&theme=dark",
@@ -1141,7 +1172,7 @@
     "width": 800,
     "height": 600,
     "click": [
-      "header [data-ready-to-review]",
+      "header [data-inbox]",
       "[data-review-row]"
     ]
   },
@@ -1160,7 +1191,7 @@
     "width": 1080,
     "height": 1920,
     "click": [
-      "header [data-ready-to-review]",
+      "header [data-inbox]",
       "[data-review-row]"
     ]
   },
@@ -1214,7 +1245,7 @@
     "width": 480,
     "height": 800,
     "click": [
-      "header [data-ready-to-review]",
+      "header [data-inbox]",
       "[data-review-row]"
     ]
   },

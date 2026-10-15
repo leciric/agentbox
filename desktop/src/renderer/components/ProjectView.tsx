@@ -10,7 +10,7 @@ import { projectLabel } from '../lib/projectName';
 import { projectPlace, type ProjectPlaceName, type ProjectSection } from '../lib/tabs';
 import { countFeature, projectTabFeatures } from '../lib/usageStats';
 import { errorMessage, timeAgo } from '../lib/utils';
-import { ChatHeaderControls } from './chat/ChatTab';
+import { ChatStatus, FilesOpen, useChatMenu } from './chat/ChatTab';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ConnectorsTab } from './ConnectorsTab';
 import { leadAgentFrom, ProjectChatPanel } from './ProjectChatPanel';
@@ -21,7 +21,6 @@ import { ScopedMediaPages } from './pages/MediaPages';
 import { ProjectMemoryPanel } from './ProjectMemoryPanel';
 import { ProjectSettings } from './ProjectSettings';
 import { PullRequestsPanel } from './PullRequestsPanel';
-import { ReadyToReview } from './ReadyToReview';
 import { SecretsTab } from './SecretsTab';
 import { SettingsSections, type SettingsSection } from './SettingsSections';
 import { SkillsPanel } from './SkillsPanel';
@@ -29,7 +28,7 @@ import { TokensPanel } from './TokensPanel';
 import { Button } from './ui/button';
 import { Card, Row } from './ui/card';
 import { Textarea } from './ui/input';
-import { Menu, MenuContent, MenuItem, MenuTrigger } from './ui/menu';
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from './ui/menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 // The project's notes: what every agent of it is told, over and above the brief
@@ -131,6 +130,9 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
   useEffect(() => countFeature(projectTabFeatures[tab === 'settings' ? section : tab]), [tab, section, name]);
   const leadChat = useQuery({ queryKey: ['projectChat', name], queryFn: () => api.projectChat(name), enabled: tab === 'chat' });
   const project = projects.data?.find((p) => p.name === name);
+  // The lead's chat controls join the project's ⋯ while the chat is open.
+  const lead = project && tab === 'chat' && leadChat.data ? leadAgentFrom(project, leadChat.data) : undefined;
+  const chatMenu = useChatMenu(lead);
   const mine = agents.data?.filter((a) => a.project === name) ?? [];
   // Stopping frees the memory an idle agent holds and keeps its disk, so it
   // comes back in seconds. Nothing is lost: the work is on its branch.
@@ -165,18 +167,24 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
             <p className="truncate font-mono text-[11px] text-subtle">{project.root}</p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <ReadyToReview project={name} onSelect={onSelect} />
             <Button onClick={onNewAgent}>
               <Plus />
               {t('project.view.newAgent')}
             </Button>
             <Menu>
               <MenuTrigger asChild>
-                <Button size="icon" variant="ghost" aria-label={t('project.view.actions')}>
+                <Button size="icon" variant="ghost" aria-label={t('project.view.actions')} data-project-menu>
                   <Ellipsis />
                 </Button>
               </MenuTrigger>
               <MenuContent>
+                {chatMenu && (
+                  <>
+                    {chatMenu.items}
+                    <MenuSeparator />
+                    <MenuLabel>{t('project.view.projectSection')}</MenuLabel>
+                  </>
+                )}
                 <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)}>
                   {t('project.view.openFolder')}
                 </MenuItem>
@@ -216,11 +224,13 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
               {t('project.view.tab.settings')}
             </TabsTrigger>
           </TabsList>
-          {tab === 'chat' && leadChat.data && (
+          {lead && (
             <div className="flex shrink-0 items-center gap-2">
-              <ChatHeaderControls agent={leadAgentFrom(project, leadChat.data)} />
+              <ChatStatus agent={lead} />
+              <FilesOpen agent={lead} />
             </div>
           )}
+          {chatMenu?.dialogs}
         </div>
       </div>
 

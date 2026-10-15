@@ -1,4 +1,5 @@
 import * as MenuPrimitive from '@radix-ui/react-dropdown-menu';
+import { Check } from 'lucide-react';
 import type { ComponentProps, ComponentType, ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 
@@ -49,4 +50,29 @@ export function MenuSeparator() {
 
 export function MenuLabel({ children }: { children: ReactNode }) {
   return <MenuPrimitive.Label className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wider text-subtle">{children}</MenuPrimitive.Label>;
+}
+
+// MenuCheckboxItem is an item that is on or off, with a tick while it's on,
+// like a panel that's showing.
+export function MenuCheckboxItem({
+  icon: Icon,
+  children,
+  hint,
+  ...props
+}: ComponentProps<typeof MenuPrimitive.CheckboxItem> & { icon?: ComponentType<{ className?: string }>; hint?: ReactNode }) {
+  return (
+    <MenuPrimitive.CheckboxItem
+      className="flex cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-secondary outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-raised data-[state=checked]:text-primary"
+      {...props}
+    >
+      {Icon && <Icon className="size-4 text-subtle" />}
+      <span className="flex-1">{children}</span>
+      {hint && <span className="text-[11px] text-subtle">{hint}</span>}
+      <span className="flex size-4 items-center justify-center">
+        <MenuPrimitive.ItemIndicator>
+          <Check className="size-3.5 text-brand-300 [:root[data-appearance=light]_&]:text-brand-600" />
+        </MenuPrimitive.ItemIndicator>
+      </span>
+    </MenuPrimitive.CheckboxItem>
+  );
 }

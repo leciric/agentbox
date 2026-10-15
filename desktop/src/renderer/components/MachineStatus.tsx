@@ -120,7 +120,7 @@ function Bubble({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={cn('flex min-w-0 items-center gap-2 rounded-full border py-1 pl-2.5 pr-3 transition hover:bg-surface-raised', toneRing[status.tone])}
+          className={cn('flex min-w-0 items-center gap-2 rounded-full border py-1 pl-2.5 pr-2.5 transition hover:bg-surface-raised', toneRing[status.tone])}
           aria-label={sentence}
           data-machine={status.kind}
           data-connection={connection.state}
@@ -128,9 +128,12 @@ function Bubble({
           data-vm-driver={free.vm?.driver}
         >
           <StatusIcon status={status} />
+          {/* All well, the dot says so and the words wait for a wide window:
+              they're there whenever something isn't. */}
           <span
             className={cn(
-              'hidden truncate whitespace-nowrap text-[12px] sm:inline',
+              'hidden truncate whitespace-nowrap text-[12px]',
+              status.tone === 'ok' ? '2xl:inline' : 'sm:inline',
               status.tone === 'bad' ? 'text-rose-200' : status.tone === 'warn' ? 'text-amber-200' : 'text-secondary',
             )}
           >

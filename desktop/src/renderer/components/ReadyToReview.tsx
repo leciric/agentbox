@@ -5,7 +5,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  ClipboardCheck,
   ExternalLink,
   GitBranch,
   GitMerge,
@@ -25,7 +24,6 @@ import { mediaUrl } from '../lib/media';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import {
-  countLabel,
   mergeBlock,
   nextPending,
   queueOf,
@@ -41,7 +39,7 @@ import {
   type ReviewAction,
   type Slide,
 } from '../lib/review';
-import { isUnseen, markAllSeen, useReviewing, useUnseen } from '../lib/reviewAlert';
+import { isUnseen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
 import { Markdown } from './chat/Markdown';
@@ -55,147 +53,95 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Kbd, Notice } from './ui/card';
 import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
-// ReadyToReview is the way in to "Ready to review": a button with how many
-// agents finished and wait for the user to look at their work, opening the
-// list of them, newest first, and below it the ones already reviewed. In a
-// project's header it lists that project's; in the top bar, every project's.
-// Reviewing turned off in Settings hides it.
-export function ReadyToReview(props: { project?: string; onSelect: (view: View) => void; compact?: boolean }) {
-  return useReviewing() ? <ReviewButton {...props} /> : null;
-}
+// "Ready to review" is a section of the top bar's inbox (components/Inbox.tsx):
+// the agents that finished and wait for the user to look at their work,
+// newest first, and below them the ones already reviewed, folded. Picking one
+// opens the review carousel (ReviewDialog), which Review all walks through
+// what's waiting. Reviewing turned off in Settings leaves the section out.
 
 // A review session is the agent on screen and, when it walks through what's
 // waiting, the order it walks them in (lib/review.ts queueOf). An agent
 // reopened from Reviewed has none.
-type Session = { item: T.ReviewItem; order: string[] | null };
+export type ReviewSession = { item: T.ReviewItem; order: string[] | null };
 
-function ReviewButton({ project, onSelect, compact = false }: { project?: string; onSelect: (view: View) => void; compact?: boolean }) {
+// useReadyToReview is the list of what's waiting. The list changes on the
+// event stream (lib/events.ts): a finish, a pull request re-read, a verdict.
+// The poll is a backstop, and what notices an agent that went back to work.
+export function useReadyToReview(enabled = true) {
+  return useQuery({ queryKey: reviewKey(undefined), queryFn: () => api.readyToReview(undefined), refetchInterval: 60_000, enabled });
+}
+
+// ReviewSection is the inbox's list of what's waiting. shown is what was
+// new when the inbox opened, which stays marked while it's open.
+export function ReviewSection({ items, pending, shown, open, onBegin }: { items: T.ReviewItem[]; pending: boolean; shown: ReadonlySet<string>; open: boolean; onBegin: (session: ReviewSession) => void }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [session, setSession] = useState<Session | null>(null);
   const [showReviewed, setShowReviewed] = useState(false);
-  // The list changes on the event stream (lib/events.ts): a finish, a pull
-  // request re-read, a verdict. The poll is a backstop, and what notices an
-  // agent that went back to work.
-  const list = useQuery({ queryKey: reviewKey(project), queryFn: () => api.readyToReview(project), refetchInterval: 60_000 });
-  const reviewed = useQuery({ queryKey: reviewedKey(project), queryFn: () => api.reviewed(project), enabled: open && showReviewed });
+  const reviewed = useQuery({ queryKey: reviewedKey(undefined), queryFn: () => api.reviewed(undefined), enabled: open && showReviewed });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const now = useNow(60_000);
-  const items = list.data ?? [];
   const unseen = useUnseen();
-  // What was new when the list opened stays marked while it's open.
-  const [shown, setShown] = useState<ReadonlySet<string>>(new Set());
   const isNew = (i: T.ReviewItem) => isUnseen(unseen, i) || isUnseen(shown, i);
-  const fresh = items.filter((i) => isUnseen(unseen, i)).length;
-  const label = t('review.button');
+  const order = items.map((i) => i.ref);
+  return (
+    <section className="border-b border-line-faint pb-1" data-review-list>
+      <div className="flex items-center gap-2 px-2.5 pb-1 pt-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-subtle">{t('review.button')}</span>
+        {items.length > 0 && <span className="text-[11px] text-subtle">{t('review.waiting', { count: items.length })}</span>}
+        {items.length > 0 && (
+          <Button size="sm" variant="primary" className="ml-auto h-7" data-review-all onClick={() => onBegin({ item: items[0], order })}>
+            <Play />
+            {t('review.reviewAll')}
+          </Button>
+        )}
+      </div>
+      {items.length === 0 ? (
+        <div className="px-3 py-3 text-[12.5px] text-muted">{pending ? t('common.loading') : t('review.empty')}</div>
+      ) : (
+        items.map((item) => <ReviewRow key={item.ref} item={item} isNew={isNew(item)} now={now} projects={projects.data} onOpen={() => onBegin({ item, order })} />)
+      )}
+      <div data-reviewed-section>
+        <button
+          type="button"
+          aria-expanded={showReviewed}
+          data-reviewed-toggle
+          onClick={() => setShowReviewed((s) => !s)}
+          className="flex w-full items-center gap-1.5 rounded-md px-3 py-1.5 text-left text-[12px] font-medium text-muted transition hover:bg-surface-raised hover:text-primary"
+        >
+          <ChevronDown className={cn('size-3.5 transition-transform', !showReviewed && '-rotate-90')} />
+          {t('review.reviewedSection')}
+          {reviewed.data && reviewed.data.length > 0 && <span className="text-subtle">{reviewed.data.length}</span>}
+        </button>
+        {showReviewed &&
+          (reviewed.data?.length ? (
+            reviewed.data.map((item) => <ReviewRow key={item.ref} item={item} isNew={false} now={now} projects={projects.data} onOpen={() => onBegin({ item, order: null })} />)
+          ) : (
+            <div className="px-4 py-3 text-[12px] text-subtle">{reviewed.isPending ? t('common.loading') : t('review.reviewedEmpty')}</div>
+          ))}
+      </div>
+    </section>
+  );
+}
 
-  const begin = (item: T.ReviewItem, order: string[] | null) => {
-    setOpen(false);
-    setSession({ item, order });
-  };
-  // The agent on screen as the list has it now (its pull request merged, say),
-  // and the one after it in the walk.
+// ReviewDialog is the carousel on the session's agent, as the list has it now
+// (its pull request merged, say), with the one after it in the walk.
+export function ReviewDialog({ session, items, onSession, onSelect }: { session: ReviewSession | null; items: T.ReviewItem[]; onSession: (session: ReviewSession | null) => void; onSelect: (view: View) => void }) {
+  const t = useT();
   const current = session && (items.find((i) => i.ref === session.item.ref) ?? session.item);
   const next = session?.order ? nextPending(session.order, session.item.ref, items) : undefined;
   const queue = session?.order ? queueOf(session.order, items) : null;
   const position = queue && session ? { n: queue.indexOf(session.item.ref) + 1, count: queue.length } : undefined;
   const advance = () => {
-    if (next && session) setSession({ ...session, item: next });
+    if (next && session) onSession({ ...session, item: next });
     else {
       if (session?.order) toast(t('review.allDone'));
-      setSession(null);
+      onSession(null);
     }
   };
-
   return (
-    <>
-      <Popover
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          // Opening the list is looking at what's new.
-          setShown(next ? unseen : new Set());
-          if (next) markAllSeen();
-        }}
-      >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label={items.length ? t('review.buttonCount', { count: items.length }) : label}
-            title={label}
-            data-ready-to-review={project ?? 'all'}
-            data-ready-new={fresh > 0 ? fresh : undefined}
-            className={cn(
-              'relative flex shrink-0 items-center gap-1.5 rounded-full text-[12px] font-medium text-muted ring-1 ring-inset ring-line transition hover:bg-surface-raised hover:text-primary',
-              compact ? 'size-8 justify-center' : 'h-8 px-3',
-              open && 'bg-surface-raised text-primary',
-            )}
-          >
-            <ClipboardCheck className="size-4 shrink-0" />
-            {!compact && <span className="whitespace-nowrap">{label}</span>}
-            {/* The count is only for what needs review: nothing waiting, no badge. */}
-            {items.length > 0 &&
-              (compact ? (
-                <span
-                  data-ready-count
-                  className={cn('absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] font-semibold tabular-nums text-white ring-2 ring-[var(--color-ink)]', fresh > 0 && 'animate-pulse')}
-                >
-                  {countLabel(items.length)}
-                </span>
-              ) : (
-                <span data-ready-count className={cn('rounded-full bg-brand-500 px-1.5 text-[10.5px] font-semibold tabular-nums leading-4 text-white', fresh > 0 && 'animate-pulse')}>
-                  {countLabel(items.length)}
-                </span>
-              ))}
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[min(440px,calc(100vw-2rem))] p-0" data-review-list onOpenAutoFocus={(e) => e.preventDefault()}>
-          <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
-            <span className="text-[14px] font-medium text-title">{label}</span>
-            {items.length > 0 && <span className="text-[12px] text-subtle">{t('review.waiting', { count: items.length })}</span>}
-            {items.length > 0 && (
-              <Button size="sm" variant="primary" className="ml-auto" data-review-all onClick={() => begin(items[0], items.map((i) => i.ref))}>
-                <Play />
-                {t('review.reviewAll')}
-              </Button>
-            )}
-          </div>
-          <div className="max-h-[min(600px,calc(var(--radix-popover-content-available-height)-56px))] overflow-y-auto p-1.5">
-            {items.length === 0 ? (
-              <div className="px-4 py-8 text-center text-[13px] text-muted">{list.isPending ? t('common.loading') : t('review.empty')}</div>
-            ) : (
-              items.map((item) => (
-                <ReviewRow key={item.ref} item={item} isNew={isNew(item)} now={now} projects={projects.data} onOpen={() => begin(item, items.map((i) => i.ref))} />
-              ))
-            )}
-            <div className="mt-1 border-t border-line-faint pt-1" data-reviewed-section>
-              <button
-                type="button"
-                aria-expanded={showReviewed}
-                data-reviewed-toggle
-                onClick={() => setShowReviewed((s) => !s)}
-                className="flex w-full items-center gap-1.5 rounded-md px-3 py-2 text-left text-[12px] font-medium text-muted transition hover:bg-surface-raised hover:text-primary"
-              >
-                <ChevronDown className={cn('size-3.5 transition-transform', !showReviewed && '-rotate-90')} />
-                {t('review.reviewedSection')}
-                {reviewed.data && reviewed.data.length > 0 && <span className="text-subtle">{reviewed.data.length}</span>}
-              </button>
-              {showReviewed &&
-                (reviewed.data?.length ? (
-                  reviewed.data.map((item) => <ReviewRow key={item.ref} item={item} isNew={false} now={now} projects={projects.data} onOpen={() => begin(item, null)} />)
-                ) : (
-                  <div className="px-4 py-3 text-[12px] text-subtle">{reviewed.isPending ? t('common.loading') : t('review.reviewedEmpty')}</div>
-                ))}
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-      <Dialog open={current !== null} onOpenChange={(next) => !next && setSession(null)}>
-        {current && <ReviewCarousel key={current.ref} item={current} position={position} next={next} onNext={advance} onClose={() => setSession(null)} onSelect={onSelect} />}
-      </Dialog>
-    </>
+    <Dialog open={current !== null} onOpenChange={(open) => !open && onSession(null)}>
+      {current && <ReviewCarousel key={current.ref} item={current} position={position} next={next} onNext={advance} onClose={() => onSession(null)} onSelect={onSelect} />}
+    </Dialog>
   );
 }
 

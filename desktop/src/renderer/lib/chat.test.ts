@@ -38,6 +38,7 @@ import {
   prependPage,
   timelineRows,
   toolOf,
+  sessionShown,
   toolsReload,
   workSummary,
 } from './chat.ts';
@@ -631,6 +632,18 @@ test('toolsReload is ready only for an idle running session', () => {
   assert.equal(toolsReload(session({ state: 'waiting' })), 'busy');
   assert.equal(toolsReload(session({ background: ['npm run dev'] })), 'busy');
   assert.equal(toolsReload(session({})), 'ready');
+});
+
+test('sessionShown shows the chat\'s state only when it isn\'t the usual ready', () => {
+  assert.equal(sessionShown(undefined), undefined);
+  assert.equal(sessionShown({ state: 'ready' }), undefined);
+  assert.equal(sessionShown({ state: 'off' }), undefined);
+  assert.equal(sessionShown({ state: '' }), undefined);
+  assert.equal(sessionShown({ state: 'running' }), undefined);
+  assert.equal(sessionShown({ state: 'waiting' }), undefined);
+  assert.equal(sessionShown({ state: 'ready', background: ['npm run dev'] }), 'awaiting');
+  assert.equal(sessionShown({ state: 'starting' }), 'starting');
+  assert.equal(sessionShown({ state: 'error' }), 'error');
 });
 
 test('peekThread reads only the latest message of a chat it doesn\'t hold, and the usual page of one it does', async (t) => {
