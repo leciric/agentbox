@@ -3181,7 +3181,6 @@ export const ptBR: Messages = {
   'v2.sort.recent': 'Atividade recente',
   'v2.sort.name': 'Nome',
   'v2.sort.working': 'Mais agentes trabalhando',
-  'v2.settings.overview': 'Todos os agentes, a carga da máquina e os jobs recentes, de todos os projetos ou de um.',
   'v2.header.lead': 'Líder',
   'v2.header.copyPath': 'Copiar o caminho do repositório',
   'v2.header.settings': 'Configurações do projeto',

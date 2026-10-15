@@ -3180,7 +3180,6 @@ export const enUS = {
   'v2.sort.recent': 'Recent activity',
   'v2.sort.name': 'Name',
   'v2.sort.working': 'Most agents working',
-  'v2.settings.overview': 'Every agent, the machine’s load and recent jobs, across projects or for one.',
   'v2.header.lead': 'Lead',
   'v2.header.copyPath': 'Copy the repository path',
   'v2.header.settings': 'Project settings',
