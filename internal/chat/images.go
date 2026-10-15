@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
@@ -119,13 +120,15 @@ func (c *conversation) saveImages(uploads []api.ChatImageUpload) ([]api.ChatImag
 }
 
 // promptBlocks is a prompt's content: its text blocks (one, or two for a
-// Claude Code skill: skillPrompt), then its pictures read back
-// from their files. A picture that has gone missing is said in the text
-// rather than failing the turn. The conversation needn't be locked.
-func (c *conversation) promptBlocks(dir string, texts []string, images []api.ChatImage) []acp.ContentBlock {
+// Claude Code skill: skillPrompt), the last saying where the files sent with
+// it are, then its pictures read back from their files, then the files small
+// enough to embed, for an adapter that takes them (embed). A picture that has
+// gone missing is said in the text rather than failing the turn. The
+// conversation needn't be locked.
+func (c *conversation) promptBlocks(dir string, texts []string, sent attached, embed bool) []acp.ContentBlock {
 	var blocks []acp.ContentBlock
 	var missing []string
-	for _, img := range images {
+	for _, img := range sent.images {
 		data, err := os.ReadFile(filepath.Join(dir, img.ID))
 		if err != nil {
 			missing = append(missing, cmp(img.Name, img.ID))
@@ -133,13 +136,22 @@ func (c *conversation) promptBlocks(dir string, texts []string, images []api.Cha
 		}
 		blocks = append(blocks, acp.ContentBlock{Type: "image", MimeType: img.MimeType, Data: base64.StdEncoding.EncodeToString(data)})
 	}
+	var notes []string
 	if len(missing) > 0 {
-		note := fmt.Sprintf("[AgentBox: %d image(s) sent with this message couldn't be read back, and aren't attached: %v]", len(missing), missing)
+		notes = append(notes, fmt.Sprintf("[AgentBox: %d image(s) sent with this message couldn't be read back, and aren't attached: %v]", len(missing), missing))
+	}
+	if note := filesNote(sent.files); note != "" {
+		notes = append(notes, note)
+	}
+	if note := strings.Join(notes, "\n\n"); note != "" {
 		if len(texts) == 0 || texts[len(texts)-1] == "" {
 			texts = append(texts[:max(len(texts)-1, 0)], note)
 		} else {
 			texts[len(texts)-1] += "\n\n" + note
 		}
+	}
+	if embed {
+		blocks = append(blocks, fileBlocks(dir, sent.files)...)
 	}
 	var out []acp.ContentBlock
 	for _, text := range texts {
@@ -148,6 +160,34 @@ func (c *conversation) promptBlocks(dir string, texts []string, images []api.Cha
 		}
 	}
 	return append(out, blocks...)
+}
+
+// attached is what a message carries besides its text, once kept.
+type attached struct {
+	images []api.ChatImage
+	files  []api.ChatFile
+}
+
+func (a attached) join(b attached) attached {
+	return attached{images: append(a.images, b.images...), files: append(a.files, b.files...)}
+}
+
+// saveAttached keeps a message's pictures and files, or neither. The
+// conversation is locked.
+func (c *conversation) saveAttached(msg api.ChatMessageRequest) (attached, error) {
+	images, err := c.saveImages(msg.Images)
+	if err != nil {
+		return attached{}, err
+	}
+	files, err := c.saveFiles(msg.Files)
+	if err != nil {
+		dir := c.m.imageDir(c.agent)
+		for _, img := range images {
+			_ = os.Remove(filepath.Join(dir, img.ID))
+		}
+		return attached{}, err
+	}
+	return attached{images: images, files: files}, nil
 }
 
 // setImageSupport records whether the running adapter takes images, for the
@@ -172,6 +212,9 @@ func (c *conversation) rememberedImageSupport() {
 }
 
 func sizeOf(n int) string {
+	if n < 1<<10 {
+		return fmt.Sprintf("%d B", n)
+	}
 	if n < 1<<20 {
 		return fmt.Sprintf("%.0f KiB", float64(n)/(1<<10))
 	}

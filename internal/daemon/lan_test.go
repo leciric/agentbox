@@ -336,6 +336,7 @@ func TestLANRoute(t *testing.T) {
 		{"GET", "/v1/projects/p/chat", "read"},
 		{"GET", "/v1/events", "read"},
 		{"GET", "/v1/agents/p/a/chat/images/i.png", "read"},
+		{"GET", "/v1/projects/p/chat/files/0123456789abcdef", "read"},
 		{"GET", "/v1/projects/p/pulls", "read"},
 		{"POST", "/v1/usage-stats/voice", "read"},
 		{"POST", "/v1/projects/p/chat/messages", "chat"},

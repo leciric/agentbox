@@ -404,5 +404,5 @@ func (c *conversation) resume(gen int64) {
 		"The usage limit should have reset, so AgentBox asked %s to carry on.", ToolNames[c.agent.AI])
 	it := c.add("user", "")
 	it.Turn, it.Text = it.ID, resumeNudge
-	c.beginTurn(it, resumeNudge, nil)
+	c.beginTurn(it, resumeNudge, attached{})
 }

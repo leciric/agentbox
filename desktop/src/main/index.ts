@@ -17,6 +17,7 @@ import { installPhoneWeb } from './phoneweb';
 import { onWindows, startRelay, stopRelay } from './relay';
 import { guardStdio } from './stdio';
 import { showNotice, type OSNotice } from './notify';
+import { openChatFile } from './chatfiles';
 import { pageThumb } from './pagethumbs';
 import { registerRender } from './renders';
 import { enableShortcutPortal, registerSnapShortcut, showForSnap } from './snap';
@@ -244,6 +245,7 @@ ipcMain.handle('dialog:directory', async () => {
 // The daemon's paths are the distro's; Explorer opens them through \\wsl.localhost.
 const hostPath = (path: string) => (onWindows ? windowsPath(path) : path);
 ipcMain.handle('shell:openPath', (_event, path: string) => shell.openPath(hostPath(path)));
+ipcMain.handle('chatFile:open', (_event, path: string, name: string) => openChatFile(path, name));
 ipcMain.handle('shell:showItem', (_event, path: string) => shell.showItemInFolder(hostPath(path)));
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (!/^https?:\/\//.test(url)) throw new Error(t('web.main.notAWebAddress', { url }));

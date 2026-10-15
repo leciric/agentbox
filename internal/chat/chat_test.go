@@ -55,6 +55,7 @@ type fakeTool struct {
 	resumeBare  bool // ...and answers session/resume with no configOptions
 	effort      bool // also offers an "effort" setting, like Claude Code's
 	images      bool // says it takes images in a prompt, like claude-agent-acp
+	embedded    bool // says it takes resource blocks in a prompt, as all three adapters do
 	plainOpus   bool // model choices are "opus", not "opus[1m]" — an account with no 1M-context entry
 	noKinds     bool // modes carry no _meta.kind, like claude-agent-acp 0.85 for a client that is not AIR
 	// strictModel refuses a model that isn't literally one of its choices,
@@ -155,7 +156,7 @@ func (f *fakeTool) Request(method string, params json.RawMessage, reply func(any
 		}
 		res := map[string]any{
 			"protocolVersion":   1,
-			"agentCapabilities": map[string]any{"loadSession": false, "sessionCapabilities": sessionCaps, "promptCapabilities": map[string]any{"image": f.images}},
+			"agentCapabilities": map[string]any{"loadSession": false, "sessionCapabilities": sessionCaps, "promptCapabilities": map[string]any{"image": f.images, "embeddedContext": f.embedded}},
 			"agentInfo":         map[string]any{"name": "fake", "title": "Fake Tool", "version": "1.0"},
 		}
 		if f.steering {

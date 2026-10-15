@@ -1758,6 +1758,7 @@ export function installDevBridge(): void {
     pickDirectory: async () => null,
     setLanguage: () => {},
     openPath: async () => '',
+    openChatFile: async () => '',
     showItem: async () => {},
     openExternal: async () => {},
     notify: async () => false,

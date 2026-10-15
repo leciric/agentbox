@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 
 	"agentbox/internal/api"
@@ -72,5 +74,53 @@ func TestChatImagesAreKeptAndServed(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Errorf("clearing the chat left its images (stat: %v)", err)
+	}
+}
+
+// A file sent to the project's chat is put in the lead's worktree, where git
+// ignores it, and the app reads it back from the chat's files route as bytes
+// to save, never a page to render.
+func TestChatFilesAreKeptAndServed(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	ctx := context.Background()
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: d.fixtureRepo(t, "hello-stack")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := (credentials.Store{Dir: d.paths.Credentials()}).SaveClaudeToken("", "test-token"); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.chat.Launch = func(context.Context, state.Agent, func(string)) (*chat.Process, error) {
+		return nil, errors.New("this test starts no AI tool")
+	}
+	page := []byte("<script>alert(1)</script>")
+	item, err := d.client.SendChatMessage(ctx, "hello-stack", api.ChatMessageRequest{Text: "look", Files: []api.ChatFileUpload{{Name: "page.html", MimeType: "text/html", Data: base64.StdEncoding.EncodeToString(page)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(item.Files) != 1 || item.Files[0].Name != "page.html" {
+		t.Fatalf("the message's files = %+v", item.Files)
+	}
+	f := item.Files[0]
+	if want := d.paths.Worktree("hello-stack", state.LeadName); !strings.HasPrefix(f.Path, want+"/.agentbox/attachments/") {
+		t.Errorf("the file is at %s, not in the lead's worktree %s", f.Path, want)
+	}
+	if b, err := os.ReadFile(f.Path); err != nil || string(b) != string(page) {
+		t.Errorf("the lead's copy = %q, %v", b, err)
+	}
+	status, err := exec.Command("git", "-C", d.paths.Worktree("hello-stack", state.LeadName), "status", "--porcelain").Output()
+	if err != nil || len(status) != 0 {
+		t.Errorf("git status in the lead's worktree = %q, %v, want nothing to commit", status, err)
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, "http://agentbox/v1/projects/hello-stack/chat/files/"+f.ID, nil)
+	resp, err := d.client.HTTPClient().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/octet-stream" || resp.Header.Get("Content-Disposition") != "attachment" || string(body) != string(page) {
+		t.Errorf("GET the file = %d %s %q, %q", resp.StatusCode, resp.Header.Get("Content-Type"), resp.Header.Get("Content-Disposition"), body)
 	}
 }

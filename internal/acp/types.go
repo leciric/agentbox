@@ -311,6 +311,16 @@ type ContentBlock struct {
 	MimeType string `json:"mimeType,omitempty"`
 	URI      string `json:"uri,omitempty"`
 	Name     string `json:"name,omitempty"`
+	// Resource is a resource block's content, embedded in the prompt: what
+	// an adapter with promptCapabilities.embeddedContext takes.
+	Resource *EmbeddedResource `json:"resource,omitempty"`
+}
+
+// EmbeddedResource is a text resource carried in a content block.
+type EmbeddedResource struct {
+	URI      string `json:"uri"`
+	MimeType string `json:"mimeType,omitempty"`
+	Text     string `json:"text"`
 }
 
 type SessionNotification struct {

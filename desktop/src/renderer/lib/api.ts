@@ -233,9 +233,12 @@ export const api = {
   searchChat: (ref: string, query: string, kinds: string[] = []) =>
     call<T.ChatSearch>('GET', `${chatBase(ref)}/search?${new URLSearchParams({ q: query, ...(kinds.length ? { kinds: kinds.join(',') } : {}) })}`),
   startChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/start`),
-  sendChat: (ref: string, text: string, images?: T.ChatImageUpload[]) =>
-    call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images } satisfies T.ChatMessageRequest),
+  sendChat: (ref: string, text: string, images?: T.ChatImageUpload[], files?: T.ChatFileUpload[]) =>
+    call<T.ChatItem>('POST', `${chatBase(ref)}/messages`, { text, images, files: files?.length ? files : undefined } satisfies T.ChatMessageRequest),
   chatImageUrl: (ref: string, id: string) => window.agentbox.chatImageUrl(`${chatBase(ref)}/images/${encodeURIComponent(id)}`),
+  // openChatFile opens a file sent in a chat with the system's default app:
+  // the desktop downloads it first, a browser saves it.
+  openChatFile: (ref: string, file: T.ChatFile) => window.agentbox.openChatFile(`${chatBase(ref)}/files/${encodeURIComponent(file.id)}`, file.name),
   cancelChat: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/cancel`),
   reloadChatTools: (ref: string) => call<T.ChatSession>('POST', `${chatBase(ref)}/reload`),
   answerChat: (ref: string, item: string, optionId: string) =>

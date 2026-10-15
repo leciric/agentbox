@@ -735,8 +735,9 @@ func (s *Server) lanAPI(w http.ResponseWriter, r *http.Request, addr string) {
 	r2.URL.Path = path
 	r2.URL.RawPath = ""
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		// Images attached to a message are the largest thing a phone sends.
-		r2.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+		// Files attached to a message are the largest thing a phone sends:
+		// api.MaxChatFilesBytes as base64, and the pictures beside them.
+		r2.Body = http.MaxBytesReader(w, r.Body, 96<<20)
 	}
 	routes.ServeHTTP(w, r2)
 }

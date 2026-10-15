@@ -498,8 +498,13 @@ func (m *Manager) Start(a state.Agent) (api.ChatSession, error) {
 //
 // images are pictures sent with the message, which may then have no text.
 func (m *Manager) Send(a state.Agent, text string, images ...api.ChatImageUpload) (api.ChatItem, error) {
-	text = strings.TrimSpace(text)
-	if text == "" && len(images) == 0 {
+	return m.SendMessage(a, api.ChatMessageRequest{Text: text, Images: images})
+}
+
+// SendMessage is Send for a message with files as well as pictures.
+func (m *Manager) SendMessage(a state.Agent, msg api.ChatMessageRequest) (api.ChatItem, error) {
+	text := strings.TrimSpace(msg.Text)
+	if text == "" && len(msg.Images) == 0 && len(msg.Files) == 0 {
 		return api.ChatItem{}, errors.New("the message is empty")
 	}
 	c, err := m.conversation(a)
@@ -507,17 +512,17 @@ func (m *Manager) Send(a state.Agent, text string, images ...api.ChatImageUpload
 		return api.ChatItem{}, err
 	}
 	defer c.mu.Unlock()
-	saved, err := c.saveImages(images)
+	sent, err := c.saveAttached(msg)
 	if err != nil {
 		return api.ChatItem{}, err
 	}
 	if c.compaction != nil {
-		return clone(*c.hold(text, saved)), nil
+		return clone(*c.hold(text, sent)), nil
 	}
 	if c.turn != nil {
-		return clone(*c.aside(text, saved)), nil
+		return clone(*c.aside(text, sent)), nil
 	}
-	return clone(*c.startTurn(text, saved)), nil
+	return clone(*c.startTurn(text, sent)), nil
 }
 
 // Notice puts something in front of a conversation that the user didn't type:
@@ -596,27 +601,27 @@ func (c *conversation) deliver(text string, opts NoticeOptions) {
 	// It carries the notice's text, so it is hidden for the same reason.
 	user := c.add("user", "")
 	user.Turn, user.Text, user.Hidden = user.ID, text, opts.Hidden
-	c.beginTurn(user, text, nil)
+	c.beginTurn(user, text, attached{})
 }
 
 // startTurn adds a message of yours and starts its turn. The conversation is
 // locked and no turn is running.
-func (c *conversation) startTurn(text string, images []api.ChatImage) *api.ChatItem {
+func (c *conversation) startTurn(text string, sent attached) *api.ChatItem {
 	it := c.add("user", "")
-	it.Turn, it.Text, it.Images = it.ID, text, images
-	c.beginTurn(it, text, images)
+	it.Turn, it.Text, it.Images, it.Files = it.ID, text, sent.images, sent.files
+	c.beginTurn(it, text, sent)
 	return it
 }
 
-// beginTurn starts the turn that it heads, with text and images as its prompt.
-// The conversation is locked and no turn is running.
-func (c *conversation) beginTurn(it *api.ChatItem, text string, images []api.ChatImage) {
-	c.beginResumedTurn(it, text, images, 0)
+// beginTurn starts the turn that it heads, with text and what was sent with
+// it as its prompt. The conversation is locked and no turn is running.
+func (c *conversation) beginTurn(it *api.ChatItem, text string, sent attached) {
+	c.beginResumedTurn(it, text, sent, 0)
 }
 
 // beginResumedTurn is beginTurn for a turn that carries on one AgentBox's
 // restart cut short, for the resumes-th time (restart.go); 0 for any other.
-func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []api.ChatImage, resumes int) {
+func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, sent attached, resumes int) {
 	// Whatever the turn was waiting for, it is running now: a pending resume
 	// has been overtaken, and the limit isn't what the session is doing.
 	c.endLimit()
@@ -624,7 +629,7 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []
 		// Tasks that end from here on end during this turn, which reads them.
 		c.adapter.woke = nil
 	}
-	t := &turn{id: it.ID, text: text, images: images, startedAt: it.CreatedAt, progressAt: it.CreatedAt, resumes: resumes}
+	t := &turn{id: it.ID, text: text, sent: sent, startedAt: it.CreatedAt, progressAt: it.CreatedAt, resumes: resumes}
 	c.turn = t
 	c.recordTurn(t)
 	c.tools, c.plan, c.open, c.openMessage = map[string]*api.ChatItem{}, nil, nil, ""
@@ -649,10 +654,10 @@ func (c *conversation) beginResumedTurn(it *api.ChatItem, text string, images []
 // aside takes a message that arrived while a turn was running. It goes into the
 // conversation straight away, inside the turn it interrupted, and joins the
 // outbox for drain to hand over. The conversation is locked and a turn runs.
-func (c *conversation) aside(text string, images []api.ChatImage) *api.ChatItem {
+func (c *conversation) aside(text string, sent attached) *api.ChatItem {
 	it := c.add("aside", c.turn.id)
-	it.Text, it.Images, it.Delivery = text, images, api.ChatAsideWaiting
-	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, images: images, turn: c.turn})
+	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, api.ChatAsideWaiting
+	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent, turn: c.turn})
 	c.flush(true)
 	c.drain()
 	return it
@@ -734,27 +739,27 @@ func (c *conversation) drainOutbox() {
 		}
 		batch := make([]*outgoing, 0, len(c.outbox))
 		texts := make([]string, 0, len(c.outbox))
-		var images []api.ChatImage
+		var sent attached
 		for _, o := range c.outbox {
 			if o.turn != t {
 				break
 			}
 			batch = append(batch, o)
 			texts = append(texts, o.text)
-			images = append(images, o.images...)
+			sent = sent.join(o.sent)
 		}
-		sessionID, dir := ad.sessionID, c.m.imageDir(c.agent)
-		if len(images) > 0 && !ad.images {
+		sessionID, dir, embed := ad.sessionID, c.m.imageDir(c.agent), ad.embedded
+		if len(sent.images) > 0 && !ad.images {
 			// Only possible for pictures taken while the adapter was still
 			// starting, before it said it can't read them.
-			texts = append(texts, fmt.Sprintf("[AgentBox: %d image(s) were sent too, which this tool can't read.]", len(images)))
-			images = nil
+			texts = append(texts, fmt.Sprintf("[AgentBox: %d image(s) were sent too, which this tool can't read.]", len(sent.images)))
+			sent.images = nil
 		}
 		c.mu.Unlock()
 		var res acp.SteerResponse
 		err := ad.conn.Call(context.Background(), acp.MethodSessionSteer, acp.SteerRequest{
 			SessionID: sessionID,
-			Prompt:    c.promptBlocks(dir, []string{midTurn(texts)}, images),
+			Prompt:    c.promptBlocks(dir, []string{midTurn(texts)}, sent, embed),
 			// Should the session have gone idle underneath us, the message comes
 			// back rather than becoming a turn of the adapter's own: a turn
 			// AgentBox never asked for is one it doesn't follow or end.
@@ -793,7 +798,7 @@ func (c *conversation) sendOutbox() {
 	out := c.outbox
 	c.outbox = nil
 	texts := make([]string, 0, len(out))
-	var images []api.ChatImage
+	var sent attached
 	var head *api.ChatItem
 	for _, o := range out {
 		it := c.byID[o.item]
@@ -803,7 +808,7 @@ func (c *conversation) sendOutbox() {
 		if o.text != "" {
 			texts = append(texts, o.text)
 		}
-		images = append(images, o.images...)
+		sent = sent.join(o.sent)
 		it.Delivery = ""
 		if head == nil {
 			head, it.Kind, it.Turn = it, "user", it.ID
@@ -816,7 +821,7 @@ func (c *conversation) sendOutbox() {
 		c.flush(true)
 		return
 	}
-	c.beginTurn(head, strings.Join(texts, "\n\n"), images)
+	c.beginTurn(head, strings.Join(texts, "\n\n"), sent)
 }
 
 // deferOutbox says of everything waiting that it goes in after the running turn.
@@ -1373,15 +1378,15 @@ type queuedNotice struct {
 // it was sent during, which is the one it may still join.
 type outgoing struct {
 	item   string // its "aside" item in the conversation
-	text   string
-	images []api.ChatImage
-	turn   *turn
+	text string
+	sent attached
+	turn *turn
 }
 
 type turn struct {
 	id        string // the user message's
 	text      string
-	images    []api.ChatImage
+	sent      attached
 	cancelled bool
 	// deferred means a message sent during this turn couldn't join it, so no
 	// later one may either: they'd reach the tool out of the order they were sent.
@@ -1431,6 +1436,7 @@ type adapter struct {
 	ready     bool
 	steering  bool   // it takes a message into a running turn, per acp.MethodSessionSteer
 	images    bool   // it takes images in a prompt, per promptCapabilities.image
+	embedded  bool   // it takes resource blocks in a prompt, per promptCapabilities.embeddedContext
 	resumable bool   // it can resume a session (session/resume or session/load)
 	err       error  // why it didn't start
 	replaying bool   // a loaded session replays history that's already here
@@ -1817,6 +1823,7 @@ func (c *conversation) connect(ad *adapter) error {
 	ad.sessionID = resp.SessionID
 	ad.steering = init.Meta != nil && init.Meta.Steering != nil && init.Meta.Steering.Supported
 	ad.images = init.AgentCapabilities.PromptCapabilities.Image
+	ad.embedded = init.AgentCapabilities.PromptCapabilities.EmbeddedContext
 	ad.resumable = init.AgentCapabilities.SessionCapabilities.Resume != nil || init.AgentCapabilities.LoadSession
 	c.session.NoResume = !ad.resumable
 	c.setImageSupport(ad.images)
@@ -2000,21 +2007,21 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	}
 	c.session.State = c.stateNow()
 	c.markSession()
-	sessionID, dir, text, images := ad.sessionID, c.m.imageDir(c.agent), t.text, t.images
+	sessionID, dir, text, sent, embed := ad.sessionID, c.m.imageDir(c.agent), t.text, t.sent, ad.embedded
 	// A session started after a rollback or a fork hasn't seen the
 	// conversation: its first prompt carries it (timeline.go).
 	handoff := c.stored.Handoff
 	if handoff != "" {
 		text = handoff + "\n\n---\n\n" + text
 	}
-	if len(images) > 0 && !ad.images {
+	if len(sent.images) > 0 && !ad.images {
 		// Attached before this tool's adapter had ever said whether it reads
 		// images, and it turned out not to: the text still goes, and the
 		// pictures are said to be missing where you see it.
-		c.add("notice", t.id).Text = fmt.Sprintf("%s's adapter doesn't take images, so the %d sent with this message didn't reach it.", ToolNames[c.agent.AI], len(images))
+		c.add("notice", t.id).Text = fmt.Sprintf("%s's adapter doesn't take images, so the %d sent with this message didn't reach it.", ToolNames[c.agent.AI], len(sent.images))
 		c.flush(true)
-		images = nil
-		if text == "" {
+		sent.images = nil
+		if text == "" && len(sent.files) == 0 {
 			text = "[AgentBox: the user sent only images, which this tool can't read.]"
 		}
 	}
@@ -2025,7 +2032,7 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	var res acp.PromptResponse
 	err := ad.conn.Call(context.Background(), acp.MethodSessionPrompt, acp.PromptRequest{
 		SessionID: sessionID,
-		Prompt:    c.promptBlocks(dir, skillPrompt(a.AI, projectMentionText(text, c.m.projectRoots()), c.m.skillNames(a)), images),
+		Prompt:    c.promptBlocks(dir, skillPrompt(a.AI, projectMentionText(text, c.m.projectRoots()), c.m.skillNames(a)), sent, embed),
 	}, &res)
 	c.mu.Lock()
 	defer c.mu.Unlock()

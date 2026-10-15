@@ -18,8 +18,13 @@ import (
 // A conversation that is busy after all — a turn running, a compaction —
 // takes the message the way Send does.
 func (m *Manager) Hold(a state.Agent, text string, images ...api.ChatImageUpload) (api.ChatItem, error) {
-	text = strings.TrimSpace(text)
-	if text == "" && len(images) == 0 {
+	return m.HoldMessage(a, api.ChatMessageRequest{Text: text, Images: images})
+}
+
+// HoldMessage is Hold for a message with files as well as pictures.
+func (m *Manager) HoldMessage(a state.Agent, msg api.ChatMessageRequest) (api.ChatItem, error) {
+	text := strings.TrimSpace(msg.Text)
+	if text == "" && len(msg.Images) == 0 && len(msg.Files) == 0 {
 		return api.ChatItem{}, errors.New("the message is empty")
 	}
 	c, err := m.conversation(a)
@@ -27,19 +32,19 @@ func (m *Manager) Hold(a state.Agent, text string, images ...api.ChatImageUpload
 		return api.ChatItem{}, err
 	}
 	defer c.mu.Unlock()
-	saved, err := c.saveImages(images)
+	sent, err := c.saveAttached(msg)
 	if err != nil {
 		return api.ChatItem{}, err
 	}
 	switch {
 	case c.compaction != nil:
-		return clone(*c.hold(text, saved)), nil
+		return clone(*c.hold(text, sent)), nil
 	case c.turn != nil:
-		return clone(*c.aside(text, saved)), nil
+		return clone(*c.aside(text, sent)), nil
 	}
 	it := c.add("aside", c.lastTurn())
-	it.Text, it.Images, it.Delivery = text, saved, api.ChatAsideWaking
-	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, images: saved})
+	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, api.ChatAsideWaking
+	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent})
 	c.flush(true)
 	return clone(*it), nil
 }

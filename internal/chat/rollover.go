@@ -281,10 +281,10 @@ func (c *conversation) endCompaction(rolled bool, unsaved error) bool {
 // the fresh session is in place: sent now, it would land in the session that
 // is being thrown away. The card counts it, which is how the user is told why
 // nothing answers yet. The conversation is locked and a compaction runs.
-func (c *conversation) hold(text string, images []api.ChatImage) *api.ChatItem {
+func (c *conversation) hold(text string, sent attached) *api.ChatItem {
 	it := c.add("aside", c.lastTurn())
-	it.Text, it.Images, it.Delivery = text, images, api.ChatAsideHeld
-	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, images: images})
+	it.Text, it.Images, it.Files, it.Delivery = text, sent.images, sent.files, api.ChatAsideHeld
+	c.outbox = append(c.outbox, &outgoing{item: it.ID, text: text, sent: sent})
 	c.compaction.Compaction.Waiting++
 	c.touch(c.compaction)
 	c.flush(true)

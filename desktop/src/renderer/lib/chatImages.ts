@@ -77,8 +77,3 @@ function base64(blob: Blob): Promise<string> {
 }
 
 export const previewUrl = (image: T.ChatImageUpload) => `data:${image.mimeType};base64,${image.data}`;
-
-// imageFiles picks the images out of what was pasted or dropped.
-export function imageFiles(data: DataTransfer | null): File[] {
-  return Array.from(data?.files ?? []).filter((file) => file.type.startsWith('image/'));
-}

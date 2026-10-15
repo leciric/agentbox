@@ -114,6 +114,12 @@ func (c *Client) SendChat(ctx context.Context, ref, text string, images ...ChatI
 	return out, c.chatDo(ctx, http.MethodPost, ref, "/messages", ChatMessageRequest{Text: text, Images: images}, &out)
 }
 
+// SendChatMessage sends a message with pictures and files.
+func (c *Client) SendChatMessage(ctx context.Context, ref string, msg ChatMessageRequest) (ChatItem, error) {
+	var out ChatItem
+	return out, c.chatDo(ctx, http.MethodPost, ref, "/messages", msg, &out)
+}
+
 func (c *Client) CancelChat(ctx context.Context, ref string) (ChatSession, error) {
 	var out ChatSession
 	return out, c.chatDo(ctx, http.MethodPost, ref, "/cancel", nil, &out)

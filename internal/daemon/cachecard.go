@@ -223,7 +223,7 @@ func (s *Server) chatCacheChoice(w http.ResponseWriter, r *http.Request) error {
 	} else {
 		s.settleLeadCache(a.Project, false)
 	}
-	if strings.TrimSpace(req.Text) == "" && len(req.Images) == 0 {
+	if strings.TrimSpace(req.Text) == "" && len(req.Images) == 0 && len(req.Files) == 0 {
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	}
@@ -231,7 +231,7 @@ func (s *Server) chatCacheChoice(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	item, err := s.chat.Send(a, req.Text, req.Images...)
+	item, err := s.chat.SendMessage(a, api.ChatMessageRequest{Text: req.Text, Images: req.Images, Files: req.Files})
 	if err != nil {
 		return err
 	}

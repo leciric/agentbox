@@ -10,7 +10,6 @@ import {
   FolderGit2,
   Gauge,
   Hourglass,
-  ImagePlus,
   ListTodo,
   LoaderCircle,
   Lock,
@@ -18,6 +17,7 @@ import {
   Moon,
   PencilLine,
   PencilRuler,
+  Paperclip,
   Play,
   Plug,
   Search,
@@ -37,13 +37,15 @@ import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } 
 import { getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
-import { imageFiles, imageTypes, maxImages, prepareImage, previewUrl, type PendingImage } from '../../lib/chatImages';
+import { previewUrl } from '../../lib/chatImages';
+import { droppedFiles, isFile, prepareAttachment, room, uploads, type Pending } from '../../lib/chatFiles';
 import { ModelByName } from '../ModelByName';
 import { cn, errorMessage } from '../../lib/utils';
 import { AIIcon, aiLabel } from '../state';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
 import { Tip } from '../ui/tooltip';
 import { DiffView, relativePath } from './ChangedFiles';
+import { FileChip } from './Files';
 import { ImageThumb } from './Images';
 import { RunnerPicker } from './RunnerPicker';
 
@@ -72,7 +74,7 @@ export function Composer({
   const [mentionHighlighted, setMentionHighlighted] = useState(0);
   const [dollarDismissed, setDollarDismissed] = useState<string | null>(null);
   const [dollarHighlighted, setDollarHighlighted] = useState(0);
-  const [images, setImages] = useState<PendingImage[]>([]);
+  const [images, setImages] = useState<Pending[]>([]);
   const [dragging, setDragging] = useState(false);
   const area = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -90,7 +92,7 @@ export function Composer({
   const projectChat = isProjectChat(agent.ref);
   const cache = useQuery({ queryKey: ['chatCache', agent.project], queryFn: () => api.chatCache(agent.project), enabled: projectChat });
   const cacheCard = projectChat && cache.data?.due && !busy && !disabled ? cache.data : undefined;
-  const [held, setHeld] = useState<{ text: string; images: PendingImage[] } | null>(null);
+  const [held, setHeld] = useState<{ text: string; images: Pending[] } | null>(null);
   useEffect(() => {
     if (!held || cacheCard) return;
     setText((current) => current || held.text);
@@ -99,12 +101,10 @@ export function Composer({
   }, [held, cacheCard]);
 
   const send = useMutation({
-    mutationFn: (message: { text: string; images: PendingImage[] }) =>
-      api.sendChat(
-        agent.ref,
-        message.text,
-        message.images.map(({ mimeType, data, name }) => ({ mimeType, data, name })),
-      ),
+    mutationFn: (message: { text: string; images: Pending[] }) => {
+      const { images, files } = uploads(message.images);
+      return api.sendChat(agent.ref, message.text, images, files);
+    },
     onMutate: () => {
       setText('');
       setImages([]);
@@ -117,28 +117,35 @@ export function Composer({
     },
   });
 
-  // Images go to the AI tool as ACP image blocks, which only an adapter that
-  // said promptCapabilities.image takes. Before any adapter of this tool has
-  // started there's nothing to go on, and attaching is allowed.
-  const noImages = disabled ? t('chat.composer.startToChat', { name: agent.name }) : session?.noImages ? t('chat.composer.noImages', { tool }) : undefined;
+  // Pictures go to the AI tool as ACP image blocks, which only an adapter that
+  // said promptCapabilities.image takes; for one that didn't, they go as
+  // files, like anything else: the daemon puts those where the tool can open
+  // them. Before any adapter of this tool has started there's nothing to go
+  // on, and pictures are sent as pictures.
+  const noAttach = disabled ? t('chat.composer.startToChat', { name: agent.name }) : undefined;
   const attach = async (files: File[]) => {
-    if (noImages) {
-      toast.error(noImages);
+    if (noAttach) {
+      toast.error(noAttach);
       return;
     }
-    const room = maxImages - images.length;
-    if (files.length > room) toast.error(t('chat.composer.maxImages', { count: maxImages }));
-    for (const file of files.slice(0, Math.max(0, room))) {
+    let waiting = images;
+    for (const file of files) {
       try {
-        const image = await prepareImage(file);
-        setImages((current) => (current.length < maxImages ? [...current, image] : current));
+        const next = await prepareAttachment(file, !session?.noImages);
+        const full = room(waiting, next);
+        if (full) {
+          toast.error(full);
+          continue;
+        }
+        waiting = [...waiting, next];
+        setImages((current) => (room(current, next) ? current : [...current, next]));
       } catch (err) {
         toast.error(errorMessage(err));
       }
     }
   };
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = imageFiles(event.clipboardData);
+    const files = droppedFiles(event.clipboardData);
     if (files.length === 0) return;
     event.preventDefault();
     void attach(files);
@@ -147,16 +154,15 @@ export function Composer({
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!dragsFiles(event)) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = noImages ? 'none' : 'copy';
+    event.dataTransfer.dropEffect = 'copy';
     setDragging(true);
   };
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
     setDragging(false);
     if (!dragsFiles(event)) return;
     event.preventDefault();
-    const files = imageFiles(event.dataTransfer);
-    if (files.length === 0) toast.error(t('chat.composer.onlyImages'));
-    else void attach(files);
+    const files = droppedFiles(event.dataTransfer);
+    if (files.length > 0) void attach(files);
   };
   // Cancelling the turn stops its reply being read aloud too.
   const stop = useMutation({ mutationFn: () => api.cancelChat(agent.ref), onError: (err) => toast.error(errorMessage(err)) });
@@ -433,12 +439,12 @@ export function Composer({
         onDrop={onDrop}
         className={cn(
           'relative z-10 rounded-[22px] border border-line-strong bg-composer/85 shadow-[0_24px_60px_-28px_var(--ab-shadow-deep),inset_0_1px_0_rgb(255_255_255/0.04)] backdrop-blur-xl transition-colors focus-within:border-line-vivid',
-          dragging && (noImages ? 'border-rose-400/60' : 'border-brand-400/80 bg-brand-500/5'),
+          dragging && 'border-brand-400/80 bg-brand-500/5',
         )}
       >
         {dragging && (
           <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[22px] text-[12.5px] font-medium text-primary">
-            <span className="rounded-full bg-overlay px-3 py-1.5 shadow">{noImages ?? t('chat.composer.drop')}</span>
+            <span className="rounded-full bg-overlay px-3 py-1.5 shadow">{t('chat.composer.drop')}</span>
           </div>
         )}
         {commands.length > 0 && (
@@ -502,15 +508,14 @@ export function Composer({
         )}
         {images.length > 0 && (
           <div className="flex flex-wrap gap-2 px-4 pt-3.5" aria-label={t('chat.composer.attached')}>
-            {images.map((image) => (
-              <ImageThumb
-                key={image.key}
-                src={previewUrl(image)}
-                name={image.name}
-                className="size-14"
-                onRemove={() => setImages((current) => current.filter((other) => other.key !== image.key))}
-              />
-            ))}
+            {images.map((image) => {
+              const remove = () => setImages((current) => current.filter((other) => other.key !== image.key));
+              return isFile(image) ? (
+                <FileChip key={image.key} name={image.name} size={image.size} mimeType={image.mimeType} onRemove={remove} />
+              ) : (
+                <ImageThumb key={image.key} src={previewUrl(image)} name={image.name} className="size-14" onRemove={remove} />
+              );
+            })}
           </div>
         )}
         <div className="px-4 pb-1 pt-3.5">
@@ -537,7 +542,6 @@ export function Composer({
           <input
             ref={picker}
             type="file"
-            accept={imageTypes.join(',')}
             multiple
             hidden
             onChange={(event) => {
@@ -546,17 +550,17 @@ export function Composer({
               void attach(files);
             }}
           />
-          <Tip label={noImages ?? t('chat.composer.attachTip')}>
+          <Tip label={noAttach ?? t('chat.composer.attachTip')}>
             {/* A span, so the reason still shows on a disabled button. */}
             <span className="shrink-0">
               <button
                 type="button"
                 aria-label={t('chat.composer.attach')}
-                disabled={!!noImages}
+                disabled={!!noAttach}
                 onClick={() => picker.current?.click()}
                 className="flex size-8 items-center justify-center rounded-full text-subtle transition hover:bg-surface-raised hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
               >
-                <ImagePlus className="size-4" />
+                <Paperclip className="size-4" />
               </button>
             </span>
           </Tip>
@@ -708,19 +712,19 @@ function CacheCard({
 }: {
   project: string;
   cache: T.ChatCache;
-  held: { text: string; images: PendingImage[] } | null;
-  draft: () => { text: string; images: PendingImage[] } | null;
-  onChosen: (message: { text: string; images: PendingImage[] } | null) => void;
-  onFailed: (message: { text: string; images: PendingImage[] } | null) => void;
+  held: { text: string; images: Pending[] } | null;
+  draft: () => { text: string; images: Pending[] } | null;
+  onChosen: (message: { text: string; images: Pending[] } | null) => void;
+  onFailed: (message: { text: string; images: Pending[] } | null) => void;
 }) {
   const t = useT();
   const now = useNow(1000);
   const choose = useMutation({
-    mutationFn: ({ compact, message }: { compact: boolean; message: { text: string; images: PendingImage[] } | null }) =>
+    mutationFn: ({ compact, message }: { compact: boolean; message: { text: string; images: Pending[] } | null }) =>
       api.chooseChatCache(project, {
         compact,
         text: message?.text,
-        images: message?.images.map(({ mimeType, data, name }) => ({ mimeType, data, name })),
+        ...(message ? uploads(message.images) : {}),
       }),
     onSuccess: (_, { message }) => onChosen(message),
     onError: (err, { message }) => {
@@ -750,7 +754,7 @@ function CacheCard({
         </p>
         {waiting && (
           <p className="mt-1.5 line-clamp-2 break-words rounded-lg bg-black/10 px-2.5 py-1.5 text-[12.5px] text-primary" data-chat-cache-held>
-            {waiting.text || t('chat.cache.images', { count: waiting.images.length })}
+            {waiting.text || t('chat.cache.attachments', { count: waiting.images.length })}
           </p>
         )}
         <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">

@@ -31,13 +31,18 @@ type told struct {
 // machine first when it isn't running. A lead has no machine of its own, and an agent that
 // isn't ready (queued, being made) has none yet: the chat has those as ever.
 func (s *Server) tellAgent(ctx context.Context, a state.Agent, text string, images ...api.ChatImageUpload) (told, error) {
+	return s.tellAgentMessage(ctx, a, api.ChatMessageRequest{Text: text, Images: images})
+}
+
+// tellAgentMessage is tellAgent for a message with files as well as pictures.
+func (s *Server) tellAgentMessage(ctx context.Context, a state.Agent, msg api.ChatMessageRequest) (told, error) {
 	if a.IsLead() || a.Status != state.AgentReady {
-		item, err := s.chat.Send(a, text, images...)
+		item, err := s.chat.SendMessage(a, msg)
 		return told{item: item}, err
 	}
 	// Most messages go to a machine that runs: no lock for those.
 	if inst, err := s.cfg.Incus.Instance(ctx, a.Instance); err == nil && inst.Status == "Running" {
-		item, err := s.chat.Send(a, text, images...)
+		item, err := s.chat.SendMessage(a, msg)
 		return told{item: item}, err
 	}
 	// One wake at a time, so two messages to the same stopped agent don't
@@ -50,7 +55,7 @@ func (s *Server) tellAgent(ctx context.Context, a state.Agent, text string, imag
 		// Incus can't say: the chat takes the message as it always has, and
 		// says what went wrong if its machine can't be reached.
 		s.logf("%s: looking at its machine before telling it something: %v", a.Ref(), err)
-		item, err := s.chat.Send(a, text, images...)
+		item, err := s.chat.SendMessage(a, msg)
 		return told{item: item}, err
 	}
 	var woke string
@@ -76,7 +81,7 @@ func (s *Server) tellAgent(ctx context.Context, a state.Agent, text string, imag
 	if woke != "" {
 		s.refreshAgents(ctx)
 	}
-	item, err := s.chat.Send(a, text, images...)
+	item, err := s.chat.SendMessage(a, msg)
 	return told{item: item, woke: woke}, err
 }
 

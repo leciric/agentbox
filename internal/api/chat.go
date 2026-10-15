@@ -149,6 +149,8 @@ type ChatItem struct {
 	Text string `json:"text,omitempty"`
 	// Images, on a user message or an aside, are the pictures sent with it.
 	Images []ChatImage `json:"images,omitempty"`
+	// Files, on a user message or an aside, are the other files sent with it.
+	Files []ChatFile `json:"files,omitempty"`
 	// Delivery, on an aside, is how that message reached the AI tool.
 	Delivery string `json:"delivery,omitempty"`
 	// Woken, on a user item, marks a turn nobody prompted: the AI tool's
@@ -320,6 +322,7 @@ type TellResult struct {
 type ChatMessageRequest struct {
 	Text   string            `json:"text"`
 	Images []ChatImageUpload `json:"images,omitempty"`
+	Files  []ChatFileUpload  `json:"files,omitempty"`
 }
 
 // ChatImage is a picture sent with a message. Its bytes are kept in a file
@@ -344,6 +347,37 @@ type ChatImageUpload struct {
 const (
 	MaxChatImages     = 8
 	MaxChatImageBytes = 5 << 20 / 4 * 3
+)
+
+// ChatFile is a file other than a picture sent with a message: a PDF, a CSV,
+// a zip. Its bytes are kept beside the conversation, like a picture's, and
+// served from .../chat/files/{id}; a copy is put where the AI tool can read
+// it, at Path, which its prompt names.
+type ChatFile struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType,omitempty"`
+	Size     int64  `json:"size"` // bytes
+	// Path is the copy the AI tool was given: in an agent's worktree, or the
+	// lead's, under .agentbox/attachments/, which git ignores.
+	Path string `json:"path,omitempty"`
+}
+
+// ChatFileUpload is a file attached to a message being sent.
+type ChatFileUpload struct {
+	Name     string `json:"name"`
+	MimeType string `json:"mimeType,omitempty"`
+	Data     string `json:"data"` // base64
+}
+
+// The limits on a message's files: how many, how big each, and how big
+// together. A text file up to MaxChatEmbeddedBytes also goes to an AI tool
+// whose adapter takes it as an ACP resource block, so it needn't read it.
+const (
+	MaxChatFiles         = 10
+	MaxChatFileBytes     = 25 << 20
+	MaxChatFilesBytes    = 50 << 20
+	MaxChatEmbeddedBytes = 64 << 10
 )
 
 // ChatAnswerRequest answers a permission request; an empty option cancels it.
@@ -401,6 +435,7 @@ type ChatCacheChoice struct {
 	Compact bool              `json:"compact"`
 	Text    string            `json:"text,omitempty"`
 	Images  []ChatImageUpload `json:"images,omitempty"`
+	Files   []ChatFileUpload  `json:"files,omitempty"`
 }
 
 // EventChatCache carries a ChatCache whenever its card shows or goes.

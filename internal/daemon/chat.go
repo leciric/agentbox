@@ -154,7 +154,7 @@ func (s *Server) sendChat(from agentFrom) func(http.ResponseWriter, *http.Reques
 		if err := readJSON(r, &req); err != nil {
 			return err
 		}
-		t, err := s.tellAgent(r.Context(), a, req.Text, req.Images...)
+		t, err := s.tellAgentMessage(r.Context(), a, req)
 		if err != nil {
 			return err
 		}
@@ -185,6 +185,31 @@ func (s *Server) chatImage(from agentFrom) func(http.ResponseWriter, *http.Reque
 			return nil
 		}
 		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeFile(w, r, path)
+		return nil
+	}
+}
+
+// chatFile serves a file sent in the chat, as bytes to save or open, never
+// to render: what it holds is whatever the user sent.
+func (s *Server) chatFile(from agentFrom) func(http.ResponseWriter, *http.Request) error {
+	return func(w http.ResponseWriter, r *http.Request) error {
+		a, err := from(r)
+		if err != nil {
+			return err
+		}
+		path, err := s.chat.ImagePath(a, r.PathValue("file"))
+		if err == nil {
+			_, err = os.Stat(path)
+		}
+		if err != nil {
+			http.NotFound(w, r)
+			return nil
+		}
+		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		http.ServeFile(w, r, path)
 		return nil

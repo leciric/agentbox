@@ -11,6 +11,7 @@ import { aiLabel } from '../state';
 import { ChatCredentialCard } from '../CredentialCard';
 import { Tip } from '../ui/tooltip';
 import { ChangedFiles } from './ChangedFiles';
+import { SentFiles } from './Files';
 import { SentImages } from './Images';
 import { Markdown } from './Markdown';
 import { TurnMarker } from './TurnMarker';
@@ -61,6 +62,7 @@ const TimelineRow = memo(
         return (
           <div className="group flex flex-col items-end gap-1 pb-4 pt-1" data-chat-item={row.item.kind === 'aside' ? 'aside' : 'user'} data-chat-id={row.item.id}>
             {!!row.item.images?.length && <SentImages chatRef={chatRef} images={row.item.images} />}
+            {!!row.item.files?.length && <SentFiles chatRef={chatRef} files={row.item.files} />}
             {row.item.text && (
               <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]" data-chat-text>
                 {row.item.text}

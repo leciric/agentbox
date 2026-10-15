@@ -162,7 +162,7 @@ func (c *conversation) carryOn(rt state.RunningTurn) {
 	// The prompt is the model's to read; the notice is what the user reads.
 	user := c.add("user", "")
 	user.Turn, user.Text, user.Hidden = user.ID, resumePrompt, true
-	c.beginResumedTurn(user, resumePrompt, nil, rt.Resumes+1)
+	c.beginResumedTurn(user, resumePrompt, attached{}, rt.Resumes+1)
 }
 
 // releaseResume carries on the turn HoldResume kept, if any, and reports

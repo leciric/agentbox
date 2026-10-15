@@ -280,6 +280,10 @@ const bridge = {
   },
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:directory'),
   openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:openPath', path),
+  // openChatFile opens a file sent in a chat, given its daemon path
+  // (.../chat/files/<id>), with the system's default app: main/chatfiles.ts
+  // copies it out of the daemon first. It answers an error, or ''.
+  openChatFile: (path: string, name: string): Promise<string> => ipcRenderer.invoke('chatFile:open', path, name),
   showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:showItem', path),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   // An OS notification, shown only while the window isn't in front (main/notify.ts);

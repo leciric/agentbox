@@ -193,8 +193,15 @@ func (m *Manager) Seed(a, src state.Agent, items []api.ChatItem, handoff, notice
 	turn := ""
 	for i := range items {
 		it := clone(items[i])
-		if len(it.Images) > 0 {
-			m.copyImages(src, a, it.Images)
+		ids := make([]string, 0, len(it.Images)+len(it.Files))
+		for _, img := range it.Images {
+			ids = append(ids, img.ID)
+		}
+		for _, f := range it.Files {
+			ids = append(ids, f.ID)
+		}
+		if len(ids) > 0 {
+			m.copyImages(src, a, ids)
 		}
 		c.items = append(c.items, &it)
 		c.byID[it.ID] = &it
@@ -213,7 +220,9 @@ func (m *Manager) Seed(a, src state.Agent, items []api.ChatItem, handoff, notice
 	return nil
 }
 
-func (m *Manager) copyImages(from, to state.Agent, images []api.ChatImage) {
+// copyImages copies the pictures and files sent in one chat, by id, to
+// another's. A file's copy in the first's working directory stays there.
+func (m *Manager) copyImages(from, to state.Agent, ids []string) {
 	src, dst := m.imageDir(from), m.imageDir(to)
 	if src == "" || dst == "" {
 		return
@@ -221,11 +230,11 @@ func (m *Manager) copyImages(from, to state.Agent, images []api.ChatImage) {
 	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return
 	}
-	for _, img := range images {
-		if !imageID.MatchString(img.ID) {
+	for _, id := range ids {
+		if !imageID.MatchString(id) {
 			continue
 		}
-		if err := copyFile(filepath.Join(src, img.ID), filepath.Join(dst, img.ID)); err != nil {
+		if err := copyFile(filepath.Join(src, id), filepath.Join(dst, id)); err != nil {
 			m.logf("chat %s: copying a picture from %s: %v", to.Ref(), from.Ref(), err)
 		}
 	}
