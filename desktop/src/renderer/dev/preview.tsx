@@ -1046,8 +1046,9 @@ function settingsBridge(): void {
     lan = { ...lan, enabled: true, listening: true, tunnel: { ...lan.tunnel, enabled: true, state: 'running', hub, namedHostname: 'chat.example.com' } };
     lan = withMode(hub ? 'hub' : 'quick');
   }
-  // The lists Skills, Connectors, Memory and a project's accounts read, empty.
-  const lists = /^\/v1\/(skills|connectors|global\/memory\/memories|limits)(\?|$)|^\/v1\/projects\/[^/]+\/(skills|connectors)(\?|$)/;
+  // The lists Skills, Connectors, Memory and a project's accounts and
+  // credentials read, empty.
+  const lists = /^\/v1\/(skills|connectors|global\/memory\/memories|limits)(\?|$)|^\/v1\/projects\/[^/]+\/(skills|connectors|credentials)(\?|$)/;
   bridge.request = async (method, path, body) => {
     if (method === 'GET' && path === '/v1/lan') return answer(lan);
     if (method === 'GET' && lists.test(path)) return answer([]);
