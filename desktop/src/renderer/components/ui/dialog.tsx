@@ -5,6 +5,12 @@ import { useT } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
 
 export const Dialog = DialogPrimitive.Root;
+
+// fullWhenNarrow is for a dialog that is a page of its own (Ready to review's
+// carousel, a pull request's detail): below lg, or in a window under 700px
+// tall, it takes the whole window rather than a box with a margin around it.
+export const fullWhenNarrow =
+  'max-lg:h-full max-lg:max-h-none max-lg:w-full max-lg:max-w-none max-lg:rounded-none max-lg:border-0 [@media(max-height:700px)]:h-full [@media(max-height:700px)]:max-h-none [@media(max-height:700px)]:w-full [@media(max-height:700px)]:max-w-none [@media(max-height:700px)]:rounded-none [@media(max-height:700px)]:border-0';
 export const DialogClose = DialogPrimitive.Close;
 
 export function DialogContent({ className, children, ...props }: ComponentProps<typeof DialogPrimitive.Content>) {

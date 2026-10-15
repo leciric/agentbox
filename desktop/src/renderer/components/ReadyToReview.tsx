@@ -20,7 +20,7 @@ import { PullRequestView } from './PullRequestModal';
 import { usePullLabels } from './PullRequestsPanel';
 import { AIIcon } from './state';
 import { Button } from './ui/button';
-import { Dialog, DialogContent, DialogTitle } from './ui/dialog';
+import { Dialog, DialogContent, DialogTitle, fullWhenNarrow } from './ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 
 // ReadyToReview is the way in to "Ready to review": a button with how many
@@ -185,7 +185,7 @@ function ReviewCarousel({ item, onDone, onSelect }: { item: T.ReviewItem; onDone
 
   return (
     <DialogContent
-      className="flex h-[88vh] w-[calc(100vw-3rem)] max-w-[1180px] flex-col gap-0 overflow-hidden p-0"
+      className={cn('flex h-[88vh] w-[calc(100vw-3rem)] max-w-[1180px] flex-col gap-0 overflow-hidden p-0', fullWhenNarrow)}
       data-review-carousel={item.ref}
       onKeyDown={onKeyDown}
       onOpenAutoFocus={(event) => {

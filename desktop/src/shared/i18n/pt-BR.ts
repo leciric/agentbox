@@ -1645,7 +1645,6 @@ export const ptBR: Messages = {
   'agent.info.worktreeDisk': 'Worktree no host',
   'agent.info.tokens': 'Tokens',
   'agent.info.pullRequest': 'Pull request',
-  'agent.switcher.label': 'Alternar entre o chat e os agentes de {project}',
   'agent.destroy.title': 'Destruir {name}?',
   'agent.destroy.description': 'Remove a máquina, os snapshots e o worktree; o agente vai para Agentes anteriores com o chat, para ler ou continuar depois. A branch também é excluída quando já foi mergeada ou enviada; senão, os commits ficam nela. A mídia fica na visão de mídia do projeto pelo tempo que as Configurações mantiverem, a menos que você a exclua agora.',
   'agent.destroy.confirm': 'Destruir',

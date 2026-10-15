@@ -142,9 +142,12 @@ function reviewRequest(method: string, path: string): { status: number; body: st
     return { status: 200, body: JSON.stringify(waiting), contentType: 'application/json' };
   }
   // The pull request modal's detail of #318, and its files.
-  if (method === 'GET' && path === `/v1/projects/${PROJECT}/pulls/318`) {
+  // Any other number is answered the same, for the Pull requests tab's rows.
+  const number = method === 'GET' && new RegExp(`^/v1/projects/${PROJECT}/pulls/(\\d+)$`).exec(path)?.[1];
+  if (number) {
     const detail: T.PullRequestDetail = {
       ...pr,
+      number: Number(number),
       body: 'Adds a **New project** button at the top of the sidebar, with a tooltip and the shortcut.\n\nChecked in the preview and in the app; the recording is in Media.',
       checkRuns: [
         { name: 'Go tests and coverage', status: 'completed', conclusion: 'success' },
@@ -154,7 +157,7 @@ function reviewRequest(method: string, path: string): { status: number; body: st
     };
     return { status: 200, body: JSON.stringify(detail), contentType: 'application/json' };
   }
-  if (method === 'GET' && path.startsWith(`/v1/projects/${PROJECT}/pulls/318/files`)) {
+  if (method === 'GET' && new RegExp(`^/v1/projects/${PROJECT}/pulls/\\d+/files`).test(path)) {
     return { status: 200, body: JSON.stringify({ files: [] } satisfies T.PullRequestFiles), contentType: 'application/json' };
   }
   const verdict = method === 'POST' && /^\/v1\/agents\/[^/]+\/([^/]+)\/review$/.exec(path);
@@ -178,7 +181,7 @@ export function ReviewPreview() {
     <div style={{ display: 'flex', height: '100vh', width: '100vw' }}>
       <Sidebar view={view} onSelect={() => {}} onAddProject={() => {}} onNewAgent={() => {}} />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: 'var(--color-ink)' }} data-preview-review>
-        <TopBar view={view} onSelect={() => {}} onOpenNav={() => {}} onNewAgent={() => {}} onOpenNotice={() => {}} />
+        <TopBar view={view} onSelect={() => {}} onOpenNav={() => {}} onOpenNotice={() => {}} />
         <button type="button" data-preview-land onClick={() => land(queryClient)} style={{ position: 'fixed', bottom: 12, left: 260, zIndex: 50, padding: '6px 12px', borderRadius: 8, background: '#333', color: '#fff', fontSize: 12 }}>
           Land agent-77
         </button>

@@ -1644,7 +1644,6 @@ export const enUS = {
   'agent.info.worktreeDisk': 'Worktree on host',
   'agent.info.tokens': 'Tokens',
   'agent.info.pullRequest': 'Pull request',
-  'agent.switcher.label': 'Switch chat or agent in {project}',
   'agent.destroy.title': 'Destroy {name}?',
   'agent.destroy.description': 'Removes the machine, its snapshots and the worktree; the agent moves to Past agents with its chat, to read or continue later. The branch is deleted too once it’s merged or pushed; otherwise its commits stay on it. Media stays in the project’s media view for as long as Settings keeps it, unless you delete it now.',
   'agent.destroy.confirm': 'Destroy',

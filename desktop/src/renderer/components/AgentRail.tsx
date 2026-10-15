@@ -35,7 +35,10 @@ import { Tip } from './ui/tooltip';
 // project that has run for a while has more agents that are done than ones
 // that aren't, and those are not what you open the rail to find. The section
 // opens by itself while the agent you're on is in it.
-export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void }) {
+//
+// In a narrow window the rail is a drawer over the page (App), given onClose:
+// it is always open there, and its fold button closes the drawer instead.
+export function AgentRail({ view, onSelect, onNewAgent, onClose }: { view: View; onSelect: (view: View) => void; onNewAgent: (project: string) => void; onClose?: () => void }) {
   const t = useT();
   const project = view.kind === 'agent' ? view.ref.split('/')[0] : view.kind === 'project' ? view.project : null;
   const enabled = project !== null;
@@ -60,7 +63,8 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
   // The lead's own state, for its avatar: whether it's mid-turn or asking.
   const lead = useQuery({ queryKey: ['projectChat', project], queryFn: () => api.projectChat(project as string), enabled });
   const history = useCpuHistory(usage.data);
-  const [folded, setFolded] = useFolded();
+  const [foldedHere, setFolded] = useFolded();
+  const folded = foldedHere && !onClose;
   const [showFinished, setShowFinished] = useShowFinished();
   // The Pages tab, beside Agents while Hatch is connected and the project has
   // a page Hatch still has; an agent's page icon opens it on that agent.
@@ -201,7 +205,7 @@ export function AgentRail({ view, onSelect, onNewAgent }: { view: View; onSelect
             aria-label={t('agent.rail.hide')}
             data-rail-fold
             className="rounded-md p-1.5 text-subtle transition hover:bg-surface-strong hover:text-primary"
-            onClick={() => setFolded(true)}
+            onClick={() => (onClose ? onClose() : setFolded(true))}
           >
             <PanelRight className="size-3.5" />
           </button>
