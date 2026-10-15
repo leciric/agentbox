@@ -82,6 +82,7 @@ import { GlobalMemoryPanel } from "./GlobalMemoryPanel";
 import { phoneGroups } from "./PhoneSettings";
 import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
+import { EnvironmentSwitcher } from "./EnvironmentSwitcher";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
 import { DoNotDisturbSetting, ChimeVolume, NotificationKinds, NotificationModeChoice } from "./NotificationSettings";
@@ -941,6 +942,18 @@ function InstalledSettings({
               modified: changed((s) => s.language !== T.DefaultLanguage),
               render: () => <LanguageSetting />,
             },
+            // v2's sidebar keeps only Settings and Past agents at its foot, so
+            // which AgentBox this window drives is chosen here.
+            ...(uiV2
+              ? [
+                  {
+                    id: "environment",
+                    label: t("settings.entry.environment.label"),
+                    keywords: t("settings.entry.environment.keywords"),
+                    render: () => <EnvironmentSetting />,
+                  },
+                ]
+              : []),
           ],
         },
         {
@@ -1861,6 +1874,21 @@ function UsageStats() {
 // TopBarDetailedSetting is the top bar's layout on this computer: one status
 // bubble for the machine, or its memory, CPU and disk always in view
 // (lib/topBarLayout.ts).
+function EnvironmentSetting() {
+  const t = useT();
+  return (
+    <SettingRow
+      label={t("settings.entry.environment.label")}
+      description={t("settings.environment.description")}
+      control={
+        <div className="w-60">
+          <EnvironmentSwitcher />
+        </div>
+      }
+    />
+  );
+}
+
 function TopBarDetailedSetting() {
   const t = useT();
   const on = useTopBarDetailed();

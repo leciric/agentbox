@@ -537,7 +537,9 @@ export function App({ initial }: { initial?: View } = {}) {
                       onNewAgent={() => setNewAgentProject("")}
                     />
                   ))}
-                {view.kind === "homeChat" && <HomeChatPanel />}
+                {view.kind === "homeChat" && (
+                  <HomeChatPanel onOverview={v2 ? () => select({ kind: "home" }) : undefined} />
+                )}
                 {view.kind === "jobs" && <JobsView />}
                 {view.kind === "media" && <AllMediaView onSelect={select} />}
                 {view.kind === "pastAgents" &&

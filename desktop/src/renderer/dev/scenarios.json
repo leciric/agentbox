@@ -1491,8 +1491,15 @@
     "click": "[data-project-header-icon]"
   },
   {
+    "id": "window-wide-v2-home-chat-dark",
+    "description": "UI v2 at 1920×1080 on the Home chat, with Overview at the right of its header — dark",
+    "query": "app=homeChat&v2=1&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
     "id": "window-wide-v2-overview-dark",
-    "description": "UI v2 at 1920×1080, Overview, a page of its own opened from the sidebar's foot, with its project filter — dark",
+    "description": "UI v2 at 1920×1080, Overview, opened from the Home chat's header, with Jobs, Media and its project filter beside its title — dark",
     "query": "app=home&v2=1&theme=dark",
     "width": 1920,
     "height": 1080
@@ -1538,7 +1545,7 @@
   },
   {
     "id": "window-wide-v2-foot-dark",
-    "description": "UI v2 at 1920×1080 on the project: the sidebar's foot names Overview, Past agents, Media and Jobs, then the environment switcher, and Settings beside the update check — dark",
+    "description": "UI v2 at 1920×1080 on the project: the sidebar's foot is one row, Settings and Past agents with their names, and the update check — dark",
     "query": "app=project&v2=1&theme=dark",
     "width": 1920,
     "height": 1080

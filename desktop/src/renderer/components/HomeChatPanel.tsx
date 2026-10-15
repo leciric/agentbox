@@ -1,4 +1,4 @@
-import { Brain, MessagesSquare } from 'lucide-react';
+import { Brain, LayoutDashboard, MessagesSquare } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import * as T from '../../shared/api';
 import { api } from '../lib/api';
@@ -6,6 +6,7 @@ import { t, useT } from '../lib/i18n';
 import { useChatOpenAt } from '../lib/reveal';
 import { ChatMenu, ChatStatus, ChatTab } from './chat/ChatTab';
 import { GlobalMemoryPanel } from './GlobalMemoryPanel';
+import { Button } from './ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 // homeAgentFrom builds the Agent ChatTab expects out of the Home chat: a lead
@@ -39,7 +40,9 @@ export function homeAgentFrom(info: T.ProjectChat): T.Agent {
 // Its tools list the projects and their agents, create agents, tell a
 // project's own chat something, search any project's memory and add projects,
 // so it's there even before the first project is.
-export function HomeChatPanel() {
+// onOverview is v2's: Overview, the page across every project, opens from
+// here, the chat across every project, rather than from the sidebar.
+export function HomeChatPanel({ onOverview }: { onOverview?: () => void }) {
   const t = useT();
   const chat = useQuery({ queryKey: ['projectChat', T.HomeProject], queryFn: () => api.projectChat(T.HomeProject) });
   const info = chat.data;
@@ -52,6 +55,12 @@ export function HomeChatPanel() {
             <h1 className="text-xl font-semibold tracking-tight text-title">{t('chat.home.title')}</h1>
             <p className="mt-0.5 text-[13px] text-muted">{t('chat.home.subtitle')}</p>
           </div>
+          {onOverview && (
+            <Button variant="secondary" size="sm" className="ml-auto" onClick={onOverview} data-home-overview>
+              <LayoutDashboard />
+              {t('v2.sidebar.overview')}
+            </Button>
+          )}
         </div>
         <div className="mt-3 flex items-center gap-3">
           <TabsList className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">

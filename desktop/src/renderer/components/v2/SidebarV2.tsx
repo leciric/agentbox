@@ -12,7 +12,7 @@
 // lib/leadFirst.ts's and lib/projectOrder.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Archive, ArrowLeftRight, ArrowUpDown, Check, ChevronRight, CircleArrowUp, FolderOpen, FolderPlus, House, Images, LayoutDashboard, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, Plus, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
+import { Archive, ArrowLeftRight, ArrowUpDown, Check, ChevronRight, CircleArrowUp, FolderOpen, FolderPlus, House, ListFilter, LoaderCircle, Pin, PinOff, Plus, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -35,7 +35,6 @@ import { openNewTask, requestComposerFocus } from '../../lib/newTask';
 import { useRemoving } from '../../lib/removing';
 import { openPanelOn } from '../../lib/rightPanel';
 import { AgentContextMenu } from '../AgentContextMenu';
-import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
 import { ReviewCount } from './ReviewV2';
@@ -66,7 +65,6 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const activity = useQuery({ queryKey: ['projectActivity'], queryFn: api.projectActivity, refetchInterval: 60_000 });
-  const jobs = useQuery({ queryKey: ['jobs'], queryFn: api.jobs });
   const setup = useQuery({ queryKey: ['setup'], queryFn: api.setup, refetchInterval: 15_000 });
   const reviewing = useReviewing();
   const head = useReviewHead(reviewing);
@@ -81,7 +79,6 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [dragging, setDragging] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ name: string; edge: 'before' | 'after' } | null>(null);
-  const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
 
   const rows: Row[] = useMemo(() => {
     const ctx = {
@@ -241,68 +238,37 @@ export function SidebarV2({ view, onSelect, onAddProject, onNewAgent }: { view: 
         )}
       </nav>
 
-      {/* The foot holds the places that span every project, each with its
-          name — Overview, Past agents, Media and Jobs — then which AgentBox
-          this window drives, and Settings, which opens straight away, beside
-          the update check. The leads keep the room above. */}
-      <div className="grid gap-1.5 border-t border-line p-2" data-v2-foot>
-        <div className="grid grid-cols-2 gap-0.5">
-          {(
-            [
-              { kind: 'home', icon: LayoutDashboard, label: t('v2.sidebar.overview') },
-              { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title') },
-              { kind: 'media', icon: Images, label: t('shell.nav.media') },
-              { kind: 'jobs', icon: ListChecks, label: t('shell.nav.jobs'), count: running },
-            ] as const
-          ).map(({ kind, icon: Icon, label, ...rest }) => {
-            const count = 'count' in rest ? rest.count : 0;
-            const active = view.kind === kind;
-            return (
-              <button
-                key={kind}
-                type="button"
-                aria-current={active ? 'page' : undefined}
-                onClick={() => onSelect({ kind })}
-                className={cn(
-                  'flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[12.5px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
-                  active && 'bg-surface-raised text-title',
-                )}
-                data-v2-foot-item={kind}
-              >
-                <Icon className={cn('size-4 shrink-0', active ? 'text-brand-300' : 'text-subtle')} />
-                <span className="min-w-0 truncate">{label}</span>
-                {count > 0 && (
-                  <span className="ml-auto rounded-full bg-sky-400/15 px-1.5 text-[10.5px] tabular-nums text-sky-300" title={t('shell.sidebar.running', { count })}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-        <EnvironmentSwitcher />
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-current={view.kind === 'settings' ? 'page' : undefined}
-            onClick={() => onSelect({ kind: 'settings' })}
-            className={cn(
-              'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
-              view.kind === 'settings' && 'bg-surface-raised text-title',
-            )}
-            data-v2-settings
-          >
-            <Settings className={cn('size-4 shrink-0', view.kind === 'settings' ? 'text-brand-300' : 'text-subtle')} />
-            <span className="min-w-0 truncate">{t('common.settings')}</span>
-            {setup.data && !setup.data.ready && (
-              <span className="ml-auto flex items-center gap-1.5 text-[11px] text-amber-300 [:root[data-appearance=light]_&]:text-amber-700">
-                <span className="size-1.5 rounded-full bg-amber-400" aria-hidden />
-                {t('shell.sidebar.needsAttention')}
-              </span>
-            )}
-          </button>
-          <UpdateCheck />
-        </div>
+      {/* The foot is one row: Settings, which opens straight away, Past
+          agents, and the update check. Overview opens from the Home chat's
+          header, and Jobs and Media from Overview; which AgentBox this window
+          drives is under Settings → General. The leads keep the room above. */}
+      <div className="flex items-center gap-1 border-t border-line p-2" data-v2-foot>
+        {(
+          [
+            { kind: 'settings', icon: Settings, label: t('common.settings'), alert: setup.data && !setup.data.ready },
+            { kind: 'pastAgents', icon: Archive, label: t('pastAgents.title'), alert: false },
+          ] as const
+        ).map(({ kind, icon: Icon, label, alert }) => {
+          const active = view.kind === kind;
+          return (
+            <button
+              key={kind}
+              type="button"
+              aria-current={active ? 'page' : undefined}
+              onClick={() => onSelect({ kind })}
+              className={cn(
+                'relative flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50',
+                active && 'bg-surface-raised text-title',
+              )}
+              data-v2-foot-item={kind}
+            >
+              <Icon className={cn('size-4 shrink-0', active ? 'text-brand-300' : 'text-subtle')} />
+              <span className="min-w-0 truncate">{label}</span>
+              {alert && <span className="absolute left-6 top-1 size-1.5 rounded-full bg-amber-400" title={t('shell.sidebar.needsAttention')} aria-label={t('shell.sidebar.needsAttention').toLowerCase()} />}
+            </button>
+          );
+        })}
+        <UpdateCheck />
       </div>
     </aside>
   );
