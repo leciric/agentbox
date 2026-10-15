@@ -55,6 +55,26 @@ func TestListInitializingWhileCreateJobRuns(t *testing.T) {
 	}
 }
 
+// TestListAllProjectsInitializingWhileCreateJobRuns is the same for List(""),
+// which the daemon's event stream calls: an agent mid-create must not be
+// published as "incomplete", which the app shows as "Needs attention".
+func TestListAllProjectsInitializingWhileCreateJobRuns(t *testing.T) {
+	f := setup(t, fakeIncus(t, `[ "$1" = list ] && echo '[]'; exit 0`))
+	ctx := context.Background()
+	creatingAgent(t, f, "agent-01")
+	if err := f.st.AddJob(ctx, state.Job{ID: "job-1", Kind: "create", Target: "hello-stack", Status: api.JobRunning, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	statuses, err := f.m.List(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].State != "initializing" {
+		t.Fatalf("List(\"\") = %+v, want one agent state \"initializing\"", statuses)
+	}
+}
+
 // TestListIncompleteOnceTheCreateJobIsGone shows an agent left in
 // state.AgentCreating as "incomplete" once nothing is still making it: the
 // job finished (failed, or a previous daemon died mid-create and

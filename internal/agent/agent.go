@@ -2049,11 +2049,12 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 	for _, inst := range instances {
 		byName[inst.Name] = inst
 	}
-	// creating is looked up once, lazily: most projects have nothing mid-create,
-	// and every agent here shares the same project, so one query tells all of
-	// them apart from an interrupted create with no job left running.
-	var creating bool
-	var creatingLoaded bool
+	// creating is looked up once per project, lazily: most projects have
+	// nothing mid-create, and one query tells every agent of a project apart
+	// from an interrupted create with no job left running. It is keyed by the
+	// agent's own project because List("") spans all of them, and the create
+	// job's target is the project it creates in.
+	creatingIn := map[string]bool{}
 	statuses := make([]Status, 0, len(agents))
 	for _, a := range agents {
 		s := Status{Agent: a, State: "missing"}
@@ -2073,12 +2074,13 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 			s.State = state.AgentQueued // no machine yet, and none looked for
 		}
 		if a.Status == state.AgentCreating {
-			if !creatingLoaded {
-				creating, err = m.Store.HasRunningJob(ctx, "create", project)
+			creating, ok := creatingIn[a.Project]
+			if !ok {
+				creating, err = m.Store.HasRunningJob(ctx, "create", a.Project)
 				if err != nil {
 					return nil, err
 				}
-				creatingLoaded = true
+				creatingIn[a.Project] = creating
 			}
 			s.State = "incomplete"
 			if creating {
