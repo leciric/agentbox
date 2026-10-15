@@ -1,0 +1,48 @@
+{
+  "name": "agentbox-mobile",
+  "version": "0.1.0",
+  "main": "expo-router/entry",
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.17",
+    "@tanstack/react-query": "^5.104.3",
+    "expo": "~57.0.30",
+    "expo-build-properties": "~57.0.22",
+    "expo-camera": "~57.0.6",
+    "expo-clipboard": "~57.0.2",
+    "expo-constants": "~57.0.22",
+    "expo-image": "~57.0.5",
+    "expo-linking": "~57.0.13",
+    "expo-localization": "~57.0.2",
+    "expo-router": "~57.0.28",
+    "expo-secure-store": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-marked": "^8.3.2",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "react-native-sse": "^1.2.1",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2",
+    "react-native-webview": "13.16.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "oxlint": "^1.88.0",
+    "typescript": "~6.0.3",
+    "@types/node": "^24.19.1"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "lint": "oxlint",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=ExperimentalWarning --test \"src/**/*.test.ts\"",
+    "dev:daemon": "node scripts/lan-forward.mjs"
+  },
+  "private": true,
+  "description": "AgentBox's phone app: a client of a paired daemon"
+}
