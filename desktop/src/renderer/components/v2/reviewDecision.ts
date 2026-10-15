@@ -15,6 +15,9 @@ export type DecisionProps = {
   mergeReason?: string;
   merging: boolean;
   onMerge: () => void;
+  // onNext moves the walk on to the next agent waiting, or closes the
+  // carousel after the last one: what sending a request for changes does.
+  onNext: () => void;
 };
 
 export const ReviewDecisionContext = createContext<ComponentType<DecisionProps> | null>(null);

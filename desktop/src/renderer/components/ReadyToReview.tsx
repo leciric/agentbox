@@ -10,7 +10,7 @@ import { mediaUrl } from '../lib/media';
 import { pagesFor } from '../lib/pages';
 import { projectLabel } from '../lib/projectName';
 import { pageItems, pageTotal, refreshInbox, useReviewPages, withoutAgent } from '../lib/inboxPages';
-import { mergeBlock, nextPending, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
+import { mergeBlock, nextPending, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep, type MergeBlock, type ReviewAction, type Slide } from '../lib/review';
 import { isUnseen, markReadySeen, useUnseen } from '../lib/reviewAlert';
 import { useNow } from '../lib/useNow';
 import { cn, errorMessage, timeAgo } from '../lib/utils';
@@ -40,7 +40,8 @@ import { ReviewDecisionContext } from './v2/reviewDecision';
 // A review session is the agent on screen and, when it walks through what's
 // waiting, the order it walks them in (lib/review.ts queueOf). An agent
 // reopened from Reviewed has none.
-export type ReviewSession = { item: T.ReviewItem; order: string[] | null };
+// project, when set, keeps the walk to that project's agents (openReview).
+export type ReviewSession = { item: T.ReviewItem; order: string[] | null; project?: string };
 
 type ReviewPages = ReturnType<typeof useReviewPages>;
 
@@ -121,7 +122,7 @@ export function ReviewDialog({
   onSelect: (view: View) => void;
 }) {
   const t = useT();
-  const items = pageItems(pages.data);
+  const items = walkItems(pageItems(pages.data), session?.project);
   const current = session && (items.find((i) => i.ref === session.item.ref) ?? session.item);
   const next = session?.order ? nextPending(session.order, session.item.ref, items) : undefined;
   const queue = session?.order ? queueOf(session.order, items) : null;
@@ -407,7 +408,7 @@ function ReviewCarousel({
           {item.summary && <NarrowSummary text={item.summary} />}
         </header>
         {Decision && (
-          <Decision item={item} pr={pr} canMerge={canMerge} mergeReason={mergeReason} merging={!!pr && merge.running.has(pr.number)} onMerge={() => pr && merge.request(pr)} />
+          <Decision item={item} pr={pr} canMerge={canMerge} mergeReason={mergeReason} merging={!!pr && merge.running.has(pr.number)} onMerge={() => pr && merge.request(pr)} onNext={onNext} />
         )}
 
         <div className="flex min-h-0 flex-1">

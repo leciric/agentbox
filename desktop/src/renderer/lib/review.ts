@@ -114,3 +114,7 @@ export function reviewShortcut(e: { key: string; ctrlKey?: boolean; altKey?: boo
       return null;
   }
 }
+
+// walkItems is what a walk goes through: every agent waiting, or one
+// project's (openReview({ project })), so its end is that project's last.
+export const walkItems = (items: readonly T.ReviewItem[], project?: string): T.ReviewItem[] => (project ? items.filter((i) => i.project === project) : [...items]);

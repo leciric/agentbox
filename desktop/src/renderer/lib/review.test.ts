@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, mergeBlock, nextPending, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
+import { countLabel, mergeBlock, nextPending, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
 
 const media = (id: string, kind: string, createdAt: string) => ({ id, kind, createdAt }) as T.MediaItem;
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
@@ -88,4 +88,17 @@ test('reviewShortcut maps keys to actions, and leaves modified ones alone', () =
   assert.equal(reviewShortcut({ key: 'x' }), null);
   // Every key the review lists does what it says.
   for (const k of reviewKeys) for (const key of k.keys) assert.ok(reviewShortcut({ key: key === '←' ? 'ArrowLeft' : key === '→' ? 'ArrowRight' : key }), key);
+});
+
+test("a project's walk goes through its agents only, and ends after its last", () => {
+  const item = (ref: string) => ({ ref, project: ref.split('/')[0] }) as T.ReviewItem;
+  const live = [item('p/a'), item('q/x'), item('p/b')];
+  const items = walkItems(live, 'p');
+  assert.deepEqual(items.map((i) => i.ref), ['p/a', 'p/b']);
+  const order = items.map((i) => i.ref);
+  assert.equal(nextPending(order, 'p/a', items)?.ref, 'p/b');
+  // Sending changes on the last one ends the walk, and the carousel closes.
+  assert.equal(nextPending(order, 'p/b', items), undefined);
+  // Opened from everything, it goes on to the other projects.
+  assert.equal(walkItems(live).length, 3);
 });

@@ -32,6 +32,7 @@ import { cn, errorMessage, timeAgo } from '../../lib/utils';
 import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
+import { ReviewCount } from './ReviewV2';
 import { Menu, MenuCheckboxItem, MenuContent, MenuItem, MenuLabel, MenuTrigger } from '../ui/menu';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { Tip } from '../ui/tooltip';
@@ -472,7 +473,7 @@ function Lead({ active, onClick, children, data }: { active: boolean; onClick: (
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onClick())}
-      className={cn('group relative flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400/50', active ? 'bg-surface-raised' : 'hover:bg-surface')}
+      className={cn('group flex min-w-0 cursor-pointer items-start gap-2 rounded-lg px-2 py-2 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand-400/50', active ? 'bg-surface-raised' : 'hover:bg-surface')}
       {...data}
     >
       {children}
@@ -599,7 +600,7 @@ function ProjectLead({
             {pinned && <Pin className="size-3 shrink-0 text-faint" aria-label={t('v2.sidebar.pinnedOne')} />}
             {chat.data?.chat === 'running' && <LoaderCircle className="size-3 shrink-0 animate-spin text-subtle" />}
             {chat.data?.chat === 'waiting' && <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-label={t('shell.sidebar.needsYou')} />}
-            {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint group-hover:invisible">{timeAgo(chat.data.last.at, now)}</span>}
+            {chat.data?.last && <span className="ml-auto shrink-0 text-[11px] text-faint">{timeAgo(chat.data.last.at, now)}</span>}
           </span>
           <span className="block truncate text-[11.5px] text-subtle" data-v2-lead-line>
             {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
@@ -617,13 +618,14 @@ function ProjectLead({
             </span>
           )}
         </span>
+        <ReviewCount project={project.name} variant="button" />
         <Menu>
           <MenuTrigger asChild>
             <button
               type="button"
               aria-label={t('v2.sidebar.projectMenu', { project: name })}
               onClick={(e) => e.stopPropagation()}
-              className="absolute right-1.5 top-1.5 rounded-md p-1 text-subtle opacity-0 transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+              className="-mr-1 mt-0.5 shrink-0 rounded-md p-0.5 text-subtle opacity-0 transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
               data-v2-project-menu={project.name}
             >
               <Ellipsis className="size-3.5" />
