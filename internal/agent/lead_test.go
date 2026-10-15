@@ -520,9 +520,7 @@ func TestLeadFollowsTheProjectsClaudeAccount(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(stub), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		testutil.WriteExecutable(t, stub, []byte("#!/bin/sh\nexit 0\n"))
 	}
 	cmd, err := f.m.LeadChatCommand(ctx, a, func(string) {})
 	if err != nil {
@@ -567,9 +565,7 @@ func leadEnv(t *testing.T, f fixture, a state.Agent) map[string]string {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, stub, 0o755); err != nil {
-			t.Fatal(err)
-		}
+		testutil.WriteExecutable(t, path, stub)
 	}
 	cmd, err := f.m.LeadChatCommand(context.Background(), a, func(string) {})
 	if err != nil {

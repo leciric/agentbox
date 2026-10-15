@@ -10,6 +10,7 @@ import (
 
 	"agentbox/internal/incus"
 	"agentbox/internal/state"
+	"agentbox/internal/testutil"
 )
 
 // TestInstallWallpaperOnlyWritesWhenTheHashDiffers checks the half-a-megabyte
@@ -27,9 +28,7 @@ case "$1" in
     else [ -n "$HASH" ] && printf '%s' "$HASH"; fi ;;
 esac`
 	incusPath := filepath.Join(t.TempDir(), "incus")
-	if err := os.WriteFile(incusPath, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, incusPath, []byte(script))
 	m := &Manager{Incus: incus.Client{Bin: incusPath}}
 	a := state.Agent{Instance: "ab-hello-stack-agent-01"}
 

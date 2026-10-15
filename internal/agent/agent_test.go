@@ -127,9 +127,7 @@ func TestParseRef(t *testing.T) {
 func fakeIncus(t *testing.T, script string) incus.Client {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "incus")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, path, []byte("#!/bin/sh\n"+script))
 	return incus.Client{Bin: path}
 }
 

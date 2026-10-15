@@ -99,3 +99,18 @@ func Git(t *testing.T, dir string, args ...string) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// WriteExecutable writes a script a test runs, such as a fake incus, at path.
+// os.WriteFile can't be used for that when tests run in parallel: while it
+// holds the file open for writing, another test's fork can inherit that
+// descriptor and keep it until its child execs, and running the script
+// meanwhile fails with "text file busy" (golang/go#22315). Written by a
+// child process instead, the descriptor is never this process's to inherit.
+func WriteExecutable(t testing.TB, path string, content []byte) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", `cat >"$1" && chmod 755 "$1"`, "sh", path)
+	cmd.Stdin = strings.NewReader(string(content))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("writing %s: %v: %s", path, err, out)
+	}
+}

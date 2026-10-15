@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"agentbox/internal/testutil"
 )
 
 func TestThemeFileTakesOnlyRealColours(t *testing.T) {
@@ -78,9 +80,7 @@ func runBrowserTheme(t *testing.T, home string, theme *DesktopTheme) {
 		}
 	}
 	script := filepath.Join(t.TempDir(), "browser.sh")
-	if err := os.WriteFile(script, browserScript, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteExecutable(t, script, browserScript)
 	cmd := exec.Command("sh", script, "theme")
 	cmd.Env = append(os.Environ(), "HOME="+home, "AGENTBOX_SHARE="+share)
 	if out, err := cmd.CombinedOutput(); err != nil {
