@@ -759,6 +759,7 @@ export const ptBR: Messages = {
   'defaults.phone.chatDescription': 'Leia e envie mensagens do chat pelo navegador do celular, na mesma rede deste computador.',
   'defaults.phone.chatDetails': 'O AgentBox abre a porta {port} na rede deste computador e mostra um QR code. Escaneá-lo com a câmera do celular pareia esse celular; um celular que não está pareado não consegue fazer nada. Um celular pareado pode ler seus chats, conversar e responder às perguntas dos agentes, o que você pode restringir para cada celular abaixo, e nunca chega a segredos, terminais ou configurações. A conexão é HTTP simples, sem criptografia, então outras pessoas na mesma rede poderiam ler os chats: use em uma rede em que você confia.',
   'defaults.phone.plainHttp': 'HTTP simples na sua rede local, sem criptografia: use em uma rede em que você confia.',
+  'defaults.phone.httpsOnly': 'iPhones que só abrem páginas HTTPS não conseguem abrir: ligue Acessar de qualquer lugar.',
   'defaults.phone.phonesOpen': 'Os celulares abrem <url>{address}</url>.',
   'defaults.phone.phonesOpenMore': 'Os celulares abrem <url>{address}</url> (ou {others}).',
   'defaults.phone.openingPort': 'Abrindo a porta…',

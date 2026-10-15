@@ -758,6 +758,7 @@ export const enUS = {
   'defaults.phone.chatDescription': 'Read and send chat messages from your phone’s browser, on the same network as this computer.',
   'defaults.phone.chatDetails': 'AgentBox opens port {port} on this computer’s network and shows a QR code. Scanning it with your phone’s camera pairs that phone; a phone that isn’t paired can do nothing. A paired phone can read your chats, chat, and answer agents’ questions, which you can narrow for each phone below, and never reach secrets, terminals or settings. The connection is plain HTTP, not encrypted, so others on the same network could read the chats: use it on a network you trust.',
   'defaults.phone.plainHttp': 'Plain HTTP on your local network, not encrypted: use it on a network you trust.',
+  'defaults.phone.httpsOnly': 'iPhones that only open HTTPS pages can’t open it: turn on Reach from anywhere.',
   'defaults.phone.phonesOpen': 'Phones open <url>{address}</url>.',
   'defaults.phone.phonesOpenMore': 'Phones open <url>{address}</url> (or {others}).',
   'defaults.phone.openingPort': 'Opening the port…',

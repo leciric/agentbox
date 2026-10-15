@@ -119,6 +119,7 @@ function PhoneChat() {
       {st?.enabled && (
         <div className="grid gap-3">
           <SettingNote tone="warning">{t('defaults.phone.plainHttp')}</SettingNote>
+          {!st.tunnel.enabled && <SettingNote>{t('defaults.phone.httpsOnly')}</SettingNote>}
           {st.tunnel.url && !st.listening ? null : st.listening && st.urls.length > 0 ? (
             <SettingNote>
               {st.urls.length > 1
