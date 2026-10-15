@@ -342,6 +342,13 @@ export function seedV2(queryClient: QueryClient, pins: string | null): void {
     if (method === 'GET' && path === '/v1/projects') return json(projects);
     // Only agentbox has agents waiting; the other projects' lists are empty pages.
     if (method === 'GET' && /^\/v1\/projects\/[^/]+\/review/.test(path) && !path.startsWith(`/v1/projects/${PROJECT}/`)) return json(pageOf([]));
+    // The extra projects' leads and lists, which no other fixture answers.
+    const own = /^\/v1\/projects\/([^/?]+)\/([^?]*)/.exec(path);
+    const extraName = own && extra.some(([n]) => n === decodeURIComponent(own[1])) ? decodeURIComponent(own[1]) : null;
+    if (method === 'GET' && extraName && own![2] === 'lead') return json(queryClient.getQueryData(['projectChat', extraName]) ?? { project: extraName, ref: `${extraName}/lead`, started: true, chat: 'ready' });
+    if (method === 'GET' && extraName && own![2] === 'chat/runners') return json({ tool: 'claude', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] });
+    if (method === 'GET' && extraName && own![2] !== 'icon') return json([]);
+    if (method === 'GET' && path.startsWith('/v1/skills')) return json([]);
     if (method === 'GET' && path === '/v1/project-activity') return json(projects.map((p) => ({ project: p.name, lastActivity: ago(lastSaid[p.name] ?? 10 * day), lastMessage: ago(lastSaid[p.name] ?? 10 * day) })));
     const icon = /^\/v1\/projects\/([^/]+)\/icon$/.exec(path);
     if (!icon) return undefined;
