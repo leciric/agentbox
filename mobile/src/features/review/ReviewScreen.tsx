@@ -3,13 +3,15 @@
 // screenshots and recordings, and its pull request, which a phone with the
 // "merge" scope merges after confirming it here (the daemon refuses a
 // phone's merge that doesn't say so). The method is a choice the phone
-// remembers, as the desktop's split Merge button does (#329). Marking an
-// agent reviewed stays on the computer: it isn't a phone's route.
+// remembers, as the desktop's split Merge button does (#329). One agent shows
+// at a time, with Back and Next between those waiting, "Done reviewing" (which
+// asks whether to merge an open pull request first) and "Request changes",
+// both of the "answer" scope.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type * as T from '../../shared/api.ts';
 import { api, mediaFilePath, mediaSource } from '../../connection/api.ts';
 import { can, useSession } from '../../connection/session.ts';
@@ -19,6 +21,7 @@ import { colors, mono } from '../../ui/theme.ts';
 import { chatPath } from '../home/HomeScreen.tsx';
 import { Markdown } from '../threads/Markdown.tsx';
 import { mergeBlock, pickMethod, rememberMethod, useMergeMethod } from './merge.ts';
+import { type Walk, advance, goBack, nextPending, position, startWalk } from './walk.ts';
 
 export function ReviewScreen() {
   const t = useT();
@@ -32,6 +35,18 @@ export function ReviewScreen() {
   const reviewed = new Set(items.flatMap((i) => (i.pr ? [i.pr.number] : [])));
   const others = (pulls.data?.pullRequests ?? []).filter((pr) => pr.state === 'open' && !reviewed.has(pr.number));
   const mayMerge = can(session, 'merge');
+  const mayAnswer = can(session, 'answer');
+  // The walk starts on the first agent waiting. finished is it run out: all
+  // done until a refresh finds more.
+  const [started, setWalk] = useState<Walk | null>(null);
+  const [finished, setFinished] = useState(false);
+  const walk = finished ? null : (started ?? startWalk(items));
+  const live = items;
+  // The agent as the list has it now (its pull request merged, say), or as it
+  // was when the walk left it there (reviewed, so gone from the list).
+  const current = walk && (items.find((i) => i.ref === walk.item.ref) ?? walk.item);
+  const next = walk ? nextPending(walk, live) : undefined;
+  const go = (w: Walk | null) => (w ? setWalk(w) : setFinished(true));
   return (
     <View style={styles.root}>
       <ScreenHeader title={t('mobile.review.title')} subtitle={project} />
@@ -43,18 +58,36 @@ export function ReviewScreen() {
             tintColor={colors.muted}
             onRefresh={() => {
               setRefreshing(true);
+              setWalk(null);
+              setFinished(false);
               void Promise.all([queryClient.invalidateQueries({ queryKey: ['review', project] }), api.pulls(project, true).then((p) => queryClient.setQueryData(['pulls', project], p))]).finally(() => setRefreshing(false));
             }}
           />
         }
       >
         {!mayMerge && <Note>{t('mobile.review.noMergeScope')}</Note>}
+        {!mayAnswer && <Note>{t('mobile.review.noAnswerScope')}</Note>}
         {review.isPending && <ActivityIndicator color={colors.muted} />}
         {review.error && <Note tone="error">{review.error.message}</Note>}
-        {review.data && items.length === 0 && <Text style={styles.empty}>{t('mobile.review.nothing')}</Text>}
-        {items.map((item) => (
-          <ReviewCard key={item.ref} item={item} pulls={pulls.data} mayMerge={mayMerge} />
-        ))}
+        {review.data && !current && <Text style={styles.empty}>{finished ? t('review.allDone') : t('mobile.review.nothing')}</Text>}
+        {walk && current && (
+          <>
+            <Text style={styles.cardSub}>{t('review.agentPosition', position(walk, live))}</Text>
+            <ReviewCard key={current.ref} item={current} pulls={pulls.data} mayMerge={mayMerge} />
+            <ReviewActions
+              key={`${current.ref}:actions`}
+              item={current}
+              pulls={pulls.data}
+              mayMerge={mayMerge}
+              mayAnswer={mayAnswer}
+              canBack={walk.trail.length > 0}
+              hasNext={!!next}
+              onBack={() => setWalk(goBack(walk))}
+              onNext={() => go(advance(walk, live))}
+              onDone={() => go(advance(walk, live))}
+            />
+          </>
+        )}
         {others.length > 0 && <Text style={styles.section}>{t('mobile.review.openPulls')}</Text>}
         {others.map((pr) => (
           <View key={pr.number} style={styles.card}>
@@ -62,6 +95,121 @@ export function ReviewScreen() {
           </View>
         ))}
       </ScrollView>
+    </View>
+  );
+}
+
+// ReviewActions are the footer's: Back, Request changes, Done reviewing and
+// Next. Done reviewing marks the agent reviewed and goes on; while its pull
+// request is open (and the phone may merge) it asks first whether to merge.
+function ReviewActions({
+  item,
+  pulls,
+  mayMerge,
+  mayAnswer,
+  canBack,
+  hasNext,
+  onBack,
+  onNext,
+  onDone,
+}: {
+  item: T.ReviewItem;
+  pulls?: T.ProjectPullRequests;
+  mayMerge: boolean;
+  mayAnswer: boolean;
+  canBack: boolean;
+  hasNext: boolean;
+  onBack: () => void;
+  onNext: () => void;
+  onDone: () => void;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const remembered = useMergeMethod();
+  const [asking, setAsking] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const name = item.title || item.agent;
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['review', item.project] });
+    void queryClient.invalidateQueries({ queryKey: ['pulls', item.project] });
+  };
+  const fail = (err: unknown) => Alert.alert(t('review.failed', { error: err instanceof Error ? err.message : String(err) }));
+  const mark = useMutation({
+    mutationFn: () => api.markReviewed(item.ref, item.fingerprint),
+    onSuccess: () => {
+      Alert.alert(t('review.marked', { agent: name }));
+      refresh();
+      onDone();
+    },
+    onError: fail,
+  });
+  const pr = item.pr && (pulls?.pullRequests.find((p) => p.number === item.pr?.number) ?? item.pr);
+  const methods = pulls?.mergeMethods?.length ? pulls.mergeMethods : ['squash', 'merge', 'rebase'];
+  const method = pickMethod(methods, remembered);
+  const merge = useMutation({
+    mutationFn: (n: number) => api.merge(item.project, n, method),
+    onSuccess: () => {
+      void rememberMethod(method);
+      setAsking(false);
+      mark.mutate();
+    },
+    onError: fail,
+  });
+  const block = pr ? mergeBlock(pr, pulls) : undefined;
+  const ask = !!pr && pr.state === 'open' && mayMerge;
+  const changes = useMutation({
+    mutationFn: (message: string) => api.requestChanges(item.ref, message, item.fingerprint),
+    onSuccess: () => {
+      setText(null);
+      Alert.alert(t('mobile.review.changesSent', { agent: name }));
+      refresh();
+      onDone();
+    },
+    onError: fail,
+  });
+  return (
+    <View style={styles.actions}>
+      <View style={styles.row}>
+        <Button kind="secondary" label={t('review.back')} disabled={!canBack} onPress={onBack} style={styles.flex} />
+        {hasNext && <Button kind="secondary" label={t('review.next')} onPress={onNext} style={styles.flex} />}
+      </View>
+      {mayAnswer && (
+        <View style={styles.row}>
+          <Button kind="secondary" label={t('review.requestChanges')} onPress={() => setText('')} style={styles.flex} />
+          <Button label={t('review.doneReviewing')} busy={mark.isPending} onPress={() => (ask ? setAsking(true) : mark.mutate())} style={styles.flex} />
+        </View>
+      )}
+      <Modal visible={asking} transparent animationType="fade" onRequestClose={() => setAsking(false)}>
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>{t('review.mergeAsk', { number: pr ? pr.number : 0 })}</Text>
+            <Text style={styles.cardSub}>{pr ? `${pr.title}\n${t(`memory.pulls.method.${method as 'merge' | 'squash' | 'rebase'}`)} → ${pr.baseBranch ?? ''}` : ''}</Text>
+            {block && <Text style={styles.block}>{t(`review.mergeBlocked.${block}`, { base: pr?.baseBranch ?? '' })}</Text>}
+            <Button label={t('web.phone.merge')} busy={merge.isPending} disabled={!!block || mark.isPending} onPress={() => pr && merge.mutate(pr.number)} />
+            <Button kind="secondary" label={t('review.justMark')} busy={mark.isPending} disabled={merge.isPending} onPress={() => { setAsking(false); mark.mutate(); }} />
+            <Button kind="secondary" label={t('common.cancel')} disabled={merge.isPending || mark.isPending} onPress={() => setAsking(false)} />
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={text !== null} transparent animationType="fade" onRequestClose={() => setText(null)}>
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>{t('mobile.review.changesTitle', { agent: name })}</Text>
+            <TextInput
+              value={text ?? ''}
+              onChangeText={setText}
+              placeholder={t('mobile.review.changesPlaceholder')}
+              placeholderTextColor={colors.faint}
+              style={styles.input}
+              multiline
+              autoFocus
+              accessibilityLabel={t('mobile.review.changesTitle', { agent: name })}
+            />
+            <Button label={t('mobile.review.send')} busy={changes.isPending} disabled={!(text ?? '').trim()} onPress={() => changes.mutate((text ?? '').trim())} />
+            <Button kind="secondary" label={t('common.cancel')} disabled={changes.isPending} onPress={() => setText(null)} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -163,6 +311,13 @@ function PullRow({ project, pr, pulls, mayMerge }: { project: string; pr: T.Pull
 }
 
 const styles = StyleSheet.create({
+  actions: { gap: 10 },
+  row: { flexDirection: 'row', gap: 10 },
+  flex: { flex: 1 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, gap: 10, paddingBottom: 32 },
+  sheetTitle: { color: colors.title, fontSize: 16, fontWeight: '600' },
+  input: { minHeight: 110, maxHeight: 220, borderRadius: 12, backgroundColor: colors.raised, color: colors.primary, padding: 12, fontSize: 15, textAlignVertical: 'top' },
   root: { flex: 1, backgroundColor: colors.bg },
   content: { padding: 12, gap: 12, paddingBottom: 40 },
   empty: { color: colors.subtle, fontSize: 14, textAlign: 'center', padding: 24 },

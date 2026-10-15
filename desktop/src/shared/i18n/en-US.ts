@@ -3289,6 +3289,11 @@ export const enUS = {
   'mobile.review.openPulls': 'Other open pull requests',
   'mobile.review.method': 'Merge how?',
   'mobile.review.noMergeScope': 'Merging from this phone is off: turn it on under Phone in AgentBox\'s settings on your computer.',
+  'mobile.review.changesTitle': 'What should {agent} change?',
+  'mobile.review.changesPlaceholder': 'Describe the change…',
+  'mobile.review.changesSent': 'Sent to {agent}',
+  'mobile.review.noAnswerScope': 'Marking work reviewed and asking for changes from this phone is off: turn on answering under Phone in AgentBox\'s settings on your computer.',
+  'mobile.review.send': 'Send',
   'mobile.settings.title': 'This phone',
   'mobile.settings.scopes': 'What it may do',
   'mobile.settings.scopesHint': 'Change these under Phone in AgentBox\'s settings on your computer.',
@@ -3297,7 +3302,7 @@ export const enUS = {
   'mobile.settings.unpairBody': 'AgentBox forgets this phone: pairing it again takes a new QR code.',
   'mobile.scope.read': 'Read projects, chats and pull requests',
   'mobile.scope.chat': 'Chat',
-  'mobile.scope.answer': 'Answer questions and permission requests',
+  'mobile.scope.answer': 'Answer questions and permission requests, mark work reviewed and ask for changes',
   'mobile.scope.merge': 'Merge pull requests',
 };
 

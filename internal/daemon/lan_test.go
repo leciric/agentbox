@@ -375,6 +375,8 @@ func TestLANRoute(t *testing.T) {
 		{"POST", "/v1/projects/p/chat/reload", "chat"},
 		{"POST", "/v1/agents/p/a/start", "chat"},
 		{"POST", "/v1/projects/p/questions/q1/answer", "answer"},
+		{"POST", "/v1/agents/p/a/review", "answer"},
+		{"POST", "/v1/agents/p/a/request-changes", "answer"},
 		{"POST", "/v1/projects/p/pulls/12/merge", "merge"},
 		// Neither scoped nor never: still refused.
 		{"POST", "/v1/agents/p/a/stop", ""},
