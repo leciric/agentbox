@@ -25,6 +25,8 @@ import { ConnectionBar } from '../ui/ConnectionBar.tsx';
 import { colors } from '../ui/theme.ts';
 
 speakPhoneLanguage();
+// Expo's web build: the page around the phone-wide column is dark too.
+if (Platform.OS === 'web' && typeof document !== 'undefined') document.body.style.backgroundColor = colors.bg;
 void loadSession();
 
 // Paired: the events, the computer's language, the phone's scopes.
