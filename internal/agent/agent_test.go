@@ -1060,3 +1060,22 @@ func TestCreateValidatesAndStoresConnectors(t *testing.T) {
 		t.Errorf("an agent given no limit has %#v", stored.Connectors)
 	}
 }
+
+// TestListNeverCallsAFinishedCreateIncomplete covers the moment between List
+// reading an agent as creating and the create job ending: the agent is ready
+// by then, and reads as its machine does, not as an unfinished create.
+func TestListNeverCallsAFinishedCreateIncomplete(t *testing.T) {
+	f := setup(t, fakeIncus(t, `[ "$1" = list ] && echo '[]'; exit 0`))
+	ctx := context.Background()
+	creatingAgent(t, f, "agent-01")
+	if err := f.st.SetAgentStatus(ctx, "hello-stack", "agent-01", state.AgentReady); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := f.m.List(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 || statuses[0].State == "incomplete" {
+		t.Fatalf("List() = %+v, want a ready agent, not incomplete", statuses)
+	}
+}

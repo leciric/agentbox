@@ -188,3 +188,14 @@ test('how its last turn left it: asking, stopped on an error, done, resuming', (
   // Background work it waits on still reads as awaiting, not as how the turn before it ended.
   assert.equal(chatLabel({ ...left('done'), background: ['Watch CI run 42'] } as T.Agent).text, 'Awaiting');
 });
+
+test('an agent being made is starting whatever its chat says, and never needs you', () => {
+  for (const chat of ['waiting', 'error', 'running', undefined]) {
+    for (const state of ['initializing', 'queued']) {
+      const a = agent(state, chat);
+      assert.deepEqual(chatLabel(a), { text: 'Initializing', tone: 'live' }, `${state}/${chat}`);
+      assert.equal(avatarMood(a), 'sleeping', `${state}/${chat}`);
+      assert.equal(rank(a), 1, `${state}/${chat}`);
+    }
+  }
+});

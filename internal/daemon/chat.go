@@ -46,6 +46,12 @@ func (s *Server) prepareChatModel(ctx context.Context, a state.Agent, model stri
 // agentInfo describes an agent for the API, with the state of its chat.
 func (s *Server) agentInfo(st agent.Status) api.Agent {
 	info := toAPIAgent(st)
+	if st.State == "initializing" || st.State == state.AgentQueued {
+		// Still being made: whatever its chat, outcome or memory says is
+		// noise from the machine coming up, not news. It reads as starting
+		// in every client until the create job is done.
+		return info
+	}
 	info.Chat = s.chat.State(info.Ref)
 	info.Background = s.chat.Background(info.Ref)
 	o := s.outcomeOf(context.Background(), info.Project, info.Ref)

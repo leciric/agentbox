@@ -12,6 +12,8 @@ import { humanBytes } from './utils.ts';
 export type StatusTone = 'urgent' | 'error' | 'warning' | 'live' | 'muted';
 
 export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
+  // Being made comes before anything its chat says: nothing can need you yet.
+  if (agent.state === 'initializing' || agent.state === 'queued') return { text: t('agent.status.initializing'), tone: 'live' };
   if (agent.chat === 'waiting') return { text: t('agent.status.needsYou'), tone: 'urgent' };
   if (agent.state === 'incomplete') return { text: t('agent.status.needsAttention'), tone: 'error' };
   if (agent.state === 'missing') return { text: t('agent.status.missing'), tone: 'error' };
@@ -142,6 +144,7 @@ export function usageTip(sample: T.AgentUsage, humanBytes: (n: number) => string
 // made isn't waiting on you, so it doesn't jump the queue the way incomplete
 // (an unfinished create with nothing left running) does.
 export function rank(agent: T.Agent): number {
+  if (agent.state === 'initializing' || agent.state === 'queued') return 1;
   if (agent.chat === 'waiting' || agent.state === 'incomplete' || agent.state === 'missing') return 0;
   if (agent.state === 'running' && agent.chat !== 'running' && agent.outcome === 'asking') return 0;
   if (agent.state === 'running' || agent.state === 'initializing' || agent.state === 'queued') return 1;
@@ -183,6 +186,7 @@ export type Mood = 'working' | 'asking' | 'idle' | 'sleeping' | 'error';
 // which lives in the project's questions rather than on the agent (see
 // isAsking); a permission prompt is the chat's own 'waiting'.
 export function avatarMood(agent: { state: string; chat?: string; stalledSince?: string; outcome?: string }, asking = false): Mood {
+  if (agent.state === 'initializing' || agent.state === 'queued') return 'sleeping';
   if (agent.state === 'incomplete' || agent.state === 'missing' || agent.chat === 'error') return 'error';
   if (agent.state === 'running' && agent.chat === 'running' && agent.stalledSince) return 'error';
   if (agent.state !== 'running') return 'sleeping';
