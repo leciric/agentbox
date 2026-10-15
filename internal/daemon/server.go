@@ -101,8 +101,9 @@ type Server struct {
 	themes      *omarchy.Watcher // the desktop theme this machine is running, if any
 	updates     updates          // what the hourly update check last found
 	stop        context.CancelFunc
-	incus       *incusWatch // whether Incus answers, and what to do when it doesn't
-	disk        *diskWatch  // the disk guard: a floor of free space on every disk AgentBox writes to
+	incus       *incusWatch   // whether Incus answers, and what to do when it doesn't
+	disk        *diskWatch    // the disk guard: a floor of free space on every disk AgentBox writes to
+	icons       *projectIcons // projects' icons, looked for in their repositories (projecticons.go)
 
 	runCtx context.Context // Run's, for connections that outlive a request
 
@@ -277,6 +278,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg:              cfg,
 		store:            store,
+		icons:            newProjectIcons(),
 		events:           newBroker(),
 		agentAPIs:        map[string]*http.Server{},
 		leadAPIs:         map[string]*http.Server{},
@@ -661,6 +663,8 @@ func (s *Server) routes() http.Handler {
 
 	h("GET /v1/projects", s.listProjects)
 	h("POST /v1/projects", s.addProject)
+	// When each project last did anything, for the sidebar's order: polled.
+	h("GET /v1/project-activity", s.projectActivity)
 	// How the sidebar is organised (D79): the sections, and one layout that
 	// carries a whole new order rather than a move to infer the rest from.
 	h("GET /v1/sections", s.listSections)
@@ -671,6 +675,10 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}", s.getProject)
 	h("PATCH /v1/projects/{project}", s.updateProject)
 	h("DELETE /v1/projects/{project}", s.removeProject)
+	// Each project's icon: the one chosen, or the one its repository has.
+	h("GET /v1/projects/{project}/icon", s.getProjectIcon)
+	h("PUT /v1/projects/{project}/icon", s.setProjectIcon)
+	h("DELETE /v1/projects/{project}/icon", s.deleteProjectIcon)
 	h("GET /v1/projects/{project}/brief", s.brief)
 	h("GET /v1/projects/{project}/notes", s.getNotes)
 	h("PUT /v1/projects/{project}/notes", s.setNotes)

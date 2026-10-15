@@ -29,6 +29,7 @@ import { PastAgents } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
+import { inSettings, pageOf, useV2Pages, viewOf } from "./components/v2/SettingsPagesV2";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { aiLabel } from "./components/state";
 import { TopBar } from "./components/TopBar";
@@ -392,8 +393,17 @@ export function App({ initial }: { initial?: View } = {}) {
       });
   });
 
-  const viewKey =
-    view.kind === "agent"
+  // v2 draws Overview, Media and Past agents as sections of Settings.
+  const v2Pages = useV2Pages({
+    onSelect: (next) => select(next),
+    onAddProject: () => setAddingProject(true),
+    onNewAgent: () => setNewAgentProject(""),
+  });
+  const v2Settings = v2 && inSettings(view);
+
+  const viewKey = v2Settings
+    ? `settings:${settingsVisit}`
+    : view.kind === "agent"
       ? view.ref
       : view.kind === "project"
         ? `project:${view.project}:${view.tab ?? ""}`
@@ -411,7 +421,6 @@ export function App({ initial }: { initial?: View } = {}) {
             view={view}
             onSelect={select}
             onAddProject={() => setAddingProject(true)}
-            onNewAgent={setNewAgentProject}
           />
         ) : (
           <Sidebar
@@ -429,23 +438,29 @@ export function App({ initial }: { initial?: View } = {}) {
             onClick={() => setNavOpen(false)}
           />
           <div className="relative flex h-full max-w-[85vw] animate-fade-in bg-modal shadow-[20px_0_60px_-20px_var(--ab-shadow-deep)]">
-            {(() => {
-              const Nav = v2 ? SidebarV2 : Sidebar;
-              return (
-                <Nav
-                  view={view}
-                  onSelect={select}
-                  onAddProject={() => {
-                    setNavOpen(false);
-                    setAddingProject(true);
-                  }}
-                  onNewAgent={(project) => {
-                    setNavOpen(false);
-                    setNewAgentProject(project);
-                  }}
-                />
-              );
-            })()}
+            {v2 ? (
+              <SidebarV2
+                view={view}
+                onSelect={select}
+                onAddProject={() => {
+                  setNavOpen(false);
+                  setAddingProject(true);
+                }}
+              />
+            ) : (
+              <Sidebar
+                view={view}
+                onSelect={select}
+                onAddProject={() => {
+                  setNavOpen(false);
+                  setAddingProject(true);
+                }}
+                onNewAgent={(project) => {
+                  setNavOpen(false);
+                  setNewAgentProject(project);
+                }}
+              />
+            )}
           </div>
         </div>
       )}
@@ -488,7 +503,15 @@ export function App({ initial }: { initial?: View } = {}) {
             )}
             {!setup && (
               <div key={viewKey} className="min-h-0 flex-1 animate-fade-in">
-                {view.kind === "home" && (
+                {v2Settings && (
+                  <SettingsView
+                    onHome={() => select({ kind: "home" })}
+                    pages={v2Pages}
+                    section={pageOf(view)}
+                    onSection={(id) => setView(viewOf(id))}
+                  />
+                )}
+                {!v2Settings && view.kind === "home" && (
                   <HomeView
                     onSelect={select}
                     onAddProject={() => setAddingProject(true)}
@@ -497,15 +520,15 @@ export function App({ initial }: { initial?: View } = {}) {
                 )}
                 {view.kind === "homeChat" && <HomeChatPanel />}
                 {view.kind === "jobs" && <JobsView />}
-                {view.kind === "media" && <AllMediaView onSelect={select} />}
-                {view.kind === "pastAgents" && (
+                {!v2Settings && view.kind === "media" && <AllMediaView onSelect={select} />}
+                {!v2Settings && view.kind === "pastAgents" && (
                   <PastAgents
                     open={view.ref}
                     onOpen={(ref) => select({ kind: "pastAgents", ref: ref ?? undefined })}
                     onSelect={select}
                   />
                 )}
-                {view.kind === "settings" && (
+                {!v2Settings && view.kind === "settings" && (
                   <SettingsView onHome={() => select({ kind: "home" })} />
                 )}
                 {view.kind === "project" && (

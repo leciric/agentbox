@@ -133,6 +133,46 @@ type Project struct {
 	// PRWatching is what that comes to: whether they are watched now.
 	PRWatching bool      `json:"prWatching"`
 	CreatedAt  time.Time `json:"createdAt"`
+	// IconVersion changes whenever the project's icon does (GET
+	// /v1/projects/{project}/icon): when it was last changed, in unix ms, 0
+	// when it has never been looked for. The app keys its copy by it.
+	IconVersion int64 `json:"iconVersion"`
+}
+
+// ProjectActivity is when a project last did anything, and when the user
+// last wrote to it (GET /v1/project-activity), for ordering the sidebar.
+type ProjectActivity struct {
+	Project string `json:"project"`
+	// LastActivity is the newest chat item of any kind in the project's
+	// lead's or any of its agents' chats.
+	LastActivity *time.Time `json:"lastActivity,omitempty"`
+	// LastMessage is the newest message the user wrote to the lead or any of
+	// its agents: not one AgentBox woke a chat with, nor a hidden prompt.
+	LastMessage *time.Time `json:"lastMessage,omitempty"`
+}
+
+// ProjectIcon is what a project shows as its icon.
+type ProjectIcon struct {
+	// Source is "chosen" (the user's), "detected" (found in the repository
+	// or its GitHub owner's avatar) or "none".
+	Source string `json:"source"`
+	Emoji  string `json:"emoji,omitempty"`
+	// Image is a data: URL (data:image/png;base64,...).
+	Image string `json:"image,omitempty"`
+	// DetectedFrom is the file or URL a detected icon came from, e.g.
+	// "public/favicon.svg" or "github.com/leciric".
+	DetectedFrom string `json:"detectedFrom,omitempty"`
+	// HasDetected is whether there is a detected icon to go back to.
+	HasDetected bool `json:"hasDetected,omitempty"`
+}
+
+// SetProjectIconRequest chooses a project's icon: exactly one of Emoji and
+// Image.
+type SetProjectIconRequest struct {
+	Emoji string `json:"emoji,omitempty"`
+	// Image is a data: URL; png, jpeg, gif, webp, svg+xml or x-icon
+	// (vnd.microsoft.icon), at most 512 KiB decoded.
+	Image string `json:"image,omitempty"`
 }
 
 // Section is a group of projects in the sidebar (D79). It is a thing of its

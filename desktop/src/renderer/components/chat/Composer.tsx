@@ -36,7 +36,7 @@ import { contextBadge, contextHint, currentPlan, formatTokens, pendingPermission
 import { choiceName, groupChoices, isRecommended, matchesQuery, searchThreshold, unavailableValue } from '../../lib/modelChoices';
 import { FileLinks } from '../files/FilePanel';
 import { mentionAt, matchFiles, matchProjects, mentionLimit, type MentionItem } from '../../lib/mentions';
-import { getDraft, setDraft } from '../../lib/drafts';
+import { composeEvent, getDraft, setDraft } from '../../lib/drafts';
 import { formatTime, t as translate, useT } from '../../lib/i18n';
 import { useNow } from '../../lib/useNow';
 import { previewUrl } from '../../lib/chatImages';
@@ -175,6 +175,19 @@ export function Composer({
   useEffect(() => {
     setDraft(agent.ref, text);
   }, [agent.ref, text]);
+
+  // Text put here from elsewhere (composeIn), with the cursor at its end.
+  useEffect(() => {
+    const put = (e: Event) => {
+      const { ref, text: next } = (e as CustomEvent<{ ref: string; text: string }>).detail;
+      if (ref !== agent.ref) return;
+      pendingCursor.current = next.length;
+      setText(next);
+      area.current?.focus();
+    };
+    window.addEventListener(composeEvent, put);
+    return () => window.removeEventListener(composeEvent, put);
+  }, [agent.ref]);
 
   useLayoutEffect(() => {
     const el = area.current;

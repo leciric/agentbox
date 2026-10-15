@@ -413,6 +413,7 @@ export function buildFixtures(): FixtureData {
     {
       name: PROJECT,
       displayName: PROJECT,
+      iconVersion: 0,
       root: WIDE.longPath,
       branch: 'main',
       envFiles: [],
@@ -443,6 +444,7 @@ export function buildFixtures(): FixtureData {
     {
       name: 'a-project-with-a-name-so-long-it-should-never-be-allowed-to-widen-the-sidebar',
       displayName: 'A project with a name so long, and in Ünïcode, it should never be allowed to widen the sidebar',
+      iconVersion: 0,
       root: '/home/user/projects/other',
       branch: 'main',
       envFiles: [],

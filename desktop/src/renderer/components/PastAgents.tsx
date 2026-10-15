@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, ArrowLeft, ArrowRight, CalendarDays, GitBranch, GitPullRequest, LoaderCircle, Search, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../shared/api';
 import type { View } from '../App';
@@ -36,11 +36,15 @@ const debounceMs = 250;
 // or goes back to the list with null.
 export function PastAgents({
   project,
+  filter,
   open,
   onOpen,
   onSelect,
 }: {
   project?: string;
+  // filter is v2's project filter, beside the title of the page for every
+  // project (a section of Settings there); project is what it picked.
+  filter?: ReactNode;
   open?: string;
   onOpen: (ref: string | null) => void;
   onSelect: (view: View) => void;
@@ -50,13 +54,16 @@ export function PastAgents({
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-7">
-        {!project && (
-          <div className="mb-5">
-            <h1 className="text-2xl font-semibold tracking-tight text-title">{t('pastAgents.title')}</h1>
-            <p className="mt-1 text-sm text-muted">{t('pastAgents.description')}</p>
+        {(!project || filter) && (
+          <div className="mb-5 flex flex-wrap items-end gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-title">{t('pastAgents.title')}</h1>
+              <p className="mt-1 text-sm text-muted">{t('pastAgents.description')}</p>
+            </div>
+            {filter && <div className="ml-auto">{filter}</div>}
           </div>
         )}
-        <PastAgentsList project={project} onOpen={onOpen} />
+        <PastAgentsList key={project ?? ''} project={project} onOpen={onOpen} />
       </div>
     </div>
   );

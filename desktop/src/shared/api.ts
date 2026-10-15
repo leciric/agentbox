@@ -29,6 +29,26 @@ export interface Project {
   syncBase: boolean;
   prWatching: boolean;
   createdAt: string;
+  iconVersion: number;
+}
+
+export interface ProjectActivity {
+  project: string;
+  lastActivity?: string;
+  lastMessage?: string;
+}
+
+export interface ProjectIcon {
+  source: string;
+  emoji?: string;
+  image?: string;
+  detectedFrom?: string;
+  hasDetected?: boolean;
+}
+
+export interface SetProjectIconRequest {
+  emoji?: string;
+  image?: string;
 }
 
 export interface AddProjectRequest {

@@ -907,6 +907,33 @@ func (c *Client) RemoveProject(ctx context.Context, name string) error {
 	return c.do(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(name), nil, nil)
 }
 
+// ProjectActivity returns when each project that has a chat item last did
+// anything, and when the user last wrote to it.
+func (c *Client) ProjectActivity(ctx context.Context) ([]ProjectActivity, error) {
+	var out []ProjectActivity
+	return out, c.do(ctx, http.MethodGet, "/v1/project-activity", nil, &out)
+}
+
+// ProjectIcon returns what a project shows as its icon, looking for one in
+// its repository the first time.
+func (c *Client) ProjectIcon(ctx context.Context, project string) (ProjectIcon, error) {
+	var out ProjectIcon
+	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/icon", nil, &out)
+}
+
+// SetProjectIcon chooses a project's icon: an emoji or an image.
+func (c *Client) SetProjectIcon(ctx context.Context, project string, req SetProjectIconRequest) (ProjectIcon, error) {
+	var out ProjectIcon
+	return out, c.do(ctx, http.MethodPut, "/v1/projects/"+url.PathEscape(project)+"/icon", req, &out)
+}
+
+// ResetProjectIcon forgets the chosen icon and looks for one in the
+// repository again.
+func (c *Client) ResetProjectIcon(ctx context.Context, project string) (ProjectIcon, error) {
+	var out ProjectIcon
+	return out, c.do(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(project)+"/icon", nil, &out)
+}
+
 func (c *Client) Brief(ctx context.Context, project, agent string) (string, error) {
 	var out string
 	return out, c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(project)+"/brief?agent="+url.QueryEscape(agent), nil, &out)
