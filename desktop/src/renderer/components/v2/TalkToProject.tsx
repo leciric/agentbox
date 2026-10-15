@@ -44,7 +44,7 @@ export function TalkToProject({ project, leadRef }: { project: string; leadRef: 
         </div>
         <div className="grid max-h-72 gap-0.5 overflow-y-auto">
           {others.map((p) => (
-            <div key={p.name} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-raised" data-v2-talk-project={p.name}>
+            <div key={p.name} className="group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-raised" data-v2-talk-project={p.name}>
               <ProjectIcon project={p} />
               <span className="min-w-0 flex-1 truncate text-[13px] text-secondary">{projectLabel(p)}</span>
               <button type="button" onClick={() => write(p, 'ask')} className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] text-subtle hover:bg-surface-strong hover:text-title" data-v2-talk-ask={p.name}>
