@@ -39,6 +39,7 @@ export async function currentSession(): Promise<T.LANSession | null> {
 
 export function PlainHTTPNote({ className = '' }: { className?: string }) {
   const t = useT();
+  if (location.protocol === 'https:') return null;
   return (
     <p className={`text-[12px] leading-relaxed text-subtle ${className}`}>
       {t('web.pair.plainHTTP')}
