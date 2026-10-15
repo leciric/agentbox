@@ -2083,6 +2083,14 @@ func (m *Manager) List(ctx context.Context, project string) ([]Status, error) {
 			s.State = "incomplete"
 			if creating {
 				s.State = "initializing"
+			} else if cur, err := m.Store.Agent(ctx, a.Project, a.Name); err == nil && cur.Status != state.AgentCreating {
+				// The create job finished between reading the agents and
+				// asking after its job: the agent is ready now, not
+				// unfinished, so read it as any other.
+				s.State = "missing"
+				if inst, ok := byName[a.Instance]; ok {
+					s.State, s.IP = displayState(inst.Status), inst.IPv4()
+				}
 			}
 		}
 		statuses = append(statuses, s)

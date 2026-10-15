@@ -200,3 +200,14 @@ test('paused on a usage limit: neither finished nor failed, with the time it res
   // A turn running on it is working, whatever the last one said.
   assert.equal(chatLabel({ ...base, chat: 'running' } as T.Agent).text, 'Working');
 });
+
+test('an agent being made is starting whatever its chat says, and never needs you', () => {
+  for (const chat of ['waiting', 'error', 'running', undefined]) {
+    for (const state of ['initializing', 'queued']) {
+      const a = agent(state, chat);
+      assert.deepEqual(chatLabel(a), { text: 'Initializing', tone: 'live' }, `${state}/${chat}`);
+      assert.equal(avatarMood(a), 'sleeping', `${state}/${chat}`);
+      assert.equal(rank(a), 1, `${state}/${chat}`);
+    }
+  }
+});

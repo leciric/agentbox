@@ -400,6 +400,11 @@ func (s *Server) noticeAgentFinished(ctx context.Context, a state.Agent, end cha
 	if a.IsLead() {
 		return
 	}
+	// An agent whose create is still running has nothing to report yet: a
+	// turn that failed because its machine was coming up is not a finish.
+	if cur, err := s.store.Agent(ctx, a.Project, a.Name); err == nil && cur.Status == state.AgentCreating {
+		return
+	}
 	v, note := judgeTurn(end)
 	if v == verdictEnded && end.LastMessage == "" {
 		// Read only when the words are what decides: the conversation is
