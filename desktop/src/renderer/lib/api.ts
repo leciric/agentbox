@@ -155,6 +155,7 @@ export const api = {
   sendReport: (req: T.ReportRequest) => call<T.ReportSent>('POST', '/v1/reports', req),
   tokens: (q: TokenQuery) => call<T.TokenReport>('GET', `/v1/tokens${tokenParams(q)}`),
   claudeLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits'),
+  codexLimits: () => call<T.ClaudeLimit[]>('GET', '/v1/limits?tool=codex'),
   tokenTurns: (q: TokenQuery, limit = 100) => call<T.TokenTurn[]>('GET', `/v1/tokens/turns${tokenParams(q, { limit: String(limit) })}`),
   theme: () => call<T.Theme>('GET', '/v1/theme'),
   updateTheme: (req: T.UpdateThemeRequest) => call<T.Theme>('PATCH', '/v1/theme', req),

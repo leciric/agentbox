@@ -2505,6 +2505,7 @@ export interface TokenTurn {
 }
 
 export interface ClaudeLimit {
+  tool?: string;
   account: string;
   default: boolean;
   at: string;

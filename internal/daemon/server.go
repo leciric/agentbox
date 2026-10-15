@@ -74,6 +74,12 @@ type Config struct {
 
 type Server struct {
 	cfg Config
+	// codexReads is when each Codex account's /status was last read, so a
+	// busy day of short turns asks it once a minute (limits.go).
+	codexReads struct {
+		sync.Mutex
+		at map[string]time.Time
+	}
 	// timeline holds a *sync.Mutex per agent ref, taken by its checkpoints
 	// and rollbacks (timeline.go).
 	timeline sync.Map
@@ -348,6 +354,7 @@ func New(cfg Config) (*Server, error) {
 		AuthFailed:        s.claudeAuthFailed,
 		Lost:              s.agentLost,
 		Limits:            s.claudeLimited,
+		CodexIdle:         s.codexStatus,
 		LeadAccount:       s.leadAccount,
 		LeadLogins:        s.leadToolLogins,
 		Logf:              s.logf,

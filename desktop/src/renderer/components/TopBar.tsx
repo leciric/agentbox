@@ -6,11 +6,12 @@ import { useT } from '../lib/i18n';
 import { projectLabel } from '../lib/projectName';
 import * as T from '../../shared/api';
 import { limitTone, windowLeft, windowNow } from '../lib/tokens';
-import { pickMeter } from '../lib/usageMeter';
+import { noLimits, pickMeter } from '../lib/usageMeter';
 import { useNow } from '../lib/useNow';
 import { useUiV2 } from '../lib/uiV2';
 import { ProjectCrumb, TopSlot } from './v2/ProjectHeader';
 import { cn, shortcut, timeAgo, timeUntil } from '../lib/utils';
+import { ToolMark } from './state';
 import { DiskGuardPill } from './DiskGuardPill';
 import { ImageBuildChip } from './ImageBuildChip';
 import { MachineStatus } from './MachineStatus';
@@ -187,6 +188,7 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   const t = useT();
   const clock = useNow(60_000);
   const limits = useQuery({ queryKey: ['claudeLimits'], queryFn: api.claudeLimits, refetchInterval: 30_000 });
+  const codexLimits = useQuery({ queryKey: ['codexLimits'], queryFn: api.codexLimits, refetchInterval: 30_000 });
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agent = view.kind === 'agent' ? agents.find((a) => a.ref === view.ref) : undefined;
   const projectName = view.kind === 'project' ? view.project : view.kind === 'agent' ? view.ref.split('/')[0] : undefined;
@@ -195,10 +197,25 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
   // composer chose spends there (RunnerPicker).
   const chatOf = view.kind === 'project' ? project?.name : view.kind === 'home' || view.kind === 'homeChat' ? '_home' : undefined;
   const runners = useQuery({ queryKey: ['chatRunners', chatOf], queryFn: () => api.chatRunners(chatOf!), enabled: !!chatOf, refetchInterval: 30_000 });
-  const pick = pickMeter({ limits: limits.data ?? [], project, agent, lead: chatOf ? runners.data : undefined });
+  const pick = pickMeter({ limits: limits.data ?? [], codexLimits: codexLimits.data ?? [], project, agent, lead: chatOf ? runners.data : undefined });
   const account = pick.reading;
   const five = account?.windows.find((w) => w.name === 'five_hour') ?? account?.windows[0];
   const week = account?.windows.find((w) => w.name === 'seven_day');
+  const codex = pick.tool === 'codex';
+  // A tool with no usage to show says so, quietly, so a missing meter isn't
+  // taken for a broken one. Claude with no reading stays hidden.
+  if ((!account || !five) && (noLimits(pick.tool) || codex)) {
+    return (
+      <span
+        className="hidden items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 text-[11.5px] text-faint ring-1 ring-inset ring-line sm:flex"
+        title={t('shell.top.noLimitsHint', { tool: toolName(pick.tool) })}
+        data-usage-quiet={pick.tool}
+      >
+        <ToolMark ai={pick.tool} className="!size-3.5" />
+        {codex ? t('shell.top.noReading', { tool: toolName(pick.tool) }) : t('shell.top.noLimits')}
+      </span>
+    );
+  }
   if (!account || !five) return null;
   const fiveNow = windowNow(five, clock);
   const weekNow = week ? windowNow(week, clock) : null;
@@ -212,9 +229,9 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
           type="button"
           className={cn(
             'hidden items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 ring-1 ring-inset transition sm:flex',
-            tone === 'high' ? 'bg-rose-400/10 ring-rose-400/40 hover:bg-rose-400/15' : 'bg-claude/10 ring-claude/30 hover:bg-claude/15',
+            tone === 'high' ? 'bg-rose-400/10 ring-rose-400/40 hover:bg-rose-400/15' : codex ? 'bg-surface-raised ring-line hover:bg-surface-strong' : 'bg-claude/10 ring-claude/30 hover:bg-claude/15',
           )}
-          aria-label={t('shell.top.claudeLabel', {
+          aria-label={t(codex ? 'shell.top.codexLabel' : 'shell.top.claudeLabel', {
             account: account.account,
             five: percent(fiveNow),
             left: fiveLeft ?? timeUntil(five.resetsAt, clock),
@@ -223,8 +240,8 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
           data-claude-meter={fiveNow === null ? 'reset' : Math.round(fiveNow * 100)}
           data-claude-account={account.account}
         >
-          <ClaudeMark />
-          <span className="text-[12px] font-medium text-primary">Claude</span>
+          {codex ? <ToolMark ai="codex" className="!size-3.5" /> : <ClaudeMark />}
+          <span className="text-[12px] font-medium text-primary">{toolName(pick.tool)}</span>
           <span className="text-[11px] text-muted">{fiveLeft ?? t('shell.top.fiveHourShort')}</span>
           <span className={cn('font-mono text-[11px] font-semibold tabular-nums', limitText(fiveNow))}>{percent(fiveNow)}</span>
           {week && (
@@ -239,25 +256,29 @@ function ClaudeUsage({ view, agents }: { view: View; agents: T.Agent[] }) {
         <div className="grid gap-3" data-claude-popover>
           <div className="grid gap-0.5">
             <span className="flex items-center gap-2 text-[13px] font-medium text-primary">
-              <ClaudeMark className="size-4" />
-              {t('shell.top.claudeTitle', { account: account.account })}
+              {codex ? <ToolMark ai="codex" className="!size-4" /> : <ClaudeMark className="size-4" />}
+              {t(codex ? 'shell.top.codexTitle' : 'shell.top.claudeTitle', { account: account.account })}
             </span>
-            <span className="text-[11.5px] text-muted">{t('shell.top.claudeWhose', { whose: pick.whose })}</span>
+            <span className="text-[11.5px] text-muted">{t(codex ? 'shell.top.codexWhose' : 'shell.top.claudeWhose', { whose: pick.whose })}</span>
           </div>
           {account.windows.map((w) => (
-            <LimitRow key={w.name} window={w} clock={clock} />
+            <LimitRow key={w.name} window={w} clock={clock} bar={codex ? 'bg-brand-500' : undefined} />
           ))}
           {fiveNow !== null && fiveNow > 0.85 && (
             <span className="rounded-lg bg-rose-400/10 px-2.5 py-2 text-[11.5px] leading-relaxed text-rose-200 ring-1 ring-inset ring-rose-400/25">
-              {t('shell.top.claudeAtLimit', { left: fiveLeft ?? timeUntil(five.resetsAt, clock) })}
+              {t(codex ? 'shell.top.codexAtLimit' : 'shell.top.claudeAtLimit', { left: fiveLeft ?? timeUntil(five.resetsAt, clock) })}
             </span>
           )}
-          <OtherAccounts limits={limits.data ?? []} shown={account.account} clock={clock} />
+          <OtherAccounts limits={(codex ? codexLimits.data : limits.data) ?? []} shown={account.account} clock={clock} />
           <span className="text-[11px] text-faint">{t('shell.top.asOf', { ago: timeAgo(account.at) })}</span>
         </div>
       </PopoverContent>
     </Popover>
   );
+}
+
+function toolName(tool: string): string {
+  return tool === 'codex' ? 'Codex' : tool === 'opencode' ? 'OpenCode' : tool === 'cursor' ? 'Cursor' : 'Claude';
 }
 
 function limitText(now: number | null): string {
@@ -267,7 +288,7 @@ function limitText(now: number | null): string {
 
 // LimitRow is one of an account's limits: how much is used, and when it
 // starts again. The composer's AI tool picker shows them too.
-export function LimitRow({ window: w, clock }: { window: T.ClaudeLimitWindow; clock: number }) {
+export function LimitRow({ window: w, clock, bar = 'bg-claude' }: { window: T.ClaudeLimitWindow; clock: number; bar?: string }) {
   const t = useT();
   const now = windowNow(w, clock);
   const percent = now === null ? 0 : Math.max(0, Math.min(1, now)) * 100;
@@ -290,7 +311,7 @@ export function LimitRow({ window: w, clock }: { window: T.ClaudeLimitWindow; cl
       <span className="block h-1.5 overflow-hidden rounded-full bg-surface-strong">
         {now !== null && (
           <span
-            className={cn('block h-full rounded-full', tone === 'high' ? 'bg-rose-400' : tone === 'warn' ? 'bg-amber-400' : 'bg-claude')}
+            className={cn('block h-full rounded-full', tone === 'high' ? 'bg-rose-400' : tone === 'warn' ? 'bg-amber-400' : bar)}
             style={{ width: `${Math.max(percent, 2)}%` }}
           />
         )}

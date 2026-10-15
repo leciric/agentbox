@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"agentbox/internal/acp"
 	"agentbox/internal/api"
+	"agentbox/internal/credentials"
 	"agentbox/internal/state"
 )
 
@@ -40,6 +42,120 @@ func (s *Server) claudeLimited(a state.Agent, reading acp.RateLimit) {
 	if err := s.store.SetClaudeLimit(ctx, account, raw, time.Now()); err != nil {
 		s.logf("recording %s's usage limits: %v", account, err)
 	}
+}
+
+// codexStatusEvery is how often a Codex account's /status is read at the
+// most: every turn ending would ask it again, for a number that moves slowly.
+const codexStatusEvery = time.Minute
+
+// codexStatus reads a Codex chat's usage limits as its turn ends, by sending
+// /status to its session (chat.Manager.Ask): codex-acp keeps Codex's rate
+// limits to itself and only prints them there, and /status is answered by the
+// adapter without calling the model, so it costs no tokens. A busy chat, or
+// one read a minute ago, is left for the next turn.
+func (s *Server) codexStatus(a state.Agent) {
+	if a.AI != "codex" {
+		return
+	}
+	_, account, err := s.manager(nil).Creds.ToolLogin(credentials.ToolCodex, a.CodexAccount)
+	if err != nil || account == "" {
+		return
+	}
+	s.codexReads.Lock()
+	if s.codexReads.at == nil {
+		s.codexReads.at = map[string]time.Time{}
+	}
+	if time.Since(s.codexReads.at[account]) < codexStatusEvery {
+		s.codexReads.Unlock()
+		return
+	}
+	s.codexReads.at[account] = time.Now()
+	s.codexReads.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	text, err := s.askLead(ctx, a, "/status")
+	if err != nil {
+		return
+	}
+	// The adapter prints reset times in its own zone: the machine's for a
+	// lead, which runs on the host, and an agent's container is UTC.
+	loc := time.UTC
+	if a.IsLead() {
+		loc = time.Local
+	}
+	now := time.Now()
+	windows := acp.ParseCodexStatus(text, now, loc)
+	if len(windows) == 0 {
+		return
+	}
+	raw, err := json.Marshal(windows)
+	if err != nil {
+		return
+	}
+	if err := s.store.SetToolLimit(ctx, credentials.ToolCodex, account, raw, now); err != nil {
+		s.logf("recording %s's usage limits: %v", account, err)
+	}
+}
+
+// toCodexLimit turns a stored Codex reading into what the API answers with.
+func toCodexLimit(r state.ToolLimitReading, isDefault bool) (api.ClaudeLimit, bool) {
+	var windows []acp.CodexWindow
+	if json.Unmarshal(r.Reading, &windows) != nil || len(windows) == 0 {
+		return api.ClaudeLimit{}, false
+	}
+	out := api.ClaudeLimit{Tool: r.Tool, Account: r.Account, Default: isDefault, At: r.At, Status: "allowed", Windows: []api.ClaudeLimitWindow{}}
+	for _, w := range windows {
+		resets := w.ResetsAt
+		if resets.IsZero() {
+			// /status gave no reset: the window can't be shorter than its name.
+			resets = r.At.Add(5 * time.Hour)
+			if w.Name != "five_hour" {
+				resets = r.At.Add(7 * 24 * time.Hour)
+			}
+		}
+		out.Windows = append(out.Windows, api.ClaudeLimitWindow{Name: w.Name, Label: w.Label, Utilization: w.Used, ResetsAt: resets})
+		if w.Used >= 1 {
+			out.Status = "rejected"
+		}
+	}
+	return out, true
+}
+
+// toolLimits is GET /v1/limits?tool=codex: the newest reading of each stored
+// Codex account that has had one, the default first.
+func (s *Server) toolLimits(w http.ResponseWriter, tool string) error {
+	accounts, err := s.manager(nil).Creds.ToolAccounts(tool)
+	if err != nil {
+		return err
+	}
+	isDefault := map[string]bool{}
+	for _, a := range accounts {
+		isDefault[a.Name] = a.Default
+	}
+	readings, err := s.store.ToolLimits(context.Background(), tool)
+	if err != nil {
+		return err
+	}
+	out := []api.ClaudeLimit{}
+	for _, reading := range readings {
+		def, stored := isDefault[reading.Account]
+		if !stored {
+			continue
+		}
+		if limit, ok := toCodexLimit(reading, def); ok {
+			out = append(out, limit)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b api.ClaudeLimit) int {
+		switch {
+		case a.Default && !b.Default:
+			return -1
+		case b.Default && !a.Default:
+			return 1
+		}
+		return 0
+	})
+	return writeJSON(w, http.StatusOK, out)
 }
 
 // limitWindows are the windows Anthropic names, in the order they are shown,
@@ -87,6 +203,11 @@ func toClaudeLimit(r state.ClaudeLimitReading, isDefault bool) (api.ClaudeLimit,
 // account that has had one, the default account first. An account removed
 // since is left out.
 func (s *Server) claudeLimits(w http.ResponseWriter, r *http.Request) error {
+	if tool := r.URL.Query().Get("tool"); tool == credentials.ToolCodex {
+		return s.toolLimits(w, tool)
+	} else if tool != "" && tool != "claude" {
+		return fmt.Errorf("no usage limits are read for %q", tool)
+	}
 	accounts, err := s.manager(nil).Creds.ClaudeAccounts()
 	if err != nil {
 		return err

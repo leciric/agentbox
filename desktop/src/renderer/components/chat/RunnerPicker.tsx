@@ -31,6 +31,7 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
       void queryClient.invalidateQueries({ queryKey: ['chatRunners', agent.project] });
       void queryClient.invalidateQueries({ queryKey: chatKey(agent.ref) });
       void queryClient.invalidateQueries({ queryKey: ['claudeLimits'] });
+      void queryClient.invalidateQueries({ queryKey: ['codexLimits'] });
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
@@ -105,7 +106,7 @@ function AccountUsage({ reading, clock }: { reading: T.ClaudeLimit; clock: numbe
   return (
     <div className="mt-1 grid gap-1.5" data-usage={reading.account}>
       {windows.map((w) => (
-        <LimitRow key={w.name} window={w} clock={clock} />
+        <LimitRow key={w.name} window={w} clock={clock} bar={reading.tool === 'codex' ? 'bg-brand-500' : undefined} />
       ))}
     </div>
   );

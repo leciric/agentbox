@@ -11,7 +11,13 @@ import (
 // again. Claude Code learns it from the responses it gets and claude-agent-acp
 // relays it on a chat's usage_update, so it is only as fresh as the account's
 // last chat: At says when that was.
+//
+// Codex accounts' readings take the same shape, with Tool "codex": the daemon
+// reads them off codex-acp's /status, and its primary and secondary windows are
+// named five_hour and seven_day when they are that long.
 type ClaudeLimit struct {
+	// Tool is whose account it is: "" for Claude Code, "codex" for Codex.
+	Tool    string    `json:"tool,omitempty"`
 	Account string    `json:"account"`
 	Default bool      `json:"default"`
 	At      time.Time `json:"at"`
@@ -34,6 +40,13 @@ type ClaudeLimitWindow struct {
 	// nothing about it.
 	Utilization float64   `json:"utilization"`
 	ResetsAt    time.Time `json:"resetsAt"`
+}
+
+// ToolLimits lists the newest reading for each stored account of a tool other
+// than Claude Code that has had one (only "codex" has any).
+func (c *Client) ToolLimits(ctx context.Context, tool string) ([]ClaudeLimit, error) {
+	var out []ClaudeLimit
+	return out, c.do(ctx, http.MethodGet, "/v1/limits?tool="+tool, nil, &out)
 }
 
 // ClaudeLimits lists the newest reading for each stored Claude account that

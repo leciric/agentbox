@@ -328,12 +328,29 @@ func (s *Server) leadToolRows(p state.Project, tool string) ([]api.LeadAccount, 
 			}
 		}
 	}
+	// Only Codex has usage readings (codexStatus); Cursor's rows have none.
+	readings := map[string]state.ToolLimitReading{}
+	if tool == credentials.ToolCodex {
+		list, err := s.store.ToolLimits(context.Background(), tool)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range list {
+			readings[r.Account] = r
+		}
+	}
 	var rows []api.LeadAccount
 	for _, a := range accounts {
 		if a.Expired {
 			continue
 		}
-		rows = append(rows, api.LeadAccount{Name: a.Name, Default: a.Default, Project: a.Name == own})
+		row := api.LeadAccount{Name: a.Name, Default: a.Default, Project: a.Name == own}
+		if r, ok := readings[a.Name]; ok {
+			if limit, ok := toCodexLimit(r, a.Default); ok {
+				row.Limit = &limit
+			}
+		}
+		rows = append(rows, row)
 	}
 	return rows, nil
 }

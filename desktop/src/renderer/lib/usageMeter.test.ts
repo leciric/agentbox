@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { pickMeter, projectLimits } from './usageMeter.ts';
+import { noLimits, pickMeter, projectLimits } from './usageMeter.ts';
 
 const reading = (account: string, isDefault = false): T.ClaudeLimit => ({
   account,
@@ -38,12 +38,24 @@ test("a Claude agent shows the account it holds; one with no AI tool, its projec
   assert.equal(pickMeter({ limits, project: project('work'), agent: agent('none') }).reading?.account, 'work');
 });
 
-test('Codex, OpenCode and Cursor have no reading, so the meter hides', () => {
-  for (const ai of ['codex', 'opencode', 'cursor']) {
+test('OpenCode and Cursor have no reading, and the meter says so', () => {
+  for (const ai of ['opencode', 'cursor']) {
     const pick = pickMeter({ limits, project: project('work'), agent: agent(ai) });
     assert.equal(pick.tool, ai);
     assert.equal(pick.reading, undefined);
+    assert.equal(noLimits(ai), true);
   }
+  assert.equal(noLimits('claude'), false);
+  assert.equal(noLimits('codex'), false);
+});
+
+test('a Codex agent shows its Codex account, else the default one, and never a Claude reading', () => {
+  const codexLimits = [{ ...reading('personal', true), tool: 'codex' }, { ...reading('work'), tool: 'codex' }];
+  const codexAgent = (codexAccount: string) => ({ name: 'agent-07', title: '', ai: 'codex', codexAccount }) as T.Agent;
+  assert.equal(pickMeter({ limits, codexLimits, project: project(''), agent: codexAgent('work') }).reading?.tool, 'codex');
+  assert.equal(pickMeter({ limits, codexLimits, project: project(''), agent: codexAgent('work') }).reading?.account, 'work');
+  assert.equal(pickMeter({ limits, codexLimits, project: project(''), agent: codexAgent('') }).reading?.account, 'personal');
+  assert.equal(pickMeter({ limits, project: project(''), agent: codexAgent('work') }).reading, undefined);
 });
 
 test("a project's Tokens tab shows its own account first, then its agents', and no other", () => {
@@ -62,5 +74,7 @@ test("a chat switched in its composer shows its own tool and account", () => {
   const codex = pickMeter({ limits, project: project('work'), lead: lead('codex') });
   assert.equal(codex.tool, 'codex');
   assert.equal(codex.reading, undefined);
+  const named = pickMeter({ limits, codexLimits: [{ ...reading('work'), tool: 'codex' }], project: project(''), lead: { ...lead('codex'), toolAccounts: { codex: 'work' } } });
+  assert.equal(named.reading?.account, 'work');
   assert.equal(pickMeter({ limits, lead: lead('claude', 'work') }).reading?.account, 'work');
 });

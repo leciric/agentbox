@@ -185,6 +185,14 @@ func (s *Store) RenameToolAccount(ctx context.Context, tool, provider, old, name
 			}
 		}
 	}
+	if tool != "opencode" {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM tool_limits WHERE tool = ? AND account = ?`, tool, name); err != nil {
+			return done, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE tool_limits SET account = ? WHERE tool = ? AND account = ?`, name, tool, old); err != nil {
+			return done, err
+		}
+	}
 	// A lead's composer may have chosen it (Chat.ToolAccounts); OpenCode's
 	// isn't chosen there, so it has nothing to carry.
 	if tool != "opencode" {

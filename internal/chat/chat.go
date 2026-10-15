@@ -113,6 +113,11 @@ type Manager struct {
 	// a chat's AI tool relays (D85). Off the conversation's lock, in a
 	// goroutine of its own.
 	Limits func(a state.Agent, reading acp.RateLimit)
+	// CodexIdle, when set, is called as a Codex chat's turn ends, with the
+	// agent on the account its adapter runs: codex-acp relays no usage limits
+	// on the stream, so the daemon asks its /status (Ask). Off the
+	// conversation's lock, in a goroutine of its own.
+	CodexIdle func(a state.Agent)
 	// LeadAccount, when set, is the Claude Code account a lead runs on when it
 	// switches to a.AI (runner.go): the one its chat chose, while its project
 	// may use it, else the project's. Without it a lead switched to Claude
@@ -2277,6 +2282,11 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 			}
 			c.m.Finished(agent, end)
 		})
+	}
+	if c.m.CodexIdle != nil && c.agent.AI == "codex" && c.adapter != nil && !c.adapter.replaying {
+		agent := c.agent
+		agent.CodexAccount = c.adapter.login
+		c.m.background.Go(func() { c.m.CodexIdle(agent) })
 	}
 	if c.m.TurnFinished != nil {
 		agent, stats := c.agent, c.turnStats(t, res, result.State)

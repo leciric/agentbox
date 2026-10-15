@@ -565,7 +565,7 @@ type LeadRunner struct {
 	// installs it, which takes a minute.
 	Installed bool `json:"installed"`
 	// Accounts are the accounts the chat may run the tool on: Claude Code's
-	// each with its latest usage reading, Codex's and Cursor's with none.
+	// each with its latest usage reading, Codex's too once it has one, Cursor's none.
 	// OpenCode has none to choose: its accounts are the project's, one per
 	// provider.
 	Accounts []LeadAccount `json:"accounts,omitempty"`

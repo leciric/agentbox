@@ -217,3 +217,48 @@ func TestClaudeLimitsRoute(t *testing.T) {
 		t.Errorf("the five-hour window = %+v", got[1].Windows[0])
 	}
 }
+
+// TestCodexStatusFillsTheCodexLimits: a Codex chat's turn ending reads its
+// /status, and the 5-hour and weekly lines become the account's readings,
+// served at GET /v1/limits?tool=codex and on the runner picker's rows. Claude's
+// route is untouched by them.
+func TestCodexStatusFillsTheCodexLimits(t *testing.T) {
+	t.Parallel()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	if err := d.srv.manager(nil).Creds.SaveToolAccount("codex", "", "work", []byte(`{"OPENAI_API_KEY":"sk"}`)); err != nil {
+		t.Fatal(err)
+	}
+	var asked string
+	d.srv.askLead = func(_ context.Context, _ state.Agent, ask string) (string, error) {
+		asked = ask
+		return "**Model:** gpt-5  \n**5h limit:** 75% left (resets 23:59)  \n**Weekly limit:** 10% left (resets 08:00 on 30 Dec)", nil
+	}
+	agent := state.Agent{Project: "acme", Name: "agent-1", AI: "codex"}
+	d.srv.codexStatus(agent)
+	d.srv.codexStatus(agent) // within the minute: not read again
+	if asked != "/status" {
+		t.Fatalf("asked %q", asked)
+	}
+	w := httptest.NewRecorder()
+	if err := d.srv.claudeLimits(w, httptest.NewRequest(http.MethodGet, "/v1/limits?tool=codex", nil)); err != nil {
+		t.Fatal(err)
+	}
+	var got []api.ClaudeLimit
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Tool != "codex" || got[0].Account != "work" || !got[0].Default || len(got[0].Windows) != 2 {
+		t.Fatalf("codex limits = %+v", got)
+	}
+	if w := got[0].Windows[0]; w.Name != "five_hour" || w.Utilization != 0.25 {
+		t.Errorf("five-hour = %+v", w)
+	}
+	rows, err := d.srv.leadToolRows(state.Project{Name: "acme"}, "codex")
+	if err != nil || len(rows) != 1 || rows[0].Limit == nil || rows[0].Limit.Windows[1].Name != "seven_day" {
+		t.Errorf("picker rows = %+v, %v", rows, err)
+	}
+	w = httptest.NewRecorder()
+	if err := d.srv.claudeLimits(w, httptest.NewRequest(http.MethodGet, "/v1/limits", nil)); err != nil || strings.TrimSpace(w.Body.String()) != "[]" {
+		t.Errorf("claude limits = %s, %v", w.Body.String(), err)
+	}
+}

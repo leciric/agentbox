@@ -1156,6 +1156,17 @@ var migrations = []string{
 		detected_at   INTEGER NOT NULL DEFAULT 0,
 		updated_at    INTEGER NOT NULL DEFAULT 0
 	)`,
+	// The usage limits of the other AI tools' accounts (toollimits.go): Codex's
+	// are read off its /status, one row per tool and account, replaced by the
+	// next reading. reading is the parsed windows as JSON. claude_limits keeps
+	// Claude's, whose reading is the adapter's own.
+	`CREATE TABLE tool_limits (
+		tool    TEXT NOT NULL,
+		account TEXT NOT NULL,
+		reading TEXT NOT NULL,
+		at      INTEGER NOT NULL,
+		PRIMARY KEY (tool, account)
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as

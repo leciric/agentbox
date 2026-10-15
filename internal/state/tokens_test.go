@@ -216,3 +216,28 @@ func TestClaudeLimits(t *testing.T) {
 		t.Errorf("limits = %+v", got)
 	}
 }
+
+// TestToolLimits keeps the newest reading per tool and account, apart from
+// Claude's and from another tool's.
+func TestToolLimits(t *testing.T) {
+	ctx := context.Background()
+	st := open(t, filepath.Join(t.TempDir(), "state.db"))
+	now := time.Now()
+	for _, r := range []struct {
+		tool, account, reading string
+		at                     time.Time
+	}{
+		{"codex", "default", `[1]`, now.Add(-time.Hour)},
+		{"codex", "default", `[2]`, now},
+		{"codex", "default", `[3]`, now.Add(-2 * time.Hour)},
+		{"cursor", "default", `[4]`, now},
+	} {
+		if err := st.SetToolLimit(ctx, r.tool, r.account, []byte(r.reading), r.at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.ToolLimits(ctx, "codex")
+	if err != nil || len(got) != 1 || string(got[0].Reading) != `[2]` {
+		t.Errorf("limits = %+v, %v", got, err)
+	}
+}

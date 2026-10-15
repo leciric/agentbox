@@ -25,25 +25,39 @@ export interface MeterPick {
 // - A project's chat, or the Home chat, switched to another tool or account in
 //   its composer (lead, from GET …/chat/runners) spends that one instead.
 //
-// Only Claude accounts have readings: claude-agent-acp relays Anthropic's
-// limits on usage_update, while codex-acp keeps Codex's to itself (only its
-// /status text shows them) and OpenCode and Cursor report none. So a Codex, OpenCode or Cursor
-// agent gets no reading, and the meter hides, until the daemon records one.
-export function pickMeter({ limits, project, agent, lead }: { limits: T.ClaudeLimit[]; project?: T.Project; agent?: T.Agent; lead?: T.LeadRunners }): MeterPick {
+// Claude and Codex accounts have readings: claude-agent-acp relays Anthropic's
+// limits on usage_update, and the daemon reads Codex's off codex-acp's /status
+// after a Codex chat's turn. OpenCode and Cursor report none (noLimits), so
+// their pick has no reading and the meter says so rather than vanishing. A
+// Codex account that hasn't had a turn since the daemon started has none yet
+// either.
+export function pickMeter({ limits, codexLimits = [], project, agent, lead }: { limits: T.ClaudeLimit[]; codexLimits?: T.ClaudeLimit[]; project?: T.Project; agent?: T.Agent; lead?: T.LeadRunners }): MeterPick {
   const byAccount = (name: string, whose: string): MeterPick => {
     const reading = name ? limits.find((l) => l.account === name) : limits.find((l) => l.default);
     return { tool: 'claude', reading, whose: name ? whose : t('vm.usageMeter.defaultAccount') };
   };
+  const codex = (name: string, whose: string): MeterPick => {
+    const reading = name ? codexLimits.find((l) => l.account === name) : codexLimits.find((l) => l.default);
+    return { tool: 'codex', reading, whose: name ? whose : t('vm.usageMeter.defaultAccount') };
+  };
   if (agent && agent.ai !== 'none' && agent.ai !== '') {
     const whose = t('vm.usageMeter.accountOf', { name: agent.title || agent.name });
+    if (agent.ai === 'codex') return codex(agent.codexAccount ?? '', whose);
     if (agent.ai !== 'claude') return { tool: agent.ai, whose };
     return byAccount(agent.claudeAccount, whose);
   }
   const whose = project ? t('vm.usageMeter.accountOf', { name: projectLabel(project) }) : '';
+  if (lead?.tool === 'codex') return codex(lead.toolAccounts?.codex || project?.codexAccount || '', whose);
   if (lead && lead.tool !== 'claude') return { tool: lead.tool, whose };
   if (lead?.account) return byAccount(lead.account, whose || t('vm.usageMeter.accountOf', { name: t('chat.home.agentTitle') }));
   if (project) return byAccount(project.claudeAccount, whose);
   return byAccount('', '');
+}
+
+// noLimits is whether a tool has no source of usage limits at all, so the
+// meter shows a quiet "no usage limits reported" for it instead of nothing.
+export function noLimits(tool: string): boolean {
+  return tool === 'opencode' || tool === 'cursor';
 }
 
 // projectLimits is the readings a project's Tokens tab shows: the account it
