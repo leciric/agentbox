@@ -13,7 +13,7 @@
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api } from '../connection/api.ts';
@@ -43,14 +43,13 @@ function Paired({ queryClient }: { queryClient: QueryClient }) {
 
 export default function RootLayout() {
   const session = useSession();
-  const [queryClient] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000, refetchOnWindowFocus: false } } }),
-  );
-  // A different daemon, or none: nothing read from the last one is kept.
+  // One cache per daemon: nothing read from another, or before unpairing, is kept.
   const origin = session?.origin;
-  useEffect(() => {
-    queryClient.clear();
-  }, [origin, queryClient]);
+  const queryClient = useMemo(
+    () => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 5_000, refetchOnWindowFocus: false } } }),
+    // oxlint-disable-next-line react/exhaustive-deps -- a new cache for each daemon
+    [origin],
+  );
   if (session === undefined) return <View style={styles.root} />;
   return (
     <SafeAreaProvider>
