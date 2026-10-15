@@ -78,44 +78,11 @@ export function PullRequestsPanel({
   useEffect(() => {
     if (revealedState && revealedState !== 'open') setFilter('all');
   }, [revealedState, reveal]);
-  const [merging, setMerging] = useState<T.PullRequest | null>(null);
   // The pull request open in the modal, by number, so it follows the list as
   // it's re-read: merged under it, say.
   const [viewing, setViewing] = useState<number | null>(null);
-  const [method, setMethod] = useState('merge');
-  // What each merge is doing, by pull request number. The confirmation closes
-  // the moment it's confirmed, and the row says the rest: a spinner on its
-  // button while the merge runs, or why it failed. Merges are independent,
-  // so every other row stays usable meanwhile.
-  const [running, setRunning] = useState<ReadonlySet<number>>(() => new Set());
-  const [failed, setFailed] = useState<Readonly<Record<number, string>>>({});
   const { edits, toggleLabel } = usePullLabels(project);
-
-  const merge = useMutation({
-    mutationFn: ({ number, method }: { number: number; method: string }) => api.mergePullRequest(project, number, method),
-    onMutate: ({ number }) => {
-      setRunning((r) => new Set(r).add(number));
-      setFailed((f) => without(f, number));
-    },
-    onSuccess: async (pr) => {
-      toast(t('memory.pulls.merged', { number: pr.number }), { description: pr.title });
-      // The daemon answers with the list it had, this pull request marked
-      // merged, and re-reads GitHub behind it; the list on screen stays
-      // until that answer replaces it. The spinner lasts until then too, so
-      // the row never flicks back to an open one with a Merge button.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['pulls', project] }),
-        queryClient.invalidateQueries({ queryKey: ['fleet', project] }),
-      ]);
-    },
-    onError: (err, { number }) => setFailed((f) => ({ ...f, [number]: errorMessage(err) })),
-    onSettled: (_pr, _err, { number }) =>
-      setRunning((r) => {
-        const next = new Set(r);
-        next.delete(number);
-        return next;
-      }),
-  });
+  const merge = usePullMerge(project);
 
   const data = pulls.data;
   if (!data) {
@@ -160,7 +127,6 @@ export function PullRequestsPanel({
   const open = byState(scoped, 'open');
   const others = byState(scoped, 'closed');
   const visible = byState(scoped, filter);
-  const methods = data.mergeMethods?.length ? data.mergeMethods : allMethods;
   const canOfferMerge = (pr: T.PullRequest) => pr.state === 'open' && !pr.draft && (!data.canMergeKnown || !!data.canMerge);
   const viewed = prs.find((pr) => pr.number === viewing) ?? null;
   const refreshing = data.refreshing || refresh.isPending;
@@ -269,13 +235,10 @@ export function PullRequestsPanel({
                     labels={withEdits(pr.labels, pr.number, edits)}
                     onToggleLabel={(label, on) => toggleLabel(pr, label, on)}
                     canMerge={canOfferMerge(pr)}
-                    mergeRunning={running.has(pr.number)}
-                    mergeError={failed[pr.number]}
+                    mergeRunning={merge.running.has(pr.number)}
+                    mergeError={merge.failed[pr.number]}
                     onOpenAgent={pr.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${pr.agent}` }) : undefined}
-                    onMerge={() => {
-                      setMethod(methods[0]);
-                      setMerging(pr);
-                    }}
+                    onMerge={() => merge.request(pr)}
                     onOpen={() => setViewing(pr.number)}
                   />
                 );
@@ -290,50 +253,15 @@ export function PullRequestsPanel({
         pr={viewed}
         onClose={() => setViewing(null)}
         canMerge={!!viewed && canOfferMerge(viewed)}
-        mergeRunning={!!viewed && running.has(viewed.number)}
-        mergeError={viewed ? failed[viewed.number] : undefined}
-        onMerge={() => {
-          setMethod(methods[0]);
-          setMerging(viewed);
-        }}
+        mergeRunning={!!viewed && merge.running.has(viewed.number)}
+        mergeError={viewed ? merge.failed[viewed.number] : undefined}
+        onMerge={() => viewed && merge.request(viewed)}
         edits={edits}
         onToggleLabel={(label, on) => viewed && toggleLabel(viewed, label, on)}
         onOpenAgent={viewed?.agent ? () => onSelect({ kind: 'agent', ref: `${project}/${viewed.agent}` }) : undefined}
       />
 
-      <ConfirmDialog
-        open={merging !== null}
-        onOpenChange={(open) => !open && setMerging(null)}
-        title={t('memory.pulls.confirm.title', { number: merging?.number ?? 0 })}
-        description={
-          merging && (
-            <>
-              {t.rich('memory.pulls.confirm.body', {
-                title: merging.title,
-                head: <span className="font-mono text-tertiary">{merging.headBranch}</span>,
-                base: <span className="font-mono text-tertiary">{merging.baseBranch}</span>,
-              })}
-              {merging.checks === 'failing' && ` ${t('memory.pulls.confirm.failing')}`}
-              {merging.checks === 'pending' && ` ${t('memory.pulls.confirm.pending')}`}
-            </>
-          )
-        }
-        confirmLabel={t('memory.pulls.merge')}
-        onConfirm={async () => {
-          if (merging) merge.mutate({ number: merging.number, method });
-        }}
-      >
-        <label className="grid gap-1.5 text-[13px] text-tertiary">
-          {t('memory.pulls.method')}
-          <Select value={method} onChange={setMethod}>
-            {methods.map((m) => (
-              <SelectOption key={m} value={m}>
-                {methodLabels[m] ? t(methodLabels[m]) : m}
-              </SelectOption>
-            ))}
-          </Select>
-        </label>
-      </ConfirmDialog>
+      {merge.dialog}
     </div>
   );
 }
@@ -359,6 +287,93 @@ function GitHubErrorFix({ err, onOpenAccount, onOpenSetup }: { err: T.GitHubErro
     default:
       return null;
   }
+}
+
+// usePullMerge is how a pull request is merged, wherever it's shown: behind a
+// confirmation that always names the branch it merges into and asks for the
+// method, which closes the moment it's confirmed. running and failed say the
+// rest per pull request — a spinner while the merge runs, or why it failed —
+// so other pull requests stay usable meanwhile. Render dialog once.
+export function usePullMerge(project: string, onMerged?: (pr: T.PullRequest) => void) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [merging, setMerging] = useState<T.PullRequest | null>(null);
+  const [method, setMethod] = useState('merge');
+  const [running, setRunning] = useState<ReadonlySet<number>>(() => new Set());
+  const [failed, setFailed] = useState<Readonly<Record<number, string>>>({});
+  const onMergedRef = useRef(onMerged);
+  onMergedRef.current = onMerged;
+  const methods = queryClient.getQueryData<T.ProjectPullRequests>(['pulls', project])?.mergeMethods;
+
+  const merge = useMutation({
+    mutationFn: ({ number, method }: { number: number; method: string }) => api.mergePullRequest(project, number, method),
+    onMutate: ({ number }) => {
+      setRunning((r) => new Set(r).add(number));
+      setFailed((f) => without(f, number));
+    },
+    onSuccess: async (pr) => {
+      toast(t('memory.pulls.merged', { number: pr.number }), { description: pr.title });
+      onMergedRef.current?.(pr);
+      // The daemon answers with the list it had, this pull request marked
+      // merged, and re-reads GitHub behind it; the list on screen stays
+      // until that answer replaces it. The spinner lasts until then too, so
+      // the row never flicks back to an open one with a Merge button.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['pulls', project] }),
+        queryClient.invalidateQueries({ queryKey: ['fleet', project] }),
+        queryClient.invalidateQueries({ queryKey: ['pull', project, pr.number] }),
+      ]);
+    },
+    onError: (err, { number }) => setFailed((f) => ({ ...f, [number]: errorMessage(err) })),
+    onSettled: (_pr, _err, { number }) =>
+      setRunning((r) => {
+        const next = new Set(r);
+        next.delete(number);
+        return next;
+      }),
+  });
+
+  const offered = methods?.length ? methods : allMethods;
+  const request = (pr: T.PullRequest) => {
+    setMethod(offered[0]);
+    setMerging(pr);
+  };
+  const dialog = (
+      <ConfirmDialog
+        open={merging !== null}
+        onOpenChange={(open) => !open && setMerging(null)}
+        title={t('memory.pulls.confirm.title', { number: merging?.number ?? 0 })}
+        description={
+          merging && (
+            <>
+              {t.rich('memory.pulls.confirm.body', {
+                title: merging.title,
+                head: <span className="font-mono text-tertiary">{merging.headBranch}</span>,
+                base: <span className="font-mono text-tertiary">{merging.baseBranch}</span>,
+              })}
+              {merging.checks === 'failing' && ` ${t('memory.pulls.confirm.failing')}`}
+              {merging.checks === 'pending' && ` ${t('memory.pulls.confirm.pending')}`}
+            </>
+          )
+        }
+        confirmLabel={t('memory.pulls.merge')}
+        onConfirm={async () => {
+          if (merging) merge.mutate({ number: merging.number, method });
+        }}
+      >
+        <label className="grid gap-1.5 text-[13px] text-tertiary">
+          {t('memory.pulls.method')}
+          <Select value={method} onChange={setMethod}>
+            {offered.map((m) => (
+              <SelectOption key={m} value={m}>
+                {methodLabels[m] ? t(methodLabels[m]) : m}
+              </SelectOption>
+            ))}
+          </Select>
+        </label>
+      </ConfirmDialog>
+  );
+  return { request, running, failed, dialog };
 }
 
 // usePullLabels adds and removes a project's pull requests' labels.

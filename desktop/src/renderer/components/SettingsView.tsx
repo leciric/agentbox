@@ -81,7 +81,7 @@ import { SettingsPage, type SectionIcons } from "./SettingsPage";
 import { SettingNote, SettingRow } from "./ui/settings";
 import { Input, Label } from "./ui/input";
 import { Switch } from "./ui/switch";
-import { playReadySound, setReviewSound, setReviewVolume, useReviewSound, useReviewVolume } from "../lib/reviewAlert";
+import { playReadySound, setReviewing, setReviewSound, setReviewVolume, useReviewing, useReviewSound, useReviewVolume } from "../lib/reviewAlert";
 import { setTopBarDetailed, useTopBarDetailed } from "../lib/topBarLayout";
 import { pageStackModes, setPageStackMode, usePageStackMode } from "../lib/pageStackMode";
 import { useHatchConnected } from "./pages/usePages";
@@ -824,6 +824,7 @@ function InstalledSettings({
   const setup = useQuery({ queryKey: ["setup"], queryFn: api.setup });
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const topBarDetailed = useTopBarDetailed();
+  const reviewing = useReviewing();
   const pageStack = usePageStackMode();
   const hatchConnected = useHatchConnected();
   // On a Mac, the VM everything runs in, whose size can be changed here.
@@ -913,6 +914,13 @@ function InstalledSettings({
               keywords: t("settings.entry.topbar-detailed.keywords"),
               modified: topBarDetailed,
               render: () => <TopBarDetailedSetting />,
+            },
+            {
+              id: "reviewing",
+              label: t("settings.entry.reviewing.label"),
+              keywords: t("settings.entry.reviewing.keywords"),
+              modified: !reviewing,
+              render: () => <ReviewingSetting />,
             },
             {
               id: "review-sound",
@@ -1762,11 +1770,35 @@ function TopBarDetailedSetting() {
   );
 }
 
+// ReviewingSetting is whether this computer reviews finished agents at all
+// (lib/reviewAlert.ts): off hides Ready to review, its count, the chime and
+// the "new" marks.
+function ReviewingSetting() {
+  const t = useT();
+  const on = useReviewing();
+  return (
+    <SettingRow
+      label={t("settings.entry.reviewing.label")}
+      description={t("settings.reviewing.description")}
+      control={
+        <Switch
+          data-reviewing-setting
+          aria-label={t("settings.entry.reviewing.label")}
+          checked={on}
+          onCheckedChange={setReviewing}
+        />
+      }
+    />
+  );
+}
+
 // ReviewSoundSetting is the chime for an agent newly in Ready to review
 // (lib/reviewAlert.ts): on by default, with its volume and a test.
 function ReviewSoundSetting() {
   const t = useT();
-  const on = useReviewSound();
+  // With reviewing off there's nothing to chime for.
+  const reviewing = useReviewing();
+  const on = useReviewSound() && reviewing;
   const volume = useReviewVolume();
   return (
     <SettingRow
@@ -1777,6 +1809,7 @@ function ReviewSoundSetting() {
           data-review-sound-setting
           aria-label={t("settings.entry.review-sound.label")}
           checked={on}
+          disabled={!reviewing}
           onCheckedChange={setReviewSound}
         />
       }

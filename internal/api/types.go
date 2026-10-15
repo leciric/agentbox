@@ -1732,6 +1732,8 @@ type ReviewItem struct {
 	// Summary is what the agent said when it finished, cut down the way its
 	// finish event cuts it.
 	Summary string `json:"summary,omitempty"`
+	// Changes is what its branch changed when it finished.
+	Changes *AgentChanges `json:"changes,omitempty"`
 	// PR is its pull request, as the project's pull request cache and watch
 	// have it now, or as it was when it finished when the cache has none.
 	PR         *PullRequest `json:"pr,omitempty"`
@@ -1739,6 +1741,10 @@ type ReviewItem struct {
 	// Fingerprint is the work as it is now, which a verdict is recorded
 	// against: when it changes, the agent comes back.
 	Fingerprint string `json:"fingerprint"`
+	// Verdict and ReviewedAt are set on the Reviewed list (?reviewed=1): what
+	// the user decided, and when, about the work as it still is.
+	Verdict    string     `json:"verdict,omitempty"`
+	ReviewedAt *time.Time `json:"reviewedAt,omitempty"`
 }
 
 // ReviewRequest is POST /v1/agents/{project}/{agent}/review: the user's verdict

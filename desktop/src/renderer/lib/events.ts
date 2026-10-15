@@ -175,6 +175,7 @@ export function connectEvents(queryClient: QueryClient): void {
       case T.EventReview:
         // A verdict, from this window or another.
         void queryClient.invalidateQueries({ queryKey: ['review'] });
+        void queryClient.invalidateQueries({ queryKey: ['reviewed'] });
         break;
       case T.EventAgent: {
         const change = event.data as T.AgentChange;

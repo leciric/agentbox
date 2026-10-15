@@ -1,8 +1,10 @@
 // ?review=1: "Ready to review" (components/ReadyToReview.tsx) with three
 // agents waiting, the top bar's button and the project header's. agent-12's
 // carousel has two screenshots, a recording (drawn here, on a canvas) and its
-// Hatch pages (dev/pages.ts), then its pull request in full; Reviewed and Dismiss
-// take an agent off, which the dev bridge remembers (reviewRequest).
+// Hatch pages (dev/pages.ts), then its pull request in full, which merges;
+// agent-41's pull request fails its checks, so it can't. Reviewed and Dismiss
+// move an agent to Reviewed, which the dev bridge remembers (reviewRequest),
+// and two agents are there already.
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import type * as T from '../../shared/api';
@@ -34,6 +36,7 @@ const pr: T.PullRequest = {
 };
 
 let waiting: T.ReviewItem[] = [];
+let decided: T.ReviewItem[] = [];
 
 function items(): T.ReviewItem[] {
   const item = (agent: string, title: string, branch: string, finished: number, more: Partial<T.ReviewItem> = {}): T.ReviewItem => ({
@@ -50,13 +53,26 @@ function items(): T.ReviewItem[] {
   return [
     item('agent-12', 'Add a "New project" button to the Sidebar', 'agentbox/new-project-button', 3 * min, {
       pr,
-      summary: 'Added a New project button at the top of the sidebar, with a tooltip and the shortcut. Screenshots and a recording are in Media.',
+      summary:
+        'Added a **New project** button at the top of the sidebar, with a tooltip and the `Ctrl+Shift+N` shortcut.\n\n- The empty sidebar points at it too\n- Strings are in en-US and pt-BR\n\nScreenshots and a recording are in Media; PR #318 is green.',
+      changes: { files: 4, insertions: 142, deletions: 17, dirty: false },
     }),
     item('agent-41', 'Release CI: find what failed', 'agentbox/release-ci-failures', 40 * min, {
       ai: 'codex',
-      pr: { ...pr, number: 312, title: 'fix: the release build waits for the signed Mac zip', checks: 'failing', additions: 12, deletions: 3 },
+      pr: { ...pr, number: 312, title: 'fix: the release build waits for the signed Mac zip', checks: 'failing', additions: 12, deletions: 3, headBranch: 'agentbox/release-ci-failures' },
+      summary: 'The release build started before the signed Mac zip was uploaded. It now waits for it. The Windows job still fails on a flaky test, so checks are red.',
+      changes: { files: 2, insertions: 12, deletions: 3, dirty: false },
     }),
     item('agent-98', 'Speed up the daemon’s startup', 'agentbox/agent-98-startup-is-slow-on-a-cold-cache-with-many-projects', 3 * 60 * min),
+  ];
+}
+
+// done is what was reviewed before the preview opened.
+function done(): T.ReviewItem[] {
+  const base = { project: PROJECT, ai: 'claude', fingerprint: '{}' };
+  return [
+    { ...base, agent: 'agent-07', ref: `${PROJECT}/agent-07`, title: 'Paginate the reminders list', branch: 'agentbox/reminders-pages', finishedAt: ago(5 * 60 * min), verdict: 'reviewed', reviewedAt: ago(2 * 60 * min), summary: 'Paginated the list, 50 a page.' },
+    { ...base, agent: 'agent-03', ref: `${PROJECT}/agent-03`, title: 'Try a denser agent rail', branch: 'agentbox/dense-rail', finishedAt: ago(26 * 60 * min), verdict: 'dismissed', reviewedAt: ago(24 * 60 * min) },
   ];
 }
 
@@ -127,22 +143,70 @@ export function seedReview(queryClient: QueryClient): void {
   // The top bar's meters, which no other fixture seeds.
   queryClient.setQueryData(['claudeLimits'], []);
   waiting = items();
+  decided = done();
   queryClient.setQueryData(['media', `${PROJECT}/agent-12`], media());
-  for (const agent of ['agent-41', 'agent-98']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
+  const dark = document.documentElement.dataset.appearance !== 'light';
+  setMediaFile('rv-ci', screen('release-workflow-green-mac-step', 20, dark));
+  queryClient.setQueryData(['media', `${PROJECT}/agent-41`], [
+    { id: 'rv-ci', agent: `${PROJECT}/agent-41`, agentName: 'agent-41', kind: 'screenshot', name: 'release-workflow', file: 'release-workflow.png', mime: 'image/png', size: 180_000, source: 'agent', meta: { width: 1280, height: 800 }, createdAt: ago(42 * min) },
+  ] satisfies T.MediaItem[]);
+  for (const agent of ['agent-98', 'agent-07', 'agent-03']) queryClient.setQueryData(['media', `${PROJECT}/${agent}`], []);
   void recording().then((url) => setMediaFile('rv-rec', url));
   devRequests.push(reviewRequest);
 }
 
 // reviewRequest answers the dev bridge for "Ready to review": the list, and
 // a verdict, which takes the agent off it.
-function reviewRequest(method: string, path: string): { status: number; body: string; contentType: string } | undefined {
+function reviewRequest(method: string, path: string, body?: unknown): { status: number; body: string; contentType: string } | undefined {
   // The top bar re-reads the Claude limits every 30s, past what was seeded.
   if (method === 'GET' && path === '/v1/limits') return { status: 200, body: '[]', contentType: 'application/json' };
-  if (method === 'GET' && (path === '/v1/review' || path === `/v1/projects/${PROJECT}/review`)) {
-    return { status: 200, body: JSON.stringify(waiting), contentType: 'application/json' };
+  const [route, query] = path.split('?');
+  // The composer's AI tool picker (#297), which no other fixture answers.
+  if (method === 'GET' && route === `/v1/projects/${PROJECT}/chat/runners`) {
+    const runners: T.LeadRunners = { tool: 'claude', runners: [{ tool: 'claude', name: 'Claude Code', ready: true, installed: true }] };
+    return { status: 200, body: JSON.stringify(runners), contentType: 'application/json' };
+  }
+  if (method === 'GET' && (route === '/v1/review' || route === `/v1/projects/${PROJECT}/review`)) {
+    return { status: 200, body: JSON.stringify(query?.includes('reviewed') ? decided : waiting), contentType: 'application/json' };
+  }
+  // The project's pull requests, as the review reads them to merge one.
+  if (method === 'GET' && route === `/v1/projects/${PROJECT}/pulls`) {
+    const list: T.ProjectPullRequests = {
+      project: PROJECT,
+      github: 'leciric/agentbox',
+      githubAccount: 'default',
+      fetchedAt: new Date().toISOString(),
+      canMerge: true,
+      canMergeKnown: true,
+      mergeMethods: ['squash', 'merge', 'rebase'],
+      pullRequests: [...waiting, ...decided].flatMap((i) => (i.pr ? [{ ...i.pr, agent: i.agent }] : [])),
+    };
+    return { status: 200, body: JSON.stringify(list), contentType: 'application/json' };
+  }
+  const merge = method === 'POST' && /^\/v1\/projects\/[^/]+\/pulls\/(\d+)\/merge$/.exec(route);
+  if (merge) {
+    const number = Number(merge[1]);
+    let merged: T.PullRequest | undefined;
+    for (const i of [...waiting, ...decided]) if (i.pr?.number === number) merged = i.pr = { ...i.pr, state: 'merged' };
+    if (number === pr.number) pr.state = 'merged';
+    return { status: 200, body: JSON.stringify(merged ?? {}), contentType: 'application/json' };
   }
   // The pull request modal's detail of #318, and its files.
-  if (method === 'GET' && path === `/v1/projects/${PROJECT}/pulls/318`) {
+  const detailOf = method === 'GET' && /^\/v1\/projects\/[^/]+\/pulls\/(\d+)$/.exec(route);
+  const listed = detailOf && [...waiting, ...decided].find((i) => i.pr?.number === Number(detailOf[1]))?.pr;
+  if (listed && listed.number !== pr.number) {
+    const detail: T.PullRequestDetail = {
+      ...listed,
+      body: 'Waits for the signed Mac zip before publishing.',
+      checkRuns: [
+        { name: 'Go tests and coverage', status: 'completed', conclusion: 'success' },
+        { name: 'Windows', status: 'completed', conclusion: 'failure' },
+      ],
+      changedFiles: 2,
+    };
+    return { status: 200, body: JSON.stringify(detail), contentType: 'application/json' };
+  }
+  if (method === 'GET' && route === `/v1/projects/${PROJECT}/pulls/318`) {
     const detail: T.PullRequestDetail = {
       ...pr,
       body: 'Adds a **New project** button at the top of the sidebar, with a tooltip and the shortcut.\n\nChecked in the preview and in the app; the recording is in Media.',
@@ -154,12 +218,15 @@ function reviewRequest(method: string, path: string): { status: number; body: st
     };
     return { status: 200, body: JSON.stringify(detail), contentType: 'application/json' };
   }
-  if (method === 'GET' && path.startsWith(`/v1/projects/${PROJECT}/pulls/318/files`)) {
+  if (method === 'GET' && /^\/v1\/projects\/[^/]+\/pulls\/\d+\/files/.test(route)) {
     return { status: 200, body: JSON.stringify({ files: [] } satisfies T.PullRequestFiles), contentType: 'application/json' };
   }
   const verdict = method === 'POST' && /^\/v1\/agents\/[^/]+\/([^/]+)\/review$/.exec(path);
   if (!verdict) return undefined;
+  const item = waiting.find((i) => i.agent === verdict[1]);
   waiting = waiting.filter((i) => i.agent !== verdict[1]);
+  const v = (body as T.ReviewRequest | undefined)?.verdict ?? 'reviewed';
+  if (item) decided = [{ ...item, verdict: v, reviewedAt: new Date().toISOString() }, ...decided];
   return { status: 204, body: '', contentType: 'application/json' };
 }
 

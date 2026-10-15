@@ -205,6 +205,17 @@ func (c *Client) ReadyToReview(ctx context.Context, project string) ([]ReviewIte
 	return out, c.do(ctx, http.MethodGet, path, nil, &out)
 }
 
+// Reviewed is a project's agents the user reviewed or dismissed and whose
+// work hasn't changed since, the latest verdict first; every project's for "".
+func (c *Client) Reviewed(ctx context.Context, project string) ([]ReviewItem, error) {
+	path := "/v1/review?reviewed=1"
+	if project != "" {
+		path = "/v1/projects/" + url.PathEscape(project) + "/review?reviewed=1"
+	}
+	var out []ReviewItem
+	return out, c.do(ctx, http.MethodGet, path, nil, &out)
+}
+
 // Review records the user's verdict on an agent's work, taking it off
 // ReadyToReview until it changes.
 func (c *Client) Review(ctx context.Context, ref string, req ReviewRequest) error {
