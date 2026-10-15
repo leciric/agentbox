@@ -22,9 +22,6 @@ import (
 // is not interrupted: it is remembered (freeWhenIdle) and freed when its turn
 // ends (noticeAgentFinished). That memory lasts as long as the daemon does.
 
-// keptReason is what the app shows on a reviewed item whose machine was kept.
-const keptReason = "has unpushed work — machine kept"
-
 // freeReviewed frees a's machine if the work is safe, as above. why says what
 // asked for it, for the log; pr is its pull request when the caller has it, else it is looked up.
 func (s *Server) freeReviewed(ctx context.Context, a state.Agent, why string, pr *api.PullRequest) {
