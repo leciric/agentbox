@@ -253,6 +253,12 @@ export const api = {
   chatCache: (name: string) => call<T.ChatCache>('GET', `${project(name)}/chat/cache`),
   chooseChatCache: (name: string, choice: T.ChatCacheChoice) => call<T.ChatItem | undefined>('POST', `${project(name)}/chat/cache`, choice),
   files: (ref: string) => call<T.WorktreeFiles>('GET', filesBase(ref)),
+  // The file tree and viewer beside a chat (components/files).
+  listFolder: (ref: string, path: string, ignored: boolean) =>
+    call<T.FileList>('GET', `${filesBase(ref)}/list?${new URLSearchParams({ path, ...(ignored ? { ignored: '1' } : {}) })}`),
+  readFile: (ref: string, path: string, full = false) =>
+    call<T.FileContent>('GET', `${filesBase(ref)}/read?${new URLSearchParams({ path, base: '1', ...(full ? { full: '1' } : {}) })}`),
+  fileStatus: (ref: string) => call<T.FileStatus>('GET', `${filesBase(ref)}/status`),
 
   // Skills (internal/skills): stored by the daemon, installed into every agent
   // and lead whose project has them on. A project's list says, for each,

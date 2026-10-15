@@ -1,11 +1,13 @@
 import { AlarmClock, Archive, Brain, Check, ChevronRight, CircleAlert, Copy, Hourglass, Info, LoaderCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type * as T from '../../../shared/api';
 import { api, isProjectChat } from '../../lib/api';
 import { formatDuration, timelineRows, type Row } from '../../lib/chat';
 import { formatDateTime, formatTime, useT, type MessageKey } from '../../lib/i18n';
 import { cn } from '../../lib/utils';
+import { fileLinkOf } from '../../lib/files';
+import { FileLinks } from '../files/FilePanel';
 import { pastState } from '../../lib/pastAgents';
 import { aiLabel } from '../state';
 import { ChatCredentialCard } from '../CredentialCard';
@@ -63,7 +65,7 @@ const TimelineRow = memo(
             {!!row.item.images?.length && <SentImages chatRef={chatRef} images={row.item.images} />}
             {row.item.text && (
               <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-surface-raised px-3.5 py-2.5 text-sm leading-relaxed text-primary shadow-[inset_0_1px_0_rgb(255_255_255/0.04)]" data-chat-text>
-                {row.item.text}
+                <Mentions text={row.item.text} />
               </div>
             )}
             {row.item.kind === 'aside' && <Delivered item={row.item} />}
@@ -323,4 +325,27 @@ export function Elapsed({ since }: { since: string }) {
     return () => clearInterval(timer);
   }, [since, t]);
   return <span ref={ref} />;
+}
+
+// Mentions is a message you sent, with each file it @mentions a link that
+// opens the file beside the chat.
+function Mentions({ text }: { text: string }) {
+  const files = use(FileLinks);
+  if (!files || !text.includes('@')) return <>{text}</>;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(/(^|\s)@(\S+)/g)) {
+    const file = fileLinkOf(match[2], files.root);
+    if (!file) continue;
+    const at = match.index + match[1].length;
+    parts.push(text.slice(last, at));
+    parts.push(
+      <button key={at} className="font-mono text-[0.92em] text-brand-200 underline decoration-dotted underline-offset-[3px] hover:decoration-solid" onClick={() => files.open(file.path, file.line)} data-file-link={file.path}>
+        @{match[2]}
+      </button>,
+    );
+    last = at + match[2].length + 1;
+  }
+  parts.push(text.slice(last));
+  return <>{parts}</>;
 }

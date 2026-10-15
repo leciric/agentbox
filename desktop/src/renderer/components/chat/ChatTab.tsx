@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, Archive, EyeOff, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Trash2 } from 'lucide-react';
+import { ArrowDown, Archive, EyeOff, FolderTree, LoaderCircle, MessageSquarePlus, Play, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type * as T from '../../../shared/api';
@@ -18,6 +18,8 @@ import { PageStack } from '../pages/PageStack';
 import { Composer } from './Composer';
 import { leadOn } from '../../lib/leadRunner';
 import { FindBar } from './FindBar';
+import { FileLinksProvider, FilePanel } from '../files/FilePanel';
+import { hasFiles, requestFind, setPanelPrefs, usePanelPrefs } from '../../lib/files';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { Timeline } from './Timeline';
 
@@ -177,6 +179,22 @@ export function ChatTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [older, loadingOlder, newer, loadingNewer, firstId, lastId]);
 
+  // The file tree and viewer beside the chat (components/files), for a chat
+  // with a worktree. available is how wide the chat and the panel are
+  // together, for the panel to leave the chat room.
+  const files = hasFiles(agent.ref, past);
+  const panel = usePanelPrefs();
+  const outer = useRef<HTMLDivElement>(null);
+  const [available, setAvailable] = useState(0);
+  useLayoutEffect(() => {
+    const el = outer.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setAvailable(el.clientWidth));
+    observer.observe(el);
+    setAvailable(el.clientWidth);
+    return () => observer.disconnect();
+  }, []);
+
   // Ctrl+F (⌘F) finds in the chat on screen. Every chat open in the app
   // listens, and only one is visible.
   const root = useRef<HTMLDivElement>(null);
@@ -186,15 +204,23 @@ export function ChatTab({
   const [openings, setOpenings] = useState(0);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== 'f' || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+      const key = event.key.toLowerCase();
+      if ((key !== 'f' && key !== 'p') || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
       if (!root.current?.checkVisibility()) return;
+      // Ctrl+P (⌘P) finds a file in the panel beside the chat.
+      if (key === 'p') {
+        if (!files) return;
+        event.preventDefault();
+        requestFind();
+        return;
+      }
       event.preventDefault();
       setFinding(true);
       setFindFocus((n) => n + 1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [files]);
 
   const jumped = () => {
     following.current = false;
@@ -216,8 +242,8 @@ export function ChatTab({
   // finished without waking it — has items and still nothing to show, so the
   // hero belongs there too.
   const empty = !view?.items.some((it) => !isSilent(it));
-  return (
-    <div ref={root} className="relative flex h-full min-h-0 flex-col bg-chat" data-chat={agent.ref}>
+  const chat = (
+    <div ref={root} className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-chat" data-chat={agent.ref}>
       {finding && (
         <FindBar
           key={openings}
@@ -330,6 +356,12 @@ export function ChatTab({
 
     </div>
   );
+  return (
+    <div ref={outer} className="flex h-full min-h-0">
+      {files ? <FileLinksProvider agent={agent}>{chat}</FileLinksProvider> : chat}
+      {files && panel.open && available > 0 && <FilePanel agent={agent} available={available} />}
+    </div>
+  );
 }
 
 // ChatHeaderControls is the chat's live status and its "New chat" action: the
@@ -347,6 +379,7 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
     <>
       <SessionStatus agent={agent} session={thread.data?.session} />
       <ReloadTools agent={agent} session={thread.data?.session} />
+      {hasFiles(agent.ref) && <FilesToggle />}
       <Tip label={t('chat.tab.newChatTip')}>
         <Button size="sm" variant="ghost" className="h-7 px-2 sm:px-2.5" disabled={items.length === 0} onClick={() => setClearing(true)}>
           <MessageSquarePlus />
@@ -367,6 +400,20 @@ export function ChatHeaderControls({ agent }: { agent: T.Agent }) {
         onConfirm={() => api.clearChat(agent.ref)}
       />
     </>
+  );
+}
+
+// FilesToggle opens and closes the file tree beside the chat.
+function FilesToggle() {
+  const t = useT();
+  const { open } = usePanelPrefs();
+  return (
+    <Tip label={t(open ? 'files.panel.hide' : 'files.panel.show')}>
+      <Button size="sm" variant="ghost" className={cn('h-7 px-2 sm:px-2.5', open && 'bg-surface-raised text-primary')} aria-pressed={open} onClick={() => setPanelPrefs({ open: !open })} data-files-toggle>
+        <FolderTree />
+        <span className="hidden sm:inline">{t('files.panel.files')}</span>
+      </Button>
+    </Tip>
   );
 }
 

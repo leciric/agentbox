@@ -82,6 +82,16 @@ export function connectEvents(queryClient: QueryClient): void {
   window.agentbox.onEvent((raw) => {
     const event = raw as T.Event;
     switch (event.type) {
+      case T.EventFiles: {
+        // Files moved in a worktree whose tree is open: read again the folders
+        // and files that did, and what changed (components/files).
+        const change = event.data as T.FilesChange;
+        for (const dir of change.dirs) void queryClient.invalidateQueries({ queryKey: ['fileTree', change.ref, dir] });
+        for (const path of change.files) void queryClient.invalidateQueries({ queryKey: ['file', change.ref, path] });
+        if (change.dirs.length > 0) void queryClient.invalidateQueries({ queryKey: ['files', change.ref] });
+        void queryClient.invalidateQueries({ queryKey: ['fileStatus', change.ref] });
+        break;
+      }
       case T.EventChat: {
         const chat = event.data as T.ChatEvent;
         applyChatEvent(queryClient, chat);

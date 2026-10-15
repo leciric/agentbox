@@ -1,5 +1,7 @@
 import { ImageOff } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, use, useMemo, useState, type ReactNode } from 'react';
+import { fileLinkOf } from '../../lib/files';
+import { FileLinks } from '../files/FilePanel';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { remarkHTMLImages } from '../../lib/pulls';
@@ -67,24 +69,58 @@ function MarkdownImage({ src, alt, width, imageSrc }: { src: string; alt?: strin
   return <img src={url} alt={alt ?? ''} width={width} loading="lazy" className="chat-markdown-image" onError={() => setFailed(true)} />;
 }
 
-const components: Components = {
-  a: ({ href, children }) => (
+// A link whose target is a file in the chat's worktree opens it beside the
+// chat (components/files); any other opens in the browser.
+function Link({ href, children }: { href?: string; children: ReactNode }) {
+  const files = use(FileLinks);
+  const file = files && href && !/^(https?:|mailto:)/.test(href) ? fileLinkOf(decodeURI(href), files.root) : undefined;
+  return (
     <a
       href={href}
+      data-file-link={file?.path}
       onClick={(event) => {
         event.preventDefault();
-        if (href && /^(https?:|mailto:)/.test(href)) void window.agentbox.openExternal(href);
+        if (file && files) files.open(file.path, file.line);
+        else if (href && /^(https?:|mailto:)/.test(href)) void window.agentbox.openExternal(href);
       }}
     >
       {children}
     </a>
-  ),
+  );
+}
+
+// InlineCode that reads as a file path (`internal/api/files.go:42`) is a link
+// to it, the way T3Code's resolveInlineCodeFileLinkMeta reads it.
+function InlineCode({ children }: { children: ReactNode }) {
+  const files = use(FileLinks);
+  const text = typeof children === 'string' ? children : undefined;
+  const file = files && text ? fileLinkOf(text, files.root) : undefined;
+  if (!file || !files) return <code>{children}</code>;
+  return (
+    <code
+      role="link"
+      tabIndex={0}
+      className="chat-file-link"
+      title={file.line ? `${file.path}:${file.line}` : file.path}
+      data-file-link={file.path}
+      onClick={() => files.open(file.path, file.line)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') files.open(file.path, file.line);
+      }}
+    >
+      {children}
+    </code>
+  );
+}
+
+const components: Components = {
+  a: ({ href, children }) => <Link href={href}>{children}</Link>,
   // CodeBlock draws its own frame.
   pre: ({ children }) => <>{children}</>,
   code: ({ className, children, node }) => {
     const code = String(children ?? '');
     const language = /language-([\w+#.-]+)/.exec(className ?? '')?.[1];
-    if (!language && !code.includes('\n')) return <code>{children}</code>;
+    if (!language && !code.includes('\n')) return <InlineCode>{children}</InlineCode>;
     // The rest of the info string (```html preview) is the node's meta.
     const rich = richKind(language, (node?.data as { meta?: string } | undefined)?.meta);
     if (rich) return <RichBlock kind={rich.kind} drawn={rich.drawn} code={code.replace(/\n$/, '')} language={language} />;
