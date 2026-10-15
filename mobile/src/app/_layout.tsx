@@ -14,7 +14,7 @@ import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-quer
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { api } from '../connection/api.ts';
 import { connect } from '../connection/events.ts';
@@ -56,7 +56,8 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <StatusBar style="light" />
-        <View style={styles.root}>
+        <View style={[styles.root, Platform.OS === 'web' && styles.webColumn]}>
+          {session && <Paired key={session.origin} queryClient={queryClient} />}
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'slide_from_right' }}>
             <Stack.Protected guard={!!session}>
               <Stack.Screen name="index" />
@@ -68,11 +69,6 @@ export default function RootLayout() {
               <Stack.Screen name="pair" />
             </Stack.Protected>
           </Stack>
-          {session && (
-            <View style={styles.bar} pointerEvents="box-none">
-              <Paired key={session.origin} queryClient={queryClient} />
-            </View>
-          )}
         </View>
       </QueryClientProvider>
     </SafeAreaProvider>
@@ -81,5 +77,6 @@ export default function RootLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  bar: { position: 'absolute', top: 0, left: 0, right: 0 },
+  // Expo's web build, for development, in a phone's width.
+  webColumn: { width: '100%', maxWidth: 430, alignSelf: 'center', borderLeftWidth: 1, borderRightWidth: 1, borderColor: colors.line },
 });

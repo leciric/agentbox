@@ -1,12 +1,33 @@
 // ConnectionBar says the phone lost AgentBox and is getting it back, until it
 // is, as the web phone app's does: the first connection says nothing, and
 // getting back says so for a moment.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { reconnectNow, useConnection } from '../connection/events.ts';
 import { useT } from '../lib/i18n.tsx';
 import { colors } from './theme.ts';
+
+// Whether the bar shows, for the screen's header below it, which leaves the
+// status bar's inset to it meanwhile.
+let shown = false;
+const listeners = new Set<() => void>();
+function setShown(next: boolean) {
+  if (next === shown) return;
+  shown = next;
+  for (const fn of listeners) fn();
+}
+
+export function useBarShown(): boolean {
+  return useSyncExternalStore(
+    (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    () => shown,
+    () => shown,
+  );
+}
 
 export function ConnectionBar() {
   const t = useT();
@@ -30,6 +51,7 @@ export function ConnectionBar() {
     }
   }, [connection]);
   const lost = connection === 'disconnected' || (ever.current && connection === 'connecting');
+  useEffect(() => setShown(lost || back), [lost, back]);
   if (!lost && !back) return null;
   return (
     <View style={[styles.bar, { paddingTop: insets.top + 4 }, lost ? styles.lost : styles.back]} accessibilityRole="alert">

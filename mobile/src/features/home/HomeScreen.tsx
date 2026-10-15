@@ -12,7 +12,7 @@ import * as T from '../../shared/api.ts';
 import { api } from '../../connection/api.ts';
 import { useSession } from '../../connection/session.ts';
 import { useT } from '../../lib/i18n.tsx';
-import { StatusLine } from '../../ui/parts.tsx';
+import { StatusLine, useTopInset } from '../../ui/parts.tsx';
 import { colors } from '../../ui/theme.ts';
 import { agentStatus, isWaiting, leadStatus, rank, type ChatStatus } from '../threads/activity.ts';
 import { chatKey } from '../threads/thread.ts';
@@ -29,6 +29,7 @@ export function HomeScreen() {
   const t = useT();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const top = useTopInset();
   const session = useSession();
   const queryClient = useQueryClient();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
@@ -48,7 +49,7 @@ export function HomeScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={[styles.top, { paddingTop: insets.top + 10 }]}>
+      <View style={[styles.top, { paddingTop: top + 10 }]}>
         <Text style={styles.heading}>{t('mobile.home.title')}</Text>
         <Pressable onPress={() => router.push('/settings')} hitSlop={8} accessibilityRole="button" accessibilityLabel={t('mobile.settings.title')} style={styles.phoneChip}>
           <Text numberOfLines={1} style={styles.phoneChipText}>

@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ChatStatus } from '../features/threads/activity.ts';
 import { useT } from '../lib/i18n.tsx';
+import { useBarShown } from './ConnectionBar.tsx';
 import { colors, mono, toneDot, toneText } from './theme.ts';
 
 // elapsed is how long since a moment: 12s, 3m 4s, 1h 2m.
@@ -68,12 +69,19 @@ export function StatusLine({ status, after, size = 12 }: { status: ChatStatus; a
   );
 }
 
+// useTopInset is the status bar's height, unless the connection bar above
+// the screen already keeps clear of it.
+export function useTopInset(): number {
+  const insets = useSafeAreaInsets();
+  return useBarShown() ? 0 : insets.top;
+}
+
 export function ScreenHeader({ title, subtitle, status, right }: { title: string; subtitle?: string; status?: ChatStatus; right?: ReactNode }) {
   const t = useT();
   const router = useRouter();
-  const insets = useSafeAreaInsets();
+  const top = useTopInset();
   return (
-    <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+    <View style={[styles.header, { paddingTop: top + 6 }]}>
       <Pressable accessibilityRole="button" accessibilityLabel={t('web.phone.back')} onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} style={styles.back} hitSlop={8}>
         <Text style={styles.backArrow}>‹</Text>
       </Pressable>

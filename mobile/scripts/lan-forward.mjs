@@ -12,7 +12,11 @@
 // Sec-Fetch-* headers, which the daemon otherwise refuses a write over. Only
 // for development on your own machine: a phone app never needs it.
 //
-//   node scripts/lan-forward.mjs [--web] [--socket <path>]
+// --port <n> listens on n only, without reporting it, beside a daemon that
+// opens its phone port itself (on a Mac, or in host mode): for --web, then
+// pair with the QR code's link on port n instead.
+//
+//   node scripts/lan-forward.mjs [--web] [--port <n>] [--socket <path>]
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -48,7 +52,8 @@ function addresses() {
 function forward(req, res) {
   if (web) {
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    // react-native-sse adds Cache-Control and X-Requested-With to the stream's.
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, Cache-Control, X-Requested-With, Last-Event-ID');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE');
     if (req.method === 'OPTIONS') {
       res.writeHead(204).end();
@@ -107,6 +112,12 @@ async function tick() {
   await daemon('PUT', '/v1/lan/host', { port, listening: !!server, error, addresses: addresses() }).catch(() => {});
 }
 
-console.log(`following ${socket}`);
-await tick();
-setInterval(tick, 3000);
+const portArg = args.indexOf('--port');
+if (portArg >= 0) {
+  port = Number(args[portArg + 1]);
+  http.createServer(forward).listen(port, '0.0.0.0', () => console.log(`port ${port} passed on to ${socket}${web ? ' (with CORS for Expo web)' : ''}`));
+} else {
+  console.log(`following ${socket}`);
+  await tick();
+  setInterval(tick, 3000);
+}
