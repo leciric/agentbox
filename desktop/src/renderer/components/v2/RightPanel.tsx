@@ -351,7 +351,7 @@ function WhoseList({ project, whose, agents, past, withLead, forTab, onPick }: {
           {withMachine && <X className="size-3" />}
         </button>
       </div>
-      <div className="max-h-[420px] min-h-0 overflow-y-auto p-1">
+      <div className={cn('min-h-0 overflow-y-auto p-1', withLead ? 'max-h-[min(420px,calc(var(--radix-popover-content-available-height,100vh)-96px))]' : 'max-h-[420px]')}>
         {withLead && matchesText(t('panel.repository'), query) && (
           <>
             <Row
