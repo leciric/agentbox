@@ -47,6 +47,7 @@ jobs:
     outputs:
       go: ${{ steps.paths.outputs.go }}
       desktop: ${{ steps.paths.outputs.desktop }}
+      mobile: ${{ steps.paths.outputs.mobile }}
       vuln: ${{ steps.paths.outputs.vuln }}
       full: ${{ steps.paths.outputs.full }}
     steps:
@@ -60,10 +61,11 @@ jobs:
             exit 1
           fi
 
-      # Go is everything but the desktop app and the prose, and the desktop
-      # app's api.ts is Go's too: TestTypeScriptTypesAreUpToDate reads it. The
-      # desktop app is desktop/ and the vnc.js its build writes into the Go
-      # tree. mise.toml and this file are both.
+      # Go is everything but the desktop and phone apps and the prose, and the
+      # desktop app's api.ts is Go's too: TestTypeScriptTypesAreUpToDate reads
+      # it. The desktop app is desktop/ and the vnc.js its build writes into
+      # the Go tree. The phone app is mobile/ and the desktop's shared/, which
+      # it imports. mise.toml and this file are all three.
       - name: Which halves the change touches
         id: paths
         env:
@@ -95,12 +97,13 @@ jobs:
           esac
           if ! $ok || [ ! -s "$files" ]; then
             echo "Can't tell what changed: running everything"
-            go=true desktop=true vuln=true
+            go=true desktop=true mobile=true vuln=true
           else
             sed 's/^/  /' "$files"
-            grep -qvE '^(desktop/|docs/|[^/]+\.md$|LICENSE$|\.github/(workflows/(release|nightly)\.yml|release-please-config\.json|\.release-please-manifest\.json)$)' "$files" \
+            grep -qvE '^(desktop/|mobile/|docs/|[^/]+\.md$|LICENSE$|\.github/(workflows/(release|nightly)\.yml|release-please-config\.json|\.release-please-manifest\.json)$)' "$files" \
               || grep -qx 'desktop/src/shared/api.ts' "$files" && go=true || go=false
             grep -qE '^(desktop/|internal/machinesweb/static/vnc\.js$|mise\.toml$|\.github/workflows/ci\.yml$)' "$files" && desktop=true || desktop=false
+            grep -qE '^(mobile/|desktop/src/shared/|mise\.toml$|\.github/workflows/ci\.yml$)' "$files" && mobile=true || mobile=false
             if [ "$EVENT" = push ]; then vuln=$go
             else grep -qE '^go\.(mod|sum)$' "$files" && vuln=true || vuln=false; fi
           fi
@@ -112,8 +115,8 @@ jobs:
             pull_request/labeled) full=true ;;
             pull_request/*) [ "$FULL_LABEL" = true ] && full=$go || full=false ;;
           esac
-          echo "go=$go desktop=$desktop vuln=$vuln full=$full"
-          { echo "go=$go"; echo "desktop=$desktop"; echo "vuln=$vuln"; echo "full=$full"; } >>"$GITHUB_OUTPUT"
+          echo "go=$go desktop=$desktop mobile=$mobile vuln=$vuln full=$full"
+          { echo "go=$go"; echo "desktop=$desktop"; echo "mobile=$mobile"; echo "vuln=$vuln"; echo "full=$full"; } >>"$GITHUB_OUTPUT"
 
   # The Go test suite, once, with coverage: scripts/check-coverage.sh fails
   # below the floor in .github/coverage-floor.txt. This includes
@@ -306,6 +309,36 @@ jobs:
             echo "::error::Run npm --prefix desktop run build:machines-view and commit internal/machinesweb/static/vnc.js"
             exit 1
           }
+
+  # The phone app (mobile/): lint, typecheck and its tests. Its typecheck
+  # reads the desktop's shared/ (the API's types and the text's catalogs),
+  # which it imports. Nothing here needs a simulator.
+  mobile:
+    name: Phone app
+    needs: changes
+    if: needs.changes.outputs.mobile == 'true' && github.event.action != 'labeled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: node
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-mobile-${{ runner.os }}-${{ hashFiles('mobile/package-lock.json') }}
+          restore-keys: npm-mobile-${{ runner.os }}-
+
+      - run: npm --prefix mobile ci --no-audit --no-fund
+
+      - run: npm --prefix mobile run lint
+
+      - run: npm --prefix mobile run typecheck
+
+      - run: npm --prefix mobile test
 
   # The macOS agentbox, as a release builds it: with cgo, which the
   # experimental vz driver's bindings to Apple's Virtualization framework need
