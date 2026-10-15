@@ -208,7 +208,7 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
             {lists.pinned.map((p) => lead(p, { draggable: true }))}
           </div>
         )}
-        {(lists.rest.length > 0 || (projects.data?.length ?? 0) > 0) && (
+        {(lists.rest.length > 0 || (lists.pinned.length === 0 && (projects.data?.length ?? 0) > 0)) && (
           <div data-v2-rest>
             <ListHead action={<SortMenu />}>{t('shell.sidebar.projects')}</ListHead>
             {lists.rest.map((p) => lead(p))}
@@ -631,7 +631,7 @@ function ProjectLead({
               aria-label={t('v2.sidebar.projectMenu', { project: name })}
               onClick={(e) => e.stopPropagation()}
               className={cn(
-                'absolute right-1.5 top-1.5 rounded-md bg-surface-raised p-1 text-subtle shadow-sm transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:hover)]:opacity-0',
+                '-mr-1 mt-px shrink-0 rounded-md p-0.5 text-subtle transition hover:bg-surface-strong hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 [@media(hover:hover)]:opacity-0',
                 active && '[@media(hover:hover)]:opacity-100',
               )}
               data-v2-project-menu={project.name}
