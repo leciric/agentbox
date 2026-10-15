@@ -205,6 +205,48 @@ export interface WorktreeFiles {
   truncated: boolean;
 }
 
+export interface FileEntry {
+  name: string;
+  path: string;
+  dir: boolean;
+  size?: number;
+  ignored?: boolean;
+  symlink?: boolean;
+}
+
+export interface FileList {
+  path: string;
+  entries: FileEntry[];
+  truncated: boolean;
+}
+
+export interface FileStatus {
+  base: string;
+  changes: Record<string, string>;
+  truncated: boolean;
+}
+
+export interface FileContent {
+  path: string;
+  size: number;
+  binary?: boolean;
+  image?: string;
+  data?: string;
+  text?: string;
+  truncated?: boolean;
+  tooLarge?: boolean;
+  status?: string;
+  base?: string;
+  baseText?: string;
+  baseMissing?: boolean;
+}
+
+export interface FilesChange {
+  ref: string;
+  dirs: string[];
+  files: string[];
+}
+
 export interface ArchivedAgent {
   ref: string;
   project: string;
@@ -1812,6 +1854,7 @@ export interface ChatTool {
   status: string;
   command?: string;
   paths?: string[];
+  line?: number;
   output?: string;
   diffs?: ChatDiff[];
   page?: ChatPage;
@@ -2509,6 +2552,11 @@ export const DiskLow = "low";
 export const DiskFull = "full";
 export const EventLAN = "lan";
 export const EventSnap = "snap";
+export const EventFiles = "files";
+export const FileModified = "modified";
+export const FileAdded = "added";
+export const FileDeleted = "deleted";
+export const FileUntracked = "untracked";
 export const SetupOK = "ok";
 export const SetupMissing = "missing";
 export const SetupOutdated = "outdated";

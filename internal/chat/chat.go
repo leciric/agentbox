@@ -2537,12 +2537,16 @@ func applyTool(t *api.ChatTool, u acp.SessionUpdate) {
 	}
 	if len(u.Locations) > 0 {
 		var paths []string
+		line := 0
 		for _, l := range u.Locations {
 			if l.Path != "" && !slices.Contains(paths, l.Path) {
 				paths = append(paths, l.Path)
+				if len(paths) == 1 {
+					line = l.Line
+				}
 			}
 		}
-		t.Paths = paths
+		t.Paths, t.Line = paths, line
 	}
 	if command := commandOf(u.RawInput); command != "" {
 		t.Command = command

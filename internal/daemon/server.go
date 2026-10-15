@@ -93,14 +93,15 @@ type Server struct {
 	prTell func(ctx context.Context, a state.Agent, text string) (told, error)
 	// prLead puts the watch's notice in front of a project's chat: tellLead,
 	// or a test's recorder.
-	prLead  func(ctx context.Context, project, notice string, act bool)
-	files   *filesCache      // each agent's worktree file listing, served briefly stale
-	disks   *agentDiskCache  // each agent's machine and worktree sizes, for its info card
-	themes  *omarchy.Watcher // the desktop theme this machine is running, if any
-	updates updates          // what the hourly update check last found
-	stop    context.CancelFunc
-	incus   *incusWatch // whether Incus answers, and what to do when it doesn't
-	disk    *diskWatch  // the disk guard: a floor of free space on every disk AgentBox writes to
+	prLead      func(ctx context.Context, project, notice string, act bool)
+	files       *filesCache      // each agent's worktree file listing, served briefly stale
+	fileWatches *fileWatches     // the folders the app's file trees have open, watched
+	disks       *agentDiskCache  // each agent's machine and worktree sizes, for its info card
+	themes      *omarchy.Watcher // the desktop theme this machine is running, if any
+	updates     updates          // what the hourly update check last found
+	stop        context.CancelFunc
+	incus       *incusWatch // whether Incus answers, and what to do when it doesn't
+	disk        *diskWatch  // the disk guard: a floor of free space on every disk AgentBox writes to
 
 	runCtx context.Context // Run's, for connections that outlive a request
 
@@ -313,6 +314,7 @@ func New(cfg Config) (*Server, error) {
 		cpuTime:          agent.CPUTime,
 		connectorsGiven:  map[string]bool{},
 	}
+	s.fileWatches = newFileWatches(func(c api.FilesChange) { s.events.publish(api.EventFiles, c) })
 	// Lima on a Mac and WSL2 forward the VM's localhost ports on their own.
 	s.loginCallbackUnreachable = hostos.OS() == hostos.Linux
 	s.recheckTell = func(ctx context.Context, project, note string) { s.tellLead(ctx, project, note, true) }
@@ -404,6 +406,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.applyLAN(ctx)
 	defer s.closeLAN()
 	s.watchTheme(ctx)
+	defer s.fileWatches.closeAll()
 	// Run's own loops end with it, and it waits for them: deferred after the
 	// store's Close, this runs before it, so none of them outlives the
 	// database or the daemon it reports on. stop first, for a Serve that
@@ -689,6 +692,9 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/projects/{project}/chat/runners", s.chatRunners)
 	h("PUT /v1/projects/{project}/chat/runner", s.setChatRunner)
 	h("GET /v1/projects/{project}/files", s.listFiles(s.leadFromPath))
+	h("GET /v1/projects/{project}/files/list", s.listFolder(s.leadFromPath))
+	h("GET /v1/projects/{project}/files/read", s.readFile(s.leadFromPath))
+	h("GET /v1/projects/{project}/files/status", s.fileStatus(s.leadFromPath))
 	h("GET /v1/projects/{project}/lead", s.projectChat)
 	h("DELETE /v1/projects/{project}/lead", s.resetProjectChat)
 	h("GET /v1/projects/{project}/fleet", s.fleet)
@@ -761,6 +767,9 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/agents/{project}/{agent}/disk", s.agentDisk)
 	h("GET /v1/agents/{project}/{agent}/credential", s.agentCredential)
 	h("GET /v1/agents/{project}/{agent}/files", s.listFiles(s.agentFromPath))
+	h("GET /v1/agents/{project}/{agent}/files/list", s.listFolder(s.agentFromPath))
+	h("GET /v1/agents/{project}/{agent}/files/read", s.readFile(s.agentFromPath))
+	h("GET /v1/agents/{project}/{agent}/files/status", s.fileStatus(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/snapshots", s.listSnapshots)
 	h("POST /v1/agents/{project}/{agent}/snapshots", s.takeSnapshot)
 	h("DELETE /v1/agents/{project}/{agent}/snapshots/{name}", s.deleteSnapshot)

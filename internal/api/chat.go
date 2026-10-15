@@ -230,15 +230,18 @@ type ChatSubagent struct {
 
 // ChatTool is a tool call: a command, a file read or edit, a search.
 type ChatTool struct {
-	CallID  string     `json:"callId"`
-	Name    string     `json:"name,omitempty"` // the tool's own name, like Bash or Edit
-	Title   string     `json:"title"`
-	Kind    string     `json:"kind"`   // read, edit, delete, move, search, execute, think, fetch or other
-	Status  string     `json:"status"` // pending, in_progress, completed, failed, or stopped when the turn ended first
-	Command string     `json:"command,omitempty"`
-	Paths   []string   `json:"paths,omitempty"`
-	Output  string     `json:"output,omitempty"` // the end of its output
-	Diffs   []ChatDiff `json:"diffs,omitempty"`
+	CallID  string   `json:"callId"`
+	Name    string   `json:"name,omitempty"` // the tool's own name, like Bash or Edit
+	Title   string   `json:"title"`
+	Kind    string   `json:"kind"`   // read, edit, delete, move, search, execute, think, fetch or other
+	Status  string   `json:"status"` // pending, in_progress, completed, failed, or stopped when the turn ended first
+	Command string   `json:"command,omitempty"`
+	Paths   []string `json:"paths,omitempty"`
+	// Line, when the AI tool said, is the line of Paths[0] the call read or
+	// changed from, for the app to open the file there.
+	Line   int        `json:"line,omitempty"`
+	Output string     `json:"output,omitempty"` // the end of its output
+	Diffs  []ChatDiff `json:"diffs,omitempty"`
 	// Page, on a call to Hatch's publish_page or update_page, is what it was
 	// asked to publish, without the HTML: what the project's artifacts are
 	// read from (Artifacts), with what Hatch answered in Output.
