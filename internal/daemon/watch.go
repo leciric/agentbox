@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -82,6 +83,11 @@ func (s *Server) agentStates() []api.AgentChange {
 
 // eventStream serves the event stream as server-sent events. A new subscriber
 // first gets the current state of every agent.
+//
+// ?ping=1 makes its keepalive an event, "ping", rather than a comment, which
+// a browser's EventSource never shows the page: the phone's web app
+// (desktop/src/renderer/web/reconnect.ts) tells a stream that went silent,
+// after the phone slept or a tunnel dropped, from one with nothing to say.
 func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) error {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -113,14 +119,18 @@ func (s *Server) eventStream(w http.ResponseWriter, r *http.Request) error {
 	}
 	flusher.Flush()
 
-	keepalive := time.NewTicker(15 * time.Second)
+	beat := ": keepalive\n\n"
+	if r.URL.Query().Get("ping") == "1" {
+		beat = "event: ping\ndata: {}\n\n"
+	}
+	keepalive := time.NewTicker(cmp.Or(s.keepalive, 15*time.Second))
 	defer keepalive.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return nil
 		case <-keepalive.C:
-			_, _ = fmt.Fprint(w, ": keepalive\n\n")
+			_, _ = fmt.Fprint(w, beat)
 			flusher.Flush()
 		case ev := <-events:
 			send(ev)

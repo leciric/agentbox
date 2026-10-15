@@ -83,6 +83,7 @@ type Server struct {
 	imageCacheUp atomic.Bool
 	store        *state.Store
 	events       *broker
+	keepalive    time.Duration // how often a quiet event stream says it's there; 15s unless a test sets it
 	jobs         *jobs
 	chat         *chat.Manager // the agents' conversations in the app's Chat tab
 	pulls        *pullsCache   // what GitHub said about each repository, served stale
