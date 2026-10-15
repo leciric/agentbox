@@ -63,6 +63,17 @@ func TestReadyToReviewListsFinishedAgentsUntilReviewed(t *testing.T) {
 	if list := readyToReview(t, d, "hello-stack"); len(list) != 0 {
 		t.Fatalf("reviewed and dismissed agents are still listed: %+v", list)
 	}
+	// They move to Reviewed, the latest verdict first.
+	done, err := d.client.Reviewed(ctx, "hello-stack")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(done) != 2 || done[0].Agent != "agent-01" || done[0].Verdict != api.ReviewDismissed || done[1].Verdict != api.ReviewReviewed || done[0].ReviewedAt == nil {
+		t.Fatalf("Reviewed doesn't list both verdicts, the latest first: %+v", done)
+	}
+	if all, err := d.client.Reviewed(ctx, ""); err != nil || len(all) != 2 {
+		t.Errorf("the AgentBox-wide Reviewed has %d agents (%v), want 2", len(all), err)
+	}
 
 	// New commits on its branch bring one back, and so does finishing again.
 	if err := os.WriteFile(filepath.Join(newer.Worktree, "theme.css"), []byte("body{}\n"), 0o644); err != nil {
@@ -74,6 +85,9 @@ func TestReadyToReviewListsFinishedAgentsUntilReviewed(t *testing.T) {
 	list = readyToReview(t, d, "hello-stack")
 	if len(list) != 2 || list[0].Agent != "agent-01" {
 		t.Fatalf("changed agents didn't come back, the latest finish first: %+v", list)
+	}
+	if done, _ := d.client.Reviewed(ctx, "hello-stack"); len(done) != 0 {
+		t.Errorf("changed agents are still in Reviewed: %+v", done)
 	}
 
 	if err := d.client.Review(ctx, newer.Ref(), api.ReviewRequest{Verdict: "lgtm"}); err == nil {

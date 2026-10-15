@@ -1641,7 +1641,7 @@ export function seedVMDisk(queryClient: QueryClient, unmeasured = false): void {
 
 // devRequests are more answers for the dev bridge, added by a scenario's
 // own file (dev/review.tsx), which can't be imported here without a cycle.
-export const devRequests: ((method: string, path: string) => { status: number; body: string; contentType: string } | undefined)[] = [];
+export const devRequests: ((method: string, path: string, body?: unknown) => { status: number; body: string; contentType: string } | undefined)[] = [];
 
 // installDevBridge stubs window.agentbox: every query above is pre-seeded
 // and staleTime: Infinity keeps them from refetching, so nothing here needs
@@ -1656,7 +1656,7 @@ export function installDevBridge(): void {
       const past = pastRequest(method, path, body);
       if (past) return past;
       for (const answer of devRequests) {
-        const res = answer(method, path);
+        const res = answer(method, path, body);
         if (res) return res;
       }
       // Renaming a Claude account answers with what it carried over (the
