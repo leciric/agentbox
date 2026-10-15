@@ -165,7 +165,9 @@
 //                           with no whose asks for it (&whose= gives every tab
 //                           one), &add=1 adds a new tab's launcher,
 //                           &file=README.md opens a file in Files,
-//                           &section=general Settings on that section
+//                           &section=general Settings on that section;
+//                           &destroy=4000 makes destroying an agent take 4s
+//                           and succeed
 //   ?newagent=1             the New agent dialog, open on the project, for its
 //                           Size picker and the rest of its form
 //   &free=progress|done|partial|error
@@ -236,7 +238,7 @@ import { HomeChatPanel } from '../components/HomeChatPanel';
 import { leadAgentFrom } from '../components/ProjectChatPanel';
 import { api } from '../lib/api';
 import type { AgentPlaceName, ProjectPlaceName } from '../lib/tabs';
-import { agent12Chat, asleepChat, buildFixtures, claudeLimits, compactionThread, richChat, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
+import { agent12Chat, asleepChat, buildFixtures, claudeLimits, dropDevAgent, compactionThread, richChat, freeRun, leadChat, installDevBridge, PROJECT, pullRequests,  seedDefaults, seedAllMedia, seedMedia, seedImageUpdate, seedSettings, seedNightly, seedMeterUsage, seedVMDisk, seedPower, seedQueryClient, seedLinuxHost, seedLinuxVM, setNotifications } from './fixtures';
 import { publishOne, seedPages } from './pages';
 import { seedPastAgents } from './pastAgents';
 import { activateTab, addTab, chatPanel, openPanelOn, panelState, setPanel, setPanelOpen, type PanelKind } from '../lib/rightPanel';
@@ -443,6 +445,21 @@ if (appView && params.get('v2') === '1') {
     if (params.get('add') === '1') addTab(chat);
     else if (params.get('first') === '1' && first) activateTab(chat, first);
   }
+}
+// &destroy=4000: destroying an agent takes that long, then succeeds (the
+// v2 sidebar's "removing…"), and its row goes from the fixtures.
+const destroyMs = Number(params.get('destroy') ?? 0);
+if (destroyMs > 0) {
+  type Bridge = { request: (method: string, path: string, body?: unknown) => Promise<unknown> };
+  const bridge = (window as unknown as { agentbox: Bridge }).agentbox;
+  const inner = bridge.request;
+  bridge.request = async (method, path, body) => {
+    const gone = method === 'DELETE' && /^\/v1\/agents\/[^/]+\/[^/?]+\?/.exec(path);
+    if (!gone) return inner(method, path, body);
+    await new Promise((resolve) => setTimeout(resolve, destroyMs));
+    dropDevAgent(path.split('?')[0].split('/').slice(3).map(decodeURIComponent).join('/'));
+    return { status: 204, body: '', contentType: 'application/json' };
+  };
 }
 if (imageUpdate) seedImageUpdate(queryClient);
 // v2 draws Overview, Media and Past agents inside Settings.

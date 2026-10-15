@@ -965,6 +965,12 @@ export function patchDevAgent(ref: string, over: Partial<T.Agent>): void {
   devState.agents = devState.agents?.map((a) => (a.ref === ref ? { ...a, ...over } : a));
 }
 
+// dropDevAgent removes an agent from what the dev bridge answers, as a
+// destroy does (preview.tsx's &destroy=).
+export function dropDevAgent(ref: string): void {
+  devState.agents = devState.agents?.filter((a) => a.ref !== ref);
+}
+
 const devState: {
   projects: T.Project[];
   media?: T.MediaItem[];
