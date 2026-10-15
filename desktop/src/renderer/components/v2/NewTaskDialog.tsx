@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { CornerDownLeft, FolderGit2, House, Search } from 'lucide-react';
+import { CornerDownLeft, House, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import * as A from '../../../shared/api';
 import type { View } from '../../App';
@@ -11,6 +11,7 @@ import { projectLabel } from '../../lib/projectName';
 import { buildLists } from '../../lib/sidebar';
 import { cn, timeAgo } from '../../lib/utils';
 import { useNow } from '../../lib/useNow';
+import { ProjectIcon } from '../ProjectIcon';
 
 // NewTaskDialog is UI v2's New task: where a task goes, picked from the
 // keyboard — type to search, ↑↓ and Enter, or a digit for one of the first
@@ -26,6 +27,7 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
   // Each project's chat, read for the sidebar already: when it was last
   // written in puts the recent ones first.
   const chats = useQueries({ queries: ordered.map((p) => ({ queryKey: ['projectChat', p.name], queryFn: () => api.projectChat(p.name) })) });
+  const byName = useMemo(() => new Map(ordered.map((p) => [p.name, p])), [ordered]);
   const now = useNow(60_000);
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
@@ -108,8 +110,13 @@ export function NewTaskDialog({ onSelect }: { onSelect: (view: View) => void }) 
                 onClick={() => choose(target)}
                 className={cn('flex w-full min-w-0 items-center gap-3 rounded-lg px-3 py-2 text-left text-[13.5px]', i === highlighted ? 'bg-surface-raised text-title' : 'text-secondary', target.home && 'mt-1')}
               >
-                {/* TODO: agent-379's <ProjectIcon project=… /> for a project, once it's on main. */}
-                {target.home ? <House className="size-4 shrink-0 text-subtle" /> : <FolderGit2 className="size-4 shrink-0 text-subtle" />}
+                {target.home || !byName.get(target.name) ? (
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-surface-strong text-secondary">
+                    <House className="size-3.5" />
+                  </span>
+                ) : (
+                  <ProjectIcon project={byName.get(target.name)!} />
+                )}
                 <span className="min-w-0 flex-1 truncate font-medium">{target.label}</span>
                 {target.lastAt && <span className="shrink-0 text-[11.5px] text-faint">{timeAgo(target.lastAt, now)}</span>}
                 {i === highlighted && <CornerDownLeft className="size-3.5 shrink-0 text-faint" />}
