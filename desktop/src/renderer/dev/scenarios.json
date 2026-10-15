@@ -1494,5 +1494,55 @@
     "width": 1920,
     "height": 1080,
     "click": "[data-v2-settings-menu]"
+  },
+  {
+    "id": "window-wide-v2-panel-files-dark",
+    "description": "UI v2 at 1920×1080, the right-hand panel open beside the lead's chat on Files: the tree narrow on the left, README.md open on its right, the icon rail on the panel's edge — dark",
+    "query": "app=project&v2=1&panel=files&file=README.md&theme=dark",
+    "width": 1920,
+    "height": 1080
+  },
+  {
+    "id": "window-1440-v2-panel-picker-dark",
+    "description": "UI v2 at 1440×900 on agent-41's chat, the panel's agent picker open: the repository, the agents with a machine and the With a machine filter — dark",
+    "query": "app=agent-41&v2=1&panel=files&theme=dark",
+    "width": 1440,
+    "height": 900,
+    "click": "[data-panel-picker]"
+  },
+  {
+    "id": "window-1440-v2-panel-choose-dark",
+    "description": "UI v2 at 1440×900, the lead's chat with the panel on Desktop: the lead has no machine, so it lists the agents that do, to pick one — dark",
+    "query": "app=project&v2=1&panel=desktop&theme=dark",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1440-v2-panel-past-light",
+    "description": "UI v2 at 1440×900, the panel on Files for agent-31, a past agent: read-only, from its branch — light",
+    "query": "app=project&v2=1&panel=files&whose=past:agent-31&file=AGENTS.md&theme=light",
+    "width": 1440,
+    "height": 900
+  },
+  {
+    "id": "window-1100-v2-panel-media-dark",
+    "description": "UI v2 at 1100×800, the panel on Media for the project beside the lead's chat, the chat kept at 360px — dark",
+    "query": "app=project&v2=1&panel=media&theme=dark",
+    "width": 1100,
+    "height": 800
+  },
+  {
+    "id": "window-800x600-v2-panel-drawer-dark",
+    "description": "UI v2 at 800×600, the panel a drawer over the chat, on Files — dark",
+    "query": "app=project&v2=1&panel=files&file=README.md&theme=dark",
+    "width": 800,
+    "height": 600
+  },
+  {
+    "id": "window-480-v2-panel-drawer-dark",
+    "description": "UI v2 at 480 wide, the panel a drawer on the agent's Terminal — dark",
+    "query": "app=agent-41&v2=1&panel=terminal&theme=dark",
+    "width": 480,
+    "height": 844
   }
 ]

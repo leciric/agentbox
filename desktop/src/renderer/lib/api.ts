@@ -72,7 +72,9 @@ export const isHomeChat = (ref: string) => ref.split('/')[0] === T.HomeProject;
 
 // A worktree's files live at the same base as its chat: the lead's under the
 // project, an agent's under the agent.
+// A past agent's ("past:<ref>", lib/rightPanel.ts) are read from its branch.
 const filesBase = (ref: string) => {
+  if (ref.startsWith('past:')) return `/v1/archived-agents/${ref.slice(5).split('/').map(encodeURIComponent).join('/')}/files`;
   const [project, name] = ref.split('/');
   return !name || name === T.LeadName ? `/v1/projects/${encodeURIComponent(project)}/files` : `${agent(ref)}/files`;
 };

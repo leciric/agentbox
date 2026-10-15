@@ -768,6 +768,11 @@ func (s *Server) routes() http.Handler {
 	h("GET /v1/archived-agents/{project}/{agent}", s.getArchived)
 	h("DELETE /v1/archived-agents/{project}/{agent}", s.deleteArchived)
 	h("POST /v1/archived-agents/{project}/{agent}/continue", s.continueArchived)
+	// Their files, read from their branch's commit (archivedfiles.go).
+	h("GET /v1/archived-agents/{project}/{agent}/files", s.archivedFiles)
+	h("GET /v1/archived-agents/{project}/{agent}/files/list", s.archivedFolder)
+	h("GET /v1/archived-agents/{project}/{agent}/files/read", s.archivedRead)
+	h("GET /v1/archived-agents/{project}/{agent}/files/status", s.archivedStatus)
 	h("POST /v1/agents", s.createAgent)
 	h("POST /v1/agents/stop", s.stopAgents)
 	h("GET /v1/agents/{project}/{agent}", s.getAgent)

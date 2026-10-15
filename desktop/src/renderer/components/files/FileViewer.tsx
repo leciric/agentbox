@@ -103,15 +103,20 @@ export function FileViewer({
             <MenuItem icon={Copy} onSelect={() => copy(line ? `${path}:${line}` : path)}>
               {t('files.viewer.copyRelative')}
             </MenuItem>
-            <MenuItem icon={Copy} onSelect={() => copy(absolute)}>
-              {t('files.viewer.copyAbsolute')}
-            </MenuItem>
+            {/* A past agent's file is in git, not on disk: no path of its own. */}
+            {root && (
+              <MenuItem icon={Copy} onSelect={() => copy(absolute)}>
+                {t('files.viewer.copyAbsolute')}
+              </MenuItem>
+            )}
             <MenuItem icon={LocateFixed} onSelect={onReveal}>
               {t('files.viewer.revealInTree')}
             </MenuItem>
-            <MenuItem icon={FolderSearch} onSelect={() => void window.agentbox.showItem(absolute).catch((err: unknown) => toast.error(errorMessage(err)))}>
-              {t('files.viewer.revealInFolder')}
-            </MenuItem>
+            {root && (
+              <MenuItem icon={FolderSearch} onSelect={() => void window.agentbox.showItem(absolute).catch((err: unknown) => toast.error(errorMessage(err)))}>
+                {t('files.viewer.revealInFolder')}
+              </MenuItem>
+            )}
           </MenuContent>
         </Menu>
         <ModeButton label={t('files.viewer.close')} onClick={onClose}>

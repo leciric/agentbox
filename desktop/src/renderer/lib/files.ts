@@ -178,6 +178,7 @@ export interface PanelPrefs {
   treeWidth: number;
   ignored: boolean;
   tree: boolean; // the tree beside an open file, or the file alone
+  splitTreeWidth?: number; // the tree's in UI v2's right-hand panel, beside the file
 }
 
 const prefsKey = 'ab.files.panel';
@@ -252,10 +253,19 @@ export function openedFile(ref: string): Opened | null {
   return opened.get(ref) ?? null;
 }
 
+// Who else shows the files: UI v2's right-hand panel listens, to open on the
+// Files tab for ref (components/v2/RightPanel.tsx).
+const showListeners = new Set<(ref: string) => void>();
+export function onShowFiles(listener: (ref: string) => void): () => void {
+  showListeners.add(listener);
+  return () => showListeners.delete(listener);
+}
+
 // openFile shows a file in ref's viewer, opening the panel.
 export function openFile(ref: string, path: string, line?: number): void {
   opened.set(ref, { path, line, nonce: ++nonce });
   setPanelPrefs({ open: true });
+  for (const l of showListeners) l(ref);
 }
 
 export function closeFile(ref: string): void {
@@ -269,9 +279,10 @@ export function useOpenedFile(ref: string): Opened | null {
 
 // Ctrl+P asks the visible panel to focus its filter.
 let finds = 0;
-export function requestFind(): void {
+export function requestFind(ref?: string): void {
   finds++;
   setPanelPrefs({ open: true });
+  if (ref) for (const l of showListeners) l(ref);
 }
 export function useFindRequests(): number {
   return useSyncExternalStore(subscribe, () => finds);

@@ -4,8 +4,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -232,4 +235,143 @@ func TestStatusOutsideARepository(t *testing.T) {
 	if commit != "" {
 		t.Errorf("Base() outside a repository = %q", commit)
 	}
+}
+
+// A past agent's files are read from its branch's commit: the branch "past"
+// off main adds, changes, deletes and renames, has links in and out of the
+// tree, and is then deleted locally with only origin's copy left.
+func TestReadingABranchesCommit(t *testing.T) {
+	origin := t.TempDir()
+	testutil.Git(t, origin, "init", "-q", "--bare")
+	root := t.TempDir()
+	testutil.Git(t, root, "init", "-q", "-b", "main")
+	write(t, root, "README.md", "# hi\n")
+	write(t, root, "src/main.go", "package main\n")
+	write(t, root, "src/old.go", "package main\n")
+	write(t, root, "src/moved.go", "package moved\n")
+	testutil.Git(t, root, "add", "-A")
+	testutil.Git(t, root, "commit", "-q", "-m", "first")
+	base := strings.TrimSpace(testutil.Git(t, root, "rev-parse", "HEAD"))
+	testutil.Git(t, root, "checkout", "-q", "-b", "agentbox/past")
+	write(t, root, "README.md", "# hello\n")
+	write(t, root, "src/new.go", "package main\n")
+	write(t, root, "img.png", "\x89PNG\r\n\x1a\n\x00")
+	write(t, root, "bin.dat", "a\x00b")
+	testutil.Git(t, root, "rm", "-q", "src/old.go")
+	testutil.Git(t, root, "mv", "src/moved.go", "src/renamed.go")
+	for link, target := range map[string]string{"in": "src", "out": "../../etc/passwd", "readme": "README.md"} {
+		if err := os.Symlink(target, filepath.Join(root, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testutil.Git(t, root, "add", "-A")
+	testutil.Git(t, root, "commit", "-q", "-m", "second")
+	testutil.Git(t, root, "remote", "add", "origin", origin)
+	testutil.Git(t, root, "push", "-q", "origin", "agentbox/past")
+	testutil.Git(t, root, "fetch", "-q", "origin")
+	testutil.Git(t, root, "checkout", "-q", "main")
+	testutil.Git(t, root, "branch", "-q", "-D", "agentbox/past")
+	write(t, root, "README.md", "dirty checkout, not the branch\n")
+
+	if _, err := BranchCommit(root, "agentbox/gone"); !errors.Is(err, ErrNoBranch) {
+		t.Errorf("BranchCommit(gone) = %v, want ErrNoBranch", err)
+	}
+	commit, err := BranchCommit(root, "agentbox/past")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := ListAt(root, commit, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range list.Entries {
+		s := e.Name
+		if e.Dir {
+			s += "/"
+		}
+		if e.Symlink {
+			s += "@"
+		}
+		got = append(got, s)
+	}
+	if want := "in/@ src/ bin.dat img.png out@ readme@ README.md"; strings.Join(got, " ") != want {
+		t.Errorf("ListAt(root) = %v, want %s", got, want)
+	}
+	if i := slicesIndex(list.Entries, "readme"); i < 0 || list.Entries[i].Size != int64(len("# hello\n")) {
+		t.Errorf("readme link's size: %+v", list.Entries)
+	}
+	for _, dir := range []string{"src", "in"} {
+		sub, err := ListAt(root, commit, dir)
+		if err != nil || len(sub.Entries) != 3 || sub.Path != dir || sub.Entries[0].Path != dir+"/main.go" {
+			t.Errorf("ListAt(%s) = %+v, %v", dir, sub, err)
+		}
+	}
+	if _, err := ListAt(root, commit, "nope"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("ListAt(nope) = %v, want ErrNotExist", err)
+	}
+	if _, err := ListAt(root, commit, "README.md"); err == nil {
+		t.Error("ListAt(a file) succeeded")
+	}
+
+	if c, err := ReadAt(root, commit, "README.md", false); err != nil || c.Text != "# hello\n" || c.Size != 8 {
+		t.Errorf("ReadAt(README) = %+v, %v", c, err)
+	}
+	if c, err := ReadAt(root, commit, filepath.Join(root, "in/new.go"), false); err != nil || c.Text != "package main\n" || c.Path != "in/new.go" {
+		t.Errorf("ReadAt(through a link) = %+v, %v", c, err)
+	}
+	if c, err := ReadAt(root, commit, "bin.dat", false); err != nil || !c.Binary || c.Text != "" {
+		t.Errorf("ReadAt(binary) = %+v, %v", c, err)
+	}
+	if c, err := ReadAt(root, commit, "img.png", false); err != nil || c.Image != "image/png" || c.Data == "" {
+		t.Errorf("ReadAt(image) = %+v, %v", c, err)
+	}
+	if _, err := ReadAt(root, commit, "out", false); !errors.Is(err, ErrOutside) {
+		t.Errorf("ReadAt(link outside) = %v, want ErrOutside", err)
+	}
+	for _, bad := range []string{"../x", ".git/config", "/etc/passwd"} {
+		if _, err := ReadAt(root, commit, bad, false); !errors.Is(err, ErrOutside) {
+			t.Errorf("ReadAt(%q) = %v, want ErrOutside", bad, err)
+		}
+	}
+	if _, err := ReadAt(root, commit, "src/old.go", false); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("ReadAt(deleted) = %v, want ErrNotExist", err)
+	}
+	if _, err := ReadAt(root, commit, "src", false); err == nil {
+		t.Error("ReadAt(a folder) succeeded")
+	}
+
+	files, truncated, err := FilesAt(root, commit, 100)
+	if err != nil || truncated || len(files) != 9 || !slices.Contains(files, "src/renamed.go") {
+		t.Errorf("FilesAt() = %v, %v, %v", files, truncated, err)
+	}
+	if files, truncated, _ := FilesAt(root, commit, 2); len(files) != 2 || !truncated {
+		t.Errorf("FilesAt(limit 2) = %v, %v", files, truncated)
+	}
+
+	// The base commit wins; without it, where the branch forked from main.
+	if b := BaseAt(root, base, "main", commit); b != base {
+		t.Errorf("BaseAt(commit) = %q, want %q", b, base)
+	}
+	testutil.Git(t, root, "commit", "-q", "-am", "main moves on")
+	if b := BaseAt(root, "0000000000000000000000000000000000000000", "main", commit); b != base {
+		t.Errorf("BaseAt(merge-base) = %q, want %q", b, base)
+	}
+	if b := BaseAt(root, "", "", commit); b != "" {
+		t.Errorf("BaseAt(nothing) = %q", b)
+	}
+	changes, truncated, err := StatusAt(root, base, commit)
+	want := map[string]string{
+		"README.md": api.FileModified, "src/new.go": api.FileAdded, "img.png": api.FileAdded, "bin.dat": api.FileAdded,
+		"src/old.go": api.FileDeleted, "src/moved.go": api.FileDeleted, "src/renamed.go": api.FileAdded,
+		"in": api.FileAdded, "out": api.FileAdded, "readme": api.FileAdded,
+	}
+	if err != nil || truncated || !maps.Equal(changes, want) {
+		t.Errorf("StatusAt() = %v, %v, %v; want %v", changes, truncated, err, want)
+	}
+}
+
+func slicesIndex(entries []api.FileEntry, name string) int {
+	return slices.IndexFunc(entries, func(e api.FileEntry) bool { return e.Name == name })
 }

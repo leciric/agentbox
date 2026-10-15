@@ -154,6 +154,13 @@ func List(root, dir string, withIgnored bool) (api.FileList, error) {
 		}
 		out.Entries = append(out.Entries, e)
 	}
+	sortAndCap(&out)
+	return out, nil
+}
+
+// sortAndCap puts a listing's folders first, each group by name, and cuts it
+// at EntriesLimit.
+func sortAndCap(out *api.FileList) {
 	sort.Slice(out.Entries, func(i, j int) bool {
 		a, b := out.Entries[i], out.Entries[j]
 		if a.Dir != b.Dir {
@@ -164,7 +171,6 @@ func List(root, dir string, withIgnored bool) (api.FileList, error) {
 	if len(out.Entries) > EntriesLimit {
 		out.Entries, out.Truncated = out.Entries[:EntriesLimit], true
 	}
-	return out, nil
 }
 
 // ignoredOf asks git which entries its ignore rules leave out, all at once.
@@ -212,14 +218,29 @@ func Read(root, p string, full bool) (api.FileContent, error) {
 	if !st.Mode().IsRegular() {
 		return api.FileContent{}, fmt.Errorf("%s is not a regular file", rel)
 	}
-	out := api.FileContent{Path: rel, Size: st.Size()}
+	return content(rel, st.Size(), full, func(limit int64) ([]byte, error) {
+		f, err := os.Open(abs)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = f.Close() }()
+		return io.ReadAll(io.LimitReader(f, limit))
+	})
+}
+
+// content is a file of size bytes for the viewer, by Read's rules: an image
+// whole unless larger than ImageLimit, other files refused when binary and cut
+// at TextLimit (FullLimit when full) on a line's end. read reads up to limit
+// bytes of it.
+func content(rel string, size int64, full bool, read func(limit int64) ([]byte, error)) (api.FileContent, error) {
+	out := api.FileContent{Path: rel, Size: size}
 	if mime := imageType(rel); mime != "" {
 		out.Image = mime
-		if st.Size() > ImageLimit {
+		if size > ImageLimit {
 			out.TooLarge = true
 			return out, nil
 		}
-		data, err := os.ReadFile(abs)
+		data, err := read(ImageLimit)
 		if err != nil {
 			return out, err
 		}
@@ -233,12 +254,7 @@ func Read(root, p string, full bool) (api.FileContent, error) {
 	if full {
 		limit = FullLimit
 	}
-	f, err := os.Open(abs)
-	if err != nil {
-		return out, err
-	}
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, limit))
+	data, err := read(limit)
 	if err != nil {
 		return out, err
 	}
@@ -246,7 +262,7 @@ func Read(root, p string, full bool) (api.FileContent, error) {
 		out.Binary = true
 		return out, nil
 	}
-	if int64(len(data)) < st.Size() {
+	if int64(len(data)) < size {
 		out.Truncated = true
 		// Not in the middle of a character, nor of a line.
 		if i := bytes.LastIndexByte(data, '\n'); i > 0 {

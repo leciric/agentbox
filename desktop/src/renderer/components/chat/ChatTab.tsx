@@ -21,6 +21,8 @@ import { leadOn } from '../../lib/leadRunner';
 import { FindBar } from './FindBar';
 import { FileLinksProvider, FilePanel } from '../files/FilePanel';
 import { hasFiles, requestFind, setPanelPrefs, usePanelPrefs } from '../../lib/files';
+import { openPanelOn } from '../../lib/rightPanel';
+import { useUiV2 } from '../../lib/uiV2';
 import { useChatWindow, useRevealItem, type ChatOpenAt } from './reveal';
 import { Timeline } from './Timeline';
 
@@ -204,6 +206,7 @@ export function ChatTab({
   // together, for the panel to leave the chat room.
   const files = hasFiles(agent.ref, past);
   const panel = usePanelPrefs();
+  const v2 = useUiV2();
   const outer = useRef<HTMLDivElement>(null);
   const [available, setAvailable] = useState(0);
   useLayoutEffect(() => {
@@ -231,7 +234,7 @@ export function ChatTab({
       if (key === 'p') {
         if (!files) return;
         event.preventDefault();
-        requestFind();
+        requestFind(agent.ref);
         return;
       }
       event.preventDefault();
@@ -396,7 +399,8 @@ export function ChatTab({
   return (
     <div ref={outer} className="relative flex h-full min-h-0">
       {files ? <FileLinksProvider agent={agent}>{chat}</FileLinksProvider> : chat}
-      {files && panel.open && available > 0 && <FilePanel agent={agent} available={available} />}
+      {/* v2's files are in its right-hand panel (components/v2/RightPanel.tsx). */}
+      {files && panel.open && available > 0 && !v2 && <FilePanel agent={agent} available={available} />}
     </div>
   );
 }
@@ -419,6 +423,7 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; dia
   const [clearing, setClearing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const panel = usePanelPrefs();
+  const v2 = useUiV2();
   const reload = useMutation({ mutationFn: () => api.reloadChatTools(ref), onError: (err) => toast.error(errorMessage(err)) });
   if (!agent) return null;
   const tool = aiLabel(agent.ai);
@@ -430,7 +435,12 @@ export function useChatMenu(agent: T.Agent | undefined): { items: ReactNode; dia
       <MenuItem icon={Search} hint={shortcut('F')} onSelect={() => requestChatFind(agent.ref)} data-chat-find>
         {t('chat.menu.find')}
       </MenuItem>
-      {hasFiles(agent.ref) && (
+      {hasFiles(agent.ref) && v2 && (
+        <MenuItem icon={FolderTree} hint={shortcut('P')} onSelect={() => openPanelOn(agent.ref, 'files', agent.ref)} data-files-toggle>
+          {t('files.panel.files')}
+        </MenuItem>
+      )}
+      {hasFiles(agent.ref) && !v2 && (
         <MenuCheckboxItem icon={FolderTree} hint={shortcut('P')} checked={panel.open} onCheckedChange={(open) => setPanelPrefs({ open })} data-files-toggle>
           {t('files.panel.files')}
         </MenuCheckboxItem>

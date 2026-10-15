@@ -31,6 +31,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
 import { inSettings, pageOf, useV2Pages, viewOf } from "./components/v2/SettingsPagesV2";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
+import { RightPanelHost } from "./components/v2/RightPanel";
 import { aiLabel } from "./components/state";
 import { TopBar } from "./components/TopBar";
 import { VMSetup } from "./components/VMSetup";
@@ -551,6 +552,9 @@ export function App({ initial }: { initial?: View } = {}) {
               </div>
             )}
           </main>
+          {/* v2's right-hand panel: files, desktop, terminal, browser,
+              pages and media, beside the chat or over it. */}
+          {v2 && !setup && <RightPanelHost view={view} />}
           {!v2 && (view.kind === "project" || view.kind === "agent") && (
             <div className="hidden xl:flex">
               <AgentRail

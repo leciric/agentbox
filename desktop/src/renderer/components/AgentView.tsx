@@ -58,6 +58,8 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Tip } from './ui/tooltip';
+import { useUiV2 } from '../lib/uiV2';
+import { PanelButton, usePanelMenu } from './v2/PanelButton';
 
 // An agent's Settings tab: what it says about the agent's machine, code and AI
 // tool (OverviewTab), and the secrets and connectors only it gets.
@@ -116,6 +118,81 @@ export function AgentView({
     },
   });
 
+  const run = (name: AgentAction) => action.mutate(name);
+  const busy = action.isPending;
+  // An agent you use through the chat opens on it; one you use from the terminal has no Chat tab.
+  const chatty = !!agent && usesChat(agent);
+  const place = agentPlace(tab);
+  const active: AgentTab = !place.tab || (place.tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : place.tab;
+  const actions = lifecycleActions(agent?.state ?? '');
+  const primary = actions.find((name) => lifecycleButton[name].primary);
+  // v2 has no ⋯ in the header: its items are the right-hand panel's ⋯, and
+  // the header has the button that opens the panel.
+  const v2 = useUiV2();
+  const menuItems = agent && (
+    <>
+      {chatMenu && active === 'chat' && (
+        <>
+          {chatMenu.items}
+          <MenuSeparator />
+          <MenuLabel>{t('agent.view.agentSection')}</MenuLabel>
+        </>
+      )}
+      {actions
+        .filter((name) => name !== primary)
+        .map((name) => (
+          <MenuItem key={name} icon={lifecycleButton[name].icon} disabled={busy} onSelect={() => run(name)}>
+            {t(lifecycleButton[name].label)}
+          </MenuItem>
+        ))}
+      <MenuItem icon={Pencil} onSelect={() => setEditingTitle(true)}>
+        {t('agent.view.editTitle')}
+      </MenuItem>
+      {agent.ip && (
+        <MenuItem
+          icon={Network}
+          hint={<span className="font-mono">{agent.ip}</span>}
+          onSelect={() => {
+            window.agentbox.copyText(agent.ip);
+            toast(t('agent.view.copiedIp'));
+          }}
+        >
+          {t('agent.view.copyIp')}
+        </MenuItem>
+      )}
+      <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
+        {t('agent.view.openWorktree')}
+      </MenuItem>
+      <MenuItem
+        icon={Copy}
+        onSelect={() => {
+          window.agentbox.copyText(agent.worktree);
+          toast(t('agent.view.copiedWorktree'));
+        }}
+      >
+        {t('agent.view.copyWorktree')}
+      </MenuItem>
+      <MenuItem
+        icon={SquareTerminal}
+        onSelect={() => {
+          window.agentbox.copyText(`agentbox shell ${agent.ref}`);
+          toast(t('common.copied'), { description: `agentbox shell ${agent.ref}` });
+        }}
+      >
+        {t('agent.view.copyShell')}
+      </MenuItem>
+      <MenuSeparator />
+      <MenuItem
+        icon={CircleX}
+        destructive
+        onSelect={() => setDestroying(true)}
+      >
+        {t('agent.view.destroy')}
+      </MenuItem>
+    </>
+  );
+  usePanelMenu(menuItems || null, v2);
+
   if (!agent) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-subtle">
@@ -125,22 +202,14 @@ export function AgentView({
     );
   }
 
-  const run = (name: AgentAction) => action.mutate(name);
-  const busy = action.isPending;
   const mediaCount = mediaCounts.data?.total ?? 0;
   const error = action.error ?? rename.error;
-  // An agent you use through the chat opens on it; one you use from the terminal has no Chat tab.
-  const chatty = usesChat(agent);
-  const place = agentPlace(tab);
-  const active: AgentTab = !place.tab || (place.tab === 'chat' && !chatty) ? (chatty ? 'chat' : 'terminal') : place.tab;
 
   // The header has the agent's title, its state as one badge, which opens its
   // details (the machine's IP and resources, its AI tool and accounts), and
   // its pull request or else its branch. Of the lifecycle actions only one
   // that brings it back stays in view; the rest are in the ⋯ menu, with the
   // chat's own while the chat is open.
-  const actions = lifecycleActions(agent.state);
-  const primary = actions.find((name) => lifecycleButton[name].primary);
   const pr = fleet.data?.agents?.find((a) => a.ref === agent.ref)?.pr;
 
   return (
@@ -168,73 +237,18 @@ export function AgentView({
               {t(lifecycleButton[primary].label)}
             </Button>
           )}
-          <Menu>
-            <MenuTrigger asChild>
-              <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')} data-agent-menu>
-                <Ellipsis />
-              </Button>
-            </MenuTrigger>
-            <MenuContent>
-              {chatMenu && active === 'chat' && (
-                <>
-                  {chatMenu.items}
-                  <MenuSeparator />
-                  <MenuLabel>{t('agent.view.agentSection')}</MenuLabel>
-                </>
-              )}
-              {actions
-                .filter((name) => name !== primary)
-                .map((name) => (
-                  <MenuItem key={name} icon={lifecycleButton[name].icon} disabled={busy} onSelect={() => run(name)}>
-                    {t(lifecycleButton[name].label)}
-                  </MenuItem>
-                ))}
-              <MenuItem icon={Pencil} onSelect={() => setEditingTitle(true)}>
-                {t('agent.view.editTitle')}
-              </MenuItem>
-              {agent.ip && (
-                <MenuItem
-                  icon={Network}
-                  hint={<span className="font-mono">{agent.ip}</span>}
-                  onSelect={() => {
-                    window.agentbox.copyText(agent.ip);
-                    toast(t('agent.view.copiedIp'));
-                  }}
-                >
-                  {t('agent.view.copyIp')}
-                </MenuItem>
-              )}
-              <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(agent.worktree)}>
-                {t('agent.view.openWorktree')}
-              </MenuItem>
-              <MenuItem
-                icon={Copy}
-                onSelect={() => {
-                  window.agentbox.copyText(agent.worktree);
-                  toast(t('agent.view.copiedWorktree'));
-                }}
-              >
-                {t('agent.view.copyWorktree')}
-              </MenuItem>
-              <MenuItem
-                icon={SquareTerminal}
-                onSelect={() => {
-                  window.agentbox.copyText(`agentbox shell ${agent.ref}`);
-                  toast(t('common.copied'), { description: `agentbox shell ${agent.ref}` });
-                }}
-              >
-                {t('agent.view.copyShell')}
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem
-                icon={CircleX}
-                destructive
-                onSelect={() => setDestroying(true)}
-              >
-                {t('agent.view.destroy')}
-              </MenuItem>
-            </MenuContent>
-          </Menu>
+          {v2 ? (
+            <PanelButton project={agent.project} />
+          ) : (
+            <Menu>
+              <MenuTrigger asChild>
+                <Button size="icon-sm" variant="ghost" aria-label={t('agent.view.moreActions')} data-agent-menu>
+                  <Ellipsis />
+                </Button>
+              </MenuTrigger>
+              <MenuContent>{menuItems}</MenuContent>
+            </Menu>
+          )}
         </div>
       </div>
       {error && (
@@ -290,7 +304,7 @@ export function AgentView({
           {chatty && active === 'chat' && (
             <div className="flex shrink-0 items-center gap-2">
               <ChatStatus agent={agent} />
-              <FilesOpen agent={agent} />
+              {!v2 && <FilesOpen agent={agent} />}
             </div>
           )}
         </div>

@@ -32,6 +32,7 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { useUiV2 } from '../lib/uiV2';
 import { ProjectIcon, ProjectIconDialog } from './ProjectIcon';
 import { TalkToProject } from './v2/TalkToProject';
+import { PanelButton, usePanelMenu } from './v2/PanelButton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 // The project's notes: what every agent of it is told, over and above the brief
@@ -155,6 +156,35 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
     onError: (err) => toast.error(String(err)),
   });
 
+  // v2 has no ⋯ in the header: its items are the right-hand panel's ⋯, and
+  // the header has the button that opens the panel.
+  const menuItems = project && (
+    <>
+      {chatMenu && (
+        <>
+          {chatMenu.items}
+          <MenuSeparator />
+          <MenuLabel>{t('project.view.projectSection')}</MenuLabel>
+        </>
+      )}
+      {v2 && (
+        <MenuItem icon={Smile} onSelect={() => setIconOpen(true)}>
+          {t('projectIcon.change')}
+        </MenuItem>
+      )}
+      <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)}>
+        {t('project.view.openFolder')}
+      </MenuItem>
+      <MenuItem icon={Moon} disabled={mine.length === 0 || retire.isPending} onSelect={() => setFreeing(true)}>
+        {t('project.view.freeMachines')}
+      </MenuItem>
+      <MenuItem icon={Trash} destructive disabled={mine.length > 0} hint={mine.length > 0 ? t('project.view.hasAgents') : undefined} onSelect={() => setRemoving(true)}>
+        {t('project.view.removeProject')}
+      </MenuItem>
+    </>
+  );
+  usePanelMenu(menuItems || null, v2);
+
   if (!project) {
     return <div className="p-6 text-sm text-subtle">{projects.isPending ? t('common.loading') : t('project.view.noProject', { name })}</div>;
   }
@@ -184,36 +214,18 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
               <Plus />
               {t('project.view.newAgent')}
             </Button>
-            <Menu>
-              <MenuTrigger asChild>
-                <Button size="icon" variant="ghost" aria-label={t('project.view.actions')} data-project-menu>
-                  <Ellipsis />
-                </Button>
-              </MenuTrigger>
-              <MenuContent>
-                {chatMenu && (
-                  <>
-                    {chatMenu.items}
-                    <MenuSeparator />
-                    <MenuLabel>{t('project.view.projectSection')}</MenuLabel>
-                  </>
-                )}
-                {v2 && (
-                  <MenuItem icon={Smile} onSelect={() => setIconOpen(true)}>
-                    {t('projectIcon.change')}
-                  </MenuItem>
-                )}
-                <MenuItem icon={FolderOpen} onSelect={() => void window.agentbox.openPath(project.root)}>
-                  {t('project.view.openFolder')}
-                </MenuItem>
-                <MenuItem icon={Moon} disabled={mine.length === 0 || retire.isPending} onSelect={() => setFreeing(true)}>
-                  {t('project.view.freeMachines')}
-                </MenuItem>
-                <MenuItem icon={Trash} destructive disabled={mine.length > 0} hint={mine.length > 0 ? t('project.view.hasAgents') : undefined} onSelect={() => setRemoving(true)}>
-                  {t('project.view.removeProject')}
-                </MenuItem>
-              </MenuContent>
-            </Menu>
+            {v2 ? (
+              <PanelButton project={name} />
+            ) : (
+              <Menu>
+                <MenuTrigger asChild>
+                  <Button size="icon" variant="ghost" aria-label={t('project.view.actions')} data-project-menu>
+                    <Ellipsis />
+                  </Button>
+                </MenuTrigger>
+                <MenuContent>{menuItems}</MenuContent>
+              </Menu>
+            )}
           </div>
         </div>
         <div className="mt-3 flex items-center gap-3">
@@ -249,7 +261,7 @@ export function ProjectView({ name, tab: opensAt, onSelect, onNewAgent }: { name
           {lead && (
             <div className="flex shrink-0 items-center gap-2">
               <ChatStatus agent={lead} />
-              <FilesOpen agent={lead} />
+              {!v2 && <FilesOpen agent={lead} />}
             </div>
           )}
           {chatMenu?.dialogs}
