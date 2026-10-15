@@ -39,9 +39,27 @@ export function openSettingsSection(id: string): void {
   window.dispatchEvent(new CustomEvent(openSettingsEvent, { detail: id }));
 }
 
-export function SettingsPage({ sections, icons, error }: { sections: SettingSection[]; icons: SectionIcons; error?: string }) {
+// section, when given, is the section to open, and onSection hears which the
+// user picks: v2 keeps its Overview, Media and Past agents views here, so a
+// link to one of them opens its section.
+export function SettingsPage({
+  sections,
+  icons,
+  error,
+  section,
+  onSection,
+}: {
+  sections: SettingSection[];
+  icons: SectionIcons;
+  error?: string;
+  section?: string;
+  onSection?: (id: string) => void;
+}) {
   const t = useT();
-  const [stored, setStored] = useState(() => localStorage.getItem(sectionKey) ?? '');
+  const [stored, setStored] = useState(() => section ?? localStorage.getItem(sectionKey) ?? '');
+  useEffect(() => {
+    if (section) setStored(section);
+  }, [section]);
   const [query, setQuery] = useState('');
   const main = useRef<HTMLDivElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
@@ -51,6 +69,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
   const select = (id: string) => {
     localStorage.setItem(sectionKey, id);
     setStored(id);
+    onSection?.(id);
     setQuery('');
     main.current?.scrollTo({ top: 0 });
   };
@@ -205,6 +224,11 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
         </aside>
 
         <main ref={main} className="min-h-0 min-w-0 flex-1 overflow-y-auto" data-settings-main>
+          {!searching && open?.page ? (
+            <div className="h-full" data-settings-section={open.id}>
+              {open.page()}
+            </div>
+          ) : (
           <div className="mx-auto max-w-3xl px-4 py-6 @3xl:px-8 @3xl:py-8">
             {error && <Notice className="mb-5">{error}</Notice>}
             {searching ? (
@@ -213,6 +237,7 @@ export function SettingsPage({ sections, icons, error }: { sections: SettingSect
               open && <SectionView key={open.id} section={open} icon={icons[open.id] ?? FolderGit2} />
             )}
           </div>
+          )}
         </main>
       </div>
     </div>

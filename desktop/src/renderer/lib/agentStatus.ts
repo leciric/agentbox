@@ -5,7 +5,7 @@
 // at the other.
 import { useQuery } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
-import { formatNumber, t, type MessageKey } from '../../shared/i18n/index.ts';
+import { formatNumber, formatTime, t, type MessageKey } from '../../shared/i18n/index.ts';
 import { api } from './api.ts';
 import { humanBytes } from './utils.ts';
 
@@ -38,6 +38,9 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   // A turn AgentBox's restart cut short, being carried on: its machine may
   // still be starting.
   if (agent.outcome === 'resuming' && agent.state !== 'paused') return { text: t('agent.status.resuming'), tone: 'live' };
+  // Cut short by the AI tool's usage limit: paused, not finished or failed,
+  // and carried on by AgentBox when the limit resets.
+  if (agent.state === 'running' && agent.outcome === 'limited') return { text: limitedText(agent), tone: 'warning' };
   // How its last turn left it, as the daemon judged it (T.Agent.outcome): a
   // question in its own words waits on somebody, and a turn that died
   // mid-work isn't idle.
@@ -49,6 +52,13 @@ export function chatLabel(agent: T.Agent): { text: string; tone: StatusTone } {
   if (agent.state === 'running') return { text: agent.chat === 'starting' ? t('agent.status.starting') : t('agent.status.idle'), tone: 'muted' };
   if (agent.state === 'paused') return { text: t('agent.status.paused'), tone: 'muted' };
   return { text: t('agent.status.stopped'), tone: 'muted' };
+}
+
+// limitedText is "Paused: usage limit, resumes at 4:11 PM", without the time
+// when AgentBox won't resume it by itself.
+function limitedText(agent: Pick<T.Agent, 'outcomeUntil'>): string {
+  if (!agent.outcomeUntil) return t('agent.status.limitedNoTime');
+  return t('agent.status.limited', { time: formatTime(agent.outcomeUntil, { hour: '2-digit', minute: '2-digit' }) });
 }
 
 // statusTip is what chatLabel's words leave out, for a tooltip: what holds

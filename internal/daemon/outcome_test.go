@@ -62,7 +62,8 @@ func TestJudgeTurn(t *testing.T) {
 		{"cancelled", chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "cancelled", StopReason: "cancelled"}}, verdictCancelled},
 		// Still working, whatever it said.
 		{"another turn already running", func() chat.TurnEnd { e := ended("Done?"); e.Continues = true; return e }(), verdictWorking},
-		{"a usage limit waited out", chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Limited: true}, verdictWorking},
+		{"a usage limit is a pause", chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Limited: true}, verdictPaused},
+		{"a usage limit with another turn running", chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Limited: true, Continues: true}, verdictWorking},
 		{"AgentBox stopping", chat.TurnEnd{ChatTurnResult: api.ChatTurnResult{State: "failed"}, Shutdown: true}, verdictWorking},
 	}
 	for _, c := range cases {
@@ -397,6 +398,8 @@ func TestOutcomesAreReadBackFromEvents(t *testing.T) {
 		{api.AgentEvent{Kind: api.AgentFinished}, agentOutcome{kind: api.AgentOutcomeIdle}, true},
 		{api.AgentEvent{Kind: api.AgentAsking, Summary: "Which?"}, agentOutcome{kind: api.AgentOutcomeAsking, note: "Which?"}, true},
 		{api.AgentEvent{Kind: api.AgentChatLost, Summary: "exited"}, agentOutcome{kind: api.AgentOutcomeFailed, note: "exited"}, true},
+		{api.AgentEvent{Kind: api.AgentLimited, Summary: "Paused"}, agentOutcome{kind: api.AgentOutcomeLimited, note: "Paused"}, true},
+		{api.AgentEvent{Kind: api.AgentLimited, Summary: "Paused", ResumeAt: &at}, agentOutcome{kind: api.AgentOutcomeLimited, note: "Paused", until: at}, true},
 		{api.AgentEvent{Kind: api.AgentCreated}, agentOutcome{}, true},
 		{api.AgentEvent{Kind: api.AgentStalled, At: at}, agentOutcome{}, false},
 	} {
@@ -420,4 +423,82 @@ func eventKinds(t *testing.T, d testDaemon, project string) []string {
 		}
 	}
 	return out
+}
+
+// A usage limit is a pause: no finished event, so no review item and no chime,
+// a distinct outcome with the time it resumes at, and one short notice for the
+// lead however many times the limit is met again.
+func TestAUsageLimitPausesTheAgentRatherThanFinishingIt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var told []string
+	d.srv.stallTell = func(_ context.Context, _ string, note string) {
+		mu.Lock()
+		defer mu.Unlock()
+		told = append(told, note)
+	}
+	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
+	// It had finished once before, with work to show.
+	d.srv.record(ctx, api.AgentEvent{Project: a.Project, Agent: a.Name, Ref: a.Ref(), Kind: api.AgentFinished, Outcome: api.AgentOutcomeDone, At: time.Now().Add(-time.Hour)})
+
+	resume := time.Now().Add(2 * time.Hour).Truncate(time.Minute)
+	end := chat.TurnEnd{
+		ChatTurnResult: api.ChatTurnResult{State: "failed"},
+		Limited:        true, ResumeAt: resume,
+		Error: `Internal error: You've hit your session limit · resets 4:10pm (UTC): {"errorKind":"rate_limit"}`,
+	}
+	d.srv.agentFinished(a, end)
+	d.srv.agentFinished(a, end) // the same limit again: nothing new to say
+
+	info := d.srv.agentInfo(agent.Status{Agent: a, State: "running"})
+	if info.Outcome != api.AgentOutcomeLimited || info.OutcomeUntil == nil || !info.OutcomeUntil.Equal(resume) {
+		t.Errorf("outcome %q until %v, want limited until %v", info.Outcome, info.OutcomeUntil, resume)
+	}
+	if !strings.HasPrefix(info.OutcomeNote, "Paused: usage limit, resumes at ") {
+		t.Errorf("outcome note %q", info.OutcomeNote)
+	}
+	kinds := eventKinds(t, d, a.Project)
+	if len(kinds) != 2 || kinds[0] != api.AgentLimited {
+		t.Errorf("events = %q, want one limited after the earlier finish", kinds)
+	}
+	if _, ok := d.srv.finishOf(ctx, a); ok {
+		t.Error("an agent paused on a usage limit is ready to review on its earlier finish")
+	}
+	// No failure notice for the lead: a pause isn't one.
+	mu.Lock()
+	defer mu.Unlock()
+	if len(told) != 0 {
+		t.Errorf("the lead was told %q through the stall path", told)
+	}
+}
+
+func TestResumeNowRefusesAnAgentThatIsNotPaused(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	d := startTestDaemon(t, t.TempDir(), fakeIncus)
+	repo := d.fixtureRepo(t, "hello-stack")
+	if _, err := d.client.AddProject(ctx, api.AddProjectRequest{Path: repo}); err != nil {
+		t.Fatal(err)
+	}
+	a := addAgent(t, d, repo, "hello-stack", "agent-01", "Reminders page")
+	if err := d.srv.resumeLimited(a); err == nil {
+		t.Error("Resume now on an agent that isn't paused succeeded")
+	}
+}
+
+func TestPausedNotes(t *testing.T) {
+	t.Parallel()
+	if got := pausedNote(time.Time{}); got != "Paused: usage limit" {
+		t.Errorf("no time: %q", got)
+	}
+	at := time.Date(2026, 10, 15, 16, 11, 0, 0, time.Local)
+	if got := pausedNote(at); got != "Paused: usage limit, resumes at 16:11" {
+		t.Errorf("with a time: %q", got)
+	}
 }

@@ -45,6 +45,9 @@ export type SettingSection = {
   // it's open, and never in a search.
   header?: ReactNode;
   footer?: ReactNode;
+  // page, when set, is a whole page drawn in its place, full width, with no
+  // groups to search: v2's Overview, Media and Past agents.
+  page?: () => ReactNode;
 };
 
 // changedToken finds the settings that are set to something other than their

@@ -399,25 +399,134 @@ func TestTheResumeCanBeTurnedOff(t *testing.T) {
 	}
 }
 
-// Codex and OpenCode word their own refusals their own way, and none of this
-// has been checked against them.
-func TestOnlyClaudeCodeIsCarriedOn(t *testing.T) {
+// Codex and OpenCode word their refusals their own way: a usage limit in their
+// words is waited out like Claude Code's, and an ordinary failure isn't.
+func TestCodexAndOpenCodeUsageLimitsAreCarriedOn(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		ai, msg string
+		until   time.Duration
+	}{
+		{"codex", "Internal error: You've hit your usage limit. Upgrade to Pro, or try again at 3:00 PM.", 3 * time.Hour},
+		{"codex", "You've hit your usage limit. Try again in 2 hours.", 2 * time.Hour},
+		{"opencode", `{"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}`, 0},
+	} {
+		f := newFakeTool(answerHello)
+		f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: tc.msg})
+		m, clock := limitManager(t, f)
+		a := testAgent
+		a.AI = tc.ai
+		if _, err := m.Send(a, "go"); err != nil {
+			t.Fatal(err)
+		}
+		th := waitThread(t, m, a, "the turn to fail", turnsEnded(1))
+		if !th.Session.Limited || th.Session.ResumeAt == nil {
+			t.Fatalf("%s: %q wasn't taken for a usage limit: %+v", tc.ai, tc.msg, th.Session)
+		}
+		want := resumeWait
+		if tc.until != 0 {
+			want = tc.until + resumeSlack
+		}
+		if wait, pending := clock.waiting(); !pending || wait != want {
+			t.Errorf("%s: waits %v (pending %v), want %v", tc.ai, wait, pending, want)
+		}
+	}
+}
+
+func TestAnOrdinaryFailureIsNotWaitedOut(t *testing.T) {
 	t.Parallel()
 	f := newFakeTool(answerHello)
-	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've hit your session limit · resets 3pm"})
+	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: the model is overloaded"})
 	m, clock := limitManager(t, f)
 	a := testAgent
 	a.AI = "codex"
-
 	if _, err := m.Send(a, "go"); err != nil {
 		t.Fatal(err)
 	}
 	th := waitThread(t, m, a, "the turn to fail", turnsEnded(1))
 	if th.Session.Limited || th.Session.ResumeAt != nil {
-		t.Errorf("a Codex chat was treated as usage-limited: %+v", th.Session)
+		t.Errorf("a plain failure was treated as usage-limited: %+v", th.Session)
 	}
 	if _, pending := clock.waiting(); pending {
-		t.Error("a wake-up was armed for a Codex chat")
+		t.Error("a wake-up was armed for a plain failure")
+	}
+}
+
+// "Resume now" doesn't wait for the reset: it is the turn the wake-up would
+// have started, and the wake-up goes.
+func TestResumeNowCarriesALimitedChatOn(t *testing.T) {
+	t.Parallel()
+	f := newFakeTool(answerHello)
+	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've hit your session limit · resets 3pm"})
+	m, clock := limitManager(t, f)
+	if _, err := m.Send(testAgent, "go"); err != nil {
+		t.Fatal(err)
+	}
+	waitThread(t, m, testAgent, "the turn to fail", turnsEnded(1))
+
+	f.setPromptErr(nil)
+	if err := m.ResumeNow(testAgent); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m, testAgent, "the resumed turn", turnsEnded(2))
+	prompts := f.called(acp.MethodSessionPrompt)
+	if len(prompts) != 2 || !strings.Contains(string(prompts[1]), resumeNudge) {
+		t.Fatalf("prompts %s, want the original and the nudge", prompts)
+	}
+	if th.Session.Limited || th.Session.ResumeAt != nil {
+		t.Errorf("still looks limited: %+v", th.Session)
+	}
+	if _, pending := clock.waiting(); pending {
+		t.Error("the wake-up is still armed after Resume now")
+	}
+	if err := m.ResumeNow(testAgent); err == nil {
+		t.Error("Resume now on a chat that isn't paused succeeded")
+	}
+}
+
+// A daemon that restarts forgets its timers. The stored conversation still
+// has the failed turn, and RearmLimit plans the resume again from it.
+func TestARestartedDaemonRearmsTheWait(t *testing.T) {
+	t.Parallel()
+	store := openStore(t)
+	f := newFakeTool(answerHello)
+	f.setPromptErr(&acp.Error{Code: acp.CodeInternalError, Message: "Internal error: You've hit your session limit · resets 3pm"})
+	m1, _ := newManager(t, store, f)
+	clock := newClock(noon)
+	m1.Now, m1.After = clock.Now, clock.After
+	if _, err := m1.Send(testAgent, "go"); err != nil {
+		t.Fatal(err)
+	}
+	th := waitThread(t, m1, testAgent, "the turn to fail", turnsEnded(1))
+	m1.Close()
+	// Items are stamped with the real clock, and the reset is read against it.
+	var failedAt time.Time
+	for _, it := range th.Items {
+		if it.Kind == "error" {
+			failedAt = it.CreatedAt
+		}
+	}
+	reset := resetTime("resets 3pm", failedAt)
+
+	// The new daemon comes up a minute later, before the reset.
+	f2 := newFakeTool(answerHello)
+	m2, _ := newManager(t, store, f2)
+	clock2 := newClock(failedAt.Add(time.Minute))
+	m2.Now, m2.After = clock2.Now, clock2.After
+	at, ok := m2.RearmLimit(testAgent)
+	if !ok {
+		t.Fatal("the paused chat wasn't found")
+	}
+	if want := reset.Add(resumeSlack); !at.Equal(want) {
+		t.Errorf("resumes at %v, want %v", at, want)
+	}
+	clock2.advance(reset.Sub(clock2.Now()) + resumeSlack)
+	waitThread(t, m2, testAgent, "the resumed turn", turnsEnded(2))
+	if prompts := f2.called(acp.MethodSessionPrompt); len(prompts) != 1 || !strings.Contains(string(prompts[0]), resumeNudge) {
+		t.Errorf("prompts %s, want the nudge", prompts)
+	}
+	if _, ok := m2.RearmLimit(testAgent); ok {
+		t.Error("a chat that carried on was found paused")
 	}
 }
 

@@ -55,7 +55,9 @@ func TestReadyToReviewListsFinishedAgentsUntilReviewed(t *testing.T) {
 		t.Errorf("the AgentBox-wide list has %d agents, want 2", len(all))
 	}
 
-	// Reviewed and dismissed both take an agent off.
+	// Reviewed and dismissed both take an agent off. (Uncommitted work keeps
+	// the reviewed one's machine, which reviewing would otherwise free.)
+	holdMachine(t, newer)
 	if err := d.client.Review(ctx, newer.Ref(), api.ReviewRequest{Verdict: api.ReviewReviewed, Fingerprint: list[0].Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
@@ -100,6 +102,7 @@ func TestReadyToReviewListsFinishedAgentsUntilReviewed(t *testing.T) {
 	}
 
 	// The verdict goes with the agent: its name may go to another.
+	holdMachine(t, older)
 	if err := d.client.Review(ctx, older.Ref(), api.ReviewRequest{Verdict: api.ReviewReviewed}); err != nil {
 		t.Fatal(err)
 	}
@@ -138,6 +141,7 @@ func TestReviewListsArePaged(t *testing.T) {
 		t.Fatalf("first page = %+v", page)
 	}
 	// agent-02, where the page ended, is reviewed before the next is read.
+	holdMachine(t, agents[1])
 	if err := d.client.Review(ctx, agents[1].Ref(), api.ReviewRequest{Verdict: api.ReviewReviewed}); err != nil {
 		t.Fatal(err)
 	}
@@ -236,5 +240,14 @@ func TestRequestChangesTellsTheAgentAndRecordsIt(t *testing.T) {
 	}
 	if _, err := w.client.RequestChanges(ctx, "hello-stack/agent-99", api.RequestChangesRequest{Text: "x"}); err == nil {
 		t.Error("asked an agent that doesn't exist")
+	}
+}
+
+// holdMachine leaves uncommitted work in a's worktree, which keeps its
+// machine through a review.
+func holdMachine(t *testing.T, a state.Agent) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(a.Worktree, "wip.txt"), []byte("not committed"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

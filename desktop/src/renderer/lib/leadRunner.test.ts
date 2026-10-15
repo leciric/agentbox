@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { fiveHour, leadOn, runnerChoices, runnerReason } from './leadRunner.ts';
+import { fiveHour, leadOn, runnerChoices, runnerLabel, runnerReason } from './leadRunner.ts';
 
 const reading = (account: string, utilization: number, resetsAt = '2099-01-01T00:00:00Z'): T.ClaudeLimit => ({
   account,
@@ -99,4 +99,9 @@ test("a lead's session puts the account of the tool it runs on the lead", () => 
   const agent = { name: 'lead', ai: 'claude', claudeAccount: 'work', codexAccount: '', cursorAccount: '' } as T.Agent;
   const on = leadOn(agent, { tool: 'codex', account: 'team' } as T.ChatSession);
   assert.deepEqual([on.ai, on.claudeAccount, on.codexAccount], ['codex', '', 'team']);
+});
+
+test("the picker's icon-only trigger names the tool, and the account when there is one", () => {
+  assert.equal(runnerLabel('codex'), 'Codex: change the AI tool or account');
+  assert.equal(runnerLabel('claude', 'work'), 'Claude Code · work: change the AI tool or account');
 });

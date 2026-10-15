@@ -10,7 +10,9 @@ import { projectLabel } from '../lib/projectName';
 import { chatLabel, memoryHold, rank, type StatusTone } from '../lib/agentStatus';
 import { useCpuHistory } from '../lib/useCpuHistory';
 import { cn, humanBytes, humanRate, shortRate } from '../lib/utils';
+import { useUiV2 } from '../lib/uiV2';
 import { AgentContextMenu } from './AgentContextMenu';
+import { ProjectIcon } from './ProjectIcon';
 import { Sparkline } from './Sparkline';
 import { LiveAgentAvatar } from './state';
 import { Button } from './ui/button';
@@ -39,16 +41,17 @@ function compareAgents(a: T.Agent, b: T.Agent): number {
 // would leave you wondering where it went. Agents with no machine up (stopped,
 // paused) are just drawn quieter, so they don't compete with the ones doing
 // something or waiting on you.
-export function AllAgentsPanel({ onSelect, onNewAgent }: { onSelect: (view: View) => void; onNewAgent: () => void }) {
+// project, when set, keeps one project's agents (v2's Overview filter).
+export function AllAgentsPanel({ project, onSelect, onNewAgent }: { project?: string; onSelect: (view: View) => void; onNewAgent: () => void }) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   const usage = useQuery({ queryKey: ['usage'], queryFn: api.usage });
   const history = useCpuHistory(usage.data);
 
-  const all = (agents.data ?? []).toSorted(compareAgents);
+  const all = (agents.data ?? []).filter((a) => !project || a.project === project).toSorted(compareAgents);
   // A project can only be said to have no agents once they're known.
-  const emptyProjects = agents.data ? (projects.data ?? []).filter((p) => !all.some((a) => a.project === p.name)) : [];
+  const emptyProjects = agents.data ? (projects.data ?? []).filter((p) => (!project || p.name === project) && !all.some((a) => a.project === p.name)) : [];
 
   if (agents.data && all.length === 0) {
     return (
@@ -153,6 +156,10 @@ function AgentFleetRow({
   const t = useT();
   const status = chatLabel(agent);
   const projectName = useProjectName(agent.project);
+  // v2 draws the project's icon where v1 draws a folder.
+  const v2 = useUiV2();
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, enabled: v2 });
+  const project = v2 ? projects.data?.find((p) => p.name === agent.project) : undefined;
   // A machine that's stopped or paused holds nothing live: draw it quieter so
   // it doesn't compete with the agents actually doing something.
   const quiet = agent.state === 'stopped' || agent.state === 'paused';
@@ -184,7 +191,7 @@ function AgentFleetRow({
       />
       <LiveAgentAvatar agent={agent} />
       <span className="hidden w-24 shrink-0 items-center gap-1.5 truncate text-[12px] text-subtle sm:flex md:w-32 lg:w-40" title={projectName}>
-        <FolderGit2 className="size-3.5 shrink-0 text-faint" />
+        {project ? <ProjectIcon project={project} className="size-4 rounded text-[9px]" /> : <FolderGit2 className="size-3.5 shrink-0 text-faint" />}
         <span className="truncate">{projectName}</span>
       </span>
       <span className="min-w-0 flex-1">

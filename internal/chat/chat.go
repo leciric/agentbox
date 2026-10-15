@@ -2225,7 +2225,18 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		// Work the turn left running: until it ends, the agent isn't done.
 		result.Background = c.adapter.background()
 	}
+	var resumeAt, until time.Time
+	if limited {
+		if c.session.ResumeAt != nil {
+			resumeAt = *c.session.ResumeAt
+		}
+		if c.session.LimitedUntil != nil {
+			until = *c.session.LimitedUntil
+		}
+	}
 	end := TurnEnd{
+		ResumeAt:    resumeAt,
+		Until:       until,
 		LastMessage: strings.TrimSpace(c.lastSaid(t.id)),
 		Open:        open,
 		Lost:        errors.Is(err, acp.ErrClosed) && !t.cancelled,

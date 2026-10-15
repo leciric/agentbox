@@ -1125,6 +1125,37 @@ var migrations = []string{
 	// Request changes, from the review (internal/daemon/review.go): the
 	// verdict "changes" keeps what the user asked the agent to change.
 	`ALTER TABLE agent_reviews ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
+	// When each project last did anything, and when the user last wrote to
+	// it (ProjectActivity), for the sidebar's order: polled every 30s, so
+	// each maximum is one index lookup rather than a scan of every item.
+	// The partial index's WHERE is repeated verbatim by the query, which is
+	// what lets SQLite use it. json_valid guards json_extract, which fails on
+	// anything that isn't JSON. julianday orders the times as times: they
+	// are RFC 3339 with any offset and trimmed fractions, which sort wrong
+	// as strings.
+	`CREATE INDEX chat_items_created ON chat_items (project,
+		julianday(CASE WHEN json_valid(data) THEN json_extract(data, '$.createdAt') END))`,
+	`CREATE INDEX chat_items_user_created ON chat_items (project,
+		julianday(CASE WHEN json_valid(data) THEN json_extract(data, '$.createdAt') END))
+		WHERE json_valid(data) AND json_extract(data, '$.kind') = 'user'
+			AND NOT coalesce(json_extract(data, '$.woken'), 0) AND NOT coalesce(json_extract(data, '$.hidden'), 0)`,
+	// A project's icon (projecticons.go): the one the user chose, an emoji
+	// or an image, and the one found in its repository, kept so it isn't
+	// looked for on every read. detected_at is when it was last looked for
+	// (unix ms), found or not. updated_at changes whenever what the project
+	// shows does, and is the app's cache key for it.
+	`CREATE TABLE project_icons (
+		project       TEXT PRIMARY KEY,
+		chosen        TEXT NOT NULL DEFAULT '',
+		emoji         TEXT NOT NULL DEFAULT '',
+		image         BLOB,
+		mime          TEXT NOT NULL DEFAULT '',
+		detected      BLOB,
+		detected_mime TEXT NOT NULL DEFAULT '',
+		detected_from TEXT NOT NULL DEFAULT '',
+		detected_at   INTEGER NOT NULL DEFAULT 0,
+		updated_at    INTEGER NOT NULL DEFAULT 0
+	)`,
 }
 
 // DefaultMediaRetentionDays is what projects.media_retention_days reads as
@@ -1770,6 +1801,7 @@ var projectOwned = []string{
 	"project_threads",
 	"project_messages",
 	"project_links",
+	"project_icons",
 }
 
 // peerOwned is the tables that also name a project as peer: the other side

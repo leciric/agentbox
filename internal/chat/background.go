@@ -224,6 +224,11 @@ type TurnEnd struct {
 	// Limited is a turn that failed on a spent usage limit, which the chat
 	// carries on by itself once the limit resets (limit.go).
 	Limited bool
+	// ResumeAt is when the chat carries a Limited turn on by itself: the
+	// reset time and a minute. Zero when it won't, as when the setting is
+	// off or it has waited enough times; Until is when the tool said the
+	// limit resets, zero when it named no time.
+	ResumeAt, Until time.Time
 	// Shutdown is a turn AgentBox stopping cut short: the next daemon
 	// carries it on (restart.go).
 	Shutdown bool

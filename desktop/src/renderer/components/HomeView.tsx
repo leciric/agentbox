@@ -15,7 +15,21 @@ import { Button } from './ui/button';
 import { Panel } from './ui/card';
 import { Skeleton } from './ui/skeleton';
 
-export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (view: View) => void; onAddProject: () => void; onNewAgent: () => void }) {
+// project and filter are v2's, where Overview is a section of Settings with a
+// project filter (filter, drawn beside the title) narrowing its lists.
+export function HomeView({
+  onSelect,
+  onAddProject,
+  onNewAgent,
+  project,
+  filter,
+}: {
+  onSelect: (view: View) => void;
+  onAddProject: () => void;
+  onNewAgent: () => void;
+  project?: string;
+  filter?: ReactNode;
+}) {
   const t = useT();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects });
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -50,6 +64,7 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
             )}
           </div>
           <div className="ml-auto flex gap-2">
+            {filter}
             <Button onClick={onAddProject}>
               <FolderPlus />
               {t('shell.home.addProject')}
@@ -119,11 +134,11 @@ export function HomeView({ onSelect, onAddProject, onNewAgent }: { onSelect: (vi
           {t('shell.home.agents')}
           {all.length > 0 && <span className="ml-1.5 rounded-full bg-surface-raised px-1.5 text-[10.5px] normal-case tracking-normal text-subtle">{all.length}</span>}
         </SectionTitle>
-        <AllAgentsPanel onSelect={onSelect} onNewAgent={onNewAgent} />
+        <AllAgentsPanel project={project || undefined} onSelect={onSelect} onNewAgent={onNewAgent} />
 
         {/* Every project's agents whose machine was removed, with their chats. */}
         <SectionTitle>{t('pastAgents.title')}</SectionTitle>
-        <PastAgentsList limit={8} onOpen={(ref) => onSelect({ kind: 'pastAgents', ref })} onShowAll={() => onSelect({ kind: 'pastAgents' })} />
+        <PastAgentsList key={project ?? ''} project={project || undefined} limit={8} onOpen={(ref) => onSelect({ kind: 'pastAgents', ref })} onShowAll={() => onSelect({ kind: 'pastAgents' })} />
 
         <SectionTitle>{t('shell.home.recentJobs')}</SectionTitle>
         <Panel className="divide-y divide-line-faint overflow-hidden" aria-busy={!jobs.data}>

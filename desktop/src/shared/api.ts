@@ -29,6 +29,26 @@ export interface Project {
   syncBase: boolean;
   prWatching: boolean;
   createdAt: string;
+  iconVersion: number;
+}
+
+export interface ProjectActivity {
+  project: string;
+  lastActivity?: string;
+  lastMessage?: string;
+}
+
+export interface ProjectIcon {
+  source: string;
+  emoji?: string;
+  image?: string;
+  detectedFrom?: string;
+  hasDetected?: boolean;
+}
+
+export interface SetProjectIconRequest {
+  emoji?: string;
+  image?: string;
 }
 
 export interface AddProjectRequest {
@@ -206,6 +226,7 @@ export interface Agent {
   background?: string[];
   outcome?: string;
   outcomeNote?: string;
+  outcomeUntil?: string;
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
@@ -1520,6 +1541,7 @@ export interface FleetAgent {
   background?: string[];
   outcome?: string;
   outcomeNote?: string;
+  outcomeUntil?: string;
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
@@ -1626,6 +1648,7 @@ export interface AgentEvent {
   changes?: AgentChanges;
   pr?: PullRequest;
   outcome?: string;
+  resumeAt?: string;
   question?: string;
   at: string;
 }
@@ -1644,6 +1667,7 @@ export interface ReviewItem {
   fingerprint: string;
   verdict?: string;
   reviewedAt?: string;
+  machineKept?: boolean;
 }
 
 export interface ReviewRequest {

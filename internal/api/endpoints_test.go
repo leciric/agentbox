@@ -856,6 +856,47 @@ func TestClientMethodsEncodeRequestsAndDecodeResponses(t *testing.T) {
 			},
 		},
 		{
+			name: "ProjectActivity", method: http.MethodGet, path: "/v1/project-activity",
+			resp: `[{"project":"pawly","lastActivity":"2026-10-15T12:00:00Z"}]`,
+			run: func(t *testing.T, c *Client) {
+				got, err := c.ProjectActivity(context.Background())
+				if err != nil || len(got) != 1 || got[0].Project != "pawly" || got[0].LastActivity == nil || got[0].LastMessage != nil {
+					t.Errorf("ProjectActivity() = %+v, %v", got, err)
+				}
+			},
+		},
+		{
+			name: "ProjectIcon", method: http.MethodGet, path: "/v1/projects/pawly/icon",
+			resp: `{"source":"detected","image":"data:image/png;base64,AA==","detectedFrom":"favicon.ico","hasDetected":true}`,
+			run: func(t *testing.T, c *Client) {
+				got, err := c.ProjectIcon(context.Background(), "pawly")
+				if err != nil || got.Source != "detected" || got.DetectedFrom != "favicon.ico" || !got.HasDetected {
+					t.Errorf("ProjectIcon() = %+v, %v", got, err)
+				}
+			},
+		},
+		{
+			name: "SetProjectIcon", method: http.MethodPut, path: "/v1/projects/pawly/icon",
+			body: `{"emoji":"🐶"}`,
+			resp: `{"source":"chosen","emoji":"🐶"}`,
+			run: func(t *testing.T, c *Client) {
+				got, err := c.SetProjectIcon(context.Background(), "pawly", SetProjectIconRequest{Emoji: "🐶"})
+				if err != nil || got.Source != "chosen" || got.Emoji != "🐶" {
+					t.Errorf("SetProjectIcon() = %+v, %v", got, err)
+				}
+			},
+		},
+		{
+			name: "ResetProjectIcon", method: http.MethodDelete, path: "/v1/projects/pawly/icon",
+			resp: `{"source":"none"}`,
+			run: func(t *testing.T, c *Client) {
+				got, err := c.ResetProjectIcon(context.Background(), "pawly")
+				if err != nil || got.Source != "none" {
+					t.Errorf("ResetProjectIcon() = %+v, %v", got, err)
+				}
+			},
+		},
+		{
 			name: "SaveBase", method: http.MethodPost, path: "/v1/projects/pawly/base",
 			body: `{"agent":"agent-01"}`,
 			resp: `{"id":"job-2","status":"running"}`,
