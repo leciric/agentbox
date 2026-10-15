@@ -226,6 +226,7 @@ export interface Agent {
   background?: string[];
   outcome?: string;
   outcomeNote?: string;
+  outcomeUntil?: string;
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
@@ -1540,6 +1541,7 @@ export interface FleetAgent {
   background?: string[];
   outcome?: string;
   outcomeNote?: string;
+  outcomeUntil?: string;
   changesRequested?: string;
   state: string;
   memory?: MemoryHold;
@@ -1646,6 +1648,7 @@ export interface AgentEvent {
   changes?: AgentChanges;
   pr?: PullRequest;
   outcome?: string;
+  resumeAt?: string;
   question?: string;
   at: string;
 }
@@ -1664,6 +1667,7 @@ export interface ReviewItem {
   fingerprint: string;
   verdict?: string;
   reviewedAt?: string;
+  machineKept?: boolean;
 }
 
 export interface ReviewRequest {
@@ -1942,6 +1946,7 @@ export interface ChatItem {
   compaction?: ChatCompaction;
   handoff?: string;
   projectMessage?: ChatProjectMessage;
+  agentPermission?: ChatAgentPermission;
   parent?: string;
   createdAt: string;
   updatedAt: string;
@@ -2017,6 +2022,16 @@ export interface ChatProjectMessage {
   topic?: string;
   expectsReply?: boolean;
   hop: number;
+}
+
+export interface ChatAgentPermission {
+  agent: string;
+  ref: string;
+  title?: string;
+  ai: string;
+  item: string;
+  permission: ChatPermission;
+  tool?: ChatTool;
 }
 
 export interface ChatTurnResult {

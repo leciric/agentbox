@@ -46,7 +46,7 @@ var tsTypes = []any{
 	RemoteStatus{}, RemoteConnectRequest{}, UsageStatsPending{},
 	LANStatus{}, LANTunnel{}, LANPhone{}, UpdateLANRequest{}, LANPairing{}, LANHostReport{}, LANPairRequest{}, LANSession{}, UpdateLANPhoneRequest{}, LANAuditEntry{}, LANAudit{},
 	ChatThread{}, ChatSearch{}, ChatSearchHit{}, ChatSnippetPart{}, ChatSession{}, ChatOption{}, ChatOptionChoice{}, ChatCommand{}, ChatItem{}, ChatTool{}, ChatPage{}, ChatDiff{}, ChatPlanEntry{},
-	ChatPermission{}, ChatPermissionOption{}, ChatSubagent{}, ChatCompaction{}, ChatProjectMessage{}, ChatTurnResult{}, ChatMessageRequest{}, ChatImage{}, ChatImageUpload{}, ChatFile{}, ChatFileUpload{}, ChatAnswerRequest{}, ChatOptionRequest{}, ChatEvent{}, ChatAppend{}, ProjectChat{}, ChatLine{}, ChatCache{}, ChatCacheChoice{}, LeadRunners{}, LeadRunner{}, LeadRunnerRequest{}, LeadAccount{},
+	ChatPermission{}, ChatPermissionOption{}, ChatSubagent{}, ChatCompaction{}, ChatProjectMessage{}, ChatAgentPermission{}, ChatTurnResult{}, ChatMessageRequest{}, ChatImage{}, ChatImageUpload{}, ChatFile{}, ChatFileUpload{}, ChatAnswerRequest{}, ChatOptionRequest{}, ChatEvent{}, ChatAppend{}, ProjectChat{}, ChatLine{}, ChatCache{}, ChatCacheChoice{}, LeadRunners{}, LeadRunner{}, LeadRunnerRequest{}, LeadAccount{},
 	MemoryEvent{}, AddMemoryEventRequest{}, Memory{}, AddMemoryRequest{}, MemorySearchRequest{}, MemorySearchResults{},
 	WorkingMemory{}, WorkingMemoryPatch{}, MemoryArtifact{}, AddArtifactRequest{}, AgentReport{}, AddReportRequest{},
 	ContextRequest{}, ContextResult{}, ContextSection{}, ContextStats{}, ContextAccount{},

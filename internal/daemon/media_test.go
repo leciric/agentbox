@@ -36,6 +36,9 @@ func TestMediaNotesFromTheAgentAndTheUser(t *testing.T) {
 	if fromAgent.Source != "agent" || fromAgent.Kind != "note" || fromAgent.Name != "Implemented the list." || fromAgent.Path != "" {
 		t.Errorf("note from the agent = %+v", fromAgent)
 	}
+	// Media is paged newest first by millisecond, and by random ID within one:
+	// notes added in the same millisecond have no order to check.
+	time.Sleep(5 * time.Millisecond)
 	fromUser, err := d.client.AddNote(ctx, a.Ref(), api.NoteRequest{Text: "Looks good", Name: "Review"})
 	if err != nil {
 		t.Fatal(err)

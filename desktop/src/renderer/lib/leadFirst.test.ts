@@ -16,6 +16,8 @@ test('agentSt reads what needs you first, then review, work and the rest', () =>
   assert.equal(agentSt(agent('a', { chat: 'running' }), none), 'working');
   assert.equal(agentSt(agent('a', { outcome: 'done' }), none), 'done');
   assert.equal(agentSt(agent('a', { state: 'stopped', chat: '' }), none), 'done');
+  // Paused on a usage limit it resumes from by itself: working, not done.
+  assert.equal(agentSt(agent('a', { outcome: 'limited', chat: 'ready' }), none), 'working');
   // Working on the changes asked for, it's working, not in review.
   assert.equal(agentSt(agent('a', { chat: 'running', changesRequested: 'Move it' }), { ...none, review: new Set(['p/a']) }), 'working');
 });
@@ -62,24 +64,40 @@ test('projectRows opens what the filters narrow to and hides the rest', () => {
   ];
   const label = (p: T.Project) => p.displayName;
   // No filters: every project, folded unless expanded, with only its live agents.
-  let out = projectRows(projects, rows, noFilters, new Set(['q']), label);
+  let out = projectRows(projects, rows, noFilters, new Map([['q', true]]), label);
   assert.deepEqual(out.map((p) => [p.project.name, p.open, p.all.length]), [['p', false, 1], ['q', true, 1]]);
   // A state keeps the projects with a match, folded as the user left them,
   // and drops the others.
-  out = projectRows(projects, rows, { ...noFilters, st: ['review'] }, new Set(), label);
+  out = projectRows(projects, rows, { ...noFilters, st: ['review'] }, new Map(), label);
   assert.deepEqual(out.map((p) => [p.project.name, p.open, p.shown.length]), [['p', false, 1]]);
   // ...but not a pinned one.
-  out = projectRows(projects, rows, { ...noFilters, st: ['review'] }, new Set(), label, { busy: new Set(), keep: new Set(['q']) });
+  out = projectRows(projects, rows, { ...noFilters, st: ['review'] }, new Map(), label, { busy: new Set<string>(), keep: new Set(['q']) });
   assert.deepEqual(out.map((p) => [p.project.name, p.open]), [['p', false], ['q', false]]);
   // A busy lead counts as working, with no agent at work.
-  out = projectRows(projects, [], { ...noFilters, st: ['working', 'review'] }, new Set(), label, { busy: new Set(['q']), keep: new Set() });
+  out = projectRows(projects, [], { ...noFilters, st: ['working', 'review'] }, new Map(), label, { busy: new Set(['q']), keep: new Set<string>() });
   assert.deepEqual(out.map((p) => [p.project.name, p.open]), [['q', false]]);
   // A project filter only hides the other projects.
-  out = projectRows(projects, rows, { ...noFilters, projects: ['q'] }, new Set(), label);
+  out = projectRows(projects, rows, { ...noFilters, projects: ['q'] }, new Map(), label);
   assert.deepEqual(out.map((p) => [p.project.name, p.open]), [['q', false]]);
   // A search matching a project's name keeps it, even with no agent matching.
-  out = projectRows(projects, rows, { ...noFilters, q: 'quill' }, new Set(), label);
+  out = projectRows(projects, rows, { ...noFilters, q: 'quill' }, new Map(), label);
   assert.deepEqual(out.map((p) => p.project.name), ['q']);
+});
+
+test('projectRows opens a project with an agent waiting on a permission, until the user closes it', () => {
+  const projects = [{ name: 'p', displayName: 'Pawly' }, { name: 'q', displayName: 'Quill' }] as T.Project[];
+  const rows: Row[] = [
+    { agent: agent('a1', { chat: 'waiting' }), st: 'needs' },
+    { agent: agent('a2', { chat: 'waiting' }), st: 'needs' },
+    { agent: agent('b1', { project: 'q', chat: 'running' }), st: 'working' },
+  ];
+  const label = (p: T.Project) => p.displayName;
+  let out = projectRows(projects, rows, noFilters, new Map(), label);
+  assert.deepEqual(out.map((p) => [p.project.name, p.open, p.approvals]), [['p', true, 2], ['q', false, 0]]);
+  out = projectRows(projects, rows, noFilters, new Map([['p', false]]), label);
+  assert.deepEqual(out.map((p) => [p.project.name, p.open, p.approvals]), [['p', false, 2], ['q', false, 0]]);
+  // They are among its asks.
+  assert.equal(countSt(out[0].all.map((r) => r.st)).needs, 2);
 });
 
 test('a project folds and unfolds the same under every filter, and keeps it across them', () => {
@@ -89,10 +107,10 @@ test('a project folds and unfolds the same under every filter, and keeps it acro
     { agent: agent('a2'), st: 'review' },
   ];
   const label = (p: T.Project) => p.displayName;
-  const open = (f: Filters, expanded: ReadonlySet<string>) => projectRows(projects, rows, f, expanded, label)[0].open;
+  const open = (f: Filters, expanded: ReadonlyMap<string, boolean>) => projectRows(projects, rows, f, expanded, label)[0].open;
   for (const f of [noFilters, defaultFilters, { ...noFilters, st: ['working'] as AgentSt[] }, { ...noFilters, projects: ['p'] }]) {
-    assert.equal(open(f, new Set()), false, JSON.stringify(f));
-    assert.equal(open(f, new Set(['p'])), true, JSON.stringify(f));
+    assert.equal(open(f, new Map()), false, JSON.stringify(f));
+    assert.equal(open(f, new Map([['p', true]])), true, JSON.stringify(f));
   }
 });
 

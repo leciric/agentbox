@@ -15,6 +15,7 @@ import (
 
 	"agentbox/internal/api"
 	"agentbox/internal/hostos"
+	"agentbox/internal/state"
 )
 
 func freePort(t *testing.T) int {
@@ -368,7 +369,8 @@ func TestLANRoute(t *testing.T) {
 		{"POST", "/v1/projects/p/chat/messages", "chat"},
 		{"POST", "/v1/agents/p/a/chat/messages", "chat"},
 		{"POST", "/v1/projects/p/chat/cancel", "chat"},
-		{"POST", "/v1/agents/p/a/chat/permissions/42", "chat"},
+		{"POST", "/v1/agents/p/a/chat/permissions/42", "answer"},
+		{"POST", "/v1/projects/p/chat/permissions/42", "chat"},
 		{"PUT", "/v1/agents/p/a/chat/options/model", "chat"},
 		{"POST", "/v1/projects/p/chat/reload", "chat"},
 		{"POST", "/v1/agents/p/a/start", "chat"},
@@ -386,6 +388,31 @@ func TestLANRoute(t *testing.T) {
 		got := lanRouteOf(c.method, c.path)
 		if got.never != "" || got.scope != c.scope {
 			t.Errorf("lanRouteOf(%s %s) = %+v, want scope %q", c.method, c.path, got, c.scope)
+		}
+	}
+}
+
+// An agent's permission request, which its lead's chat shows too, is
+// answered with the "answer" scope or the "chat" one; the lead's own only
+// with "chat".
+func TestLANRouteAgentPermissions(t *testing.T) {
+	t.Parallel()
+	agentRoute := lanRouteOf("POST", "/v1/agents/p/a/chat/permissions/42")
+	leadRoute := lanRouteOf("POST", "/v1/projects/p/chat/permissions/42")
+	for _, c := range []struct {
+		scopes      []string
+		agent, lead bool
+	}{
+		{[]string{"read", "answer"}, true, false},
+		{[]string{"read", "chat"}, true, true},
+		{[]string{"read"}, false, false},
+	} {
+		p := state.Phone{Scopes: c.scopes}
+		if got := agentRoute.allows(p); got != c.agent {
+			t.Errorf("scopes %v: an agent's permission allowed = %v, want %v", c.scopes, got, c.agent)
+		}
+		if got := leadRoute.allows(p); got != c.lead {
+			t.Errorf("scopes %v: the lead's permission allowed = %v, want %v", c.scopes, got, c.lead)
 		}
 	}
 }

@@ -6,12 +6,11 @@ import type * as T from '../../../shared/api';
 import { api } from '../../lib/api';
 import { chatKey } from '../../lib/chat';
 import { useT } from '../../lib/i18n';
-import { fiveHour, runnerChoices, runnerReason, type RunnerChoice } from '../../lib/leadRunner';
-import { limitTone } from '../../lib/tokens';
+import { runnerChoices, runnerLabel, runnerReason, type RunnerChoice } from '../../lib/leadRunner';
 import { useNow } from '../../lib/useNow';
-import { cn, errorMessage } from '../../lib/utils';
+import { errorMessage } from '../../lib/utils';
 import { LimitRow } from '../TopBar';
-import { AIIcon, aiLabel } from '../state';
+import { aiLabel, ToolMark } from '../state';
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu';
 
 // RunnerPicker is a lead's AI tool and account, in its composer: what the chat
@@ -39,31 +38,25 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
   const next = session?.nextTool;
   const account = !next ? session?.account || (tool === 'claude' ? runners.data?.account : runners.data?.toolAccounts?.[tool]) : undefined;
   const choices = runners.data ? runnerChoices(runners.data) : [];
-  const shown = choices.find((c) => c.current);
-  const used = fiveHour(shown?.reading, clock);
   // A tool with several accounts names the account on each row, and on the trigger.
   const several = (of: string) => choices.filter((c) => c.tool === of).length > 1;
-  const multi = several(tool);
+  const label = runnerLabel(tool, account);
   return (
     <Menu>
       <MenuTrigger asChild>
         <button
-          aria-label={t('chat.runner.label', { tool: aiLabel(tool) })}
+          aria-label={label}
           data-runner-picker
-          title={t('chat.runner.tip')}
+          title={next ? t('chat.runner.nextTip', { tool: aiLabel(next) }) : label}
           className="flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12.5px] text-muted transition-colors hover:bg-surface hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/40 data-[state=open]:bg-surface-raised data-[state=open]:text-primary [&_svg]:size-4 [&_svg]:shrink-0"
         >
-          <AIIcon ai={tool} />
-          <span className="max-w-[8rem] truncate max-sm:hidden">{aiLabel(tool)}</span>
-          {account && multi && <span className="max-w-[6rem] truncate text-subtle max-sm:hidden">· {account}</span>}
+          <ToolMark ai={tool} />
           {next && (
-            <span className="flex items-center gap-1 rounded-full bg-brand-400/15 px-1.5 py-px text-[11px] text-brand-200" title={t('chat.runner.nextTip', { tool: aiLabel(next) })}>
+            <span className="flex items-center gap-1 rounded-full bg-brand-400/15 px-1.5 py-px text-[11px] text-brand-200">
               <ArrowRight className="!size-3" />
-              <AIIcon ai={next} className="!size-3" />
-              <span className="max-sm:hidden">{aiLabel(next)}</span>
+              <ToolMark ai={next} className="!size-3.5" />
             </span>
           )}
-          {used !== null && !next && <UsageDot used={used} />}
           <ChevronDown className="!size-3.5 text-faint" />
         </button>
       </MenuTrigger>
@@ -102,18 +95,8 @@ export function RunnerPicker({ agent, session }: { agent: T.Agent; session?: T.C
 // toolIcons are the tools' marks as MenuItem icons, made once so a row's icon
 // keeps its identity between renders.
 const toolIcons: Record<string, ComponentType<{ className?: string }>> = Object.fromEntries(
-  ['claude', 'codex', 'opencode', 'cursor'].map((ai) => [ai, ({ className }: { className?: string }) => <AIIcon ai={ai} className={className} />]),
+  ['claude', 'codex', 'opencode', 'cursor'].map((ai) => [ai, ({ className }: { className?: string }) => <ToolMark ai={ai} className={className} />]),
 );
-
-// UsageDot is the chosen account's 5-hour use, on the trigger.
-function UsageDot({ used }: { used: number }) {
-  const tone = limitTone(used);
-  return (
-    <span className={cn('font-mono text-[10.5px] tabular-nums', tone === 'high' ? 'text-rose-300' : tone === 'warn' ? 'text-amber-300' : 'text-subtle')}>
-      {Math.round(used * 100)}%
-    </span>
-  );
-}
 
 // AccountUsage is an account's limits, as the top bar's meter shows them.
 function AccountUsage({ reading, clock }: { reading: T.ClaudeLimit; clock: number }) {

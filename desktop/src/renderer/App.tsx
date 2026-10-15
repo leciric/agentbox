@@ -6,6 +6,7 @@ import { AgentRail } from "./components/AgentRail";
 import { AgentView } from "./components/AgentView";
 import { openSettingsEvent, openSettingsSection, rememberSection } from "./components/SettingsPage";
 import { openProjectEvent } from "./components/chat/ProjectMessageCard";
+import { openAgentEvent } from "./components/chat/AgentPermissionCard";
 import { isSearchShortcut, SearchModal } from "./components/SearchModal";
 import { openSearch, toggleSearch } from "./lib/searchOpen";
 import { ErrorReports } from "./components/ErrorReports";
@@ -29,6 +30,8 @@ import { PastAgents } from "./components/PastAgents";
 import { SettingsView } from "./components/SettingsView";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarV2 } from "./components/v2/SidebarV2";
+import { NewTaskDialog } from "./components/v2/NewTaskDialog";
+import { isNewTaskShortcut, toggleNewTask } from "./lib/newTask";
 import { inSettings, pageOf, useV2Pages, viewOf } from "./components/v2/SettingsPagesV2";
 import { AgentReviewCard, ReviewV2 } from "./components/v2/ReviewV2";
 import { RightPanelHost } from "./components/v2/RightPanel";
@@ -176,6 +179,16 @@ export function App({ initial }: { initial?: View } = {}) {
     return () => window.removeEventListener(openProjectEvent, open);
   }, []);
 
+  // A link from a project's chat to one of its agents, on its permission request.
+  useEffect(() => {
+    const open = (e: Event) => {
+      setView({ kind: "agent", ref: (e as CustomEvent<string>).detail, tab: "chat" });
+      setNavOpen(false);
+    };
+    window.addEventListener(openAgentEvent, open);
+    return () => window.removeEventListener(openAgentEvent, open);
+  }, []);
+
   // Leave an agent's view once the agent is gone, destroyed here or from the CLI.
   useEffect(() => {
     if (view.kind !== "agent" || !agents.data) return;
@@ -225,6 +238,17 @@ export function App({ initial }: { initial?: View } = {}) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
+  // UI v2's New task: Ctrl+N (⌘N on a Mac), or the sidebar's first row.
+  useEffect(() => {
+    if (!v2) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!isNewTaskShortcut(event)) return;
+      event.preventDefault();
+      toggleNewTask();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [v2]);
   const openFound = (target: SearchTarget) => {
     switch (target.open) {
       case "media":
@@ -643,6 +667,7 @@ export function App({ initial }: { initial?: View } = {}) {
         }
       />
       <SearchModal onOpen={openFound} />
+      {v2 && <NewTaskDialog onSelect={select} />}
       <ErrorReports />
       <SnapComposer
         project={view.kind === "project" ? view.project : view.kind === "agent" ? view.ref.split("/")[0] : undefined}

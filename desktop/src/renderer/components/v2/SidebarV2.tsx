@@ -11,7 +11,7 @@
 // days. The reading is lib/leadFirst.ts's and lib/projectOrder.ts's.
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowUpDown, Check, ChevronRight, CircleArrowUp, Ellipsis, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, RefreshCw, Search, Settings, Smile, X } from 'lucide-react';
+import { ArrowUpDown, Check, ChevronRight, CircleArrowUp, Ellipsis, FolderPlus, House, ListChecks, ListFilter, LoaderCircle, Pin, PinOff, RefreshCw, Search, Settings, ShieldAlert, Smile, SquarePen, X } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import * as A from '../../../shared/api';
 import type * as T from '../../../shared/api';
@@ -19,7 +19,7 @@ import type { View } from '../../App';
 import { api } from '../../lib/api';
 import { useT, type MessageKey } from '../../lib/i18n';
 import { pageItems, useQuestions, useReviewHead } from '../../lib/inboxPages';
-import { agentSt, attention, countSt, filterCount, leadLine, leadBusy, live as isLive, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
+import { agentSt, attention, awaitsApproval, countSt, filterCount, leadLine, leadBusy, live as isLive, liveOrder, projectRows, toggle, type AgentSt, type Filters, type ProjectRows, type Row } from '../../lib/leadFirst';
 import { movePin, orderProjects, sortOptions, togglePin, type SortBy } from '../../lib/projectOrder';
 import { markOpened, setFilterChoice, setPins, setSettledOpen, setSort, useV2Projects } from '../../lib/v2Projects';
 import { projectLabel } from '../../lib/projectName';
@@ -28,7 +28,8 @@ import { useNow } from '../../lib/useNow';
 import { updateHint } from '../../lib/appUpdate';
 import { isUpgrade } from '../../lib/nightly';
 import { useAppUpdate } from '../../lib/useAppUpdate';
-import { cn, errorMessage, timeAgo } from '../../lib/utils';
+import { cn, errorMessage, shortcut, timeAgo } from '../../lib/utils';
+import { openNewTask } from '../../lib/newTask';
 import { EnvironmentSwitcher } from '../EnvironmentSwitcher';
 import { Logo } from '../Sidebar';
 import { ProjectIcon, ProjectIconDialog } from '../ProjectIcon';
@@ -73,7 +74,7 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
     if (f.st !== kept.st || f.projects !== kept.projects) setFilterChoice(f.st, f.projects);
     setQ(f.q);
   };
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(new Map());
   const [dragging, setDragging] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ name: string; edge: 'before' | 'after' } | null>(null);
   const running = jobs.data?.filter((j) => j.status === 'running').length ?? 0;
@@ -98,7 +99,7 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
   // chevron folds it again like any other.
   const currentAgentProject = current?.split('/')[0];
   useEffect(() => {
-    if (currentAgentProject) setExpanded((s) => (s.has(currentAgentProject) ? s : new Set(s).add(currentAgentProject)));
+    if (currentAgentProject) setExpanded((s) => (s.has(currentAgentProject) ? s : new Map(s).set(currentAgentProject, true)));
   }, [currentAgentProject]);
 
   // Each lead's chat, the same queries its row reads: a lead mid-turn counts
@@ -149,16 +150,12 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
       project={p.project}
       all={p.all}
       shown={p.shown}
+      approvals={p.approvals}
       open={p.open}
       pinned={pinned.has(p.project.name)}
       view={view}
       onToggle={() =>
-        setExpanded((s) => {
-          const next = new Set(s);
-          if (next.has(p.project.name)) next.delete(p.project.name);
-          else next.add(p.project.name);
-          return next;
-        })
+        setExpanded((s) => new Map(s).set(p.project.name, !p.open))
       }
       onPin={() => setPins(togglePin(kept.pins, p.project.name))}
       onSelect={onSelect}
@@ -194,6 +191,7 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 pt-1" aria-label={t('v2.sidebar.chats')}>
+        <NewTaskRow />
         <HomeRow active={view.kind === 'homeChat'} onClick={() => onSelect({ kind: 'homeChat' })} />
         <FilterBar filters={filters} onFilters={onFilters} projects={projects.data ?? []} rows={rows} />
         {projects.data?.length === 0 && (
@@ -481,6 +479,26 @@ function Lead({ active, onClick, children, data }: { active: boolean; onClick: (
   );
 }
 
+// NewTaskRow opens New task (NewTaskDialog): pick a project, or none for the
+// Home chat, and its chat opens to write the task in.
+function NewTaskRow() {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      onClick={openNewTask}
+      className="group mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] font-medium text-secondary transition-colors hover:bg-surface hover:text-title"
+      data-v2-new-task
+    >
+      <span className="flex size-6 shrink-0 items-center justify-center">
+        <SquarePen className="size-4" />
+      </span>
+      <span className="flex-1">{t('v2.sidebar.newTask')}</span>
+      <kbd className="rounded-md bg-surface-raised px-1.5 font-mono text-[10.5px] text-subtle">{shortcut('N')}</kbd>
+    </button>
+  );
+}
+
 // HomeRow is the Home chat, across every project, with its last line.
 function HomeRow({ active, onClick }: { active: boolean; onClick: () => void }) {
   const t = useT();
@@ -519,6 +537,7 @@ function ProjectLead({
   project,
   all,
   shown,
+  approvals,
   open,
   pinned,
   view,
@@ -530,6 +549,7 @@ function ProjectLead({
   project: T.Project;
   all: Row[];
   shown: Row[];
+  approvals: number;
   open: boolean;
   pinned: boolean;
   view: View;
@@ -610,6 +630,13 @@ function ProjectLead({
           <span className="block truncate text-[11.5px] text-subtle" data-v2-lead-line>
             {line ? (line.mine ? t('v2.sidebar.you', { text: line.text }) : line.text) : t('v2.sidebar.leadHint')}
           </span>
+          {/* Its agents' permission requests wait in this chat too, as cards. */}
+          {approvals > 0 && (
+            <span className="mt-1 flex items-center gap-1 text-[10.5px] font-medium tabular-nums text-amber-300" data-v2-approvals={approvals}>
+              <ShieldAlert className="size-3 shrink-0" />
+              {t('v2.sidebar.approvals', { count: approvals })}
+            </span>
+          )}
           {!open && counted && (
             <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px] tabular-nums" data-v2-counts>
               {countKeys.map(({ st, key }) =>
@@ -678,7 +705,11 @@ function AgentRow({ row, active, onClick }: { row: Row; active: boolean; onClick
     >
       <StMark st={st} className="size-[7px]" />
       <span className={cn('min-w-0 flex-1 truncate text-[12px]', active ? 'text-title' : st === 'done' ? 'text-subtle' : 'text-secondary', !agent.title && 'font-mono text-[11.5px]')}>{agent.title || agent.name}</span>
-      {attention(st) && <span className="shrink-0 text-[10.5px] text-subtle">{t(st === 'needs' ? 'v2.tag.asks' : 'v2.tag.failed')}</span>}
+      {attention(st) && (
+        <span className="shrink-0 text-[10.5px] text-subtle" data-v2-tag>
+          {t(st === 'error' ? 'v2.tag.failed' : awaitsApproval(agent) ? 'v2.tag.approval' : 'v2.tag.asks')}
+        </span>
+      )}
       {agent.changesRequested && st === 'working' && <span className="shrink-0 text-[10.5px] text-subtle">{t('v2.tag.changes')}</span>}
     </button>
   );

@@ -184,6 +184,11 @@ type ChatItem struct {
 	// ProjectMessage, on a notice, makes it a message between this project's
 	// lead and another project's: the notice's Text is what was said.
 	ProjectMessage *ChatProjectMessage `json:"projectMessage,omitempty"`
+	// AgentPermission, on a notice in a project's lead chat, makes it one of
+	// the project's agents asking permission in its own chat: a copy of that
+	// request, kept in step with it until it is answered or given up, for the
+	// user to answer from the lead on the agent's own route.
+	AgentPermission *ChatAgentPermission `json:"agentPermission,omitempty"`
 	// Parent, on a message, thought or tool call a subagent made, is that
 	// subagent's card. The app nests the item under the card instead of
 	// showing it in the conversation itself.
@@ -318,6 +323,24 @@ type ChatPermission struct {
 	Approval string     `json:"approval,omitempty"`
 	Detail   string     `json:"detail,omitempty"`
 	Diffs    []ChatDiff `json:"diffs,omitempty"`
+}
+
+// ChatAgentPermission is an agent's permission request as its lead's chat
+// shows it (ChatItem.AgentPermission).
+type ChatAgentPermission struct {
+	Agent string `json:"agent"` // the agent's name
+	Ref   string `json:"ref"`
+	Title string `json:"title,omitempty"` // the agent's title
+	AI    string `json:"ai"`
+	// Item is the request in the agent's chat: answered with
+	// POST /v1/agents/{ref}/chat/permissions/{item}, as that chat answers it.
+	Item string `json:"item"`
+	// Permission is the request as it is now; its Outcome follows the
+	// agent's, wherever that was answered.
+	Permission ChatPermission `json:"permission"`
+	// Tool is the call it asks about as the agent's chat had it, without its
+	// output: the command, the paths, the diffs.
+	Tool *ChatTool `json:"tool,omitempty"`
 }
 
 // Approval options: what the user can answer a request for approval with.

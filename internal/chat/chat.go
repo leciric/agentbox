@@ -121,8 +121,15 @@ type Manager struct {
 	// LeadLogins, when set, is a lead switching to Codex, OpenCode or Cursor
 	// with the accounts it runs that tool on (agent.Manager.LeadLogins).
 	LeadLogins func(a state.Agent) (state.Agent, error)
-	Logf       func(format string, args ...any) // may be nil
-	Version    string                           // AgentBox's, told to adapters
+	// PermissionChanged, when set, is told every time one of an agent's
+	// (never a lead's) permission requests is asked, answered or given up,
+	// so the daemon can show it in the project's lead chat too
+	// (ShowAgentPermission). It is called in order, under the agent's
+	// conversation lock: it must hand the change on and return, never call
+	// back into the Manager.
+	PermissionChanged func(a state.Agent, p api.ChatAgentPermission)
+	Logf              func(format string, args ...any) // may be nil
+	Version           string                           // AgentBox's, told to adapters
 	// Now and After are the clock a chat waits on: what time it is, and how
 	// work is scheduled for later. Both are nil outside tests, where the real
 	// clock is used; a test injects one so a wait of hours takes none.
@@ -1334,6 +1341,9 @@ type conversation struct {
 	// queued holds notices that arrived mid-turn, or during a rollover;
 	// finishTurn and rollover deliver them.
 	queued []queuedNotice
+	// permissionsTold is when a lead's model was last told about the
+	// permission requests its agents' cards show (permissionNote).
+	permissionsTold time.Time
 	// rolling says a hidden prompt is running on the session: it is being
 	// consolidated into the project's memory and replaced (rollover.go), or
 	// asked to distil the project's events into memories and kept
@@ -1397,7 +1407,7 @@ type queuedNotice struct {
 // outgoing is a message sent mid-turn, waiting for the AI tool. turn is the one
 // it was sent during, which is the one it may still join.
 type outgoing struct {
-	item   string // its "aside" item in the conversation
+	item string // its "aside" item in the conversation
 	text string
 	sent attached
 	turn *turn
@@ -1522,6 +1532,9 @@ func (c *conversation) load() error {
 	}
 	c.stored = stored
 	c.loaded = true
+	// Agents' requests already in the chat were shown before this daemon
+	// started, and are settled below: only new ones are worth telling.
+	c.permissionsTold = time.Now()
 	if c.agent.AI == "claude" && c.stored.Options["model"] != "" {
 		// A model stored as "opus[1m]" before the window was a choice of its
 		// own reads as "opus" now, compacting where it always did (D91).
@@ -1566,6 +1579,10 @@ func (c *conversation) settle() {
 			changed = true
 		case it.Permission != nil && it.Permission.Outcome == "":
 			it.Permission.Outcome = "cancelled"
+			changed = true
+		case it.AgentPermission != nil && it.AgentPermission.Permission.Outcome == "":
+			// The agent's request went with the session that asked it.
+			it.AgentPermission.Permission.Outcome = "cancelled"
 			changed = true
 		case it.Subagent != nil && it.Subagent.State == subagentRunning:
 			it.Subagent.State = subagentStopped
@@ -2038,6 +2055,9 @@ func (c *conversation) prompt(ad *adapter, t *turn) {
 	if handoff != "" {
 		text = handoff + "\n\n---\n\n" + text
 	}
+	if note := c.permissionNote(); note != "" {
+		text = note + "\n\n" + text
+	}
 	if len(sent.images) > 0 && !ad.images {
 		// Attached before this tool's adapter had ever said whether it reads
 		// images, and it turned out not to: the text still goes, and the
@@ -2205,7 +2225,18 @@ func (c *conversation) finishTurn(t *turn, res *acp.PromptResponse, err error) {
 		// Work the turn left running: until it ends, the agent isn't done.
 		result.Background = c.adapter.background()
 	}
+	var resumeAt, until time.Time
+	if limited {
+		if c.session.ResumeAt != nil {
+			resumeAt = *c.session.ResumeAt
+		}
+		if c.session.LimitedUntil != nil {
+			until = *c.session.LimitedUntil
+		}
+	}
 	end := TurnEnd{
+		ResumeAt:    resumeAt,
+		Until:       until,
 		LastMessage: strings.TrimSpace(c.lastSaid(t.id)),
 		Open:        open,
 		Lost:        errors.Is(err, acp.ErrClosed) && !t.cancelled,
@@ -2707,6 +2738,7 @@ func (c *conversation) flush(save bool) {
 			if c.dirty[it.ID] {
 				item := clone(*it)
 				c.emit(api.ChatEvent{Item: &item})
+				c.permissionChanged(&item)
 			}
 		}
 		c.dirty = map[string]bool{}

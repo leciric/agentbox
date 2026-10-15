@@ -5,6 +5,7 @@ import { QueryClient } from '@tanstack/react-query';
 import type * as T from '../../shared/api';
 import { api, type ChatPage } from './api.ts';
 import {
+  agentPermissionState,
   applyChatEvent,
   asleep,
   changedFiles,
@@ -679,4 +680,18 @@ test('a lead’s finished message becomes its last line, and nothing else does',
   // An agent of the project isn't its lead.
   applyChatEvent(queryClient, { agent: 'p/agent-1', seq: 1, item: item({ text: 'Done' }) });
   assert.equal(queryClient.getQueryData<T.ProjectChat>(['projectChat', 'p'])?.last?.text, 'Ship it');
+});
+
+test('agentPermissionState reads an agent request a lead shows as its outcome follows it', () => {
+  const options: T.ChatPermissionOption[] = [
+    { id: 'allow', name: 'Yes', kind: 'allow_once' },
+    { id: 'always', name: 'Yes, and don’t ask again', kind: 'allow_always' },
+    { id: 'reject', name: 'No', kind: 'reject_once' },
+  ];
+  const p = (outcome?: string): T.ChatPermission => ({ callId: 't1', title: 'npm test', options, outcome });
+  assert.equal(agentPermissionState(p()), 'waiting');
+  assert.equal(agentPermissionState(p('allow')), 'approved');
+  assert.equal(agentPermissionState(p('always')), 'approvedAlways');
+  assert.equal(agentPermissionState(p('reject')), 'denied');
+  assert.equal(agentPermissionState(p('cancelled')), 'gone');
 });

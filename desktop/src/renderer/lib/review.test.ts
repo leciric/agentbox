@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type * as T from '../../shared/api';
-import { countLabel, mergeBlock, nextPending, startWalk, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
+import { countLabel, goBack, goForward, mergeBlock, nextPending, startWalk, walkItems, queueOf, reviewKeys, reviewShortcut, slidesOf, step, swipeStep } from './review.ts';
 
 const media = (id: string, kind: string, createdAt: string) => ({ id, kind, createdAt }) as T.MediaItem;
 const page = (id: string, createdAt: string) => ({ id, createdAt }) as T.Artifact;
@@ -82,6 +82,8 @@ test('reviewShortcut maps keys to actions, and leaves modified ones alone', () =
   assert.equal(reviewShortcut({ key: 'R' }), null);
   assert.equal(reviewShortcut({ key: 'd' }), null);
   assert.equal(reviewShortcut({ key: 'm' }), 'merge');
+  assert.equal(reviewShortcut({ key: 'P' }), 'previousAgent');
+  assert.equal(reviewShortcut({ key: 'c' }), 'requestChanges');
   assert.equal(reviewShortcut({ key: 'End' }), 'last');
   assert.equal(reviewShortcut({ key: 'r', metaKey: true }), null);
   assert.equal(reviewShortcut({ key: 'n', ctrlKey: true }), null);
@@ -112,4 +114,18 @@ test('openReview starts on the agent a card shows, or walks the waiting ones', (
   assert.equal(startWalk(waiting)?.order?.length, 3);
   // Nothing waiting: nothing opens, and nothing is marked.
   assert.equal(startWalk([], { project: 'p' }), null);
+});
+
+test('Back returns to the agent shown just before, one step at a time', () => {
+  const item = (ref: string) => ({ ref, project: 'p' }) as T.ReviewItem;
+  const start = startWalk([item('p/a'), item('p/b'), item('p/c')])!;
+  // Nothing before the first agent.
+  assert.equal(goBack(start), start);
+  const atC = goForward(goForward(start, item('p/b')), item('p/c'));
+  assert.deepEqual(atC.trail?.map((i) => i.ref), ['p/a', 'p/b']);
+  const atB = goBack(atC);
+  assert.equal(atB.item.ref, 'p/b');
+  assert.equal(goBack(atB).item.ref, 'p/a');
+  assert.equal(goBack(goBack(atB)).item.ref, 'p/a');
+  assert.deepEqual(atB.order, start.order);
 });

@@ -33,12 +33,19 @@ export function agentSt(a: T.Agent, ctx: StContext): AgentSt {
   const { tone } = chatLabel(a);
   if (tone === 'urgent' || ctx.asking.has(a.ref)) return 'needs';
   if (changesPending(a)) return 'working';
+  // Paused on a usage limit: it resumes by itself, so nobody has to look.
+  if (a.outcome === 'limited' && a.chat !== 'running') return 'working';
   // One that failed and finished is in review, with its outcome.
   if (ctx.review.has(a.ref)) return 'review';
   if (tone === 'error') return 'error';
   if (tone === 'live' || a.chat === 'starting') return 'working';
   return 'done';
 }
+
+// awaitsApproval is whether the agent's AI tool waits on the user's
+// permission in its chat: one of the 'needs', and the one its lead's chat
+// shows as a card to answer there.
+export const awaitsApproval = (a: Pick<T.Agent, 'chat'>) => a.chat === 'waiting';
 
 export type Counts = Record<AgentSt, number>;
 
@@ -96,9 +103,12 @@ export type ProjectRows = {
   all: Row[];
   // The ones the filters let through, sorted.
   shown: Row[];
-  // Whether its agents' list is open: by the user, or by a search finding
-  // agents in it.
+  // Whether its agents' list is open: by the user, by a search finding
+  // agents in it, or, until the user says otherwise, by an agent waiting on a
+  // permission.
   open: boolean;
+  // How many of its agents wait on the user's permission (awaitsApproval).
+  approvals: number;
 };
 
 // live is whether an agent belongs in the sidebar: at work, asking, stopped
@@ -124,9 +134,11 @@ export const leadBusy = (chat: string | undefined) => chat === 'running';
 // with its live agents, under the filters. A state filter keeps the projects
 // with an agent in one of its states, or, for Working, a busy lead, and
 // a search leaves out a project it narrows to nothing, unless it matches the
-// project's own name, and opens those it found agents in. expanded holds the
-// projects the user opened, which a filter never changes.
-export function projectRows(projects: readonly T.Project[], rows: readonly Row[], f: Filters, expanded: ReadonlySet<string>, label: (p: T.Project) => string, ctx: ProjectCtx = { busy: new Set(), keep: new Set() }): ProjectRows[] {
+// project's own name, and opens those it found agents in. expanded is what the
+// user opened (true) or closed (false), which a filter never changes; a
+// project they haven't touched is open when one of its agents waits on a
+// permission, so the request is in view.
+export function projectRows(projects: readonly T.Project[], rows: readonly Row[], f: Filters, expanded: ReadonlyMap<string, boolean>, label: (p: T.Project) => string, ctx: ProjectCtx = { busy: new Set(), keep: new Set() }): ProjectRows[] {
   const q = f.q.trim().toLowerCase();
   const out: ProjectRows[] = [];
   for (const project of projects) {
@@ -137,10 +149,11 @@ export function projectRows(projects: readonly T.Project[], rows: readonly Row[]
     if (q && shown.length === 0 && !name.toLowerCase().includes(q)) continue;
     const stMatch = shown.length > 0 || (f.st.includes('working') && ctx.busy.has(project.name));
     if (!q && f.st.length && !stMatch && !ctx.keep.has(project.name)) continue;
+    const approvals = all.filter((r) => awaitsApproval(r.agent)).length;
     // The chevron alone opens a project, under any state filter, so it
     // folds the same with Working on as with nothing; only a search opens
     // the projects it found agents in.
-    out.push({ project, all, shown, open: (q !== '' && shown.length > 0) || expanded.has(project.name) });
+    out.push({ project, all, shown, open: (q !== '' && shown.length > 0) || (expanded.get(project.name) ?? approvals > 0), approvals });
   }
   return out;
 }

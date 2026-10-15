@@ -162,6 +162,8 @@ type Server struct {
 	mu           sync.Mutex
 	agentAPIs    map[string]*http.Server // in-agent API servers, by instance
 	retired      map[string]bool         // agents a stop-retire stopped, by ref (markRetired)
+	freeWhenIdle map[string]bool         // reviewed agents still at work, whose machine goes when the turn ends (reviewfree.go)
+	machineKept  map[string]bool         // reviewed agents whose machine was kept for unpushed work (reviewfree.go)
 	leadAPIs     map[string]*http.Server // per-project lead API servers
 	lastStates   map[string]api.AgentChange
 	previewAddr  string                   // where the preview proxy listens; empty when it's off
@@ -184,12 +186,15 @@ type Server struct {
 	skillsSynced func()
 	// approve asks the user to approve what a project's lead asked for, and
 	// waits for the answer: approveInChat, or the test's (leadskills.go).
-	approve      func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
-	baseSyncErrs map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
-	image        imageWork         // what the daemon is doing to the base image (imagetools.go)
-	imageWaiters int               // jobs waiting for the base image to be built (imagebuild.go)
-	remote       *remote.Connector // the connection to a hub, when this machine is an environment
-	lan          *lanState         // phones chatting from the local network or a tunnel (lan.go)
+	approve func(ctx context.Context, project string, req api.ChatPermission) (bool, error)
+	// leadPermissions carries agents' permission requests to their leads'
+	// chats (leadpermissions.go).
+	leadPermissions leadPermissions
+	baseSyncErrs    map[string]string // why each project's last base sync failed, by project, so a remote that stays down is logged once (basesync.go)
+	image           imageWork         // what the daemon is doing to the base image (imagetools.go)
+	imageWaiters    int               // jobs waiting for the base image to be built (imagebuild.go)
+	remote          *remote.Connector // the connection to a hub, when this machine is an environment
+	lan             *lanState         // phones chatting from the local network or a tunnel (lan.go)
 	// connectorsGiven is whether each connector was last given to agents,
 	// by scope and name, so only a change to that rewrites their MCP
 	// servers (connectors.go).
@@ -335,19 +340,20 @@ func New(cfg Config) (*Server, error) {
 			s.events.publish(api.EventChat, ev)
 			s.captureLeadTurn(ev)
 		},
-		Finished:     s.agentFinished,
-		LeadIdle:     s.leadCacheIdle,
-		Idle:         s.leadIdle,
-		TurnEnded:    s.checkpointTurn,
-		TurnFinished: s.recordTurn,
-		AuthFailed:   s.claudeAuthFailed,
-		Lost:         s.agentLost,
-		Limits:       s.claudeLimited,
-		LeadAccount:  s.leadAccount,
-		LeadLogins:   s.leadToolLogins,
-		Logf:         s.logf,
-		Version:      Version,
-		ImageDir:     cfg.Paths.ChatImages,
+		Finished:          s.agentFinished,
+		LeadIdle:          s.leadCacheIdle,
+		Idle:              s.leadIdle,
+		TurnEnded:         s.checkpointTurn,
+		TurnFinished:      s.recordTurn,
+		AuthFailed:        s.claudeAuthFailed,
+		Lost:              s.agentLost,
+		Limits:            s.claudeLimited,
+		LeadAccount:       s.leadAccount,
+		LeadLogins:        s.leadToolLogins,
+		Logf:              s.logf,
+		PermissionChanged: s.agentPermission,
+		Version:           Version,
+		ImageDir:          cfg.Paths.ChatImages,
 	}
 	s.askLead, s.askAside = s.askLeadSession, s.askAsideSession
 	s.incus = s.newIncusWatch()
@@ -455,6 +461,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// The turns the last daemon left running carry on (restart.go), once the
 	// API that their chats' tools call back is up.
 	loops.Go(func() { s.continueTurns(ctx) })
+	loops.Go(func() { s.rearmLimits(ctx) })
 	// What an earlier release left queued starts now (leftoverqueue.go).
 	loops.Go(func() { s.startLeftoverQueue(ctx) })
 	s.startRemote(ctx)
@@ -812,6 +819,7 @@ func (s *Server) routes() http.Handler {
 	h("POST /v1/agents/{project}/{agent}/chat/cancel", s.cancelChat(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/publish", s.publishRender(s.agentFromPath))
 	h("POST /v1/agents/{project}/{agent}/chat/reload", s.reloadChatTools(s.agentFromPath))
+	h("POST /v1/agents/{project}/{agent}/chat/resume", s.resumeChatLimit)
 	h("POST /v1/agents/{project}/{agent}/chat/permissions/{item}", s.answerChat(s.agentFromPath))
 	h("PUT /v1/agents/{project}/{agent}/chat/options/{option}", s.setChatOption(s.agentFromPath))
 	h("GET /v1/agents/{project}/{agent}/browser", s.browser("status", s.agentFromPath))

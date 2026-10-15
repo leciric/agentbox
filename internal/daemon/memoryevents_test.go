@@ -342,6 +342,11 @@ func TestMemoryCapturesPRMerged(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Merging its pull request gives the agent's machine back.
+	if agentHasMachine(d, a) || !isArchived(t, d, a) {
+		t.Error("the agent whose pull request was merged kept its machine")
+	}
+
 	events := eventsOfType(t, d, "hello-stack", "pr_merged")
 	if len(events) != 1 {
 		t.Fatalf("pr_merged events = %d, want 1", len(events))

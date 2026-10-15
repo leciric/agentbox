@@ -189,6 +189,18 @@ test('how its last turn left it: asking, stopped on an error, done, resuming', (
   assert.equal(chatLabel({ ...left('done'), background: ['Watch CI run 42'] } as T.Agent).text, 'Awaiting');
 });
 
+test('paused on a usage limit: neither finished nor failed, with the time it resumes', () => {
+  const base = { ...agent('running', 'ready'), outcome: 'limited' } as T.Agent;
+  const timed = chatLabel({ ...base, outcomeUntil: '2026-10-15T16:11:00Z' });
+  assert.match(timed.text, /^Paused: usage limit, resumes at /);
+  assert.equal(timed.tone, 'warning');
+  assert.deepEqual(chatLabel(base), { text: 'Paused: usage limit', tone: 'warning' });
+  // Not settled: the rail keeps it out of Finished while it waits.
+  assert.equal(settled(base), false);
+  // A turn running on it is working, whatever the last one said.
+  assert.equal(chatLabel({ ...base, chat: 'running' } as T.Agent).text, 'Working');
+});
+
 test('an agent being made is starting whatever its chat says, and never needs you', () => {
   for (const chat of ['waiting', 'error', 'running', undefined]) {
     for (const state of ['initializing', 'queued']) {

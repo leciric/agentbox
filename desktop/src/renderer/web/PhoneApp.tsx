@@ -25,6 +25,7 @@ import { ArrowLeft, ChevronRight, GitPullRequest, LoaderCircle, MessagesSquare, 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import * as T from '../../shared/api';
+import { openAgentEvent } from '../components/chat/AgentPermissionCard';
 import { ChatTab } from '../components/chat/ChatTab';
 import { Elapsed } from '../components/chat/Timeline';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -114,6 +115,14 @@ function useMarkRead(ref: string | undefined, thread: T.ChatThread | undefined) 
 
 export function PhoneApp({ phone }: { phone: T.LANPhone }) {
   const [route, go] = useRoute();
+  // A project's chat links to its agent on an agent's permission request.
+  const goRef = useRef(go);
+  goRef.current = go;
+  useEffect(() => {
+    const open = (e: Event) => goRef.current({ kind: 'agent', ref: (e as CustomEvent<string>).detail });
+    window.addEventListener(openAgentEvent, open);
+    return () => window.removeEventListener(openAgentEvent, open);
+  }, []);
   return (
     <div className="flex h-dvh flex-col" data-phone-app>
       <ConnectionBar />
