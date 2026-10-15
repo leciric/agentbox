@@ -5,10 +5,10 @@ import { FileLinks } from '../files/FilePanel';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { remarkHTMLImages } from '../../lib/pulls';
-import { richKind } from '../../lib/rich';
+import { openFence, richKind } from '../../lib/rich';
 import { cn } from '../../lib/utils';
 import { CodeBlock } from './CodeBlock';
-import { RichBlock, RichContext } from './RichBlock';
+import { GeneratingCard, RichBlock, RichContext } from './RichBlock';
 
 // Markdown renders an AI tool's message. While it streams, new blocks fade in.
 //
@@ -37,10 +37,36 @@ export const Markdown = memo(function Markdown({
     [imageSrc],
   );
   const context = useMemo(() => ({ rich: !!rich, streaming: !!streaming }), [rich, streaming]);
+  // A renderable block still open is a card while its message streams, and
+  // its code if the stream ended without closing it, never a half-drawn page.
+  const open = useMemo(() => (rich ? openFence(text) : null), [rich, text]);
+  const plugins = imageSrc ? [remarkGfm, remarkHTMLImages] : [remarkGfm];
+  if (open) {
+    return (
+      <div className={cn('chat-markdown', className)} data-streaming={streaming || undefined}>
+        <RichContext value={context}>
+          {open.before.trim() && (
+            <ReactMarkdown remarkPlugins={plugins} components={withImages}>
+              {open.before}
+            </ReactMarkdown>
+          )}
+        </RichContext>
+        {streaming ? (
+          <GeneratingCard kind={open.kind} lines={open.lines} bytes={open.bytes} />
+        ) : (
+          <RichContext value={{ rich: false, streaming: false }}>
+            <ReactMarkdown remarkPlugins={plugins} components={withImages}>
+              {text.slice(open.before.length)}
+            </ReactMarkdown>
+          </RichContext>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={cn('chat-markdown', className)} data-streaming={streaming || undefined}>
       <RichContext value={context}>
-        <ReactMarkdown remarkPlugins={imageSrc ? [remarkGfm, remarkHTMLImages] : [remarkGfm]} components={withImages}>
+        <ReactMarkdown remarkPlugins={plugins} components={withImages}>
           {text}
         </ReactMarkdown>
       </RichContext>

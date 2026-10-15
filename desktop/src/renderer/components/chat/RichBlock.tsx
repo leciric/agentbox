@@ -1,12 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Code2, Copy, ExternalLink, Eye, Globe, GlobeLock, LoaderCircle, Maximize2, TriangleAlert } from 'lucide-react';
+import { AppWindow, Check, Code2, Copy, ExternalLink, Eye, Globe, GlobeLock, Image, LoaderCircle, Maximize2, TriangleAlert, Workflow } from 'lucide-react';
 import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { api, isHomeChat } from '../../lib/api';
 import { useT } from '../../lib/i18n';
 import { drawMermaid } from '../../lib/mermaid';
 import { pagesKey } from '../../lib/pages';
-import { framedPage, frameHeight, HEIGHT_MESSAGE, pageOf, PICTURE_MAX, svgSize, svgUrl, titleOf, type RichKind } from '../../lib/rich';
+import { FRAME_VIEWPORT, framedPage, frameHeight, HEIGHT_MESSAGE, pageOf, PICTURE_MAX, svgSize, svgUrl, titleOf, type RichKind } from '../../lib/rich';
 import { useMode } from '../../lib/theme';
 import { cn, errorMessage } from '../../lib/utils';
 import { pagesQuery } from '../pages/usePages';
@@ -32,25 +32,42 @@ const networked = new Set<string>();
 // block, its code with a click to preview it.
 export function RichBlock({ kind, drawn, code, language }: { kind: RichKind; drawn: boolean; code: string; language?: string }) {
   const t = useT();
-  const { rich, streaming } = use(RichContext);
+  const { rich } = use(RichContext);
   const [showing, setShowing] = useState(drawn);
   if (!rich) return <CodeBlock code={code} language={language} />;
-  if (streaming || !showing) {
+  if (!showing) {
     return (
       <CodeBlock
         code={code}
         language={language}
         actions={
-          !streaming && (
-            <HeaderButton label={t(kind === 'html' ? 'chat.rich.preview' : 'chat.rich.draw')} onClick={() => setShowing(true)}>
-              <Eye className="size-3.5" />
-            </HeaderButton>
-          )
+          <HeaderButton label={t(kind === 'html' ? 'chat.rich.preview' : 'chat.rich.draw')} onClick={() => setShowing(true)}>
+            <Eye className="size-3.5" />
+          </HeaderButton>
         }
       />
     );
   }
   return <DrawnBlock kind={kind} code={code} onCode={() => setShowing(false)} />;
+}
+
+// GeneratingCard stands for a block whose code is still arriving: the kind's
+// icon, a shimmer and what has come so far, until the fence closes and the
+// block is drawn.
+export function GeneratingCard({ kind, lines, bytes }: { kind: RichKind; lines: number; bytes: number }) {
+  const t = useT();
+  const Icon = kind === 'html' ? AppWindow : kind === 'svg' ? Image : Workflow;
+  const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
+  return (
+    <div className="chat-codeblock" data-rich-generating={kind} role="status">
+      <div className="flex h-14 items-center gap-3 px-3 text-[12px] text-subtle">
+        <Icon className="size-4 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{t(`chat.rich.generating.${kind}`)}</span>
+        <span className="shrink-0 tabular-nums text-faint">{t('chat.rich.generatingSoFar', { lines, size })}</span>
+      </div>
+      <div className="skeleton h-0.5 rounded-none" />
+    </div>
+  );
 }
 
 function DrawnBlock({ kind, code, onCode }: { kind: RichKind; code: string; onCode: () => void }) {
@@ -111,7 +128,7 @@ function HeaderButton({ label, onClick, children }: { label: string; onClick: ()
 }
 
 // RichView is a block drawn: in the chat, fitted to the column and no taller
-// than PICTURE_MAX (a page FRAME_MAX), or large, filling the dialog.
+// than PICTURE_MAX (a page FRAME_VIEWPORT of the window), or large, filling the dialog.
 function RichView({ kind, code, network, large, onOpen, onCode }: { kind: RichKind; code: string; network: boolean; large?: boolean; onOpen?: () => void; onCode?: () => void }) {
   if (kind === 'html') return <PageFrame html={code} network={network} large={large} />;
   return <Picture kind={kind} code={code} large={large} onOpen={onOpen} onCode={onCode} />;
@@ -181,7 +198,7 @@ const heights = new Map<string, number>();
 // PageFrame runs a page in a frame sandboxed without allow-same-origin: an
 // opaque origin, away from the app, its storage and the daemon, under the
 // policy main/renders.ts serves it with. The page tells its height
-// (lib/rich.ts framedPage), which the frame takes up to FRAME_MAX.
+// (lib/rich.ts framedPage), which the frame takes up to FRAME_VIEWPORT of the window.
 function PageFrame({ html, network, large }: { html: string; network: boolean; large?: boolean }) {
   const t = useT();
   const mode = useMode();
@@ -203,7 +220,7 @@ function PageFrame({ html, network, large }: { html: string; network: boolean; l
     if (large) return;
     const onMessage = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return;
-      const h = frameHeight((event.data as Record<string, unknown> | null)?.[HEIGHT_MESSAGE]);
+      const h = frameHeight((event.data as Record<string, unknown> | null)?.[HEIGHT_MESSAGE], Math.round(window.innerHeight * FRAME_VIEWPORT));
       if (h == null) return;
       if (heights.size > 200) heights.clear();
       heights.set(doc, h);

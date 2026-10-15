@@ -1862,3 +1862,11 @@ export function seedNightly(queryClient: QueryClient): void {
   queryClient.setQueryData(['update'], devState.update);
   queryClient.setQueryData(['app-info'], { socket: '/run/user/1000/agentbox.sock', version: nightlyVersion, electron: '38.1.0', packaged: true, platform: 'linux' });
 }
+
+// richStreamText is an answer caught mid-stream ('open': a page's fence not
+// yet closed) or with a closed page taller than its frame ('tall').
+export function richStreamText(which: 'open' | 'tall'): string {
+  const fence = '```';
+  const rows = Array.from({ length: which === 'tall' ? 40 : 6 }, (_, i) => `<div style="padding:6px 0;border-bottom:1px solid #8884">Row ${i + 1}</div>`);
+  return ['Here is the page:', '', `${fence}html preview`, '<!doctype html><html><body><h3>Tall page</h3>', ...rows, ...(which === 'tall' ? ['</body></html>', fence, '', 'And that was all.'] : [])].join('\n');
+}

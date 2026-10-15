@@ -1,7 +1,7 @@
 // Run with `npm test` (node's own test runner, which strips the types).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { FRAME_MAX, FRAME_MIN, framedPage, frameHeight, injectHead, pageOf, richKind, svgDocument, svgSize, svgUrl, titleOf } from './rich.ts';
+import { FRAME_MAX, FRAME_MIN, framedPage, frameHeight, injectHead, openFence, pageOf, richKind, svgDocument, svgSize, svgUrl, titleOf } from './rich.ts';
 
 test('mermaid and svg blocks are drawn; html only when its fence asks for a preview', () => {
   assert.deepEqual(richKind('mermaid'), { kind: 'mermaid', drawn: true });
@@ -60,4 +60,27 @@ test('a picture published is a page holding it; a page is itself', () => {
   assert.match(page, /<title>A &lt;b&gt; &amp; &quot;c&quot;<\/title>/);
   assert.match(page, /<body><svg xmlns="http:\/\/www.w3.org\/2000\/svg" viewBox="0 0 1 1"><\/svg><\/body>/);
   assert.match(pageOf('svg', '<svg><circle/></svg>', 'T'), /<circle\/>/);
+});
+
+test('openFence finds a renderable block still arriving', () => {
+  const o = openFence('Here:\n\n```html preview\n<h1>Hi</h1>\n<p>x');
+  assert.equal(o?.kind, 'html');
+  assert.equal(o?.before, 'Here:\n\n');
+  assert.equal(o?.code, '<h1>Hi</h1>\n<p>x');
+  assert.equal(o?.lines, 2);
+  assert.equal(o?.bytes, 16);
+  assert.equal(openFence('```mermaid')?.kind, 'mermaid');
+  assert.equal(openFence('```mermaid')?.lines, 0);
+  assert.equal(openFence('~~~svg\n<svg>')?.kind, 'svg');
+});
+
+test('openFence ignores closed, plain and other blocks', () => {
+  assert.equal(openFence('```mermaid\ngraph TD\n```\n'), null);
+  assert.equal(openFence('```html\n<p>x'), null);
+  assert.equal(openFence('```go\nfunc'), null);
+  assert.equal(openFence('no fence at all'), null);
+  assert.equal(openFence('```mermaid\na\n```\n\n```svg\n<svg'  )?.kind, 'svg');
+  // A longer fence is closed only by one as long; a shorter one is content.
+  assert.equal(openFence('````svg\n```\n<svg>')?.kind, 'svg');
+  assert.equal(openFence('````svg\n<svg>\n````'), null);
 });

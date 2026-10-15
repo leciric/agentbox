@@ -28,6 +28,28 @@ export function richKind(language: string | undefined, meta?: string | null): { 
   }
 }
 
+// openFence is a renderable block the text ends inside of: its opening fence
+// has arrived and its closing one hasn't. `before` is the text up to the
+// fence, `code` what of the block has arrived. A plain ```html block, which
+// stays code, isn't one, nor is any other language.
+export function openFence(text: string): { kind: RichKind; drawn: boolean; before: string; code: string; lines: number; bytes: number } | null {
+  let fence: { char: string; size: number; at: number; info: string } | null = null;
+  let at = 0;
+  for (const line of text.split('\n')) {
+    const m = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    if (m && !fence) fence = { char: m[1][0], size: m[1].length, at, info: m[2].trim() };
+    else if (m && fence && m[1][0] === fence.char && m[1].length >= fence.size && !m[2].trim()) fence = null;
+    at += line.length + 1;
+  }
+  if (!fence) return null;
+  const [language, ...meta] = fence.info.split(/\s+/);
+  const rich = richKind(language, meta.join(' '));
+  if (!rich?.drawn) return null;
+  const rest = text.slice(text.indexOf('\n', fence.at) + 1 || text.length);
+  const code = text.includes('\n', fence.at) ? rest : '';
+  return { ...rich, before: text.slice(0, fence.at), code, lines: code ? code.split('\n').length : 0, bytes: new TextEncoder().encode(code).length };
+}
+
 // svgDocument is an SVG made fit to stand alone, as an <img> or a file
 // needs it: with its namespace, which an inline SVG can do without.
 export function svgDocument(svg: string): string {
@@ -55,10 +77,13 @@ export function svgSize(svg: string): { width: number; height: number } | null {
   return null;
 }
 
-// The height a page's frame takes in the chat, at least and at most: past
+// The height a page's frame takes in the chat, at least and at most (the most is
+// FRAME_VIEWPORT of the window, FRAME_MAX where the window is unknown): past
 // that, the page scrolls inside it, and Open large shows it whole.
 export const FRAME_MIN = 60;
 export const FRAME_MAX = 480;
+// A page's frame is as tall as the page, up to this share of the window.
+export const FRAME_VIEWPORT = 0.7;
 // A picture's: a diagram is drawn to fit the column, and opened large to read.
 export const PICTURE_MAX = 360;
 
