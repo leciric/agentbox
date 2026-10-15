@@ -3124,6 +3124,7 @@ export const ptBR: Messages = {
   'v2.filters.project': 'Projeto',
   'v2.filters.remove': 'Remover {name}',
   'v2.filters.reset': 'Redefinir',
+  'v2.filters.showAll': 'Mostrar tudo',
   'v2.sidebar.pinned': 'Fixados',
   'v2.sidebar.pin': 'Fixar no topo',
   'v2.sidebar.unpin': 'Desafixar',

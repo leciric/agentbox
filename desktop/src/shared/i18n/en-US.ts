@@ -3123,6 +3123,7 @@ export const enUS = {
   'v2.filters.project': 'Project',
   'v2.filters.remove': 'Remove {name}',
   'v2.filters.reset': 'Reset',
+  'v2.filters.showAll': 'Show all',
   'v2.sidebar.pinned': 'Pinned',
   'v2.sidebar.pin': 'Pin to the top',
   'v2.sidebar.unpin': 'Unpin',

@@ -1,7 +1,7 @@
 // What UI v2's sidebar remembers about the projects on this computer: which
 // are pinned and in what order, the sort switch, when each was last opened
 // (which brings a settled one back), whether the Settled shelf is open, and
-// the state and project filters (Working and To review until the user picks others).
+// the state and project filters (none until the user picks, and then only projects with something live, unless Show all).
 // v2 is how this app looks here (uiV2.ts), so these live in localStorage
 // beside it, not in the daemon, and v1's order (D79) never sees them. The
 // reading of them is projectOrder.ts's.
@@ -16,6 +16,7 @@ type V2Projects = {
   settledOpen: boolean;
   st: AgentSt[];
   projects: string[];
+  all: boolean;
 };
 
 const strings = (x: unknown): string[] | undefined => (Array.isArray(x) ? x.filter((p): p is string => typeof p === 'string') : undefined);
@@ -25,7 +26,7 @@ const listeners = new Set<() => void>();
 let current: V2Projects | undefined;
 
 function read(): V2Projects {
-  const empty: V2Projects = { pins: [], sort: defaultSort, opened: {}, settledOpen: false, st: defaultFilters.st, projects: [] };
+  const empty: V2Projects = { pins: [], sort: defaultSort, opened: {}, settledOpen: false, st: defaultFilters.st, projects: [], all: false };
   try {
     const raw = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as Partial<V2Projects>;
     return {
@@ -35,6 +36,7 @@ function read(): V2Projects {
       settledOpen: raw.settledOpen === true,
       st: strings(raw.st)?.filter((st): st is AgentSt => stOrder.includes(st as AgentSt)) ?? empty.st,
       projects: strings(raw.projects) ?? [],
+      all: raw.all === true,
     };
   } catch {
     return empty;
@@ -60,7 +62,7 @@ function update(change: (s: V2Projects) => Partial<V2Projects>) {
 export const setPins = (pins: string[]) => update(() => ({ pins }));
 export const setSort = (sort: SortBy) => update(() => ({ sort }));
 export const setSettledOpen = (settledOpen: boolean) => update(() => ({ settledOpen }));
-export const setFilterChoice = (st: AgentSt[], projects: string[]) => update(() => ({ st, projects }));
+export const setFilterChoice = (st: AgentSt[], projects: string[], all: boolean) => update(() => ({ st, projects, all }));
 
 // markOpened records that the user opened a project now, which keeps it off
 // the Settled shelf, or brings it back.

@@ -69,9 +69,9 @@ export function SidebarV2({ view, onSelect, onAddProject }: { view: View; onSele
   const questions = useQuestions();
   const kept = useV2Projects();
   const [q, setQ] = useState('');
-  const filters: Filters = { st: kept.st, projects: kept.projects, q };
+  const filters: Filters = { st: kept.st, projects: kept.projects, q, all: kept.all };
   const onFilters = (f: Filters) => {
-    if (f.st !== kept.st || f.projects !== kept.projects) setFilterChoice(f.st, f.projects);
+    if (f.st !== kept.st || f.projects !== kept.projects || f.all !== kept.all) setFilterChoice(f.st, f.projects, f.all);
     setQ(f.q);
   };
   const [expanded, setExpanded] = useState<ReadonlyMap<string, boolean>>(new Map());
@@ -342,6 +342,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
       label: projectLabel(name, projects),
       remove: () => onFilters({ ...filters, projects: filters.projects.filter((x) => x !== name) }),
     })),
+    ...(filters.all ? [{ key: 'all', label: t('v2.filters.showAll'), remove: () => onFilters({ ...filters, all: false }) }] : []),
   ];
   return (
     <div className="shrink-0 px-1 pb-0.5 pt-2" data-v2-filters>
@@ -379,6 +380,11 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="grid w-[300px] gap-3 p-3" data-v2-filter-popover>
+            <div className="flex">
+              <Chip on={filters.all} onClick={() => onFilters({ ...filters, all: !filters.all })} data="all">
+                {t('v2.filters.showAll')}
+              </Chip>
+            </div>
             <FilterGroup title={t('v2.filters.state')}>
               {liveOrder.map((st) => (
                 <Chip key={st} on={filters.st.includes(st)} onClick={() => onFilters({ ...filters, st: toggle(filters.st, st) })} data={`st:${st}`}>
@@ -411,7 +417,7 @@ function FilterBar({ filters, onFilters, projects, rows }: { filters: Filters; o
               </button>
             </span>
           ))}
-          <button type="button" onClick={() => onFilters({ ...filters, st: [], projects: [] })} className="px-1 text-[11px] text-subtle hover:text-title" data-v2-reset>
+          <button type="button" onClick={() => onFilters({ ...filters, st: [], projects: [], all: false })} className="px-1 text-[11px] text-subtle hover:text-title" data-v2-reset>
             {t('v2.filters.reset')}
           </button>
         </div>
